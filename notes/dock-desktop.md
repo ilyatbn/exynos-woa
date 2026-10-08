@@ -644,3 +644,41 @@ Two of those matter to us:
   so the touch candidate is the part most at risk of needing re-qualification on this model.
 - `sec,afe_base` is **0x0205 on the S10e vs 0x0206 on the S10** — a per-model value, so
   anything in our stack that hardcodes it must be re-read, not carried over.
+
+## 15. M8 — the S10e's CPU topology: three clusters, and the 9810's math assumes two
+
+Live read of `/proc/cpuinfo` on the connected S10e — **8 logical CPUs**, and the
+per-core identity fields are readable:
+
+```
+processor 0-3   implementer 0x41 (ARM)      variant 0x1  part 0xd05
+processor 4-5   implementer 0x41 (ARM)      variant 0x2  part 0xd0a
+processor 6-7   implementer 0x53 (Samsung)  variant 0x1  part 0x003
+```
+
+*(fact)* three distinct core identities → **three clusters, sized 4 + 2 + 2**, not
+the S9+'s two clusters of four. The live platform nodes agree: `/sys/devices/platform/`
+carries `10090000.LITTLE`, `10090000.MID` and `10090000.BIG` — three power domains,
+and the 9810 has only `BIG` and `LITTLE`.
+
+*(fact)* the 9810's `ArmPlatformGetCorePosition` computes
+
+```c
+CoresPerCluster = PcdGet32 (PcdCoreCount) / PcdGet32 (PcdClusterCount);
+return (GET_CLUSTER_ID (MpId) * CoresPerCluster) + GET_CORE_ID (MpId);
+```
+
+which **assumes every cluster has the same number of cores**. With 8 cores over 3
+clusters that division is not integral (8/3 = 2), so the linear position of the MID
+and BIG clusters would be computed wrong — and that index selects the per-core stack
+and structure slots in the SEC entry path. A wrong index is a memory bug in the
+bootstrapping, not a cosmetic one.
+
+*(inference)* the 9820 lib must therefore carry an **explicit** cluster/core table
+rather than the division. The same applies to the MADT: Windows' processor count and
+the "I have CPU cores" bar depend on the MPIDR affinities published there, and the
+9810 publishes only the boot core.
+
+*(inference)* the two Samsung-implemented cores (`0x53`/'S', part `0x003`) are the
+SoC's own design, so their MPIDR affinities and any PSCI behaviour have to be
+confirmed on the device rather than assumed to match ARM's A55/A76-class cores.

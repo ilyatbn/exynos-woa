@@ -203,6 +203,7 @@ re-plug and accept the "Allow access from this PC" dialog on the phone. Success 
 | Resolve the framebuffer geometry (1440×2960 → 1440×3040) | todo | the S10e panel is taller; the fb carveout must be re-derived |
 | Re-derive the DRAM bank list | todo | vendor DT shows `memory@80000000` = 0x80000000+**0x80000000**, plus `880000000`, `900000000` — not the 9810 layout |
 | Write the 9820 silicon header `Exynos9820.h` | **done** | `firmware/Silicon/Exynos9820Pkg/Include/Platform/Exynos9820.h` — every read recorded with its source, every unknown left at 0 or at the 9810 value and marked `UNVERIFIED`; GIC and DWC3 windows are identical to the 9810's, PMU/SPEEDY/DECON/UFS regions move, and the fb base is **0** because it was never read on this SoC |
+| Read the S10e's CPU topology live | **done** | 8 CPUs in **three** clusters (4+2+2) with three core identities, and three power domains `LITTLE`/`MID`/`BIG` — the 9810's `CoreCount / ClusterCount` positioning is **not integral here**, so it must become an explicit table — `notes/dock-desktop.md` §15 |
 
 ### M9 — Installer
 

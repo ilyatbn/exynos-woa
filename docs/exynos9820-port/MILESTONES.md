@@ -193,10 +193,14 @@ re-plug and accept the "Allow access from this PC" dialog on the phone. Success 
 
 ### M7 — Build and sign
 
+State: **doing** — the Windows toolchain is now installed and runs; the HSI2C
+MSBuild invocation is not yet producing the WDK's include path.
+
 | Task | State | Notes |
-|------|-------|-------|
-| Build the three drivers for ARM64 | todo | **needs-windows** (WDK toolchain, no Linux cross-build) |
-| Test-sign and package as `drivers.zip` equivalent | todo | **needs-windows** |
+|--------|-------|-------|
+| Install the Windows toolchain | doing | VS 2026 Community + WDK/SDK 10.0.26100 installed (`notes/windows-m7-toolchain.md` §1). Needs elevation for the VS component step; `warning.h` comes from the Windows 11 SDK component, not the WDK MSI |
+| Build the three drivers for ARM64 | doing | **needs-windows** (WDK toolchain, no Linux cross-build). UFS script runs and produces a binary; HSI2C `msbuild` reaches `ClCompile` but loses the WDK include path — and the **validated 9810 project fails identically**, so it is an invocation problem, not a port defect (§9 of HANDOFF) |
+| Test-sign and package as `drivers.zip` equivalent | todo | **needs-windows**; the project's test certificate is not in this tree |
 
 ### M8 — Firmware
 

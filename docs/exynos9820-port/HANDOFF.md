@@ -6,6 +6,10 @@ file and it is updated and committed **per task**, never batched.
 
 No branch has been pushed. All work so far is local commits.
 
+**If you are the *next* Windows session, jump to §9 first** — the toolchain has
+already been installed there, and §9 says exactly what is built, what failed and
+why, and what to do first. Do not re-install VS or the WDK.
+
 ---
 
 ## 1. What we are building, in one paragraph
@@ -159,3 +163,36 @@ Still worth reading on the device:
   `S5E9820Pkg` but **no** `PlatformUfsLib` for it.
 * GitHub's unauthenticated API is rate-limited from this network; use
   `raw.githubusercontent.com` or the HTML pages.
+
+## 9. Where the Windows session stopped (2026-10-09 — restart point for the admin session)
+
+Full detail is in `notes/windows-m7-toolchain.md` (�0��2). Short version:
+
+**Toolchain � installed, and it works.**
+
+| Item | State |
+|---|---|
+| WDK/SDK 10.0.26100 | `winget install --id Microsoft.WindowsWDK.10.0.26100 --accept-package-agreements --accept-source-agreements --force` ? `C:\Program Files (x86)\Windows Kits\10\{Include,Lib,Tools,bin,build}\10.0.26100.0`. All import libs the UFS script needs are present |
+| VS 2026 Community | `winget install --id Microsoft.VisualStudio.Community` ? `C:\Program Files\Microsoft Visual Studio\18\Community` (major **18**, the path `build-ufs.ps1:21` and `Build-Touch.ps1:15` hardcode). Core workload only � no `VC\`, no `cl.exe` |
+| VS components | `setup.exe modify --installPath "...\18\Community" --add � --quiet` **must be elevated**: non-elevated it exits **5007**. Run with `Start-Process -Verb RunAs` it returns **3010** (ok, reboot pending). Added: `VC.Tools.x86.x64`, `VC.Tools.ARM64`, `Component.Microsoft.Windows.DriverKit`, then `Windows11SDK.26100` (exit 0) |
+| Why the SDK component matters | `build-ufs.ps1:104` force-includes `Include\10.0.26100.0\shared\warning.h`. The WDK MSI alone does **not** ship it; the Windows 11 SDK component does (include tree went 1597 ? 6365 files) |
+| Compiler identity | `cl.exe` **19.51.36260** (MSVC v145), ARM64 cross at `VC\Tools\MSVC\14.51.36231\bin\Hostx64\arm64` |
+| Registry | `HKLM\SOFTWARE\Microsoft\Windows Kits\Installed Roots\KitsRoot10` = `C:\Program Files (x86)\Windows Kits\10\` � had to be added with elevated `reg.exe`; MSBuild's WDK toolset reads it (`Toolset.props:33`) |
+| adb | device authorized: `RF8M21HYDSZ � model:SM_G970F` |
+| git | needed `git config --global --add safe.directory C:/Users/ilya/code/exynos-woa` |
+
+**What has been built.**
+
+* `build-ufs.ps1 -SourceDir drivers\Exynos9810Ufs -OutDir <new> -WideUncached -DmaWindow` ? **EXACT_BUILD_OK**, 49152 bytes, sha256 `e5eb688500bae492101973601607fd0d12f877105a76aa4ddee8b031bb5c43a2`. It does **not** match the README's released hash `a80b2229�`. That check is **inconclusive, not a failure**: `release/provenance.json` shows this tree's `Exynos9810Ufs.c` is not byte-identical to the published one (`published_sha256 8c2adefe�` vs worktree `48a10631�`, git status clean), and the repo records **no compiler version** for the validated build. Do not read the mismatch as "the toolchain is wrong".
+* `msbuild drivers\Exynos9820Hsi2c\Exynos9820Hsi2c.vcxproj /p:Configuration=Release /p:Platform=ARM64` ? reaches `ClCompile` (so the KMDF toolset resolves) and then fails:
+  `internal.h(11,10): error C1083: Cannot open include file: 'ntddk.h'`.
+  **The validated 9810 project fails identically**, so this is a toolchain-invocation problem, not a 9820 porting defect. `ntddk.h` is present at `Windows Kits\10\Include\10.0.26100.0\km\ntddk.h`; the cl command line only got `/I\.`. The WDK sets the include path in `WindowsDriver.KernelMode.props:28` as `$(CRT_IncludePath);$(KM_IncludePath);$(KIT_SHARED_IncludePath);$(KIT_SHARED_INC_PATH_WDK)` and those evaluate empty here.
+
+**Do in the restarted (admin) session, in this order.**
+
+1. Make the HSI2C include path resolve. Find where `CRT_IncludePath`/`KM_IncludePath`/`KIT_SHARED_IncludePath` are defined (`WindowsDriver.Shared.Props`, `WindowsDriver.OS.props`, `Microsoft.Cpp.WindowsSDK.props`) and why they are empty � most likely the WDK's VS integration wants a workspace/`VCTargetsPath` context that bare `msbuild` on a loose `.vcxproj` does not give. With admin rights the registry/props wiring may simply complete itself; re-run the same command first and compare.
+2. Build `drivers\Exynos9820Ufs` with `build-ufs.ps1` (the script is proven to run; use a **new** output dir outside the tree � it refuses an existing one, `build-ufs.ps1:33`).
+3. `Build-Touch.ps1` **cannot run as written in this tree**: it needs `drivers\S6SY761TouchGpio\RetainedV24` (+ `RetainedV24.sha256.json`), `windows-drivers\Exynos9810Hsi2c\Arm64BuildEvidence.ps1` and `tools\wdk-mirror`; none of the three exist here (`drivers\S6SY761Touch` is the 9810 package, there is no `windows-drivers\`). Decide: port the script to this tree's layout, or build the touch driver directly with `msbuild /p:Platform=ARM64` plus `infverif`/`inf2cat` from `Windows Kits\10\Tools\10.0.26100.0\x64` and `bin\10.0.26100.0\x86`.
+4. Test-signing: still needs the project's test certificate � it is not in this tree; find it before signing, do not fabricate one.
+
+**Unchanged hazards.** The `UNVERIFIED` constants in �5 of this file are still open; a successful build says nothing about them.

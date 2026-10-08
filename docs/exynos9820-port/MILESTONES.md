@@ -205,6 +205,7 @@ re-plug and accept the "Allow access from this PC" dialog on the phone. Success 
 | Write the 9820 silicon header `Exynos9820.h` | **done** | `firmware/Silicon/Exynos9820Pkg/Include/Platform/Exynos9820.h` — every read recorded with its source, every unknown left at 0 or at the 9810 value and marked `UNVERIFIED`; GIC and DWC3 windows are identical to the 9810's, PMU/SPEEDY/DECON/UFS regions move, and the fb base is **0** because it was never read on this SoC |
 | Read the S10e's CPU topology live | **done** | 8 CPUs in **three** clusters (4+2+2) with three core identities, and three power domains `LITTLE`/`MID`/`BIG` — the 9810's `CoreCount / ClusterCount` positioning is **not integral here**, so it must become an explicit table — `notes/dock-desktop.md` §15 |
 | Create the 9820 memory-map library | **done** | `firmware/Platform/Beyond0LtePkg/Library/PlatformMemoryMapLib/` — 9820 windows in, both zero-base **and zero-size** placeholders skipped, the USB PHY mapped as one envelope because the DT's three windows overlap, and the 9810's PRAM breadcrumb compiled out since `0xFED14000` is **inside bank0** on this SoC |
+| Publish the 9820 MADT | **done** | `firmware/Platform/Beyond0LtePkg/AcpiTables/Madt.aslc` — the GIC half transfers unchanged (same GICv2 bases); the CPU half is **4+2+2 across three efficiency classes**, and the MPIDR affinity **ordering** is marked UNVERIFIED because it is an inference from the power-domain naming |
 
 ### M9 — Installer
 

@@ -1,0 +1,163 @@
+/** @file
+  MADT — Multiple APIC Description Table (GIC) for Exynos 9820 / Galaxy S10e.
+
+  Describes the interrupt controller and the CPU topology to Windows.
+
+  The GIC side is a straight transfer: the 9820's interrupt-controller node is
+  at the SAME addresses as the 9810's (GICD 0x10101000, GICC 0x10102000, GICH
+  0x10104000, GICV 0x10106000) and is GICv2 as well — compatible
+  "arm,cortex-a15-gic", "arm,cortex-a9-gic". So the GICC/GICD structures below
+  are the 9810's, unchanged.
+
+  The CPU side is NOT a transfer. VERIFIED from /proc/cpuinfo on the S10e:
+  **eight logical CPUs in THREE clusters, sized 4 + 2 + 2**, with three distinct
+  core identities —
+
+    processors 0-3   implementer 0x41 (ARM)      variant 0x1  part 0xd05
+    processors 4-5   implementer 0x41 (ARM)      variant 0x2  part 0xd0a
+    processors 6-7   implementer 0x53 (Samsung)  variant 0x1  part 0x003
+
+  and the live platform tree carries three power domains, 10090000.LITTLE,
+  10090000.MID and 10090000.BIG, where the 9810 had two.
+
+  UNVERIFIED, and it is the part that has to be read on the device: the MPIDR
+  affinity values. The table below assumes Aff1 = 0 for LITTLE, 1 for MID and
+  2 for BIG, in that order. That ordering is an inference from the power-domain
+  naming, not a read — reading MPIDR_EL1 on each core settles it, and a wrong
+  ordering makes Windows' scheduler mis-rank the cores rather than fail.
+**/
+
+#include "Beyond0LteAcpiHeader.h"
+#include <IndustryStandard/Acpi63.h>
+#include <Platform/Exynos9820.h>
+
+#define BEYOND0LTE_NUM_CORES  8
+
+//
+// GICv2 bases (VERIFIED — identical to the 9810's). GICV/GICH are the
+// virtualization-extension windows; Windows itself only needs GICD + GICC, but
+// the GIC provides all four.
+//
+#define BEYOND0LTE_GICD_BASE   EXYNOS_GICD_BASE   // 0x10101000
+#define BEYOND0LTE_GICC_BASE   EXYNOS_GICC_BASE   // 0x10102000
+#define BEYOND0LTE_GICH_BASE   EXYNOS_GICH_BASE   // 0x10104000
+#define BEYOND0LTE_GICV_BASE   EXYNOS_GICV_BASE   // 0x10106000
+
+//
+// PMU overflow GSIV. The DT lists per-core SPIs, which a single GICC field
+// cannot express, so this stays 0 — the same choice the 9810 makes.
+//
+#define BEYOND0LTE_PMU_GSIV         0
+#define BEYOND0LTE_VGIC_MAINT_GSIV  25
+
+//
+// Per-core MPIDR (Aff1<<8 | Aff0). See the UNVERIFIED note in the file header.
+//
+#define MPIDR_CORE(Cluster, Cpu)  (((Cluster) << 8) | (Cpu))
+
+//
+// ProcessorPowerEfficiencyClass: 0 = highest performance. The S10e has THREE
+// classes, not two: the Samsung-implemented pair is the fastest, the ARM
+// 0xd0a pair is the middle cluster, and the four A55s are the LITTLE side.
+//
+#define EFF_BIG     0
+#define EFF_MID     1
+#define EFF_LITTLE  2
+
+//
+// Uniprocessor-boot isolation knob, kept from the 9810 flow: with it set, only
+// the boot core is ENABLED, so Windows boots single-core and never PSCI CPU_ONs
+// the seven secondaries. That separates a PSCI bring-up fault from everything
+// else. Default 0 so the shipped image advertises all eight processors.
+//
+#ifndef BEYOND0LTE_UNIPROCESSOR_BOOT
+#define BEYOND0LTE_UNIPROCESSOR_BOOT  0
+#endif
+
+//
+// Cluster-gating fallbacks, so an isolation build can still be produced without
+// editing the table itself.
+//
+#ifndef BEYOND0LTE_LITTLE_CLUSTER_ONLY
+#define BEYOND0LTE_LITTLE_CLUSTER_ONLY  0
+#endif
+
+#ifndef BEYOND0LTE_MID_CLUSTER_ONLY
+#define BEYOND0LTE_MID_CLUSTER_ONLY     0
+#endif
+
+#if BEYOND0LTE_UNIPROCESSOR_BOOT
+#define BEYOND0LTE_SECONDARY_GIC_FLAGS  0
+#else
+#define BEYOND0LTE_SECONDARY_GIC_FLAGS  EFI_ACPI_6_3_GIC_ENABLED
+#endif
+
+#if BEYOND0LTE_LITTLE_CLUSTER_ONLY
+#define BEYOND0LTE_MID_GIC_FLAGS   0
+#define BEYOND0LTE_BIG_GIC_FLAGS   0
+#else
+#if BEYOND0LTE_MID_CLUSTER_ONLY
+#define BEYOND0LTE_MID_GIC_FLAGS   BEYOND0LTE_SECONDARY_GIC_FLAGS
+#define BEYOND0LTE_BIG_GIC_FLAGS   0
+#else
+#define BEYOND0LTE_MID_GIC_FLAGS   BEYOND0LTE_SECONDARY_GIC_FLAGS
+#define BEYOND0LTE_BIG_GIC_FLAGS   BEYOND0LTE_SECONDARY_GIC_FLAGS
+#endif
+#endif
+
+#define BEYOND0LTE_GICC_INIT(GicId, AcpiCpuUid, Mpidr, Flags, PmuIrq, GicBase, GicVBase, GicHBase, VgicGsiv, GicRBase, Efficiency) \
+  { \
+    EFI_ACPI_6_3_GIC, sizeof (EFI_ACPI_6_3_GIC_STRUCTURE), 0, \
+    (GicId), (AcpiCpuUid), (Flags), 0, (PmuIrq), 0, \
+    (GicBase), (GicVBase), (GicHBase), (VgicGsiv), (GicRBase), \
+    (Mpidr), (Efficiency), 0, 0 \
+  }
+
+#define BEYOND0LTE_GICD_INIT(GicDistHwId, GicDistBase, GicDistVector, GicVersion) \
+  { \
+    EFI_ACPI_6_3_GICD, sizeof (EFI_ACPI_6_3_GIC_DISTRIBUTOR_STRUCTURE), 0, \
+    (GicDistHwId), (GicDistBase), (GicDistVector), (GicVersion), { 0, 0, 0 } \
+  }
+
+#pragma pack (1)
+typedef struct {
+  EFI_ACPI_6_3_MULTIPLE_APIC_DESCRIPTION_TABLE_HEADER  Header;
+  EFI_ACPI_6_3_GIC_STRUCTURE                           GicC[BEYOND0LTE_NUM_CORES];
+  EFI_ACPI_6_3_GIC_DISTRIBUTOR_STRUCTURE               GicD;
+} BEYOND0LTE_MADT;
+#pragma pack ()
+
+STATIC BEYOND0LTE_MADT  Madt = {
+  {
+    ACPI_HEADER (
+      EFI_ACPI_6_3_MULTIPLE_APIC_DESCRIPTION_TABLE_SIGNATURE,
+      BEYOND0LTE_MADT,
+      EFI_ACPI_6_3_MULTIPLE_APIC_DESCRIPTION_TABLE_REVISION
+      ),
+    0,    // LocalApicAddress — 0 on ARM
+    0,    // Flags            — 0 on ARM (no PC-AT 8259)
+  },
+  {
+    // GICv2: GicBase = physical GICC; GicVBase/GicHBase = GICV/GICH; GicRBase = 0.
+
+    // LITTLE cores (A55), cluster 0 — four of them:
+    BEYOND0LTE_GICC_INIT (0, 0, MPIDR_CORE (0, 0), EFI_ACPI_6_3_GIC_ENABLED,          BEYOND0LTE_PMU_GSIV, BEYOND0LTE_GICC_BASE, BEYOND0LTE_GICV_BASE, BEYOND0LTE_GICH_BASE, BEYOND0LTE_VGIC_MAINT_GSIV, 0, EFF_LITTLE),
+    BEYOND0LTE_GICC_INIT (1, 1, MPIDR_CORE (0, 1), BEYOND0LTE_SECONDARY_GIC_FLAGS,    BEYOND0LTE_PMU_GSIV, BEYOND0LTE_GICC_BASE, BEYOND0LTE_GICV_BASE, BEYOND0LTE_GICH_BASE, BEYOND0LTE_VGIC_MAINT_GSIV, 0, EFF_LITTLE),
+    BEYOND0LTE_GICC_INIT (2, 2, MPIDR_CORE (0, 2), BEYOND0LTE_SECONDARY_GIC_FLAGS,    BEYOND0LTE_PMU_GSIV, BEYOND0LTE_GICC_BASE, BEYOND0LTE_GICV_BASE, BEYOND0LTE_GICH_BASE, BEYOND0LTE_VGIC_MAINT_GSIV, 0, EFF_LITTLE),
+    BEYOND0LTE_GICC_INIT (3, 3, MPIDR_CORE (0, 3), BEYOND0LTE_SECONDARY_GIC_FLAGS,    BEYOND0LTE_PMU_GSIV, BEYOND0LTE_GICC_BASE, BEYOND0LTE_GICV_BASE, BEYOND0LTE_GICH_BASE, BEYOND0LTE_VGIC_MAINT_GSIV, 0, EFF_LITTLE),
+
+    // MID cores (ARM implementer 0x41, part 0xd0a), cluster 1 — TWO of them:
+    BEYOND0LTE_GICC_INIT (4, 4, MPIDR_CORE (1, 0), BEYOND0LTE_MID_GIC_FLAGS,          BEYOND0LTE_PMU_GSIV, BEYOND0LTE_GICC_BASE, BEYOND0LTE_GICV_BASE, BEYOND0LTE_GICH_BASE, BEYOND0LTE_VGIC_MAINT_GSIV, 0, EFF_MID),
+    BEYOND0LTE_GICC_INIT (5, 5, MPIDR_CORE (1, 1), BEYOND0LTE_MID_GIC_FLAGS,          BEYOND0LTE_PMU_GSIV, BEYOND0LTE_GICC_BASE, BEYOND0LTE_GICV_BASE, BEYOND0LTE_GICH_BASE, BEYOND0LTE_VGIC_MAINT_GSIV, 0, EFF_MID),
+
+    // BIG cores (Samsung implementer 0x53, part 0x003), cluster 2 — TWO of them:
+    BEYOND0LTE_GICC_INIT (6, 6, MPIDR_CORE (2, 0), BEYOND0LTE_BIG_GIC_FLAGS,          BEYOND0LTE_PMU_GSIV, BEYOND0LTE_GICC_BASE, BEYOND0LTE_GICV_BASE, BEYOND0LTE_GICH_BASE, BEYOND0LTE_VGIC_MAINT_GSIV, 0, EFF_BIG),
+    BEYOND0LTE_GICC_INIT (7, 7, MPIDR_CORE (2, 1), BEYOND0LTE_BIG_GIC_FLAGS,          BEYOND0LTE_PMU_GSIV, BEYOND0LTE_GICC_BASE, BEYOND0LTE_GICV_BASE, BEYOND0LTE_GICH_BASE, BEYOND0LTE_VGIC_MAINT_GSIV, 0, EFF_BIG),
+  },
+  BEYOND0LTE_GICD_INIT (0, BEYOND0LTE_GICD_BASE, 0, EFI_ACPI_6_3_GIC_V2),
+};
+
+//
+// Referenced by AcpiPlatformDxe so the linker keeps the table.
+//
+VOID *CONST  ReferenceAcpiTable = &Madt;

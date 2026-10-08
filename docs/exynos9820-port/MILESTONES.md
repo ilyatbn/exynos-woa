@@ -198,7 +198,7 @@ re-plug and accept the "Allow access from this PC" dialog on the phone. Success 
 | Task | State | Notes |
 |------|-------|-------|
 | Determine how a USB-C dock's HDMI is fed at all | **done** | two mechanisms: EEM/SLDCOM mirroring (no Windows driver) or a **DisplayLink GPU in the dock** (WDDM driver) — `notes/dock-desktop.md` §2 |
-| Establish whether Windows supports EEM/SLDCOM docks | todo | still needs a hard citation before we call it a dead end |
+| Establish whether Windows supports EEM/SLDCOM docks | **open — uncited** | still inference, not fact; four search routes already failed (§7) — the DisplayLink decision does not depend on it |
 | Read the Linux reference implementation (EMD2) to see what the protocol requires | todo | https://github.com/emd2v2/emd2 |
 | Confirm DisplayLink on Windows-on-ARM | **done** | Synaptics 11.3+ lists Windows 10/11 **ARM64**; Targus validated 11.5M3 for ARM64; DisplayLink markets "any ARM SoC", "smartphones" |
 | Check whether the target dock uses EEM or a real GPU in the dock | todo | **needs-dock** — we now know which kind we must buy |
@@ -209,8 +209,8 @@ re-plug and accept the "Allow access from this PC" dialog on the phone. Success 
 | Task | State | Notes |
 |------|-------|-------|
 | Identify the WLAN hardware in the S10e (live) | **done** | Broadcom **DHD** over Samsung reserved memory + blobs (`bcmdhd_sta.bin`, `nvram_net.txt`) — not a PC wifi card; `notes/dock-desktop.md` §1 |
-| Find existing Windows drivers for Samsung Exynos WLAN | todo | `windows_samsung_platforms` components, Mu-Silicium |
-| Decide whether WiFi is required at all when LAN is available | todo | donation case may prefer LAN only |
+| Find existing Windows drivers for Samsung Exynos WLAN | **done — dead end** | there is nothing to bind to: the vendor DT has **no WLAN device node** (only GPIO pins), and the live `wlan` platform node has no driver and an empty `modalias` — §6 |
+| Decide whether WiFi is required at all when LAN is available | **done** | **LAN-first**; if WiFi is genuinely needed, put a **USB WiFi adapter in the dock** (an ordinary Windows device once M10 works), not the phone's WLAN |
 
 ### M13 — LAN through the dock
 

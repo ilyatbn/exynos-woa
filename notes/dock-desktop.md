@@ -243,3 +243,54 @@ shipping build**, i.e. exactly what the phone runs — better evidence than a ve
   pokes at in `UsbDebug.c`.
 
 
+
+## 6. M12 — WiFi: the phone's WLAN has no address window, so Windows cannot bind to it
+
+Two independent directions agree.
+
+**From the vendor device tree** (`exynos9820.dts`, `CruelKernel/samsung-exynos9820`):
+the only WLAN entries are **GPIO pins**, not devices —
+
+```
+wlan_host_wake = "/pinctrl@15850000/wlan_host_wake"   (ALIVE GPIO)
+cfg_wlanen     = "/pinctrl@10430000/cfg_wlanen"       (PERIC0 GPIO)
+```
+
+There is **no `wlan` device node with a `reg =`** anywhere in the file. *(fact)*
+
+**From the live phone**: `/sys/devices/platform/wlan/` exists but has **no `driver` symlink**
+and an **empty `modalias`**, and its `of_node` points at `/wlan` in the DT. *(fact)*
+So in the shipping build the WLAN is not driven as an MMIO device at all — Samsung's
+Broadcom-DHD path runs through reserved memory plus the userspace blobs
+(`bcmdhd_sta.bin`, `nvram_net.txt`, seen in the 9820 defconfig in §1).
+
+**Consequence:** there is nothing for a Windows driver to attach to. Windows WiFi needs
+either a WWD/NDIS device or a standard card; this is neither. *(inference)*
+
+**Decision for the donation build:**
+1. **LAN through the dock is the network path** — it is a plain USB-net device (M13) and
+   needs nothing beyond host mode.
+2. If WiFi is genuinely required, the answer is **a USB WiFi adapter in the dock**, not the
+   phone's own WLAN. That is an ordinary Windows device once M10 works.
+3. The phone's internal WLAN stays a documented dead end, not a stage in the installer.
+
+## 7. M11 — what is *not* yet proven, and the dead ends so far
+
+The DisplayLink decision (§2) does **not** depend on the EEM claim, so the plan is safe either
+way. But the claim "Windows has no EEM/SLDCOM driver" is still **uncited** — recorded as
+inference, not fact.
+
+Dead ends already tried (do not repeat):
+- `websearch` for "Windows support EEM SLDCOM" → only dock-review noise, no primary source.
+- `https://github.com/emd2v2/emd2` → **404** (the EMD2 project is not at that path).
+- `https://www.sldicom.com/` → transport error.
+- GitHub API repo search for "extended mode display driver" → returned an unrelated junk repo.
+
+What *is* cited and usable:
+- DisplayLink supports Windows 10/11 **ARM64** (Plugable KB, Targus validation note, Synaptics
+  product page) — §2.
+- A generic USB-C dock's HDMI is fed by a host-side protocol, not by a video pipe we control;
+  the Framework/Startech/Reddit threads all describe the same split (EEM-style docks need a
+  driver; DP-Alt-Mode docks do not) — https://community.frame.work/t/usb-c-thunderbolt-dock-megathread/1460
+- Next concrete step instead of more searching: **ask the user which dock they standardise on**,
+  because the dock's own spec sheet says whether it is EEM or DisplayLink.

@@ -134,6 +134,7 @@ batched at the end. Research evidence lives in [`notes/exynos9820-research.md`](
 | Handle the per-model panel firmware name and tuning values | **done** | the S10e's blob is `tsp_sec/y761_beyond0_phole.bin` — **y761**, the family our driver is already named after; `y771` is only the kernel source family. Tuning values are per-model: `afe_base 0x0205` (S10 was `0x0206`), `tclm_level 2`, `max_coords 4096×4096` — `notes/dock-desktop.md` §14 |
 | Decide what fingerprint-on-glass changes mean for us | **done — does not apply** | the S10e's own shipping touch node has **no `support_fod`**; it carries `support_dex_mode` and `support_ear_detect_mode` instead |
 | Re-qualify report delivery at 120 Hz | todo | the node declares `sync-reportrate-120`; our candidate's coalescing rules are written around a 64-event FIFO, so this model is where they are most likely to need re-testing — **needs-phone** |
+| Create the `S6SY761TouchBeyond0` package | **done** | copy of the 9810 candidate. The driver has **no MMIO**, so the only device-specific numbers in it are the HID descriptor's panel extents (`271`/`558` hundredths of an inch) — left at the S9+'s and annotated above `G_DefaultReportDescriptor`. The four `sec_ts` opcodes it sends are verified identical |
 
 ### M5 — UFS storage driver
 

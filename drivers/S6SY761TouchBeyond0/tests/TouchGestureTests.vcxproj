@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{52ED0762-0B31-4121-B66B-988E31F318E0}</ProjectGuid>
+    <ProjectName>TouchGestureTests</ProjectName>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+    <Mocks>$(MSBuildThisFileDirectory)..\..\S6SY761TouchGpio\tests</Mocks>
+    <DriverRoot Condition="'$(DriverRoot)' == ''">$(MSBuildThisFileDirectory)..</DriverRoot>
+    <GestureCandidate Condition="'$(GestureCandidate)' == ''">1</GestureCandidate>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v145</PlatformToolset>
+    <UseDebugLibraries>false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <IncludePath>$(WdkRoot)\Include\10.0.26100.0\km;$(WdkRoot)\Include\10.0.26100.0\shared;$(WdkRoot)\Include\wdf\kmdf\1.31;$(Mocks);$(IncludePath)</IncludePath>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel><TreatWarningAsError>true</TreatWarningAsError>
+      <PreprocessorDefinitions>_AMD64_;AMD64;_KERNEL_MODE;_WIN32_WINNT=0x0A00;WINVER=0x0A00;NTDDI_VERSION=0x0A000008;TOUCH_TEST_LEGACY=1;TOUCH_TEST_GESTURES=$(GestureCandidate);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ForcedIncludeFiles>$(Mocks)\TouchHostHooks.h</ForcedIncludeFiles>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <Optimization>Disabled</Optimization><FunctionLevelLinking>true</FunctionLevelLinking>
+    </ClCompile>
+    <Link><SubSystem>Console</SubSystem><OptimizeReferences>true</OptimizeReferences></Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="$(Mocks)\TouchMock.c" />
+    <ClCompile Include="$(Mocks)\HostThreads.c"><ForcedIncludeFiles></ForcedIncludeFiles></ClCompile>
+    <ClCompile Include="TouchGestureTests.c" />
+    <ClCompile Include="$(DriverRoot)\Device.c" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

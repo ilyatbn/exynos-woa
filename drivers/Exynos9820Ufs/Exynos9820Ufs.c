@@ -5035,6 +5035,7 @@ UfsValidateWarmState(
 {
     ULONG HostEnable;
     ULONG Doorbell;
+    ULONG HciVersion;
     ULONGLONG Failures = 0;
 
     HostEnable = UfsReadRegister(Adapter, UFS_REG_HOST_ENABLE);
@@ -5073,8 +5074,16 @@ UfsValidateWarmState(
     if ((HostEnable & UFS_HOST_ENABLE) == 0) {
         Failures |= UFS_DIAG_FAILURE_HOST_DISABLED;
     }
-    if (UfsReadRegister(Adapter, UFS_REG_VERSION) != UFS_HCI_VERSION_21) {
-        Failures |= UFS_DIAG_FAILURE_HCI_VERSION;
+    // The 9810 treated any HCI version other than 2.1 as fatal. This SoC's
+    // device tree declares `hw-rev = UFS_VER_0006` (Samsung's ufs.h: 4, 5, 6),
+    // a newer revision class, and the HCI encoding that class implies has never
+    // been read on Windows. Refusing storage on a constant we have not measured
+    // is exactly the failure mode the port's bar protects ("Windows sees disk"),
+    // so an unexpected value is REPORTED and left to the remaining checks below,
+    // which still have to agree before the adapter is considered warm.
+    HciVersion = UfsReadRegister(Adapter, UFS_REG_VERSION);
+    if (HciVersion != UFS_HCI_VERSION_21) {
+        UfsSetDiagnosticFailure(Adapter, UFS_DIAG_FAILURE_HCI_VERSION_UNCONFIRMED);
     }
     if ((Adapter->InitialHostStatus & UFS_HOST_STATUS_WARM_REQUIRED) !=
         UFS_HOST_STATUS_WARM_REQUIRED) {

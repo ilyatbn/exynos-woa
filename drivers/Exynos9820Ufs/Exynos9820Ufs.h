@@ -54,8 +54,13 @@
 //     arithmetic, not a GPT read, so it may not be written here as a constant.
 //   * the PMU register offsets below — the base moves, the +0x400/+0x80C layout
 //     inside it has not been confirmed on 9820.
-//   * UFS_HCI_VERSION_21 — the S10e reports hw-rev UFS_VER_0006, which the 9810
-//     code path does not handle.
+//   * UFS_HCI_VERSION_21 — the S10e reports hw-rev UFS_VER_0006 (Samsung's
+//     include/dt-bindings/ufs/ufs.h: UFS_VER_0004 = 4, 0005 = 5, 0006 = 6), a
+//     newer revision class than the 9810's 4/5. The HCI encoding it implies is
+//     NOT guessed anywhere: Exynos9820Ufs.c reports a mismatching version with
+//     the non-fatal UFS_DIAG_FAILURE_HCI_VERSION_UNCONFIRMED bit instead of
+//     invalidating the warm state, so the first run on Windows tells us the
+//     real value and this line can become a read.
 //
 // The 0x9810 values that appear as CDB subcodes and as UFS_DIAG_CONTROL_CODE in
 // Exynos9820UfsDiag.h are wire-format constants, not chip names: they are what

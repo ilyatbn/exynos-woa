@@ -649,6 +649,17 @@ typedef struct _UFS_CLEAN_RECOVERY_REPLY {
 #define UFS_DIAG_FAILURE_BUGCHECK_REGISTER             (1ULL << 55)
 #define UFS_DIAG_FAILURE_BUGCHECK_PRAM_UNAVAILABLE      (1ULL << 56)
 
+/*
+ * The S10e's UFS HCI belongs to a newer revision class than the 9810's: its
+ * device tree declares `hw-rev = UFS_VER_0006` (include/dt-bindings/ufs/ufs.h
+ * defines UFS_VER_0004 = 4, UFS_VER_0005 = 5, UFS_VER_0006 = 6), while the
+ * 9810 kernel accepted 4 and 5. The HCI register encoding that class implies
+ * has never been read on Windows, so the version check is REPORTED here and
+ * deliberately not folded into UFS_DIAG_FAILURE_HCI_VERSION, which invalidates
+ * the warm state and would refuse storage on a value we have not measured.
+ */
+#define UFS_DIAG_FAILURE_HCI_VERSION_UNCONFIRMED         (1ULL << 57)
+
 #pragma pack(push, 1)
 
 typedef struct _UFS_DIAGNOSTIC_RANGE {

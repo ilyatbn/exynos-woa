@@ -249,7 +249,7 @@ UFS `59c2765d115fc49ef4b51b18c7dd2a6f3852d5527ba7c112b3705bc09f29ff46` (49152 B)
 touch `6a6471c0d22232ece4e8fbc249e3df70bd0e5c1c6274906f0f86c9f617fad28b` (31744 B).
 Signing adds 1432 B (UFS) / 1432 B (touch) of PKCS#7.
 
-### 4.7 signing (fact)
+### 4.8 signing (fact)
 
 * The HSI2C `.sys` came out **signed** by the WDK's own `Sign` task:
   `Get-AuthenticodeSignature` -> `SignatureType=Authenticode`,
@@ -264,3 +264,44 @@ Signing adds 1432 B (UFS) / 1432 B (touch) of PKCS#7.
   is not recorded anywhere in this repo, so it cannot be reproduced here; the WDK generates a
   per-user one (`WDKTestCert <user>,<salt>`) at build time. Fact: the salt in the released 9810
   binaries is not knowable from this tree.
+
+
+## 5. M7.5 UFS hw-rev gap - ported (2026-10-09)
+
+HANDOFF §5 row 6 was a real behavioural gap, not a build error.
+
+Facts:
+
+* `include/dt-bindings/ufs/ufs.h` in the shipping 9820 kernel defines
+  `UFS_VER_0004 = 4`, `UFS_VER_0005 = 5`, `UFS_VER_0006 = 6`; the S10e's DT declares
+  `hw-rev = <UFS_VER_0006>` on the UFS protector node (`13D70000`).
+* `Exynos9820Ufs.c:5076` (9810 code, unchanged) compared `UFS_REG_VERSION` against
+  `UFS_HCI_VERSION_21 (0x210)` **exactly**, and any mismatch set
+  `UFS_DIAG_FAILURE_HCI_VERSION`, which is folded into `Failures`; `Failures != 0` at
+  `:5121` clears `WarmStateValid` and the adapter refuses storage. An S10e reporting a
+  different HCI encoding would therefore have booted with no disk - the port's own bar.
+* The HCI encoding that `hw-rev 6` implies is **not knowable from any source consulted**
+  (the DT gives the class, not the register value; the register can only be read by the
+  driver running on Windows). No constant was invented.
+
+Change made (all four files in the package, kept in step):
+
+* `Exynos9820UfsDiag.h`: new bit `UFS_DIAG_FAILURE_HCI_VERSION_UNCONFIRMED (1ULL << 57)`
+  (57 was free; the highest existing bit is `BUGCHECK_PRAM_UNAVAILABLE (1ULL << 56)`).
+* `UfsDiag.c`: the decoder table gains the matching name next to `HCI_VERSION`, so the
+  host-side reader stays in sync with the driver.
+* `Exynos9820Ufs.c`: the version read is kept, but a mismatch now calls
+  `UfsSetDiagnosticFailure(..., _UNCONFIRMED)` and does **not** join `Failures`.
+  Every other warm-state check (host enable/status, doorbell, UTRL, interrupt
+  enable/aggregation, capabilities, PRDT sizes, DMA width) still has to agree.
+* `Exynos9820Ufs.h`: the `UNVERIFIED` note now states the class, the source, and that the
+  first Windows run reports the real value through the new bit.
+
+Rebuild (`build-ufs.ps1 -WideUncached -DmaWindow`, new outdir `ufs-9820-b`):
+`EXACT_BUILD_OK`, `Exynos9820Ufs.sys` **49152 bytes** sha256 `daf402cd1a35214b154d25e28c762d8a9501ae600cdaeed9654bf5bb48f50304`
+(previous code state was `59c2765d...`), `UfsDiag.exe` 213504 bytes sha256 `5dfb2a7abfdab210026f8317c88534bb235fc951f61893a141cf4851458f0b9b`,
+ABI identity unchanged: `{"signature":960910165,"version":1376256,"bytes":992,"perf":1,"wide_uncached":1,"dma_window":1,"portable_kernel_contract":1}`.
+No cl/link diagnostics, no `C_ASSERT` fired.
+
+Inference (mine): the size staying at exactly 49152 bytes while the hash moved is consistent
+with a same-shape code change (one extra non-fatal branch), i.e. nothing else shifted.

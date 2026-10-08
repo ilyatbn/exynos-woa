@@ -153,7 +153,7 @@ State: **doing** — the address work is settled, one clock value is not.
 | Move the four hardware bases to the 9820 values | done (planning) | HCI `0x13D60000`, VS `0x13D61100`, UNIPRO `0x13D50000`, protector `0x13D70000` — all read from the vendor DTS; HCI confirmed on the live phone |
 | Confirm the helper region address on the 9820 | **done** | `ufs-phy { reg = <0x0 0x13D64000 0x800> }` — verified, no longer a guess |
 | Re-derive the timeout clock from the 9820 tick rate | todo | **UNVERIFIED**: the kernel computes `mclk_rate/1000000 & 0x3FF` from the UNIPRO clock; 166 MHz is the candidate (Mu-Silicium uses it for 9810 AND 9830) |
-| Port the newer-revision behaviour | todo | S10e is `hw-rev = UFS_VER_0006`; the 9810 driver only handles 0004/0005 |
+| Port the newer-revision behaviour | **done** | `hw-rev = UFS_VER_0006` is a **class**, not a register value (`ufs.h`: 4/5/6). The exact-equality HCI check that used to clear `WarmStateValid` is now a non-fatal `UFS_DIAG_FAILURE_HCI_VERSION_UNCONFIRMED` bit (57, free) reported by the driver and named in `UfsDiag.c`'s decoder, so the first Windows run tells us the real value instead of refusing disk on an unmeasured constant — `notes/windows-m7-toolchain.md` §5 |
 | Use the second template | todo | `edk2-exynos` already has `Exynos9820Pkg/Library/ExynosUfsLib` (`ufs.c`, `scsi.c`) — a UEFI 9820 UFS port exists outside Mu-Silicium |
 | Keep the diagnostic path able to print what the hardware says | todo | must be readable before any destructive step |
 | Read the S10e's own partition table live | **done** | `/proc/partitions` and `by-name` give 31 partitions on `sda` plus four other LUNs; EFS is **the same LBA range as the 9810** — `notes/dock-desktop.md` §13 |

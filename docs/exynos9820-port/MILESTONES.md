@@ -146,6 +146,10 @@ State: **doing** — the address work is settled, one clock value is not.
 | Port the newer-revision behaviour | todo | S10e is `hw-rev = UFS_VER_0006`; the 9810 driver only handles 0004/0005 |
 | Use the second template | todo | `edk2-exynos` already has `Exynos9820Pkg/Library/ExynosUfsLib` (`ufs.c`, `scsi.c`) — a UEFI 9820 UFS port exists outside Mu-Silicium |
 | Keep the diagnostic path able to print what the hardware says | todo | must be readable before any destructive step |
+| Read the S10e's own partition table live | **done** | `/proc/partitions` and `by-name` give 31 partitions on `sda` plus four other LUNs; EFS is **the same LBA range as the 9810** — `notes/dock-desktop.md` §13 |
+| Re-aim the write fence at the S10e's partition list | todo | the 9810's fence protects partitions that do not exist here; the derived map in §13 is **arithmetic, not a GPT read** — it needs root on the phone or the driver's own LBA-1 read |
+| Handle the second LUN | todo | `cpefs` is on `sdd1`, a separate LUN; the 9810 driver was written against a single `sda` |
+| Re-derive the DMA window from the S10e's DRAM banks | todo | 9810 `90000000..BC800000` vs S10e banks `80000000`+0x80000000, `880000000`, `900000000` |
 
 ### M6 — Live verification on the phone
 

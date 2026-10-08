@@ -513,3 +513,89 @@ enum qch_id { APBIF_GPIO_ALIVE_QCH = QCH_TYPE, ... }
 - *(fact)* `USB31DRD` hangs off `UMUX_CLKCMU_FSYS0A_BUS`, while `USI03_*` hangs off
   `UMUX_CLKCMU_PERIC0_BUS` — **two different CMU banks**, which is why M10 (USB) and M3
   (touch bus) cannot share one CMU window constant.
+
+## 13. M5 — the S10e's storage, read live (this is what the write fence must be re-derived from)
+
+All of it from the connected phone, nothing destructive.
+
+### Facts
+
+`/proc/partitions` is readable on this build (it is `/proc`, not `/sys`, so SELinux
+does not hide it). `sda` = **124,944,384 KiB** = 31,236,096 logical blocks of 4 KiB.
+
+`/dev/block/by-name/` symlinks give the name → partition map:
+
+```
+sda1 bota0 4608      sda9 steady 4096      sda17 nad_refer 1024    sda25 system  5836800
+sda2 bota1 7680      sda10 uh 2048         sda18 persistent 512    sda26 vendor  1126400
+sda3 efs 20480       sda11 uhcfg 4096      sda19 misc 1024         sda27 product  634880
+sda4 param 8192      sda12 dtb 8192        sda20 keyrefuge 16384   sda28 cache    614400
+sda5 up_param 8192   sda13 dtbo 8192       sda21 keydata 16384     sda29 omr      51200
+sda6 keystorage 512  sda14 boot 56320      sda22 dqmdbg 16384      sda30 cp_debug  5120
+sda7 sec_efs 20480   sda15 recovery 66048  sda23 vbmeta 64         sda31 userdata 116334592
+sda8 bota2 8192      sda16 radio 51200     sda24 bota3 1472
+```
+
+Sizes are in KiB. Partitions 16 and above have a **different device major** (259, not 8)
+— a kernel numbering consequence of having more than 16 partitions, not a second disk.
+
+Other LUNs exist and are **not** part of `sda`:
+
+```
+sdb 4096 KiB   sdc 4096 KiB   sdd 8192 KiB (sdd1 cpefs 6144 KiB)   sde 8192 KiB
+mmcblk0 125026304 KiB, mmcblk0p1 125009920 KiB
+```
+
+*(fact)* `cpefs` lives on `sdd1`, i.e. **a separate LUN** — the 9810 driver's assumptions
+were written against a single `sda`, so multi-LUN is a real behavioural difference, not a
+cosmetic one. *(inference)* `mmcblk0` being the same size as `sda` means the media is also
+reachable through the `dwmmc2`/`mmc_host` path; which of the two the UFS HCI actually
+services has to be decided on the Windows side, not assumed.
+
+The device's own `/vendor/etc/fstab.exynos9820` confirms three things independently of
+the device tree:
+
+```
+/dev/block/platform/13d60000.ufs/by-name/keydata      <- UFS HCI base 0x13D60000, again
+/devices/platform/13d00000.dwmmc2/mmc_host*           <- SD card slot hangs off dwmmc2
+/devices/platform/10c00000.usb*                       <- vold's USB device is the DWC3 node
+```
+
+That third line is a second, independent confirmation that `10c00000.usb` is the same
+connector Android's file-transfer path uses — the port M10 has to turn into a host.
+
+### Derived, NOT read: the LBA map
+
+The arithmetic below is anchored on one verified fact from the 9810 header — EFS is
+`sda3`, LBA **4096..9215**, i.e. 5120 blocks — and the S10e's `sda3` is **exactly 20480 KiB
+= 5120 blocks**. Fitting the S10e's sizes against that anchor makes the partitions
+contiguous with no slack:
+
+```
+sda1 starts at LBA 1024 (4 MiB)
+  sda1 1024..2175      sda2 2176..4095      sda3 EFS 4096..9215   <- matches the 9810 exactly
+  sda14 BOOT     27264..41343
+  sda15 RECOVERY 41344..57855
+  sda25 system   83968..1543167
+  sda28 cache    1983488..2137087      <- the ESP candidate
+  sda31 userdata 2151168..31234815    <- the Windows volume candidate
+  tail           31234816..31236095   (1280 blocks, claimed by nothing)
+```
+
+Front gap 1024 blocks + tail 1280 blocks = 2304 blocks = 9216 KiB, which is exactly the
+difference between the sum of all partition sizes and the disk size. The arithmetic closes.
+
+*(inference)* — every number above is derived, not read. It must be confirmed against the
+S10e's own GPT before any fence constant is written down as verified, and the only ways to
+read that GPT are (a) root on the phone, or (b) the Windows driver itself, which already
+reads LBA 1 and reports capacity.
+
+### What this changes in M5
+
+| 9810 constant | S10e |
+|---|---|
+| `UFS_WRITE_FENCE_FIRST_LBA 68736` (sda18 SYSTEM) | the S10e has no sda18 SYSTEM; the equivalent scratch is `sda18 persistent` at LBA 70912 — **different meaning entirely** |
+| `UFS_PROTECTED_PARTITION_*` (sda19..sda25) | the S10e's protected set is `sda3 EFS`, `sda7 sec_efs`, `sda14 BOOT`, `sda15 RECOVERY`, `sda20/21` keydata — **a different partition list** |
+| `UFS_EXPECTED_LAST_LOGICAL_BLOCK 15615999` | **31,236,095** — the disk is twice as large |
+| `UFS_DMA_WINDOW_FIRST/LAST 90000000..BC800000` | derived from the 9810's DRAM banks; the S10e's banks are `80000000`+`80000000`, `880000000`, `900000000` — **must be re-derived** |
+| EFS range | **identical** — 4096..9215 on both |

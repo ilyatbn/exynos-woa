@@ -85,9 +85,9 @@ batched at the end. Research evidence lives in [`notes/exynos9820-research.md`](
 
 | Task | State | Notes |
 |------|-------|-------|
-| Move the four hardware bases to the 9820 values | todo | HCI 0x13D60000, vendor +0x1100, UNIPRO −0x10000, protector +0x10000 |
-| Re-derive the timeout clock from the 9820 tick rate | todo | **UNVERIFIED** — 9810 uses 166 MHz |
-| Confirm the helper region address on the 9820 | todo | **UNVERIFIED** — 0x13D64000 by rule only |
+| Move the four hardware bases to the 9820 values | todo | HCI `0x13D60000` **verified on device**; UNIPRO/protector from kernel DTS only |
+| Re-derive the timeout clock from the 9820 tick rate | todo | **UNVERIFIED** — 9810 uses 166 MHz; the phone would not tell us |
+| Confirm the helper region address on the 9820 | todo | **UNVERIFIED** — `0x13D64000` by rule only; not exposed on the live device |
 | Keep the diagnostic path able to print what the hardware says | todo | must be readable before any destructive step |
 
 ### M6 — Live verification on the phone
@@ -98,9 +98,10 @@ State: **doing** (user chose the phone path)
 |------|-------|-------|
 | Install the PC-side tooling | done | `android-sdk` (not `android-tools`); `adb` 1.0.41 / 34.0.4-debian from `/usr/lib/android-sdk/platform-tools` |
 | Diagnose why `adb` could not reach the phone | done | **not** a permissions problem: the device node is group-`plugdev` + ACL `user:ilya:rw-`, and `ilya` is in `plugdev`. `adb devices -l` reports `RF8M21HYDSZ unauthorized` — the phone never accepted the "allow this PC" prompt, so `~/.android/authorized_keys` does not exist |
-| Read the running device tree from the S10e | todo | **needs-phone** — adb, read-only |
-| Confirm the storage and bus regions in the live kernel | todo | **needs-phone** |
-| Record the panel's identity and firmware version | todo | **needs-phone** |
+| Read the running device tree from the S10e | done | `notes/s10e-live-reads.md` §2–§4 |
+| Confirm the storage and bus regions in the live kernel | done | UFS `13d60000.ufs` and bus `104b0000.hsi2c` both present — the address swap is confirmed on hardware |
+| Record the panel's identity and firmware version | done | driver `sec_ts`, blob `tsp_sec/y761_beyond0_phole.bin`, project `BEYOND0G970`, `afe_base 0x0205` |
+| Note what the phone could NOT tell us | done | DTB *contents* are SELinux-blocked; PMA base and `UFS_SCLK` stay unverified (§5) |
 
 The exact read-only commands I will run on the phone (nothing is flashed or written):
 

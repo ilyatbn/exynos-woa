@@ -102,6 +102,8 @@ batched at the end. Research evidence lives in [`notes/exynos9820-research.md`](
 | Diff our driver's register set against the 9820 kernel's | todo | expected: identical offsets, 16 extra status constants |
 | Rename the package and retarget its hardware identification | todo | keep the 9810 driver untouched |
 | Mark the two device-specific constants as verified-or-not | todo | bus base is the same on both chips |
+| Carry the HSI2C #10 IRQ change into the ACPI tables | todo | SPI 404/GSIV 436 on 9810 → **SPI 388/GSIV 420** on 9820 — `notes/dock-desktop.md` §5 |
+| Re-derive the bus clock for timing | todo | the 9820 DT declares `default-clk = 0xbebc200` = **200 MHz** |
 
 ### M4 — Touchscreen driver
 
@@ -168,9 +170,10 @@ re-plug and accept the "Allow access from this PC" dialog on the phone. Success 
 | Decide whether to build on Mu-Silicium's `S5E9820Pkg` | todo | their storage path is known-broken |
 | Note the Windows-build constraint for this chip | todo | only 23H2 and lower boot there |
 | Build the 9810→9820 constants table | **done** | 8 blocks identical (DWC3 core, touch bus, touch addr, CMU TOP, chip ID, UART, watchdog, PERIC0 GPIO); the PHY/PMU/SPEEDY/DECON/UFS regions move — `notes/dock-desktop.md` §4 |
-| Resolve the 9820 GIC windows | todo | no `gic@…` node at top level on the S10e; only `abox-gic@18cf0000` — need the vendor DTS |
-| Resolve the 9820 USB PHY/combo-PHY/PCS windows | todo | `phy@10B00000` carries `has_combo_phy`/`has_other_phy`; the 9810 had three separate windows |
+| Resolve the 9820 GIC windows | **done** | **identical to 9810**: `interrupt-controller@10100000`, GICD/GICC/GICH/GICV = `10101000`/`10102000`/`10104000`/`10106000`, GICv2 — `notes/dock-desktop.md` §5 |
+| Resolve the 9820 USB PHY/combo-PHY/PCS windows | **done** | one node, three windows: `10B00000`+0x200, `10AE0000`+0x2800, `10AF0000`+0x800; `phy_version 0x301`/`sub_phy_version 0x400` mean the 9810 PHY init cannot be pasted |
 | Resolve the framebuffer geometry (1440×2960 → 1440×3040) | todo | the S10e panel is taller; the fb carveout must be re-derived |
+| Re-derive the DRAM bank list | todo | vendor DT shows `memory@80000000` = 0x80000000+**0x80000000**, plus `880000000`, `900000000` — not the 9810 layout |
 
 ### M9 — Installer
 

@@ -177,4 +177,69 @@ Two more live facts that matter to the dock goal:
   is Samsung's own device-freq/thermal stack (`17000010.devfreq_mif` … `devfreq_*`), which
   Windows has no notion of.
 
+## 5. The 9820 device tree, resolved (vendor DT — closes the constants questions)
+
+Found the S10e's own decompiled DT in a kernel tree that lists **G970F** (our exact model)
+among its supported devices: `CruelKernel/samsung-exynos9820`, branch `cruel-HVJ5-v5.3`,
+file `arch/arm64/boot/dts/exynos/exynos9820.dts`
+(https://github.com/CruelKernel/samsung-exynos9820 — archived 2026-08-12, read-only).
+Numeric `phandle`s and `<0x…>` values show this is the **decompiled device tree of the
+shipping build**, i.e. exactly what the phone runs — better evidence than a vendor `.dtsi`.
+
+### Resolved values, compared against our `Exynos9810.h`
+
+| Block | 9810 (repo) | 9820 (vendor DT) | Verdict |
+|---|---|---|---|
+| **GIC** GICD/GICC/GICH/GICV | `10101000`/`10102000`/`10104000`/`10106000` | `10101000 0x1000`, `10102000 0x1000`, `10104000 0x2000`, `10106000 0x2000` | **identical** — node is `interrupt-controller@10100000`, `arm,cortex-a15-gic`/`arm,cortex-a9-gic` (GICv2) |
+| USB DWC3 core | `10C00000` + 0x10000 | `usb@10C00000` `reg = <0x0 0x10c00000 0x10000>` | **identical** |
+| USB PHY | `11100000` + 0x1000 | `phy@10B00000` reg #1 = `10b00000` + **0x200** | **moves** |
+| USB combo PHY | `110A0000` + 0x1000 | reg #2 = **`10ae0000` + 0x2800** | **moves** |
+| USB PCS | `110B0000` + 0x1000 | reg #3 = **`10af0000` + 0x800** | **moves** |
+| HSI2C #10 (touch bus) | `104B0000` + 0x1000 | `hsi2c@104B0000`, `samsung,exynos5-hsi2c` | **identical** |
+| HSI2C #10 IRQ | SPI 404 → GSIV 436 | `interrupts = <0x0 0x184 0x0>` → SPI **388** → GSIV **420** | **moves** |
+| HSI2C default clock | — | `default-clk = <0xbebc200>` = **200 MHz** | new fact, drives M3 timing |
+| Touch I2C slave addr | `0x48` | live `touchscreen@48` (added by the board `.dts`, not this file) | **identical** |
+| GPIO PERIC0 (`pinctrl@10430000`) | `10430000` + 0x1000 | `10430000` + 0x1000, SPI `0x17c`=380 | **identical** |
+| **GPIO ALIVE** | `14050000` + 0x1000 | `exynos-pm` `gpio_alive_base` = **`15850000`** + 0x1000 | **moves** |
+| GIC ispendrn latch page | — | `gicd_ispendrn_base` = `10101200` + 0x100 | new |
+| PMU syscon | `14060000` + 0x10000 | `system-controller@15860000`, `samsung,exynos9820-pmu` | **moves** |
+| CMU TOP | `1A240000` + 0x10000 | `cmu_ewf` `reg = <0x0 0x1a240000 0x1000>` | **same base**, smaller declared window |
+| DECON | `16030000` | `decon_f@0x19030000` + 0x10000, `decon_t@0x19050000` + 0x10000 | **moves**, and split in two |
+| DSIM | `16080000` | `19080000` | **moves** |
+| UFS HCI | `11120000` | `13d60000` | **moves** (already pinned in `notes/exynos9820-research.md`) |
+| chip ID | `10000000` | `chipid@10000000` | **identical** |
+| Watchdog cl0 | `10050000` | `watchdog_cl0@10050000` | **identical** |
+| Debug UART | `10440000` + 0x1000 | `uart@10440000` + **0x100**, `fifo-size = 0x100` | same base, smaller window |
+| DRAM banks | `80000000` + 0x3C800000, hole, high bank | `memory@80000000` = 0x80000000+**0x80000000**, `memory@880000000`, `memory@900000000` | **different layout** |
+
+### IRQ numbers the ACPI tables will need (SPI + 32 = GSIV, repo's convention)
+
+| Device | SPI (hex) | SPI (dec) | GSIV |
+|---|---|---|---|
+| DWC3 core (`usb@10C00000/dwc3`) | `0xf1` | 241 | **273** |
+| USB PHY (two) | `0xf5`, `0xf6` | 245, 246 | **277, 278** |
+| HSI2C #10 | `0x184` | 388 | **420** |
+| `pinctrl@10430000` | `0x17c` | 380 | **412** |
+| `decon_f` | `0xb7`,`0xb8`,`0xbd`,`0x197` | 183,184,189,407 | 215,216,221,439 |
+
+### Facts that change the M10 plan
+
+- Both `usb@10C00000` and `phy@10B00000` carry **`status = "disabled"`** in the shipping
+  build — the vendor DT itself proves the port is not in host mode under Android. *(fact)*
+- `dwc3` declares `phys = <&phy 0>, <&phy 1>` with `phy-names = "usb2-phy", "usb3-phy"`:
+  **one PHY node serves both the USB2 and USB3 ports**, and `has_combo_phy = 1`,
+  `has_other_phy = 0`. So the 9810's three-window model collapses to one node with three
+  register windows on 9820.
+- `xhci_l2_support = 1` and `enable_sprs_transfer = 1` on the DWC3 child; `exynos-pm` has
+  `usbl2_suspend_available = 1`, `usbl2_suspend_mode_idx = 0xc` — *(inference)* the PHY can
+  be put to sleep for L2 suspend, which is exactly the power interaction M14 has to reason
+  about when a dock is attached.
+- `phy_version = 0x301`, `sub_phy_version = 0x400` — the PHY **generation differs from the
+  9810's**, so the 9810 PHY-init sequence cannot be pasted; it must be re-derived.
+- Mainline Linux documents this exact shape: `Documentation/devicetree/bindings/usb/samsung,exynos-dwc3.yaml`
+  (https://lists.infradead.org/pipermail/linux-arm-kernel/2023-January/806932.html) — a
+  `samsung,exynos-dwusb` wrapper with no MMIO of its own, holding a `snps,dwc3` child.
+  *(inference)* the wrapper's `clocks`/`regulators` are the CMU hooks our firmware already
+  pokes at in `UsbDebug.c`.
+
 

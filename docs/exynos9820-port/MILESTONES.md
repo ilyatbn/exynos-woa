@@ -1,7 +1,25 @@
 # Exynos 9820 (Galaxy S10e) port — milestones and tasks
 
 Goal: make the Windows-on-Exynos work proven on **SM-G965F (Exynos 9810, star2lte)**
-also run on the **Galaxy S10e (Exynos 9820, `beyond0lte`, SM-G771F)**.
+also run on the **Galaxy S10e (Exynos 9820, `beyond0lte`, SM-G970F)**.
+
+### The actual end goal (why this port exists)
+
+These phones are **scrap hardware being turned into donated desktop computers**. A recipient
+gets a phone docked into a **USB-C dock**, and from that dock they need:
+
+| Need | Hardware path | Milestone |
+|---|---|---|
+| USB keyboard and mouse | the phone's USB-C port must act as a **host** port | M10 |
+| LAN (network) | dock's USB ethernet, same host path | M13 |
+| WiFi | the phone's own WLAN chip | M12 |
+| HDMI output to a screen | the dock's HDMI, fed over the USB-C link | M11 |
+| Stays on, charged, cool | power/battery/thermal while docked | M14 |
+| Something a non-technical person can use | the assembled "donation build" | M15 |
+
+That means the driver port (M3–M5) is **not the finish line** — it is the floor of a
+larger plan. A phone that boots Windows but has no USB host mode cannot take a keyboard,
+so M10 gates the whole desktop use case.
 
 This file is the plan of record. It is updated and committed **per task**, never
 batched at the end. Research evidence lives in [`notes/exynos9820-research.md`](../notes/exynos9820-research.md).
@@ -34,10 +52,16 @@ batched at the end. Research evidence lives in [`notes/exynos9820-research.md`](
 | M3 | Port the HSI2C bus driver to 9820 | todo | — |
 | M4 | Port the touchscreen driver to 9820 | todo | M3 |
 | M5 | Port the UFS storage driver to 9820 | todo | M3 |
-| M6 | Verify the 9820 constants against a live S10e | todo | **needs-phone** |
+| M6 | Verify the 9820 constants against a live S10e | **done** | was **needs-phone** — resolved, see `notes/s10e-live-reads.md` |
 | M7 | Build and test-sign the three 9820 drivers | todo | **needs-windows** |
 | M8 | UEFI firmware for `beyond0lte` | todo | M5, M6 |
 | M9 | Installer: add the S10e behind honest gating | todo | M7, M8 |
+| M10 | USB-C **host** mode: keyboard, mouse, dock attachments | todo | M8 |
+| M11 | External display: the dock's HDMI over the USB-C link | todo | M10 |
+| M12 | WiFi on Windows for this chip | todo | M8 |
+| M13 | LAN through the dock | todo | M10 |
+| M14 | Stay powered and cool while docked | todo | M8 |
+| M15 | The assembled donation build (repeatable, serviceable) | todo | M9–M14 |
 
 ## Task list
 
@@ -145,9 +169,61 @@ re-plug and accept the "Allow access from this PC" dialog on the phone. Success 
 | Add the S10e to the stage catalog as `Guided`, not `Ready` | todo | golden rule |
 | Back up EFS/modem/partition table before any destructive step | todo | same as the 9810 flow |
 
+### M10 — USB-C host mode (the gate for keyboard, mouse, LAN)
+
+| Task | State | Notes |
+|------|-------|-------|
+| Find what the 9810 project does for USB host today | todo | our `firmware/` and Mu-Silicium's `UsbfnDwc3Dxe` |
+| Locate Exynos DWC3/USBFN support in Mu-Silicium | todo | release note "Added Support for Exynos DWC3" |
+| Read the S10e's own USB-function and DWC3 nodes on the live phone | todo | **needs-phone** — node names are readable |
+| Establish what Windows needs for a phone's USB-C port to be a host | todo | the port is host-capable in UEFI; Windows must drive the attached devices |
+| Check prior art: phones running Windows with a keyboard attached | todo | WOA / Renegade / Project-Aloha |
+
+### M11 — External display through the dock
+
+| Task | State | Notes |
+|------|-------|-------|
+| Determine how a USB-C dock's HDMI is fed at all | todo | EEM / SLDCOM protocol, not a real HDMI connection |
+| Establish whether Windows supports EEM/SLDCOM docks | todo | **the make-or-break question for this goal** |
+| Read the Linux reference implementation (EMD2) to see what the protocol requires | todo | https://github.com/emd2v2/emd2 |
+| Check whether the target dock uses EEM or a real GPU in the dock | todo | **needs-dock** — depends on which dock we standardise on |
+| Decide the fallback display path if EEM is a dead end on Windows | todo | phone panel only, or a different dock/output strategy |
+
+### M12 — WiFi
+
+| Task | State | Notes |
+|------|-------|-------|
+| Identify the WLAN hardware in the S10e (live) | todo | **needs-phone** — DTB node names |
+| Find existing Windows drivers for Samsung Exynos WLAN | todo | `windows_samsung_platforms` components, Mu-Silicium |
+| Decide whether WiFi is required at all when LAN is available | todo | donation case may prefer LAN only |
+
+### M13 — LAN through the dock
+
+| Task | State | Notes |
+|------|-------|-------|
+| Confirm Windows ARM64 has a driver for a generic USB ethernet adapter | todo | standard LAN drivers exist for ARM64 |
+| Confirm the dock's ethernet does not need the phone's own network stack | todo | it should be plain USB host |
+
+### M14 — Powered and cool while docked
+
+| Task | State | Notes |
+|------|-------|-------|
+| Confirm charging works through the dock while Windows runs | todo | **needs-dock**, **needs-phone** |
+| Decide the battery policy under Windows on ARM | todo | Windows may refuse to boot/install without a battery interface |
+| Measure thermals under a desktop workload (not destructive, but needs the device) | todo | **needs-phone** |
+
+### M15 — The donation build
+
+| Task | State | Notes |
+|------|-------|-------|
+| Define what the recipient must be able to do without a console | todo | power on, log in, browse, keyboard/mouse |
+| Make the build serviceable: what to do when one part fails | todo | a donated device will fail in the field |
+| Keep the 9810 and 9820 flows separate and labelled | todo | golden rule: no unvalidated `Ready` |
+
 ## What is blocked on the user right now
 
 | Needs | Milestones | Why |
 |-------|-----------|-----|
 | **needs-windows** | M7 | The Windows driver toolchain only runs on Windows; nothing here can compile these drivers |
-| **needs-phone** | M6 | The two `UNVERIFIED` storage values can only be confirmed by reading a live S10e |
+| **needs-phone** | M10, M12, M14 | Further live reads (USB function, WLAN, thermals) — the phone is already connected, so these are cheap |
+| **needs-dock** | M11, M13, M14 | Which dock we standardise on decides whether the HDMI path is EEM (likely dead on Windows) or a dock with a real GPU |

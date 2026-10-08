@@ -206,6 +206,7 @@ re-plug and accept the "Allow access from this PC" dialog on the phone. Success 
 | Read the S10e's CPU topology live | **done** | 8 CPUs in **three** clusters (4+2+2) with three core identities, and three power domains `LITTLE`/`MID`/`BIG` — the 9810's `CoreCount / ClusterCount` positioning is **not integral here**, so it must become an explicit table — `notes/dock-desktop.md` §15 |
 | Create the 9820 memory-map library | **done** | `firmware/Platform/Beyond0LtePkg/Library/PlatformMemoryMapLib/` — 9820 windows in, both zero-base **and zero-size** placeholders skipped, the USB PHY mapped as one envelope because the DT's three windows overlap, and the 9810's PRAM breadcrumb compiled out since `0xFED14000` is **inside bank0** on this SoC |
 | Publish the 9820 MADT | **done** | `firmware/Platform/Beyond0LtePkg/AcpiTables/Madt.aslc` — the GIC half transfers unchanged (same GICv2 bases); the CPU half is **4+2+2 across three efficiency classes**, and the MPIDR affinity **ordering** is marked UNVERIFIED because it is an inference from the power-domain naming |
+| Port the DSDT | **done** | `firmware/Platform/Beyond0LtePkg/AcpiTables/Dsdt.asl` — device classes retargeted (`SCY0761` stays, the panel really is a y761), UFS windows and the ALIVE GPIO moved, HSI2C interrupt 436→420; the CMU/SYSREG windows, the parked Storport line, the touch EINT and the CPU sub-device buffers are **left at the 9810 values and documented as such**, because the DSDT and the driver header have to be corrected in one step |
 
 ### M9 — Installer
 

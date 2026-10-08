@@ -380,3 +380,52 @@ cmu_ewf  reg = <0x0 0x1a240000 0x1000>
 - *(inference)* this is the single biggest reason M10 cannot be "copy the 9810 module": the
   clock/QCH plumbing has to be re-pointed before `PRTCAP` is flipped, or the PHY runs at the
   wrong rate and the host-side pipes mis-time.
+
+## 10. DisplayLink's own docs validate the plan — and confirm the charging dead end
+
+Source: https://support.displaylink.com/knowledgebase/articles/1915774-android-phone-is-not-cloning-to-a-displaylink-scre
+and https://www.synaptics.com/products/displaylink-graphics/downloads/android
+
+**The host-mode gate is exactly what they describe** *(fact)*:
+
+> "The phone is not a USB host … When connecting to a DisplayLink enabled dock, the phone
+> needs to become the USB host and the dock or adapter is the USB device. To switch the phone
+> into a USB host, a USB OTG adapter is used. With USB C this should happen automatically,
+> but is not supported by all phones."
+
+So a phone driving a DisplayLink dock is a **supported product configuration**, and the one
+thing that makes it fail is the host-mode switch — which is M10. *(inference)* our job is to
+make that switch exist on Exynos, where Mu-Silicium shows it never did.
+
+**Charging while docked is a stated dead end, not a guess** *(fact)*:
+
+> "Android devices cannot currently enable USB and charge at the same time. This means it will
+> not be possible for your Android device to charge while docked to a DisplayLink enabled
+> docking station."
+
+That is the vendor, describing the same single-port collision §8 derived from the hardware.
+*(inference)* if it is impossible on Android's mature stack, it is not going to become
+possible on our Windows stack — so M14's honest answer is **the donated device runs on its
+battery while docked**, and the build must be designed around that.
+
+**Two more vendor caveats that change the shopping list** *(fact)*:
+
+> "USB C docks may not all use DisplayLink technology and instead rely on USB Alternate mode
+> for a video output. Alternate mode is not supported by all phones … Look for the DisplayLink
+> 'Plug and Display' logo on your product to ensure it is DisplayLink enabled."
+
+> "The phone cannot deliver enough power to a DisplayLink enabled device … particularly
+> relevant to USB bus powered monitors … you may have to attach it to an externally powered
+> USB hub first, as the Android device might not be able to provide enough power."
+
+- So the dock must be chosen by **DisplayLink chip generation**, not by "USB-C dock" generally.
+- A **powered hub** is the vendor's own suggested fix for the power shortfall — which is the
+  same configuration the WOA community warns "can irreversibly damage your device". *(inference)*
+  that warning is about our SoC, not theirs, so it must be re-tested on a spare unit rather
+  than assumed fatal.
+- "DisplayLink's wired Ethernet connection is not currently supported" is a statement about
+  **the Android app**, not about Windows — *(inference)* on Windows the dock's ethernet is an
+  ordinary USB-net device (M13), so do not carry this limitation over.
+
+**What this settles:** the donation build is **phone + DisplayLink dock + monitor + USB
+keyboard/mouse + LAN**, running on battery, with the phone's own panel as the fallback display.

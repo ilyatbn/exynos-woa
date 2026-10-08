@@ -29,6 +29,7 @@ batched at the end. Research evidence lives in [`notes/exynos9820-research.md`](
 | # | Milestone | State | Blocked on |
 |---|-----------|-------|------------|
 | M1 | Gather the 9820 reference material | **done** | — |
+| M1b | Read the mainline-style 9820 kernel (postmarketOS) | todo | — |
 | M2 | Write the plan of record (this file) | **done** | — |
 | M3 | Port the HSI2C bus driver to 9820 | todo | — |
 | M4 | Port the touchscreen driver to 9820 | todo | M3 |
@@ -48,6 +49,15 @@ batched at the end. Research evidence lives in [`notes/exynos9820-research.md`](
 | Find existing UEFI work for this chip (Mu-Silicium, edk2-exynos) | done | §3, §2 |
 | Find existing Linux/other-OS work for the S10e family | done | §6 |
 | Diff the 9810 and 9820 versions of the shared code | done | §1a, §5 |
+| Merge the two parallel research passes left in the tree | done | `notes/exynos9820-linux-boot.md`, `notes/exynos9820-drivers.md` |
+| Correct the S10e model number to SM-G970F | done | notes §9 |
+
+### M1b — Mainline-style reference (new, from the merged research)
+
+| Task | State | Notes |
+|------|-------|-------|
+| Read what postmarketOS keeps of the BSP on this SoC (`chiffathefox/exynos-9820-mainline-linux`) | todo | a close-to-mainline 9820 kernel exists; tells us what a generic driver may rely on |
+| Use `S5E9830Pkg` (Exynos 9830, storage works) as the second storage template | todo | alongside `S5E9810Pkg` |
 
 ### M2 — Plan of record
 

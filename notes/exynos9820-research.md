@@ -214,6 +214,35 @@ read back via `SEC_TS_CMD_GET_*` before renaming the Windows driver.
 - Nura wiki page (https://wiki.nura.eco/wiki/Samsung_Galaxy_S10_(samsung-beyond1lte)) blocked by Anubis
   anti-bot; not retried.
 
+## 9. Correction + the parallel research that was already in the tree
+
+- **Model number correction:** the Galaxy S10e is **SM-G970F** (`beyond0lte`); S10 = SM-G973F,
+  S10+ = SM-G975F, S10 5G = SM-G977B (https://wiki.lineageos.org/devices/beyond0lte and
+  https://github.com/ExtremeXT/android_device_samsung_exynos9820).
+- Two earlier research passes were left in the tree before they were cancelled; they are kept as-is:
+  [`notes/exynos9820-linux-boot.md`](exynos9820-linux-boot.md) and
+  [`notes/exynos9820-drivers.md`](exynos9820-drivers.md).
+- **Big new fact: a close-to-mainline Linux for this SoC does exist.** postmarketOS ships
+  `linux-postmarketos-exynos9820` ("Close-to-mainline kernel for Samsung Exynos 9820 devices",
+  7.2.0-r0, built 2026-07-31) from https://github.com/chiffathefox/exynos-9820-mainline-linux
+  (source: https://pkgs.postmarketos.org/package/main/postmarketos/aarch64/linux-postmarketos-exynos9820).
+  *(inference)* this is the best place to learn which of the Samsung BSP pieces (HSI2C bus, touch,
+  display `decon_f`) survived into a mainline-style kernel — i.e. what a generic driver can rely on.
+- S10e kernel is **Linux 4.14**-based (Android-patched), not 4.10
+  (https://github.com/LineageOS/lineage_wiki/blob/main/_data/devices/beyond0lte.yml,
+  https://lineage.linux4.de/changes/beyond0lte.html).
+- postmarketOS device internals for the S10 family (from the pmaports mirror
+  https://github.com/sm7150-mainline/pmaports, path `device/testing/device-samsung-beyond1lte/`):
+  flash method `heimdall-bootimg`, partitions `VBMETA`/`BOOT`/`SYSTEM`, boot-image load base
+  `0x10000000`, and the display is a `decon_f` node at `/sys/devices/platform/19030000.decon_f`
+  forced to 16 bpp — the same DPU family the 9820 kernel calls `CONFIG_EXYNOS_DPU20`.
+- Touch-driver lineage confirmed: Gustave Monce `edk2-porting/nt36xxx_win` → TheMorc
+  `S6SY761Touch` (GPL-2.0) → this repo; `yatli/S6SY761Touch` retargets it to OnePlus 7 Pro/7T Pro
+  (also s6sy761). TheMorc has no S10/S20 Windows driver of his own.
+- Mu-Silicium template ranking for the storage work: `x1sPkg` (Galaxy S20 5G, Exynos 9830) is
+  **Active with Internal Storage working**, so `S5E9830Pkg` + `S5E9810Pkg` are the two working
+  examples to diff against the broken 9820 case.
+
 ## Sources
 
 - https://github.com/V0lk3n/nethunter_kernel_samsung_exynos9820 (+ raw files under that branch)

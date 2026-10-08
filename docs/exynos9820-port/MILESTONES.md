@@ -193,14 +193,15 @@ re-plug and accept the "Allow access from this PC" dialog on the phone. Success 
 
 ### M7 — Build and sign
 
-State: **doing** — the Windows toolchain is now installed and runs; the HSI2C
-MSBuild invocation is not yet producing the WDK's include path.
+State: **doing** — the Windows toolchain is installed and the ARM64 WDK invocation now
+resolves; HSI2C and UFS build, the touch build's host-mock half is blocked by files this
+tree does not contain.
 
 | Task | State | Notes |
 |--------|-------|-------|
-| Install the Windows toolchain | doing | VS 2026 Community + WDK/SDK 10.0.26100 installed (`notes/windows-m7-toolchain.md` §1). Needs elevation for the VS component step; `warning.h` comes from the Windows 11 SDK component, not the WDK MSI |
-| Build the three drivers for ARM64 | doing | **needs-windows** (WDK toolchain, no Linux cross-build). UFS script runs and produces a binary; HSI2C `msbuild` reaches `ClCompile` but loses the WDK include path — and the **validated 9810 project fails identically**, so it is an invocation problem, not a port defect (§9 of HANDOFF) |
-| Test-sign and package as `drivers.zip` equivalent | todo | **needs-windows**; the project's test certificate is not in this tree |
+| Install the Windows toolchain | **done** | VS 2026 Community + WDK/SDK 10.0.26100 installed (`notes/windows-m7-toolchain.md` §1). Needs elevation for the VS component step; `warning.h` comes from the Windows 11 SDK component, not the WDK MSI. `KitsRoot10` registry value added elevated — that is what makes the WDK include paths resolve (§4.1) |
+| Build the three drivers for ARM64 | doing | **needs-windows** (WDK toolchain, no Linux cross-build). HSI2C 9820 now compiles and links clean at `/W4 /WX` -> `ARM64\Release\Exynos9820Hsi2c.sys` 45112 B, sha256 `46b5ff01...`; the missing `VisualStudioVersion`-suffixed DriverKit dll (`18.0`) is pinned to `17.0` on the command line (§4.2). UFS 9820 `EXACT_BUILD_OK` (§4.5). Touch: ARM64 `.sys` builds, but `Build-Touch.ps1` cannot run — its mock harness (`S6SY761TouchGpio\RetainedV24`, `Arm64BuildEvidence.ps1`, `tools\wdk-mirror`) is absent from this tree (§4.6) |
+| Test-sign and package as `drivers.zip` equivalent | todo | **needs-windows**; the project's test certificate is not in this tree (`rg -i WDKTestCert` -> no matches). The HSI2C `.sys` is already test-signed by the WDK's own `Sign` task (`WDKTestCert ilya,...`); touch pins `SignMode=Off` and UFS never signs, so those two go through the installer's signing/deployment workflow (§4.5) |
 
 ### M8 — Firmware
 

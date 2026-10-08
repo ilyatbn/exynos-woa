@@ -229,7 +229,9 @@ re-plug and accept the "Allow access from this PC" dialog on the phone. Success 
 | Choose the dock by DisplayLink chip, not by "USB-C dock" | **done** | the vendor warns many USB-C docks use USB "Alternate mode" instead; look for the **Plug and Display** logo — §10 |
 | Check whether the target dock uses EEM or a real GPU in the dock | todo | **needs-dock** — we now know which kind we must buy |
 | Decide the fallback display path if EEM is a dead end on Windows | **done** | DisplayLink is **the fallback**, not the first choice — see below |
-| Investigate the **non-DisplayLink** path (preferred: cheaper, and the owner already has such a dock) | todo | how Samsung's own **DeX** drives an external monitor; the 9820 hints at the mechanism with `has_combo_phy = 1` and a `displayport@130B0000` node — §5 |
+| Investigate the **non-DisplayLink** path (preferred: cheaper, and the owner already has such a dock) | **done** | DeX uses **DisplayPort Alt Mode**, not DisplayLink and not EEM — and the S10e is listed as DP-alt-mode capable; the 9820 DT has a **USB/DP combo PHY** (`10AE0000`+0x2800, `has_combo_phy=1`) and a `displayport@130B0000` node — §11 |
+| Set up DECON → DP scanout in firmware | todo | the repo never touches DECON today (`Exynos9810.h:203`); it reuses the sboot-lit framebuffer for the phone panel only |
+| Make Windows report the external monitor as a second display | todo | **the hard part** — Windows enumerates displays only through a WDDM driver; a second output is real driver work, not a config change |
 
 ### M12 — WiFi
 

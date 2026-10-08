@@ -429,3 +429,49 @@ battery while docked**, and the build must be designed around that.
 
 **What this settles:** the donation build is **phone + DisplayLink dock + monitor + USB
 keyboard/mouse + LAN**, running on battery, with the phone's own panel as the fallback display.
+
+## 11. M11, the preferred path: DP Alt Mode — the S10e really has it
+
+The user prefers the **non-DisplayLink** dock because it is cheaper, and asked how DeX works.
+DeX does not use DisplayLink and does not use EEM mirroring. It uses **DisplayPort Alt Mode**:
+a real DisplayPort signal transmitted out of the phone's own USB-C connector.
+
+*(fact)* The S10e is listed as DP-Alt-Mode capable:
+https://uperfect.com/blogs/wikimonitor/list-of-smartphones-with-displayport-alt-mode —
+row "Samsung Galaxy S10e | Samsung DeX | smartphone | Android | 2019".
+
+*(fact)* Samsung's own instructions are a cable, not a driver: "Connect an HDMI adapter to your
+mobile device… Connect an HDMI cable to the HDMI adapter to a TV or monitor's HDMI port…
+The Samsung DeX screen will appear on the connected TV or monitor"
+— https://www.samsung.com/ph/support/mobile-devices/how-to-use-a-samsung-usb-c-to-hmi-adapter
+(the S10 series is in the compatible list).
+
+*(fact)* DisplayLink's own support page draws the same line we should keep:
+"USB C docks may not all use DisplayLink technology and instead rely on USB **Alternate mode**
+for a video output" — §10 source.
+
+**And the hardware agrees with them.** From the 9820 device tree (§5):
+
+```
+phy@10B00000   compatible = "samsung,exynos-usbdrd-phy"
+               reg #2 = 0x10ae0000 +0x2800      has_combo_phy = 1
+displayport@0x130B0000                          (its own S2S node)
+decon_f@0x19030000  decon_t@0x19050000          (display pipeline, two halves)
+```
+
+The Exynos 9820 has a **USB/DP combo PHY** — one connector window that carries both the USB
+pipes and a DisplayPort pipe. That is the thing the 9810 header already calls
+`EXYNOS_USB_COMBO_PHY_BASE`. *(inference)* DeX's picture is DECON → DP pipe → the dock's HDMI.
+
+### What this means for the plan, honestly
+
+| Step | Status |
+|---|---|
+| The S10e can emit DP over its USB-C port | **hardware fact** — vendor DT + the DP-alt-mode list |
+| A cheap USB-C→HDMI dock will receive it | **needs-dock** — the owner's non-DisplayLink dock, plus the XDA caveat that some docks' **DP** input fails while their **HDMI** works |
+| The firmware can set up DECON→DP scanout | **new work** — the repo today reuses the sboot-lit framebuffer for the **phone panel** and never touches DECON (`Exynos9810.h:203` says so) |
+| Windows treats the external monitor as a **second display** | **the hard part** — Windows only enumerates displays a WDDM driver reports; a second output is real driver work, not a config change |
+
+So the cheap path is **not** cheaper in engineering, only in purchase price. It should be
+attempted, but the plan must not pretend the last row is free. DisplayLink remains the
+fallback because Synaptics already wrote the WDDM driver for ARM64 (§2).

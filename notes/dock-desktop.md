@@ -342,3 +342,41 @@ your device"). Mu-Silicium lists **USB Power Delivery ❌ on every Exynos target
    battery/UPS across `drivers/` and `firmware/` finds none) — so today the device already
    runs Windows with an invisible, unmanaged battery. That is the honest starting point, not
    a solved state.
+
+## 9. What our own firmware already has, and exactly what is missing
+
+`firmware/Platform/Star2LtePkg/Library/PlatformBootManagerLib/UsbDebugHid.c` is a
+**complete DWC3 register vocabulary** — PHY link/clk/pwr/UTMI/HSP offsets, the xHCI-side
+`GUSB2PHYCFG`/`GUSB3PIPECTL`/`GSBUSCFG` windows, the device-side `DCTL`/`DSTS`/`DEP*`
+engine, and TRB command words. It is compiled in only when
+`STAR2LTE_USB_DEBUG_MODE == HID`, and `Star2LtePkg.dsc:26` defaults that to **0 (off)**.
+
+**But it is peripheral mode, not host mode.** The giveaway is what it programs:
+`USB_EP0_OUT/IN`, `USB_HID_EP_IN = 3`, `DWC3_DCTL_RUN_STOP`, `DWC3_DEPCMD_START_TRANSFER`,
+and `DWC3_GCTL_PRTCAP_DEVICE = (0x2 << 12)`. That is the phone presenting itself as an HID
+*device* down a cable (the header comment says the point is "so Windows can consume firmware
+logs without a custom kernel driver"). A dock needs the opposite capability field:
+`PRTCAP` **host** (`0x1 << 12`), plus host-side endpoint allocation for whatever is plugged in.
+
+*(inference)* So M10 is a **narrow, well-understood change**: reuse the register vocabulary
+that already exists, flip `PRTCAP`, and let Windows' inbox `USBXHCI.sys` bind to the xHCI
+window — which `Exynos9810.h:154` already says is what happens on the 9810 today.
+
+**The CMU clock windows move, and the USB code depends on them.** Our `UsbDebug.c` pokes
+`CMU_FSYS0_USB_*` QCH offsets under `EXYNOS_CMU_FSYS0_BASE = 0x11000000` (9810). The 9820
+device tree declares a different set:
+
+```
+cmu      reg = <0x0 0x1a200000 0x8000  0x0 0x1bc00000 0x8000  0x0 0x1bd00000 0x8000
+               0x0 0x1be00000 0x8000  0x0 0x1bf00000 0x8000>
+cmu_ewf  reg = <0x0 0x1a240000 0x1000>
+```
+
+- *(fact)* 9820 CMU banks: **0x1A200000**, 0x1BC00000, 0x1BD00000, 0x1BE00000, 0x1BF00000 —
+  none of them is the 9810's `0x11000000`.
+- *(fact)* the 9820 USB wrapper asks for clocks `aclk`/`sclk` (ids `0x11d`, `0x120`) and the
+  PHY asks for `ext_xtal`/`aclk` — so the USB function is clocked from the CMU, exactly as
+  the 9810 code assumes, but through **different windows**.
+- *(inference)* this is the single biggest reason M10 cannot be "copy the 9810 module": the
+  clock/QCH plumbing has to be re-pointed before `PRTCAP` is flipped, or the PHY runs at the
+  wrong rate and the host-side pipes mis-time.

@@ -193,6 +193,8 @@ re-plug and accept the "Allow access from this PC" dialog on the phone. Success 
 | Check prior art: phones running Windows with a keyboard attached | **done** | Snapdragon targets do it (Renegade OOBE assumes a USB keyboard; a Windows-side "USB Host Mode Control" toggle exists) — Exynos targets do not |
 | Decide passive vs powered dock | todo | **safety**: the community warns a powered hub plus host mode "can irreversibly damage your device" |
 | Confirm the port can be host **and** receive power at once | todo | the S10e has **one** USB-C connector — the dock occupies the charging port; Mu-Silicium shows USB Power Delivery ❌ on every Exynos target |
+| Inventory what our firmware already has | **done** | `UsbDebugHid.c` is a complete DWC3 register vocabulary, but it programs **peripheral** mode (`PRTCAP_DEVICE`, EP0 + HID IN) and is compiled **off** by default — §9 |
+| Re-point the CMU clock/QCH windows before flipping PRTCAP | todo | 9820 CMU banks are `1A200000`/`1BC00000`/`1BD00000`/`1BE00000`/`1BF00000`, not the 9810's `11000000` — §9 |
 
 ### M11 — External display through the dock
 

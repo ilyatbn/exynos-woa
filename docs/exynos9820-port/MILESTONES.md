@@ -173,6 +173,9 @@ State: **doing** (user chose the phone path)
 | Confirm the storage and bus regions in the live kernel | done | UFS `13d60000.ufs` and bus `104b0000.hsi2c` both present — the address swap is confirmed on hardware |
 | Record the panel's identity and firmware version | done | driver `sec_ts`, blob `tsp_sec/y761_beyond0_phole.bin`, project `BEYOND0G970`, `afe_base 0x0205` |
 | Note what the phone could NOT tell us | done | DTB *contents* are SELinux-blocked; PMA base and `UFS_SCLK` stay unverified (§5) |
+| Second pass: `/proc/iomem`, `reserved-memory/**/reg`, CMU devices | done | all still blocked (`/proc/iomem` -> `Permission denied`; only `1a240000.cmu_ewf` is a live platform device, the five CMU banks are not) - `notes/s10e-live-reads.md` §7.1 |
+| Close the vendor-DT values that a fetch can close | done | DRAM banks, the five CMU bank windows, the touch-bus node (`default-clk 200 MHz`, pins `gpp1-4/gpp1-5`), the USB node, and every reserved carveout inside bank0 - §7.2. This also proves `0xCC000000` sits inside the `abox-rmem` **alloc range** on this SoC and `0xFED14000` inside `debug_snapshot.log_bcm`, so neither the 9810 fb base nor the 9810 breadcrumb address is reusable - §7.3 |
+| Try to resolve CMU bank -> power domain | done | **dead end, recorded**: `cal-if/exynos9820/cmucal-{vclk,node,qch}.h` are enum lists only and that repo ships no clock driver to bind enum -> bank. Adopted instead: map the whole `0x0..0x20000000` as one `NS_DEVICE` region (what edk2-exynos' working 9820 port does), which covers every bank and both verified windows - §7.3 |
 
 The exact read-only commands I will run on the phone (nothing is flashed or written):
 

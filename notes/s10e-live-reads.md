@@ -110,3 +110,74 @@ Two ways to close the remaining two rows, in ascending cost:
   (`-r--r--r--`). Directory *names* and symlink *targets* are fine.
 - Practical consequence: get identities and addresses from node **names** and **symlinks**;
   get values from the kernel source DTS; only the vendor's own userspace can read the rest.
+
+
+## 7. Second pass (2026-10-09, admin session) - what closed, what did not
+
+All phone work stayed **read-only** (`ls`, `cat`, `grep`); nothing was written to the device even
+though the operator allowed it, because HANDOFF §2 rule 5 forbids anything that could take the
+donated device away from Android.
+
+### 7.1 Still blocked (fact)
+
+* `/proc/iomem` -> `Permission denied` (unprivileged shell domain).
+* `/proc/device-tree/reserved-memory/<child>/reg` -> `Permission denied` (same lesson as §6).
+* Live `reserved-memory` children (names only): `abox-rmem camera camera_contig cp_ram_logging
+  debug_snapshot el2_code el2_earlymem ion_crypto ion_video_stream kaslr mm_debug modem_if
+  modem_spare sec_debug_magic sec_rdx_bootdev seclog_mem secure_camera`.
+* Live `/sys/devices/platform/` exposes **one** CMU-ish device: `1a240000.cmu_ewf`. The five CMU
+  banks are *not* separate platform devices, so the bank -> power-domain mapping is not readable
+  on the phone this way.
+
+### 7.2 Vendor DT values (fact, from the shipping 9820 DTS)
+
+`CruelKernel/samsung-exynos9820` @ `cruel-HVJ5-v5.3`, `arch/arm64/boot/dts/exynos/exynos9820.dts`
+and `exynos9820-rmem_s5100_dual.dtsi`:
+
+* DRAM: `memory@80000000 reg = <0x0 0x80000000 0x80000000>` (bank0 = 2 GiB),
+  `memory@880000000 reg = <0x8 0x80000000 0x80000000>`, `memory@900000000 reg = <0x9 0x0 0x80000000>`.
+* `cmu reg = <0x0 0x1a200000 0x8000  0x0 0x1bc00000 0x8000  0x0 0x1bd00000 0x8000
+  0x0 0x1be00000 0x8000  0x0 0x1bf00000 0x8000>`; `cmu_ewf reg = <0x0 0x1a240000 0x1000>`.
+* Touch bus node: `hsi2c@104b0000` (`compatible = "samsung,exynos5-hsi2c"`, `default-clk = <0xbebc200>`
+  = 200 000 000, `interrupts = <0x0 0x184 0x0>`, pinctrl phandle `0x76` = `hsi2c10-bus` on `gpp1-4/gpp1-5`).
+  Same pin pair as the 9810 -> the DSDT's GSIV for the touch bus stays at the same pins.
+* USB: `usb@10C00000` (`compatible = "samsung,exynos-dwusb"`, `reg = <0x0 0x10c00000 0x10000>`,
+  `samsung,power-domain = <0x34>`, child `dwc3` with `phy-names = "usb2-phy","usb3-phy"`).
+* Reserved carveouts inside bank0 (real values): `sec_debug_magic 0x80000000+0x1000`,
+  `mm_debug 0x91200000+0x1000`, `seclog_mem 0xc0000000+0x80000`,
+  `abox-rmem` heap `alloc-ranges = <0x0 0xc0000000 0x20000000>` size `0x3c00000`,
+  debug-snapshot logs `0xfd900000..0xff400000+c00000`, `log_pstore 0xeb308000+0x8000`,
+  `modem_spare 0xd0000000+0x1600000`, `modem_if2 0xd1600000+0x4200000`,
+  `cp2cp_shm 0xd5800000+0x4000000`, `s5100_msi 0xd9800000+0x1000`,
+  `modem_if 0xf0000000+0xb900000`, `cp_ram_logging 0xfb900000+0x2000000`.
+
+### 7.3 Consequences for the open constants (fact + inference)
+
+* **Framebuffer base.** `0xCC000000` sits inside the `abox-rmem` **allocation range**
+  (`0xc0000000..0xe0000000`) in the shipping DT, and inside `HLOS 1` (`0xc1200000+0x3ee00000`)
+  in edk2-exynos' working 9820 memory map. Inference (mine): the 9810's scanout address is not
+  reusable on the S10e; it must be measured, or discovered at runtime from DECON
+  (`decon_f@0x19030000`, `decon_t@0x19050000` - verified node names).
+* **PRAM breadcrumb.** `0xFED14000` falls inside `debug_snapshot.log_bcm` (`0xfeb10000+0x400000`)
+  on this SoC, i.e. inside a live vendor log region - the 9810's "scratch above RAM" assumption is
+  false here (already stated in HANDOFF §5). Candidate carveouts that are reserved and not part of
+  the live logging: `seclog_mem 0xc0000000+0x80000` (but that is the start of the abox heap range)
+  or the top of bank0's `log_kevents` tail. Still a choice, not a read - keep it `UNVERIFIED`.
+* **CMU bank -> domain.** Not resolvable from the phone, the shipping DTS, or Samsung's `cal-if`
+  headers as published in `CruelKernel/samsung-exynos9820`: `cmucal-vclk.h`, `cmucal-node.h`,
+  `cmucal-qch.h` are **enum lists only** (confirmed by reading them: `VCLK_*`, `CLK_QCH(...)`,
+  no addresses), and that repo carries no `s2cmu`/clock driver that would bind enum -> bank.
+  Dead end recorded so it is not re-searched.
+  Practical way forward (inference, mine): do not pick a bank at all. edk2-exynos' 9820 port maps
+  the whole `0x0..0x20000000` as one `NS_DEVICE` region ("Periphs"), which covers every CMU bank
+  and both verified device windows (`hsi2c@104b0000`, `usb@10C00000`). Our memory map can do the
+  same, and the only CMU-specific pokes left are the 9810's `UsbDebug.c` QCH offsets, which stay
+  `UNVERIFIED` until a read exists.
+
+### 7.4 Sources for §7
+
+* `https://raw.githubusercontent.com/CruelKernel/samsung-exynos9820/cruel-HVJ5-v5.3/arch/arm64/boot/dts/exynos/exynos9820.dts`
+* `https://raw.githubusercontent.com/CruelKernel/samsung-exynos9820/cruel-HVJ5-v5.3/arch/arm64/boot/dts/exynos/exynos9820-rmem_s5100_dual.dtsi`
+* `https://raw.githubusercontent.com/CruelKernel/samsung-exynos9820/cruel-HVJ5-v5.3/drivers/soc/samsung/cal-if/exynos9820/cmucal-{vclk,node,qch}.h` (+ the `.c` twins, `cal-if/cmucal.h`, `cmucal.c`)
+* `https://raw.githubusercontent.com/sonic011gamer/edk2-exynos/HEAD/Silicon/Samsung/Exynos9820Pkg/Library/PlatformMemoryMapLib/PlatformMemoryMapLib.c`
+* live `adb` reads on `RF8M21HYDSZ` (SM-G970F)

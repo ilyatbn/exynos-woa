@@ -96,7 +96,8 @@ State: **doing** (user chose the phone path)
 
 | Task | State | Notes |
 |------|-------|-------|
-| Install the PC-side tooling (`android-tools`) | doing | needs a password for `sudo`; user runs it |
+| Install the PC-side tooling | done | `android-sdk` (not `android-tools`); `adb` 1.0.41 / 34.0.4-debian from `/usr/lib/android-sdk/platform-tools` |
+| Diagnose why `adb` could not reach the phone | done | **not** a permissions problem: the device node is group-`plugdev` + ACL `user:ilya:rw-`, and `ilya` is in `plugdev`. `adb devices -l` reports `RF8M21HYDSZ unauthorized` — the phone never accepted the "allow this PC" prompt, so `~/.android/authorized_keys` does not exist |
 | Read the running device tree from the S10e | todo | **needs-phone** — adb, read-only |
 | Confirm the storage and bus regions in the live kernel | todo | **needs-phone** |
 | Record the panel's identity and firmware version | todo | **needs-phone** |
@@ -113,6 +114,10 @@ adb shell "dmesg | grep -iE 'hsi2c|sec_ts|ufs|unipro'"       # what the kernel s
 ```
 
 Paths are adjusted to whatever the phone actually exposes; all of it is `cat`/`ls`/`grep`.
+
+**M6 step 1 — phone authorization (paused, needs the user):** `adb kill-server`, then
+re-plug and accept the "Allow access from this PC" dialog on the phone. Success condition:
+`adb devices -l` stops saying `unauthorized`.
 
 ### M7 — Build and sign
 

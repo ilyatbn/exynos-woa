@@ -475,3 +475,41 @@ pipes and a DisplayPort pipe. That is the thing the 9810 header already calls
 So the cheap path is **not** cheaper in engineering, only in purchase price. It should be
 attempted, but the plan must not pretend the last row is free. DisplayLink remains the
 fallback because Synaptics already wrote the WDDM driver for ARM64 (§2).
+
+## 12. M3 — the HSI2C clock plumbing on 9820: same names, different windows
+
+Verified against the 9810 driver's own constants header
+(`drivers/Exynos9810Hsi2c/exynos9810hsi2c.h`) and the 9820 kernel:
+
+| Constant (9810 driver) | 9820 evidence | Verdict |
+|---|---|---|
+| `EXYNOS_HSI2C10_PHYSICAL_BASE 0x104B0000` | vendor DT `hsi2c@104B0000`, live `104b0000.hsi2c` | **identical** |
+| `EXYNOS_HSI2C_SOURCE_CLOCK_HZ 200000000` | vendor DT `default-clk = <0xbebc200>` = 200,000,000 | **identical** |
+| `EXYNOS_PERIC0_GPIO_PHYSICAL_BASE 0x10430000` | vendor DT `pinctrl@10430000`, live node | **identical** |
+| `EXYNOS_GPIO_GPP1_SCL_PIN 4` / `SDA_PIN 5` | DT `gpio_scl = <0x74 0x4 0x1>`, `gpio_sda = <0x74 0x5 0x1>`, and `gpp1` has phandle `0x74` | **identical** |
+| `EXYNOS_PERIC0_CMU_PHYSICAL_BASE 0x10400000` | **no such node on 9820**; the DT's `cmu` node declares `1A200000`, `1BC00000`, `1BD00000`, `1BE00000`, `1BF00000` | **moves — window must be re-chosen** |
+| `EXYNOS_PERIC0_SYSREG_PHYSICAL_BASE 0x10411000` | no such node; 9820 has `sysreg-controller@13020000` / `@13C10000` | **moves** |
+| `EXYNOS_CMU_GATE_USI03_*` offsets `2018/206C/20DC/20E0`, `QCH 3038` | the 9820 uses **the same names** (`GATE_USI03_I2C`, `USI03_I2C_QCH`) but resolves them through Samsung's CAL headers | **same vocabulary, new numbers** |
+
+The 9820 clock driver `drivers/clk/samsung/clk-exynos9820.c` includes
+`../../soc/samsung/cal-if/exynos9820/cmucal-vclk.h`, `cmucal-node.h`, `cmucal-qch.h` —
+and those files **do exist** in the tree (reachable in raw form as
+`.../drivers/clk/samsung/../../soc/samsung/cal-if/exynos9820/cmucal-qch.h`, 17 KB):
+
+```
+enum qch_id { APBIF_GPIO_ALIVE_QCH = QCH_TYPE, ... }
+  USI03_I2C_QCH        -> entry 676
+  USI03_USI_QCH        -> entry 677
+  GPIO_PERIC0_QCH      -> entry 664
+  USB31DRD_QCH_REF     -> entry 349   (SLV_CTRL 350, SLV_LINK 351, APB 352, PCS 353)
+```
+
+- *(fact)* the 9820 keeps **USI03** as the name for the HSI2C #10 clock, and adds a full
+  `USB31DRD` QCH family — the same five handles the 9810 firmware pokes in `UsbDebug.c`
+  (`USB_PLL_QCH`, `CTRL_QCH`, `LINK_QCH`, `PHY_QCH`, `PCS_QCH`).
+- *(inference)* the QCH **index → address** rule lives in `cmucal.h`/the s2cmu implementation,
+  so the 9820 numbers must be derived from there, not guessed. Until that is done, the CMU
+  half of the 9820 HSI2C driver stays `UNVERIFIED` per the repo's rule.
+- *(fact)* `USB31DRD` hangs off `UMUX_CLKCMU_FSYS0A_BUS`, while `USI03_*` hangs off
+  `UMUX_CLKCMU_PERIC0_BUS` — **two different CMU banks**, which is why M10 (USB) and M3
+  (touch bus) cannot share one CMU window constant.

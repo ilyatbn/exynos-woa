@@ -785,3 +785,41 @@ sizes are confirmed.
 `initrd-end = 0x841fffff` — 32 MB of the front of bank0 is taken by the Android
 initrd, which is the same reason the 9810 flow loads the firmware at
 `0x80080000` rather than at the base.
+
+## 18. M4/M8 — the touch interrupt number, derived from the shipping DT
+
+The S10e's touch node names its interrupt pin as `sec,irq_gpio = <&gpa1 0 0>`
+(the same label appears in `exynos9820-universal9820_common.dtsi`; the live phone
+shows the property exists but its contents are blocked).
+
+The SoC-level DT resolves that label and publishes the group's interrupts:
+
+```
+gpa1 = "/pinctrl@15850000/gpa1"          <- gpa1 belongs to the ALIVE pinctrl
+
+gpa1 {
+    interrupt-parent = <0x1>;                                   (the GIC)
+    interrupts = <0x0 0xd 0x0  0x0 0xe 0x0  0x0 0xf 0x0
+                  0x0 0x10 0x0 0x0 0x11 0x0  0x0 0x12 0x0
+                  0x0 0x13 0x0 0x0 0x14 0x0>;                   (SPIs 13..20)
+}
+```
+
+*(fact)* so **gpa1-0 is SPI 13**, and with the repo's rule (GSIV = SPI + 32) that
+is **GSIV 45**.
+
+*(fact)* this is a real move, not a carry-over: the 9810's touch EINT was GPA1_0 at
+SPI 44 → GSIV 76. Same pin name, different number, because the ALIVE pinctrl moved
+from `0x14050000` to `0x15850000` and its interrupt block was renumbered.
+
+*(inference)* the value is derived from the shipping DT rather than observed, so it
+is marked as such in the DSDT: the `attn_irq` label that binds the pin was not
+found in the two files read, and `sec,irq_type = <8200>` in the common file is a
+timeout, not an interrupt type. The first on-device confirmation is the DSDT being
+accepted and the panel raising an interrupt at a tap.
+
+Also from that block, worth recording because the 9810 stack hardcodes them:
+`sec,max_coords = <4095 4095>` (the live read reported 4096×4096, which is the
+count, not the maximum), `pressure-sensor = "Y"`, `sec,always_lpmode = <1>`,
+and `sec,regulator_dvdd/avdd` naming LDOs 19/27 — the panel IC's power is
+regulated through the USB PHY's LDOs, which is the same plumbing M10 touches.

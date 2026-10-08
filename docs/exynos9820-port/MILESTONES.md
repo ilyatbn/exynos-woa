@@ -135,6 +135,7 @@ batched at the end. Research evidence lives in [`notes/exynos9820-research.md`](
 | Decide what fingerprint-on-glass changes mean for us | **done — does not apply** | the S10e's own shipping touch node has **no `support_fod`**; it carries `support_dex_mode` and `support_ear_detect_mode` instead |
 | Re-qualify report delivery at 120 Hz | todo | the node declares `sync-reportrate-120`; our candidate's coalescing rules are written around a 64-event FIFO, so this model is where they are most likely to need re-testing — **needs-phone** |
 | Create the `S6SY761TouchBeyond0` package | **done** | copy of the 9810 candidate. The driver has **no MMIO**, so the only device-specific numbers in it are the HID descriptor's panel extents (`271`/`558` hundredths of an inch) — left at the S9+'s and annotated above `G_DefaultReportDescriptor`. The four `sec_ts` opcodes it sends are verified identical |
+| Derive the touch EINT for the 9820 | **done** | same pin as the 9810 (`sec,irq_gpio = <&gpa1 0 0>`) but **renumbered**: the shipping DT lists gpa1's SPIs as 13..20, so gpa1-0 is SPI 13 → **GSIV 45**, not the 9810's 76 — `notes/dock-desktop.md` §18 |
 
 ### M5 — UFS storage driver
 

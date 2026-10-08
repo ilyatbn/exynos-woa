@@ -25,10 +25,11 @@
     * the parked Storport interrupt (GSIV 259) on UFS0. It is chosen to be a
       line with no consumer, so it never asserts; the 9820's own unconsumed
       number has not been identified.
-    * the touchscreen's EINT (GSIV 76). On the 9810 that is GPA1_0 / SPI 44.
-      The S10e's touch node declares sec,irq_gpio and sec,irq_type but their
-      contents are unreadable from an unprivileged shell, so this number is
-      UNVERIFIED here.
+    * the touchscreen's EINT: 76 -> 45. The pin is the same (sec,irq_gpio =
+      <&gpa1 0 0>) but the shipping DT lists gpa1's SPIs as 13..20, so gpa1-0 is
+      SPI 13 and GSIV 45. Derived from the DT, not observed — notes/dock-
+      desktop.md §18 says why, and the first confirmation is the panel raising
+      an interrupt at a tap.
     * the eight CPU sub-devices below. The S10e has THREE clusters (4+2+2), so
       the cluster/core field in each _MAT buffer — the group reading
       0x01,0x00 / 0x01,0x00 / 0x02,0x00 / 0x03,0x00 for CPU0-3 and
@@ -277,7 +278,7 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
                 )
                 Interrupt (ResourceConsumer, Level, ActiveLow, Exclusive)
                 {
-                    76
+                    45   // DERIVED 9820: sec,irq_gpio = <&gpa1 0 0>, and the shipping DT lists gpa1's SPIs as 13..20, so gpa1-0 is SPI 13 and GSIV = 13 + 32 = 45. The 9810's was GSIV 76 (SPI 44) — same pin name, renumbered because the ALIVE pinctrl moved from 0x14050000 to 0x15850000.
                 }
                 Memory32Fixed (ReadWrite, 0x15850000, 0x00001000)
             })

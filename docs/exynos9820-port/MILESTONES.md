@@ -189,9 +189,10 @@ re-plug and accept the "Allow access from this PC" dialog on the phone. Success 
 | Find what the 9810 project does for USB host today | **done** | our own `tools/twrp-winre/build.py` anchors `sys.usb.controller = 10c00000.dwc3` — `notes/dock-desktop.md` §3 |
 | Locate Exynos DWC3/USBFN support in Mu-Silicium | **done** | `UsbfnDwc3Dxe` exists, but Status.md says USB Host Mode is ❌ on `starlte`, `beyond1lte` and `x1s` — nobody has finished it on Exynos |
 | Read the S10e's own USB-function and DWC3 nodes on the live phone | **done** | USBFN at `0x10C00000`, declares a `dwc3` child; the host device is **not instantiated** under Android — `notes/dock-desktop.md` §1 |
-| Establish what Windows needs for a phone's USB-C port to be a host | todo | the controller string is identical on 9810/9820, so this is a firmware state question, not a driver question |
+| Establish what Windows needs for a phone's USB-C port to be a host | **done** | it is a **dual-role (DRD)** controller: the shipping DT says `dr_mode = "otg"`, a dock needs **`host`** — a firmware/device-tree decision, not a Windows one; `notes/dock-desktop.md` §8 |
 | Check prior art: phones running Windows with a keyboard attached | **done** | Snapdragon targets do it (Renegade OOBE assumes a USB keyboard; a Windows-side "USB Host Mode Control" toggle exists) — Exynos targets do not |
 | Decide passive vs powered dock | todo | **safety**: the community warns a powered hub plus host mode "can irreversibly damage your device" |
+| Confirm the port can be host **and** receive power at once | todo | the S10e has **one** USB-C connector — the dock occupies the charging port; Mu-Silicium shows USB Power Delivery ❌ on every Exynos target |
 
 ### M11 — External display through the dock
 
@@ -223,9 +224,10 @@ re-plug and accept the "Allow access from this PC" dialog on the phone. Success 
 
 | Task | State | Notes |
 |------|-------|-------|
-| Confirm charging works through the dock while Windows runs | todo | **needs-dock**, **needs-phone** |
-| Decide the battery policy under Windows on ARM | todo | Windows may refuse to boot/install without a battery interface |
-| Measure thermals under a desktop workload (not destructive, but needs the device) | todo | **needs-phone** |
+| Confirm charging works through the dock while Windows runs | todo | **needs-dock**, **needs-phone** — and it is the same question as host mode: the S10e has **one** USB-C connector, which the dock occupies |
+| Decide the battery policy under Windows on ARM | **partly done** | our repo has **no battery/UPS driver at all** today, so Windows already runs with an invisible, unmanaged battery — that is the honest starting point, not a solved state (`notes/dock-desktop.md` §8) |
+| Assume battery exhaustion is normal and make it survivable | **done — design rule** | a donated phone-desktop must degrade gracefully and be restartable by a non-technical recipient |
+| Measure thermals under a desktop workload (not destructive, but needs the device) | todo | **needs-phone** — Samsung's own thermal stack (`devfreq_*`, `sec_thermistor@*`) has no Windows equivalent |
 
 ### M15 — The donation build
 

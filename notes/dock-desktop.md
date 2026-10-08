@@ -294,3 +294,51 @@ What *is* cited and usable:
   driver; DP-Alt-Mode docks do not) — https://community.frame.work/t/usb-c-thunderbolt-dock-megathread/1460
 - Next concrete step instead of more searching: **ask the user which dock they standardise on**,
   because the dock's own spec sheet says whether it is EEM or DisplayLink.
+
+## 8. M14 — power while docked: the port is dual-role, and that is the whole problem
+
+**The port is a Dual-Role (DRD) controller, and the shipping build pins it to the device side**
+(vendor DT, `exynos9820.dts` + the board patch):
+
+```
+&usbdrd_dwc3 { dr_mode = "otg"; maximum-speed = "super-speed-plus"; ... }
+```
+
+Mainline's own binding gives the legal values
+(https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/plain/Documentation/devicetree/bindings/usb/usb-drd.yaml):
+
+```
+dr_mode:  enum: [host, peripheral, otg]   default: otg
+usb-role-switch:            "capable of assigning the USB data role (host or device)"
+role-switch-default-mode:   enum: [host, peripheral]  default: peripheral
+```
+
+- *(fact)* A dock needs **`host`**. The phone ships with **`otg`** (device side). That single
+  switch is what M10 is about — and it is a **device-tree/firmware** decision, not a Windows
+  driver decision.
+- *(fact)* The 9820 DWC3 also declares `enable_sprs_transfer = 1`, `xhci_l2_support = 1`,
+  `is_not_vbus_pad = 1`, and `exynos-pm` declares `usbl2_suspend_available = 1` with
+  `usbl2_suspend_mode_idx = 0xc`.
+- The mainline schema says the DWC3 has **two power-domains: the PMU and everything else**
+  (https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/plain/Documentation/devicetree/bindings/usb/snps,dwc3.yaml)
+  — and the 9820 PMU is `system-controller@15860000` (§5). So putting the port into host mode
+  touches the same PMU the whole thermal/power stack uses.
+
+**Why charging and host mode are the same question:** the S10e has **one** USB-C connector.
+The dock plugs into the port that would otherwise charge the phone. `dr_mode = "host"` makes
+that port send data *outward*; whether the dock's power still flows *inward* is exactly the
+combination the community warns about ("a powered hub plus host mode can irreversibly damage
+your device"). Mu-Silicium lists **USB Power Delivery ❌ on every Exynos target** they have.
+
+**Consequences for the donation build (M15):**
+1. A donated phone-desktop must be assumed to run **on its own battery**, with no reliable
+   charging while docked, until proven otherwise on a spare unit.
+2. That makes **battery exhaustion a normal, expected event** — the build must degrade
+   gracefully (save/close, not crash) and must be restartable by a non-technical recipient.
+3. The **boot.img auto-flasher** pattern (restore Android's boot image when the battery is
+   low) exists in the WOA community for exactly this reason — but it is a *dual-OS* trick and
+   must never be the recipient's first point of failure.
+4. Windows on ARM has **no battery interface at all in our repo today** (grep for
+   battery/UPS across `drivers/` and `firmware/` finds none) — so today the device already
+   runs Windows with an invisible, unmanaged battery. That is the honest starting point, not
+   a solved state.

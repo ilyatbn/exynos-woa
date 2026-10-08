@@ -129,4 +129,52 @@ needs the driver installed in the image".
   (https://renegade-project.tech/en/Troubleshooting) — *(inference)* host mode + HID works on
   their Snapdragon targets, so the pattern is proven on other SoCs, just not on Exynos.
 
+## 4. The 9810 → 9820 constants table (what actually has to move)
+
+Source of the left column: our own
+[`firmware/Silicon/Exynos9810Pkg/Include/Platform/Exynos9810.h`](../firmware/Silicon/Exynos9810Pkg/Include/Platform/Exynos9810.h),
+which is the single place the repo keeps MMIO windows. Source of the right column: **live
+node names on the connected S10e** (`/proc/device-tree/`, `/sys/devices/platform/`).
+Node names carry the address, and names *are* readable even though the property *contents*
+are SELinux-blocked — that is the whole trick.
+
+| Block | 9810 (repo) | 9820 (live S10e) | Verdict |
+|---|---|---|---|
+| USB DWC3 core (xHCI) | `0x10C00000` | `usb@10C00000` | **identical** |
+| USB PHY | `0x11100000` | `phy@10B00000` | **moves** |
+| USB/DP combo PHY | `0x110A0000` | no separate node; `phy@10B00000` has `has_combo_phy` | **unknown — probe** |
+| USB/DP PCS | `0x110B0000` | no separate node; same node has `has_other_phy` | **unknown — probe** |
+| Touch HSI2C bus | `0x104B0000` | `104b0000.hsi2c` | **identical** |
+| Touch I2C slave addr | `0x48` | `touchscreen@48` | **identical** |
+| UFS HCI | `0x11120000` | `13d60000.ufs` | **moves** (pinned in `notes/exynos9820-research.md`) |
+| CMU TOP | `0x1A240000` | `1a240000.cmu_ewf` | **identical base** |
+| CMU FSYS0 | `0x11000000` | not present at that address | **moves / unknown** |
+| PMU "system controller" | `0x14060000` | `system-controller@15860000` | **moves** |
+| SPEEDY | `0x141C0000` | `speedy@15970000`, `speedy1@15980000` | **moves** (and there are two) |
+| GIC (GICD/GICC/GICH/GICV) | `0x10101000`/`2000`/`4000`/`6000` | no `gic@…` node at top level; only `abox-gic@18cf0000` | **unknown — needs the DTS** |
+| chip ID | `0x10000000` | `chipid@10000000` | **identical** |
+| Debug UART | `0x10440000` | `uart@10440000` | **identical** |
+| Watchdog cl0 | `0x10050000` | `watchdog_cl0@10050000` | **identical** |
+| GPIO PERIC0 | `0x10430000` | `pinctrl@10430000` | **identical** |
+| ALIVE GPIO | `0x14050000` | no node there; `pinctrl@15850000` exists | **moves / unknown** |
+| DECON (display) | `0x16030000` | `decon_f@0x19030000`, `decon_t@0x19050000` | **moves** (and split in two) |
+| DSIM | `0x16080000` | `19080000.dsim` | **moves** |
+| Framebuffer geometry | 1440 × 2960 | S10e panel is 1440 × **3040** | **moves** |
+
+**What this changes about the plan:** the port is not "everything moves". Six of the blocks
+the drivers depend on — **DWC3 core, touch bus, touch slave address, CMU TOP, chip ID,
+debug UART, watchdog, PERIC0 GPIO** — are byte-identical. The blocks that move are the
+**PHY windows, the PMU/SPEEDY/DECON region, and UFS**. That is why M3 (HSI2C) is nearly
+free and M5 (UFS) is the big constants job.
+
+Two more live facts that matter to the dock goal:
+
+- `13ed0000.pcie0` and `pcie1@13120000` exist on the S10e — *(inference)* Samsung's S2S
+  "PCIe" transport, not a slot for external devices. Do **not** read this as a path to an
+  external GPU/dock display.
+- `sec_detect_conn`, `sec_thermistor@0/2/7`, `battery`, `vbat`, `hall`, `certify_hall` are
+  live platform nodes — *(inference)* the thermal/charging policy M14 has to reason about
+  is Samsung's own device-freq/thermal stack (`17000010.devfreq_mif` … `devfreq_*`), which
+  Windows has no notion of.
+
 

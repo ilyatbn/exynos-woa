@@ -167,6 +167,10 @@ re-plug and accept the "Allow access from this PC" dialog on the phone. Success 
 |------|-------|-------|
 | Decide whether to build on Mu-Silicium's `S5E9820Pkg` | todo | their storage path is known-broken |
 | Note the Windows-build constraint for this chip | todo | only 23H2 and lower boot there |
+| Build the 9810→9820 constants table | **done** | 8 blocks identical (DWC3 core, touch bus, touch addr, CMU TOP, chip ID, UART, watchdog, PERIC0 GPIO); the PHY/PMU/SPEEDY/DECON/UFS regions move — `notes/dock-desktop.md` §4 |
+| Resolve the 9820 GIC windows | todo | no `gic@…` node at top level on the S10e; only `abox-gic@18cf0000` — need the vendor DTS |
+| Resolve the 9820 USB PHY/combo-PHY/PCS windows | todo | `phy@10B00000` carries `has_combo_phy`/`has_other_phy`; the 9810 had three separate windows |
+| Resolve the framebuffer geometry (1440×2960 → 1440×3040) | todo | the S10e panel is taller; the fb carveout must be re-derived |
 
 ### M9 — Installer
 

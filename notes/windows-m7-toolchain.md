@@ -173,7 +173,83 @@ Same 4 errors for the **validated** 9810 package built with the identical comman
 * Same two findings for the **validated 9810** `.inf` (identical text, exit 1627) -> pre-existing
   upstream INF pattern, inherited by the 9820 copy; not introduced by this port.
 
-### 4.5 M7.2 signing (fact)
+### 4.5 M7.2 UFS 9820 build (fact)
+
+```
+powershell -NoProfile -ExecutionPolicy Unrestricted -File drivers\Exynos9820Ufs\build-ufs.ps1 `
+  -SourceDir drivers\Exynos9820Ufs -OutDir C:\Users\ilya\AppData\Local\Temp\opencode\ufs-9820-a `
+  -WideUncached -DmaWindow
+```
+
+* Needed because `LocalMachine` execution policy is `AllSigned` (fact, `Get-ExecutionPolicy -List`);
+  the per-process `-ExecutionPolicy Unrestricted` avoids changing system config.
+* `EXACT_BUILD_OK`. `Exynos9820Ufs.sys` **49152 bytes**, sha256 `59c2765d115fc49ef4b51b18c7dd2a6f3852d5527ba7c112b3705bc09f29ff46`.
+* `UfsDiag.exe` **213504 bytes**, sha256 `693adcb34623df633c0ee11181bdb8b86f142498be93814c6985a860b9c5d73d`.
+* ABI identity (driver == helper, script enforces):
+  `{"signature":960910165,"version":1376256,"bytes":992,"perf":1,"wide_uncached":1,"dma_window":1,"portable_kernel_contract":1}`.
+* No `C_ASSERT` fired, no cl/link diagnostics -> the 9820 constant set is internally consistent
+  (compile-time checks only; says nothing about the `UNVERIFIED` MMIO/LBA values, HANDOFF §5).
+* Receipt written by the script: `ufs-9820-a\ufs-build.json`.
+
+### 4.6 M7.3 touch driver build (fact + decision)
+
+`Build-Touch.ps1` cannot run in this tree. Its hard dependencies are absent:
+
+* `drivers\S6SY761TouchGpio\RetainedV24` + `RetainedV24.sha256.json` (the frozen negative-control
+  baseline) - no `S6SY761TouchGpio` directory anywhere in the repo (`Get-ChildItem -Recurse -Directory -Filter S6SY761TouchGpio` -> none).
+* `windows-drivers\Exynos9810Hsi2c\Arm64BuildEvidence.ps1` - no `windows-drivers\` directory;
+  `Get-ChildItem -Recurse -Filter Arm64BuildEvidence.ps1` -> none.
+* `tools\wdk-mirror` - `tools\` holds only `release` and `twrp-winre`.
+* The host gesture test project hardcodes its mocks:
+  `drivers\S6SY761TouchBeyond0\tests\TouchGestureTests.vcxproj:10`
+  `<Mocks>$(MSBuildThisFileDirectory)..\..\S6SY761TouchGpio\tests</Mocks>`, and it is an unconditional
+  assignment, so `/p:Mocks=` cannot redirect it. `TouchMock.c/h`, `TouchHostHooks.h`, `HostThreads.c/h`
+  exist nowhere in the tree.
+
+Decision taken: **build the driver directly with msbuild and run the same post-build verifiers the
+script would have run**, and record the gesture-test half as blocked by missing harness files rather
+than inventing a new mock harness (a new harness would have no frozen baseline to fail against, so
+its "PASS" would be meaningless).
+
+```
+& $msbuild drivers\S6SY761TouchBeyond0\S6SY761TouchBeyond0.vcxproj /t:Build `
+  /p:Configuration=Release /p:Platform=ARM64 "/p:OutDir=<temp>\arm64\" "/p:IntDir=<temp>\arm64\obj\" `
+  /p:ApiValidator_Enable=false /p:SignMode=Off /p:VisualStudioVersion=17.0 /nologo
+```
+
+* **0 Error(s)**, no `error C`/`warning C`. cl line carries `/kernel`, `/FI"...\shared\warning.h"`,
+  `/D KMDF_VERSION_MAJOR=1 /D KMDF_VERSION_MINOR=15`, `/arch:armv8.0`; link line
+  `/ENTRY:"FxDriverEntry" /MACHINE:ARM64 /SUBSYSTEM:NATIVE,"10.00"`.
+  Note this project builds at **/W3** (the HSI2C one is /W4) - that is the project's own setting, unchanged.
+* Unsigned output: `S6SY761TouchBeyond0.sys` **31744 bytes**, sha256 `6a6471c0d22232ece4e8fbc249e3df70bd0e5c1c6274906f0f86c9f617fad28b`.
+* `InfVerif.exe /w <inf>` -> exit 0, no diagnostics (WHQL mode).
+* `Inf2Cat.exe /driver:<pkg> /os:10_VB_ARM64 /uselocaltime` -> "Errors: None / Warnings: None",
+  `s6sy761touchbeyond0.cat` 1198 bytes.
+
+### 4.7 M7.4 test-signing all three (fact)
+
+The WDK's own test certificate is reusable: the `Sign` task left it in the user's keystore, so
+`signtool sign /i "WDKTestCert ilya,134359747320405644" /fd SHA256 <sys>` succeeds against it
+(`Successfully signed`, exit 0). Chosen over fabricating a new cert: this is the same mechanism that
+produced the validated 9810 binaries.
+
+Signed package assembled at `C:\Users\ilya\AppData\Local\Temp\opencode\signed-9820\`:
+
+| File | Bytes | sha256 (lower) | Authenticode |
+|---|---|---|---|
+| `Exynos9820Hsi2c.sys` | 45112 | `46b5ff014a5cbd4593b877118ede3029343c00168b1e4ebcf7dc698e11278543` | signed (self-signed -> `UnknownError`) |
+| `Exynos9820Ufs.sys` | 50584 | `a6b98d07994f75bba8a78254cb6ecc940d6e3498d9489da9811aadde95264d47` | signed |
+| `S6SY761TouchBeyond0.sys` | 33176 | `6e6cd6a8c54d3b7dbe408a328eb3bcd97a2861b0dd8f88c3d1718ec8841ce9fe` | signed |
+| `exynos9820hsi2c.cat` | 1300 | `e0757e3838cb915211c4b4e840ed29d4902f513cb85319cea7e95507ce7cd371` | - |
+| `exynos9820ufs.cat` | 1284 | `6648daecdf98f11738da91ab7a44f7aa789ab417b83ec94edf6042ccae21b369` | - |
+| `s6sy761touchbeyond0.cat` | 1332 | `166f003a46e4b3a5587b398e7f2db8bd805213bf240776c91072781732170611` | - |
+
+Unsigned hashes for the same inputs, so a later session can tell a rebuild from the shipped file:
+UFS `59c2765d115fc49ef4b51b18c7dd2a6f3852d5527ba7c112b3705bc09f29ff46` (49152 B),
+touch `6a6471c0d22232ece4e8fbc249e3df70bd0e5c1c6274906f0f86c9f617fad28b` (31744 B).
+Signing adds 1432 B (UFS) / 1432 B (touch) of PKCS#7.
+
+### 4.7 signing (fact)
 
 * The HSI2C `.sys` came out **signed** by the WDK's own `Sign` task:
   `Get-AuthenticodeSignature` -> `SignatureType=Authenticode`,

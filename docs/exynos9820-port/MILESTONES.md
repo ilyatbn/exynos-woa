@@ -86,7 +86,7 @@ errors.
 | M4 | Port the touchscreen driver to 9820 | todo | M3 |
 | M5 | Port the UFS storage driver to 9820 | todo | M3 |
 | M6 | Verify the 9820 constants against a live S10e | **done** | was **needs-phone** — resolved, see `notes/s10e-live-reads.md` |
-| M7 | Build and test-sign the three 9820 drivers | todo | **needs-windows** |
+| M7 | Build and test-sign the three 9820 drivers | **done** | built + test-signed 2026-10-09; **nothing installed or validated on the phone yet** |
 | M8 | UEFI firmware for `beyond0lte` | todo | M5, M6 |
 | M9 | Installer: add the S10e behind honest gating | todo | M7, M8 |
 | M10 | USB-C **host** mode: keyboard, mouse, dock attachments | todo | M8 |
@@ -200,8 +200,8 @@ tree does not contain.
 | Task | State | Notes |
 |--------|-------|-------|
 | Install the Windows toolchain | **done** | VS 2026 Community + WDK/SDK 10.0.26100 installed (`notes/windows-m7-toolchain.md` §1). Needs elevation for the VS component step; `warning.h` comes from the Windows 11 SDK component, not the WDK MSI. `KitsRoot10` registry value added elevated — that is what makes the WDK include paths resolve (§4.1) |
-| Build the three drivers for ARM64 | doing | **needs-windows** (WDK toolchain, no Linux cross-build). HSI2C 9820 now compiles and links clean at `/W4 /WX` -> `ARM64\Release\Exynos9820Hsi2c.sys` 45112 B, sha256 `46b5ff01...`; the missing `VisualStudioVersion`-suffixed DriverKit dll (`18.0`) is pinned to `17.0` on the command line (§4.2). UFS 9820 `EXACT_BUILD_OK` (§4.5). Touch: ARM64 `.sys` builds, but `Build-Touch.ps1` cannot run — its mock harness (`S6SY761TouchGpio\RetainedV24`, `Arm64BuildEvidence.ps1`, `tools\wdk-mirror`) is absent from this tree (§4.6) |
-| Test-sign and package as `drivers.zip` equivalent | todo | **needs-windows**; the project's test certificate is not in this tree (`rg -i WDKTestCert` -> no matches). The HSI2C `.sys` is already test-signed by the WDK's own `Sign` task (`WDKTestCert ilya,...`); touch pins `SignMode=Off` and UFS never signs, so those two go through the installer's signing/deployment workflow (§4.5) |
+| Build the three drivers for ARM64 | **done** | All three compile and link clean with the WDK's real kernel flags (`/kernel`, `/FI...\shared\warning.h`, KMDF 1.15): HSI2C 45112 B, UFS 49152 B, touch 31744 B unsigned (`notes/windows-m7-toolchain.md` §4.2, §4.5, §4.6). The two post-link checks that still fail (`InfVerif.dll` missing from `build\10.0.26100.0\bin\x86\`, `aitstatic` exit 193) fail **identically on the validated 9810 package** -> toolchain gaps, not port defects; `infverif.exe` from `Tools\10.0.26100.0\x64` was run standalone instead. **Blocked, not skipped**: the touch package's host gesture tests cannot build here - `tests\TouchGestureTests.vcxproj:10` hardcodes `..\..\S6SY761TouchGpio\tests` for its mocks and that directory does not exist in this tree (§4.6) |
+| Test-sign and package as `drivers.zip` equivalent | **done** | The WDK's own test certificate is reusable from the keystore: `signtool sign /i "WDKTestCert ilya,134359747320405644" /fd SHA256` signs all three. Signed package + three `.cat` files at `C:\Users\ilya\AppData\Local\Temp\opencode\signed-9820\` (`Inf2Cat /os:10_VB_ARM64` -> Errors: None, Warnings: None) (§4.7). **This is a locally generated test signature, not the released one** - the released binaries' cert salt is not recoverable from this tree |
 
 ### M8 — Firmware
 

@@ -43,7 +43,13 @@ Two decisions from the user that change the second phase's shape:
   The first thing to establish is simply that Windows boots at all.
 
 This file is the plan of record. It is updated and committed **per task**, never
-batched at the end. Research evidence lives in [`notes/exynos9820-research.md`](../notes/exynos9820-research.md).
+batched at the end. Research evidence lives in [`notes/exynos9820-research.md`](../notes/exynos9820-research.md)
+and [`../notes/dock-desktop.md`](../notes/dock-desktop.md).
+
+**If you are starting a fresh session — especially one on Windows — read
+[`HANDOFF.md`](HANDOFF.md) first.** It states what exists, what does not, the
+exact build commands, and the unknowns that are boot hazards rather than build
+errors.
 
 ## Ground rules
 

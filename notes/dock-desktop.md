@@ -599,3 +599,48 @@ reads LBA 1 and reports capacity.
 | `UFS_EXPECTED_LAST_LOGICAL_BLOCK 15615999` | **31,236,095** — the disk is twice as large |
 | `UFS_DMA_WINDOW_FIRST/LAST 90000000..BC800000` | derived from the 9810's DRAM banks; the S10e's banks are `80000000`+`80000000`, `880000000`, `900000000` — **must be re-derived** |
 | EFS range | **identical** — 4096..9215 on both |
+
+## 14. M4 — the touch path barely moves, and the FOD question does not apply
+
+**The bus identity is identical.** On the live S10e:
+
+```
+/proc/device-tree/hsi2c@104B0000/touchscreen@48
+```
+
+`touchscreen@48` is a child of **`hsi2c@104B0000`** — the same bus window and the same
+slave address the validated 9810 driver uses (`EXYNOS_HSI2C10_PHYSICAL_BASE 0x104B0000`,
+`EXYNOS_TOUCH_I2C_ADDR 0x48`). Enumerating every `hsi2c@…` node on the phone shows the
+touch IC under this one and no other. *(fact)*
+
+**The panel family is `y761`, not `y771`.** The S10e's own `sec,firmware_name` is
+`tsp_sec/y761_beyond0_phole.bin`, while the 9820 kernel's *source directory* is
+`sec_ts/y771` and its default blob is `tsp_sec/y771_beyond2.bin`; the S10 (`beyond1lte`)
+DTS used `y771_beyond1_phole.bin`. *(inference)* `y771` names the kernel driver family,
+whereas the panel IC shipped in the **S10e** is a **y761** — the same family our Windows
+driver is already named after (`drivers/S6SY761Touch`, bound to `ACPI\SCSY0761`). So the
+touch port is not a rename job; it is a tuning-values job.
+
+**Tuning properties on the S10e's own node** (names are readable; the values below are the
+ones already captured in `notes/s10e-live-reads.md`):
+
+```
+sec,project_name  = BEYOND0G970        sec,tclm_level   = 2
+sec,afe_base      = 0x0205             sec,max_coords   = 4096 x 4096
+sec,firmware_name = tsp_sec/y761_beyond0_phole.bin
+sec,irq_gpio  sec,irq_type  sec,area-size
+sec,regulator_avdd  sec,regulator_dvdd  sec,regulator_boot_on
+enable_settings_aot  support_dex_mode  support_ear_detect_mode  sync-reportrate-120
+```
+
+Two of those matter to us:
+
+- *(fact)* **there is no `support_fod` on this node.** The 9820 `.dtsi` family has it, but the
+  S10e's own shipping node does not — so the fingerprint-on-glass complication M4 was
+  braced for **does not apply to the donation device**. That closes the row.
+- *(fact)* `sync-reportrate-120` is present, and our driver's report-delivery changes are
+  written around a 64-event controller FIFO. *(inference)* a 120 Hz panel is where the
+  coalescing rules in `drivers/S6SY761Touch/README.md` are most likely to be exercised,
+  so the touch candidate is the part most at risk of needing re-qualification on this model.
+- `sec,afe_base` is **0x0205 on the S10e vs 0x0206 on the S10** — a per-model value, so
+  anything in our stack that hardcodes it must be re-read, not carried over.

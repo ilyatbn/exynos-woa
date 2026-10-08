@@ -150,6 +150,7 @@ State: **doing** — the address work is settled, one clock value is not.
 | Re-aim the write fence at the S10e's partition list | todo | the 9810's fence protects partitions that do not exist here; the derived map in §13 is **arithmetic, not a GPT read** — it needs root on the phone or the driver's own LBA-1 read |
 | Handle the second LUN | todo | `cpefs` is on `sdd1`, a separate LUN; the 9810 driver was written against a single `sda` |
 | Re-derive the DMA window from the S10e's DRAM banks | todo | 9810 `90000000..BC800000` vs S10e banks `80000000`+0x80000000, `880000000`, `900000000` |
+| Create the `Exynos9820Ufs` package | **done** | copy of the validated 9810 package; the four windows carry the **verified 9820 bases**, the PMU base moves to `15860000`, the watchdog stays at `10050000`; PRAM, DMA window and every fence LBA are kept at 9810 values and marked `UNVERIFIED` so the `C_ASSERT` set stays self-consistent |
 
 ### M6 — Live verification on the phone
 

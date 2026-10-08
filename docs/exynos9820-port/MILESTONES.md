@@ -41,6 +41,12 @@ batched at the end. Research evidence lives in [`notes/exynos9820-research.md`](
    No flashing, no partition writes, no installer runs without a separate green light.
 6. **Uncertain values are isolated in one header and named `UNVERIFIED`**, so a
    wrong guess is visible instead of buried in code.
+7. **Hardware-safety rules learned from prior art, applied to every milestone:**
+   - A **powered** USB hub/dock plus USB host mode "can irreversibly damage your device"
+     (https://github.com/n00b69/woa-mh2lm5g/blob/main/guide/materials.md) → the donation build
+     standardises on a **passive** dock unless host-mode-plus-power is validated on a spare unit.
+   - Never adopt a boot path that **erases a partition** to make Windows boot (the `x1s` pattern
+     in Mu-Silicium Status.md) — a donated device must always be able to go back to Android.
 
 ## Milestones
 
@@ -173,11 +179,12 @@ re-plug and accept the "Allow access from this PC" dialog on the phone. Success 
 
 | Task | State | Notes |
 |------|-------|-------|
-| Find what the 9810 project does for USB host today | todo | our `firmware/` and Mu-Silicium's `UsbfnDwc3Dxe` |
-| Locate Exynos DWC3/USBFN support in Mu-Silicium | todo | release note "Added Support for Exynos DWC3" |
+| Find what the 9810 project does for USB host today | **done** | our own `tools/twrp-winre/build.py` anchors `sys.usb.controller = 10c00000.dwc3` — `notes/dock-desktop.md` §3 |
+| Locate Exynos DWC3/USBFN support in Mu-Silicium | **done** | `UsbfnDwc3Dxe` exists, but Status.md says USB Host Mode is ❌ on `starlte`, `beyond1lte` and `x1s` — nobody has finished it on Exynos |
 | Read the S10e's own USB-function and DWC3 nodes on the live phone | **done** | USBFN at `0x10C00000`, declares a `dwc3` child; the host device is **not instantiated** under Android — `notes/dock-desktop.md` §1 |
-| Establish what Windows needs for a phone's USB-C port to be a host | todo | the port is host-capable in UEFI; Windows must drive the attached devices |
-| Check prior art: phones running Windows with a keyboard attached | todo | WOA / Renegade / Project-Aloha |
+| Establish what Windows needs for a phone's USB-C port to be a host | todo | the controller string is identical on 9810/9820, so this is a firmware state question, not a driver question |
+| Check prior art: phones running Windows with a keyboard attached | **done** | Snapdragon targets do it (Renegade OOBE assumes a USB keyboard; a Windows-side "USB Host Mode Control" toggle exists) — Exynos targets do not |
+| Decide passive vs powered dock | todo | **safety**: the community warns a powered hub plus host mode "can irreversibly damage your device" |
 
 ### M11 — External display through the dock
 

@@ -84,3 +84,49 @@ citation — open task below.)*
 not a generic USB-C hub dock. That turns M11 from "probably impossible" into "supported,
 needs the driver installed in the image".
 
+## 3. M10 — USB host mode: the controller does not move, the mode does
+
+**Our own repo already depends on this controller, and the S10e reports the same value:**
+
+- `tools/twrp-winre/build.py:588` anchors `setprop sys.usb.controller 10c00000.dwc3` — that is
+  the **star2lte (S9+)** USB controller in `init.recovery.usb.rc`.
+- On the live S10e: `getprop sys.usb.controller` → **`10c00000.dwc3`**, and
+  `getprop sys.usb.state` → `rndis,adb` (i.e. currently *device* mode).
+  *(fact, read from the phone)* **the DWC3 controller identity is byte-identical between 9810 and 9820.**
+- So M10 is **not** an address-porting problem. What has to change is the **mode**: Android keeps
+  the port on the device side; a dock needs the host side.
+
+**Prior art says host mode is the part nobody has finished on Exynos** — Mu-Silicium Status.md
+(https://raw.githubusercontent.com/Project-Silicium/Mu-Silicium/main/Status.md):
+
+| Device | Codename | State | USB Host | USB Device | Windows Boot |
+|---|---|---|---|---|---|
+| Galaxy S9 | `starlte` | Active | ❌ | ❌ | ✅ — "Only Windows PE boots" |
+| Galaxy S10 | `beyond1lte` | Inactive | ❌ | ❌ | ❌ |
+| Galaxy S20 5G | `x1s` | Active | ❌ | ✅ | ✅ — "WinPE Only", needs the `UH` partition erased |
+
+- *(inference)* our repo is the thing that got past PE on Exynos (full install on star2lte), so
+  host mode is genuinely new work here, not something to copy.
+- `x1s` shows how destructive some boot paths are: "the Platform Hypervisor Extensions partition
+  needs to be erased via `dd if=/dev/zero of=/dev/block/by-name/uh`… This will stop android from
+  booting until the partition is restored" — a pattern we must **not** adopt for a donated device.
+
+**The Snapdragon side has a working recipe, and a warning that matters for docks**
+(https://github.com/n00b69/woa-mh2lm5g/blob/main/guide/materials.md, LG V50S under Windows):
+
+> "Disable USB host mode if you use a **powered USB hub**, as this can **irreversibly damage
+> your device**. If you don't use a powered USB hub, enable USB host mode or you will not be
+> able to use any USB devices."
+
+- Tool: **USB Host Mode Control** — https://github.com/Misha803/My-Scripts/releases/tag/USB-Host-Mode-Control
+- *(inference)* for our donation build this is a hard rule: the dock must be **non-powered
+  (passive)** or the host-mode/charging combination has to be validated before we ship a device
+  to anyone. A powered dock is exactly what most "desk docks" are.
+- Same guide documents a **boot.img auto-flasher** (restore Android's boot image on Windows boot
+  or when the battery is under 15%) — directly relevant to M14 and to keeping donated devices
+  serviceable.
+- Renegade Project's own troubleshooting page assumes a **USB keyboard during OOBE**
+  (https://renegade-project.tech/en/Troubleshooting) — *(inference)* host mode + HID works on
+  their Snapdragon targets, so the pattern is proven on other SoCs, just not on Exynos.
+
+

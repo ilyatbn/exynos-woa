@@ -17,9 +17,30 @@ gets a phone docked into a **USB-C dock**, and from that dock they need:
 | Stays on, charged, cool | power/battery/thermal while docked | M14 |
 | Something a non-technical person can use | the assembled "donation build" | M15 |
 
-That means the driver port (M3–M5) is **not the finish line** — it is the floor of a
-larger plan. A phone that boots Windows but has no USB host mode cannot take a keyboard,
-so M10 gates the whole desktop use case.
+### Priority order — the user's, recorded 2026-10-09
+
+The bar for "working" is **not** the dock. In order:
+
+1. **Boots Windows on the S10e, and Windows sees disk, RAM and CPU cores.** Same bar this
+   repo already meets on the S9+. **This is the finish line of phase one (M3–M9).**
+2. Stretch goals, in the order wanted: **WiFi**, **keyboard/mouse via the dock**, **LAN**,
+   **HDMI**. "If we don't get there, we don't get there" — they are explicitly *not* a licence
+   to lower the first bar.
+
+So M10–M15 are a **second phase** that starts only once phase one is validated on the device.
+The dock research already in `notes/dock-desktop.md` is the map for that phase, not a
+reordering of this one.
+
+Two decisions from the user that change the second phase's shape:
+
+- **The dock:** they own **both** a DisplayLink dock and a non-DisplayLink one, and prefer the
+  **non-DisplayLink** path because it is cheaper. So the plan must investigate how Samsung's
+  own **DeX** drives an external monitor — the Exynos side already hints at the mechanism:
+  the 9820 PHY declares `has_combo_phy = 1` and there is a `displayport@0x130B0000` node
+  (`notes/dock-desktop.md` §5). DisplayLink stays as the fallback, not the first choice.
+- **Risk:** there is **only one device**. The powered-dock-plus-host-mode test is therefore
+  **deferred to a later stage**, and until then nothing on the S10e may be destructive.
+  The first thing to establish is simply that Windows boots at all.
 
 This file is the plan of record. It is updated and committed **per task**, never
 batched at the end. Research evidence lives in [`notes/exynos9820-research.md`](../notes/exynos9820-research.md).
@@ -207,7 +228,8 @@ re-plug and accept the "Allow access from this PC" dialog on the phone. Success 
 | Confirm a phone driving a DisplayLink dock is a supported configuration | **done** | DisplayLink's own docs say the phone "needs to become the USB host" and that a phone-as-desktop workstation is the intended use — §10 |
 | Choose the dock by DisplayLink chip, not by "USB-C dock" | **done** | the vendor warns many USB-C docks use USB "Alternate mode" instead; look for the **Plug and Display** logo — §10 |
 | Check whether the target dock uses EEM or a real GPU in the dock | todo | **needs-dock** — we now know which kind we must buy |
-| Decide the fallback display path if EEM is a dead end on Windows | **done** | standardise on a **DisplayLink dock**; the phone panel stays as the fallback display |
+| Decide the fallback display path if EEM is a dead end on Windows | **done** | DisplayLink is **the fallback**, not the first choice — see below |
+| Investigate the **non-DisplayLink** path (preferred: cheaper, and the owner already has such a dock) | todo | how Samsung's own **DeX** drives an external monitor; the 9820 hints at the mechanism with `has_combo_phy = 1` and a `displayport@130B0000` node — §5 |
 
 ### M12 — WiFi
 
@@ -237,7 +259,8 @@ re-plug and accept the "Allow access from this PC" dialog on the phone. Success 
 
 | Task | State | Notes |
 |------|-------|-------|
-| Define what the recipient must be able to do without a console | todo | power on, log in, browse, keyboard/mouse |
+| Define the honest "working" bar | **done** | Windows boots on the S10e and Windows sees **disk, RAM, CPU cores** — the user's own words; that is what a donated unit may be described as |
+| Keep the stretch goals out of the definition | **done** | WiFi, keyboard/mouse via dock, LAN, HDMI are stretch: "if we don't get there, we don't get there" — they never lower the bar above |
 | Make the build serviceable: what to do when one part fails | todo | a donated device will fail in the field |
 | Keep the 9810 and 9820 flows separate and labelled | todo | golden rule: no unvalidated `Ready` |
 
@@ -246,5 +269,6 @@ re-plug and accept the "Allow access from this PC" dialog on the phone. Success 
 | Needs | Milestones | Why |
 |-------|-----------|-----|
 | **needs-windows** | M7 | The Windows driver toolchain only runs on Windows; nothing here can compile these drivers |
-| **needs-phone** | M10, M12, M14 | Further live reads (USB function, WLAN, thermals) — the phone is already connected, so these are cheap |
-| **needs-dock** | M11, M13, M14 | Which dock we standardise on decides whether the HDMI path is EEM (likely dead on Windows) or a dock with a real GPU |
+| **needs-phone** | M10, M14 | Further live reads (USB function, thermals) — the phone is already connected, so these are cheap |
+| **needs-dock** | M11, M13 | The owner has **both** a DisplayLink dock and a non-DisplayLink one; the non-DisplayLink path is preferred because it is cheaper |
+| **one device only** | M10, M14 | There is **no spare unit yet**: nothing destructive may run on the S10e until Windows booting is established, and the powered-dock/host-mode risk is deliberately deferred to a later stage |

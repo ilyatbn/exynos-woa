@@ -56,3 +56,31 @@ CONFIG_USB_NET_ZAURUS=y  CONFIG_USB_RTL8150=y  CONFIG_USB_RTL8152=y
 - **Acronym trap:** `CONFIG_USB_NET_CDC_EEM` in this kernel is *Ethernet Management*
   (mobile-modem class), **not** the "EEM" of USB-C dock displays (Extended Mode / SLDCOM).
   Do not let these two meanings collide in the plan.
+
+## 2. M11 — the dock's HDMI: DisplayLink is the viable path, EEM probably is not
+
+**DisplayLink (a real GPU chip inside the dock) is supported on Windows on ARM64:**
+
+- "DisplayLink USB graphics drivers support Windows 11 on ARM systems. Synaptics release notes
+  for the 11.3 branch and newer list Windows 10 and 11 on ARM64 as supported… The 11.5 branch is
+  where ARM64 support became part of the standard EXE installer package."
+  — https://kb.plugable.com/are-displaylink-drivers-available-for-windows-11-on-arm
+- Targus "validated the Synaptics DisplayLink version 11.5M3 … for all DisplayLink-based
+  Targus … docking station models … **for Windows 10/11 for X64 and ARM64 processors**"
+  — https://us.targus.com/blogs/discover-targus/targus-validates-synaptics-displaylink-11-5m3-software-drivers-update-for-windows
+- DisplayLink's own page: "works across macOS, Windows, ChromeOS, Ubuntu & Android on Apple,
+  Intel, AMD, Qualcomm **and any ARM SoC**… **Servers or smartphones**, POS terminals or
+  projectors" — https://www.synaptics.com/products/displaylink-graphics
+  *(inference)* "smartphones" being an advertised host means the phone-as-host use case is
+  already inside DisplayLink's supported envelope.
+
+**Why this matters:** a normal USB-C dock's HDMI is fed by **EEM/SLDCOM (USB Extended Mode)**,
+a mirroring protocol that needs a host-side driver; Windows has no such driver. A
+**DisplayLink dock carries its own small GPU** and is driven by a normal Windows WDDM driver,
+so the HDMI becomes real, driver-supported output. *(the EEM dead-end still needs its own
+citation — open task below.)*
+
+**Consequence for the plan:** standardise the donation build on a **DisplayLink-based dock**,
+not a generic USB-C hub dock. That turns M11 from "probably impossible" into "supported,
+needs the driver installed in the image".
+

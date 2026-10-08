@@ -183,11 +183,12 @@ re-plug and accept the "Allow access from this PC" dialog on the phone. Success 
 
 | Task | State | Notes |
 |------|-------|-------|
-| Determine how a USB-C dock's HDMI is fed at all | todo | EEM / SLDCOM protocol, not a real HDMI connection |
-| Establish whether Windows supports EEM/SLDCOM docks | todo | **the make-or-break question for this goal** |
+| Determine how a USB-C dock's HDMI is fed at all | **done** | two mechanisms: EEM/SLDCOM mirroring (no Windows driver) or a **DisplayLink GPU in the dock** (WDDM driver) — `notes/dock-desktop.md` §2 |
+| Establish whether Windows supports EEM/SLDCOM docks | todo | still needs a hard citation before we call it a dead end |
 | Read the Linux reference implementation (EMD2) to see what the protocol requires | todo | https://github.com/emd2v2/emd2 |
-| Check whether the target dock uses EEM or a real GPU in the dock | todo | **needs-dock** — depends on which dock we standardise on |
-| Decide the fallback display path if EEM is a dead end on Windows | todo | phone panel only, or a different dock/output strategy |
+| Confirm DisplayLink on Windows-on-ARM | **done** | Synaptics 11.3+ lists Windows 10/11 **ARM64**; Targus validated 11.5M3 for ARM64; DisplayLink markets "any ARM SoC", "smartphones" |
+| Check whether the target dock uses EEM or a real GPU in the dock | todo | **needs-dock** — we now know which kind we must buy |
+| Decide the fallback display path if EEM is a dead end on Windows | **done** | standardise on a **DisplayLink dock**; the phone panel stays as the fallback display |
 
 ### M12 — WiFi
 

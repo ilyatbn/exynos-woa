@@ -243,6 +243,70 @@ read back via `SEC_TS_CMD_GET_*` before renaming the Windows driver.
   **Active with Internal Storage working**, so `S5E9830Pkg` + `S5E9810Pkg` are the two working
   examples to diff against the broken 9820 case.
 
+## 10. UFS internals — 9810 vs 9820, from Samsung's own kernel code
+
+Located the storage driver: **`drivers/scsi/ufs/ufs-exynos.c`** + `ufs-exynos.h` in BOTH kernels
+(there is no `drivers/ufs/` in either tree — that guess was wrong, recorded as a dead end).
+
+**Addresses — now verified from the vendor DTS, not inference** (`exynos9820.dts`, lines 987-1075):
+
+```
+ufs: ufs@0x13D60000 {
+  reg = <0x0 0x13D60000 0x200>,  /* 0: HCI standard   */
+        <0x0 0x13D61100 0x200>,  /* 1: Vendor specific */
+        <0x0 0x13D50000 0x8000>, /* 2: UNIPRO          */
+        <0x0 0x13D70000 0x100>;  /* 3: UFS protector   */
+  ufs-phy        { reg = <0x0 0x13D64000 0x800>; };   <- PHY/PMA base, VERIFIED
+  ufs-cport      { reg = <0x0 0x13D68000 0x804>; };
+  ufs-io-coherency { reg = <0x0 0x13C10700 0x4>; mask/bits = BIT_22|BIT_23; };
+  hw-rev = <UFS_VER_0006>;  evt-ver = 1;  brd-for-cal = 1 (SMDK);
+  fmp-id = 0;  smu-id = 0;  ufs,pmd-attr-lane = 2;  ufs,pmd-attr-gear = 3;
+  ufs-rx-min-activate-time-cap = 3; rx/tx-hibern8-time-cap = 2;
+}
+```
+
+- So the earlier `0x13D64000` PMA guess is **confirmed** by `ufs-phy`'s own `reg`, and the
+  `UFS_BASE + 0x4000` rule holds on 9810, 9820 and 9830 (Mu-Silicium `BoardInit.c` for 9810/9830).
+- CMU base on 9820 = **`0x1a240000`** (`clock-controller@0x1a240000`, `cmu_ewf reg = <0x0 0x1A240000 0x1000>`)
+  — the same base Mu-Silicium uses for 9810 (`CMU_FSYS0_BASE 0x1A240000`). Also seen live on the
+  phone as a DTB node name. 9830 instead uses `0x1A331098`/`0x1A331890`.
+
+**The timeout clock is computed, not a constant** (`ufs-exynos.c`, identical shape in both kernels):
+
+```c
+ufs->mclk_rate = (u32)clk_get_rate(ufs->clk_unipro);      /* UNIPRO MCLK, from the DTS clock */
+nVal = hci_readl(ufs, HCI_UFSHCI_V2P1_CTRL); nVal |= IA_TICK_SEL;
+hci_writel(ufs, nVal, HCI_UFSHCI_V2P1_CTRL);
+cnt_val = ufs->mclk_rate / 1000000;
+hci_writel(ufs, cnt_val & CNT_VAL_1US_MASK, HCI_1US_TO_CNT_VAL);   /* 0x0C, mask 0x3ff */
+```
+
+- Mu-Silicium hardcodes `UFS_SCLK 166000000UL` for **both** S5E9810 and S5E9830, so 166 MHz is
+  the best available candidate for 9820 — but the 9820 rate table lives in Samsung's CMU clock
+  driver (`CONFIG_COMMON_CLK_SAMSUNG=y`, `CONFIG_EXYNOS_ARM64_COMMON_CLK=y`) and I could not
+  locate that file. **Still marked UNVERIFIED.**
+- `freq-table-hz = <0 0>, <0 0>` in the 9820 UFS node means the rate is resolved at runtime,
+  so it cannot be read off the DTS.
+
+**Behavioural diffs 9810 → 9820 in `ufs-exynos.c`** (line sets only in one version):
+
+- 9820 only: `exynos_ufs_update_active_lanes()` and `exynos_ufs_update_max_gear()` (reads
+  `PA_ACTIVETXDATALANES`/`PA_ACTIVERXDATALANES`/`PA_MAXRXHSGEAR` via `ufshcd_dme_get`), PHY power
+  via `exynos_pmu_update(EXYNOS_PMU_UFS_PHY_OFFSET, …)`, `fmp-id`/`smu-id` read from the DTB,
+  `exynos_ufs_ctrl_cport_log()`, `pm_qos_int`.
+- 9810 only: direct `reg_pmu` readl/writel `BIT(0)`, SMU device probing with `EPROBE_DEFER`,
+  `exynos-powermode.h`, `pm_qos_fsys0`, `SMC_CMD_UFS_LOG`.
+- Accepted hardware revisions: 9810 checks `UFS_VER_0004|0005`; **9820 also accepts `UFS_VER_0006`**
+  and the S10e's DTS says `hw-rev = UFS_VER_0006` → the S10e's UFS HCI is a newer revision class.
+- HCI quirks differ: 9810 sets `UFSHCD_QUIRK_GET_UPMCRS_DIRECT | GET_GENERRCODE_DIRECT` and
+  `UFSHCI_QUIRK_SKIP_INTR_AGGR`; 9820 adds `UFSHCD_QUIRK_BROKEN_CRYPTO`.
+
+**Second UEFI template found:** `sonic011gamer/edk2-exynos` has
+`Silicon/Samsung/Exynos9820Pkg/Library/ExynosUfsLib/` with sources `ufs.c`, `ufs_dbg.c`, `scsi.c`
+(2228 lines in `ufs.c`) — a direct **UEFI port of the 9820 UFS driver** already exists there,
+independent of Mu-Silicium (which has no 9820 UFS). Its addresses are passed in a `struct ufs_host`
+(`ioaddr`, `vs_addr`, `unipro_addr`, `phy_pma`, `fmp_addr`) set by a caller I did not locate.
+
 ## Sources
 
 - https://github.com/V0lk3n/nethunter_kernel_samsung_exynos9820 (+ raw files under that branch)
@@ -261,3 +325,11 @@ read back via `SEC_TS_CMD_GET_*` before renaming the Windows driver.
 - https://github.com/whatawurst/android_device_samsung_beyond0lte
 - https://www.xda-developers.com/exynos-samsung-galaxy-s10-s10e-s10plus-kernel-sources
 - https://github.com/TheMorc (no exynos repos; member of edk2-porting / Project-Aloha)
+- https://github.com/V0lk3n/nethunter_kernel_samsung_exynos9820/blob/nethunter-lineage-23.2/drivers/scsi/ufs/ufs-exynos.c
+  (+ `ufs-exynos.h`, `arch/arm64/boot/dts/exynos/exynos9820.dts`, `include/dt-bindings/clock/exynos9820.h`,
+  `arch/arm64/configs/exynos9820-beyond0lte_defconfig`)
+- https://github.com/LineageOS/android_kernel_samsung_exynos9810/blob/HEAD/drivers/scsi/ufs/ufs-exynos.c
+- https://github.com/sonic011gamer/edk2-exynos/tree/master/Silicon/Samsung/Exynos9820Pkg/Library/ExynosUfsLib
+  (+ raw `ExynosUfsLib.inf`, `ufs.c`)
+- https://github.com/Project-Silicium/Mu-Silicium/blob/main/Silicon/Samsung/S5E9830Pkg/Library/PlatformUfsLib/BoardInit.c
+- live phone reads: see [`s10e-live-reads.md`](s10e-live-reads.md)

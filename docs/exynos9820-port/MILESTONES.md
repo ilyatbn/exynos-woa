@@ -83,11 +83,15 @@ batched at the end. Research evidence lives in [`notes/exynos9820-research.md`](
 
 ### M5 — UFS storage driver
 
+State: **doing** — the address work is settled, one clock value is not.
+
 | Task | State | Notes |
 |------|-------|-------|
-| Move the four hardware bases to the 9820 values | todo | HCI `0x13D60000` **verified on device**; UNIPRO/protector from kernel DTS only |
-| Re-derive the timeout clock from the 9820 tick rate | todo | **UNVERIFIED** — 9810 uses 166 MHz; the phone would not tell us |
-| Confirm the helper region address on the 9820 | todo | **UNVERIFIED** — `0x13D64000` by rule only; not exposed on the live device |
+| Move the four hardware bases to the 9820 values | done (planning) | HCI `0x13D60000`, VS `0x13D61100`, UNIPRO `0x13D50000`, protector `0x13D70000` — all read from the vendor DTS; HCI confirmed on the live phone |
+| Confirm the helper region address on the 9820 | **done** | `ufs-phy { reg = <0x0 0x13D64000 0x800> }` — verified, no longer a guess |
+| Re-derive the timeout clock from the 9820 tick rate | todo | **UNVERIFIED**: the kernel computes `mclk_rate/1000000 & 0x3FF` from the UNIPRO clock; 166 MHz is the candidate (Mu-Silicium uses it for 9810 AND 9830) |
+| Port the newer-revision behaviour | todo | S10e is `hw-rev = UFS_VER_0006`; the 9810 driver only handles 0004/0005 |
+| Use the second template | todo | `edk2-exynos` already has `Exynos9820Pkg/Library/ExynosUfsLib` (`ufs.c`, `scsi.c`) — a UEFI 9820 UFS port exists outside Mu-Silicium |
 | Keep the diagnostic path able to print what the hardware says | todo | must be readable before any destructive step |
 
 ### M6 — Live verification on the phone

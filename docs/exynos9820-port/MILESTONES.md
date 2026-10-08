@@ -121,7 +121,7 @@ batched at the end. Research evidence lives in [`notes/exynos9820-research.md`](
 | Task | State | Notes |
 |------|-------|-------|
 | Diff our driver's register set against the 9820 kernel's | **done** | the EHI2C register set is unchanged; four constants are verified identical (base, 200 MHz source clock, GPIO base, GPP1 pins 4/5) — `notes/dock-desktop.md` §12 |
-| Rename the package and retarget its hardware identification | todo | keep the 9810 driver untouched |
+| Rename the package and retarget its hardware identification | **done** | `drivers/Exynos9820Hsi2c/` created as a copy; every name, the `.inx` strings, the ACPI match (`ACPI\SAMS9820`) and the `.rc` version block retargeted; the 9810 package is byte-unchanged |
 | Mark the moved windows as `UNVERIFIED` rather than guessing | **done** | CMU_PERIC0 and SYSREG_PERIC0 have **no 9820 equivalent** at the 9810 addresses; the 9820 CMU banks are `1A200000`/`1BC00000`–`1BF00000` and the QCH numbers come from Samsung's `cal-if` headers — §12 |
 | Carry the HSI2C #10 IRQ change into the ACPI tables | todo | SPI 404/GSIV 436 on 9810 → **SPI 388/GSIV 420** on 9820 — `notes/dock-desktop.md` §5 |
 | Re-derive the bus clock for timing | todo | the 9820 DT declares `default-clk = 0xbebc200` = **200 MHz** |

@@ -1,0 +1,53 @@
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
+Provider=%ProviderName%
+DriverVer=07/14/2026,1.0.0.0
+CatalogFile=Exynos9820Hsi2c.cat
+PnpLockdown=1
+
+[DestinationDirs]
+DefaultDestDir=13
+
+[SourceDisksNames]
+1=%DiskName%,,,""
+
+[SourceDisksFiles]
+Exynos9820Hsi2c.sys=1
+
+[Manufacturer]
+%ManufacturerName%=Models,NT$ARCH$.10.0...16299
+
+[Models.NT$ARCH$.10.0...16299]
+%DeviceDescription%=Device_Install,ACPI\SAMS9820
+
+[Device_Install.NT]
+CopyFiles=Driver_CopyFiles
+
+[Driver_CopyFiles]
+Exynos9820Hsi2c.sys
+
+[Device_Install.NT.Services]
+AddService=Exynos9820Hsi2c,0x00000002,Service_Install
+
+[Service_Install]
+DisplayName=%ServiceDescription%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%13%\Exynos9820Hsi2c.sys
+Dependencies=SpbCx
+
+[Device_Install.NT.Wdf]
+KmdfService=Exynos9820Hsi2c,Wdf_Install
+
+[Wdf_Install]
+KmdfLibraryVersion=$KMDFVERSION$
+
+[Strings]
+ProviderName="Exynos9820 WOA Project"
+ManufacturerName="Samsung Electronics"
+DiskName="Exynos9820 HSI2C Controller Installation Disk"
+DeviceDescription="Samsung Exynos 9820 HSI2C10 Controller"
+ServiceDescription="Samsung Exynos 9820 HSI2C Controller Driver"

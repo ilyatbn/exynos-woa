@@ -1,0 +1,53 @@
+## @file
+#  Silicon package declaration for Exynos 9820 (Galaxy S10e, beyond0lte).
+#  Mirrors Silicon/Exynos9810Pkg/Exynos9810Pkg.dec. Values come from the
+#  shipping 9820 device tree and from live reads on the phone — see
+#  notes/dock-desktop.md §5, §13 and §15 in this repo. The platform DSC
+#  overrides them. See Include/Platform/Exynos9820.h.
+#
+#  NOTHING HERE IS VALIDATED ON HARDWARE.
+##
+
+[Defines]
+  DEC_SPECIFICATION              = 0x0001001B
+  PACKAGE_NAME                   = Exynos9820Pkg
+  PACKAGE_GUID                   = 11111111-2222-3333-4444-555555555520
+  PACKAGE_VERSION                = 0.1
+
+[Includes]
+  Include
+
+[Guids]
+  gExynos9820TokenSpaceGuid = { 0xe9820000, 0x0001, 0x0001, { 0xa0, 0x01, 0x00, 0x00, 0x00, 0x00, 0x98, 0x20 } }
+
+[PcdsFixedAtBuild]
+  ## Debug UART base. VERIFIED on the live S10e and in the vendor DT: uart@10440000,
+  ## same base as the 9810, window 0x100. Consumed by Exynos9820SerialPortLib.
+  gExynos9820TokenSpaceGuid.PcdSerialRegisterBase|0x0000000010440000|UINT64|0x00000001
+
+  ## DRAM base. VERIFIED (memory@80000000).
+  gExynos9820TokenSpaceGuid.PcdSystemMemoryBase|0x0000000080000000|UINT64|0x00000002
+
+  ## DRAM size for bank0. VERIFIED as a bank: the vendor DT declares
+  ## reg = <0x0 0x80000000 0x80000000>, i.e. 2 GiB with no hole — a different
+  ## shape from the 9810's 0x3C800000. NOT yet reduced for the reserved-memory
+  ## carveouts (ION heaps, el2_code, kaslr, sec_rdx_bootdev) that the DT also
+  ## declares, so Windows' reported memory is expected to be too high until
+  ## those are subtracted.
+  gExynos9820TokenSpaceGuid.PcdSystemMemorySize|0x0000000080000000|UINT64|0x00000003
+
+  ## GIC distributor (GICD) base. VERIFIED — IDENTICAL to the 9810: the 9820's
+  ## node is interrupt-controller@10100000 with reg GICD 0x10101000/0x1000.
+  gExynos9820TokenSpaceGuid.PcdGicDistributorBase|0x0000000010101000|UINT64|0x00000004
+
+  ## GIC CPU interface (GICC) base. VERIFIED — identical to the 9810.
+  gExynos9820TokenSpaceGuid.PcdGicInterfaceBase|0x0000000010102000|UINT64|0x00000005
+
+  ## Core count. VERIFIED from /proc/cpuinfo on the S10e: 8 logical CPUs.
+  gExynos9820TokenSpaceGuid.PcdCoreCount|8|UINT32|0x00000006
+
+  ## Cluster count. VERIFIED: THREE clusters (4 + 2 + 2), with three power
+  ## domains LITTLE/MID/BIG. The 9810 had two. Anything that derives a per-
+  ## cluster core count by dividing CoreCount by ClusterCount is wrong here —
+  ## 8/3 is not integral. See notes/dock-desktop.md §15.
+  gExynos9820TokenSpaceGuid.PcdClusterCount|3|UINT32|0x00000007

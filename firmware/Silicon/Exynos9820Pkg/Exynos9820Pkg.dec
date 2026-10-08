@@ -28,13 +28,14 @@
   ## DRAM base. VERIFIED (memory@80000000).
   gExynos9820TokenSpaceGuid.PcdSystemMemoryBase|0x0000000080000000|UINT64|0x00000002
 
-  ## DRAM size for bank0. VERIFIED as a bank: the vendor DT declares
-  ## reg = <0x0 0x80000000 0x80000000>, i.e. 2 GiB with no hole — a different
-  ## shape from the 9810's 0x3C800000. NOT yet reduced for the reserved-memory
-  ## carveouts (ION heaps, el2_code, kaslr, sec_rdx_bootdev) that the DT also
-  ## declares, so Windows' reported memory is expected to be too high until
-  ## those are subtracted.
-  gExynos9820TokenSpaceGuid.PcdSystemMemorySize|0x0000000080000000|UINT64|0x00000003
+  ## Usable DRAM. The vendor DT declares bank0 as a full 2 GiB
+  ## (reg = <0x0 0x80000000 0x80000000>), but the board file this phone includes
+  ## reserves a contiguous 729 MB of it, 0xD0000000..0xFD900000, for the modem/CP
+  ## stack. This is the front of bank0 up to that first reservation — 1.25 GiB —
+  ## which is the conservative value the memory map actually publishes. The tail
+  ## and the two high 2 GiB banks are added once the split sizes are confirmed.
+  ## See notes/dock-desktop.md §17.
+  gExynos9820TokenSpaceGuid.PcdSystemMemorySize|0x0000000050000000|UINT64|0x00000003
 
   ## GIC distributor (GICD) base. VERIFIED — IDENTICAL to the 9810: the 9820's
   ## node is interrupt-controller@10100000 with reg GICD 0x10101000/0x1000.

@@ -146,14 +146,13 @@ ArmPlatformGetVirtualMemoryMap (
   //
   // --- DRAM (cached, identity-mapped) ---
   //
-  // Only bank0 is published: it is the one bank whose extent is a read
-  // (the vendor DT's memory@80000000 reg pair). The other four banks exist as
-  // node names but their sizes have not been read, so they stay out until they
-  // are. Mapping across an unproven extent would fault, exactly as on the 9810.
-  //
-  // NOTE for anyone comparing this to the 9810: the S9+'s bank0 ended at
-  // 0xBC800000 and the UFS driver's DMA window was derived from that end. Here
-  // bank0 runs to 0x100000000, so that derivation does not carry over.
+  // Only the front of bank0 is published: EXYNOS_DRAM_SIZE stops at 0xD0000000,
+  // the first of the modem/CP reservations the board file declares (0xD0000000
+  // .. 0xFD900000, a contiguous 729 MB). The vendor DT declares bank0 as a full
+  // 2 GiB, so publishing all of it would hand the modem's memory to Windows as
+  // conventional RAM. The tail above 0xFD900000 and the two high 2 GiB banks are
+  // what has to be added once the split sizes at 0xC0000000 and 0xE1900000 are
+  // confirmed — see notes/dock-desktop.md §17.
   //
   Table[Index].PhysicalBase = EXYNOS_DRAM_BASE;
   Table[Index].VirtualBase  = EXYNOS_DRAM_BASE;

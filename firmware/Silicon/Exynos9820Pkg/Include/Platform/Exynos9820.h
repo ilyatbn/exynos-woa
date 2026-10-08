@@ -56,17 +56,55 @@
 // the phone; the vendor DT has them).
 // ---------------------------------------------------------------------------
 //
+// The SoC-level DT declares three 2 GiB banks; the live phone splits the low one
+// at 0xC0000000 and 0xE1900000, the same split points the 9810's map used.
+//   memory@80000000  reg = <0x0 0x80000000 0x80000000>
+//   memory@880000000 reg = <0x8 0x80000000 0x80000000>
+//   memory@900000000 reg = <0x9 0x00000000 0x80000000>
+//
+// Bank0 is NOT 2 GiB of usable RAM. The board file this phone includes
+// (exynos9820-rmem_s5100_dual.dtsi) reserves a contiguous 729 MB in the middle
+// of it, from 0xD0000000 to 0xFD900000, for the modem/CP stack:
+//
+//   modem_spare     0xD0000000 + 0x1600000    modem_if      0xF0000000 + 0xB900000
+//   modem_if2       0xD1600000 + 0x4200000    cp_ram_logging 0xFB900000 + 0x2000000
+//   cp2cp_shm       0xD5800000 + 0x4000000    s5100_msi      0xD9800000 + 0x1000
+//
+// Handing that to Windows as conventional RAM is a fault waiting to happen, so
+// the map publishes only up to the first reserved region until the split sizes
+// are confirmed. The DT's chosen node also puts the Android initrd at
+// 0x84000000..0x841fffff, which is why the firmware loads at 0x80080000.
+// ---------------------------------------------------------------------------
+//
 #define EXYNOS_DRAM_BASE          0x0000000080000000ULL   // VERIFIED
-#define EXYNOS_DRAM_SIZE          0x0000000080000000ULL   // VERIFIED (vendor DT reg)
+#define EXYNOS_DRAM_BANK0_SIZE    0x0000000080000000ULL   // VERIFIED as a bank (vendor DT reg)
+#define EXYNOS_DRAM_SIZE          0x0000000050000000ULL   // CONSERVATIVE: stops at the first reserved region
 
 #define EXYNOS_DRAM_BANK1_BASE    0x00000000C0000000ULL   // VERIFIED (node name)
-#define EXYNOS_DRAM_BANK1_SIZE    0x0000000000000000ULL   // UNVERIFIED — size not yet read
+#define EXYNOS_DRAM_BANK1_SIZE    0x0000000000000000ULL   // UNVERIFIED — size not read; 0x21900000 is the candidate
 #define EXYNOS_DRAM_BANK2_BASE    0x00000000E1900000ULL   // VERIFIED (node name)
-#define EXYNOS_DRAM_BANK2_SIZE    0x0000000000000000ULL   // UNVERIFIED — size not yet read
-#define EXYNOS_DRAM_BANK3_BASE    0x0000000880000000ULL   // VERIFIED (node name)
-#define EXYNOS_DRAM_BANK3_SIZE    0x0000000000000000ULL   // UNVERIFIED — size not yet read
-#define EXYNOS_DRAM_BANK4_BASE    0x0000000900000000ULL   // VERIFIED (node name)
-#define EXYNOS_DRAM_BANK4_SIZE    0x0000000000000000ULL   // UNVERIFIED — size not yet read
+#define EXYNOS_DRAM_BANK2_SIZE    0x0000000000000000ULL   // UNVERIFIED — size not read; 0x1E700000 is the candidate
+#define EXYNOS_DRAM_BANK3_BASE    0x0000000880000000ULL   // VERIFIED (node name + vendor DT reg)
+#define EXYNOS_DRAM_BANK3_SIZE    0x0000000080000000ULL   // VERIFIED (vendor DT reg)
+#define EXYNOS_DRAM_BANK4_BASE    0x0000000900000000ULL   // VERIFIED (node name + vendor DT reg)
+#define EXYNOS_DRAM_BANK4_SIZE    0x0000000080000000ULL   // VERIFIED (vendor DT reg)
+
+//
+// Reserved inside bank0 — published so the memory map can subtract them rather
+// than discover the collision at runtime. VERIFIED from the board file.
+//
+#define EXYNOS_RSVD_MODEM_SPARE_BASE  0x00000000D0000000ULL
+#define EXYNOS_RSVD_MODEM_SPARE_SIZE  0x0000000001600000ULL
+#define EXYNOS_RSVD_MODEM_IF2_BASE    0x00000000D1600000ULL
+#define EXYNOS_RSVD_MODEM_IF2_SIZE    0x0000000004200000ULL
+#define EXYNOS_RSVD_CP2CP_BASE        0x00000000D5800000ULL
+#define EXYNOS_RSVD_CP2CP_SIZE        0x0000000004000000ULL
+#define EXYNOS_RSVD_S5100_MSI_BASE    0x00000000D9800000ULL
+#define EXYNOS_RSVD_S5100_MSI_SIZE    0x000000000001000ULL
+#define EXYNOS_RSVD_MODEM_IF_BASE     0x00000000F0000000ULL
+#define EXYNOS_RSVD_MODEM_IF_SIZE     0x000000000B900000ULL
+#define EXYNOS_RSVD_CP_RAM_BASE       0x00000000FB900000ULL
+#define EXYNOS_RSVD_CP_RAM_SIZE       0x0000000002000000ULL
 
 //
 // ---------------------------------------------------------------------------

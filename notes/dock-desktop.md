@@ -736,3 +736,52 @@ domains `10090000.LITTLE` / `MID` / `BIG` match those three names. So the
 - The MADT's MPIDR column becomes 0x000…0x005 then 0x100, 0x101 — the previous
   draft's 0x200/0x201 does not exist on this SoC.
 - Efficiency classes stay three: BIG = 0, MID = 1, LITTLE = 2.
+
+## 17. M8 — DRAM: bank0 is not 2 GiB of usable RAM, and the reserved list is published
+
+**The SoC-level vendor DT declares three 2 GiB banks:**
+
+```
+memory@80000000    reg = <0x0 0x80000000 0x80000000>
+memory@880000000   reg = <0x8 0x80000000 0x80000000>
+memory@900000000   reg = <0x9 0x00000000 0x80000000>
+```
+
+**The live S10e publishes five nodes** — the low bank is split by the board-level
+file at the SAME split points the 9810's starlte map used:
+
+```
+memory@80000000   memory@C0000000   memory@E1900000   memory@880000000   memory@900000000
+```
+
+*(fact)* the bases are a read; the sizes are not (property contents are blocked).
+*(inference)* the 9810's `0xC0000000 + 0x20000000` and `0xE1900000 + 0x1E700000`
+tile the gap exactly — `0xC0000000 + 0x21900000 = 0xE1900000` — so the same
+split is the likely one here. Kept as a candidate, not a constant.
+
+**What is reserved inside the low bank** (`exynos9820-rmem_s5100_dual.dtsi`, the
+file the S10e's board `.dts` includes):
+
+```
+modem_spare       0xD0000000 + 0x1600000
+modem_if2         0xD1600000 + 0x4200000
+cp2cp_shm         0xD5800000 + 0x4000000
+s5100_msi         0xD9800000 + 0x0001000
+modem_if          0xF0000000 + 0xB900000     (ends 0xFB900000)
+cp_ram_logging    0xFB900000 + 0x2000000     (ends 0xFD900000)
+```
+
+*(fact)* those are contiguous from **0xD0000000 to 0xFD900000** — 729 MB in the
+middle of bank0 that belongs to the modem/CP stack, not to the OS.
+
+**Consequence for the memory map:** declaring bank0 as one 2 GiB cached region
+would hand the modem's memory to Windows as conventional RAM. The conservative
+mapping the code uses now is `0x80000000 + 0x50000000` (up to the first
+reserved region), which is 1.25 GiB — and the tail `0xFD900000..0x100000000`
+(39 MB) plus the two high 2 GiB banks are what has to be added once the split
+sizes are confirmed.
+
+**Also from the DT:** `chosen` carries `initrd-start = 0x84000000`,
+`initrd-end = 0x841fffff` — 32 MB of the front of bank0 is taken by the Android
+initrd, which is the same reason the 9810 flow loads the firmware at
+`0x80080000` rather than at the base.

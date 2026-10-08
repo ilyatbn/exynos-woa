@@ -175,7 +175,7 @@ re-plug and accept the "Allow access from this PC" dialog on the phone. Success 
 |------|-------|-------|
 | Find what the 9810 project does for USB host today | todo | our `firmware/` and Mu-Silicium's `UsbfnDwc3Dxe` |
 | Locate Exynos DWC3/USBFN support in Mu-Silicium | todo | release note "Added Support for Exynos DWC3" |
-| Read the S10e's own USB-function and DWC3 nodes on the live phone | todo | **needs-phone** — node names are readable |
+| Read the S10e's own USB-function and DWC3 nodes on the live phone | **done** | USBFN at `0x10C00000`, declares a `dwc3` child; the host device is **not instantiated** under Android — `notes/dock-desktop.md` §1 |
 | Establish what Windows needs for a phone's USB-C port to be a host | todo | the port is host-capable in UEFI; Windows must drive the attached devices |
 | Check prior art: phones running Windows with a keyboard attached | todo | WOA / Renegade / Project-Aloha |
 
@@ -193,7 +193,7 @@ re-plug and accept the "Allow access from this PC" dialog on the phone. Success 
 
 | Task | State | Notes |
 |------|-------|-------|
-| Identify the WLAN hardware in the S10e (live) | todo | **needs-phone** — DTB node names |
+| Identify the WLAN hardware in the S10e (live) | **done** | Broadcom **DHD** over Samsung reserved memory + blobs (`bcmdhd_sta.bin`, `nvram_net.txt`) — not a PC wifi card; `notes/dock-desktop.md` §1 |
 | Find existing Windows drivers for Samsung Exynos WLAN | todo | `windows_samsung_platforms` components, Mu-Silicium |
 | Decide whether WiFi is required at all when LAN is available | todo | donation case may prefer LAN only |
 
@@ -201,8 +201,8 @@ re-plug and accept the "Allow access from this PC" dialog on the phone. Success 
 
 | Task | State | Notes |
 |------|-------|-------|
-| Confirm Windows ARM64 has a driver for a generic USB ethernet adapter | todo | standard LAN drivers exist for ARM64 |
-| Confirm the dock's ethernet does not need the phone's own network stack | todo | it should be plain USB host |
+| Confirm Windows ARM64 has a driver for a generic USB ethernet adapter | todo | the 9820 kernel already lists ASIX AX88179/178A, SMSC, RTL8150/2 — so the chip class is known; the Windows driver half is still open |
+| Confirm the dock's ethernet does not need the phone's own network stack | **done** | it is a plain USB-net device; only host mode (M10) is required |
 
 ### M14 — Powered and cool while docked
 

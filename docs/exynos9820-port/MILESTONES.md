@@ -92,11 +92,27 @@ batched at the end. Research evidence lives in [`notes/exynos9820-research.md`](
 
 ### M6 — Live verification on the phone
 
+State: **doing** (user chose the phone path)
+
 | Task | State | Notes |
 |------|-------|-------|
+| Install the PC-side tooling (`android-tools`) | doing | needs a password for `sudo`; user runs it |
 | Read the running device tree from the S10e | todo | **needs-phone** — adb, read-only |
 | Confirm the storage and bus regions in the live kernel | todo | **needs-phone** |
 | Record the panel's identity and firmware version | todo | **needs-phone** |
+
+The exact read-only commands I will run on the phone (nothing is flashed or written):
+
+```
+adb shell "uname -a"
+adb shell "cat /proc/device-tree/ufs/0x13d60000/name"        # storage regions
+adb shell "ls -l /sys/devices/platform/"                     # bus + display nodes
+adb shell "cat /proc/iomem"                                  # where the hardware lives
+adb shell "ls -l /sys/class/touchscreen /sys/devices/*hsi2c*" # touch + bus identity
+adb shell "dmesg | grep -iE 'hsi2c|sec_ts|ufs|unipro'"       # what the kernel says
+```
+
+Paths are adjusted to whatever the phone actually exposes; all of it is `cat`/`ls`/`grep`.
 
 ### M7 — Build and sign
 

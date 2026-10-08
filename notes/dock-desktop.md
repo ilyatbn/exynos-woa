@@ -682,3 +682,57 @@ the "I have CPU cores" bar depend on the MPIDR affinities published there, and t
 *(inference)* the two Samsung-implemented cores (`0x53`/'S', part `0x003`) are the
 SoC's own design, so their MPIDR affinities and any PSCI behaviour have to be
 confirmed on the device rather than assumed to match ARM's A55/A76-class cores.
+
+## 16. The CPU topology, CLOSED by two independent reads (this corrects §15)
+
+§15 inferred three MPIDR clusters from the power-domain names `LITTLE`/`MID`/`BIG`.
+That inference was **wrong**, and the device tree settles it — node names are
+readable even though property contents are not, and DT CPU nodes are named by
+MPIDR.
+
+**Live S10e**, `/proc/device-tree/cpus/`:
+
+```
+cpu@0000 cpu@0001 cpu@0002 cpu@0003 cpu@0004 cpu@0005
+cpu@0100 cpu@0101
+```
+
+**Vendor DT**, `arch/arm64/boot/dts/exynos/exynos9820.dts` — same eight nodes,
+with the `reg` and identity fields the phone cannot show:
+
+```
+cpu@0000  reg = <0x0 0x0>    compatible = "arm,ananke",    "arm,armv8"
+cpu@0004  reg = <0x0 0x4>    compatible = "arm,prometheus", "arm,armv8"
+cpu@0100  reg = <0x0 0x100>  compatible = "arm,cheetah",    "arm,armv8"
+```
+
+Cross-checked against `/proc/cpuinfo` on the phone, which enumerates in the same
+order:
+
+| processor | MPIDR | DT identity | `/proc/cpuinfo` implementer/part |
+|---|---|---|---|
+| 0–3 | `0x000`–`0x005`… i.e. 0x0, 0x1, 0x2, 0x3 | `ananke` | 0x41 / 0xd05 (Cortex-A55 class) |
+| 4–5 | 0x4, 0x5 | `prometheus` | 0x41 / 0xd0a |
+| 6–7 | **0x100, 0x101** | `cheetah` | 0x53 (Samsung) / 0x003 |
+
+*(fact)* **Two MPIDR clusters, sized 6 + 2** — Aff1 = 0 for the six ARM cores and
+Aff1 = 1 for the two Samsung cores. `enable-method = "psci"` on every node, so
+secondary cores come up over PSCI, as the 9810 assumed.
+
+*(fact)* there are still **three efficiency classes** — `ananke` (LITTLE),
+`prometheus` (MID), `cheetah` (BIG) — and the live platform tree's three power
+domains `10090000.LITTLE` / `MID` / `BIG` match those three names. So the
+"three clusters" idea was right about *efficiency* and wrong about *affinity*.
+
+*(fact)* the DT also carries a `cpu-map` node with `cluster0` → `coregroup0` →
+`core0…`, i.e. Samsung groups the two ARM coregroups inside one cluster.
+
+### What this changes in the code
+
+- `PcdClusterCount` is **2**, not 3.
+- The explicit core-position table is **{6, 2}**, not {4, 2, 2} — and the 9810's
+  division is still wrong, because 8/2 = 4 would put the two BIG cores at
+  positions 4 and 5, which are the MID cores' slots.
+- The MADT's MPIDR column becomes 0x000…0x005 then 0x100, 0x101 — the previous
+  draft's 0x200/0x201 does not exist on this SoC.
+- Efficiency classes stay three: BIG = 0, MID = 1, LITTLE = 2.

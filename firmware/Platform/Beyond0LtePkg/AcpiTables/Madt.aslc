@@ -10,7 +10,7 @@
   are the 9810's, unchanged.
 
   The CPU side is NOT a transfer. VERIFIED from /proc/cpuinfo on the S10e:
-  **eight logical CPUs in THREE clusters, sized 4 + 2 + 2**, with three distinct
+  **eight logical CPUs in TWO MPIDR clusters, sized 6 + 2**, with three distinct
   core identities —
 
     processors 0-3   implementer 0x41 (ARM)      variant 0x1  part 0xd05
@@ -18,13 +18,18 @@
     processors 6-7   implementer 0x53 (Samsung)  variant 0x1  part 0x003
 
   and the live platform tree carries three power domains, 10090000.LITTLE,
-  10090000.MID and 10090000.BIG, where the 9810 had two.
+  10090000.MID and 10090000.BIG, where the 9810 had two. The three power
+  domains are the three efficiency classes; they are NOT three affinity
+  clusters.
 
-  UNVERIFIED, and it is the part that has to be read on the device: the MPIDR
-  affinity values. The table below assumes Aff1 = 0 for LITTLE, 1 for MID and
-  2 for BIG, in that order. That ordering is an inference from the power-domain
-  naming, not a read — reading MPIDR_EL1 on each core settles it, and a wrong
-  ordering makes Windows' scheduler mis-rank the cores rather than fail.
+  The MPIDR affinities are a READ, not an inference (notes/dock-desktop.md §16):
+  the live S10e's own /proc/device-tree/cpus/ and the vendor DT agree on
+  cpu@0000..cpu@0005 then cpu@0100,cpu@0101, and the vendor DT spells the values
+  out as reg = <0x0 0x0>, <0x0 0x4>, <0x0 0x100>. So there are TWO MPIDR
+  clusters, sized 6 + 2, and the six ARM cores share Aff1 = 0. The three
+  efficiency classes (ananke / prometheus / cheetah) live inside those two
+  clusters, which is why the power domains are named LITTLE/MID/BIG while the
+  affinities are not.
 **/
 
 #include "Beyond0LteAcpiHeader.h"
@@ -146,13 +151,16 @@ STATIC BEYOND0LTE_MADT  Madt = {
     BEYOND0LTE_GICC_INIT (2, 2, MPIDR_CORE (0, 2), BEYOND0LTE_SECONDARY_GIC_FLAGS,    BEYOND0LTE_PMU_GSIV, BEYOND0LTE_GICC_BASE, BEYOND0LTE_GICV_BASE, BEYOND0LTE_GICH_BASE, BEYOND0LTE_VGIC_MAINT_GSIV, 0, EFF_LITTLE),
     BEYOND0LTE_GICC_INIT (3, 3, MPIDR_CORE (0, 3), BEYOND0LTE_SECONDARY_GIC_FLAGS,    BEYOND0LTE_PMU_GSIV, BEYOND0LTE_GICC_BASE, BEYOND0LTE_GICV_BASE, BEYOND0LTE_GICH_BASE, BEYOND0LTE_VGIC_MAINT_GSIV, 0, EFF_LITTLE),
 
-    // MID cores (ARM implementer 0x41, part 0xd0a), cluster 1 — TWO of them:
-    BEYOND0LTE_GICC_INIT (4, 4, MPIDR_CORE (1, 0), BEYOND0LTE_MID_GIC_FLAGS,          BEYOND0LTE_PMU_GSIV, BEYOND0LTE_GICC_BASE, BEYOND0LTE_GICV_BASE, BEYOND0LTE_GICH_BASE, BEYOND0LTE_VGIC_MAINT_GSIV, 0, EFF_MID),
-    BEYOND0LTE_GICC_INIT (5, 5, MPIDR_CORE (1, 1), BEYOND0LTE_MID_GIC_FLAGS,          BEYOND0LTE_PMU_GSIV, BEYOND0LTE_GICC_BASE, BEYOND0LTE_GICV_BASE, BEYOND0LTE_GICH_BASE, BEYOND0LTE_VGIC_MAINT_GSIV, 0, EFF_MID),
+    // MID cores (arm,prometheus — implementer 0x41, part 0xd0a). They are in
+    // MPIDR cluster 0, at affinities 0x4 and 0x5, NOT a cluster of their own:
+    // the live device tree and the vendor DT both name them cpu@0004 / cpu@0005.
+    BEYOND0LTE_GICC_INIT (4, 4, MPIDR_CORE (0, 4), BEYOND0LTE_MID_GIC_FLAGS,          BEYOND0LTE_PMU_GSIV, BEYOND0LTE_GICC_BASE, BEYOND0LTE_GICV_BASE, BEYOND0LTE_GICH_BASE, BEYOND0LTE_VGIC_MAINT_GSIV, 0, EFF_MID),
+    BEYOND0LTE_GICC_INIT (5, 5, MPIDR_CORE (0, 5), BEYOND0LTE_MID_GIC_FLAGS,          BEYOND0LTE_PMU_GSIV, BEYOND0LTE_GICC_BASE, BEYOND0LTE_GICV_BASE, BEYOND0LTE_GICH_BASE, BEYOND0LTE_VGIC_MAINT_GSIV, 0, EFF_MID),
 
-    // BIG cores (Samsung implementer 0x53, part 0x003), cluster 2 — TWO of them:
-    BEYOND0LTE_GICC_INIT (6, 6, MPIDR_CORE (2, 0), BEYOND0LTE_BIG_GIC_FLAGS,          BEYOND0LTE_PMU_GSIV, BEYOND0LTE_GICC_BASE, BEYOND0LTE_GICV_BASE, BEYOND0LTE_GICH_BASE, BEYOND0LTE_VGIC_MAINT_GSIV, 0, EFF_BIG),
-    BEYOND0LTE_GICC_INIT (7, 7, MPIDR_CORE (2, 1), BEYOND0LTE_BIG_GIC_FLAGS,          BEYOND0LTE_PMU_GSIV, BEYOND0LTE_GICC_BASE, BEYOND0LTE_GICV_BASE, BEYOND0LTE_GICH_BASE, BEYOND0LTE_VGIC_MAINT_GSIV, 0, EFF_BIG),
+    // BIG cores (arm,cheetah — Samsung's own, implementer 0x53, part 0x003).
+    // These ARE the second MPIDR cluster: cpu@0100 / cpu@0101.
+    BEYOND0LTE_GICC_INIT (6, 6, MPIDR_CORE (1, 0), BEYOND0LTE_BIG_GIC_FLAGS,          BEYOND0LTE_PMU_GSIV, BEYOND0LTE_GICC_BASE, BEYOND0LTE_GICV_BASE, BEYOND0LTE_GICH_BASE, BEYOND0LTE_VGIC_MAINT_GSIV, 0, EFF_BIG),
+    BEYOND0LTE_GICC_INIT (7, 7, MPIDR_CORE (1, 1), BEYOND0LTE_BIG_GIC_FLAGS,          BEYOND0LTE_PMU_GSIV, BEYOND0LTE_GICC_BASE, BEYOND0LTE_GICV_BASE, BEYOND0LTE_GICH_BASE, BEYOND0LTE_VGIC_MAINT_GSIV, 0, EFF_BIG),
   },
   BEYOND0LTE_GICD_INIT (0, BEYOND0LTE_GICD_BASE, 0, EFI_ACPI_6_3_GIC_V2),
 };

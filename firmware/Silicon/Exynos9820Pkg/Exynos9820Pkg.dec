@@ -46,8 +46,11 @@
   ## Core count. VERIFIED from /proc/cpuinfo on the S10e: 8 logical CPUs.
   gExynos9820TokenSpaceGuid.PcdCoreCount|8|UINT32|0x00000006
 
-  ## Cluster count. VERIFIED: THREE clusters (4 + 2 + 2), with three power
-  ## domains LITTLE/MID/BIG. The 9810 had two. Anything that derives a per-
-  ## cluster core count by dividing CoreCount by ClusterCount is wrong here —
-  ## 8/3 is not integral. See notes/dock-desktop.md §15.
-  gExynos9820TokenSpaceGuid.PcdClusterCount|3|UINT32|0x00000007
+  ## Cluster count. VERIFIED from the live device tree and the vendor DT: TWO
+  ## MPIDR clusters, sized 6 + 2 (cpu@0000..0005 then cpu@0100,cpu@0101). There
+  ## are THREE efficiency classes inside them - ananke (LITTLE), prometheus (MID)
+  ## and cheetah (BIG) - which is what the power domains LITTLE/MID/BIG name, but
+  ## affinity has only two clusters. Anything deriving a per-cluster core count
+  ## by dividing CoreCount by ClusterCount is wrong here: 8/2 = 4 would put the
+  ## two BIG cores into the MID cores' slots. See notes/dock-desktop.md §16.
+  gExynos9820TokenSpaceGuid.PcdClusterCount|2|UINT32|0x00000007

@@ -38,31 +38,33 @@
 // ---------------------------------------------------------------------------
 // Core positioning — this is the one place the 9810's math does NOT carry over.
 //
-// Verified on the S10e from /proc/cpuinfo: 8 logical CPUs in THREE clusters,
-// sized 4 + 2 + 2, with three distinct core identities
+// CLOSED by two independent reads (notes/dock-desktop.md §16): the live S10e's
+// own /proc/device-tree/cpus/ and the vendor DT agree on eight CPU nodes named
+// by MPIDR —
 //
-//   processors 0-3   implementer 0x41 (ARM)      variant 0x1  part 0xd05
-//   processors 4-5   implementer 0x41 (ARM)      variant 0x2  part 0xd0a
-//   processors 6-7   implementer 0x53 (Samsung)  variant 0x1  part 0x003
+//   cpu@0000 cpu@0001 cpu@0002 cpu@0003 cpu@0004 cpu@0005     Aff1 = 0
+//   cpu@0100 cpu@0101                                        Aff1 = 1
 //
-// and three power domains in the live platform tree: 10090000.LITTLE,
-// 10090000.MID, 10090000.BIG. The 9810 had two clusters of four, so its
+// with identities ananke (MPIDR 0x0-0x3, Cortex-A55 class), prometheus (0x4-0x5)
+// and cheetah (0x100-0x101, Samsung's own, implementer 0x53). So there are
+// **TWO MPIDR clusters, sized 6 + 2**, and three efficiency classes inside them.
+//
+// The 9810 had two clusters of four, so its
 //
 //   CoresPerCluster = PcdCoreCount / PcdClusterCount;
 //   position        = cluster * CoresPerCluster + core;
 //
-// was exact. Here 8 / 3 is not integral, so that formula would place the MID
-// and BIG cores at wrong linear positions — and that index selects per-core
-// stack and structure slots inside the SEC entry path. A wrong index is a
-// memory bug during bootstrapping, not a cosmetic one.
+// was exact. Here 8 / 2 = 4, which would place the two BIG cores at linear
+// positions 4 and 5 — but those slots belong to the MID cores. The error is not
+// a wrong number in a table: that index selects per-core stack and structure
+// slots inside the SEC entry path, so a wrong one is a memory bug during
+// bootstrapping.
 //
-// The table below is therefore explicit. The cluster ORDER (0 = LITTLE, 1 = MID,
-// 2 = BIG) is an inference from the power-domain naming and the fact that
-// GET_CLUSTER_ID comes from MPIDR affinity 1; it must be confirmed by reading
-// MPIDR_EL1 on each core, which is the first on-device task here.
+// The table below is therefore explicit. Cluster 0 holds six cores (ananke +
+// prometheus), cluster 1 holds two (cheetah).
 // ---------------------------------------------------------------------------
 //
-STATIC CONST UINTN  mCoresPerCluster[] = { 4, 2, 2 };   // LITTLE, MID, BIG
+STATIC CONST UINTN  mCoresPerCluster[] = { 6, 2 };   // {ananke+prometheus}, {cheetah}
 
 /**
    Per-core early init, called very early from PrePi for each booting CPU.

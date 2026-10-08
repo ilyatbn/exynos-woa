@@ -14,14 +14,15 @@
     * the HSI2C #10 interrupt: GSIV 436 -> 420 (SPI 388 + 32, verified).
 
   DELIBERATELY UNCHANGED, and it is NOT correct on this SoC:
-    * the CMU_PERIC0 (0x10400000) and SYSREG_PERIC0 (0x10411000) windows under
-      I2C0. The 9820 has no node at either address; its CMU banks are
-      0x1A200000 and 0x1BC00000-0x1BF00000, and which bank is PERIC0 is
-      unresolved. They are kept at the 9810 values so this file and
-      drivers/Exynos9820Hsi2c/exynos9820hsi2c.h stay in agreement — the two
-      must be corrected in ONE step, because a DSDT that advertises one window
-      and a driver that maps another is a worse failure than both being wrong
-      together.
+    * the SYSREG_PERIC0 (0x10411000) window under I2C0. The 9820 DT has no node
+      there; its USI sysreg block is `usi@10421000` with `usi3` at 0x10421010,
+      which is the candidate, but the 9810's +0x1C slot does not translate, so
+      it stays at the 9810 value and the driver header keeps the pair in
+      agreement.
+    The CMU window IS now correct: `SFR_BLOCK(CMU_PERIC0, 0x10400000, 0x8000)`
+    in Samsung's cal-if table (drivers/soc/samsung/cal-if/exynos9820/cmucal-sfr.c)
+    confirms the 9810 base and gives the full 0x8000 extent, which is what the
+    line below advertises.
     * the parked Storport interrupt (GSIV 259) on UFS0. It is chosen to be a
       line with no consumer, so it never asserts; the 9820's own unconsumed
       number has not been identified.
@@ -244,7 +245,7 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
             Name (_CRS, ResourceTemplate ()
             {
                 Memory32Fixed (ReadWrite, 0x104B0000, 0x00001000)
-                Memory32Fixed (ReadWrite, 0x10400000, 0x00004000)
+                Memory32Fixed (ReadWrite, 0x10400000, 0x00008000)  // cal-if SFR_BLOCK(CMU_PERIC0) size 0x8000
                 Memory32Fixed (ReadWrite, 0x10411000, 0x00001000)
                 Memory32Fixed (ReadWrite, 0x10430000, 0x00001000)
                 Interrupt (ResourceConsumer, Edge, ActiveHigh, Exclusive)

@@ -211,14 +211,24 @@
 //   cmu_ewf  reg = <0x0 0x1a240000 0x1000>
 //
 // So 0x1A240000 is still inside the 0x1A200000 bank, and the 9810's CMU_FSYS0
-// at 0x11000000 does not exist on this SoC at all. Which of the four 0x1BC…
-// 0x1BF… banks is FSYS0A (the one that clocks USB31DRD) and which is PERIC0
-// (the one that clocks USI03, i.e. the touch bus) is NOT resolved: the 9820
-// clock driver names them through Samsung's cal-if headers
-// (soc/samsung/cal-if/exynos9820/cmucal-{vclk,node,qch}.h), where the QCH ids
-// are enum positions, not addresses. Until that mapping is derived, the two
-// windows the USB and touch code poke stay zero so the memory map lib skips
-// them rather than mapping a wrong one.
+// at 0x11000000 does not exist on this SoC at all. RESOLVED 2026-10-09: the
+// DT's five-window `cmu` node is NOT the whole CMU set. Samsung's own
+// calibration table (drivers/soc/samsung/cal-if/exynos9820/cmucal-sfr.c, the
+// `cmucal_sfr_block_list[]` of 34 entries) gives every CMU block:
+//
+//   CMU_PERIC0 0x10400000 +0x8000     CMU_FSYS0A 0x10a00000 +0x8000
+//   CMU_FSYS0  0x13000000 +0x8000     CMU_PERIC1 0x10800000 +0x8000
+//   CMU_BUSC   0x1a200000 +0x8000     CMU_CMU    0x1a240000 +0x8000
+//   CMU_MIF/MIF1/MIF2/MIF3 = 0x1bc00000/0x1bd00000/0x1be00000/0x1bf00000
+//
+// i.e. the four 0x1BC..0x1BF banks the DT lists are the MEDIA IP CMUs, and
+// PERIC0/FSYS0A live at their own addresses - PERIC0 at the SAME base the
+// 9810 used, with a full block of 0x8000 (the 9810 mapped only 0x4000, which
+// is cal-if's `dbg_offset`).
+//
+// Containment note: GPIO_PERIC0 (0x10430000) sits inside CMU_PERIC0's 0x8000
+// block. Both are mapped DEVICE/UNCACHEABLE, so the overlap is attribute-
+// consistent; it is not the UFS-style overlap the lib folds.
 // ---------------------------------------------------------------------------
 //
 #define EXYNOS_CMU_TOP_BASE       0x000000001A240000ULL   // VERIFIED (cmu_ewf)
@@ -234,10 +244,10 @@
 #define EXYNOS_CMU_BANK4_BASE     0x000000001BF00000ULL   // VERIFIED (cmu reg #5)
 #define EXYNOS_CMU_BANK4_SIZE     0x0000000000008000ULL   // VERIFIED
 
-#define EXYNOS_CMU_FSYS0A_BASE    0x0000000000000000ULL   // UNVERIFIED — which bank is FSYS0A
-#define EXYNOS_CMU_FSYS0A_SIZE    0x0000000000000000ULL   // UNVERIFIED
-#define EXYNOS_CMU_PERIC0_BASE    0x0000000000000000ULL   // UNVERIFIED — which bank is PERIC0
-#define EXYNOS_CMU_PERIC0_SIZE    0x0000000000000000ULL   // UNVERIFIED
+#define EXYNOS_CMU_FSYS0A_BASE    0x0000000010A00000ULL   // cal-if SFR_BLOCK(CMU_FSYS0A)
+#define EXYNOS_CMU_FSYS0A_SIZE    0x0000000000008000ULL   // cal-if SFR_BLOCK size
+#define EXYNOS_CMU_PERIC0_BASE    0x0000000010400000ULL   // cal-if SFR_BLOCK(CMU_PERIC0)
+#define EXYNOS_CMU_PERIC0_SIZE    0x0000000000008000ULL   // cal-if SFR_BLOCK size
 
 //
 // ---------------------------------------------------------------------------

@@ -163,16 +163,55 @@ and `exynos9820-rmem_s5100_dual.dtsi`:
   false here (already stated in HANDOFF §5). Candidate carveouts that are reserved and not part of
   the live logging: `seclog_mem 0xc0000000+0x80000` (but that is the start of the abox heap range)
   or the top of bank0's `log_kevents` tail. Still a choice, not a read - keep it `UNVERIFIED`.
-* **CMU bank -> domain.** Not resolvable from the phone, the shipping DTS, or Samsung's `cal-if`
-  headers as published in `CruelKernel/samsung-exynos9820`: `cmucal-vclk.h`, `cmucal-node.h`,
-  `cmucal-qch.h` are **enum lists only** (confirmed by reading them: `VCLK_*`, `CLK_QCH(...)`,
-  no addresses), and that repo carries no `s2cmu`/clock driver that would bind enum -> bank.
+* **CMU bank -> domain.** NOT resolvable from the phone, the shipping DTS, or the
+  `cmucal-{vclk,node,qch}.h` headers (those are enum lists only - confirmed by reading them).
   Dead end recorded so it is not re-searched.
-  Practical way forward (inference, mine): do not pick a bank at all. edk2-exynos' 9820 port maps
-  the whole `0x0..0x20000000` as one `NS_DEVICE` region ("Periphs"), which covers every CMU bank
+  Practical way forward (inference, mine): do not pick a bank at all. edk2-exynos' working 9820 port
+  maps the whole `0x0..0x20000000` as one `NS_DEVICE` region ("Periphs"), which covers every CMU bank
   and both verified device windows (`hsi2c@104b0000`, `usb@10C00000`). Our memory map can do the
   same, and the only CMU-specific pokes left are the 9810's `UsbDebug.c` QCH offsets, which stay
   `UNVERIFIED` until a read exists.
+
+### 7.5 RESOLVED the same day - the CMU question was the wrong question (fact)
+
+The DT's five-window `cmu` node is **not** the whole CMU set. Samsung's own calibration table
+`drivers/soc/samsung/cal-if/exynos9820/cmucal-sfr.c` opens with `cmucal_sfr_block_list[]`,
+34 `SFR_BLOCK(name, address, size)` entries, and the DT's five are just BUSC + MIF..MIF3:
+
+```
+SFR_BLOCK(CMU_PERIC0, 0x10400000, 0x8000)   SFR_BLOCK(CMU_FSYS0A, 0x10a00000, 0x8000)
+SFR_BLOCK(CMU_FSYS0,  0x13000000, 0x8000)   SFR_BLOCK(CMU_PERIC1, 0x10800000, 0x8000)
+SFR_BLOCK(CMU_PERIS,  0x10020000, 0x8000)   SFR_BLOCK(CMU_BUSC,   0x1a200000, 0x8000)
+SFR_BLOCK(CMU_CMU,    0x1a240000, 0x8000)   SFR_BLOCK(CMU_MIF..MIF3, 0x1bc00000..0x1bf00000)
+unsigned int dbg_offset = 0x4000;
+```
+
+Consequences, all name-matched from the same file's `cmucal_sfr_list[]`:
+
+* `CMU_PERIC0` is at **0x10400000** - the 9810's base was already right; only its length was short
+  (the 9810 mapped 0x4000, which is cal-if's `dbg_offset`, not the block size 0x8000).
+* `CMU_FSYS0A` (USB31DRD, M10) is **0x10a00000**; the 9810's `CMU_FSYS0 0x11000000` really does not
+  exist here, and `CMU_FSYS0` on 9820 is 0x13000000.
+* The touch bus gates, by name:
+  `CLK_CON_GAT_GOUT_BLK_PERIC0_UID_USI03_I2C_IPCLKPORT_IPCLK` 0x2094,
+  `..._USI03_I2C_IPCLKPORT_PCLK` 0x2098,
+  `CLK_CON_GAT_CLK_BLK_PERIC0_UID_RSTNSYNC_CLK_PERIC0_USI_I2C_IPCLKPORT_CLK` 0x2054,
+  `CLK_CON_GAT_CLK_BLK_PERIC0_UID_RSTNSYNC_CLK_PERIC0_OSCCLK_IPCLKPORT_CLK` 0x2008,
+  `QCH_CON_USI03_I2C_QCH` 0x3038 (identical to the 9810's value).
+  Bit fields confirm the driver's masks: `SFR_ACCESS(..._MANUAL, 20, 1)`, `SFR_ACCESS(..._CG_VAL, 21, 1)`.
+* The 9820's USI sysreg block is `usi@10421000` with `usi3` at 0x10421010 (DT alias list
+  `usi3 = "/usi@10421010"`), so the 9810's `SYSREG_PERIC0 0x10411000` moves to **0x10421000** -
+  but the 9810's `+0x1C` register slot has no counterpart, so that pair stays `UNVERIFIED`
+  (DSDT and driver header must change together).
+
+Inference (mine, marked): the four gate roles (SOURCE / RESET_SYNC / IPCLK / PCLK) are assigned to
+the cal-if entries by name semantics; the IPCLK/PCLK/QCH three are unambiguous, the SOURCE one
+(OSCCLK gate 0x2008) is the chain's root and is the least certain of the four.
+
+### 7.6 Sources for §7.5
+
+* `https://raw.githubusercontent.com/CruelKernel/samsung-exynos9820/cruel-HVJ5-v5.3/drivers/soc/samsung/cal-if/exynos9820/cmucal-sfr.c`
+* `https://raw.githubusercontent.com/CruelKernel/samsung-exynos9820/cruel-HVJ5-v5.3/arch/arm64/boot/dts/exynos/exynos9820.dts`
 
 ### 7.4 Sources for §7
 

@@ -129,8 +129,9 @@ errors.
 | Diff our driver's register set against the 9820 kernel's | **done** | the EHI2C register set is unchanged; four constants are verified identical (base, 200 MHz source clock, GPIO base, GPP1 pins 4/5) — `notes/dock-desktop.md` §12 |
 | Rename the package and retarget its hardware identification | **done** | `drivers/Exynos9820Hsi2c/` created as a copy; every name, the `.inx` strings, the ACPI match (`ACPI\SAMS9820`) and the `.rc` version block retargeted; the 9810 package is byte-unchanged |
 | Mark the moved windows as `UNVERIFIED` rather than guessing | **done** | CMU_PERIC0 and SYSREG_PERIC0 have **no 9820 equivalent** at the 9810 addresses; the 9820 CMU banks are `1A200000`/`1BC00000`–`1BF00000` and the QCH numbers come from Samsung's `cal-if` headers — §12 |
-| Carry the HSI2C #10 IRQ change into the ACPI tables | todo | SPI 404/GSIV 436 on 9810 → **SPI 388/GSIV 420** on 9820 — `notes/dock-desktop.md` §5 |
-| Re-derive the bus clock for timing | todo | the 9820 DT declares `default-clk = 0xbebc200` = **200 MHz** |
+| Resolve the CMU windows from Samsung's cal-if instead of guessing | **done** | The DT's five-window `cmu` node is only a subset. `cal-if/exynos9820/cmucal-sfr.c` starts with `cmucal_sfr_block_list[]` (34 `SFR_BLOCK(name, addr, size)`) and gives `CMU_PERIC0 0x10400000+0x8000` (the 9810 base was right, its length was `dbg_offset` 0x4000 not the block) and `CMU_FSYS0A 0x10a00000+0x8000`. Gate offsets taken by name: IPCLK `0x2094`, PCLK `0x2098`, RSTNSYNC `0x2054`, OSCCLK source `0x2008`, QCH `0x3038` (unchanged from 9810); `SFR_ACCESS(..._MANUAL,20,1)`/`(..._CG_VAL,21,1)` confirm the driver's masks. `notes/s10e-live-reads.md` §7.5 |
+| Carry the HSI2C #10 IRQ change into the ACPI tables | **done** | SPI 404/GSIV 436 on 9810 → **SPI 388/GSIV 420** on 9820 — the DSDT line carries the verified number (`notes/dock-desktop.md` §5) |
+| Re-derive the bus clock for timing | **done** | the 9820 DT declares `default-clk = 0xbebc200` = **200 MHz**, identical to the 9810 — no timing change |
 
 ### M4 — Touchscreen driver
 
@@ -242,7 +243,7 @@ tree does not contain.
 | Decide passive vs powered dock | todo | **safety**: the community warns a powered hub plus host mode "can irreversibly damage your device" |
 | Confirm the port can be host **and** receive power at once | todo | the S10e has **one** USB-C connector — the dock occupies the charging port; Mu-Silicium shows USB Power Delivery ❌ on every Exynos target |
 | Inventory what our firmware already has | **done** | `UsbDebugHid.c` is a complete DWC3 register vocabulary, but it programs **peripheral** mode (`PRTCAP_DEVICE`, EP0 + HID IN) and is compiled **off** by default — §9 |
-| Re-point the CMU clock/QCH windows before flipping PRTCAP | todo | 9820 CMU banks are `1A200000`/`1BC00000`/`1BD00000`/`1BE00000`/`1BF00000`, not the 9810's `11000000` — §9 |
+| Re-point the CMU clock/QCH windows before flipping PRTCAP | **done** | resolved from Samsung's cal-if, not guessed: `CMU_PERIC0 0x10400000+0x8000`, `CMU_FSYS0A 0x10a00000+0x8000`, gate offsets `2094/2098/2054/2008`, QCH `3038` — `notes/s10e-live-reads.md` §7.5. The four 0x1BC…–0x1BF… banks the DT lists are the **media IP** CMUs (MIF..MIF3), which is why the old note read as unresolved |
 
 ### M11 — External display through the dock
 

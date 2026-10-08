@@ -14,20 +14,43 @@
 //   * the I2C pin pair    gpio_scl/gpio_sda = gpp1 pins 4/5 IDENTICAL to 9810
 //   * the EHI2C register set and the USI03 clock NAMES     IDENTICAL to 9810
 //
-// UNVERIFIED — kept at the 9810 values so the package compiles, but they are
-// NOT expected to be right on 9820. The 9820 device tree has no node at either
-// address; its CMU banks are 1A200000, 1BC00000, 1BD00000, 1BE00000 and
-// 1BF00000, and its sysreg controllers are at 13020000 and 13C10000. The
-// correct offsets must be derived from Samsung's cal-if headers
-// (soc/samsung/cal-if/exynos9820/cmucal-{vclk,node,qch}.h), not guessed.
+// RESOLVED 2026-10-09 from Samsung's own calibration table, not from the DT:
+// `drivers/soc/samsung/cal-if/exynos9820/cmucal-sfr.c` opens with an
+// `SFR_BLOCK(name, address, size)` list of ALL 34 CMU blocks, and the DT's
+// five-window `cmu` node is only a subset of it (BUSC + MIF..MIF3). The two
+// blocks this driver needs are in that list:
+//
+//   SFR_BLOCK(CMU_PERIC0, 0x10400000, 0x8000)   -> same BASE as the 9810,
+//   SFR_BLOCK(CMU_FSYS0A, 0x10a00000, 0x8000)      but the full block is 0x8000
+//
+// so the 9810's CMU base was right and only its LENGTH (0x4000, the cal-if
+// `dbg_offset`) was short. The gate offsets below are the SFR entries whose
+// NAMES match the roles the driver uses; the 9810's numbers were a different
+// block layout, so they do not carry over:
+//
+//   CLK_CON_GAT_CLK_BLK_PERIC0_UID_RSTNSYNC_CLK_PERIC0_OSCCLK_IPCLKPORT_CLK  0x2008
+//   CLK_CON_GAT_CLK_BLK_PERIC0_UID_RSTNSYNC_CLK_PERIC0_USI_I2C_IPCLKPORT_CLK 0x2054
+//   CLK_CON_GAT_GOUT_BLK_PERIC0_UID_USI03_I2C_IPCLKPORT_IPCLK                0x2094
+//   CLK_CON_GAT_GOUT_BLK_PERIC0_UID_USI03_I2C_IPCLKPORT_PCLK                 0x2098
+//   QCH_CON_USI03_I2C_QCH                                                    0x3038 (identical to 9810)
+//
+// The bit fields agree with the driver's masks: SFR_ACCESS(..._MANUAL, 20, 1)
+// and SFR_ACCESS(..._CG_VAL, 21, 1) match EXYNOS_CMU_GATE_MANUAL (1<<20) and
+// EXYNOS_CMU_GATE_VALUE (1<<21).
+//
+// STILL UNVERIFIED: the SYSREG window. The 9820 DT has no node at 0x10411000;
+// its USI sysreg block is `usi@10421000` with `usi3` at 0x10421010, which is
+// the candidate (base 0x10421000, USI03 register at +0x10) — but the 9810's
+// +0x1C slot does not translate, so it stays at the 9810 value and the DSDT
+// keeps the pair in agreement.
 // ---------------------------------------------------------------------------
 //
 #define EXYNOS_HSI2C10_PHYSICAL_BASE          0x00000000104B0000ULL   // VERIFIED
 #define EXYNOS_HSI2C_REGISTER_LENGTH          0x00001000UL            // VERIFIED
 
-#define EXYNOS_PERIC0_CMU_PHYSICAL_BASE       0x0000000010400000ULL   // UNVERIFIED (9810 value)
-#define EXYNOS_PERIC0_CMU_REGISTER_LENGTH     0x00004000UL            // UNVERIFIED (9810 value)
-#define EXYNOS_PERIC0_SYSREG_PHYSICAL_BASE    0x0000000010411000ULL   // UNVERIFIED (9810 value)
+#define EXYNOS_PERIC0_CMU_PHYSICAL_BASE       0x0000000010400000ULL   // cal-if SFR_BLOCK
+#define EXYNOS_PERIC0_CMU_REGISTER_LENGTH     0x00008000UL            // cal-if SFR_BLOCK size
+#define EXYNOS_PERIC0_SYSREG_PHYSICAL_BASE    0x0000000010411000ULL   // UNVERIFIED (9810 value; 0x10421000 is the candidate)
 #define EXYNOS_PERIC0_SYSREG_REGISTER_LENGTH  0x00001000UL            // UNVERIFIED (9810 value)
 #define EXYNOS_PERIC0_GPIO_PHYSICAL_BASE      0x0000000010430000ULL   // VERIFIED
 #define EXYNOS_PERIC0_GPIO_REGISTER_LENGTH    0x00001000UL            // VERIFIED
@@ -38,11 +61,11 @@
 #define EXYNOS_HSI2C_MAX_TRANSFER_LENGTH      0x00001000UL
 #define EXYNOS_HSI2C_REQUEST_TIMEOUT_MS       1000UL
 
-#define EXYNOS_CMU_GATE_USI03_SOURCE          0x2018UL                // UNVERIFIED (9810 offset)
-#define EXYNOS_CMU_GATE_USI03_RESET_SYNC      0x206CUL                // UNVERIFIED (9810 offset)
-#define EXYNOS_CMU_GATE_USI03_IPCLK           0x20DCUL                // UNVERIFIED (9810 offset)
-#define EXYNOS_CMU_GATE_USI03_PCLK            0x20E0UL                // UNVERIFIED (9810 offset)
-#define EXYNOS_CMU_QCH_USI03                  0x3038UL                // UNVERIFIED (9810 offset)
+#define EXYNOS_CMU_GATE_USI03_SOURCE          0x2008UL                // cal-if: RSTNSYNC_CLK_PERIC0_OSCCLK_IPCLKPORT_CLK (chain-inferred role)
+#define EXYNOS_CMU_GATE_USI03_RESET_SYNC      0x2054UL                // cal-if: RSTNSYNC_CLK_PERIC0_USI_I2C_IPCLKPORT_CLK
+#define EXYNOS_CMU_GATE_USI03_IPCLK           0x2094UL                // cal-if: USI03_I2C_IPCLKPORT_IPCLK
+#define EXYNOS_CMU_GATE_USI03_PCLK            0x2098UL                // cal-if: USI03_I2C_IPCLKPORT_PCLK
+#define EXYNOS_CMU_QCH_USI03                  0x3038UL                // cal-if: QCH_CON_USI03_I2C_QCH (same as 9810)
 #define EXYNOS_CMU_GATE_MANUAL                (1UL << 20)
 #define EXYNOS_CMU_GATE_VALUE                 (1UL << 21)
 #define EXYNOS_CMU_QCH_ENABLE                 (1UL << 0)

@@ -437,6 +437,27 @@ so UEFI_SIZE needs no decision; the GIC, UART, CPU topology, fb base and geometr
 
 ---
 
+## 16. This pass — the shim's constants, checked against the 9820 map
+
+Read `firmware/tools/bootshim/bootshim.S` in full (207 lines). What is device-shaped
+in it, and what this repo already says about each:
+
+| shim constant | star2lte value | 9820 status |
+|---|---|---|
+| `UEFI_BASE` (`:38`, must equal `PcdFdBaseAddress`) | `0x90000000` | `Beyond0LtePkg.fdf:68` carries `0x80080000` and marks it **UNVERIFIED** |
+| `UEFI_SIZE` (`:41`) | `0x700000` | verified: the built `BEYOND0LTE_UEFI.fd` is exactly 7 340 032 B |
+| watchdog cl0/cl1 (`:72,:74`) | `0x10050000`, `0x10060000` | **VERIFIED** for the 9820 (`Exynos9820.h:426,431`) |
+| ramoops breadcrumb base (`:95,:156,:190`) | `0xFED14000` | **known bad on the 9820**: inside `debug_snapshot.log_bcm`/`log_llc` (`notes/s10e-root-reads.md` §4) |
+| framebuffer paint (`:111`) | `0xCC000000`, 1440×2960 | **wrong here**: `EXYNOS_FB_BASE = 0xCA000000`, 1440×3040 (`Exynos9820.h:450-456`, `notes/s10e-root-reads.md` §3) |
+| temp SP (`:172`) | `0xA0000000` | **inside the verified `camera` reservation** `0x99000000+0xE400000` on the 9820 |
+| Linux-header `text_offset` (`:50`) | `0x80000` | the SM-G970F kernel Image artefact confirms `0x80000` and `flags 0xa`; the **required `image_size`** for this sboot is not known |
+| FD's first word is an ARM64 `B` (`:26-27` assumption) | true | checked mechanically on the 9820 FD: first word `0x1401C800` is a real `B` |
+
+Unchanged from the earlier pass: `repack-with-ref.py`, `firmware/device-data/` and
+`tools/bootimg-pack.sh` do not exist in this checkout, so no container wrapper exists
+for either phone. The reference container for the S10e has to come off the phone
+itself (`/dev/block/by-name/recovery` = sda15, `/dev/block/by-name/boot` = sda14).
+
 ## Sources (this task)
 Local, read this session:
 - `firmware/tools/pack-uefi.ps1` (1-126), `firmware/tools/build-uefi.ps1` (1-147),

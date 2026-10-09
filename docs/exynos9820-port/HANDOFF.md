@@ -275,33 +275,36 @@ S10e; the FD is a build product, not a boot result.
 | `2764134` | UFS HC wired into DSC + FDF |
 | `e411a81` | `Beyond0LteUfsHcDxe.c` created |
 
-**Current build state:** `BEYOND0LTE_UEFI.fd` 7 340 032 B sha256
-`c72b349060674e626577ac031b6ca00c4c27f8b6d1bd910bef3d128049036196`,
-`FVMAIN_COMPACT` [99%Full] 700416 total / 3864 free, `FVMAIN` [27%Full] 1159016 used.
-Modules added this session: `…5545 Beyond0LteUfsHcDxe`, `…5546 Beyond0LteResetSystemLib`,
-`…5547 Beyond0LteRamManagerDxe`.
+**Current build state:** `BEYOND0LTE_UEFI.fd` 7 340 032 B, `FVMAIN_COMPACT`
+[99%Full] 700416 total / 696576 used / **3840 B free**, `FVMAIN` [27%Full]
+1159016 used. Modules added this session: `…5545 Beyond0LteUfsHcDxe`,
+`…5546 Beyond0LteResetSystemLib`, `…5547 Beyond0LteRamManagerDxe`.
+
+**The FD is not byte-deterministic** — two identical rebuilds gave the same
+used-bytes with different sha256 (`notes/m8-build.md` §8). Use sizes and FV
+numbers to compare builds, never the FD hash.
 
 **Nothing is in flight.** `git status` is clean.
 
 **Do next, in this order (one commit per step, chunked):**
 
-1. The **HSI40/GPIO-handoff subsystem** (`GpioHandoffDevices`, `Hsi40Devices`
-   ACPI nodes). Before writing anything: `notes/m8-libs.md` records the CMU
-   bank→power-domain map as a **dead end** (Samsung's cal-if headers give QCH
-   ids as enum positions, not addresses), and `Exynos9820.h` keeps
-   `EXYNOS_CMU_FSYS0A_*`/`EXYNOS_CMU_PERIC0_*` at 0 for that reason. Expect the
-   honest outcome to be `NotImplemented`, not a guessed bank.
-2. The 9810's own `PlatformBootManagerLib`: this build already resolves
-   `ArmPkg/Library/PlatformBootManagerLib`, so first decide whether the 9810
-   platform one adds anything the ArmPkg one does not.
-3. Close the §5 hazards that a phone read can close (fb base, PRAM choice,
-   write-fence LBAs, UFS hw-rev class) **before any flashing**.
-4. Only then the stretch phase (M10 USB host mode, M11 HDMI, M12 WiFi, M13 LAN).
+1. M8 is **done for the build**; the two remaining 9810 subsystems are
+   **not applicable** (the 9810 build never used them — `notes/m8-hsi40.md`,
+   and the `PlatformBootManagerLib` class already resolves to ArmPkg's).
+2. **Close the §5 hazards that a phone read can close, before any flashing:**
+   the framebuffer base (read the sboot-lit carveout), the PRAM/breadcrumb
+   choice from the vendor DT's `reserved-memory` node, the write-fence /
+   protected-partition LBAs (read the S10e's own GPT), and the UFS hw-rev
+   class gap. The DSDT CPU sub-device buffers need the ACPI Processor
+   Sub-Device spec re-derivation, not a phone read.
+3. Only then: flash and validate on the S10e (the bar is Windows boots and
+   sees disk/RAM/CPU), and only after that the stretch phase M10–M15.
 
 **Facts to trust, not re-derive:** everything in §10, `notes/m8-ufs-hc.md`
-§5/§7/§8, `notes/m8-reset-lib.md` §5, `notes/m8-ram-manager.md` §4. **Still open:**
-the §5 hazards of this file, the UNVERIFIED lists in the three notes files, and
-the fact that the `BEYOND0LTE_UFS_DIAG 1`, `BEYOND0LTE_PMU_RESET 1` and
+§5/§7/§8, `notes/m8-reset-lib.md` §5, `notes/m8-ram-manager.md` §4,
+`notes/m8-hsi40.md`, `notes/m8-build.md` §8. **Still open:** the §5 hazards,
+the UNVERIFIED lists in the notes files, and the fact that the
+`BEYOND0LTE_UFS_DIAG 1`, `BEYOND0LTE_PMU_RESET 1` and
 `BEYOND0LTE_RAM_STATUS_DIAG 1` branches have never been compiled (argued, not
 built — and re-enabling them writes to known-bad addresses, so do not test them
 on the phone).

@@ -183,19 +183,17 @@ close the map by reads.
 
 ## §8 — the FD is NOT byte-deterministic (found 2026-10-09)
 
-Two consecutive builds of the **same** tree:
+Consecutive rebuilds of the same tree:
 
-| Build | `FVMAIN_COMPACT` used | FD sha256 |
-|---|---|---|
-| `%TEMP%\m8-build-26.log` | 696576 | `c7e164ef…` |
-| `%TEMP%\m8-build-27.log` | 696576 | `fbe17094…` |
+| Build | `FVMAIN_COMPACT` used | free | FD sha256 |
+|---|---|---|---|
+| `%TEMP%\m8-build-25.log` | 696552 | 3864 | `c72b3490…` |
+| `%TEMP%\m8-build-26.log` | 696576 | 3840 | `c7e164ef…` |
+| `%TEMP%\m8-build-27.log` | 696576 | 3840 | `fbe17094…` |
+| `%TEMP%\m8-build-28.log` | 696552 | 3864 | (not recorded) |
 
-Same used-bytes, different hash ⇒ the FD embeds something run-varying (LTO/PE
-placement or a timestamp). **Consequence:** the FD sha256 values quoted in §6/§7
-(`821af51c…`, `81b0fd9e…`) identify a *particular* build, not a content state, so
-they must not be used to tell a rebuilt binary from a shipped one. The
-comparable quantities are the sizes and the FV used/free numbers.
-
-Current numbers after the DSC comment corrections (`%TEMP%\m8-build-27.log`):
-`FVMAIN_COMPACT` [99%Full] 700416 total, 696576 used, **3840 free**;
-`FVMAIN` [27%Full] 4194304 total, 1159016 used; FD 7 340 032 B.
+So **both** the hash and the used/free byte counts drift (by 24 B) across
+rebuilds. Consequence: neither the FD sha256 nor the exact headroom identifies a
+content state. Treat the headroom as "≈3.8-3.9 KiB free" and compare builds by
+the module list and the FV total (700416 = 0xab000), not by hashes or exact
+byte counts.

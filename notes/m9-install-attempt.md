@@ -118,6 +118,37 @@ pick the right payloads/geometry/gates). Chunked, one commit per step:
 mode adb does not see (Download mode is not an adb transport). Any device read
 below is written as the command to run, not executed.
 
+## 8. Step 1 done — per-device gating wired into the app
+
+Changed (all in `installer/src/S9Woa.Installer.App/`):
+
+* `StageItem.cs:20-35` — `StageItem` now carries `DeviceCodename` and renders its
+  badge from `StageCatalog.Resolve(definition.Id, DeviceCodename)` instead of the
+  catalog-declared value.
+* `InstallPage.xaml.cs:25-34` — the items are built with
+  `DeviceCodename = AppServices.CurrentDevice?.Codename`, and the "experimental
+  opt-in" row is shown only when some stage is `Experimental` **for this phone**.
+* `InstallPage.xaml.cs:144` — `RunAllAsync` gates on `Resolve(...)`.
+* `InstallPage.xaml.cs:210-220` — a guard at the top of `RunStageAsync` itself, so
+  **no** entry point can reach a stage that is not implemented for the connected
+  phone (the run-all loop was not the only one: `:254` re-runs `identify`
+  directly).
+* `InstallPage.xaml.cs:294` — the dispatcher's default arm resolved too.
+
+Verification: `dotnet build` 0 warnings / 0 errors. The Core suite is unchanged
+(189) because this change is app-side and the app has no unit tests — recorded as
+a gap, not as a passing check.
+
+Follow-ups found while reviewing this change:
+
+* `StageItem.DeviceCodename` is captured when the page is constructed, so the
+  **badge** can go stale if the user swaps phones mid-session; the runtime guard
+  reads `AppServices.CurrentDevice` live, so the gate cannot be bypassed — only
+  the label can lie. Refresh the items on `CurrentDeviceChanged`.
+* `PartitionMap.cs:86-91` — `For(null)` and `For("anything-unknown")` silently
+  return the **star2lte** geometry. An unidentified phone is therefore treated as
+  an S9+ by the partition stage. Must become an explicit refusal (step 3).
+
 ## Sources
 
 * `installer/src/S9Woa.Installer.Core/Stages/StageCatalog.cs`

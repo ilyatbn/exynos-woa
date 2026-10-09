@@ -17,7 +17,17 @@ public sealed partial class StageItem(StageDefinition definition) : INotifyPrope
     public string Title => definition.Title;
     public string Summary => definition.Summary;
 
-    public string Badge => definition.Availability switch
+    /// <summary>
+    /// The codename of the phone the page showing this item is working with.
+    /// Availability is per device, so the badge has to be resolved against it;
+    /// reading <c>definition.Availability</c> alone would show the 9810's states
+    /// for an S10e and let the 9810 stage code run against it.
+    /// </summary>
+    public string? DeviceCodename;
+
+    private StageAvailability Resolved => StageCatalog.Resolve(definition.Id, DeviceCodename);
+
+    public string Badge => Resolved switch
     {
         StageAvailability.Guided => "You do this step",
         StageAvailability.Experimental => "Experimental",

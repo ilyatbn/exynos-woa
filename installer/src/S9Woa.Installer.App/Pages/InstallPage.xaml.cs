@@ -22,11 +22,16 @@ public sealed partial class InstallPage : Page, IWizardStep
     public InstallPage()
     {
         InitializeComponent();
-        _items = StageCatalog.All.Select(s => new StageItem(s) { Status = AppServices.State.StatusOf(s.Id) }).ToList();
+        _items = StageCatalog.All.Select(s => new StageItem(s)
+        {
+            Status = AppServices.State.StatusOf(s.Id),
+            DeviceCodename = AppServices.CurrentDevice?.Codename,
+        }).ToList();
         Timeline.ItemsSource = _items;
         ExperimentalToggle.IsOn = AppServices.ExperimentalEnabled;
-        // The opt-in only matters while some step is still experimental.
-        ExperimentalRow.Visibility = StageCatalog.All.Any(s => s.Availability == StageAvailability.Experimental)
+        // The opt-in only matters while some step is still experimental FOR THIS PHONE.
+        ExperimentalRow.Visibility = StageCatalog.All.Any(s =>
+            StageCatalog.Resolve(s.Id, AppServices.CurrentDevice?.Codename) == StageAvailability.Experimental)
             ? Visibility.Visible : Visibility.Collapsed;
         VerifyToggle.IsOn = AppServices.VerifyWrites;
         SkipTwrpToggle.IsOn = AppServices.SkipTwrpFlash;
@@ -135,7 +140,7 @@ public sealed partial class InstallPage : Page, IWizardStep
                 {
                     continue;
                 }
-                var avail = item.Definition.Availability;
+                var avail = StageCatalog.Resolve(item.Definition.Id, AppServices.CurrentDevice?.Codename);
                 if (avail == StageAvailability.NotImplemented)
                 {
                     Report(InfoBarSeverity.Informational, item.Title,
@@ -204,6 +209,16 @@ public sealed partial class InstallPage : Page, IWizardStep
 
     private static async Task<(bool Ok, string Message)> RunStageAsync(StageDefinition stage, CancellationToken ct)
     {
+        // Availability is per device, and this is the one place every entry point
+        // goes through, so the check lives here rather than only in the run-all
+        // loop: the 9810 stage code must not run against an S10e.
+        if (StageCatalog.Resolve(stage.Id, AppServices.CurrentDevice?.Codename)
+            == StageAvailability.NotImplemented)
+        {
+            await Task.Yield();
+            return (false, $"Not implemented for {AppServices.CurrentDevice?.Model ?? "the connected phone"} yet. Nothing has been written to the phone.");
+        }
+
         var log = new Progress<string>(AppServices.Log);
         switch (stage.Id)
         {
@@ -285,7 +300,8 @@ public sealed partial class InstallPage : Page, IWizardStep
 
             default:
                 await Task.Yield();
-                return stage.Availability == StageAvailability.NotImplemented
+                return StageCatalog.Resolve(stage.Id, AppServices.CurrentDevice?.Codename)
+                    == StageAvailability.NotImplemented
                     ? (false, "This step is not automated in this preview yet. Nothing has been written to the phone. Follow the project README for the manual procedure.")
                     : (false, "Unknown stage.");
         }

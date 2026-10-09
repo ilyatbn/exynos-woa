@@ -419,3 +419,64 @@ and FV numbers, never hashes of the FD).
 **Still open:** the §5 hazards above, the second LUN, the DMA window, the
 UNVERIFIED lists in the notes files, and the fact that **no** part of this has
 been validated by booting.
+
+---
+
+## 13. Where the session stands now (2026-10-09 — restart point: installer made device-honest)
+
+Same session as §12, continued. Two arcs landed: the UFS write fence (§12) and
+six installer steps that remove the silent star2lte assumptions.
+
+**Committed this segment (newest first):**
+
+| Commit | What |
+|---|---|
+| `5d0b819` | M9: ESP typing no longer demands a backup GPT (`ReadHeaderOrNull`); two wrong claims in the notes corrected (S10e entry name is at +56, not +80) |
+| `5068d0b` | M9: star2lte RECOVERY geometry constant fixed (68 148 992 was not a whole number of LBAs) + a test that every geometry size is LBA-integral |
+| `72aee5f` | M9: `TwrpProfiles` per-phone payload identity; `ToolsetConfig.DeviceCodename`; TWRP/WinRE payload names and the UFS `.inf` resolved from it |
+| `46ce8d5` | M9: the secondary ESP is per device (the bare `SYSTEM` constant would reformat a 5.98 GiB Android system on an S10e) |
+| `edec075` | M9: geometry cannot be guessed — `For` throws, `IsKnown` refuses, `VhdxImageBuilder` has no default |
+| `377b4d1` | M9: per-device stage gating wired into the app (`Resolve(id, codename)` at the top of `RunStageAsync`) |
+| `f223276` | notes: the install-attempt inventory (two research passes) |
+| `387ec49` | notes: what an install attempt hits today |
+| `44aac64` | docs: §12 restart point |
+| `1e3e8bb`…`7d17971` | the UFS fence block + its five review fixes |
+
+**Build state:** installer `dotnet build` 0 warnings / 0 errors, suite **194 passed**
+(189 before this segment). UFS driver `Exynos9820Ufs.sys` 49 152 B sha256
+`3a19a6bb…`, `UfsDiag.exe` 213 504 B sha256 `7f4f7436…`. Firmware FD unchanged.
+
+**Nothing is in flight** — `git status` is clean except `info/DEN0101_00bet1_ADAC.pdf`,
+which is a reference document and stays uncommitted.
+
+**The phone is NOT attached** (`adb devices` empty). Every device read below is
+written as the command to run, not run.
+
+**Do next, in this order (one commit per step):**
+
+1. `ToolDefinitions.cs:88-90` and the App's UI strings still say star2lte / "Galaxy
+   S9+" (`MainWindow.xaml.cs:199` keys on "G965", `PhonePage.xaml.cs:106/176`,
+   `WelcomePage.xaml:59`, the "S9" username chain, nine key-combo strings).
+2. `ToolsetManager.cs:393` — the folder scan skips files whose name contains
+   "star2lte" to avoid picking a UEFI image; make the skip profile-driven.
+3. `AndroidBootImage.cs:20` `RecoveryPartitionBytes` should come from the geometry,
+   not a star2lte constant (it is the "does the built image fit" gate).
+4. The `beyond0lte` stage paths as **Guided** (never `Ready`): `twrp`, `backup`,
+   `partition`, `transfer`, `uefi`, `firstboot` currently have no S10e
+   implementation and are stopped by the gating added in `377b4d1`.
+5. The S10e UEFI boot image artefact — **blocked**: `firmware/tools/repack-with-ref.py`,
+   `firmware/device-data/` and `tools/bootimg-pack.sh` do not exist in this checkout
+   (`Test-Path` false for all three), so even the star2lte pipeline is not
+   reproducible here. `notes/m8-uefi-image.md` has the blocker list and the reads
+   that close each constant.
+6. Only after Windows boots once: the stamping of the S10e scratch region and the
+   rest of the stretch phase.
+
+**Facts to trust, not re-derive:** `notes/m9-install-attempt.md` (all of it,
+including the six steps and the review findings), `notes/installer-device-specifics.md`
+(the inventory — but read the CORRECTED lines, two of its arithmetic claims were
+wrong and are fixed in place), `notes/m8-ufs-fence.md`, `notes/s10e-root-reads.md`
+§2 (entry name at **+56**, corrected)/§8 (header geometry)/§9 (tail is zero),
+`notes/windows-m7-toolchain.md` §4.5 (the working `build-ufs.ps1` line).
+**Still open:** everything in the list above, plus the §5 hazards and the fact
+that nothing has booted.

@@ -102,10 +102,29 @@ public sealed class ToolsetTests : IDisposable
 
     private ToolsetManager Manager(IProcessRunner? runner = null, FakeRegistry? registry = null,
         ISignatureVerifier? verifier = null, HttpMessageHandler? http = null, string? winget = null,
-        IWinReRecoveryBuilder? winre = null) =>
-        new(Paths(), runner ?? new FakeRunner(), new HttpClient(http ?? new FakeHttp(_ => new HttpResponseMessage(HttpStatusCode.NotFound))),
-            registry ?? new FakeRegistry(), verifier ?? new FakeVerifier(new SignatureInfo(false, null)), winget,
-            winre ?? new FakeWinReBuilder());
+        IWinReRecoveryBuilder? winre = null, string? deviceCodename = "star2lte")
+    {
+        ToolsetManager m = new(Paths(), runner ?? new FakeRunner(),
+            new HttpClient(http ?? new FakeHttp(_ => new HttpResponseMessage(HttpStatusCode.NotFound))),
+            registry ?? new FakeRegistry(), verifier ?? new FakeVerifier(new SignatureInfo(false, null)),
+            winget, winre ?? new FakeWinReBuilder());
+        m.Config.DeviceCodename = deviceCodename;
+        return m;
+    }
+
+    [Fact]
+    public void PayloadsFollowTheIdentifiedPhoneAndNothingIsAssumed()
+    {
+        var b0 = Manager(deviceCodename: "beyond0lte");
+        Assert.Contains("twrp-beyond0lte.img", b0.TwrpPayload, StringComparison.Ordinal);
+        Assert.Equal("Exynos9820Ufs.inf", b0.UfsInf);
+        Assert.Equal(ToolState.Missing, b0.Detect(Tools.Twrp).State);
+
+        var none = Manager(deviceCodename: null);
+        Assert.Contains("twrp-unidentified", none.TwrpPayload, StringComparison.Ordinal);
+        Assert.Null(none.UfsInf);
+        Assert.Equal(ToolState.Missing, none.Detect(Tools.Twrp).State);
+    }
 
     [Fact]
     public void LocatorSearchesOverrideAppWingetAndPath()

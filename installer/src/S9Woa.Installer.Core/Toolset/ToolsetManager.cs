@@ -12,10 +12,19 @@ public sealed class ToolsetConfig
 {
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = 2;
     public bool SetupCompleted { get; set; }
     public string ReleaseRepo { get; set; } = "ntdevlabs/exynos9810-woa";
     public string? BuildFolder { get; set; }
+
+    /// <summary>
+    /// Which phone the payloads belong to. Everything payload-shaped (the TWRP
+    /// image file, the WinRE recovery built from it, the UFS driver package) is
+    /// per device, and the toolset is configured before the phone is identified,
+    /// so this is remembered here rather than passed around. Null means "no
+    /// phone identified yet" - it is NOT a fallback to the reference phone.
+    /// </summary>
+    public string? DeviceCodename { get; set; }
 
     /// <summary>User-chosen program paths that take precedence over detection, by tool id.</summary>
     public Dictionary<string, string> Overrides { get; set; } = [];
@@ -54,7 +63,19 @@ public sealed class ToolsetManager
 {
     public const string SamsungUsbService = "dg_ssudbus";
     public const string SamsungSigner = "Samsung Electronics";
-    public const string UfsInf = "Exynos9810Ufs.inf";
+
+    /// <summary>
+    /// The payload identity of the phone this toolset is configured for. Null
+    /// until a phone has been identified - and it is deliberately NOT a default
+    /// to the reference phone, which is what previously put star2lte payloads on
+    /// an S10e.
+    /// </summary>
+    private TwrpProfile? Profile => TwrpProfiles.IsKnown(Config.DeviceCodename)
+        ? TwrpProfiles.For(Config.DeviceCodename)
+        : null;
+
+    /// <summary>The UFS driver package this phone's image needs, or null when no phone is identified.</summary>
+    public string? UfsInf => Profile?.DriverInf;
     private static readonly TimeSpan InstallerTimeout = TimeSpan.FromMinutes(30);
 
     private readonly IProcessRunner _runner;
@@ -81,12 +102,19 @@ public sealed class ToolsetManager
     public ToolsetConfig Config { get; }
     public bool WingetAvailable => _winget.WingetPath is not null;
 
-    public string TwrpPayload => Path.Combine(Paths.PayloadDirectory, "twrp-star2lte.img");
+    /// <summary>
+    /// Payload names are per phone. With no phone identified they resolve to a
+    /// name that matches nothing on disk, so every consumer reports the tool as
+    /// missing instead of picking up the reference phone's files.
+    /// </summary>
+    public string TwrpPayload => Path.Combine(Paths.PayloadDirectory,
+        (Profile?.TwrpPayloadStem ?? "twrp-unidentified") + ".img");
     public string UefiPayload => Path.Combine(Paths.PayloadDirectory, "uefi.img");
     public string DriversPayload => Path.Combine(Paths.PayloadDirectory, "drivers");
 
     /// <summary>The WinRE recovery the installer actually flashes, built from the chosen TWRP.</summary>
-    public string TwrpWinrePayload => Path.Combine(Paths.PayloadDirectory, "twrp-winre-star2lte.img");
+    public string TwrpWinrePayload => Path.Combine(Paths.PayloadDirectory,
+        (Profile?.WinrePayloadStem ?? "twrp-winre-unidentified") + ".img");
     private string TwrpWinreInfoPath => TwrpWinrePayload + ".json";
 
     /// <summary>
@@ -198,7 +226,7 @@ public sealed class ToolsetManager
                 foreach (var dir in new[] { DriversPayload, Path.Combine(Paths.BundledPayloadDirectory, "drivers") })
                 {
                     var packages = BuiltDriverPackages(dir);
-                    if (packages.Any(p => File.Exists(Path.Combine(p, UfsInf))))
+                    if (UfsInf is string inf && packages.Any(p => File.Exists(Path.Combine(p, inf))))
                     {
                         return ToolStatus.Ready(dir, $"{packages.Count} driver package(s) in {dir}");
                     }
@@ -223,12 +251,23 @@ public sealed class ToolsetManager
     /// </summary>
     private ToolStatus DetectTwrp()
     {
+        var profile = Profile;
+        if (profile is null)
+        {
+            return ToolStatus.Missing("Identify the phone first: the recovery payload belongs to a specific phone and nothing has been assumed here.");
+        }
+        if (!profile.WinReSkinSupported)
+        {
+            return File.Exists(TwrpPayload)
+                ? ToolStatus.Missing("This installer's WinRE-look recovery is not derived for this phone, so its stock TWRP is used as it is.")
+                : ToolStatus.Missing($"Open the TWRP page, download {TwrpProfiles.OfficialImageText(Config.DeviceCodename)}, then choose it here.");
+        }
         var info = WinReRecoveryInfo.Load(TwrpWinreInfoPath);
         if (info is null || !File.Exists(TwrpWinrePayload) || BootImage.Validate(TwrpWinrePayload, BootImage.RecoveryPartitionBytes) is not null)
         {
             return File.Exists(TwrpPayload)
                 ? ToolStatus.Missing("TWRP is selected but the WinRE recovery is not built yet. Press Set up automatically, or choose the TWRP image again.")
-                : ToolStatus.Missing("Open the TWRP page, download twrp-3.7.0_9-0-star2lte.img, then choose it here.");
+                : ToolStatus.Missing($"Open the TWRP page, download {TwrpProfiles.OfficialImageText(Config.DeviceCodename)}, then choose it here.");
         }
         if (info.Source == WinReRecoveryInfo.Prebuilt)
         {
@@ -262,6 +301,15 @@ public sealed class ToolsetManager
     /// <summary>Builds (or accepts) the WinRE recovery from the raw TWRP in the payload.</summary>
     public ToolStatus BuildWinReRecovery(IProgress<string>? log = null)
     {
+        var profile = Profile;
+        if (profile is null)
+        {
+            return ToolStatus.Missing("Identify the phone first: the recovery is built for a specific phone.");
+        }
+        if (!profile.WinReSkinSupported)
+        {
+            return ToolStatus.Missing("This installer's WinRE-look recovery is not derived for this phone; its stock TWRP is flashed as it is.");
+        }
         if (!File.Exists(TwrpPayload))
         {
             return ToolStatus.Missing("Choose the official TWRP image first.");
@@ -610,10 +658,16 @@ public sealed class ToolsetManager
         }
 
         var packages = BuiltDriverPackages(folder);
-        if (!packages.Any(p => File.Exists(Path.Combine(p, UfsInf))))
+        var inf = UfsInf;
+        if (inf is null)
         {
             results[Tools.Drivers] = new ToolStatus(ToolState.Error,
-                $"No built UFS driver package ({UfsInf} next to a .sys) found under {folder}.");
+                "No UFS driver package is recorded for this phone yet; identify the phone first.");
+        }
+        else if (!packages.Any(p => File.Exists(Path.Combine(p, inf))))
+        {
+            results[Tools.Drivers] = new ToolStatus(ToolState.Error,
+                $"No built UFS driver package ({inf} next to a .sys) found under {folder}.");
         }
         else
         {
@@ -706,7 +760,8 @@ public sealed class ToolsetManager
                 var status = Detect(id);
                 return status.State == ToolState.Ready
                     ? status
-                    : new ToolStatus(ToolState.Error, $"Release drivers.zip does not contain a built {UfsInf} package.");
+                    : new ToolStatus(ToolState.Error,
+                        $"Release drivers.zip does not contain a built {(UfsInf ?? "UFS")} driver package.");
             }
             default:
                 throw new InvalidOperationException($"{Tools.Get(id).Name} is not published in releases.");

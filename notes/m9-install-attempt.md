@@ -209,6 +209,44 @@ Found while reviewing, still open:
   star2lte constants; the per-device ones are inside `GeometryType`. Any consumer
   of the bare constants is device-wrong.
 
+## 11. Step 4 done — payload identity follows the identified phone
+
+* New `Toolset/TwrpProfiles.cs`: a per-phone record (official TWRP image name, the
+  two payload stems, the UFS `.inf`, and whether the WinRE skin can be built at
+  all). `beyond0lte` carries **null** for the official image name — it has not been
+  read from the phone or the release page in this session, and naming a guessed
+  file offers the user a download that will not boot this phone. `WinReSkinSupported`
+  is false there because `PowerOffRoutePatch.cs` and `WinReTwrpBuilder.cs` gate on
+  the **star2lte** kernel's SHA-256 and absolute offsets, nothing equivalent exists
+  for this phone.
+* `ToolsetConfig` gains `DeviceCodename` (schema 1 → 2) and `AppServices.CurrentDevice`'s
+  setter writes it and saves, so the toolset knows which phone it is configured for.
+  Null means "no phone", never "the reference phone".
+* `ToolsetManager`: `TwrpPayload`/`TwrpWinrePayload` come from the profile (with no
+  phone they resolve to `twrp-unidentified`, a name that matches nothing on disk);
+  `UfsInf` is now `string?` from the profile; `DetectTwrp` and `BuildWinReRecovery`
+  refuse with a message when there is no profile or the skin is unsupported.
+* Tests: the `Manager(...)` helper now names the phone (`deviceCodename = "star2lte"`
+  default) — six toolset tests were passing only because of the silent default.
+  New test `PayloadsFollowTheIdentifiedPhoneAndNothingIsAssumed` asserts the beyond0lte
+  stems and `.inf`, that an unidentified phone gets `twrp-unidentified` and a null
+  `.inf`, and that TWRP is `Missing` in both non-reference cases.
+
+Verification: `dotnet build` 0 warnings / 0 errors; `dotnet test` **192 passed**
+(191 → +1, and the six previously-failing toolset tests now pass because the
+helper states the phone).
+
+Still open after this step (found while reviewing, not folded in):
+* `ToolsetManager.cs:393` — the folder scan skips files whose **name contains
+  "star2lte"** to avoid picking a UEFI image; the heuristic is star2lte-shaped.
+* `BootImage.RecoveryPartitionBytes = 68_149_248` (`AndroidBootImage.cs:20`) is a
+  star2lte constant used to validate the repacked recovery, and it **disagrees**
+  with `PartitionMap.Star2Lte.RecoveryBytes = 68_148_992` (not even a whole number
+  of 4096-byte LBAs) while `Validation.cs:9` says star2lte RECOVERY is 16,638 × 4096
+  = 68,149,248. One of the two is wrong; it must come from the geometry, not a
+  constant.
+* `ToolDefinitions.cs:88-90` display name/description still say star2lte.
+
 ## Sources
 
 * `installer/src/S9Woa.Installer.Core/Stages/StageCatalog.cs`

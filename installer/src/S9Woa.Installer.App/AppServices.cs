@@ -134,6 +134,11 @@ internal static class AppServices
         {
             Privacy.AddSerial(value?.Serial);
             _currentDevice = value;
+            // The payloads (TWRP image, the WinRE recovery built from it, the UFS
+            // driver package) are per phone, so the toolset has to know which one
+            // this is. Null here means "no phone", not "the reference phone".
+            Toolset.Config.DeviceCodename = value?.Codename;
+            Toolset.Config.Save(Toolset.Paths.DataDirectory);
             CurrentDeviceChanged?.Invoke();
         }
     }

@@ -6,9 +6,10 @@ file and it is updated and committed **per task**, never batched.
 
 No branch has been pushed. All work so far is local commits.
 
-**If you are the *next* Windows session, jump to §9 first** — the toolchain has
-already been installed there, and §9 says exactly what is built, what failed and
-why, and what to do first. Do not re-install VS or the WDK.
+**If you are the *next* session, jump to §11 first** — it is the newest restart
+point (the UFS HC port is done and building). §10 is the previous crash point,
+kept for the port plan; §9 is the older toolchain handoff, still valid for the
+driver builds. Do not re-install VS or the WDK.
 
 ---
 
@@ -196,3 +197,102 @@ Full detail is in `notes/windows-m7-toolchain.md` (�0��2). Short version:
 4. Test-signing: still needs the project's test certificate � it is not in this tree; find it before signing, do not fabricate one.
 
 **Unchanged hazards.** The `UNVERIFIED` constants in �5 of this file are still open; a successful build says nothing about them.
+
+---
+
+## 10. Where the mid-day session stopped (2026-10-09 — restart point, second crash)
+
+The session crashed while porting the UEFI-side UFS host controller. Everything
+committed so far is local on `main`; nothing pushed.
+
+**Committed (newest first):**
+
+| Commit | What |
+|---|---|
+| `9339b0c` | M8: high DRAM banks published in `PlatformMemoryMapLib.c` (0x880000000/0x900000000, 2 GiB each, vendor DT reads; map now offers 5.25 GiB). Rebuild clean: `FVMAIN_COMPACT` 2976 B free, FD 7 340 032 B sha256 `81b0fd9e...` — `notes/m8-build.md` §7 |
+| `336cf3d` | M8: ACPI installer ported + rebuilt (`notes/m8-build.md` §6) |
+| `a03aae5` | M9: S10e target behind honest gating, suite 188/0 |
+
+**In flight when it died (verify with `git status` before redoing):**
+
+* `firmware/Platform/Beyond0LtePkg/Drivers/Beyond0LteUfsHcDxe/Beyond0LteUfsHcDxe.inf` —
+  WRITTEN (FILE_GUID `…555555555545`, entry `Beyond0LteUfsHcEntry`, packages the 9820 .dec).
+* `Beyond0LteUfsHcDxe.c` — **NOT created yet.**
+* DSC/FDF — **NOT wired** (the UfsHcDxe lines are still in both DROPPED blocks).
+* No rebuild of the port; no notes beyond the inventory; task not committed.
+
+**The full port plan is already written** in `notes/m8-ufs-hc.md` §2 (constant
+inventory of the 9810 .c, classified) and §3–4 (gate map + ordered substitution/wrap
+list with 9810 line numbers). Read that file first; do not redo the inventory.
+
+**Do next, in this order (one commit per step):**
+
+1. Create `Beyond0LteUfsHcDxe.c` from the plan in `notes/m8-ufs-hc.md` §4 — a
+   mechanical pass (renames, macro remaps) then the `#if BEYOND0LTE_UFS_DIAG`
+   wraps at the listed line numbers, bottom-up. Do NOT touch the 9810 file.
+2. Wire DSC `[Components.common]` + FDF storage section; delete the UfsHcDxe
+   entries from both DROPPED blocks and fix the stale "is DROPPED" comments
+   (`dsc:496`, `fdf:205`).
+3. Rebuild: `powershell -ExecutionPolicy Unrestricted -File firmware\tools\build-uefi.ps1 -Platform Beyond0LtePkg -Target DEBUG`
+   (this box is `LocalMachine=AllSigned` — bare `&`/`Invoke-Expression` of the script
+   fails; the child-process `-ExecutionPolicy Unrestricted` outranks LocalMachine).
+   Tee to `%TEMP%\m8-build-16.log`. `FVMAIN_COMPACT` is `NumBlocks = 0` (auto-size) —
+   it grows; the FD stays 7 340 032 B.
+4. Append the result to `notes/m8-ufs-hc.md`, move the MILESTONES line
+   (`Port the UEFI-side UFS HC driver | done`) in the same commit, commit.
+
+**Facts to trust, not re-derive:** build toolchain state (`notes/m8-build.md` §1),
+FV numbers (§6/§7), the 9820 UFS windows are ALL VERIFIED reads
+(`Exynos9820.h:268-278`), intra-window offsets carry unchanged
+(`Exynos9820.h:260-262`), `0xFED1xxxx` and `0xCC000000` are proven unusable
+(`notes/s10e-live-reads.md` §7.3). **Still open after everything:** the §5 hazards
+of this file (fb base, PRAM choice, DSDT sub-device buffers, write-fence LBAs,
+UFS hw-rev class) plus the new UNVERIFIED list in `notes/m8-ufs-hc.md` §4.
+
+---
+
+## 11. Where the session stands now (2026-10-09 — restart point, UFS HC port DONE)
+
+The UEFI-side UFS host controller is ported, wired and **building**. Nothing is
+validated on the S10e; the FD is a build product, not a boot result.
+
+**Committed (newest first):**
+
+| Commit | What |
+|---|---|
+| `78d6f97` | review fix: the `BEYOND0LTE_UFS_DIAG 1` branch was broken by the previous commit (panel block referenced deleted locals) — captures restored with `(VOID)` discards, `ConvDw6` order restored. Rebuild clean, `FVMAIN_COMPACT` 2392 B free |
+| `1cf61fa` | the five clang failures the port exposed (dead state behind the compiled-out diag channel) |
+| `783bb5d` | build result recorded in `notes/m8-ufs-hc.md` §7/§8 + the MILESTONES line moved to **done** |
+| `2764134` | DSC `[Components.common]` + FDF storage section wired; the stale "is DROPPED" notes corrected |
+| `e411a81` | `Beyond0LteUfsHcDxe.c` created by a line-anchored mechanical port (+ the `.inf` and `notes/m8-ufs-hc.md`) |
+| `a0d7bd2` | AGENTS.md: the review-every-commit-as-a-harsh-critic rule |
+| `8062ab9` | AGENTS.md written |
+| `9339b0c` | high DRAM banks published (previous FD sha256 `81b0fd9e...`) |
+
+**Current build state:** `BEYOND0LTE_UEFI.fd` 7 340 032 B, `FVMAIN_COMPACT` 99% full
+with **2392 B free**, `FVMAIN` 25% full, module `Beyond0LteUfsHcDxe.efi` 55 808 B
+(FFS entry 55 886 B, GUID `…5545`) present in the FV.
+
+**Nothing is in flight.** `git status` is clean except this file.
+
+**Do next, in this order (one commit per step, chunked):**
+
+1. `Star2LteResetSystemLib` → `Beyond0LteResetSystemLib` (the 9820 PMU base 0x15860000
+   is a read, the intra-block SWRESET offset is not — keep it UNVERIFIED/compiled out,
+   same shape as `Fadt.aslc`'s `BEYOND0LTE_PMU_SWRESET_ADDRESS`). It is a DSC
+   `LibraryClasses` instance, so it also needs the `[LibraryClasses.common.DXE_DRIVER]`-style
+   line in `Beyond0LtePkg.dsc`.
+2. The HSI40/GPIO-handoff subsystem (`GpioHandoffDevices`, `Hsi40Devices` ACPI nodes)
+   — needs the 9820 CMU bank→power-domain map, which `notes/m8-libs.md` records as a
+   **dead end** (cal-if ids are enum positions). Expect this to stay `NotImplemented`,
+   not to be guessed.
+3. `Star2LteRamManagerDxe`: multi-region HOB publication of the extra banks. The high
+   banks are now in the memory map (`9339b0c`), so decide whether the RamManager is
+   still needed at all before porting it.
+4. Only then re-run the full build and re-record the FV numbers.
+
+**Facts to trust, not re-derive:** everything in §10, plus `notes/m8-ufs-hc.md`
+§5 (the exhaustive literal sweep — it supersedes the §2 line lists) and §7/§8
+(build errors, fixes, FV numbers). **Still open:** the §5 hazards of this file, the
+UNVERIFIED list in `notes/m8-ufs-hc.md` §4, and the fact that the
+`BEYOND0LTE_UFS_DIAG 1` branch has never been compiled (argued, not built — §8).

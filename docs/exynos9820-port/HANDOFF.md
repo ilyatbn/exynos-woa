@@ -317,7 +317,19 @@ numbers to compare builds, never the FD hash.
      non-fatal `UFS_DIAG_FAILURE_HCI_VERSION_UNCONFIRMED` (verified:
      `UfsSetDiagnosticFailure` only ORs into `FailureMask`, `Exynos9820Ufs.c:631-637`)
      instead of refusing on an unmeasured constant.
-3. **The next step is a decision, not a read.** Flashing is forbidden until Windows
+3. **The installer's reversibility path (new, 2026-10-09):** the install is not
+   one-way — it overwrites BOOT/CACHE/USERDATA only, and `BackupService.cs` is
+   already device-agnostic (by-name links; every identity partition the S10e has
+   was confirmed present). What blocks the S10e flow is **hard-coded 9810
+   geometry**: `PartitionMap.cs:67-70` (`DiskBytes`, `WindowsOffset`,
+   `WindowsBytes`, `CacheBytes`), `Validation.cs:9-10` (RECOVERY/BOOT sizes),
+   `ToolsetManager.cs:84` (star2lte TWRP payload) and the UFS fence LBAs.
+   `notes/installer-s10e-gaps.md` has the full table with the S10e values that
+   are already known. **One artefact closes most of it: the S10e's own GPT**
+   (`sfdisk -d` from TWRP/root, or Samsung's PTL inside the OFFLINE_IMAGE
+   package). The stock ODIN payload set for SM-G970F is the restore path and
+   double-checks the same geometry.
+4. **The next step is a decision, not a read.** Flashing is forbidden until Windows
    booting is established (ground rules 5 and 6), and nothing here can prove that
    without the phone. So the next safe action is to agree the first-boot
    observation plan: what the screen, the disk and the CPU must show, and what a

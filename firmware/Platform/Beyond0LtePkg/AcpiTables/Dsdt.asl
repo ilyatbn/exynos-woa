@@ -31,15 +31,19 @@
       SPI 13 and GSIV 45. Derived from the DT, not observed — notes/dock-
       desktop.md §18 says why, and the first confirmation is the panel raising
       an interrupt at a tap.
-    * the eight CPU sub-devices below. The S10e has THREE clusters (4+2+2), so
-      the cluster/core field in each _MAT buffer — the group reading
-      0x01,0x00 / 0x01,0x00 / 0x02,0x00 / 0x03,0x00 for CPU0-3 and
-      0x01,0x00 / 0x01,0x01 / 0x02,0x01 / 0x03,0x01 for CPU4-7 — cannot describe
-      this topology. Note also that CPU0 and CPU1 carry the SAME pair, which
-      looks wrong on the 9810 too; the authoritative topology lives in the MADT
-      (see Madt.aslc), and these buffers must be re-derived from the ACPI
-      Processor Sub-Device spec plus an on-device MPIDR read, not patched by
-      eye.
+    * the eight CPU sub-devices below. Their _MAT buffers are carried
+      UNCHANGED from the 9810 (verified by dumping all eight: they are
+      byte-identical to the 9810's). What actually varies across them is
+      offset 4 and 8 (the UID, 0..7), offset 68 (core index inside a group,
+      0..3), offset 69 (group number: 0 for CPU0-3, 1 for CPU4-7) and offset
+      76 (1 for CPU0-3, 0 for CPU4-7 — meaning not established). So the
+      buffers encode a 4+4 split, which matches NEITHER this SoC's two MPIDR
+      clusters sized 6+2 (cpu@0000-cpu@0005, cpu@0100-cpu@0101) NEITHER the
+      three efficiency classes 4+2+2 that the PPTT models. The authoritative
+      topology is in the MADT (see Madt.aslc); these buffers must be re-derived
+      from the ACPI Processor Sub-Device spec, not patched by eye. The spec is
+      not in this checkout and the field meanings are therefore unknown - see
+      notes/m8-dsdt-mat.md for the byte dump and what closes the gap.
 **/
 
 DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)

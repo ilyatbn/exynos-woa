@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BSD-2-Clause-Patent
 using S9Woa.Installer.Core;
 using S9Woa.Installer.Core.Device;
+using S9Woa.Installer.Core.Stages;
 
 namespace S9Woa.Installer.Core.Tests;
 
@@ -83,6 +84,27 @@ public class DeviceTests
         Assert.True(DeviceEligibility.Evaluate(Snap(model: "SM-G965U")).HasBlockers());
         Assert.True(DeviceEligibility.Evaluate(Snap(mode: DeviceMode.Unauthorized)).HasBlockers());
         Assert.False(DeviceEligibility.Evaluate(Snap()).HasBlockers());
+    }
+
+    [Fact]
+    public void RecognisesTheS10eButKeepsItUnvalidated()
+    {
+        var s10e = new DeviceSnapshot(
+            Serial: "aa11bb22cc33dd44", Mode: DeviceMode.Android, Model: "SM-G970F",
+            Codename: "beyond0lte", Hardware: "exynos9820", Bootloader: "G970FXXSGHWC1",
+            AndroidVersion: "12", RecoveryVersion: null, OemUnlockAllowed: true,
+            FlashLocked: true, VerifiedBootState: "green", WarrantyTripped: false);
+
+        var checks = DeviceEligibility.Evaluate(s10e);
+        Assert.False(checks.HasBlockers());
+        Assert.Equal(CheckSeverity.Warning, checks.Single(c => c.Id == "model").Severity);
+        Assert.Equal(CheckSeverity.Pass, checks.Single(c => c.Id == "bootloader").Severity);
+
+        Assert.False(StageCatalog.Runnable("transfer", "beyond0lte"));
+        Assert.True(StageCatalog.Runnable("transfer", "star2lte"));
+        Assert.Equal(StageAvailability.NotImplemented, StageCatalog.Resolve("uefi", "beyond0lte"));
+        Assert.Equal(StageAvailability.Experimental, StageCatalog.Resolve("image", "beyond0lte"));
+        Assert.Equal(StageAvailability.Ready, StageCatalog.Resolve("identify", "beyond0lte"));
     }
 
     [Theory]

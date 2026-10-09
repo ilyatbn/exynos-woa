@@ -52,6 +52,47 @@ public static class StageCatalog
     ];
 
     public static StageDefinition Get(string id) => All.First(s => s.Id == id);
+
+    /// <summary>
+    /// Availability is per device. The 9810 flow is validated end to end and keeps the
+    /// catalog's own states; the 9820 (`beyond0lte`) flow is ported but has never been
+    /// observed on a phone, so the stages that write to the device are
+    /// <c>NotImplemented</c> there and the image stage — which is PC-side but carries
+    /// drivers that are built and test-signed without hardware validation — is
+    /// <c>Experimental</c>. Nothing here is relaxed to make the S10e look supported.
+    /// </summary>
+    private static readonly Dictionary<string, Dictionary<string, StageAvailability>> PerDevice = new()
+    {
+        ["beyond0lte"] = new()
+        {
+            ["image"] = StageAvailability.Experimental,
+            ["unlock"] = StageAvailability.NotImplemented,
+            ["twrp"] = StageAvailability.NotImplemented,
+            ["backup"] = StageAvailability.NotImplemented,
+            ["partition"] = StageAvailability.NotImplemented,
+            ["transfer"] = StageAvailability.NotImplemented,
+            ["uefi"] = StageAvailability.NotImplemented,
+            ["firstboot"] = StageAvailability.NotImplemented,
+        },
+    };
+
+    public static StageAvailability Resolve(string id, string? codename = null)
+    {
+        var declared = Get(id).Availability;
+        if (codename is null || !PerDevice.TryGetValue(codename, out var overrides))
+        {
+            return declared;
+        }
+        if (overrides.TryGetValue(id, out var found))
+        {
+            return found;
+        }
+        return declared;
+    }
+
+    /// <summary>False when the stage must not run for this device, whatever its status.</summary>
+    public static bool Runnable(string id, string? codename = null) =>
+        Resolve(id, codename) != StageAvailability.NotImplemented;
 }
 
 public sealed class StageRecord

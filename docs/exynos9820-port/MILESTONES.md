@@ -88,7 +88,7 @@ errors.
 | M6 | Verify the 9820 constants against a live S10e | **done** | was **needs-phone** — resolved, see `notes/s10e-live-reads.md` |
 | M7 | Build and test-sign the three 9820 drivers | **done** | built + test-signed 2026-10-09; **nothing installed or validated on the phone yet** |
 | M8 | UEFI firmware for `beyond0lte` | doing | M5, M6 — the platform **builds** (`BEYOND0LTE_UEFI.fd`) but is missing the ACPI installer and the UEFI storage/reset libraries |
-| M9 | Installer: add the S10e behind honest gating | todo | M7, M8 |
+| M9 | Installer: add the S10e behind honest gating | doing | M7, M8 — the target and the per-device stage gating exist; the phone-touching stages have no `beyond0lte` implementation and stay `NotImplemented` |
 | M10 | USB-C **host** mode: keyboard, mouse, dock attachments | todo | M8 |
 | M11 | External display: the dock's HDMI over the USB-C link | todo | M10 |
 | M12 | WiFi on Windows for this chip | todo | M8 |
@@ -231,8 +231,9 @@ tree does not contain.
 
 | Task | State | Notes |
 |------|-------|-------|
-| Add the S10e to the stage catalog as `Guided`, not `Ready` | todo | golden rule |
-| Back up EFS/modem/partition table before any destructive step | todo | same as the 9810 flow |
+| Add the S10e to the stage catalog as `Guided`, not `Ready` | **done** | Stricter than the note said, which is the honest direction: `SM-G970F` is a recognised `SupportedTarget` with `Validated = false`, so the model check warns instead of passing, and per-device availability keeps `unlock`/`twrp`/`backup`/`partition`/`transfer`/`uefi`/`firstboot` at `NotImplemented` for `beyond0lte` while `image` is `Experimental` (PC-side, but it carries drivers that have never run on hardware). The 9810 catalog is untouched. `notes/m9-installer.md` |
+| Installer tests still green | **done** | `dotnet build` 0 warnings/0 errors; `dotnet test` 188 passed, 0 failed (187 before, +1 new `RecognisesTheS10eButKeepsItUnvalidated`) |
+| Back up EFS/modem/partition table before any destructive step | todo | same as the 9810 flow — unreachable for the S10e until the phone stages stop being `NotImplemented`, which needs a validated boot first |
 
 ### M10 — USB-C host mode (the gate for keyboard, mouse, LAN)
 

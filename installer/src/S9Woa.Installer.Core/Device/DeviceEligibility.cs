@@ -3,12 +3,22 @@ namespace S9Woa.Installer.Core.Device;
 
 /// <summary>What the installer has been validated against. Anything else is refused or warned.</summary>
 public sealed record SupportedTarget(string Model, string ModelCode, string Codename, string HardwareToken,
-    string ValidatedBootloader)
+    string ValidatedBootloader, bool Validated = true)
 {
     public static SupportedTarget GalaxyS9Plus { get; } =
         new("SM-G965F", "G965F", "star2lte", "exynos9810", "G965FXXUHFVG4");
 
-    public static IReadOnlyList<SupportedTarget> All { get; } = [GalaxyS9Plus];
+    /// <summary>
+    /// The Galaxy S10e is recognised and its constants are ported, but NOTHING in this
+    /// flow has been observed on one end to end, so <c>Validated = false</c>: the model
+    /// check warns instead of passing, and the stage catalog keeps the phone-touching
+    /// stages out of the run (see <c>StageCatalog</c>). The bootloader string below is a
+    /// read (getprop ro.boot.bootloader on RF8M21HYDSZ, 2026-10-09), not a guess.
+    /// </summary>
+    public static SupportedTarget GalaxyS10e { get; } =
+        new("SM-G970F", "G970F", "beyond0lte", "exynos9820", "G970FXXSGHWC1", Validated: false);
+
+    public static IReadOnlyList<SupportedTarget> All { get; } = [GalaxyS9Plus, GalaxyS10e];
 }
 
 public static class DeviceEligibility
@@ -41,20 +51,26 @@ public static class DeviceEligibility
             results.Add(new("model", "Phone model", CheckSeverity.Blocker,
                 $"{d.Model ?? "Unknown model"} is not supported.",
                 isS9Family
-                    ? "Only the Exynos Galaxy S9+ (SM-G965F) is supported today. Snapdragon models and the S9 (SM-G960F) are not."
-                    : "This installer only supports the Samsung Galaxy S9+ (SM-G965F)."));
+                    ? "Only the Exynos Galaxy S9+ (SM-G965F) and the Galaxy S10e (SM-G970F) are recognised today. Snapdragon models and the S9 (SM-G960F) are not."
+                    : "This installer only supports the Samsung Galaxy S9+ (SM-G965F) and the Galaxy S10e (SM-G970F)."));
             return results;
         }
-        results.Add(new("model", "Phone model", CheckSeverity.Pass, $"{target.Model} ({target.Codename})"));
+        results.Add(new("model", "Phone model",
+            target.Validated ? CheckSeverity.Pass : CheckSeverity.Warning,
+            target.Validated
+                ? $"{target.Model} ({target.Codename})"
+                : $"{target.Model} ({target.Codename}) — ported, not validated end to end",
+            target.Validated ? null
+                : "Nothing has booted on this model yet. The installer will stop before any stage that writes to the phone."));
 
         if (d.Hardware is not null && !d.Hardware.Contains(target.HardwareToken, StringComparison.OrdinalIgnoreCase))
         {
             results.Add(new("soc", "Chipset", CheckSeverity.Blocker,
-                $"Reported hardware \"{d.Hardware}\" is not Exynos 9810."));
+                $"Reported hardware \"{d.Hardware}\" is not {target.HardwareToken}."));
         }
         else
         {
-            results.Add(new("soc", "Chipset", CheckSeverity.Pass, "Exynos 9810"));
+            results.Add(new("soc", "Chipset", CheckSeverity.Pass, target.HardwareToken));
         }
 
         var validated = SamsungBuild.TryParse(target.ValidatedBootloader, target.ModelCode)!;

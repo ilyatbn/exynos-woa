@@ -99,15 +99,52 @@ values, so the DSDT buffers are a mechanical rewrite:
 GIC addresses need no change: `Exynos9820.h:139-146` marks GICC/GICH/GICV
 VERIFIED **identical to the 9810**.
 
+## Second question (same chat) — who defines `_MAT`
+
+Asked: which Arm document defines the Processor Sub-Device / `_MAT`, and must
+`_MAT` equal the MADT GICC entry. Its answer (AI, with named sources):
+
+* **No Arm document** defines a "Processor Sub-Device" or a `_MAT` method. The
+  closest Arm document is **ACPI for Arm Components, DEN0093** (1.0 / 1.1), which
+  lists the Arm components that need ACPI descriptions and their reserved IDs
+  (CoreSight, CMN, GIC, DynamIQ Shared Unit) — it does **not** define a
+  processor sub-device.
+* `_MAT` itself is defined by the **ACPI specification (UEFI Forum)**, not by Arm.
+* Semantics: for an Arm processor device (`_HID "ACPI0007"`), `_MAT` returns a
+  buffer of **MADT-format entries**; in practice the single **GICC entry whose
+  ACPI Processor UID matches the device's `_UID`**. It need not be byte-identical
+  to the boot-time MADT copy (it may report updated `Enabled` / `Online Capable`
+  state), but it must describe the same CPU — same UID and MPIDR.
+
+## Local corroboration of that semantics
+
+`Dsdt.asl` already matches the shape it describes, without the AI:
+
+```
+55:  Name (_HID, "ACPI0007")     56:  Name (_UID, 0)     57:  Name (_MAT, Buffer (0x50)
+75:  Name (_HID, "ACPI0007")     76:  Name (_UID, 1)     77:  Name (_MAT, Buffer (0x50)
+...  eight devices, _UID 0..7
+```
+
+Each sub-device is an ACPI0007 processor device with a `_UID`, and its `_MAT`
+buffer carries `@4`/`@8` = the same UID and `@68` = the MPIDR that the MADT's
+GICC entry with that UID advertises (proved above for the 9810). So the rule
+"`_MAT` = the MADT GICC entry with the matching UID" is consistent with both
+ACPI0007 sub-devices and the 9810 tables.
+
 ## Sources
 
-* `claude.ai/chat/53802365-c15b-439c-8c77-e149dfdde392` — the answer above
-  (AI-generated; used as a lead only).
-* `firmware/edk2/MdePkg/Include/IndustryStandard/Acpi63.h:520-539` — the field
+* `claude.ai/chat/53802365-c15b-439c-8c77-e149dfdde392` — both answers above
+  (AI-generated; it self-labels "Claude is AI and can make mistakes"). It cited
+  "ACPI for Arm Components 1.0" and "1.1" as its search results; the DEN0093
+  document itself is **not** in this checkout and was not opened from here.
+* `firmware/edk2/MdePkg/Include/IndustryStandard/Acpi63.h:520-539` — GICC field
   table (primary).
-* `firmware/Platform/Star2LtePkg/AcpiTables/Madt.aslc:97-141` — 9810 MADT↔DSDT
-  equality (primary).
+* `firmware/Platform/Star2LtePkg/AcpiTables/Madt.aslc:97-141` — 9810 MADT GICC
+  entries (primary).
+* `firmware/Platform/Beyond0LtePkg/AcpiTables/Dsdt.asl:55-197` — the eight
+  ACPI0007 sub-devices, `_UID`, `_MAT` buffers (primary).
 * `firmware/Platform/Beyond0LtePkg/AcpiTables/Madt.aslc:64-163` — 9820 MPIDRs +
   three efficiency classes.
 * `firmware/Silicon/Exynos9820Pkg/Include/Platform/Exynos9820.h:125-146` — GIC
-  windows VERIFIED identical.
+  windows VERIFIED identical to the 9810.

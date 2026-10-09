@@ -138,7 +138,8 @@ ArmPlatformGetVirtualMemoryMap (
   UINTN  Index;
   UINTN  Region;
 
-  STATIC ARM_MEMORY_REGION_DESCRIPTOR  Table[MMIO_REGION_COUNT + 3];
+  // bank0 + two high banks + the framebuffer slot + the MMIO windows + terminator
+  STATIC ARM_MEMORY_REGION_DESCRIPTOR  Table[MMIO_REGION_COUNT + 5];
 
   ASSERT (MemoryTable != NULL);
   Index = 0;
@@ -150,9 +151,10 @@ ArmPlatformGetVirtualMemoryMap (
   // the first of the modem/CP reservations the board file declares (0xD0000000
   // .. 0xFD900000, a contiguous 729 MB). The vendor DT declares bank0 as a full
   // 2 GiB, so publishing all of it would hand the modem's memory to Windows as
-  // conventional RAM. The tail above 0xFD900000 and the two high 2 GiB banks are
-  // what has to be added once the split sizes at 0xC0000000 and 0xE1900000 are
-  // confirmed — see notes/dock-desktop.md §17.
+  // conventional RAM. The tail above 0xFD900000 is itself reserved by the vendor
+  // DT (the debug_snapshot logs run to 0x100000000), so bank0 is now closed by
+  // reads rather than by a conservative stop; the two high 2 GiB banks are
+  // published as their own entries below.
   //
   Table[Index].PhysicalBase = EXYNOS_DRAM_BASE;
   Table[Index].VirtualBase  = EXYNOS_DRAM_BASE;
@@ -194,6 +196,33 @@ ArmPlatformGetVirtualMemoryMap (
     Table[Index].VirtualBase  = mMmioRegions[Region].Base;
     Table[Index].Length       = EFI_PAGES_TO_SIZE (EFI_SIZE_TO_PAGES (mMmioRegions[Region].Size));
     Table[Index].Attributes   = MMAP_DEV;
+    Index++;
+  }
+
+  //
+  // --- High DRAM banks ---
+  //
+  // These are reads, not candidates: the shipping 9820 device tree declares
+  //   memory@880000000  reg = <0x8 0x80000000 0x80000000>
+  //   memory@900000000  reg = <0x9 0x00000000 0x80000000>
+  // i.e. two further 2 GiB banks above the 32-bit window (notes/s10e-live-reads.md
+  // §7.2). Publishing them is what lets Windows see more than 1.25 GiB; the
+  // 9810 flow never had this shape. Guarded on base/size so a placeholder cannot
+  // add a zero-length region.
+  //
+  if (EXYNOS_DRAM_BANK3_SIZE != 0) {
+    Table[Index].PhysicalBase = EXYNOS_DRAM_BANK3_BASE;
+    Table[Index].VirtualBase  = EXYNOS_DRAM_BANK3_BASE;
+    Table[Index].Length       = EFI_PAGES_TO_SIZE (EFI_SIZE_TO_PAGES (EXYNOS_DRAM_BANK3_SIZE));
+    Table[Index].Attributes   = MMAP_DRAM;
+    Index++;
+  }
+
+  if (EXYNOS_DRAM_BANK4_SIZE != 0) {
+    Table[Index].PhysicalBase = EXYNOS_DRAM_BANK4_BASE;
+    Table[Index].VirtualBase  = EXYNOS_DRAM_BANK4_BASE;
+    Table[Index].Length       = EFI_PAGES_TO_SIZE (EFI_SIZE_TO_PAGES (EXYNOS_DRAM_BANK4_SIZE));
+    Table[Index].Attributes   = MMAP_DRAM;
     Index++;
   }
 

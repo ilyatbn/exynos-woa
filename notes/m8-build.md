@@ -139,3 +139,44 @@ Constants left UNVERIFIED on the 9820 (do not treat as facts):
 - The whole GTDT MMIO-counter path is dead at runtime (`BEYOND0LTE_GTDT_MMIO_COUNTER 0`,
   kept at 0 to match the Mu-Silicium "Allow Windows Boot" path); the ext39 experiment note
   and the CNTFRQ_EL0=0 explanation are 9810 observations, not 9820.
+
+## 7. High DRAM banks published in the memory map (2026-10-09, restarted session)
+
+The previous session died mid-task with `PlatformMemoryMapLib.c` edited but not built,
+not noted, not committed (mtime 04:36:34 vs commit 336cf3d at 04:35:45). The edit is
+the high-bank half of `notes/dock-desktop.md` §17's follow-up:
+
+* `Table[MMIO_REGION_COUNT + 3]` -> `+ 5`: bank0 + fb slot + MMIO windows + **two high
+  banks** + terminator — exactly fits, counted not eyeballed.
+* Two new guarded entries: `EXYNOS_DRAM_BANK3_BASE/SIZE` and `BANK4` (`Exynos9820.h:87-90`,
+  both tagged VERIFIED — vendor DT `memory@880000000 reg = <0x8 0x80000000 0x80000000>`,
+  `memory@900000000 reg = <0x9 0x0 0x80000000>`, `notes/s10e-live-reads.md` §7.2).
+  Guarded on `SIZE != 0` like every other placeholder here, so an unread value cannot
+  add a zero-length region that collides with the terminator.
+* bank0's comment corrected: the old text said the tail above `0xFD900000` "has to be
+  added once the split sizes are confirmed". It will not be: the debug-snapshot logs
+  run to `0x100000000` (`0xff400000 + 0xc00000`, §7.2), so the tail is reserved by
+  reads and bank0 stays published only to `0xD0000000` (1.25 GiB).
+* Net effect: the map now offers **1.25 + 2 + 2 = 5.25 GiB** of cached RAM instead of
+  1.25 GiB. The 9810 flow never had this shape (its DRAM ended at `0xBC800000`).
+
+Rebuild after the edit (`build-uefi.ps1 -Platform Beyond0LtePkg -Target DEBUG`,
+log `%TEMP%\m8-build-15.log`, 41 s incremental):
+
+```
+exit 0, "- Done -"
+FVMAIN_COMPACT [99%Full] 692224 total, 689248 used, 2976 free   (was 2984 free)
+FVMAIN [24%Full] 4194304 total, 1015896 used (was 1011160)
+BEYOND0LTE_UEFI.fd 7 340 032 B, sha256 81b0fd9ed04a0225c1a06b0988a61c4a28fd37d063c28730858187d1547538b7
+```
+
+Facts: the lib recompiled (FVMAIN grew 4736 B; FVMAIN_COMPACT headroom 2984 -> 2976 B).
+Inference (mine): nothing about the 5.25 GiB map has been observed on an S10e — page
+tables for regions above the 32-bit window are edk2-standard, but under the golden rule
+this stays Guided. The 2976-byte headroom is now the binding constraint for any further
+module.
+
+Dead end / not done here: the §17 candidate split at `0xC0000000`/`0xE1900000` inside
+bank0 stays a candidate — the reservation list already covers why the middle is not
+RAM, and the tail is covered by the logs; no further bank0 subdivision is needed to
+close the map by reads.

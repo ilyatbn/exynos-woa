@@ -112,7 +112,7 @@ succeed with them wrong, so they are a boot-time hazard, not a compile-time one.
 | **Which CMU bank feeds PERIC0 (touch bus) and FSYS0A (USB)** — the 9820's banks are `1A200000`, `1BC00000`–`1BF00000`, none is the 9810's `11000000` | `Exynos9820.h`, `exynos9820hsi2c.h`, DSDT | derive from Samsung's `cal-if` headers (`soc/samsung/cal-if/exynos9820/cmucal-{vclk,node,qch}.h`) — QCH ids there are enum positions, not addresses |
 | **PRAM breadcrumb address** — `0xFED14000` is *inside* DRAM bank0 **and inside `debug_snapshot`**, so the 9810's scratch-above-RAM assumption is false. `debug_snapshot` occupies `0xFD900000`→`0x100000000` contiguously (header/kernel/platform/sfr/cachedump/etm/bcm/llc/dbgc/kevents, each ending where the next starts) | `PlatformMemoryMapLib.c`, `ArmPlatformLib.c`, `Exynos9820Ufs.h` | **DECIDED, not yet enabled**: the unclaimed gap is `0xD9801000`…`0xF0000000` (immediately after `s5100_msi`, `Exynos9820.h:102-103`) and it is above the published bank0 stop `0xD0000000`, so Windows never sees it as RAM. `BEYOND0LTE_PRAM_DIAG` stays `0` on purpose — diagnostics off for the first boot (`notes/vendor-dt-reserved.md`) |
 | ~~**DSDT CPU sub-device buffers**~~ — **CLOSED**: `_MAT` is the MADT GICC entry with the matching `_UID`; buffers re-derived from `Madt.aslc:149-163` and verified in the built FFS (`notes/m8-dsdt-mat.md` §5) | `Dsdt.asl`, `Acpi63.h` | done; only Windows parsing them is unvalidated |
-| **Write-fence / protected-partition LBAs** — still the 9810's partition table | `Exynos9820Ufs.h` | read the S10e's own GPT (needs root on the phone, or the driver's own LBA-1 read on Windows) |
+| **Write-fence / protected-partition LBAs** — still the 9810's table. **Partly closed by names**: on the S10e `boot` is **sda14** and `recovery` is **sda15** (the 9810 assumed sda10/sda11), and the protected run is **sda26 vendor … sda31 userdata**, whereas the driver protects sda19..sda25 which here are misc/keyrefuge/keydata/dqmdbg/vbmeta/bota3 — so the fence protects the wrong ranges, confirmed not guessed | `Exynos9820Ufs.h:929-1002` | exact starts are still unread (`/sys/block/sda` is `Permission denied`, `notes/s10e-partitions.md`) and `Exynos9820Ufs.h:975-978` forbids replacing the block from arithmetic — it needs a real GPT read (root shell, or the driver's own LBA-1 read under Windows) |
 | **UFS hw-rev** — the S10e reports `UFS_VER_0006`; the 9810 path only knew 0004/0005. **Already handled**: `drivers/Exynos9820Ufs/Exynos9820Ufs.c:5085` sets the non-fatal `UFS_DIAG_FAILURE_HCI_VERSION_UNCONFIRMED` and lets the remaining warm-up checks decide, instead of refusing on an unmeasured constant | `Exynos9820Ufs.c`, `Exynos9820Ufs.h:57-61` | what stays unmeasured is the HCI encoding class 6 implies — read `UFS_REG_VERSION` on the device once Windows runs |
 
 ## 6. What still needs the phone (it is connected; reads are cheap and safe)
@@ -306,10 +306,13 @@ numbers to compare builds, never the FD hash.
      `EXYNOS_FB_BASE` stays `0`, which is safe — the map just omits the entry.
      Closing it needs Samsung's `exynos9820-beyond0lte*.dts` opened as a primary
      source.
-   * **write-fence / protected-partition LBAs** — **not closable from the phone**
-     either: `/proc/partitions` gives sizes, not offsets, and the GPT header is
-     unread from an unprivileged shell. The driver's own LBA-1 read once Windows
-     runs is the honest route.
+   * **write-fence / protected-partition LBAs** — **partly closed by names**
+     (`notes/s10e-partitions.md`): BOOT is sda14 and RECOVERY sda15 on this device,
+     and the protected run is sda26…sda31, so the driver's sda19..sda25 protection
+     covers the wrong partitions. Exact starts remain unread (`/sys/block/sda` is
+     `Permission denied`), and the header forbids patching the block from arithmetic
+     — it needs a real GPT read. **This is the most dangerous remaining constant**:
+     a wrong fence admits writes into real partitions.
    * **UFS hw-rev** — already handled: `Exynos9820Ufs.c:5085` records the
      non-fatal `UFS_DIAG_FAILURE_HCI_VERSION_UNCONFIRMED` (verified:
      `UfsSetDiagnosticFailure` only ORs into `FailureMask`, `Exynos9820Ufs.c:631-637`)

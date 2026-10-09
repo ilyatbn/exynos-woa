@@ -1,0 +1,49 @@
+## @file
+#  Runtime ResetSystemLib for Exynos 9820 / Galaxy S10e (beyond0lte): the
+#  ResetSystem/ResetCold/ResetWarm/ResetShutdown services the in-box
+#  ResetSystemRuntimeDxe publishes.
+#
+#  Ported from Star2LtePkg/Library/Star2LteResetSystemLib (Exynos 9810 / Galaxy
+#  S9+). Only the architected PSCI path is carried. The PMU SWRESET / PS_HOLD
+#  fallback is COMPILED OUT (BEYOND0LTE_PMU_RESET 0): the 9820 PMU base is a
+#  verified read (system-controller@0x15860000, Exynos9820.h:185) but the intra
+#  block offsets were never read, so the 9810's +0x400 / +0x330C would be a
+#  guess. The PRAM breadcrumb channel is COMPILED OUT too (BEYOND0LTE_PRAM_DIAG
+#  0) because 0xFED14000 is inside bank0 DRAM on this SoC
+#  (notes/s10e-live-reads.md §7.3). Whether this SoC's monitor implements the
+#  PSCI reset functions at all is unverified (Exynos9820.h keeps ArmBootArch
+#  PSCI_COMPLIANT as a 9810 value), so a clean build says nothing about reset
+#  working: Guided, not Ready.
+#
+#  FILE_GUID 11111111-2222-3333-4444-555555555546 is this library's BUILD
+#  IDENTITY (the 9810 library's own GUID is not reused); it is NOT a hardware
+#  read. …5546 is free in the tree.
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = Beyond0LteResetSystemLib
+  FILE_GUID                      = 11111111-2222-3333-4444-555555555546
+  MODULE_TYPE                    = DXE_RUNTIME_DRIVER
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = ResetSystemLib|DXE_RUNTIME_DRIVER
+  CONSTRUCTOR                    = Beyond0LteResetSystemLibConstructor
+
+[Sources]
+  Beyond0LteResetSystemLib.c
+
+[Packages]
+  ArmPkg/ArmPkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  MdePkg/MdePkg.dec
+  Silicon/Exynos9820Pkg/Exynos9820Pkg.dec
+
+[LibraryClasses]
+  ArmLib
+  ArmMonitorLib
+  BaseLib
+  DebugLib
+  DxeServicesTableLib
+  IoLib
+  UefiBootServicesTableLib
+  UefiRuntimeLib

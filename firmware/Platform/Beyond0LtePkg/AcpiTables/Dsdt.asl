@@ -12,6 +12,19 @@
       (size 0x800, as the vendor DT declares) / 0x13D70000.
     * the ALIVE GPIO window on the touchscreen: 0x14050000 -> 0x15850000.
     * the HSI2C #10 interrupt: GSIV 436 -> 420 (SPI 388 + 32, verified).
+    * the eight CPU sub-devices. Their _MAT buffers are re-derived as the 9820
+      MADT GICC entries: the buffer is an 80-byte EFI_ACPI_6_3_GIC_STRUCTURE
+      (firmware/edk2/MdePkg/Include/IndustryStandard/Acpi63.h:520-539 - the
+      widths sum to 0x50, so this is the 6.3 shape without the 6.5 TRBE pair),
+      with MPIDR at offset 68 and ProcessorPowerEfficiencyClass at 76. The
+      equality _MAT == the MADT entry with the matching _UID is not assumed: it
+      is what the 9810 already did (its DSDT bytes reproduce its own Madt.aslc
+      GICC entries field for field), and each sub-device here is an ACPI0007
+      processor device whose _UID matches. Values now mirror Madt.aslc:149-163
+      - MPIDRs 0x00-0x05 and 0x100-0x101, classes 2 (A55 x4) / 1 (prometheus
+      x2) / 0 (cheetah x2), 0 being the most efficient. GICC/GICH/GICV and the
+      VGIC GSIV 25 are unchanged because Exynos9820.h:139-146 VERIFIEDs the
+      GIC windows identical to the 9810.
 
   DELIBERATELY UNCHANGED, and it is NOT correct on this SoC:
     * the SYSREG_PERIC0 (0x10411000) window under I2C0. The 9820 DT has no node
@@ -31,19 +44,11 @@
       SPI 13 and GSIV 45. Derived from the DT, not observed — notes/dock-
       desktop.md §18 says why, and the first confirmation is the panel raising
       an interrupt at a tap.
-    * the eight CPU sub-devices below. Their _MAT buffers are carried
-      UNCHANGED from the 9810 (verified by dumping all eight: they are
-      byte-identical to the 9810's). What actually varies across them is
-      offset 4 and 8 (the UID, 0..7), offset 68 (core index inside a group,
-      0..3), offset 69 (group number: 0 for CPU0-3, 1 for CPU4-7) and offset
-      76 (1 for CPU0-3, 0 for CPU4-7 — meaning not established). So the
-      buffers encode a 4+4 split, which matches NEITHER this SoC's two MPIDR
-      clusters sized 6+2 (cpu@0000-cpu@0005, cpu@0100-cpu@0101) NEITHER the
-      three efficiency classes 4+2+2 that the PPTT models. The authoritative
-      topology is in the MADT (see Madt.aslc); these buffers must be re-derived
-      from the ACPI Processor Sub-Device spec, not patched by eye. The spec is
-      not in this checkout and the field meanings are therefore unknown - see
-      notes/m8-dsdt-mat.md for the byte dump and what closes the gap.
+    * the _MAT Flags byte (offset 12) stays 1 = ENABLED on all eight sub-devices
+      even in a BEYOND0LTE_UNIPROCESSOR_BOOT build, where the MADT marks the
+      seven secondaries disabled. The DSDT has no access to that knob, so the
+      two tables disagree in that configuration only; the shipped default (0)
+      leaves them in agreement.
 **/
 
 DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)

@@ -66,3 +66,22 @@ a chain of small commits is not.
 
 Unvalidated stages stay `Guided` / `NotImplemented`. A successful build says
 nothing about a boot hazard; record the difference.
+
+## 8. The S10e is connected — `adb` is not on PATH
+
+`adb` lives at `C:\Users\ilya\code\platform-tools\adb.exe` (call it with `&`,
+it is not on `PATH`). The phone is attached and authorized:
+
+```
+& "C:\Users\ilya\code\platform-tools\adb.exe" devices   # RF8M21HYDSZ   device
+```
+
+Device: `RF8M21HYDSZ`, `model:SM_G970F` (Galaxy S10e, the **only** one).
+
+- Reads are cheap and safe; use them before guessing a constant.
+- What works: `/proc/partitions`, `/proc/cpuinfo`, `/proc/device-tree/<node>/`
+  **names** and symlink targets. What does **not**: property contents
+  (SELinux-blocked to an unprivileged shell), `/sys/**` deeper than one level.
+- **Never run anything destructive** — no partition erasing, no flashing, no
+  powered-dock/host-mode test — until Windows booting is established
+  (HANDOFF §2 rules 5 and 6).

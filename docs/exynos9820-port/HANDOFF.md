@@ -291,12 +291,20 @@ numbers to compare builds, never the FD hash.
 1. M8 is **done for the build**; the two remaining 9810 subsystems are
    **not applicable** (the 9810 build never used them — `notes/m8-hsi40.md`,
    and the `PlatformBootManagerLib` class already resolves to ArmPkg's).
-2. **Close the §5 hazards that a phone read can close, before any flashing:**
-   the framebuffer base (read the sboot-lit carveout), the PRAM/breadcrumb
-   choice from the vendor DT's `reserved-memory` node, the write-fence /
-   protected-partition LBAs (read the S10e's own GPT), and the UFS hw-rev
-   class gap. The DSDT CPU sub-device buffers need the ACPI Processor
-   Sub-Device spec re-derivation, not a phone read.
+2. **Close the §5 hazards:**
+   * **DSDT CPU sub-device buffers** — no longer a phone problem and no longer
+     vague: `notes/m8-dsdt-mat.md` dumps all eight buffers (they are byte-identical
+     to the 9810's, i.e. carried unchanged) and shows the varying fields are
+     offsets 4/8 (UID), 68 (core index), 69 (group), 76 (unknown flag) encoding a
+     **4+4** split, which matches neither the 6+2 MPIDR clusters nor the 4+2+2
+     efficiency classes. Closing it needs the **ACPI Processor Sub-Device spec**,
+     which is not in this checkout and could not be fetched
+     (`developer.arm.com/documentation/den0101/` → 403). **Blocked on the spec,
+     not on the phone.**
+   * **fb base, PRAM choice, write-fence LBAs, UFS hw-rev class** — these need
+     the phone, and **this session has no `adb`** (not on PATH, not in System32,
+     not vendored; `notes/s10e-live-reads.md` §8 records the dead end). Find the
+     `adb.exe` the earlier session used and re-authorize `RF8M21HYDSZ` first.
 3. Only then: flash and validate on the S10e (the bar is Windows boots and
    sees disk/RAM/CPU), and only after that the stretch phase M10–M15.
 

@@ -499,3 +499,50 @@ Re-read of pack-uefi.ps1:86-97 gives: clang = **:89-90** (not :92), ld.lld `-Tte
 The freshness-guard comment that explains why the LINK step is needed is :86-88.
 Everything else cited in Step 1 (:30, :44-45, :55-57, :68, :79-81, :102-107, :111-116, :120, :121, :126)
 is confirmed at those lines.
+
+## Step 16 - the S10e's OWN sboot-accepted container, read this session (closes K1/K2/K3)
+
+The phone was attached and in TWRP (`& adb devices` -> `RF8M21HYDSZ   recovery`). Reads
+only, as root in TWRP (the state `notes/s10e-root-reads.md` proved can read block devices):
+
+```
+adb shell 'dd if=/dev/block/by-name/recovery of=/tmp/ref-recovery-head.img bs=4096 count=1'
+adb shell 'dd if=/dev/block/by-name/boot     of=/tmp/ref-boot-head.img     bs=4096 count=1'
+adb pull <both>   # parsed locally with the field layout of tools/twrp-winre/bootimg.py:58-93
+```
+
+FACT (parsed from the two pulled first pages, header v0 `<9I` at +8):
+
+| field | recovery (sda15, the TWRP this phone booted) | boot (sda14) |
+|---|---|---|
+| magic @0 | `ANDROID!` | `ANDROID!` |
+| kernel_size @0x08 | 44 363 788 | 44 380 172 |
+| ramdisk_size @0x10 | 10 905 981 | 0 |
+| second_size @0x18 | 0 | 0 |
+| page_size @0x24 | **2048** | **2048** |
+| dt_size @0x28 | 1 | 1 |
+| kernel_addr @0x0c | 0x10008000 | 0x10008000 |
+| ramdisk_addr @0x14 | 0x11000000 | 0 |
+| min image (no tail) | 55 277 568 (52.7 MiB) | 44 386 304 (42.3 MiB) |
+| fits BOOT (57 671 680, `Validation.cs:12`) | **yes** | **yes** |
+
+Closes:
+* **K1** — the reference container is the phone's own RECOVERY partition (sda15). It is the
+  image this device's sboot read to enter TWRP, so it is device-proven, not a download.
+  Cross-check: recovery kernel_size 44 363 788 == the `C:\Users\ilya\code\Dumps\twrp_device_tree\kernel`
+  artefact byte-for-byte (Step 10 read that file's header; same length) -> the recovery slot's
+  kernel IS that TWRP kernel.
+* **K2** — the 9820 container's **page_size is 2048**, not the 4096 the notes assumed. The repack
+  must read it from the ref (bootimg.py:51 already does), never hardcode 4096.
+* **K3** — the wrapped image fits BOOT. kernel becomes cat(shim,FD) ~ 7.34 MB; keeping the ref's
+  ramdisk (10.9 MB) the total is ~18.3 MB << 57 671 680. `Validation.cs:58` `ValidateUefi` passes.
+
+INFERENCE (mine): dt_size = 1 in both headers means these containers carry no real DTBH blob
+(the word is not a header_version here); the repack keeps the ref's `dt`/`tail` verbatim, so
+whatever the vendor put there is preserved and sboot's acceptance is unchanged.
+
+NOT closed by this read (still boot hazards, named UNVERIFIED in the shim): K4b the real sboot
+kernel-drop address, K6 image_size requirement, K9 MMU state at handoff, K10 the 9820 write-
+protected zones. kernel_addr 0x10008000 in the header is the *Android* load address; bootshim.S
+says sboot drops at DRAM base + text_offset, which is the unresolved 0x80080000-vs-0x80100000
+disagreement (Step 2c / ANSWER 2 §2c).

@@ -22,14 +22,22 @@ public static class Gpt
         public int EntrySectors(int sectorSize) => (int)(((long)EntryCount * EntrySize + sectorSize - 1) / sectorSize);
     }
 
+    /// <summary>
+    /// Null when the sector does not carry a GPT header at all - "there is no copy
+    /// here", which is a different fact from "this copy is corrupt". A sector that
+    /// starts with the signature is parsed by <see cref="ReadHeader"/> and its
+    /// failure stays an exception.
+    /// </summary>
+    public static Header? ReadHeaderOrNull(ReadOnlySpan<byte> sector) =>
+        sector.Length >= 92 && sector[..8].SequenceEqual("EFI PART"u8) ? ReadHeader(sector) : null;
+
     /// <summary>Parses and CRC-checks a header sector.</summary>
     public static Header ReadHeader(ReadOnlySpan<byte> sector)
     {
         if (sector.Length < 92 || !sector[..8].SequenceEqual("EFI PART"u8))
         {
             throw new InvalidDataException("No GPT header signature.");
-        }
-        var size = BinaryPrimitives.ReadInt32LittleEndian(sector[12..]);
+        }        var size = BinaryPrimitives.ReadInt32LittleEndian(sector[12..]);
         if (size < 92 || size > sector.Length)
         {
             throw new InvalidDataException($"Implausible GPT header size {size}.");

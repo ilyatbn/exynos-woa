@@ -23,8 +23,11 @@ implied (`notes/pit-geometry.md`), confirmed on the device.
 
 Header at LBA 1 (sector size **4096**), entries at LBA 2, 128 entries × 128 B.
 Samsung's entries are **non-standard**: no 4-byte flags field — type GUID at
-entry+0, unique GUID at +16, **start LBA at +32, end LBA at +40** (inclusive),
-UTF-16 name at +80.
+entry+0, unique GUID at +16 (ASCII, not a GUID), start LBA at +32, end LBA at +40
+(inclusive), UTF-16 name at **+56** (corrected: an earlier line of this note said
++80, and the capture was re-parsed byte-by-byte in this pass — entry 0 at LBA 2
+holds `bota0` at +56, with +48..+55 zero). `installer/.../Deploy/Gpt.cs:16-17`
+already uses NameOffset 56 / NameBytes 72, so it is right for this disk too.
 
 * Disk signature (header+56, 16 ASCII) = **`ANDROID MMC DISK`** →
   `PartitionMap.DiskGuid {52444e41-494f-2044-4d4d-43204449534b}` is **correct for

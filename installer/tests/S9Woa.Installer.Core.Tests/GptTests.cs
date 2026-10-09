@@ -91,4 +91,13 @@ public class GptTests
         badHeader[40] ^= 1;
         Assert.Throws<InvalidDataException>(() => Gpt.ReadHeader(badHeader.AsSpan(0, Sector)));
     }
+
+    [Fact]
+    public void ASectorWithoutAGptHeaderIsNoCopyAtAll()
+    {
+        Assert.Null(Gpt.ReadHeaderOrNull(new byte[Sector]));
+        var good = PrimaryRun(("SYSTEM", BasicData));
+        Assert.True(Gpt.ReadHeaderOrNull(good.AsSpan(0, Sector)) is not null);
+        Assert.Equal(1L, Gpt.ReadHeader(good.AsSpan(0, Sector)).MyLba);
+    }
 }

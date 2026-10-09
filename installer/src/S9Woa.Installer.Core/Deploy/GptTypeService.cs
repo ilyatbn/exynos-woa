@@ -40,21 +40,37 @@ public sealed partial class GptTypeService
 
         await _twrp.MakeDirAsync(_twrp.RamStagingDir, ct).ConfigureAwait(false);
         var primary = Gpt.ReadHeader(await ReadAsync(disk, sectorSize, 1, 1, ct).ConfigureAwait(false));
-        var backup = Gpt.ReadHeader(await ReadAsync(disk, sectorSize, lastLba, 1, ct).ConfigureAwait(false));
+        // The backup copy is optional, not assumed: this disk's header declares
+        // AlternateLBA at the last LBA, but that region was read back ALL ZERO on the
+        // S10e (notes/s10e-root-reads.md §9), so the media carries no backup table.
+        // Failing on that would stop the ESP typing on a phone for a feature its disk
+        // does not have.
+        var maybeBackup = Gpt.ReadHeaderOrNull(await ReadAsync(disk, sectorSize, lastLba, 1, ct).ConfigureAwait(false));
+        var backupPresent = maybeBackup is not null;
+        if (!backupPresent)
+        {
+            log?.Report($"No GPT header at the last sector of {disk}; this media has no backup partition table.");
+        }
+        Gpt.Header backupHeader = (Gpt.Header)maybeBackup!;
         // Each copy is rewritten as one run: header plus its adjacent entry array.
         if (primary.MyLba != 1 || primary.EntriesLba != 2 || primary.AlternateLba != lastLba
-            || backup.MyLba != lastLba || backup.EntriesLba + backup.EntrySectors(sectorSize) != lastLba)
+            || (backupPresent && (backupHeader.MyLba != lastLba
+                || backupHeader.EntriesLba + backupHeader.EntrySectors(sectorSize) != lastLba)))
         {
-            throw new InvalidDataException($"{disk} does not have the expected GPT layout (header and entries adjacent, backup at the last sector); not editing it.");
+            throw new InvalidDataException($"{disk} does not have the expected GPT layout (header and entries adjacent, backup at the last sector when there is one); not editing it.");
         }
 
         var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
         var changed = false;
-        foreach (var (copy, start, count, headerLba) in new[]
-                 {
-                     ("primary", 1L, 1 + primary.EntrySectors(sectorSize), 1L),
-                     ("backup", backup.EntriesLba, backup.EntrySectors(sectorSize) + 1, lastLba),
-                 })
+        var copies = new List<(string, long, int, long)>
+        {
+            ("primary", 1L, 1 + primary.EntrySectors(sectorSize), 1L),
+        };
+        if (backupPresent)
+        {
+            copies.Add(("backup", backupHeader.EntriesLba, backupHeader.EntrySectors(sectorSize) + 1, lastLba));
+        }
+        foreach (var (copy, start, count, headerLba) in copies)
         {
             var region = await ReadAsync(disk, sectorSize, start, count, ct).ConfigureAwait(false);
             var original = (byte[])region.Clone();

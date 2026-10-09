@@ -270,6 +270,30 @@ would have caught the slip without reading a PIT again.
 
 Verification: `dotnet build` 0/0; `dotnet test` **193 passed**.
 
+## 13. Step 6 — the GPT ESP typing no longer demands a backup copy
+
+`GptTypeService.cs:43` read a GPT header at the media's last LBA and threw if it
+wasn't there. On the S10e that region is **zero** (`notes/s10e-root-reads.md` §9),
+so the ESP typing step died with "No GPT header signature" on this phone.
+
+* `Gpt.cs` gains `ReadHeaderOrNull`: "no copy here" is a different fact from
+  "this copy is corrupt", and only the second one stays an exception.
+* `GptTypeService` parses the backup optionally, includes it in the layout guard
+  and in the rewrite list only when present, and reports when the media has none.
+
+Verified mechanically against the phone's own capture, not just asserted: entry 0
+at LBA 2 holds UTF-16 `bota0` at **entry+56** with +48..+55 zero, which is the
+offset `Gpt.cs:16-17` already uses — so the offsets are right for this disk too,
+and the "+80" recorded in `notes/s10e-root-reads.md` §2 (and repeated in
+`notes/installer-device-specifics.md`) was wrong and is corrected in both files.
+The header fields the parser reads (entry array LBA at +72, count at +80, size at
++84) also match the S10e capture exactly (2, 128, 128).
+
+New test `ASectorWithoutAGptHeaderIsNoCopyAtAll` asserts a zero sector yields
+null from `ReadHeaderOrNull` while a real header still parses.
+
+Verification: `dotnet build` 0/0; `dotnet test` **194 passed**.
+
 ## Sources
 
 * `installer/src/S9Woa.Installer.Core/Stages/StageCatalog.cs`

@@ -33,6 +33,32 @@ start them. The gating was verified by the test
 So running the app now cannot drive an S10e install: only the PC-side image
 stage is reachable.
 
+## 2b. CORRECTION — the per-device gating is DEAD in the app (fact)
+
+The paragraph above says the app refuses the phone stages for `beyond0lte`. It
+does not. Verified mechanically:
+
+* `StageCatalog.Resolve(id, codename)` and `Runnable(id, codename)`
+  (`StageCatalog.cs:79-95`) are called from **`installer\tests\...\DeviceTests.cs`
+  only** — `rg "Resolve\(|Runnable\("` over `installer/src` finds no app call site.
+* The app tests the **catalog-declared** value instead:
+  `InstallPage.xaml.cs:138` `var avail = item.Definition.Availability;`
+  `:139` `if (avail == StageAvailability.NotImplemented)`, and
+  `InstallPage.xaml.cs:288` the same in the stage dispatcher's default arm.
+  `StageItem.cs:24` renders `NotImplemented` as "Coming soon" from the same
+  declared value.
+
+Consequence, and it is the opposite of safe: for an S10e the app shows and runs
+the **9810** stage code (`twrp`, `partition`, `transfer`, `uefi` are `Ready` in
+the catalog). The only thing that stops it is incidental — the toolset's
+star2lte SHA-256 gate and the missing payload file — not the stage gating.
+Per-device geometry is wired in only four places (`InstallPage.xaml.cs:581,647,648,657`
+call `PartitionMap.For(...)`); `VhdxImageBuilder.cs:36/48` still defaults to
+`Star2Lte`.
+
+**This is the first thing to fix**, before any install attempt: make the app
+consult `Resolve(id, codename)`.
+
 ## 3. The star2lte text the guided flow would show (facts)
 
 * `ToolsetManager.cs:84` `TwrpPayload` = `twrp-star2lte.img`;
@@ -64,6 +90,33 @@ and the copy-to base are device-specific, and the 9820's DRAM layout differs
 4. Only then run the app end to end, and flash once with an agreed
    first-boot observation plan (ground rules 5/6 forbid destructive steps
    before Windows booting is established).
+
+## 6. Plan agreed with the user (2026-10-09)
+
+The user wants the install attempt AND the app made generic (detect the device,
+pick the right payloads/geometry/gates). Chunked, one commit per step:
+
+1. **Wire the per-device gating into the app** (`Resolve(id, codename)`) — the
+   safety fix; without it the app runs 9810 stage code against an S10e.
+2. Device-generic toolset: payload names, user-facing messages, and the SHA-256
+   /version gates keyed on the detected device.
+3. Device-generic geometry: `PartitionMap.For(codename)` everywhere,
+   `VhdxImageBuilder` no longer defaults to `Star2Lte`.
+4. `beyond0lte` stage paths implemented as **Guided** (never `Ready`).
+5. UI strings per device (title keyed on "G965", the "Galaxy S9+" experimental
+   warning text, the "S9" username chain, the nine key-combo strings).
+6. The S10e UEFI boot image artefact — **blocked**: `repack-with-ref.py`,
+   `firmware/device-data/` and `tools/bootimg-pack.sh` do not exist in this
+   checkout (`Test-Path` false for all three), so the star2lte pipeline is not
+   reproducible here either. See `notes/m8-uefi-image.md`.
+
+## 7. Device state
+
+`adb devices` returned **empty** at 2026-10-09 after the fence work
+(`adb.exe: no devices/emulators found`), although it showed
+`RF8M21HYDSZ  recovery` earlier in the day. So the phone is unplugged or in a
+mode adb does not see (Download mode is not an adb transport). Any device read
+below is written as the command to run, not executed.
 
 ## Sources
 

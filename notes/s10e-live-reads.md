@@ -221,19 +221,14 @@ the cal-if entries by name semantics; the IPCLK/PCLK/QCH three are unambiguous, 
 * `https://raw.githubusercontent.com/sonic011gamer/edk2-exynos/HEAD/Silicon/Samsung/Exynos9820Pkg/Library/PlatformMemoryMapLib/PlatformMemoryMapLib.c`
 * live `adb` reads on `RF8M21HYDSZ` (SM-G970F)
 
-## 8. Dead end — no `adb` in the 2026-10-09 afternoon session
+## 8. CORRECTED — adb IS available, it was a search failure not an absence
 
-The §5 hazards that need a phone read (fb base, PRAM choice, write-fence LBAs,
-UFS hw-rev class) could not be advanced in this session:
+The §8 written earlier this session claimed there was no `adb`. That was wrong:
+`adb` is at **`C:\Users\ilya\code\platform-tools\adb.exe`** and the device is
+attached and authorized (`RF8M21HYDSZ   device`). The earlier check only looked
+on `PATH`, in `System32`, and under `tools/` — never at `code\platform-tools`.
+The location is now recorded in `AGENTS.md` §8 so it is never re-searched.
 
-* `adb` is **not on PATH** and not in `System32`; `Get-Command adb` returns
-  nothing, and there is no `adb*` under `tools/` or `firmware/tools/`.
-* `HANDOFF.md` §9 records that an earlier session had `adb` authorized
-  (`RF8M21HYDSZ — model:SM_G970F`), so the binary existed somewhere on this
-  machine, but its location was not recorded there.
-
-Recorded so the next session does not re-search from scratch: look for the
-previously-used `adb.exe` (likely beside the installer tooling or a downloaded
-Android SDK), and re-authorize the device before any read. **Nothing
-destructive may be run on the phone** — there is only one S10e, and the
-powered-dock/host-mode test is deferred (MILESTONES priority order).
+Consequence: the four phone-only §5 hazards (fb base, PRAM/breadcrumb choice,
+write-fence / protected-partition LBAs, UFS hw-rev class) are **not blocked** —
+they can be advanced with read-only `adb` from here.

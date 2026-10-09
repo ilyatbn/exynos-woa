@@ -7,7 +7,7 @@ namespace S9Woa.Installer.Core.Toolset;
 public static class BootImage
 {
     public const long RecoveryPartitionBytes = 16_512L * 4096; // RECOVERY on beyond0lte (66,048 KiB) — the SMALLER of
-                                                               // the two validated layouts (star2lte is 16,638 x 4096),
+                                                               // the two layouts read from the vendor PITs (star2lte is 16,638 x 4096),
                                                                // so an image admitted here fits on both phones.
     public const long BootPartitionBytes = 14_080L * 4096;     // BOOT is 14,080 x 4096 on BOTH star2lte and beyond0lte.
 

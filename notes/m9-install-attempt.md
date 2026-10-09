@@ -247,6 +247,29 @@ Still open after this step (found while reviewing, not folded in):
   constant.
 * `ToolDefinitions.cs:88-90` display name/description still say star2lte.
 
+## 12. Step 5 — a wrong geometry constant, caught by arithmetic
+
+`PartitionMap.Star2Lte.RecoveryBytes` was **68_148_992**, which is not a whole
+number of 4096-byte logical blocks (16 637.9375 LBAs). A partition size cannot be
+that, so it was a transcription slip, not a different partition. The star2lte
+RECOVERY is 16,638 LBAs = **68_149_248**, which is the value `AndroidBootImage.cs:20`
+already carries and the value `Validation.cs:9-10` documents.
+
+Verified mechanically (`python`): 68_149_248 / 4096 = 16_638 exactly; 67_633_152 / 4096
+= 16_512; 57_671_680 / 4096 = 14_080; 629_145_600 / 4096 = 153_600; 68_148_992 / 4096
+= 16_637.9375.
+
+Also corrected in `notes/installer-device-specifics.md`: that file claimed
+`68_149_248 = 16_656 x 4096` and that neither value matched a PIT — the arithmetic
+there was wrong, and the odd constant is the PartitionMap one, not the
+`AndroidBootImage` one.
+
+New test `GeometrySizesAreWholeLogicalBlocks` asserts every size in both geometries
+is a whole number of LBAs and pins the two RECOVERY values; that is the check that
+would have caught the slip without reading a PIT again.
+
+Verification: `dotnet build` 0/0; `dotnet test` **193 passed**.
+
 ## Sources
 
 * `installer/src/S9Woa.Installer.Core/Stages/StageCatalog.cs`

@@ -176,6 +176,21 @@ public class ImageBuilderTests
         Assert.Null(PartitionMap.Beyond0Lte.SecondaryEspPartition);
     }
 
+    [Fact]
+    public void GeometrySizesAreWholeLogicalBlocks()
+    {
+        foreach (var g in new[] { PartitionMap.Star2Lte, PartitionMap.Beyond0Lte })
+        {
+            Assert.Equal(0L, g.WindowsOffset % 4096);
+            Assert.Equal(0L, g.WindowsBytes % 4096);
+            Assert.Equal(0L, g.CacheBytes % 4096);
+            Assert.Equal(0L, g.BootBytes % 4096);
+            Assert.Equal(0L, g.RecoveryBytes % 4096);
+        }
+        Assert.Equal(16_638L * 4096, PartitionMap.Star2Lte.RecoveryBytes);
+        Assert.Equal(16_512L * 4096, PartitionMap.Beyond0Lte.RecoveryBytes);
+    }
+
     private sealed class FailingOfflineRunner(bool offlineSupported) : IProcessRunner
     {
         public List<string> Calls { get; } = [];

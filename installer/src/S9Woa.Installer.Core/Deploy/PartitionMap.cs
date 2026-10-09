@@ -61,9 +61,11 @@ public static class PartitionMap
     /// <summary>
     /// Byte geometry of the phone's main UFS unit and of USERDATA on it. The Windows image is
     /// built on a virtual disk with exactly this layout so the NTFS volume matches USERDATA.
+    /// RECOVERY is 16,638 x 4096 = 68 149 248 - the value carried here before (68 148 992) is not
+    /// a whole number of 4096-byte LBAs and was a transcription slip, not a different partition.
     /// </summary>
     public static readonly GeometryType Star2Lte = new(63_963_136_000, 6_951_534_592, 57_004_785_664,
-        629_145_600, 57_671_680, 68_148_992, DiskGuid, CacheGuid, UserdataGuid, "SYSTEM");
+        629_145_600, 57_671_680, 68_149_248, DiskGuid, CacheGuid, UserdataGuid, "SYSTEM");
 
     /// <summary>
     /// Beyond0lte (SM-G970F) geometry, from Samsung's own BEYOND0LTE_EUR_OPEN.pit cross-checked

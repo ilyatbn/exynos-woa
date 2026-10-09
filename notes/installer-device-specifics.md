@@ -51,7 +51,7 @@ Goal: every place `installer/src/**` hardcodes the star2lte / S9+ device, so the
 - `Deploy\PartitionMap.cs:70-71` `Star2Lte` passes `DiskGuid, CacheGuid, UserdataGuid` (upper-case name-derived). `:82-84` `Beyond0Lte` passes `DiskGuid` + the two lower-case GUIDs.
 - `Toolset\Validation.cs:9` `RecoveryPartitionBytes = 16_512L * 4096` (= 67_633_152) - ALREADY switched to the beyond0lte (smaller) RECOVERY; comment says star2lte is 16,638 x 4096. This is a MIN-OF-BOTH gate, not per-device.
 - `Toolset\Validation.cs:12` `BootPartitionBytes = 14_080L * 4096` (= 57_671_680) - comment asserts BOOT is the same on BOTH phones (notes/pit-geometry.md:50 confirms identical).
-- `Twrp\AndroidBootImage.cs:20` `RecoveryPartitionBytes = 68_149_248` - HARDCODED star2lte RECOVERY size, and it is NOT either PIT value: 68_149_248 / 4096 = 16_656 LBAs, while star2lte is 16_638 (68_148_992) and beyond0lte is 16_512 (67_633_152). Doc comment `:19` says "RECOVERY partition on star2lte". beyond0lte equivalent = 67_633_152. Largest blast-radius constant in the TWRP build path (it is the "does the built image fit" assert).
+- `Twrp\AndroidBootImage.cs:20` `RecoveryPartitionBytes = 68_149_248` - HARDCODED star2lte RECOVERY size. CORRECTED after the pass that produced this note: 68_149_248 / 4096 = **16_638** exactly, so it IS the star2lte PIT value (the earlier arithmetic here said 16_656, which is wrong). The odd value is `PartitionMap.cs:70` `RecoveryBytes = 68_148_992`, which is NOT a whole number of LBAs (16_637.9375) - a transcription slip, fixed to 68_149_248. beyond0lte equivalent = 67_633_152 (16_512 x 4096).
 - `Twrp\WinReTwrpBuilder.cs:64` `OfficialTwrpSha256 = "f674dab0...bcd835e1"` - SHA-256 of the official twrp-3.7.0_9-0-star2lte.img. `:67` `OfficialTwrpBytes = 42_670_080` - its exact length. beyond0lte equivalent: NOT in repo (needs a beyond0lte TWRP build; notes/installer-s10e-gaps.md:56, notes/s10e-root-reads.md:154).
 - `Twrp\WinReTwrpBuilder.cs:160-178` `MatchesOfficial` / `OfficialPayload` gate on those two constants; `:192-197` the refusal text names star2lte.
 - `Twrp\WinReTwrpBuilder.cs:42` doc "verifies the base is exactly TWRP 3.7.0_9-0 for star2lte"; `:11` enum `OfficialTwrp` doc "The official TWRP 3.7.0_9-0 for star2lte".
@@ -218,7 +218,7 @@ adb + getprop only. There is no Download-mode identification path: Download mode
 
 - `Toolset\Validation.cs:9` `RecoveryPartitionBytes = 16_512 * 4096 = 67_633_152` (beyond0lte) gates the TWRP file the user picks (`:55 ValidateTwrp`, `ToolsetManager.cs:227`).
 - `Twrp\AndroidBootImage.cs:20` `RecoveryPartitionBytes = 68_149_248` gates the BUILT WinRE image (`WinReTwrpBuilder.cs:358-361`).
-- Neither equals the star2lte PIT value 68_148_992 (16_638 x 4096) nor beyond0lte 67_633_152 (16_512 x 4096); 68_149_248 = 16_656 x 4096. So the build-fit gate is looser than the star2lte partition by 16 LBAs and looser than beyond0lte by 144 LBAs (590_080 B). A built image between 67_633_152 and 68_149_248 passes the builder and would not fit the S10e RECOVERY.
+- Corrected arithmetic: 68_149_248 = **16_638 x 4096**, i.e. it IS the star2lte RECOVERY size; `PartitionMap.cs:70` carried 68_148_992 (16_637.9375 LBAs - not integral, a slip) and is now 68_149_248. The gate is therefore exact for the S9+ and **144 LBAs (590_080 B) looser** than the S10e's 67_633_152, so a built image between 67_633_152 and 68_149_248 passes the builder and would not fit the S10e RECOVERY.
 
 ## 12. Blast radius order (mine, inference - for planning, not a claim about the code)
 

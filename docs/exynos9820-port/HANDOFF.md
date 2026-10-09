@@ -324,11 +324,22 @@ numbers to compare builds, never the FD hash.
    geometry**: `PartitionMap.cs:67-70` (`DiskBytes`, `WindowsOffset`,
    `WindowsBytes`, `CacheBytes`), `Validation.cs:9-10` (RECOVERY/BOOT sizes),
    `ToolsetManager.cs:84` (star2lte TWRP payload) and the UFS fence LBAs.
-   `notes/installer-s10e-gaps.md` has the full table with the S10e values that
-   are already known. **One artefact closes most of it: the S10e's own GPT**
-   (`sfdisk -d` from TWRP/root, or Samsung's PTL inside the OFFLINE_IMAGE
-   package). The stock ODIN payload set for SM-G970F is the restore path and
-   double-checks the same geometry.
+   and what blocks it is hard-coded 9810 geometry. **Now partly fixed**
+     (`cf8fc3c` + `de7b9f7`): `PartitionMap` carries a per-device `GeometryType`
+     (beyond0lte = `DiskBytes 127 943 049 216`, `WindowsOffset 8 811 184 128`,
+     `WindowsBytes 119 126 622 208`, `CacheBytes 629 145 600`, from Samsung's
+     `BEYOND0LTE_EUR_OPEN.pit` — its start/length fields are in 4096-byte units,
+     proven by contiguity and by matching 30/31 of the phone's own sizes), the
+     VHDX build and the partition-stage check take the identified phone's geometry,
+     and `Validation.cs` now limits boot images by the smaller RECOVERY.
+     **Still open:** the four GPT GUIDs (name-derived, unconfirmed on this device),
+     whether the phone's current GPT still equals stock (sizes match, starts
+     unconfirmed — the partition stage should verify offsets too), the
+     `ToolsetManager.cs:84-89` payload names/messages (still say star2lte), and
+     the UFS driver's fence/protected LBAs (`notes/pit-geometry.md` has the
+     numbers: Windows volume LBA 2 151 168..31 234 810, protected run from
+     VENDOR LBA 1 543 168, ESP CACHE LBA 1 983 488..2 137 087, all in 4096-byte
+     units).
 4. **The next step is a decision, not a read.** Flashing is forbidden until Windows
    booting is established (ground rules 5 and 6), and nothing here can prove that
    without the phone. So the next safe action is to agree the first-boot

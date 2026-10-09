@@ -220,3 +220,20 @@ the cal-if entries by name semantics; the IPCLK/PCLK/QCH three are unambiguous, 
 * `https://raw.githubusercontent.com/CruelKernel/samsung-exynos9820/cruel-HVJ5-v5.3/drivers/soc/samsung/cal-if/exynos9820/cmucal-{vclk,node,qch}.h` (+ the `.c` twins, `cal-if/cmucal.h`, `cmucal.c`)
 * `https://raw.githubusercontent.com/sonic011gamer/edk2-exynos/HEAD/Silicon/Samsung/Exynos9820Pkg/Library/PlatformMemoryMapLib/PlatformMemoryMapLib.c`
 * live `adb` reads on `RF8M21HYDSZ` (SM-G970F)
+
+## 8. Dead end — no `adb` in the 2026-10-09 afternoon session
+
+The §5 hazards that need a phone read (fb base, PRAM choice, write-fence LBAs,
+UFS hw-rev class) could not be advanced in this session:
+
+* `adb` is **not on PATH** and not in `System32`; `Get-Command adb` returns
+  nothing, and there is no `adb*` under `tools/` or `firmware/tools/`.
+* `HANDOFF.md` §9 records that an earlier session had `adb` authorized
+  (`RF8M21HYDSZ — model:SM_G970F`), so the binary existed somewhere on this
+  machine, but its location was not recorded there.
+
+Recorded so the next session does not re-search from scratch: look for the
+previously-used `adb.exe` (likely beside the installer tooling or a downloaded
+Android SDK), and re-authorize the device before any read. **Nothing
+destructive may be run on the phone** — there is only one S10e, and the
+powered-dock/host-mode test is deferred (MILESTONES priority order).

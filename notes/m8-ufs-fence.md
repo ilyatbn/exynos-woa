@@ -132,6 +132,25 @@ Harsh review of `7d17971`, each item verified mechanically rather than by re-rea
   byte-identical to the pre-fix binary, which is what a comment/assert-only
   change should produce.
 
+### C. The .c side of the same guard still narrated the 9810's layout
+
+`rg "sda1[0-9]|sda2[0-9]|sda3[0-9]"` over `Exynos9820Ufs.c` found four places
+where the comment now contradicts the constants:
+
+* `Exynos9820Ufs.c:5538` "the fence spans from sda18 … sda19 VENDOR through
+  sda25 USERDATA is carved back out" → rewritten to sda28 ESP / sda29+sda30
+  refused / sda31 Windows volume. The sentence "a write that clips one block of
+  USERDATA" was wrong twice over (USERDATA is writable here) → CP_DEBUG.
+* `Exynos9820Ufs.c:5554` "sda21 the ESP sits between the two groups" → the split
+  is kept for the assert-halves, not because the ESP is between them.
+* `Exynos9820Ufs.c:6927` "last LBA 15615999" → names
+  `UFS_EXPECTED_LAST_LOGICAL_BLOCK` and states 31 236 095.
+* `Exynos9820Ufs.c:7491-7517` (inside `#if UFS_READOUT_BOOT`, compiled out) →
+  marked HISTORY rather than rewritten, since the numbers in it are the record
+  of the 9810's readout boot.
+* Rebuild after C: `EXACT_BUILD_OK`, 49 152 B, sha256 `3a19a6bb…caf0d0b` —
+  comments only, byte-identical as expected.
+
 ## Sources
 
 * `notes/s10e-root-reads.md` §2 (live GPT), §8 (header geometry fields),

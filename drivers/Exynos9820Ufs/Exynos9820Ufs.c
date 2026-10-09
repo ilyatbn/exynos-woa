@@ -5535,12 +5535,13 @@ UfsValidateWriteTransfer(
      * that a request landing on Samsung data is refused by a check that does
      * not depend on the fence being right.
      *
-     * The fence spans from sda18 all the way to the GPT's LastUsableLBA so that
-     * the unallocated tail past the last partition is reachable. Everything
-     * real in between - sda19 VENDOR through sda25 USERDATA - is carved back
-     * out here. Any overlap at all is refused, not merely full containment:
-     * a write that clips one block of USERDATA is exactly as unacceptable as
-     * one that lands squarely in it.
+     * The fence spans this device's ESP (sda28 CACHE) all the way to the GPT's
+     * LastUsableLBA so that the unallocated tail past the last partition is
+     * reachable. The only real partitions inside that span - sda29 OMR and
+     * sda30 CP_DEBUG, between the ESP and the Windows volume (sda31 USERDATA) -
+     * are carved back out here. Any overlap at all is refused, not merely full
+     * containment: a write that clips one block of CP_DEBUG is exactly as
+     * unacceptable as one that lands squarely in it.
      */
     if ((LogicalBlock <= UFS_PROTECTED_PARTITION_LAST_LBA) &&
         (LastBlock >= UFS_PROTECTED_PARTITION_FIRST_LBA)) {
@@ -5551,10 +5552,12 @@ UfsValidateWriteTransfer(
 
 #if UFS_FULL_WINDOWS_MODE
     /*
-     * Second range, carrying the same overlap semantics as the first. It exists
-     * because sda21 the ESP sits between the two groups and has to be writable;
-     * splitting the guard is what keeps sda22..sda24 refused instead of letting
-     * them through as a side effect of reaching sda25.
+     * Second range, carrying the same overlap semantics as the first. Unlike
+     * the 9810, the two refused partitions here (sda29 OMR, sda30 CP_DEBUG) are
+     * contiguous, so either range alone would cover both; they are kept split so
+     * a half-edited pair fails the header's C_ASSERTs rather than silently
+     * admitting one of them, and so a request landing in CP_DEBUG is refused by
+     * a check that does not depend on range A being right.
      */
     if ((LogicalBlock <= UFS_PROTECTED_PARTITION2_LAST_LBA) &&
         (LastBlock >= UFS_PROTECTED_PARTITION2_FIRST_LBA)) {
@@ -6924,8 +6927,9 @@ UfsFinishScsiCommand(
      * Four rules close that for this fixed, soldered LU 0:
      *   1. Validate BEFORE publishing. A rejected value never reaches a field
      *      that an I/O path consumes; it is recorded separately instead.
-     *   2. Require the known 4096-byte block size and last LBA 15615999. A 512
-     *      response is corruption on this phone, not an alternate geometry.
+      *   2. Require the known 4096-byte block size and this device's last LBA
+      *      (UFS_EXPECTED_LAST_LOGICAL_BLOCK, 31 236 095 on the S10e). A 512
+      *      response is corruption on this phone, not an alternate geometry.
      *   3. Require the entire requested response to land. Any residual on these
      *      tiny boot-critical commands is a partial reply and cannot be parsed.
      *   4. Return SRB_STATUS_BUSY for three invalid replies so Storport issues a
@@ -7487,6 +7491,12 @@ UfsExecuteScsi(
         /*
          * Readout window. Ahead of the latch, because a refusal here must not
          * look like a boot that entered the crash window and died in it.
+         *
+         * [HISTORY - the sda18/sda21/sda25 LBAs in the paragraphs below are the
+         * 9810's readout boot; the window constants this build uses are the
+         * S10e's, see UFS_READOUT_WINDOW_* / UFS_READOUT_SCRATCH_* in the
+         * header. This whole block is compiled out while UFS_READOUT_BOOT is 0,
+         * which is the state this build ships in.]
          *
          * Confines this build to sda18 and refuses the ESP and the Windows
          * volume outright - the two regions a real boot writes and the two

@@ -390,7 +390,8 @@ public sealed class ToolsetManager
     /// <summary>
     /// A TWRP image in a build folder: the official TWRP is always preferred; a prebuilt WinRE
     /// recovery is taken only while no usable recovery is chosen, so it never replaces an official
-    /// base. UEFI images (which also carry "star2lte" in their names) are skipped.
+    /// base. UEFI images are skipped by the "uefi" in their name, which is how the
+    /// release names them on every supported phone.
     /// </summary>
     private string? FindTwrpInFolder(string folder, EnumerationOptions options)
     {

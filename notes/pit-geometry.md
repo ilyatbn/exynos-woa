@@ -79,6 +79,34 @@ plus alignment — the same shape the 9810 had (its tail was 1659 × 512).
   never re-laid-out, but the *starts* were not independently confirmed. The
   installer's `partition` stage should therefore verify offsets, not just sizes.
 
+## Second browser-model question — PIT vs live GPT, and the GUID scheme
+
+Asked in the same chat; its answer (AI, with sources — **not opened from here**):
+
+* **No documentation** says Samsung derives partition GUIDs from names. The GPT
+  standard requires the per-partition **unique GUID** to be unique per partition;
+  a name-derived GUID would be a Samsung-specific, non-standard choice. What *is*
+  standard and comparable across models is the **type GUID** (e.g. Basic Data
+  `EBD0A0A2-…`), which lives at entry offset 0 while the unique GUID is at offset
+  16. So `PartitionMap.cs:58-61`'s claim ("Samsung derives GPT identifiers from
+  names … the same on every star2lte") is an **observation on the 9810**, not a
+  rule that may be assumed for the S10e.
+* **The PIT is not authoritative for what the kernel sees.** Replicant found that
+  changing the PIT is usually not enough to repartition — the GPT must be changed
+  too — so the **live GPT can differ from the PIT** (a custom PIT flashed, the
+  GPT edited directly, or the package PIT differing from the device's own).
+* Checks it proposed: `sgdisk -i <n> /dev/block/sda` on both phones and compare
+  the "Partition unique GUID" lines; `heimdall print-pit --no-reboot` to pull the
+  **device's own** PIT rather than the package's.
+* One unverified point it raised: on many Samsung devices the PIT's userdata entry
+  is sized to fill the rest of the storage, so the live GPT's USERDATA end-LBA can
+  differ between storage variants even with an identical PIT.
+
+Consequence for this repo: the PIT numbers are safe as **stock** geometry (and the
+sizes independently match the phone), but two things must come from the device
+itself before any write: the live GPT's starts, and the unique GUIDs the BCD will
+be pointed at.
+
 ## Sources
 
 * `C:\Users\ilya\code\Dumps\BEYOND0LTE_EUR_OPEN.pit` — parsed directly
@@ -88,3 +116,6 @@ plus alignment — the same shape the 9810 had (its tail was 1659 × 512).
 * `notes/s10e-partitions.md` — the phone's sizes and by-name links.
 * `installer/src/S9Woa.Installer.Core/Deploy/PartitionMap.cs`,
   `Toolset/Validation.cs`, `drivers/Exynos9820Ufs/Exynos9820Ufs.h:929-1002`.
+* `claude.ai/chat/53802365-…` — the second answer above; it cited the UEFI GPT
+  specification, Replicant's repartition notes, and heimdall docs
+  (none opened from here).

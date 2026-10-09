@@ -251,54 +251,57 @@ UFS hw-rev class) plus the new UNVERIFIED list in `notes/m8-ufs-hc.md` §4.
 
 ---
 
-## 11. Where the session stands now (2026-10-09 — restart point, UFS HC + reset lib DONE)
+## 11. Where the session stands now (2026-10-09 — restart point: UFS HC + reset lib + RAM manager DONE)
 
-The UEFI-side UFS host controller AND the reset library are ported, wired and
-**building**. Nothing is validated on the S10e; the FD is a build product, not a
-boot result.
+Three firmware pieces are ported, wired and **building**: the UEFI-side UFS host
+controller, the reset library, and the RAM manager. Nothing is validated on the
+S10e; the FD is a build product, not a boot result.
 
 **Committed (newest first):**
 
 | Commit | What |
 |---|---|
-| `e64a4e6` | reset lib: gate the constructor's `Status` (clang `-Wunused-variable` with both channels off) |
-| `3c84773` | reset lib wired: DSC `ResetSystemLib` instance + `ResetSystemRuntimeDxe` re-added in DSC and FDF; build clean, **`FVMAIN_COMPACT` 968 B free** |
-| `ecc0d2a` | `Beyond0LteResetSystemLib` .c + .inf + `notes/m8-reset-lib.md` |
-| `c664896` | notes: the harsh review of the diag-fix commit |
-| `70e34ca` | this §11 |
-| `78d6f97` | review fix: the `BEYOND0LTE_UFS_DIAG 1` branch was broken (deleted locals) |
+| `d1a20ae` | review fix: restore `UefiCpuPkg/UefiCpuPkg.dec` (ArmMmuLib.h lives there) |
+| `cd23516` | RAM manager wired in DSC+FDF, rebuilt: `FVMAIN_COMPACT` auto-grew to 700416 B, **3864 B free**, FD unchanged 7 340 032 B sha256 `c72b3490…` |
+| `2c12231` | `Beyond0LteRamManagerDxe` .c + .inf + `notes/m8-ram-manager.md` (incl. the page-table vs GCD decision) |
+| `e64a4e6` | reset lib: gate the constructor's `Status` |
+| `3c84773` | reset lib wired + `ResetSystemRuntimeDxe` re-enabled |
+| `ecc0d2a` | `Beyond0LteResetSystemLib` .c + .inf + notes |
+| `c664896` | notes: harsh review of the diag-fix commit |
+| `70e34ca` | this §11 (earlier revision) |
+| `78d6f97` | review fix: the `BEYOND0LTE_UFS_DIAG 1` branch was broken |
 | `1cf61fa` | the five clang failures the UFS HC port exposed |
 | `783bb5d` | UFS HC build result + MILESTONES line moved to done |
 | `2764134` | UFS HC wired into DSC + FDF |
 | `e411a81` | `Beyond0LteUfsHcDxe.c` created |
 
-**Current build state:** `BEYOND0LTE_UEFI.fd` 7 340 032 B, `FVMAIN_COMPACT`
-[99%Full] 695352 used, **968 B free**, `FVMAIN` [26%Full] 1108224 used.
-Modules in the FV: `Beyond0LteUfsHcDxe` (GUID `…5545`, 55 808 B) and
-`Beyond0LteResetSystemLib` (GUID `…5546`).
+**Current build state:** `BEYOND0LTE_UEFI.fd` 7 340 032 B sha256
+`c72b349060674e626577ac031b6ca00c4c27f8b6d1bd910bef3d128049036196`,
+`FVMAIN_COMPACT` [99%Full] 700416 total / 3864 free, `FVMAIN` [27%Full] 1159016 used.
+Modules added this session: `…5545 Beyond0LteUfsHcDxe`, `…5546 Beyond0LteResetSystemLib`,
+`…5547 Beyond0LteRamManagerDxe`.
 
 **Nothing is in flight.** `git status` is clean.
 
 **Do next, in this order (one commit per step, chunked):**
 
-1. **Space check.** `FVMAIN_COMPACT` has 968 B free. `NumBlocks = 0`
-   (`fdf:86`) means it auto-grows in 0x1000 blocks, so the next module does not
-   overflow — but the FD is fixed at 7 340 032 B, so growth must be re-verified
-   against the flash/carveout before it is trusted. Record the number after every
-   build, do not assume.
-2. `Star2LteRamManagerDxe`: decide first whether it is needed at all — the high
-   DRAM banks are now in the memory map (`9339b0c`), which is what the 9810
-   RamManager existed to publish. Read `Star2LteRamManagerDxe.c` before porting.
-3. The HSI40/GPIO-handoff subsystem — `notes/m8-libs.md` records the CMU bank→
-   power-domain map as a **dead end** (cal-if ids are enum positions), so expect
-   this to stay `NotImplemented`, not to be guessed.
-4. The 9810's own `PlatformBootManagerLib`: this build already resolves
-   `ArmPkg/Library/PlatformBootManagerLib`, so decide whether the 9810 platform
-   one adds anything before porting.
+1. The **HSI40/GPIO-handoff subsystem** (`GpioHandoffDevices`, `Hsi40Devices`
+   ACPI nodes). Before writing anything: `notes/m8-libs.md` records the CMU
+   bank→power-domain map as a **dead end** (Samsung's cal-if headers give QCH
+   ids as enum positions, not addresses), and `Exynos9820.h` keeps
+   `EXYNOS_CMU_FSYS0A_*`/`EXYNOS_CMU_PERIC0_*` at 0 for that reason. Expect the
+   honest outcome to be `NotImplemented`, not a guessed bank.
+2. The 9810's own `PlatformBootManagerLib`: this build already resolves
+   `ArmPkg/Library/PlatformBootManagerLib`, so first decide whether the 9810
+   platform one adds anything the ArmPkg one does not.
+3. Close the §5 hazards that a phone read can close (fb base, PRAM choice,
+   write-fence LBAs, UFS hw-rev class) **before any flashing**.
+4. Only then the stretch phase (M10 USB host mode, M11 HDMI, M12 WiFi, M13 LAN).
 
 **Facts to trust, not re-derive:** everything in §10, `notes/m8-ufs-hc.md`
-§5 (exhaustive literal sweep — supersedes the §2 line lists) and §7/§8, plus
-`notes/m8-reset-lib.md` §5 (the wiring and the FV numbers). **Still open:** the
-§5 hazards of this file, the UNVERIFIED lists in both notes files, and the fact
-that the `BEYOND0LTE_UFS_DIAG 1` and `BEYOND0LTE_PMU_RESET 1` branches have never
-been compiled (argued, not built).
+§5/§7/§8, `notes/m8-reset-lib.md` §5, `notes/m8-ram-manager.md` §4. **Still open:**
+the §5 hazards of this file, the UNVERIFIED lists in the three notes files, and
+the fact that the `BEYOND0LTE_UFS_DIAG 1`, `BEYOND0LTE_PMU_RESET 1` and
+`BEYOND0LTE_RAM_STATUS_DIAG 1` branches have never been compiled (argued, not
+built — and re-enabling them writes to known-bad addresses, so do not test them
+on the phone).

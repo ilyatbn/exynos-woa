@@ -149,6 +149,45 @@ the browser model.
 
 ## 6. Still open after this pass
 
+* The UFS driver's fence/protected LBAs — the numbers are now known (§7 below) but
+  the block has to be replaced in one step.
+* `ToolsetManager.cs:84-89` payload names/messages (still say star2lte).
+* Nothing is validated by booting yet: this pass read the device, it did not run
+  the firmware on it.
+
+## 7. The one code task left, with the numbers ready
+
+`drivers/Exynos9820Ufs/Exynos9820Ufs.h:929-1130` is a single interlocking block
+(the header forbids a half-edit because the `C_ASSERT`s below tie the constants
+together). Everything in it is the 9810's own table. The S10e replacements, in the
+driver's own 4096-byte LBA units, all read from the live GPT above:
+
+| constant | 9810 | S10e |
+|---|---|---|
+| `UFS_WRITE_FENCE_FIRST_LBA` | 68 736 (sda18 SYSTEM) | **2 151 168** (USERDATA start) |
+| `UFS_WRITE_FENCE_LAST_LBA` | 15 615 994 | **31 234 815** (USERDATA end = LastUsableLBA) |
+| `UFS_PROTECTED_PARTITION_FIRST_LBA` | 1 195 136 (sda19 VENDOR) | **1 543 168** (vendor) |
+| ESP (`sda21 CACHE`) | 1 526 912..1 680 511 | **1 983 488..2 137 087** |
+| Windows volume (`sda25 USERDATA`) | 1 697 152..15 614 335 | **2 151 168..31 234 815** |
+| scratch (one LBA past the volume) | 15 614 336..15 614 591 | **31 234 816..31 235 071** |
+| EFS | 4096..9215 (512 B units in that comment) | **4096..9215 in 4096-byte LBAs** (bytes 16 777 216..37 748 735) |
+| BOOT (UEFI) | sda10 | **sda14, LBA 27 264..41 343** |
+| RECOVERY (TWRP) | sda11 | **sda15, LBA 41 344..57 855** |
+
+Role change worth noting: on the 9810 the Windows volume was the **SYSTEM** slot
+(sda18) and USERDATA was a protected partition; on the S10e the Windows volume **is**
+USERDATA (sda31, the last partition), so the "protected run" is now the set *before*
+the fence (vendor/product/cache/omr/cp_debug) and the ESP (cache) sits **below** the
+fence's lower bound — i.e. the ESP is outside the writable window by construction,
+which is the opposite of the 9810's layout where CACHE had to be released from the
+protected range. The `FULL_WINDOWS_MODE` and `READOUT_*` comments all speak of
+sda18/sda21/sda25 and have to be re-written, not just re-numbered.
+
+Not attempted this pass: the block is ~200 lines of interlocking constants,
+comments and `C_ASSERT`s, and the driver cannot be built or hardware-validated
+from here (M7 is `needs-windows`). Half-editing it is exactly what the header's
+`C_ASSERT`s exist to catch, so it stays one deliberate step.
+
 * The UFS driver's fence/protected LBAs (`Exynos9820Ufs.h:980-998`) — the numbers
   are now known, the block still has to be replaced in one step.
 * `ToolsetManager.cs` payload names/messages (still star2lte).

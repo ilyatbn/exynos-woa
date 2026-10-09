@@ -1,0 +1,60 @@
+## @file
+#  Beyond0LteUfsHcDxe — platform UFS Host Controller protocol producer for the
+#  Exynos 9820 UFS host (ufs@0x13D60000). Lets the in-box UfsPassThruDxe ->
+#  ScsiBusDxe -> ScsiDiskDxe stack drive the Samsung UFS device. See
+#  Beyond0LteUfsHcDxe.c.
+#
+#  Ported from Star2LtePkg/Drivers/Star2LteUfsHcDxe (Exynos 9810 / Galaxy S9+).
+#  Every UFS window is remapped to the EXYNOS_UFS_* macros in
+#  Silicon/Exynos9820Pkg/Include/Platform/Exynos9820.h (all VERIFIED); the
+#  intra-window vendor offsets are unchanged (Exynos9820.h:260-262). The 9810's
+#  PRAM/diag telemetry channel (0xFED1xxxx) and the framebuffer HUD are COMPILED
+#  OUT, not retargeted: 0xFED1xxxx is inside bank0 DRAM on this SoC (same hazard
+#  notes/m8-dscfdf.md and Beyond0LteAcpiPlatformDxe flag) and the fb base is
+#  unread (EXYNOS_FB_BASE = 0). Clock rates, the PMU phy-isolation offset, the
+#  opt-suite value and the UFS RefClk category have no 9820 read and stay marked
+#  UNVERIFIED. Nothing here is validated on an S10e (Guided, not Ready).
+#
+#  FILE_GUID 11111111-2222-3333-4444-555555555545 is this module's BUILD IDENTITY
+#  (it names the compiled DXE driver inside the FV); it is NOT a hardware read.
+#  …5545 is free in the tree (grep of 5555555555[0-9a-f]{2} over firmware/).
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = Beyond0LteUfsHcDxe
+  FILE_GUID                      = 11111111-2222-3333-4444-555555555545
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 0.1
+  ENTRY_POINT                    = Beyond0LteUfsHcEntry
+
+[Sources]
+  Beyond0LteUfsHcDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  ArmPkg/ArmPkg.dec
+  EmbeddedPkg/EmbeddedPkg.dec
+  Silicon/Exynos9820Pkg/Exynos9820Pkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  DxeServicesTableLib
+  BaseMemoryLib
+  MemoryAllocationLib
+  DevicePathLib
+  CacheMaintenanceLib
+  BaseLib
+  IoLib
+  DebugLib
+
+[Protocols]
+  gEdkiiUfsHostControllerProtocolGuid    ## PRODUCES
+  gEfiDevicePathProtocolGuid             ## PRODUCES
+  gEdkiiUfsHcPlatformProtocolGuid        ## PRODUCES
+  gHardwareInterruptProtocolGuid         ## CONSUMES
+
+[Depex]
+  TRUE

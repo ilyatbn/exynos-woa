@@ -146,7 +146,8 @@ errors.
 
 ### M5 — UFS storage driver
 
-State: **doing** — the address work is settled, one clock value is not.
+State: **doing** — the write fence is now this device's own table (read, not
+derived), the DMA window and the second LUN are not.
 
 | Task | State | Notes |
 |------|-------|-------|

@@ -359,3 +359,63 @@ notes files, and the fact that the
 `BEYOND0LTE_RAM_STATUS_DIAG 1` branches have never been compiled (argued, not
 built — and re-enabling them writes to known-bad addresses, so do not test them
 on the phone).
+
+---
+
+## 12. Where the session stands now (2026-10-09 — restart point: the write fence is retargeted)
+
+The session resumed from a crash that left `Exynos9820Ufs.h` **half-edited and
+uncommitted** — exactly the state the block's own `C_ASSERT`s exist to catch. It
+was finished in one step and reviewed; six commits landed, `git status` is clean
+apart from `info/DEN0101_00bet1_ADAC.pdf`, which is a reference document and is
+deliberately not committed.
+
+**Committed (newest first):**
+
+| Commit | What |
+|---|---|
+| `1e3e8bb` | review fix: comment alignment in `UfsDiag.c`'s `--fs-write` block |
+| `3d6b04b` | M5: `UfsDiag.c` scratch region retargeted 15 614 336 → **31 234 816..31 235 071** (the 9810's LBA sat inside USERDATA), asserts re-derived, restore source is now zero-fill |
+| `07d866b` | review fix: the .c side of the write guard narrated the 9810's layout |
+| `fb63784` | review fix: the fence block's own documentation (duplicate table, an assert commented as EFS that tests BOOT's end, provenance marker) |
+| `9f0dfef` | review fix: the protected-block/fence asserts are branch-specific (mode 0 did not compile) |
+| `7d17971` | M5: the whole interlocking fence block replaced in one step |
+| `ec76bce` | notes: tail measured on-device — LBAs 31 234 812..31 236 095 all zero, no backup GPT |
+| `fd4e60e` | notes: the S10e GPT header's own geometry fields decoded (AltLBA 31 236 095, LastUsableLBA 31 236 090) |
+
+**Build state:** `Exynos9820Ufs.sys` 49 152 B sha256 `3a19a6bb…caf0d0b`,
+`UfsDiag.exe` 213 504 B sha256 `7f4f7436…42965bf`, `EXACT_BUILD_OK` in
+`UFS_FULL_WINDOWS_MODE` 1 (and, after `9f0dfef`, in mode 0 too: 49 664 B).
+Firmware FD unchanged this segment.
+
+**Nothing is in flight.** Every claim in the fence block is a read, not
+arithmetic: `notes/s10e-root-reads.md` §2 (live GPT), §8 (header fields),
+§9 (tail measurement). The `C_ASSERT`s were proved to gate the constants by
+deliberate off-by-ones that failed the compile.
+
+**Do next, in this order (one commit per step, chunked):**
+
+1. **Nothing may be written to the media.** The scratch blocks on the S10e are
+   zero and **not stamped**, so `--write-live` refuses until they are stamped —
+   that is a device write and ground rules 5/6 forbid it until Windows booting
+   is established. Record it as the first post-boot device step, do not attempt
+   it now.
+2. The remaining §5 hazards that a **read** can still close: which CMU bank feeds
+   PERIC0/FSYS0A (needs Samsung's `cal-if` headers as a primary source), and the
+   UFS hw-rev class 6 encoding (needs `UFS_REG_VERSION` read once Windows runs).
+3. The installer's last star2lte leftovers: `ToolsetManager.cs:84-89` payload
+   names/messages still say star2lte.
+4. MILESTONES M5 rows still `todo` that this pass made load-bearing: **handle the
+   second LUN** (`cpefs` is `sdd1`, the driver was written against one `sda`) and
+   **re-derive the DMA window** from the S10e's DRAM banks (the window constants
+   are still the 9810's `90000000..BC800000` and marked UNVERIFIED).
+5. Only after Windows boots once: the flash/stretch phase M10–M15.
+
+**Facts to trust, not re-derive:** everything in §11, `notes/m8-ufs-fence.md`
+(all of it, including the review findings), `notes/s10e-root-reads.md` §2/§8/§9,
+`notes/pit-geometry.md`, `notes/windows-m7-toolchain.md` §4.5 (the working
+`build-ufs.ps1` line) and §8 (the FD is not byte-deterministic — compare sizes
+and FV numbers, never hashes of the FD).
+**Still open:** the §5 hazards above, the second LUN, the DMA window, the
+UNVERIFIED lists in the notes files, and the fact that **no** part of this has
+been validated by booting.

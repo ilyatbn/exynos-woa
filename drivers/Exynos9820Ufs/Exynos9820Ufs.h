@@ -1211,13 +1211,23 @@ C_ASSERT(UFS_WRITE_FENCE_FIRST_LBA > 57855ULL);
 C_ASSERT(UFS_WRITE_FENCE_FIRST_LBA > 41343ULL);
 
 /*
- * The protected block must sit strictly inside the fence. If it did not, the
- * fence would already be refusing part of it and the two bounds would disagree
- * about what they are describing.
+ * The protected block must be consistent with the fence. The two modes differ
+ * here, and the difference is deliberate: in FULL_WINDOWS_MODE the refused
+ * partitions sit BETWEEN the ESP (at the fence's lower edge) and USERDATA, so
+ * the block is strictly INSIDE the fence. In a refusing build the run starts at
+ * VENDOR, below the fence's lower bound, because VENDOR and PRODUCT are already
+ * refused by the fence itself and this guard has to cover the rest. Asserting
+ * "strictly inside" in that mode would be a claim about a layout that does not
+ * exist there, and it is exactly the assert that broke when the fence moved.
  */
 C_ASSERT(UFS_PROTECTED_PARTITION_FIRST_LBA < UFS_PROTECTED_PARTITION_LAST_LBA);
-C_ASSERT(UFS_PROTECTED_PARTITION_FIRST_LBA > UFS_WRITE_FENCE_FIRST_LBA);
 C_ASSERT(UFS_PROTECTED_PARTITION_LAST_LBA < UFS_WRITE_FENCE_LAST_LBA);
+C_ASSERT(UFS_PROTECTED_PARTITION_FIRST_LBA > UFS_GPT_PRIMARY_LAST_LBA);
+#if UFS_FULL_WINDOWS_MODE
+C_ASSERT(UFS_PROTECTED_PARTITION_FIRST_LBA > UFS_WRITE_FENCE_FIRST_LBA);
+#else
+C_ASSERT(UFS_PROTECTED_PARTITION_FIRST_LBA < UFS_WRITE_FENCE_FIRST_LBA);
+#endif
 
 /*
  * IN-FLIGHT GPT HEADER TRANSLATION.

@@ -100,6 +100,20 @@ Harsh review of `7d17971`, each item verified mechanically rather than by re-rea
 * `UfsDiag.c:1491-1620` narrative still speaks of sda18/sda25 and the archived
   `backups\TAIL-lba15614336-...bin`; the S10e tail measurement is §9's.
 
+## 6. Fix commits (one per finding)
+
+### A. `UFS_FULL_WINDOWS_MODE 0` did not compile → branch-specific asserts
+
+* Before: `C_ASSERT(UFS_PROTECTED_PARTITION_FIRST_LBA > UFS_WRITE_FENCE_FIRST_LBA)`
+  unconditional → `Exynos9820Ufs.h(1219,1): error C2118` with the switch at 0.
+* After: the fence-consistency asserts are split, `> FENCE_FIRST` in full-windows
+  and `< FENCE_FIRST` in the refusing build, with the reason stated in the comment.
+* Verified by building **both** modes: `-WideUncached -DmaWindow`, outdirs
+  `ufs-9820-fence-2` (mode 1, `EXACT_BUILD_OK`, 49 152 B, sha256
+  `3a19a6bb…caf0d0b` — identical to the pre-fix binary, as expected since the
+  asserts emit no code) and `ufs-9820-fence-nw2` (mode 0, `EXACT_BUILD_OK`,
+  49 664 B). The switch was left at 1.
+
 ## Sources
 
 * `notes/s10e-root-reads.md` §2 (live GPT), §8 (header geometry fields),

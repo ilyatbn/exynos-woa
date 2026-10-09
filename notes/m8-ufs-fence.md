@@ -114,6 +114,24 @@ Harsh review of `7d17971`, each item verified mechanically rather than by re-rea
   asserts emit no code) and `ufs-9820-fence-nw2` (mode 0, `EXACT_BUILD_OK`,
   49 664 B). The switch was left at 1.
 
+### B. Comment/assert defects from the same review
+
+* The "Turning it off…" paragraph lost its ` * ` alignment → restored.
+* The HISTORY bracket now says "every paragraph below, up to the last one, is
+  the 9810's", because the last paragraph speaks of this device's fence.
+* The sda26..sda31 table was printed twice (narrative comment + the comment next
+  to the constants) → the narrative one now points at the table below and keeps
+  only the contiguity fact.
+* `C_ASSERT(UFS_WRITE_FENCE_FIRST_LBA > 41343ULL)` was commented as "must not
+  reach EFS (sda3 starts at 4096) or BOOT" — 41343 is BOOT's **end** and nothing
+  tested EFS → now three separate asserts, one fact each: BOOT 41343, RECOVERY
+  57855, EFS 9215.
+* `UFS_GPT_PRIMARY_LAST_LBA` lost its provenance → marked VERIFIED with the
+  read that gives it (128 entries × 128 B at LBA 2..5).
+* Rebuild after B: `EXACT_BUILD_OK`, 49 152 B, sha256 `3a19a6bb…caf0d0b` —
+  byte-identical to the pre-fix binary, which is what a comment/assert-only
+  change should produce.
+
 ## Sources
 
 * `notes/s10e-root-reads.md` §2 (live GPT), §8 (header geometry fields),

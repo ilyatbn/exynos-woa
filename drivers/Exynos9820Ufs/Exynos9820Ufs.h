@@ -987,16 +987,10 @@ C_ASSERT(UFS_WDT_WTCNT < UFS_WDT_WINDOW);
  * fence, so a request landing in a real partition is refused by a check that
  * does not depend on the fence being right.
  *
- *   sda26  VENDOR     LBA 1543168 .. 1824767   below the fence, refused by it
- *   sda27  PRODUCT    LBA 1824768 .. 1983487   below the fence, refused by it
- *   sda28  CACHE      LBA 1983488 .. 2137087   WRITABLE  <- the ESP
- *   sda29  OMR        LBA 2137088 .. 2149887   refused   (range A)
- *   sda30  CP_DEBUG   LBA 2149888 .. 2151167   refused   (range B)
- *   sda31  USERDATA   LBA 2151168 .. 31234815  WRITABLE  <- Windows
- *
- * The range is contiguous because these partitions are contiguous on this
- * device - sda26 begins exactly where sda25 (system) ends and sda31 ends
- * exactly where the unallocated tail begins, both verified from the live GPT.
+ * The layout it describes is printed next to the constants below. What matters
+ * here is that the run is contiguous: sda26 begins exactly where sda25 (system)
+ * ends and sda31 ends exactly where the unallocated tail begins, both verified
+ * from the live GPT.
  */
 /*
  * FULL WINDOWS MODE
@@ -1022,10 +1016,10 @@ C_ASSERT(UFS_WDT_WTCNT < UFS_WDT_WINDOW);
 #define UFS_FULL_WINDOWS_MODE                1
 
 /*
- * Readout boot.  [HISTORY - the paragraphs below are the 9810's readout
- * experiment: every LBA and every boot number in them is the 9810's, kept
- * because they are the evidence for why this switch exists. The switch itself
- * is live and is 0 on this build.]
+ * Readout boot.  [HISTORY - every paragraph below, up to the last one, is the
+ * 9810's readout experiment: the LBAs and boot numbers in them are the 9810's,
+ * kept because they are the evidence for why this switch exists. The last
+ * paragraph and the switch itself speak of this device.]
  *
  * Comes up ARMED but confined to sda18 alone, so this boot cannot be the one
  * that crashes yet can still write down what it found.
@@ -1068,14 +1062,14 @@ C_ASSERT(UFS_WDT_WTCNT < UFS_WDT_WINDOW);
  * WISSUED=0. Every one of bcdboot's writes was refused by this window, not by
  * the arm state and not by the hardware.
  *
-  * Turning it off does not widen the writable set beyond what FULL_WINDOWS_MODE
-  * already sanctions: on THIS device the fence bounds writes to 1983488..31236090
-  * (the ESP through the GPT's LastUsableLBA), the two protected ranges still
-  * refuse sda29 OMR and sda30 CP_DEBUG, and EFS, BOOT (UEFI), RECOVERY, the
-  * whole Android run below the fence and the five LBAs the header reserves for
-  * the backup GPT remain outside it entirely. What this restores is exactly the
-  * ESP (sda28), the Windows volume (sda31) and the verified-zero tail - the
-  * things an installation must be able to write.
+ * Turning it off does not widen the writable set beyond what FULL_WINDOWS_MODE
+ * already sanctions: on THIS device the fence bounds writes to 1983488..31236090
+ * (the ESP through the GPT's LastUsableLBA), the two protected ranges still
+ * refuse sda29 OMR and sda30 CP_DEBUG, and EFS, BOOT (UEFI), RECOVERY, the
+ * whole Android run below the fence and the five LBAs the header reserves for
+ * the backup GPT remain outside it entirely. What this restores is exactly the
+ * ESP (sda28), the Windows volume (sda31) and the verified-zero tail - the
+ * things an installation must be able to write.
  */
 #define UFS_READOUT_BOOT                     0
 
@@ -1191,7 +1185,7 @@ C_ASSERT(UFS_PROTECTED_PARTITION2_LAST_LBA < 31234816ULL);
  * stock media it is empty (§9 read it back all zero), but it is refused
  * regardless so a reflashed disk that does mirror the table stays protected.
  */
-#define UFS_GPT_PRIMARY_LAST_LBA             5ULL
+#define UFS_GPT_PRIMARY_LAST_LBA             5ULL        // VERIFIED (128 entries x 128 B at LBA 2..5, live GPT)
 #define UFS_GPT_BACKUP_FIRST_LBA             31236091ULL
 #define UFS_EXPECTED_LAST_LOGICAL_BLOCK       31236095ULL
 C_ASSERT(UFS_EXPECTED_LAST_LOGICAL_BLOCK == (UFS_GPT_BACKUP_FIRST_LBA + 4ULL));
@@ -1205,10 +1199,12 @@ C_ASSERT(UFS_EXPECTED_LAST_LOGICAL_BLOCK == (UFS_GPT_BACKUP_FIRST_LBA + 4ULL));
 C_ASSERT(UFS_WRITE_FENCE_FIRST_LBA > UFS_GPT_PRIMARY_LAST_LBA);
 C_ASSERT(UFS_WRITE_FENCE_LAST_LBA < UFS_GPT_BACKUP_FIRST_LBA);
 C_ASSERT(UFS_WRITE_FENCE_FIRST_LBA < UFS_WRITE_FENCE_LAST_LBA);
+/* The fence must not overlap BOOT (sda14 ends at LBA 41343). */
+C_ASSERT(UFS_WRITE_FENCE_FIRST_LBA > 41343ULL);
 /* The fence must not overlap RECOVERY (sda15 ends at LBA 57855). */
 C_ASSERT(UFS_WRITE_FENCE_FIRST_LBA > 57855ULL);
-/* The fence must not reach EFS (sda3 starts at LBA 4096) or BOOT (sda14). */
-C_ASSERT(UFS_WRITE_FENCE_FIRST_LBA > 41343ULL);
+/* The fence must not overlap EFS (sda3 ends at LBA 9215). */
+C_ASSERT(UFS_WRITE_FENCE_FIRST_LBA > 9215ULL);
 
 /*
  * The protected block must be consistent with the fence. The two modes differ

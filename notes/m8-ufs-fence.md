@@ -73,12 +73,30 @@ powershell -NoProfile -ExecutionPolicy Unrestricted -File drivers\Exynos9820Ufs\
 
 ### 5. Flagged by the review — follow-ups
 
-* `UfsDiag.c:1621` `UFS_SCRATCH_LBA` is still **15 614 336**, a 9810 LBA. On the
-  S10e that lands **inside USERDATA** (2 151 168..31 234 815), so the diag tool's
-  write ladder (`--ufs-write-live`) would stamp the middle of the Windows volume.
-  Its own `C_ASSERT`s (`UfsDiag.c:1656-1657`) are self-consistent with the 9810
-  literals so they still compile — the hazard is invisible to the build.
-  **Follow-up task, separate commit.**
+Harsh review of `7d17971`, each item verified mechanically rather than by re-reading:
+
+* **`UFS_FULL_WINDOWS_MODE 0` does not compile.** Flipping the switch and
+  rebuilding gives `Exynos9820Ufs.h(1219,1): error C2118: negative subscript` at
+  `C_ASSERT(UFS_PROTECTED_PARTITION_FIRST_LBA > UFS_WRITE_FENCE_FIRST_LBA)` —
+  the non-full-windows run starts at VENDOR (1 543 168), which is BELOW the
+  fence's lower bound (1 983 488), so "the protected block sits strictly inside
+  the fence" is false by construction here, unlike the 9810 where it was true.
+  The assert must be branch-specific. **Fixed in its own commit.**
+* **Comment defects**: the "Turning it off…" paragraph lost its ` * ` alignment
+  (it now reads `  * `); the new `C_ASSERT(... > 41343ULL)` is commented as
+  "must not reach EFS (sda3 starts at 4096) or BOOT" but 41343 is BOOT's **end**
+  and nothing tests EFS; the sda26..sda31 table is now printed twice (narrative
+  comment + the comment next to the constants); `UFS_GPT_PRIMARY_LAST_LBA` lost
+  its provenance marker. **Fixed in its own commit.**
+* `Exynos9820Ufs.c:6927` still says "Require the known 4096-byte block size and
+  last LBA **15615999**" — a 9810 number presented as the current requirement,
+  now contradicted by `UFS_EXPECTED_LAST_LOGICAL_BLOCK = 31236095`. Only stale
+  LBA mention left in the .c (`rg` over the file). **Fixed in its own commit.**
+* **`UfsDiag.c:1621` `UFS_SCRATCH_LBA` is still 15 614 336**, a 9810 LBA that on
+  THIS disk falls inside USERDATA (2 151 168..31 234 815) — the diag write
+  ladder would stamp the middle of the Windows volume. Its own `C_ASSERT`s
+  (`UfsDiag.c:1656-1657`) are self-consistent with 9810 literals, so the build
+  cannot see it. **Separate task, separate commit.**
 * `UfsDiag.c:1491-1620` narrative still speaks of sda18/sda25 and the archived
   `backups\TAIL-lba15614336-...bin`; the S10e tail measurement is §9's.
 

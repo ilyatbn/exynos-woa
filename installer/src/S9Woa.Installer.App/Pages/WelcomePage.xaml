@@ -11,7 +11,7 @@
             </Border>
             <TextBlock Text="Windows on your Galaxy S9+" Style="{StaticResource TitleLargeTextBlockStyle}" TextWrapping="Wrap" Margin="0,0,0,12" />
             <TextBlock Style="{StaticResource PageSubtitleStyle}" Margin="0,0,0,40"
-                       Text="This installer takes an Exynos Galaxy S9+ (SM-G965F) from stock Android to Windows 11 on ARM, with open-source firmware and drivers. It walks you through every step and checks each one before moving on." />
+                       Text="This installer takes a Samsung Galaxy S9+ (SM-G965F, validated) or a Galaxy S10e (SM-G970F, ported but never observed end to end) from stock Android to Windows 11 on ARM, with open-source firmware and drivers. It walks you through every step and checks each one before moving on." />
 
             <Grid ColumnSpacing="16" Margin="0,0,0,32">
                 <Grid.ColumnDefinitions>

@@ -100,12 +100,9 @@ public sealed partial class PhonePage : Page, IWizardStep
 
             SearchRing.IsActive = false;
             DeviceIcon.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["AccentTextFillColorPrimaryBrush"];
-            DeviceTitle.Text = snap.Model switch
-            {
-                null => "Android device",
-                var m when m.Contains("G965", StringComparison.OrdinalIgnoreCase) => $"Galaxy S9+ · {m}",
-                var m => m,
-            };
+            DeviceTitle.Text = snap.Model is null
+                ? AppServices.PhoneDisplayName(snap)
+                : $"{AppServices.PhoneDisplayName(snap)} · {snap.Model}";
             DeviceDetail.Text = snap.Mode switch
             {
                 DeviceMode.Recovery => $"In TWRP {snap.RecoveryVersion} · firmware {snap.Bootloader ?? "unknown"}",
@@ -173,7 +170,7 @@ public sealed partial class PhonePage : Page, IWizardStep
             _lastKey = key;
             AppServices.Log($"device Download mode, continuing as {phone.Model} bl={phone.Bootloader} (identified earlier)");
         }
-        DeviceTitle.Text = $"Galaxy S9+ · {phone.Model}";
+        DeviceTitle.Text = $"{AppServices.PhoneDisplayName(phone)} · {phone.Model}";
         DeviceDetail.Text = $"In Download mode · firmware {phone.Bootloader}";
         Results.ItemsSource = results.Select(r => new CheckItem(r)).ToList();
         ChecksCard.Visibility = Visibility.Visible;

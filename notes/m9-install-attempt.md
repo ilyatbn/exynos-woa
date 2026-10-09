@@ -294,6 +294,30 @@ null from `ReadHeaderOrNull` while a real header still parses.
 
 Verification: `dotnet build` 0/0; `dotnet test` **194 passed**.
 
+## 14. Step 7 — the UI names the connected phone
+
+* `AppServices.PhoneDisplayName(DeviceSnapshot?)` maps the **codename** to a
+  marketing name (`star2lte` → Galaxy S9+, `beyond0lte` → Galaxy S10e), falling
+  back to the raw model so an unrecognised phone is never labelled as one of the
+  two known ones.
+* Replaced: `MainWindow.xaml.cs:199` (keyed on a "G965" substring),
+  `PhonePage.xaml.cs:103-108` and `:176`, `InstallPage.xaml.cs:153` (the
+  experimental warning) and `:178` (the "all done" line).
+* `InstallPage.xaml.cs:535` wrote `dev.Model ?? "SM-G965F"` into the **backup
+  manifest** — a fabricated model string in data, not display; now
+  `"model-not-reported"`.
+* `WelcomePage.xaml:14` claimed the installer takes "an Exynos Galaxy S9+"; now
+  names both phones with their validation state. `ToolsPage.xaml:45` and
+  `ToolsPage.xaml.cs:56,69` claimed the **Exynos9810** storage driver; the
+  recovery-ticket protocol is only ported for the 9810 (`RecoveryTicketProtocol.cs`
+  mirrors `drivers/Exynos9810Ufs/Exynos9810UfsDiag.h`), so the text now says so
+  instead of implying it works on the S10e.
+
+Verification: `dotnet build` 0/0; `dotnet test` 194 unchanged — the App has no
+unit tests, so the UI change is **not** mechanically checked beyond compiling.
+Recorded as a gap: a UI-string regression here would only be seen by running the
+app.
+
 ## Sources
 
 * `installer/src/S9Woa.Installer.Core/Stages/StageCatalog.cs`

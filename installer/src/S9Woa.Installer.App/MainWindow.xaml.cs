@@ -196,7 +196,7 @@ public sealed partial class MainWindow : Window
             PhoneGlyph.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorTertiaryBrush"];
             return;
         }
-        PhoneTitle.Text = d.Model is { } m && m.Contains("G965", StringComparison.OrdinalIgnoreCase) ? "Galaxy S9+" : d.Model ?? "Phone";
+        PhoneTitle.Text = AppServices.PhoneDisplayName(d);
         PhoneDetail.Text = string.Join(" · ", new[] { d.Model, d.Bootloader }.Where(s => !string.IsNullOrEmpty(s)));
         PhoneGlyph.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["AccentTextFillColorPrimaryBrush"];
     }

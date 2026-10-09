@@ -150,7 +150,8 @@ public sealed partial class InstallPage : Page, IWizardStep
                 if (avail == StageAvailability.Experimental && !AppServices.ExperimentalEnabled)
                 {
                     Report(InfoBarSeverity.Informational, item.Title,
-                        "This step is experimental: automated, but not yet validated end to end. Continue only on your own Galaxy S9+ with its backup.",
+                        "This step is experimental: automated, but not yet validated end to end. Continue only on your own "
+                        + $"{AppServices.PhoneDisplayName(AppServices.CurrentDevice)} with its backup.",
                         ("Run experimental steps", () =>
                         {
                             ExperimentalToggle.IsOn = true;
@@ -175,7 +176,8 @@ public sealed partial class InstallPage : Page, IWizardStep
             }
             HeadlineText.Text = "Windows is installed";
             LeadText.Text = "Unplug the phone. Windows finishes setting itself up and signs you in.";
-            Report(InfoBarSeverity.Success, "All done", "Windows is installed on your Galaxy S9+.");
+            Report(InfoBarSeverity.Success, "All done",
+                $"Windows is installed on your {AppServices.PhoneDisplayName(AppServices.CurrentDevice)}.");
         }
         catch (OperationCanceledException) when (_cts.IsCancellationRequested)
         {
@@ -532,7 +534,7 @@ public sealed partial class InstallPage : Page, IWizardStep
             return (false, "TWRP isn't answering over USB. Check the cable, then press Resume.");
         }
         var dir = AppServices.BackupFolderFor(dev.Serial);
-        var manifest = await new BackupService(twrp).BackupAsync(dir, dev.Model ?? "SM-G965F", dev.Serial, log, ct);
+        var manifest = await new BackupService(twrp).BackupAsync(dir, dev.Model ?? "model-not-reported", dev.Serial, log, ct);
         return (true, $"Backed up {manifest.Partitions.Count} partitions to {dir}. Keep this folder safe.");
     }
 

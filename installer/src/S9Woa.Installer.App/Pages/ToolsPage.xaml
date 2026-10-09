@@ -42,7 +42,7 @@
                 <StackPanel Spacing="12">
                     <TextBlock Text="Restart to TWRP (from Windows on the phone)" Style="{StaticResource BodyStrongTextBlockStyle}" />
                     <TextBlock TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                               Text="When you are running Windows on the Galaxy S9+, this schedules the next restart to boot TWRP instead of Windows, then restarts. It talks to the Exynos9810 storage driver directly — no USB cable or ADB needed." />
+                               Text="When you are running Windows on your phone, this schedules the next restart to boot TWRP instead of Windows, then restarts. It talks to the phone's UFS storage driver directly - no USB cable or ADB needed. The ticket protocol is ported for the Galaxy S9+; it has not been derived for the S10e." />
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button x:Name="TwrpTicketButton" Content="Restart to TWRP now" Click="OnRestartToTwrp" />
                     </StackPanel>

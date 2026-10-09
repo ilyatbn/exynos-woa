@@ -145,6 +145,21 @@ internal static class AppServices
 
     public static event Action? CurrentDeviceChanged;
 
+    /// <summary>
+    /// How the UI names a phone. Keyed on the codename, not on a model substring:
+    /// the previous code tested the model for "G965" and labelled anything else by
+    /// its raw model, so an S10e was never called an S10e anywhere. An
+    /// unrecognised phone is shown by its model string, never as one of the two
+    /// known ones.
+    /// </summary>
+    public static string PhoneDisplayName(DeviceSnapshot? d) => d switch
+    {
+        { Codename: "star2lte" } => "Galaxy S9+",
+        { Codename: "beyond0lte" } => "Galaxy S10e",
+        { Model: not null } => d.Model!,
+        _ => "the connected phone",
+    };
+
     public static bool RisksAccepted { get; set; }
 
     /// <summary>Opt-in to run stages that are automated but not yet validated on the reference device.</summary>

@@ -53,7 +53,7 @@ public sealed partial class ToolsPage : Page
 
     private async void OnRestartToTwrp(object sender, RoutedEventArgs e)
     {
-        TwrpTicketText.Text = "Looking for the Exynos9810 storage driver...";
+        TwrpTicketText.Text = "Looking for the phone's UFS storage driver...";
         TicketDevice? device;
         try
         {
@@ -66,8 +66,9 @@ public sealed partial class ToolsPage : Page
         }
         if (device is null)
         {
-            TwrpTicketText.Text = "This only works while running Windows on the Galaxy S9+, with the Exynos9810 "
-                + "storage driver installed. No compatible disk answered on this PC.";
+            TwrpTicketText.Text = "This only works while running Windows on a supported phone with its UFS "
+                + "storage driver installed. The recovery-ticket protocol is ported for the Galaxy S9+ only - it has "
+                + "not been derived for the S10e. No compatible disk answered on this PC.";
             return;
         }
 

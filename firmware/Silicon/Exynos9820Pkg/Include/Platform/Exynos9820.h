@@ -107,6 +107,35 @@
 #define EXYNOS_RSVD_CP_RAM_SIZE       0x0000000002000000ULL
 
 //
+// Read on-device as root in TWRP (2026-10-09) from /proc/device-tree/reserved-memory/*/reg
+// — the values the browser model had only claimed (notes/vendor-dt-reserved.md) and the
+// ones the unprivileged shell could not read. debug_snapshot's children occupy 0xFD900000
+// .. 0x100000000 contiguously (header, log_kernel, log_platform, log_sfr, log_cachedump,
+// log_etm, log_bcm, log_llc, log_dbgc, log_kevents), which is why the 9810's 0xFED14000
+// breadcrumb is inside a vendor log region and unusable. Full table: notes/s10e-root-reads.md.
+//
+#define EXYNOS_RSVD_E2_CODE_BASE      0x0000000087000000ULL   // VERIFIED (live DT)
+#define EXYNOS_RSVD_E2_CODE_SIZE      0x0000000000002000ULL   // VERIFIED
+#define EXYNOS_RSVD_KASLR_BASE        0x0000000080001000ULL   // VERIFIED
+#define EXYNOS_RSVD_KASLR_SIZE        0x0000000000001000ULL   // VERIFIED
+#define EXYNOS_RSVD_SEC_MAGIC_BASE    0x0000000080000000ULL   // VERIFIED
+#define EXYNOS_RSVD_SEC_MAGIC_SIZE    0x0000000000001000ULL   // VERIFIED
+#define EXYNOS_RSVD_MM_DEBUG_BASE     0x0000000091200000ULL   // VERIFIED
+#define EXYNOS_RSVD_MM_DEBUG_SIZE     0x0000000000001000ULL   // VERIFIED
+#define EXYNOS_RSVD_SECLOG_BASE       0x00000000C0000000ULL   // VERIFIED
+#define EXYNOS_RSVD_SECLOG_SIZE       0x0000000000080000ULL   // VERIFIED
+#define EXYNOS_RSVD_CAMERA_BASE       0x0000000099000000ULL   // VERIFIED
+#define EXYNOS_RSVD_CAMERA_SIZE       0x000000000E400000ULL   // VERIFIED
+#define EXYNOS_RSVD_CAMERA_CTG_BASE   0x0000000098200000ULL   // VERIFIED
+#define EXYNOS_RSVD_CAMERA_CTG_SIZE   0x0000000000E00000ULL   // VERIFIED
+#define EXYNOS_RSVD_SECURE_CAM_BASE   0x0000000096000000ULL   // VERIFIED
+#define EXYNOS_RSVD_SECURE_CAM_SIZE   0x0000000002200000ULL   // VERIFIED
+#define EXYNOS_RSVD_E2_EARLY_BASE     0x000000097E000000ULL   // VERIFIED
+#define EXYNOS_RSVD_E2_EARLY_SIZE     0x0000000002000000ULL   // VERIFIED
+#define EXYNOS_RSVD_SEC_RDX_BASE      0x0000000880000000ULL   // VERIFIED
+#define EXYNOS_RSVD_SEC_RDX_SIZE      0x000000000AD00000ULL   // VERIFIED
+
+//
 // ---------------------------------------------------------------------------
 // Debug UART (Samsung/Exynos UART — NOT 16550/PL011 compatible)
 //
@@ -404,20 +433,21 @@
 
 //
 // ---------------------------------------------------------------------------
-// Framebuffer  [GEOMETRY MOVES, BASE NOT READ]
+// Framebuffer  [BASE NOW READ]
 //
-// The S10e's panel is 1440 x 3040, not the S9+'s 1440 x 2960. The 9810's fb
-// base 0xCC000000 has NOT been confirmed on this SoC: the vendor DT's chosen
-// node carried no fb address and the live phone cannot read the property.
-// The base is therefore left at zero so the memory map lib skips it rather
-// than mapping a wrong region — a wrong fb base is a blank or faulting screen,
-// not a recoverable mistake.
+// The S10e's panel is 1440 x 3040, not the S9+'s 1440 x 2960. The base is
+// VERIFIED on the device from its own kernel command line
+// (/proc/device-tree/chosen/bootargs): s3cfb.bootloaderfb=0xca000000 — the
+// bootloader's scanout, which is what the firmware draws into. The 9810's
+// 0xCC000000 was never right here.
 //
-// The first on-device read that settles it is the sboot-lit carveout, the same
-// measurement the 9810 flow already has a tool for.
+// No DT node reserves it (every reg property at depth <= 3 was scanned), so it
+// is ordinary bank0 DRAM the vendor happens to use as its framebuffer: the map
+// must publish it as reserved, not as RAM, or Windows would claim the page.
+// Region: 0xCA000000 .. 0xCA10B29FF at 1440 x 3040 x 4 = 17510400 bytes.
 // ---------------------------------------------------------------------------
 //
-#define EXYNOS_FB_BASE            0x0000000000000000ULL   // UNVERIFIED — must be read on device
+#define EXYNOS_FB_BASE            0x00000000CA000000ULL   // VERIFIED (s3cfb.bootloaderfb, live cmdline)
 #define EXYNOS_FB_WIDTH           1440                    // panel geometry (S10e)
 #define EXYNOS_FB_HEIGHT          3040                    // S10e is taller than the S9+
 #define EXYNOS_FB_BYTES_PER_PIXEL 4

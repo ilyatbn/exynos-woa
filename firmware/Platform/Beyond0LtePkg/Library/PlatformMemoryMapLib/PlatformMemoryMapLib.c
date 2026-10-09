@@ -164,11 +164,11 @@ ArmPlatformGetVirtualMemoryMap (
 
   //
   // --- Framebuffer carveout (device/non-cached so writes hit the panel) ---
-  // Only mapped once the base is verified. It is NOT verified on this SoC: the
-  // 9810's 0xCC000000 was never read on an S10e, and the vendor DT's chosen
-  // node carried no fb address. Leaving it zero means the screen stays dark
-  // until the sboot-lit carveout is measured — which is the honest state, not
-  // a bug to paper over.
+  // Base VERIFIED on the device from its own kernel command line
+  // (/proc/device-tree/chosen/bootargs: s3cfb.bootloaderfb=0xca000000), not the
+  // 9810's 0xCC000000. No DT node reserves it, so it is published as device
+  // memory rather than RAM — otherwise Windows would claim the page the panel
+  // scans out. notes/s10e-root-reads.md §3.
   //
   if (EXYNOS_FB_BASE != 0) {
     Table[Index].PhysicalBase = EXYNOS_FB_BASE;

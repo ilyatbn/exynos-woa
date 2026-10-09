@@ -217,11 +217,14 @@ VirtualAddressChange (
 EFI_STATUS
 EFIAPI
 Beyond0LteResetSystemLibConstructor (
-  IN EFI_HANDLE        ImageHandle,
+  IN   EFI_HANDLE        ImageHandle,
   IN EFI_SYSTEM_TABLE  *SystemTable
   )
 {
+  #if (BEYOND0LTE_PMU_RESET || BEYOND0LTE_PRAM_DIAG)
   EFI_STATUS  Status;
+  #endif
+
 
 #if BEYOND0LTE_PMU_RESET
   //

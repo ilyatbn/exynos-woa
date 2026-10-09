@@ -100,11 +100,16 @@ public class DeviceTests
         Assert.Equal(CheckSeverity.Warning, checks.Single(c => c.Id == "model").Severity);
         Assert.Equal(CheckSeverity.Pass, checks.Single(c => c.Id == "bootloader").Severity);
 
-        Assert.False(StageCatalog.Runnable("transfer", "beyond0lte"));
+        Assert.Equal(StageAvailability.Guided, StageCatalog.Resolve("transfer", "beyond0lte"));
+        Assert.False(StageCatalog.AutomatedFor("transfer", "beyond0lte"));
+        Assert.True(StageCatalog.AutomatedFor("transfer", "star2lte"));
+        Assert.True(StageCatalog.Runnable("transfer", "beyond0lte"));
         Assert.True(StageCatalog.Runnable("transfer", "star2lte"));
         Assert.Equal(StageAvailability.NotImplemented, StageCatalog.Resolve("uefi", "beyond0lte"));
         Assert.Equal(StageAvailability.Experimental, StageCatalog.Resolve("image", "beyond0lte"));
+        Assert.Equal(StageAvailability.Experimental, StageCatalog.Resolve("backup", "beyond0lte"));
         Assert.Equal(StageAvailability.Ready, StageCatalog.Resolve("identify", "beyond0lte"));
+        Assert.Contains("vbmeta", StageCatalog.ManualProcedure("twrp", "beyond0lte"));
     }
 
     [Theory]

@@ -211,14 +211,24 @@ public sealed partial class InstallPage : Page, IWizardStep
 
     private static async Task<(bool Ok, string Message)> RunStageAsync(StageDefinition stage, CancellationToken ct)
     {
-        // Availability is per device, and this is the one place every entry point
-        // goes through, so the check lives here rather than only in the run-all
-        // loop: the 9810 stage code must not run against an S10e.
-        if (StageCatalog.Resolve(stage.Id, AppServices.CurrentDevice?.Codename)
-            == StageAvailability.NotImplemented)
+        var codename = AppServices.CurrentDevice?.Codename;
+        if (StageCatalog.Resolve(stage.Id, codename) == StageAvailability.NotImplemented)
         {
             await Task.Yield();
             return (false, $"Not implemented for {AppServices.CurrentDevice?.Model ?? "the connected phone"} yet. Nothing has been written to the phone.");
+        }
+        // A stage can be Guided (the installer promises it, with the user driving part
+        // of it) while the code behind it is still the reference phone's automation.
+        // That code must not run against a different device, so the stage returns the
+        // manual procedure - except where the phone can prove the step is already done.
+        if (!StageCatalog.AutomatedFor(stage.Id, codename))
+        {
+            await Task.Yield();
+            if (stage.Id == "twrp" && AppServices.CurrentDevice?.RecoveryVersion is string twrpVersion)
+            {
+                return (true, $"TWRP {twrpVersion} is already running on the phone; nothing was flashed.");
+            }
+            return (false, StageCatalog.ManualProcedure(stage.Id, codename));
         }
 
         var log = new Progress<string>(AppServices.Log);

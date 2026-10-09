@@ -55,24 +55,27 @@ public static class StageCatalog
 
     /// <summary>
     /// Availability is per device. The 9810 flow is validated end to end and keeps the
-    /// catalog's own states; the 9820 (`beyond0lte`) flow is ported but has never been
-    /// observed on a phone, so the stages that write to the device are
-    /// <c>NotImplemented</c> there and the image stage — which is PC-side but carries
-    /// drivers that are built and test-signed without hardware validation — is
-    /// <c>Experimental</c>. Nothing here is relaxed to make the S10e look supported.
+    /// catalog's own states. For the 9820 (`beyond0lte`) nothing is <c>Ready</c>: the
+    /// PC-side and read-only stages (image, backup, partition) are <c>Experimental</c>
+    /// - automated, never observed end to end on this phone - the stages the user must
+    /// drive (unlock, twrp, transfer, firstboot) are <c>Guided</c>, and the UEFI stage
+    /// stays <c>NotImplemented</c> because no flashable image exists for this device.
+    /// <see cref="AutomatedFor"/> is a second axis: a Guided stage whose code is still
+    /// the reference phone's automation does not run at all - it returns the manual
+    /// procedure instead. Nothing here is relaxed to make the S10e look supported.
     /// </summary>
     private static readonly Dictionary<string, Dictionary<string, StageAvailability>> PerDevice = new()
     {
         ["beyond0lte"] = new()
         {
             ["image"] = StageAvailability.Experimental,
-            ["unlock"] = StageAvailability.NotImplemented,
-            ["twrp"] = StageAvailability.NotImplemented,
-            ["backup"] = StageAvailability.NotImplemented,
-            ["partition"] = StageAvailability.NotImplemented,
-            ["transfer"] = StageAvailability.NotImplemented,
+            ["unlock"] = StageAvailability.Guided,
+            ["twrp"] = StageAvailability.Guided,
+            ["backup"] = StageAvailability.Experimental,
+            ["partition"] = StageAvailability.Experimental,
+            ["transfer"] = StageAvailability.Guided,
             ["uefi"] = StageAvailability.NotImplemented,
-            ["firstboot"] = StageAvailability.NotImplemented,
+            ["firstboot"] = StageAvailability.Guided,
         },
     };
 
@@ -93,6 +96,60 @@ public static class StageCatalog
     /// <summary>False when the stage must not run for this device, whatever its status.</summary>
     public static bool Runnable(string id, string? codename = null) =>
         Resolve(id, codename) != StageAvailability.NotImplemented;
+
+    /// <summary>
+    /// Whether the installer has an implementation that was written for this phone.
+    /// This is a second axis than <see cref="Resolve"/>: a stage can be
+    /// <c>Guided</c> (the installer can promise it, with the user doing part of it)
+    /// while the code behind it is still the reference phone's automation, which must
+    /// not run against a different device. Stages absent from a phone's list are
+    /// automated; the list is the exception list, so the reference flow is untouched.
+    /// </summary>
+    private static Dictionary<string, IReadOnlyList<string>> NotAutomated { get; } = new()
+    {
+        ["beyond0lte"] = ["twrp", "transfer", "firstboot", "uefi"],
+    };
+
+    public static bool AutomatedFor(string id, string? codename)
+    {
+        if (codename is null || !NotAutomated.TryGetValue(codename.ToLowerInvariant(), out var blocked))
+        {
+            return true;
+        }
+        return !blocked.Contains(id);
+    }
+
+    /// <summary>
+    /// What the user has to do instead, and why. Every fact in these texts is a read:
+    /// the S10e's official TWRP build and Team Win's own Verified-Boot warning come
+    /// from the device page (notes/m9-install-attempt.md §15), the partition names
+    /// from the live GPT (notes/s10e-root-reads.md §2).
+    /// </summary>
+    public static string ManualProcedure(string id, string? codename)
+    {
+        var key = codename?.ToLowerInvariant();
+        if (key is null || !NotAutomated.TryGetValue(key, out var blocked) || !blocked.Contains(id))
+        {
+            return "This step is not automated for this phone and nothing was written.";
+        }
+        return id switch
+        {
+            "twrp" => "Flashing TWRP is not automated for the Galaxy S10e. Boot it yourself: the current official image is "
+                + "twrp-3.7.0_9-2-beyond0lte.img (https://twrp.me/samsung/samsunggalaxys10e.html). Team Win's own page warns "
+                + "that a stock device is protected by Android Verified Boot: flashing TWRP without first flashing a vbmeta "
+                + "image with verity disabled leaves the device unable to boot. Once TWRP is up, press Resume - the "
+                + "installer reads the TWRP version off the phone and accepts the step when it answers.",
+            "transfer" => "Copying Windows to the phone is not automated for the Galaxy S10e yet: the writes go to USERDATA "
+                + "(sda31, LBA 2151168..31234815) and the ESP is CACHE (sda28), which is a different role split from the "
+                + "reference phone's. Nothing has been written to this phone.",
+            "firstboot" => "The first Windows boot on a Galaxy S10e has never been observed. Until it is, this step is "
+                + "yours: what the screen, the disk and the CPU must show is the thing being established.",
+            "uefi" => "No flashable UEFI image exists for the Galaxy S10e: the platform builds (BEYOND0LTE_UEFI.fd) but the "
+                + "packaging pipeline that turns an FD into a boot image sboot accepts is not present in this checkout, so "
+                + "this step cannot be completed yet.",
+            _ => "This step is not automated for this phone and nothing was written.",
+        };
+    }
 }
 
 public sealed class StageRecord

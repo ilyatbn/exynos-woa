@@ -370,6 +370,33 @@ plus the `adb` reads above.
 
 Verification: `dotnet build` 0/0; `dotnet test` 194 passed.
 
+## 17. Step 9 — the beyond0lte stages are Guided, with a second axis for automation
+
+Two different questions were being conflated: what the installer can **promise**
+(availability) and whether the **code** behind a stage was written for this phone.
+The 9810 automation must not run against an S10e even when a stage is Guided.
+
+* `StageCatalog` beyond0lte availability: `image`/`backup`/`partition` →
+  **Experimental** (automated, never observed end to end), `unlock`/`twrp`/
+  `transfer`/`firstboot` → **Guided**, `uefi` → **NotImplemented** (no artefact).
+* New `NotAutomated` exception list per phone: for beyond0lte the stages whose
+  implementation is still the reference phone's are `twrp`, `transfer`,
+  `firstboot` (`uefi` is listed too, harmless while it stays NotImplemented, and
+  it is what keeps the intent if that stage is ever revived).
+* `InstallPage.RunStageAsync` gates on `AutomatedFor`: a non-automated stage
+  returns `ManualProcedure(...)` instead of running 9810 code. `twrp` is accepted
+  when the phone itself answers with a TWRP version (`RecoveryVersion`), which is
+  the verified state of this device.
+* The guidance texts carry only read facts: the official image name and page
+  (§15), Team Win's own vbmeta/Verified-Boot warning, and the S10e's role split
+  (Windows on sda31 USERDATA, ESP is sda28 CACHE) from the live GPT.
+* `DeviceTests.RecognisesTheS10eButKeepsItUnvalidated` updated to the new states
+  and asserts `AutomatedFor("transfer", "beyond0lte")` is false while the
+  star2lte one is true, and that the twrp guidance names vbmeta.
+
+Verification: `dotnet build` 0/0; `dotnet test` 194 passed (the previously
+asserting test now covers the new states).
+
 ## Sources
 
 * `installer/src/S9Woa.Installer.Core/Stages/StageCatalog.cs`

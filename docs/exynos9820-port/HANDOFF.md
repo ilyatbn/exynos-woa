@@ -482,3 +482,94 @@ wrong and are fixed in place), `notes/m8-ufs-fence.md`, `notes/s10e-root-reads.m
 `notes/windows-m7-toolchain.md` §4.5 (the working `build-ufs.ps1` line).
 **Still open:** everything in the list above, plus the §5 hazards and the fact
 that nothing has booted.
+
+---
+
+## 14. Restart point for a fresh session (2026-10-09 — the UEFI image is the last blocker)
+
+A session ended here. Nothing is in flight: `git status` is clean except
+`info/DEN0101_00bet1_ADAC.pdf`, a reference document that stays uncommitted on
+purpose. The phone was attached and in TWRP (`RF8M21HYDSZ   recovery`, root) for
+the last pass.
+
+### What is true now (all of it committed, all of it read rather than derived)
+
+* **The UFS write fence is this device's own table** (`Exynos9820Ufs.h`): fence
+  **1 983 488 .. 31 236 090**, protected ranges sda29 OMR and sda30 CP_DEBUG,
+  GPT backup first LBA 31 236 091, expected last LBA 31 236 095, scratch
+  31 234 816 .. 31 235 071. `UfsDiag.c`'s ladder target moved there too (it was
+  the 9810's LBA, which sits inside USERDATA). Verified by building both
+  `UFS_FULL_WINDOWS_MODE` values and by deliberate off-by-ones that failed the
+  compile. `notes/m8-ufs-fence.md`.
+* **The installer no longer assumes the 9810.** Per-device stage gating is wired
+  into the app; geometry refuses an unidentified phone; the secondary ESP is
+  per-device (the bare `SYSTEM` constant would have reformatted a 5.98 GiB
+  Android system); payload names/pages/the UFS `.inf` come from `TwrpProfiles`;
+  the ESP typing no longer demands a backup GPT this disk does not have; the UI
+  names the connected phone. Suite **194 passed**, `dotnet build` 0/0.
+  `notes/m9-install-attempt.md` §8..§17.
+* **The S10e's TWRP identity is closed by reads:** official image
+  `twrp-3.7.0_9-2-beyond0lte.img`, page
+  `https://twrp.me/samsung/samsunggalaxys10e.html`, and the phone already runs
+  that build (`ro.twrp.version = 3.7.0_9-2`, `ro.twrp.sar = true`, model
+  `Galaxy S10e`, BOOT = sda14, RECOVERY = sda15). `notes/m9-install-attempt.md` §15.
+* **Beyond0lte stage states now:** `image`/`backup`/`partition` = Experimental,
+  `unlock`/`twrp`/`transfer`/`firstboot` = Guided, `uefi` = NotImplemented.
+  `StageCatalog.AutomatedFor` is a second axis: the 9810 stage code does not run
+  against this phone at all; the stage returns a manual procedure instead.
+
+### The single remaining blocker, and the exact next order
+
+No flashable UEFI image exists for the S10e. Do this, in this order, one commit
+per step:
+
+1. Read the container this phone's sboot already accepts: as root in TWRP,
+   `dd if=/dev/block/by-name/recovery bs=4096 count=256` (and the same for
+   `boot`), pull, and parse the Android boot header (page size, header layout,
+   the DTBH device-tree blob). Reads only.
+2. Write a 9820 variant of `firmware/tools/bootshim/bootshim.S`. Carry the
+   VERIFIED constants (watchdog `0x10050000`/`0x10060000` from
+   `Exynos9820.h:426,431`; FD size `0x700000`, confirmed against the built
+   `BEYOND0LTE_UEFI.fd`; the FD's first word is a real ARM64 `B`, checked
+   mechanically) and **retarget or delete** the star2lte-shaped ones: the
+   ramoops breadcrumb at `0xFED14000` is inside `debug_snapshot.log_bcm`/`log_llc`
+   on this SoC, the DIAG paint is the 9810's `0xCC000000`/1440×2960 (this phone:
+   `0xCA000000`, 1440×3040), and the temp SP `0xA0000000` is inside the verified
+   `camera` reservation `0x99000000+0xE400000`.
+3. Write the repack tool (`repack-with-ref.py` does not exist here — `pack-uefi.ps1`
+   calls it and has never been reproducible in this checkout).
+4. Name every still-unknown constant `UNVERIFIED` in the source, each with the
+   read that would close it: `UEFI_BASE` (`Beyond0LtePkg.fdf:68` says
+   `0x80080000`, unverified; the real sboot kernel-drop address is **not** closable
+   by a cheap read), the required Linux-header `image_size`, and the 9820's
+   write-protected (RKP-analogue) zones.
+
+### Rules that still bind this work
+
+* **Nothing may be written to the media** — no flashing, no partition erasing, no
+  scratch stamping — until Windows booting is established (ground rules 5/6).
+* **AVB hazard, from Team Win's own page:** a stock S10e is protected by Android
+  Verified Boot; flashing TWRP without first flashing a verity-disabled `vbmeta`
+  image leaves the device unable to boot. This disk's `vbmeta` is LBA 83 584..83 599.
+* The 9810 packages stay **byte-unchanged**; port by copying into the
+  `Beyond0Lte*` paths.
+* No stage is `Ready` without device validation; unvalidated stays
+  `Guided`/`Experimental`/`NotImplemented`.
+
+### Facts to trust, not re-derive
+
+`notes/m8-ufs-fence.md` (the fence and its review), `notes/m9-install-attempt.md`
+(all seven installer steps plus the TWRP identity), `notes/installer-device-specifics.md`
+(the inventory — read the CORRECTED lines, two of its arithmetic claims were wrong
+and are fixed in place), `notes/m8-uefi-image.md` (§16 is this pass's shim table),
+`notes/s10e-root-reads.md` §2 (live GPT; entry name at **+56**, corrected) / §8
+(header geometry) / §9 (the tail is zero, no backup GPT), `notes/pit-geometry.md`,
+`notes/windows-m7-toolchain.md` §4.5 (the working `build-ufs.ps1` line) and §8
+(the FD is not byte-deterministic — compare sizes and FV numbers, never hashes).
+
+### Still open after all of the above
+
+The §5 hazards (which CMU bank feeds PERIC0/FSYS0A; the UFS hw-rev class-6
+encoding), the second LUN (`cpefs` is `sdd1`, the driver was written against one
+`sda`), the DMA window (still the 9810's `90000000..BC800000`, marked UNVERIFIED),
+the timeout clock, and the fact that **nothing has booted on this phone yet**.

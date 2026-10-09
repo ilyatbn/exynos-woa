@@ -30,11 +30,14 @@
 #        which skips the framebuffer carveout for the same reason.
 #
 #    Platform/Star2LtePkg/Drivers/Star2LteAcpiPlatformDxe/Star2LteAcpiPlatformDxe.inf
-#        No Beyond0LteAcpiPlatformDxe. AcpiTables.inf DOES exist for the 9820 and
-#        still ships as an FFS file, but nothing installs it via
-#        EFI_ACPI_TABLE_PROTOCOL. The 9810 driver also patched the GTDT at install
-#        time (26 MHz frame + the Samsung MCT read base); with it gone, Gtdt.aslc
-#        keeps its 0xFFFFFFFFFFFFFFFF placeholders.
+#        PORTED after this header was written ->
+#        Platform/Beyond0LtePkg/Drivers/Beyond0LteAcpiPlatformDxe/, placed in
+#        [Components.common] below, so the tables are now actually installed.
+#        Two of its channels are compiled out rather than retargeted: the PRAM
+#        breadcrumb (0xFED14000 is inside bank0 and inside the vendor's
+#        debug_snapshot.log_bcm on this SoC - notes/s10e-live-reads.md §7.3) and
+#        the GTDT memory-mapped counter (the 26 MHz frame and the MCT read base
+#        are 9810 values), so Gtdt.aslc keeps its all-ones placeholders.
 #
 #    Platform/Star2LtePkg/Drivers/Star2LteRamManagerDxe/Star2LteRamManagerDxe.inf
 #        None. Multi-region HOB publication of the extra DRAM banks is gone, so
@@ -479,11 +482,13 @@
   MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsoleDxe.inf
   MdeModulePkg/Universal/SerialDxe/SerialDxe.inf
 
-  # --- ACPI (FADT/MADT/GTDT/PPTT + DSDT).
-  #     Star2LteAcpiPlatformDxe is DROPPED: no Beyond0LteAcpiPlatformDxe exists, so
-  #     these tables ship but are never installed (see the DROPPED block). ---
+  # --- ACPI (FADT/MADT/GTDT/PPTT + DSDT) and the installer that publishes them.
+  #     Beyond0LteAcpiPlatformDxe is the ported 9810 installer; without it the
+  #     tables ship but Windows never receives the MADT/DSDT, i.e. the port's
+  #     bar ("Windows sees CPU and RAM") cannot be met. ---
   MdeModulePkg/Universal/Acpi/AcpiTableDxe/AcpiTableDxe.inf
   Platform/Beyond0LtePkg/AcpiTables/AcpiTables.inf
+  Platform/Beyond0LtePkg/Drivers/Beyond0LteAcpiPlatformDxe/Beyond0LteAcpiPlatformDxe.inf
 
   # --- RAM discovery: Star2LteRamManagerDxe DROPPED (no 9820 equivalent). ---
 

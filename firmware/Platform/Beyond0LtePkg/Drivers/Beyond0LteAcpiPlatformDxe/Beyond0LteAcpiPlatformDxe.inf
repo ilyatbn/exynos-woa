@@ -1,0 +1,45 @@
+## @file
+#  Installs Beyond0Lte static ACPI tables from the firmware volume.
+#
+#  Ported from Star2LtePkg/Drivers/Star2LteAcpiPlatformDxe (Exynos 9810 / Galaxy
+#  S9+) to Beyond0LtePkg (Exynos 9820 / Galaxy S10e, `beyond0lte`).
+#
+#  FILE_GUID 11111111-2222-3333-4444-555555555543 is this module's BUILD IDENTITY
+#  (it names the compiled DXE driver inside the FV); it is NOT a hardware read.
+#  The GUID this driver READS at runtime — the FFS file whose ACPI sections get
+#  installed — is the AcpiTables module's own FILE_GUID, 11111111-2222-3333-4444-
+#  555555555521, which lives in the .c (mBeyond0LteAcpiTablesFileGuid).
+#
+#  Nothing about this module has been observed on an S10e yet; the boot it
+#  produces is Guided, not Ready.
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = Beyond0LteAcpiPlatformDxe
+  FILE_GUID                      = 11111111-2222-3333-4444-555555555543
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 0.1
+  ENTRY_POINT                    = Beyond0LteAcpiPlatformEntry
+
+[Sources]
+  Beyond0LteAcpiPlatformDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  Silicon/Exynos9820Pkg/Exynos9820Pkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  BaseMemoryLib
+  CacheMaintenanceLib
+  DebugLib
+
+[Protocols]
+  gEfiAcpiTableProtocolGuid       ## CONSUMES
+  gEfiFirmwareVolume2ProtocolGuid ## CONSUMES
+
+[Depex]
+  gEfiAcpiTableProtocolGuid AND gEfiFirmwareVolume2ProtocolGuid

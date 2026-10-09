@@ -25,9 +25,10 @@
 #        so there is no graphics output yet, but nothing about the boot depends
 #        on it. Matches PlatformMemoryMapLib.c skipping the carveout.
 #    Platform/Star2LtePkg/Drivers/Star2LteAcpiPlatformDxe/Star2LteAcpiPlatformDxe.inf
-#        No 9820 equivalent. AcpiTables.inf DOES exist for the 9820 and is still
-#        placed below (its FILE_GUID …5521 is waiting for that driver), but no
-#        installer publishes the tables via EFI_ACPI_TABLE_PROTOCOL.
+#        PORTED after this header was written ->
+#        Platform/Beyond0LtePkg/Drivers/Beyond0LteAcpiPlatformDxe/, placed below,
+#        so AcpiTables.inf's FILE_GUID (...5521) now has a consumer and the tables
+#        are published through EFI_ACPI_TABLE_PROTOCOL.
 #    Platform/Star2LtePkg/Drivers/Star2LteRamManagerDxe/Star2LteRamManagerDxe.inf
 #        No 9820 equivalent. The high DRAM banks (0xC0000000, 0xE1900000,
 #        0x880000000, 0x900000000 — bases read, sizes unread) are not published.
@@ -194,6 +195,7 @@
   #
   INF MdeModulePkg/Universal/Acpi/AcpiTableDxe/AcpiTableDxe.inf
   INF RuleOverride = ACPITABLE Platform/Beyond0LtePkg/AcpiTables/AcpiTables.inf
+  INF Platform/Beyond0LtePkg/Drivers/Beyond0LteAcpiPlatformDxe/Beyond0LteAcpiPlatformDxe.inf
 
   #
   # --- RAM discovery: Star2LteRamManagerDxe DROPPED (no 9820 equivalent). ---

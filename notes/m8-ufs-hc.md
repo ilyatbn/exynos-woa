@@ -183,6 +183,35 @@ was incomplete. Findings, code vs comment:
 
 ### Step 6 — the port script (mechanical, line-anchored)
 
+### Step 7 — build result (2026-10-09, the port compiles)
+
+`powershell -ExecutionPolicy Unrestricted -File firmware\tools\build-uefi.ps1 -Platform Beyond0LtePkg -Target DEBUG`
+exit 0, total time 39 s. Log `%TEMP%\m8-build-20.log`.
+
+First attempt failed with 13 clang errors, all of them **consequences of compiling
+the diag channel out**, not of the address remap:
+
+| Error | Cause | Fix |
+|---|---|---|
+| `unused variable FmpRet/SmuRet/SmuResume/SmuDump0/SmuDump10/DiskKeyStored/DiskKeySet/UfsLogRet/RSec` (.c:354-374) | their only consumers were the FED13000 panel writes | kept every SMC/MMIO **call** (`(VOID)Beyond0LteSmc (...)`, `(VOID)MmioRead32 (...)`), dropped the dead captures |
+| `use of undeclared identifier UFSHC_DIAG_BASE` (.c:2583, .c:4238) | two diag sites use the **macro**, not a FED1 literal — the §5 sweep only looked at literals | wrapped both blocks in `#if BEYOND0LTE_UFS_DIAG` |
+| `set but not used mQueryRespAddr/mQuerySlot/mCmdRingPoll` | diag-only globals whose only reads were compiled-out panel writes | wrapped the declarations and the single assignment of each |
+| `unused function Beyond0LteSmcReadSfr` | its only callers were in the compiled-out A115 SFR block | wrapped the definition |
+| `set but not used mPollCount` | read only by the HUD heartbeat and the diag block | wrapped decl + `mPollCount++` in `#if BEYOND0LTE_UFS_DIAG \|\| BEYOND0LTE_UFS_SCREEN_HUD` (both consumers, so the counter survives either channel being re-enabled) |
+
+Numbers after the successful build:
+
+* `FVMAIN_COMPACT [99%Full] 696320 total, 693968 used, 2352 free` — was 2976 free
+  before this driver, so the driver cost **624 bytes of the compressed FV**
+  (FVMAIN is LZMA'd into FVMAIN_COMPACT as `SEC1.1fv.sec`, 4 194 308 B).
+* `FVMAIN [25%Full] 4194304 total, 1071784 used, 3122520 free`.
+* `BEYOND0LTE_UEFI.fd` **7 340 032 B**, sha256
+  `1bce9446effd62f299f783b4dc9aad032e9e10585c3a7d09822b554a67703dd7`
+  (previous FD, without this driver: `81b0fd9e...`).
+* Module built: `Beyond0LteUfsHcDxe.efi` 55 808 B, FFS entry
+  `11111111-2222-3333-4444-555555555545Beyond0LteUfsHcDxe` 55 886 B — present in
+  the FV, so the DSC/FDF wiring is proven to have taken effect.
+
 Still UNVERIFIED after the port (keep marked): mclk ticks/us (HCI_1US_CNT), mclk-period
 fallback (UFS_MCLK_PRD 10u), opt-suite DME value, RefClk-26MHz category enum, SMC_CMD_*
 family codes (EL3 monitor, not MMIO), PHY_ISO (zeroed), iocoh mask (kernel-faithful).

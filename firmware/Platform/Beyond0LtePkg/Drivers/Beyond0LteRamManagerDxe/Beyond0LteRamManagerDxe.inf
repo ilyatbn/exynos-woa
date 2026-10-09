@@ -31,6 +31,7 @@
 [Packages]
   MdePkg/MdePkg.dec
   ArmPkg/ArmPkg.dec
+  UefiCpuPkg/UefiCpuPkg.dec
   Silicon/Exynos9820Pkg/Exynos9820Pkg.dec
 
 [LibraryClasses]

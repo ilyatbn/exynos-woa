@@ -125,7 +125,7 @@ public sealed class VhdxImageBuilder
 
             log?.Report("Writing UEFI boot files with bcdboot...");
             await WriteBootFilesAsync($"{winRoot}Windows", esp, ct).ConfigureAwait(false);
-            await _boot.ConfigureForPhoneAsync(Path.Combine(esp + "\\", @"EFI\Microsoft\Boot\BCD"), log, ct).ConfigureAwait(false);
+            await _boot.ConfigureForPhoneAsync(Path.Combine(esp + "\\", @"EFI\Microsoft\Boot\BCD"), _geometry, log, ct).ConfigureAwait(false);
             loaderSha = await Sha256Async(Path.Combine(winRoot, @"Windows\System32\winload.efi"), ct).ConfigureAwait(false);
             kernelSha = await Sha256Async(Path.Combine(winRoot, @"Windows\System32\ntoskrnl.exe"), ct).ConfigureAwait(false);
 

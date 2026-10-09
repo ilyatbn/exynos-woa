@@ -49,7 +49,7 @@ public sealed class BootConfiguration
     /// PowerShell that sets the phone devices, turns isolated context off (0x16000060) and the
     /// boot-manager timeout to zero (0x25000004) through the BcdStore WMI provider.
     /// </summary>
-    internal static string DeviceScript(string storePath) => string.Join("\n",
+    internal static string DeviceScript(string storePath, GeometryType g) => string.Join("\n",
         "$ErrorActionPreference = 'Stop'",
         "function Call($o, [string]$m, [hashtable]$a) {",
         "  $r = Invoke-CimMethod -InputObject $o -MethodName $m -Arguments $a",
@@ -62,15 +62,16 @@ public sealed class BootConfiguration
         $"$mgr = (Call $store 'OpenObject' @{{ Id = '{BootManagerId}' }}).Object",
         "$loaderId = (Call $mgr 'GetElement' @{ Type = [uint32]0x23000003 }).Element.Id",
         "$loader = (Call $store 'OpenObject' @{ Id = $loaderId }).Object",
-        $"$null = Call $mgr 'SetQualifiedPartitionDeviceElement' @{{ Type = [uint32]0x11000001; PartitionStyle = [uint32]1; DiskSignature = '{PartitionMap.DiskGuid}'; PartitionIdentifier = '{PartitionMap.CacheGuid}' }}",
+        $"$null = Call $mgr 'SetQualifiedPartitionDeviceElement' @{{ Type = [uint32]0x11000001; PartitionStyle = [uint32]1; DiskSignature = '{g.DiskGuid}'; PartitionIdentifier = '{g.EfiPartitionGuid}' }}",
         "foreach ($t in [uint32]0x11000001, [uint32]0x21000001) {",
-        $"  $null = Call $loader 'SetQualifiedPartitionDeviceElement' @{{ Type = $t; PartitionStyle = [uint32]1; DiskSignature = '{PartitionMap.DiskGuid}'; PartitionIdentifier = '{PartitionMap.UserdataGuid}' }}",
+        $"  $null = Call $loader 'SetQualifiedPartitionDeviceElement' @{{ Type = $t; PartitionStyle = [uint32]1; DiskSignature = '{g.DiskGuid}'; PartitionIdentifier = '{g.WindowsPartitionGuid}' }}",
         "}",
         "$null = Call $loader 'SetBooleanElement' @{ Type = [uint32]0x16000060; Boolean = $false }",
         "$null = Call $mgr 'SetIntegerElement' @{ Type = [uint32]0x25000004; Integer = [uint64]0 }",
         "'S9WOA_BCD_PHONE_DEVICES_SET'");
 
-    public async Task ConfigureForPhoneAsync(string storePath, IProgress<string>? log = null, CancellationToken ct = default)
+    public async Task ConfigureForPhoneAsync(string storePath, GeometryType g,
+        IProgress<string>? log = null, CancellationToken ct = default)
     {
         if (!File.Exists(storePath))
         {
@@ -88,7 +89,7 @@ public sealed class BootConfiguration
         }
 
         var script = Path.Combine(Path.GetTempPath(), $"s9woa-bcd-{Guid.NewGuid():N}.ps1");
-        await File.WriteAllTextAsync(script, DeviceScript(storePath), ct).ConfigureAwait(false);
+        await File.WriteAllTextAsync(script, DeviceScript(storePath, g), ct).ConfigureAwait(false);
         try
         {
             var r = await _runner.RunAsync(_powershell,

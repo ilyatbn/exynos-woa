@@ -148,13 +148,13 @@ public class ImageBuilderTests
         var geometry = PartitionMap.For("beyond0lte");
         Assert.True(127_943_049_216L == geometry.DiskBytes);
         Assert.True(8_811_184_128L == geometry.WindowsOffset);
-        Assert.True(119_126_622_208L == geometry.WindowsBytes);
+        Assert.True(119_126_642_688L == geometry.WindowsBytes);
         Assert.True(629_145_600L == geometry.CacheBytes);
         var builder = new VhdxImageBuilder(new RecordingRunner(), @"C:\sys", null, geometry)
             { EspLetter = 'S', WindowsLetter = 'W' };
         var script = builder.CreateScript(@"C:\img\b0.vhdx");
         Assert.Contains("-SizeBytes 127943049216", script, StringComparison.Ordinal);
-        Assert.Contains("-Offset 8811184128 -Size 119126622208 -Alignment 4096", script, StringComparison.Ordinal);
+        Assert.Contains("-Offset 8811184128 -Size 119126642688 -Alignment 4096", script, StringComparison.Ordinal);
         Assert.DoesNotContain("6951534592", script, StringComparison.Ordinal);
     }
 

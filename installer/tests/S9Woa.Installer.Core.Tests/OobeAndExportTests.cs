@@ -160,7 +160,7 @@ public class OobeAndExportTests
         Assert.Contains(flat, c => c.EndsWith("{default} bootstatuspolicy IgnoreAllFailures", StringComparison.Ordinal));
         Assert.All(flat, c => Assert.Contains(@"/store S:\EFI\Microsoft\Boot\BCD", c, StringComparison.Ordinal));
 
-        var script = BootConfiguration.DeviceScript(@"S:\EFI\Microsoft\Boot\BCD");
+        var script = BootConfiguration.DeviceScript(@"S:\EFI\Microsoft\Boot\BCD", PartitionMap.Star2Lte);
         // Boot manager on CACHE; loader device and OS device on USERDATA; both on the Samsung disk.
         Assert.Contains($"DiskSignature = '{PartitionMap.DiskGuid}'; PartitionIdentifier = '{PartitionMap.CacheGuid}'", script, StringComparison.Ordinal);
         Assert.Contains($"DiskSignature = '{PartitionMap.DiskGuid}'; PartitionIdentifier = '{PartitionMap.UserdataGuid}'", script, StringComparison.Ordinal);
@@ -168,5 +168,11 @@ public class OobeAndExportTests
         Assert.Contains("Type = [uint32]0x16000060; Boolean = $false", script, StringComparison.Ordinal);
         Assert.Contains("Type = [uint32]0x25000004; Integer = [uint64]0", script, StringComparison.Ordinal);
         Assert.Contains(@"File = 'S:\EFI\Microsoft\Boot\BCD'", script, StringComparison.Ordinal);
+
+        var s10e = BootConfiguration.DeviceScript(@"S:\EFI\Microsoft\Boot\BCD", PartitionMap.Beyond0Lte);
+        // The S10e's GPT identifiers are derived from lower-case names (live GPT, notes/s10e-root-reads.md §2).
+        Assert.Contains("PartitionIdentifier = '{52444e41-494f-2044-6361-636865000000}'", s10e, StringComparison.Ordinal);
+        Assert.Contains("PartitionIdentifier = '{52444e41-494f-2044-7573-657264617461}'", s10e, StringComparison.Ordinal);
+        Assert.DoesNotContain(PartitionMap.UserdataGuid, s10e, StringComparison.Ordinal);
     }
 }

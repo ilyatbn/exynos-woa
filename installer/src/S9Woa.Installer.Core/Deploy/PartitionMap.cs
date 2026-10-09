@@ -54,6 +54,9 @@ public static class PartitionMap
     /// <summary>
     /// Samsung derives GPT identifiers from names ("ANDROID MMC DISK", "ANDROID USERDATA", ...),
     /// so they are the same on every star2lte. The BCD addresses Windows by them.
+    /// CONFIRMED on the S10e from its own live GPT: the disk signature is the same string, but
+    /// the per-partition names there are LOWER CASE ("ANDROID userdata"), so the beyond0lte
+    /// GUIDs below are different values — see notes/s10e-root-reads.md §2.
     /// </summary>
     public const string DiskGuid = "{52444e41-494f-2044-4d4d-43204449534b}";
     public const string UserdataGuid = "{52444e41-494f-2044-5553-455244415441}";
@@ -65,16 +68,20 @@ public static class PartitionMap
     /// built on a virtual disk with exactly this layout so the NTFS volume matches USERDATA.
     /// </summary>
     public static readonly GeometryType Star2Lte = new(63_963_136_000, 6_951_534_592, 57_004_785_664,
-        629_145_600, 57_671_680, 68_148_992);
+        629_145_600, 57_671_680, 68_148_992, DiskGuid, CacheGuid, UserdataGuid);
 
     /// <summary>
-    /// Beyond0lte (SM-G970F) geometry, from Samsung's own BEYOND0LTE_EUR_OPEN.pit: its entries
-    /// carry start and length in 4096-byte units, and length x 4096 reproduces the phone's
-    /// /proc/partitions sizes for 30 of 31 partitions (notes/pit-geometry.md). USERDATA is 0-length
-    /// in the PIT ("to the end"), so its size comes from the phone. Never validated by an install.
+    /// Beyond0lte (SM-G970F) geometry, from Samsung's own BEYOND0LTE_EUR_OPEN.pit cross-checked
+    /// against the phone, and confirmed against the live GPT read in TWRP (notes/s10e-root-reads.md
+    /// §2): USERDATA is LBA 2 151 168 .. 31 234 815, i.e. 119 126 642 688 bytes of PARTITION
+    /// (the 119 126 622 208 in /proc/partitions is the filesystem, 5 LBAs of tail shorter).
+    /// The per-partition GUIDs there are derived from LOWER-CASE names. Never validated by an
+    /// install.
     /// </summary>
-    public static readonly GeometryType Beyond0Lte = new(127_943_049_216, 8_811_184_128, 119_126_622_208,
-        629_145_600, 57_671_680, 67_633_152);
+    public static readonly GeometryType Beyond0Lte = new(127_943_049_216, 8_811_184_128, 119_126_642_688,
+        629_145_600, 57_671_680, 67_633_152, DiskGuid,
+        "{52444e41-494f-2044-6361-636865000000}",   // "ANDROID cache"
+        "{52444e41-494f-2044-7573-657264617461}");  // "ANDROID userdata"
 
     public static GeometryType For(string? codename) =>
         (codename?.ToLowerInvariant() switch
@@ -84,6 +91,7 @@ public static class PartitionMap
         });
 }
 
-/// <summary>Byte geometry of one supported phone; see <see cref="PartitionMap.For"/>.</summary>
+/// <summary>Byte geometry and the GPT identifiers of one supported phone; see <see cref="PartitionMap.For"/>.</summary>
 public sealed record GeometryType(long DiskBytes, long WindowsOffset, long WindowsBytes,
-    long CacheBytes, long BootBytes, long RecoveryBytes);
+    long CacheBytes, long BootBytes, long RecoveryBytes,
+    string DiskGuid, string EfiPartitionGuid, string WindowsPartitionGuid);

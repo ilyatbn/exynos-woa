@@ -232,3 +232,61 @@ The location is now recorded in `AGENTS.md` §8 so it is never re-searched.
 Consequence: the four phone-only §5 hazards (fb base, PRAM/breadcrumb choice,
 write-fence / protected-partition LBAs, UFS hw-rev class) are **not blocked** —
 they can be advanced with read-only `adb` from here.
+
+## 9. Third pass (2026-10-09) — what the phone actually gives, and what it does not
+
+All reads below were run with `& "C:\Users\ilya\code\platform-tools\adb.exe" shell …`
+against `RF8M21HYDSZ` (`device`). Nothing destructive was run.
+
+### 9.1 `reg` contents are still blocked (fact — dead end, do not retry)
+
+```
+od -An -tx1 /proc/device-tree/reserved-memory/el2_code/reg        -> Permission denied
+od -An -tx1 /proc/device-tree/reserved-memory/modem_spare/reg     -> Permission denied
+od -An -tx1 /proc/device-tree/reserved-memory/sec_debug_magic/reg -> Permission denied
+od -An -tx1 /proc/device-tree/reserved-memory/kaslr/reg           -> Permission denied
+```
+
+So **no** reserved-memory address/size can be read from the phone with this
+shell. The values in `Exynos9820.h:69-107` came from the **vendor DTS**, not the
+phone, and any further DT constant must come from that source, not from `adb`.
+
+### 9.2 `reserved-memory` child names (fact, readable)
+
+`abox-rmem, camera, camera_contig, cp_ram_logging, debug_snapshot, el2_code,
+el2_earlymem, ion_crypto, ion_video_stream, kaslr, modem_if, modem_spare,
+ranges, sec_debug_magic, sec_rdx_bootdev, seclog_mem, secure_camera` plus the
+`#address-cells/#size-cells/name/phandle` plumbing. `debug_snapshot` is itself a
+container with children `header, log_arraydump, log_bcm, log_cachedump, log_dbgc,
+log_etm, log_kernel, log_kevents, log_llc, log_platform, log_pstore, log_s2d,
+log_sfr` — i.e. the 9810's `0xFED1xxxx` breadcrumb sits inside one of these log
+regions, which is why it is unusable (already recorded in
+`Exynos9820.h` / `Beyond0LteResetSystemLib.c:17-20`).
+
+### 9.3 Top-level DT names relevant to the open constants (fact)
+
+`debug-snapshot-soc`, `dtb-hw_rev`, `dtb-hw_rev_end`, `chosen`, `chipid@10000000`,
+`abox-gic@18cf0000`, `coresight@1e000000`, `adc@15C40000`, plus the `camif-wdma@…`
+family. The `dtb-hw_rev` pair exists as a node; its **value** is unread here.
+
+### 9.4 Partition table (fact, `/proc/partitions`, 1 KiB blocks)
+
+```
+sda        124944384  (~47.65 GiB)   sda1..sda15 on major 8, sda16..sda31 on major 259
+sdb          16384    sdc 16384      sdd 8192 (sdd1 6144)   sde 8192
+dm-0       5744620    dm-1 624780    dm-2 1108540
+mmcblk0  125026304    mmcblk0p1 125009920
+```
+
+`sda` is the GPT-backed 48 GiB container with **31 partitions**; the numbers
+above are sizes, **not** LBAs — `/proc/partitions` carries no offsets, and the
+GPT header itself is unread from this shell. So the write-fence / protected-
+partition LBAs stay UNVERIFIED from here; they need either a root shell or the
+firmware's own LBA-1 read once Windows runs.
+
+### 9.5 What this closes
+
+Nothing new. It **proves** three things: the DT-contents route is a dead end on
+this shell (so the vendor DTS is the only source), the fb base and PRAM choice
+cannot be settled by `adb`, and the partition LBAs cannot be settled by `adb`
+either. Recorded so the next session does not re-run these reads.

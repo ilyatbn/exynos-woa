@@ -291,28 +291,44 @@ numbers to compare builds, never the FD hash.
 1. M8 is **done for the build**; the two remaining 9810 subsystems are
    **not applicable** (the 9810 build never used them — `notes/m8-hsi40.md`,
    and the `PlatformBootManagerLib` class already resolves to ArmPkg's).
-2. **Close the §5 hazards:**
-   * **DSDT CPU sub-device buffers** — CLOSED. `_MAT` is an 80-byte
-     `EFI_ACPI_6_3_GIC_STRUCTURE` (`MdePkg/Include/IndustryStandard/Acpi63.h:520-539`,
-     widths sum to 0x50, MPIDR at 68, `ProcessorPowerEfficiencyClass` at 76), and
-     the 9810's eight buffers reproduce its own MADT GICC entries field for field
-     (`Star2LtePkg/AcpiTables/Madt.aslc:133-141`) — so `_MAT` = the MADT GICC entry
-     with the matching `_UID` is observed, not assumed. The 9820 buffers now mirror
-     `Madt.aslc:149-163`: MPIDRs `0x00`–`0x05` / `0x100`,`0x101`, classes 2/1/0.
-     Verified in the **built** FFS sections (`...SEC1.3.raw` DSDT and `SEC2.1.raw`
-     MADT, 8 entries each, values agree). See `notes/m8-dsdt-mat.md` §5 and
-     `notes/claude-mat-layout.md`. No external spec was needed; `info/DEN0101_*.pdf`
-     is ADAC, unrelated (`notes/info-den0101-adac.md`).
-   * **fb base, PRAM choice, write-fence LBAs, UFS hw-rev class** — these need the
-     phone, and `adb` is at `C:\Users\ilya\code\platform-tools\adb.exe` (not on PATH),
-     device `RF8M21HYDSZ` attached and authorized — see AGENTS.md §8.
-3. Only then: flash and validate on the S10e (the bar is Windows boots and
-   sees disk/RAM/CPU), and only after that the stretch phase M10–M15.
+2. **§5 hazard status, as of the last pass:**
+   * **DSDT CPU sub-device buffers** — CLOSED (as above).
+   * **PRAM breadcrumb** — **DECIDED, deliberately not enabled.** `debug_snapshot`
+     occupies `0xFD900000`→`0x100000000` contiguously, so `0xFED14000` is inside a
+     vendor log region. The unclaimed gap is `0xD9801000`…`0xF0000000` (right after
+     `s5100_msi`, `Exynos9820.h:102-103`) and it is above the published bank0 stop
+     `0xD0000000`, so Windows never sees it as RAM. `BEYOND0LTE_PRAM_DIAG` stays
+     `0` because it is diagnostics, not boot-critical, and the first boot wants the
+     fewest moving parts (`notes/vendor-dt-reserved.md`).
+   * **fb base** — **not closable from the phone**: every `reg` read is
+     `Permission denied` (`notes/s10e-live-reads.md` §9.1) and the browser model
+     found no framebuffer / sboot / simple-framebuffer node in anything reachable.
+     `EXYNOS_FB_BASE` stays `0`, which is safe — the map just omits the entry.
+     Closing it needs Samsung's `exynos9820-beyond0lte*.dts` opened as a primary
+     source.
+   * **write-fence / protected-partition LBAs** — **not closable from the phone**
+     either: `/proc/partitions` gives sizes, not offsets, and the GPT header is
+     unread from an unprivileged shell. The driver's own LBA-1 read once Windows
+     runs is the honest route.
+   * **UFS hw-rev** — already handled: `Exynos9820Ufs.c:5085` records the
+     non-fatal `UFS_DIAG_FAILURE_HCI_VERSION_UNCONFIRMED` (verified:
+     `UfsSetDiagnosticFailure` only ORs into `FailureMask`, `Exynos9820Ufs.c:631-637`)
+     instead of refusing on an unmeasured constant.
+3. **The next step is a decision, not a read.** Flashing is forbidden until Windows
+   booting is established (ground rules 5 and 6), and nothing here can prove that
+   without the phone. So the next safe action is to agree the first-boot
+   observation plan: what the screen, the disk and the CPU must show, and what a
+   failure looks like — then flash once, deliberately.
+4. Only after that: the stretch phase M10–M15.
 
 **Facts to trust, not re-derive:** everything in §10, `notes/m8-ufs-hc.md`
 §5/§7/§8, `notes/m8-reset-lib.md` §5, `notes/m8-ram-manager.md` §4,
-`notes/m8-hsi40.md`, `notes/m8-build.md` §8. **Still open:** the §5 hazards,
-the UNVERIFIED lists in the notes files, and the fact that the
+`notes/m8-hsi40.md`, `notes/m8-build.md` §8, `notes/m8-dsdt-mat.md` §5,
+`notes/claude-mat-layout.md` (the `_MAT` lead and its verification),
+`notes/vendor-dt-reserved.md` (AI-sourced DT table — corroboration marked, not
+primary), `notes/s10e-live-reads.md` §9 (what `adb` can and cannot give).
+**Still open:** the fb base, the partition LBAs, the UNVERIFIED lists in the
+notes files, and the fact that the
 `BEYOND0LTE_UFS_DIAG 1`, `BEYOND0LTE_PMU_RESET 1` and
 `BEYOND0LTE_RAM_STATUS_DIAG 1` branches have never been compiled (argued, not
 built — and re-enabling them writes to known-bad addresses, so do not test them

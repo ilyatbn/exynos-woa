@@ -431,6 +431,9 @@ six installer steps that remove the silent star2lte assumptions.
 
 | Commit | What |
 |---|---|
+| `a42b8a0` | M9: the build-folder comment described a star2lte filter that is actually on "uefi" |
+| `b829512` | M9: the UI names the connected phone (`PhoneDisplayName` keyed on codename; the backup manifest no longer fabricates SM-G965F; the recovery-ticket text says the protocol is 9810-only) |
+| `7c2d0dd` | docs: §13 restart point (this table) |
 | `5d0b819` | M9: ESP typing no longer demands a backup GPT (`ReadHeaderOrNull`); two wrong claims in the notes corrected (S10e entry name is at +56, not +80) |
 | `5068d0b` | M9: star2lte RECOVERY geometry constant fixed (68 148 992 was not a whole number of LBAs) + a test that every geometry size is LBA-integral |
 | `72aee5f` | M9: `TwrpProfiles` per-phone payload identity; `ToolsetConfig.DeviceCodename`; TWRP/WinRE payload names and the UFS `.inf` resolved from it |
@@ -454,23 +457,22 @@ written as the command to run, not run.
 
 **Do next, in this order (one commit per step):**
 
-1. `ToolDefinitions.cs:88-90` and the App's UI strings still say star2lte / "Galaxy
-   S9+" (`MainWindow.xaml.cs:199` keys on "G965", `PhonePage.xaml.cs:106/176`,
-   `WelcomePage.xaml:59`, the "S9" username chain, nine key-combo strings).
-2. `ToolsetManager.cs:393` — the folder scan skips files whose name contains
-   "star2lte" to avoid picking a UEFI image; make the skip profile-driven.
-3. `AndroidBootImage.cs:20` `RecoveryPartitionBytes` should come from the geometry,
-   not a star2lte constant (it is the "does the built image fit" gate).
-4. The `beyond0lte` stage paths as **Guided** (never `Ready`): `twrp`, `backup`,
-   `partition`, `transfer`, `uefi`, `firstboot` currently have no S10e
-   implementation and are stopped by the gating added in `377b4d1`.
-5. The S10e UEFI boot image artefact — **blocked**: `firmware/tools/repack-with-ref.py`,
+1. `AndroidBootImage.cs:20` `RecoveryPartitionBytes = 68_149_248` is a star2lte
+   constant used as the "does the built recovery fit" gate (`WinReTwrpBuilder.cs:358`,
+   `ToolsetManager.cs:266`). It is only reached from star2lte paths now (the profile
+   refuses the skin elsewhere), but it should come from the geometry.
+2. The `beyond0lte` stage paths as **Guided** (never `Ready`): `twrp`, `backup`,
+   `partition`, `transfer`, `uefi`, `firstboot` have no S10e implementation and are
+   stopped by the gating added in `377b4d1`. The S10e's official TWRP file name is
+   still UNVERIFIED (`TwrpProfiles.cs` carries null on purpose) — the read that
+   closes it is `getprop ro.twrp.version` on the phone plus the release page.
+3. The S10e UEFI boot image artefact — **blocked**: `firmware/tools/repack-with-ref.py`,
    `firmware/device-data/` and `tools/bootimg-pack.sh` do not exist in this checkout
    (`Test-Path` false for all three), so even the star2lte pipeline is not
-   reproducible here. `notes/m8-uefi-image.md` has the blocker list and the reads
-   that close each constant.
-6. Only after Windows boots once: the stamping of the S10e scratch region and the
-   rest of the stretch phase.
+   reproducible here. `notes/m8-uefi-image.md` has the blocker list and the read
+   that closes each constant.
+4. Only after Windows boots once: stamping the S10e scratch region (the ladder
+   refuses until then) and the rest of the stretch phase.
 
 **Facts to trust, not re-derive:** `notes/m9-install-attempt.md` (all of it,
 including the six steps and the review findings), `notes/installer-device-specifics.md`

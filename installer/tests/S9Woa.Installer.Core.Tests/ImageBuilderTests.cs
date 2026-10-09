@@ -124,7 +124,8 @@ public class ImageBuilderTests
     [Fact]
     public void VhdxScriptMirrorsThePhoneDisk()
     {
-        var builder = new VhdxImageBuilder(new RecordingRunner(), @"C:\sys") { EspLetter = 'S', WindowsLetter = 'W' };
+        var builder = new VhdxImageBuilder(new RecordingRunner(), @"C:\sys", null, PartitionMap.Star2Lte)
+            { EspLetter = 'S', WindowsLetter = 'W' };
         var script = builder.CreateScript(@"C:\img\s9.vhdx");
         Assert.Contains("New-VHD -Path 'C:\\img\\s9.vhdx'", script, StringComparison.Ordinal);
         Assert.Contains("-SizeBytes 63963136000", script, StringComparison.Ordinal);
@@ -158,6 +159,16 @@ public class ImageBuilderTests
         Assert.DoesNotContain("6951534592", script, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void AnUnidentifiedPhoneGetsNoGeometryAtAll()
+    {
+        Assert.False(PartitionMap.IsKnown(null));
+        Assert.False(PartitionMap.IsKnown("hax"));
+        Assert.Throws<ArgumentOutOfRangeException>(() => PartitionMap.For(null));
+        Assert.Throws<ArgumentOutOfRangeException>(() => PartitionMap.For("star2lteX"));
+        Assert.Throws<InvalidOperationException>(() => new VhdxImageBuilder(new RecordingRunner(), @"C:\sys"));
+    }
+
     private sealed class FailingOfflineRunner(bool offlineSupported) : IProcessRunner
     {
         public List<string> Calls { get; } = [];
@@ -176,7 +187,7 @@ public class ImageBuilderTests
     public async Task BcdbootTargetsThePhoneNotThisPc(bool offlineSupported, int calls)
     {
         var runner = new FailingOfflineRunner(offlineSupported);
-        var builder = new VhdxImageBuilder(runner, @"C:\sys");
+        var builder = new VhdxImageBuilder(runner, @"C:\sys", null, PartitionMap.Star2Lte);
         await builder.WriteBootFilesAsync(@"W:\Windows", "S:", CancellationToken.None);
         Assert.Equal(calls, runner.Calls.Count);
         Assert.Equal(@"W:\Windows /s S: /f UEFI /offline", runner.Calls[0]);

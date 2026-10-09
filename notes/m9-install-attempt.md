@@ -149,6 +149,31 @@ Follow-ups found while reviewing this change:
   return the **star2lte** geometry. An unidentified phone is therefore treated as
   an S9+ by the partition stage. Must become an explicit refusal (step 3).
 
+## 9. Step 2 done — geometry can no longer be guessed
+
+* `PartitionMap.cs:86-91` — `For(codename)` now names **both** phones and throws
+  `ArgumentOutOfRangeException` for anything else; `IsKnown(codename)` added so
+  callers can refuse with a message instead of unwinding.
+* `VhdxImageBuilder.cs:36,48` — the `Star2Lte` default is gone; a geometry must be
+  supplied or the ctor throws.
+* `InstallPage.xaml.cs:593` (image stage) and `:656` (partition stage) now check
+  `IsKnown` and refuse with a message.
+* Tests: `ImageBuilderTests.cs:127,190` had to name the phone explicitly (they
+  relied on the silent default) — that is the change making the hidden assumption
+  visible in the tests. New test `AnUnidentifiedPhoneGetsNoGeometryAtAll` asserts
+  `IsKnown(null)`/`IsKnown("hax")` are false, `For(null)`/`For("star2lteX")` throw,
+  and a `VhdxImageBuilder` without a geometry throws.
+
+Verification: `dotnet build` 0/0; `dotnet test` **190 passed** (189 → +1).
+
+Still open after this step (found while reviewing):
+`PartitionMap.SecondaryEfiSystemPartition = "SYSTEM"` is used unconditionally by
+`BootFilesService.cs:40`, `InstallPage.xaml.cs:660` and `:706`
+(`GptTypeService.EnsureEspTypeAsync`). On the S9+ SYSTEM is a 55 MiB FAT copy; on
+the S10e it is a **5.98 GiB ext4 Android system**, so that path would reformat
+Android's system partition. It must become per-device (and absent for
+beyond0lte) — step 3.
+
 ## Sources
 
 * `installer/src/S9Woa.Installer.Core/Stages/StageCatalog.cs`

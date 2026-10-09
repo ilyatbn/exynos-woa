@@ -33,7 +33,7 @@ public sealed class VhdxImageBuilder
     private readonly Func<int, IRawDiskSource> _diskFactory;
     private readonly string _powershell;
     private readonly string _bcdboot;
-    private GeometryType _geometry = PartitionMap.Star2Lte;
+    private GeometryType _geometry;
 
     public VhdxImageBuilder(IProcessRunner runner, string? system32 = null, Func<int, IRawDiskSource>? diskFactory = null,
         GeometryType? geometry = null)
@@ -45,7 +45,8 @@ public sealed class VhdxImageBuilder
         _diskFactory = diskFactory ?? (n => RawDeviceSource.ForPhysicalDrive(n));
         _powershell = Path.Combine(system32, @"WindowsPowerShell\v1.0\powershell.exe");
         _bcdboot = Path.Combine(system32, "bcdboot.exe");
-        _geometry = geometry ?? PartitionMap.Star2Lte;
+        _geometry = geometry ?? throw new InvalidOperationException(
+            "No phone geometry was supplied. The Windows volume is built to the exact layout of the identified phone's USERDATA, so it cannot be guessed.");
         var free = FreeDriveLetters();
         EspLetter = free.Count > 1 ? free[0] : 'S';
         WindowsLetter = free.Count > 1 ? free[1] : 'W';

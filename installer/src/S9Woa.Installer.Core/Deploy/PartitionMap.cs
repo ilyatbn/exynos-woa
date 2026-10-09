@@ -83,11 +83,20 @@ public static class PartitionMap
         "{52444e41-494f-2044-6361-636865000000}",   // "ANDROID cache"
         "{52444e41-494f-2044-7573-657264617461}");  // "ANDROID userdata"
 
+    /// <summary>True only for a codename whose geometry this class actually carries. The
+    /// installer must not fall back to a phone's layout for an unidentified device: a wrong
+    /// geometry silently builds a Windows volume for the wrong disk and lets the partition
+    /// stage verify against the wrong sizes.</summary>
+    public static bool IsKnown(string? codename) =>
+        codename?.ToLowerInvariant() is "star2lte" or "beyond0lte";
+
     public static GeometryType For(string? codename) =>
         (codename?.ToLowerInvariant() switch
         {
+            "star2lte" => Star2Lte,
             "beyond0lte" => Beyond0Lte,
-            _ => Star2Lte,
+            _ => throw new ArgumentOutOfRangeException(nameof(codename),
+                $"No geometry is recorded for {(codename is null ? "an unidentified phone" : codename)}; identify the phone before any layout-dependent step."),
         });
 }
 

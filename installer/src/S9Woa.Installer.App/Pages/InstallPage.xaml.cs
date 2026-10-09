@@ -590,7 +590,7 @@ public sealed partial class InstallPage : Page, IWizardStep
         }
         var outDir = Path.Combine(AppServices.WorkDirectory, "out");
         var vhdx = Path.Combine(AppServices.WorkDirectory, "s9windows.vhdx");
-        if (AppServices.CurrentDevice is null)
+        if (AppServices.CurrentDevice is null || !PartitionMap.IsKnown(AppServices.CurrentDevice.Codename))
         {
             return (false, "Identify the phone first: the Windows volume is built to the exact geometry of the phone's USERDATA, and that depends on which phone it is.");
         }
@@ -650,6 +650,10 @@ public sealed partial class InstallPage : Page, IWizardStep
             return (false, err);
         }
         var parts = await twrp.ListPartitionsAsync(ct);
+        if (!PartitionMap.IsKnown(dev?.Codename))
+        {
+            return (false, "No partition layout is recorded for this phone, so there is nothing to verify against. Nothing has been written.");
+        }
         var required = new[]
         {
             PartitionMap.WindowsTarget, PartitionMap.UefiTarget, PartitionMap.EfiSystemPartition,

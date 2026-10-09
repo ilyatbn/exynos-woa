@@ -298,9 +298,12 @@ numbers to compare builds, never the FD hash.
      offsets 4/8 (UID), 68 (core index), 69 (group), 76 (unknown flag) encoding a
      **4+4** split, which matches neither the 6+2 MPIDR clusters nor the 4+2+2
      efficiency classes. Closing it needs the **ACPI Processor Sub-Device spec**,
-     which is not in this checkout and could not be fetched
+     which is      not in this checkout and could not be fetched
      (`developer.arm.com/documentation/den0101/` → 403). **Blocked on the spec,
-     not on the phone.**
+     not on the phone.** The PDF in `info/` (`DEN0101_00bet1_ADAC.pdf`) is **not**
+     that spec — it is Arm's *Authenticated Debug Access Control* (JTAG/SWJ debug
+     link + certificate/token formats); see `notes/info-den0101-adac.md`, do not
+     re-open it hoping for the `_MAT` layout.
    * **fb base, PRAM choice, write-fence LBAs, UFS hw-rev class** — these need
      the phone, and **this session has no `adb`** (not on PATH, not in System32,
      not vendored; `notes/s10e-live-reads.md` §8 records the dead end). Find the

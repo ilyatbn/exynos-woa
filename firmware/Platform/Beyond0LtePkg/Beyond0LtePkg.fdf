@@ -157,8 +157,11 @@
   INF MdeModulePkg/Core/RuntimeDxe/RuntimeDxe.inf
   INF MdeModulePkg/Universal/SecurityStubDxe/SecurityStubDxe.inf
   INF MdeModulePkg/Universal/Metronome/Metronome.inf
-  # ResetSystemRuntimeDxe DROPPED — no ResetSystemLib instance for the 9820
-  # (see the DROPPED block and the DSC comment).
+  # ResetSystemRuntimeDxe is back: Beyond0LteResetSystemLib now supplies the
+  # ResetSystemLib instance it needs. PSCI only — the PMU fallback is compiled
+  # out (unverified 9820 intra-block layout), so reset depends on this SoC's
+  # monitor implementing PSCI_SYSTEM_RESET/OFF.
+  INF MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
   INF EmbeddedPkg/RealTimeClockRuntimeDxe/RealTimeClockRuntimeDxe.inf
   # Required arch protocols the DXE core waits for before BDS (else
   # CoreAllEfiServicesAvailable asserts).

@@ -214,10 +214,15 @@
   TimeBaseLib|EmbeddedPkg/Library/TimeBaseLib/TimeBaseLib.inf
 
   # --- Reset + RTC ---
-  # The 9810 line here (Star2LteResetSystemLib, PMU-based at 0x14060000) is DROPPED:
-  # there is no 9820 equivalent and the 9820 PMU is at 0x15860000, so the library
-  # would address a register block that does not exist on this SoC. ResetSystemLib
-  # therefore has no instance in this build.
+  # The 9810 line here (Star2LteResetSystemLib, PMU-based at 0x14060000) is
+  # PORTED after that header was written -> Platform/Beyond0LtePkg/Library/
+  # Beyond0LteResetSystemLib/, so ResetSystemLib has an instance again. It is
+  # not a rename: the 9820 PMU base is 0x15860000 (Exynos9820.h:185, a read) but
+  # the intra-block SWRESET/PS_HOLD offsets were never read, so that fallback is
+  # compiled out (BEYOND0LTE_PMU_RESET 0) and only the architected PSCI path is
+  # live; the 0xFED14000 breadcrumb is compiled out for the same reason it is
+  # unusable here (notes/m8-reset-lib.md).
+  ResetSystemLib|Platform/Beyond0LtePkg/Library/Beyond0LteResetSystemLib/Beyond0LteResetSystemLib.inf
   # Virtual RTC for bring-up (no Exynos RTC driver yet). Time won't persist.
   RealTimeClockLib|EmbeddedPkg/Library/VirtualRealTimeClockLib/VirtualRealTimeClockLib.inf
 
@@ -454,10 +459,11 @@
   MdeModulePkg/Core/RuntimeDxe/RuntimeDxe.inf
   MdeModulePkg/Universal/SecurityStubDxe/SecurityStubDxe.inf
   MdeModulePkg/Universal/Metronome/Metronome.inf
-  # ResetSystemRuntimeDxe DROPPED: it needs a ResetSystemLib instance and the
-  # 9820 has none (the 9810's is PMU-based at 0x14060000, this SoC's PMU is
-  # 0x15860000 and the intra-block layout is unverified). Reset-to-recovery is
-  # therefore not offered by this build until that library is ported.
+  # ResetSystemRuntimeDxe is back: it needs a ResetSystemLib instance and
+  # Beyond0LteResetSystemLib now provides one (PSCI only — the PMU fallback is
+  # compiled out because the 9820 intra-block layout is unverified, so whether
+  # reset actually works depends on this SoC's monitor implementing PSCI).
+  MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
   EmbeddedPkg/RealTimeClockRuntimeDxe/RealTimeClockRuntimeDxe.inf
   # The DXE core requires the full set of architectural protocols before it will
   # hand off to BDS (CoreAllEfiServicesAvailable ASSERTs otherwise). These three

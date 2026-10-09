@@ -75,6 +75,41 @@ touching memory" guard, which is channel-independent.
 * PSCI support itself on this SoC's monitor (`ArmBootArch PSCI_COMPLIANT` is a
   9810 value per `Exynos9820.h`) — the library is honest about it in the header.
 
+### Step 5 — wiring + build (done)
+
+DSC: `ResetSystemLib|Platform/Beyond0LtePkg/Library/Beyond0LteResetSystemLib/…inf`
+added to `[LibraryClasses.common]` (the 9810 put the same mapping at
+`Star2LtePkg.dsc:133`, i.e. the plain form, not a section-qualified one), and the
+DROPPED `MdeModulePkg/Universal/ResetSystemRuntimeDxe` at `dsc:457` is now listed.
+FDF: the matching `INF …ResetSystemRuntimeDxe.inf` at `fdf:160`.
+
+First build failed with one clang error — `unused variable 'Status'` in the
+constructor (both channels off ⇒ nothing assigns it). Fixed by gating the
+declaration on `(BEYOND0LTE_PMU_RESET || BEYOND0LTE_PRAM_DIAG)`.
+
+Second build: **exit 0**, 40 s (`%TEMP%\m8-build-23.log`).
+
+| Metric | Before this library | After |
+|---|---|---|
+| `FVMAIN_COMPACT` | 693928 used, **2392 free** | 695352 used, **968 free** |
+| `FVMAIN` | 1071784 used (25%) | 1108224 used (26%) |
+| FD | 7 340 032 B | 7 340 032 B |
+
+**The FV is now 99% full with 968 bytes left.** That is a real constraint on
+everything still to be added (HSI40/GPIO handoff, RamManager, PlatformBootManager
+Lib): the next module may not fit. `FVMAIN_COMPACT` has `NumBlocks = 0`
+(auto-size, `fdf:86`) so it grows in 0x1000 blocks rather than overflowing —
+but the FD's fixed 7 340 032 B layout is what the loader expects, so growth has
+to be re-checked against the flash/carveout before it is trusted.
+
+## Constants left UNVERIFIED
+
+* PMU intra-block offsets `+0x400` (SWRESET) and `+0x330C` (PS_HOLD_CONTROL) —
+  compiled out, not guessed.
+* The PRAM breadcrumb address — no legal 9820 address chosen yet.
+* PSCI support itself on this SoC's monitor (`ArmBootArch PSCI_COMPLIANT` is a
+  9810 value per `Exynos9820.h`) — the library is honest about it in the header.
+
 ## Sources (local evidence actually consulted)
 
 * `firmware/Platform/Star2LtePkg/Library/Star2LteResetSystemLib/{.c,.inf}` — the 9810 original.

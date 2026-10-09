@@ -251,48 +251,54 @@ UFS hw-rev class) plus the new UNVERIFIED list in `notes/m8-ufs-hc.md` §4.
 
 ---
 
-## 11. Where the session stands now (2026-10-09 — restart point, UFS HC port DONE)
+## 11. Where the session stands now (2026-10-09 — restart point, UFS HC + reset lib DONE)
 
-The UEFI-side UFS host controller is ported, wired and **building**. Nothing is
-validated on the S10e; the FD is a build product, not a boot result.
+The UEFI-side UFS host controller AND the reset library are ported, wired and
+**building**. Nothing is validated on the S10e; the FD is a build product, not a
+boot result.
 
 **Committed (newest first):**
 
 | Commit | What |
 |---|---|
-| `78d6f97` | review fix: the `BEYOND0LTE_UFS_DIAG 1` branch was broken by the previous commit (panel block referenced deleted locals) — captures restored with `(VOID)` discards, `ConvDw6` order restored. Rebuild clean, `FVMAIN_COMPACT` 2392 B free |
-| `1cf61fa` | the five clang failures the port exposed (dead state behind the compiled-out diag channel) |
-| `783bb5d` | build result recorded in `notes/m8-ufs-hc.md` §7/§8 + the MILESTONES line moved to **done** |
-| `2764134` | DSC `[Components.common]` + FDF storage section wired; the stale "is DROPPED" notes corrected |
-| `e411a81` | `Beyond0LteUfsHcDxe.c` created by a line-anchored mechanical port (+ the `.inf` and `notes/m8-ufs-hc.md`) |
-| `a0d7bd2` | AGENTS.md: the review-every-commit-as-a-harsh-critic rule |
-| `8062ab9` | AGENTS.md written |
-| `9339b0c` | high DRAM banks published (previous FD sha256 `81b0fd9e...`) |
+| `e64a4e6` | reset lib: gate the constructor's `Status` (clang `-Wunused-variable` with both channels off) |
+| `3c84773` | reset lib wired: DSC `ResetSystemLib` instance + `ResetSystemRuntimeDxe` re-added in DSC and FDF; build clean, **`FVMAIN_COMPACT` 968 B free** |
+| `ecc0d2a` | `Beyond0LteResetSystemLib` .c + .inf + `notes/m8-reset-lib.md` |
+| `c664896` | notes: the harsh review of the diag-fix commit |
+| `70e34ca` | this §11 |
+| `78d6f97` | review fix: the `BEYOND0LTE_UFS_DIAG 1` branch was broken (deleted locals) |
+| `1cf61fa` | the five clang failures the UFS HC port exposed |
+| `783bb5d` | UFS HC build result + MILESTONES line moved to done |
+| `2764134` | UFS HC wired into DSC + FDF |
+| `e411a81` | `Beyond0LteUfsHcDxe.c` created |
 
-**Current build state:** `BEYOND0LTE_UEFI.fd` 7 340 032 B, `FVMAIN_COMPACT` 99% full
-with **2392 B free**, `FVMAIN` 25% full, module `Beyond0LteUfsHcDxe.efi` 55 808 B
-(FFS entry 55 886 B, GUID `…5545`) present in the FV.
+**Current build state:** `BEYOND0LTE_UEFI.fd` 7 340 032 B, `FVMAIN_COMPACT`
+[99%Full] 695352 used, **968 B free**, `FVMAIN` [26%Full] 1108224 used.
+Modules in the FV: `Beyond0LteUfsHcDxe` (GUID `…5545`, 55 808 B) and
+`Beyond0LteResetSystemLib` (GUID `…5546`).
 
-**Nothing is in flight.** `git status` is clean except this file.
+**Nothing is in flight.** `git status` is clean.
 
 **Do next, in this order (one commit per step, chunked):**
 
-1. `Star2LteResetSystemLib` → `Beyond0LteResetSystemLib` (the 9820 PMU base 0x15860000
-   is a read, the intra-block SWRESET offset is not — keep it UNVERIFIED/compiled out,
-   same shape as `Fadt.aslc`'s `BEYOND0LTE_PMU_SWRESET_ADDRESS`). It is a DSC
-   `LibraryClasses` instance, so it also needs the `[LibraryClasses.common.DXE_DRIVER]`-style
-   line in `Beyond0LtePkg.dsc`.
-2. The HSI40/GPIO-handoff subsystem (`GpioHandoffDevices`, `Hsi40Devices` ACPI nodes)
-   — needs the 9820 CMU bank→power-domain map, which `notes/m8-libs.md` records as a
-   **dead end** (cal-if ids are enum positions). Expect this to stay `NotImplemented`,
-   not to be guessed.
-3. `Star2LteRamManagerDxe`: multi-region HOB publication of the extra banks. The high
-   banks are now in the memory map (`9339b0c`), so decide whether the RamManager is
-   still needed at all before porting it.
-4. Only then re-run the full build and re-record the FV numbers.
+1. **Space check.** `FVMAIN_COMPACT` has 968 B free. `NumBlocks = 0`
+   (`fdf:86`) means it auto-grows in 0x1000 blocks, so the next module does not
+   overflow — but the FD is fixed at 7 340 032 B, so growth must be re-verified
+   against the flash/carveout before it is trusted. Record the number after every
+   build, do not assume.
+2. `Star2LteRamManagerDxe`: decide first whether it is needed at all — the high
+   DRAM banks are now in the memory map (`9339b0c`), which is what the 9810
+   RamManager existed to publish. Read `Star2LteRamManagerDxe.c` before porting.
+3. The HSI40/GPIO-handoff subsystem — `notes/m8-libs.md` records the CMU bank→
+   power-domain map as a **dead end** (cal-if ids are enum positions), so expect
+   this to stay `NotImplemented`, not to be guessed.
+4. The 9810's own `PlatformBootManagerLib`: this build already resolves
+   `ArmPkg/Library/PlatformBootManagerLib`, so decide whether the 9810 platform
+   one adds anything before porting.
 
-**Facts to trust, not re-derive:** everything in §10, plus `notes/m8-ufs-hc.md`
-§5 (the exhaustive literal sweep — it supersedes the §2 line lists) and §7/§8
-(build errors, fixes, FV numbers). **Still open:** the §5 hazards of this file, the
-UNVERIFIED list in `notes/m8-ufs-hc.md` §4, and the fact that the
-`BEYOND0LTE_UFS_DIAG 1` branch has never been compiled (argued, not built — §8).
+**Facts to trust, not re-derive:** everything in §10, `notes/m8-ufs-hc.md`
+§5 (exhaustive literal sweep — supersedes the §2 line lists) and §7/§8, plus
+`notes/m8-reset-lib.md` §5 (the wiring and the FV numbers). **Still open:** the
+§5 hazards of this file, the UNVERIFIED lists in both notes files, and the fact
+that the `BEYOND0LTE_UFS_DIAG 1` and `BEYOND0LTE_PMU_RESET 1` branches have never
+been compiled (argued, not built).

@@ -318,6 +318,58 @@ unit tests, so the UI change is **not** mechanically checked beyond compiling.
 Recorded as a gap: a UI-string regression here would only be seen by running the
 app.
 
+## 15. The S10e TWRP identity — closed by a read, not a guess
+
+Phone re-attached (`RF8M21HYDSZ   recovery`, root). Reads only:
+
+```
+getprop ro.twrp.version   -> 3.7.0_9-2
+getprop ro.product.model  -> Galaxy S10e
+getprop ro.build.date     -> Tue Feb  7 00:06:29 UTC 2023
+ls -l /dev/block/by-name/{recovery,boot} -> sda15, sda14
+getprop | grep -i twrp    -> ro.twrp.boot=1, ro.twrp.sar=true, ro.twrp.version=3.7.0_9-2
+```
+
+`ro.twrp.sar=true` agrees with the device page's "uses **system-as-root** in an
+**A-only** partition configuration".
+
+The official file name came from Team Win's own download index for this device
+(codename **beyond0lte**, maintainer corsicanu, status Current):
+
+* **`twrp-3.7.0_9-2-beyond0lte.img`** — 53.9 MB, dated 2023-02-07 00:11:14 UTC,
+  which is the same build the phone is running (`ro.twrp.version 3.7.0_9-2`,
+  `ro.build.date` 2023-02-07). Also present: `twrp-3.7.0_9-1-…` (2022-11-10),
+  `twrp-3.7.0_9-0-…` (2022-10-15, 49.1 MB).
+* The page's `dd` example writes to
+  `/dev/block/platform/13d60000.ufs/by-name/recovery` — the `13d60000.ufs` node
+  matches the verified 9820 UFS window (`Exynos9820.h:268`).
+
+**Hazard recorded from the same page, and it applies to our flow:** "a stock
+device is protected by Android Verified Boot … Flashing TWRP without first
+flashing a vbmeta image with verity disabled will render your device unable to
+boot." The S10e's own GPT has a `vbmeta` partition (LBA 83 584 .. 83 599,
+`notes/s10e-root-reads.md` §2). The 9810 flow never had to touch it. So the
+`beyond0lte` TWRP stage must state this and not claim flashing TWRP alone is
+enough.
+
+Sources: `https://twrp.me/samsung/samsunggalaxys10e.html` (codename, maintainer,
+system-as-root/A-only, the vbmeta warning, the `13d60000.ufs` dd path) and
+`https://dl.twrp.me/beyond0lte` (the file list with names, sizes and dates);
+plus the `adb` reads above.
+
+## 16. Step 8 — the S10e's TWRP identity is now in the code
+
+* `TwrpProfiles` gains `PageUrl` and both phones carry a **read** official image
+  name and page: `twrp-3.7.0_9-2-beyond0lte.img` /
+  `https://twrp.me/samsung/samsunggalaxys10e.html`.
+* `SetupPage.xaml.cs:180` — "open the TWRP page" now resolves from the profile of
+  the identified phone, so an S10e is never shown the S9+ download.
+* `ToolDefinitions.cs` — the tool row no longer claims "TWRP recovery for star2lte";
+  the fallback page constant is documented as the no-phone case.
+* Test extended: the beyond0lte official name and page are asserted.
+
+Verification: `dotnet build` 0/0; `dotnet test` 194 passed.
+
 ## Sources
 
 * `installer/src/S9Woa.Installer.Core/Stages/StageCatalog.cs`

@@ -118,6 +118,8 @@ public sealed class ToolsetTests : IDisposable
         var b0 = Manager(deviceCodename: "beyond0lte");
         Assert.Contains("twrp-beyond0lte.img", b0.TwrpPayload, StringComparison.Ordinal);
         Assert.Equal("Exynos9820Ufs.inf", b0.UfsInf);
+        Assert.Equal("twrp-3.7.0_9-2-beyond0lte.img", TwrpProfiles.Beyond0Lte.OfficialImage);
+        Assert.Equal("https://twrp.me/samsung/samsunggalaxys10e.html", TwrpProfiles.Beyond0Lte.PageUrl);
         Assert.Equal(ToolState.Missing, b0.Detect(Tools.Twrp).State);
 
         var none = Manager(deviceCodename: null);

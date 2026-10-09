@@ -65,6 +65,9 @@ public static class Tools
     public const string Uefi = "uefi";
     public const string Drivers = "drivers";
 
+    /// <summary>Fallback page used before a phone is identified; once one is, the
+    /// row opens <c>TwrpProfiles</c>'s page for that phone instead (see
+    /// <c>SetupPage.xaml.cs</c>).</summary>
     public const string TwrpPage = "https://twrp.me/samsung/samsunggalaxys9plus.html";
     public const string SamsungDriverPage = "https://developer.samsung.com/android-usb-driver";
 
@@ -85,9 +88,8 @@ public static class Tools
         new(DownloadModeDriver, "Download-mode USB driver for Heimdall",
             "Only for the Heimdall fallback: a one-time Zadig step while the phone is in Download mode.",
             ToolKind.Driver, false, ToolSource.Launch),
-        new(Twrp, "TWRP recovery for star2lte",
-            "The recovery the installer boots to back up the phone and write Windows. Choose the official "
-            + "twrp-3.7.0_9-0-star2lte.img; the installer turns it into a Windows Recovery-style recovery on this PC.",
+        new(Twrp, "TWRP recovery for the connected phone",
+            "The recovery the installer boots to back up the phone and write Windows. Choose the official image for the phone in front of you; where this installer knows how, it turns it into a Windows Recovery-style recovery on this PC.",
             ToolKind.Payload, true, ToolSource.OpenPage | ToolSource.PickFile, PageUrl: TwrpPage, FilePattern: "*.img"),
         new(Uefi, "UEFI firmware image",
             "The open-source UEFI that boots Windows, written to the BOOT partition.",

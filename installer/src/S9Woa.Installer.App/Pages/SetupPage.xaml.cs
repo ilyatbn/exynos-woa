@@ -177,7 +177,13 @@ public sealed partial class SetupPage : Page, IWizardStep
 
     private async void OnOpenPage(object sender, RoutedEventArgs e)
     {
-        var url = Row(sender).Definition.PageUrl;
+        var definition = Row(sender).Definition;
+        var codename = AppServices.CurrentDevice?.Codename;
+        // The TWRP page is per phone: opening the S9+ page for an S10e offers the
+        // user a build that will not boot this device.
+        var url = definition.Id == Tools.Twrp && TwrpProfiles.IsKnown(codename)
+            ? TwrpProfiles.For(codename).PageUrl
+            : definition.PageUrl;
         if (url is null)
         {
             return;

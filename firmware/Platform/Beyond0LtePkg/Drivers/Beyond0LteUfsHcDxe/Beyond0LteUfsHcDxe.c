@@ -353,8 +353,8 @@ Beyond0LteUfspConfig (
     // A98's DESCTYPE-0 (which carried other broken vars), this runs with the A46 byte-gran PRDT + iocoh-OFF + WC
     // bounce all in place. EXPECT smur=0xEFE26492. If the A108 READ BUFFER probe now PASSES (r6/o1 EFIst 00) =>
     // FMP/PRDT-format mismatch CONFIRMED as the root cause + FIXED.
-    (VOID)Beyond0LteSmc (SMC_CMD_FMP_SECURITY, 0, SMU_EMBEDDED, CFG_DESCTYPE_3);   // A112: back to DESCTYPE-3 (kernel-faithful: kernel CFG_DESCTYPE=3); now paired with iocoh ON
-    (VOID)Beyond0LteSmc (SMC_CMD_SMU, SMU_INIT_CMD, SMU_EMBEDDED, 0);
+    UINT64  FmpRet = Beyond0LteSmc (SMC_CMD_FMP_SECURITY, 0, SMU_EMBEDDED, CFG_DESCTYPE_3);   // A112: back to DESCTYPE-3 (kernel-faithful: kernel CFG_DESCTYPE=3); now paired with iocoh ON
+    UINT64  SmuRet = Beyond0LteSmc (SMC_CMD_SMU, SMU_INIT_CMD, SMU_EMBEDDED, 0);
     //
     // *** A113: also issue the SMU/FMP RESUME SMC (exynos_ufs_smu_resume -> SMC_CMD_FMP_SMU_RESUME). The kernel's
     // COLD boot does FMP_SECURITY + SMU_INIT (== my sequence, which the kernel uses successfully) - so the SMCs are
@@ -363,14 +363,32 @@ Beyond0LteUfspConfig (
     // whereas RESUME restores the working secure context. Additive + low-risk (worst case: error return, no effect).
     // Capture the return (panel "smres"): 0 => resume OK; non-zero => monitor rejected (LDFW drmdrv_result_t).
     //
-    (VOID)Beyond0LteSmc (SMC_CMD_FMP_SMU_RESUME, 0, SMU_EMBEDDED, 0);
-    (VOID)Beyond0LteSmc (SMC_CMD_FMP_SMU_DUMP, 0, SMU_EMBEDDED, 0x00);
-    (VOID)Beyond0LteSmc (SMC_CMD_FMP_SMU_DUMP, 0, SMU_EMBEDDED, 0x10);
+    UINT64  SmuResume = Beyond0LteSmc (SMC_CMD_FMP_SMU_RESUME, 0, SMU_EMBEDDED, 0);
+    UINT64  SmuDump0   = Beyond0LteSmc (SMC_CMD_FMP_SMU_DUMP, 0, SMU_EMBEDDED, 0x00);
+    UINT64  SmuDump10  = Beyond0LteSmc (SMC_CMD_FMP_SMU_DUMP, 0, SMU_EMBEDDED, 0x10);
+    UINT64  DiskKeyStored;
+    UINT64  DiskKeySet;
+    UINT64  UfsLogRet;
     WriteBackDataCacheRange (mA119FmpDiskKey, sizeof (mA119FmpDiskKey));
-    (VOID)Beyond0LteSmc (SMC_CMD_FMP_DISK_KEY_STORED, 0, (UINTN)mA119FmpDiskKey, 32);
-    (VOID)Beyond0LteSmc (SMC_CMD_FMP_DISK_KEY_SET, 0, 0, 0);
-    (VOID)Beyond0LteSmc (SMC_CMD_UFS_LOG, 0, 0, 0);
-    (VOID)MmioRead32 ((UINTN)UFSP_BASE + UFSP_RSECURITY);
+    DiskKeyStored = Beyond0LteSmc (SMC_CMD_FMP_DISK_KEY_STORED, 0, (UINTN)mA119FmpDiskKey, 32);
+    DiskKeySet    = Beyond0LteSmc (SMC_CMD_FMP_DISK_KEY_SET, 0, 0, 0);
+    UfsLogRet     = Beyond0LteSmc (SMC_CMD_UFS_LOG, 0, 0, 0);
+    UINT32  RSec   = MmioRead32 ((UINTN)UFSP_BASE + UFSP_RSECURITY);
+    //
+    // The SMC/MMIO calls above are LIVE (they program the protector and the FMP);
+    // only their RETURNS are diag-only. The returns are read-and-discarded here so
+    // the declarations stay in scope for the panel block below, which compiles
+    // against exactly these names when BEYOND0LTE_UFS_DIAG is turned back on.
+    //
+    (VOID)FmpRet;
+    (VOID)SmuRet;
+    (VOID)SmuResume;
+    (VOID)SmuDump0;
+    (VOID)SmuDump10;
+    (VOID)DiskKeyStored;
+    (VOID)DiskKeySet;
+    (VOID)UfsLogRet;
+    (VOID)RSec;
 #if BEYOND0LTE_UFS_DIAG
     ((volatile UINT32 *)(UINTN)0x00000000FED13000ULL)[300] = (UINT32)FmpRet;   // panel "fmpr" = FMP_SECURITY return (0=ok)
     ((volatile UINT32 *)(UINTN)0x00000000FED13000ULL)[301] = RSec;             // panel "smur" = RSECURITY: EFE26492=DESCTYPE0, EFFA6492=DESCTYPE3
@@ -3338,11 +3356,13 @@ Beyond0LteSetNexusForDoorbell (
     // high 16 bits ARE the response byte offset (RuO_dword * 4).
     //
     if (mQueryCmdAddr == 0) {
-      mQueryCmdAddr = Ucd;
       #if BEYOND0LTE_UFS_DIAG
       UINT32  ConvDw6 = MmioRead32 (Trd + UTP_TRD_RESP_DW6);
-      mQueryRespAddr  = Ucd + (UINT64)(ConvDw6 >> 16);
-      mQuerySlot      = (UINT8)Slot;
+      #endif
+      mQueryCmdAddr  = Ucd;
+      #if BEYOND0LTE_UFS_DIAG
+      mQueryRespAddr = Ucd + (UINT64)(ConvDw6 >> 16);
+      mQuerySlot     = (UINT8)Slot;
       #endif
     }
   } else if (TxType == UPIU_TXTYPE_COMMAND) {

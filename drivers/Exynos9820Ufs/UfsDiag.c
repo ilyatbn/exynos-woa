@@ -6252,12 +6252,12 @@ wmain(
      *
      * Deliberately separate from --write-live: that verb is reversible by
      * construction (capture, write, restore, re-read), this one is not - a file
-      * created through the filesystem stays created. It is safe on the 9810
-      * because the fence confined it to sda18, whose entire contents are
-      * reproducible from the host; on this device the fenced volume is sda31
-      * USERDATA and the same argument has NOT been re-run, so this verb is
-      * unvalidated here until Windows boots from this disk.
-      */
+     * created through the filesystem stays created. It is safe on the 9810
+     * because the fence confined it to sda18, whose entire contents are
+     * reproducible from the host; on this device the fenced volume is sda31
+     * USERDATA and the same argument has NOT been re-run, so this verb is
+     * unvalidated here until Windows boots from this disk.
+     */
     if ((ArgumentCount == 2) &&
         (lstrcmpiW(Arguments[1], L"--fs-write") == 0)) {
         return RunFilesystemWrite();

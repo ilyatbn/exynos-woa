@@ -194,9 +194,54 @@ from here (M7 is `needs-windows`). Half-editing it is exactly what the header's
 * Nothing is validated by booting yet: this pass read the device, it did not run
   the firmware on it.
 
+## 8. Resume pass — the header's own geometry fields, decoded from the capture
+
+The session crashed mid-edit of `Exynos9820Ufs.h` (the fence block was half-replaced
+in the working tree, `git status` showed the file modified and the `C_ASSERT`s at
+`Exynos9820Ufs.h:1157` then fail: `31236090 < 15615995`). Nothing was committed for
+that edit, so the block is re-done in one step from here.
+
+The head capture (`%TEMP%\opencode\s10e-gpt.img`, 139 264 B = 34 LBAs, LBA 1 at
+offset 4096) was re-parsed with a field dump rather than only the entry array:
+
+| offset | bytes | value |
+|---|---|---|
+| +0x00 | 8 | `EFI PART` |
+| +0x08 | 4 | `0x00010000` revision |
+| +0x0C | 4 | HeaderSize = **512** (the value Windows rejects, see the in-flight translation note) |
+| +0x10 | 4 | HeaderCRC = `0x4035E98A` |
+| +0x14 | 4 | 0 |
+| +0x18 | 8 | MyLBA = **1** |
+| +0x20 | 8 | AltLBA = **31 236 095** (= media LBAs 31 236 096 − 1, so the backup header is *declared* at the last LBA) |
+| +0x28 | 8 | **6** — not the spec's MaxLBA; it is the head region's LBA count (LBA 0..5) |
+| +0x30 | 8 | **31 236 090** = AltLBA − 5, i.e. **LastUsableLBA** |
+| +0x38 | 16 | ASCII `ANDROID MMC DISK` (the MediaId GUID slot, name not GUID) |
+
+So Samsung's header deviates from UEFI Table 5-5 at +0x28 and +0x38, and the field
+that carries LastUsableLBA at +0x30 is the same field the 9810's header carried as
+15 615 994 (its MaxLBA 15 615 999 − 5). The geometry the driver needs is therefore,
+in the driver's own 4096-byte LBAs:
+
+* media LBAs = 127 943 049 216 / 4096 = **31 236 096** → `UFS_EXPECTED_LAST_LOGICAL_BLOCK` = **31 236 095**
+* backup region = the 5 LBAs **31 236 091 .. 31 236 095** → `UFS_GPT_BACKUP_FIRST_LBA` = **31 236 091**
+* `LastUsableLBA` = **31 236 090** → the fence's upper bound, matching the 9810's design
+  (its fence ended at its own LastUsableLBA)
+
+Dead end recorded: the capture files `s10e-gpt-tail.img` (34 LBAs at skip 31 236 062,
+all zero → **no backup GPT actually present**) and `s10e-tail2.img` (8 388 608 B =
+2048 LBAs, exactly one non-zero LBA at capture-offset 763) are both on disk, but the
+`skip` used for `s10e-tail2.img` was never written down, so the claim that the last
+non-zero byte on the disk sits at LBA 31 234 811 is **unproven from the notes**. It is
+re-read on the device below (§9) rather than trusted.
+
 ## Sources
 
 * `adb` on `RF8M21HYDSZ` in TWRP: `id`, `blockdev --getsize64`, `dd` of the head
+  and backup-GPT regions (`%TEMP%\opencode\s10e-gpt.img`, `s10e-gpt-tail.img`),
+  `cat /proc/device-tree/chosen/bootargs`, the `reg` dumps
+  (`%TEMP%\opencode\s10e-dt-regs.txt`, `s10e-dt-regs3.txt`).
+* `%TEMP%\opencode\s10e-gpt.img` re-parsed field-by-field in this pass (the +0x28
+  and +0x30 values above).
   and backup-GPT regions (`%TEMP%\opencode\s10e-gpt.img`, `s10e-gpt-tail.img`),
   `cat /proc/device-tree/chosen/bootargs`, the `reg` dumps
   (`%TEMP%\opencode\s10e-dt-regs.txt`, `s10e-dt-regs3.txt`).

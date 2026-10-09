@@ -151,6 +151,34 @@ where the comment now contradicts the constants:
 * Rebuild after C: `EXACT_BUILD_OK`, 49 152 B, sha256 `3a19a6bb…caf0d0b` —
   comments only, byte-identical as expected.
 
+### D. `UfsDiag.c`'s scratch region was the 9810's LBA — the dangerous one
+
+`UFS_SCRATCH_LBA 15614336` on this disk lands **inside USERDATA** (2 151 168..31
+234 815), i.e. in the middle of the Windows volume, and its `C_ASSERT`s were
+self-consistent with 9810 literals so the build could not see it.
+
+* `UFS_SCRATCH_LBA` → **31 234 816** (one LBA past USERDATA's last, live GPT);
+  `UFS_SCRATCH_BLOCKS` stays 256, so the run is 31 234 816..31 235 071 — the
+  region §9 read back **all zero**.
+* Its asserts → `> 31234815` (USERDATA end) and `< 31236091` (backup GPT start).
+* Narrative around it retargeted (the tail table, the log-channel paragraph, the
+  `--log-lba` paragraph); the 9810's `ufsscratch.bin`/WINSETUP analysis and its
+  archived `TAIL-lba15614336-...bin` are marked HISTORY, and the `--fs-write`
+  safety claim ("the fence confines it to sda18, reproducible from the host") is
+  now stated as **unvalidated on this device** rather than as a fact.
+* The `UFS_WRITE_LIVE_RECOVERY` hint printed the 9810's archive as the restore
+  source; on this disk the stock tail is zero, so the string now says
+  `SOURCE=zero-fill` and names the archive as a different disk.
+* Signature gate: the S10e's scratch blocks are **zero, not stamped**, so
+  `--write-live` refuses until the stamping pass runs. That is a device step and
+  it is **not** done here — writing to the media is forbidden until Windows
+  booting is established (ground rules 5/6).
+* Verified: rebuild `EXACT_BUILD_OK`, driver unchanged 49 152 B sha256
+  `3a19a6bb…`, helper 213 504 B sha256 `7f4f7436…` (changed, as expected — the
+  strings and the scratch LBA are in it). Negative test: `UFS_SCRATCH_LBA`
+  31 236 090 fails at `UfsDiag.c(1658)` → the new assert really gates it;
+  reverted.
+
 ## Sources
 
 * `notes/s10e-root-reads.md` §2 (live GPT), §8 (header geometry fields),

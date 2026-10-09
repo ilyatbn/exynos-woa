@@ -1593,32 +1593,33 @@ RunWriteProbe(
 /*
  * The ladder's target region.
  *
- * This used to be the extent of ufsscratch.bin on WINSETUP (LBA 563876). It was
- * moved to the unallocated tail past the last partition when the driver's write
- * fence was widened, because the tail is the only thing the widening actually
- * made reachable and therefore the only place a ladder run proves something the
- * previous build had not already proven.
+ * This used to be the extent of ufsscratch.bin on WINSETUP (LBA 563876) - the
+ * 9810's. It is the unallocated tail past the last partition on THIS device,
+ * which is what the driver's widened fence actually makes reachable.
  *
- * sda18 writability is not lost by moving: --fs-write already demonstrates it
- * far more strongly, by having Windows' own FAT32 stack write a quarter of a
- * megabyte through this miniport and reading it back from Linux in TWRP. What
- * was never demonstrated is a write landing above LBA 1195135, and that is what
- * this address now tests.
+ * [HISTORY - the sda18/ufsscratch analysis above is the 9810's; the numbers in
+ * the table below are this device's, read from the live GPT.]
  *
- *   sda25 USERDATA ends at LBA 15614335
- *   tail            LBA 15614336 .. 15615994, claimed by no partition
- *   GPT backup      LBA 15615995 ..
+ *   sda31 USERDATA ends at LBA 31234815
+ *   tail            LBA 31234816 .. 31236090, claimed by no partition
+ *   GPT backup      LBA 31236091 .. 31236095 (declared by the header, empty on
+ *                   the stock media - notes/s10e-root-reads.md §9 read it back
+ *                   zero)
  *
- * The tail was verified empty on the device before being adopted - all 1659
- * blocks read back as zero - and the pre-widening contents are archived at
- * backups\TAIL-lba15614336-1659blk-preWIDEN.bin
- * (sha256 f5119dbade0570718d16f861d7e22d5f62aea709e6b31836fbe4a5331f11ba36).
+ * The tail was verified empty on THIS device before being adopted: every LBA
+ * from 31234812 to the end of the media reads back zero, the only non-zero one
+ * in the measured run being 31234811 inside USERDATA. The 9810's equivalent
+ * archive (backups\TAIL-lba15614336-1659blk-preWIDEN.bin, sha256
+ * f5119dba...) is a different disk and is NOT this device's restore source.
  *
  * Because the blocks here are not a file, nothing stamps them implicitly; they
- * are stamped once from the host over adb before the first run. That is what
- * keeps ScratchSignatureValid below meaningful rather than vacuous.
+ * are stamped once from the host before the first run. On the stock S10e they
+ * are ZERO, so the signature gate below refuses the ladder until that stamping
+ * pass has run - the gate is what makes a stale or misplaced target address
+ * refuse rather than write, and it is a device-validation step, not a constant
+ * to fix here.
  */
-#define UFS_SCRATCH_LBA           15614336UL
+#define UFS_SCRATCH_LBA           31234816UL   // S10e tail start, one LBA past USERDATA (live GPT)
 #define UFS_SCRATCH_BLOCKS        256UL
 
 /*
@@ -1631,10 +1632,10 @@ RunWriteProbe(
  * of pure BDS trace and boot 6 with a 100%-full ring ending at =WLODE1.
  *
  * So the log goes to media instead, at a raw LBA inside the scratch region.
- * Scratch sits one block past sda25's last LBA and below the backup GPT, so no
- * volume claims those sectors and Windows permits the raw write. The first 16
- * blocks are the write ladder's working area; the log slots start well past it
- * and are read back from TWRP with a plain dd.
+ * Scratch sits one block past USERDATA's (sda31) last LBA and below the backup
+ * GPT, so no volume claims those sectors and Windows permits the raw write. The
+ * first 16 blocks are the write ladder's working area; the log slots start well
+ * past it and are read back from TWRP with a plain dd.
  */
 #define UFS_LOGLBA_BLOCKS         16UL
 #define UFS_LOGLBA_SPAN           (UFS_WRITE_LIVE_BLOCK_SIZE * UFS_LOGLBA_BLOCKS)
@@ -1653,8 +1654,8 @@ C_ASSERT(UFS_WRITE_LIVE_MAX_BLOCKS <= UFS_SCRATCH_BLOCKS);
  * driver's fence, so an incorrectly edited fence cannot quietly move it onto
  * USERDATA.
  */
-C_ASSERT(UFS_SCRATCH_LBA > 15614335UL);
-C_ASSERT((UFS_SCRATCH_LBA + UFS_SCRATCH_BLOCKS - 1UL) < 15615995UL);
+C_ASSERT(UFS_SCRATCH_LBA > 31234815UL);   // USERDATA (sda31) ends here
+C_ASSERT((UFS_SCRATCH_LBA + UFS_SCRATCH_BLOCKS - 1UL) < 31236091UL); // backup GPT starts here
 
 static BOOL
 WriteLiveBlock(
@@ -2252,7 +2253,9 @@ RunWriteLive(
         printf("UFS_WRITE_LIVE_VERDICT=RESTORE_FAILED_NEEDS_ATTENTION\n");
         printf(
             "UFS_WRITE_LIVE_RECOVERY REGION=[%lu..%lu]"
-            " SOURCE=backups\\TAIL-lba15614336-1659blk-preWIDEN.bin\n",
+            " SOURCE=zero-fill (this disk's stock tail reads back zero,"
+            " notes/s10e-root-reads.md §9; the 9810's archive"
+            " backups\\TAIL-lba15614336-1659blk-preWIDEN.bin is a different disk)\n",
             Lba,
             LastLba
             );
@@ -2602,7 +2605,8 @@ RunRebootWatchdog(
  *     must carry both our own ufsscratch.bin marker and the WINSETUP layout;
  *   - every resulting write still passes through the driver's fence and GPT
  *     guard, which run ahead of the arm latch, so even a misidentified volume
- *     cannot place a byte outside sda18;
+ *     cannot place a byte outside the fence (sda18 on the 9810; on this device
+ *     the fence spans the ESP, the Windows volume and the tail);
  *   - it flushes and dismounts before returning. The phone is handed back to
  *     TWRP by a hard PMU reset, which is not an orderly shutdown - anything
  *     still in FAT's write-behind cache at that moment is lost, and a
@@ -6248,10 +6252,12 @@ wmain(
      *
      * Deliberately separate from --write-live: that verb is reversible by
      * construction (capture, write, restore, re-read), this one is not - a file
-     * created through the filesystem stays created. It is safe anyway because
-     * the fence confines it to sda18, whose entire contents are reproducible
-     * from the host.
-     */
+      * created through the filesystem stays created. It is safe on the 9810
+      * because the fence confined it to sda18, whose entire contents are
+      * reproducible from the host; on this device the fenced volume is sda31
+      * USERDATA and the same argument has NOT been re-run, so this verb is
+      * unvalidated here until Windows boots from this disk.
+      */
     if ((ArgumentCount == 2) &&
         (lstrcmpiW(Arguments[1], L"--fs-write") == 0)) {
         return RunFilesystemWrite();
@@ -6287,9 +6293,11 @@ wmain(
      * that depends on one cannot report the failure it exists to explain.
      *
      * Deliberately not going through a volume: the target sectors sit one block
-     * past sda25's last LBA and below the backup GPT, so no mounted volume owns
-     * them and no lock is needed. The 2026-07-31 ladder already proved this
-     * exact path writes and reads back on this hardware.
+     * past USERDATA's (sda31) last LBA and below the backup GPT, so no mounted
+     * volume owns them and no lock is needed. The 2026-07-31 ladder proved this
+     * exact path on the 9810's tail; on this device the equivalent region was
+     * read back all zero (notes/s10e-root-reads.md §9) but nothing has been
+     * written to it yet.
      *
      * Each call takes an explicit slot so a boot leaves a progressive trail: if
      * slot 128 is present and 160 is not, the machine died between them.

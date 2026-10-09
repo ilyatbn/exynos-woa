@@ -234,6 +234,35 @@ all zero → **no backup GPT actually present**) and `s10e-tail2.img` (8 388 608
 non-zero byte on the disk sits at LBA 31 234 811 is **unproven from the notes**. It is
 re-read on the device below (§9) rather than trusted.
 
+## 9. Tail read closed on-device (the claim the fence comment makes)
+
+The fence comment wants to know whether the unallocated tail is really free, so it
+was measured rather than assumed. `/tmp/sda` (the `mknod` from §1) is still present
+in this TWRP boot; reads only, nothing written to the block device:
+
+```
+dd if=/tmp/sda of=/tmp/sda-tail3.img bs=4096 count=512  skip=31234560   # 2.0 MB
+dd if=/tmp/sda of=/tmp/sda-tail4.img bs=4096 count=1024 skip=31235072   # 4.0 MB
+```
+
+Parsed locally (`%TEMP%\opencode\s10e-tail3.img`, `s10e-tail4.img`):
+
+* `s10e-tail3.img` covers **LBA 31 234 560 .. 31 235 071** and has exactly **one**
+  non-zero LBA in it: **31 234 811** (4096 B of high-entropy data, the last block of
+  the USERDATA filesystem's own tail).
+* `s10e-tail4.img` covers **LBA 31 235 072 .. 31 236 095** (the very end of the media)
+  and is **all zero**.
+* Together with §1's `s10e-gpt-tail.img` (31 236 062 .. 31 236 095, all zero) this
+  proves: **every LBA from 31 234 812 to 31 236 095 reads back zero**, so the media
+  carries **no backup GPT** even though the primary header declares
+  `AltLBA = 31 236 095`.
+
+What is NOT claimed: nothing here scans the interior of USERDATA, so the sentence
+"the last non-zero byte anywhere on the disk" is not what was measured. The honest
+form, and the one the header comment uses, is "every LBA from 31 234 812 to the end
+of the media reads back zero; the last non-zero LBA in that measured run is 31 234 811,
+inside USERDATA".
+
 ## Sources
 
 * `adb` on `RF8M21HYDSZ` in TWRP: `id`, `blockdev --getsize64`, `dd` of the head
@@ -242,8 +271,7 @@ re-read on the device below (§9) rather than trusted.
   (`%TEMP%\opencode\s10e-dt-regs.txt`, `s10e-dt-regs3.txt`).
 * `%TEMP%\opencode\s10e-gpt.img` re-parsed field-by-field in this pass (the +0x28
   and +0x30 values above).
-  and backup-GPT regions (`%TEMP%\opencode\s10e-gpt.img`, `s10e-gpt-tail.img`),
-  `cat /proc/device-tree/chosen/bootargs`, the `reg` dumps
-  (`%TEMP%\opencode\s10e-dt-regs.txt`, `s10e-dt-regs3.txt`).
+* `%TEMP%\opencode\s10e-tail3.img` (LBA 31 234 560 +512) and `s10e-tail4.img`
+  (LBA 31 235 072 +1024), read from the device in this pass and parsed locally.
 * `notes/pit-geometry.md` — the PIT table this confirms.
 * `notes/vendor-dt-reserved.md` — the AI table this confirms.

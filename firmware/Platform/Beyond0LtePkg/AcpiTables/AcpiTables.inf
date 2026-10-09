@@ -1,0 +1,34 @@
+## @file
+#  ACPI tables for Beyond0LtePkg (Exynos 9820 / Galaxy S10e).
+#  Ported from Star2LtePkg/AcpiTables/AcpiTables.inf (Exynos 9810 / Galaxy S9+).
+#  Installed by an AcpiPlatformDxe via EFI_ACPI_TABLE_PROTOCOL.
+#
+#  NOTE: no Beyond0LteAcpiPlatformDxe exists in this tree yet (only the 9810's
+#  Star2LteAcpiPlatformDxe). The FILE_GUID below is the FFS file GUID the
+#  installer will read sections by; it MUST be matched by that driver when it is
+#  ported. It is a build identity, not a hardware read.
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = AcpiTables
+  FILE_GUID                      = 11111111-2222-3333-4444-555555555521
+  MODULE_TYPE                    = USER_DEFINED
+  VERSION_STRING                 = 1.0
+
+[Sources]
+  Dsdt.asl                       # CPU baseline plus supported HSI2C10/SEC_TS touch path (already ported)
+  Fadt.aslc                      # Fixed table: HW-reduced + PSCI (PSCI compliance UNVERIFIED on this SoC)
+  Madt.aslc                      # GIC: GICC per core, GICD (GICv2; node is cortex-a15/a9-gic, NOT arm,gic-400)
+  Pptt.aslc                      # Processor topology: package / 3 efficiency-class clusters / 8 cores
+  Gtdt.aslc                      # ARMv8 architected generic timer (counter freq UNVERIFIED on this SoC)
+  # TODO: Dbg2.aslc   (debug port — only once a Windows-recognized transport exists)
+  # TODO: Spcr.aslc   (serial console redirect)
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  Silicon/Exynos9820Pkg/Exynos9820Pkg.dec
+
+[BuildOptions]
+  # iasl flags if needed

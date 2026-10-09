@@ -1,0 +1,45 @@
+## @file
+#  SimpleFramebufferDxe — GOP over the sboot-initialized framebuffer, Exynos 9820
+#  / Galaxy S10e (beyond0lte). Port of Star2LtePkg's driver. See SimpleFramebufferDxe.c.
+#
+#  BASE_NAME is prefixed Beyond0Lte so this module cannot collide with the
+#  validated 9810 SimpleFramebufferDxe if both ever appear in one build; the
+#  entry-point symbol stays the module's own.
+#
+#  The framebuffer base is NOT restated here: it is EXYNOS_FB_BASE in
+#  Silicon/Exynos9820Pkg/Include/Platform/Exynos9820.h, which is 0 because the
+#  carveout has never been measured on an S10e. The entry point refuses with
+#  EFI_NOT_READY in that state. Nothing in this module is validated on the
+#  device yet.
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = Beyond0LteSimpleFramebufferDxe
+  FILE_GUID                      = 11111111-2222-3333-4444-555555555544
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 0.1
+  ENTRY_POINT                    = SimpleFramebufferDxeEntry
+
+[Sources]
+  SimpleFramebufferDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  Silicon/Exynos9820Pkg/Exynos9820Pkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  BaseMemoryLib
+  MemoryAllocationLib
+  DevicePathLib
+  DebugLib
+
+[Protocols]
+  gEfiGraphicsOutputProtocolGuid    ## PRODUCES
+  gEfiDevicePathProtocolGuid        ## PRODUCES
+
+[Depex]
+  TRUE

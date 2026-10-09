@@ -1,0 +1,288 @@
+## @file
+#  Flash description (FDF) for Beyond0LtePkg — defines the UEFI firmware volume
+#  that gets wrapped into an Android boot.img payload (see tools/bootimg-pack.sh).
+#
+#  Ported from firmware/Platform/Star2LtePkg/Star2LtePkg.fdf (Exynos 9810 / Galaxy
+#  S9+). Same layout: FVMAIN_COMPACT holds the SEC/PEI entry plus an LZMA-compressed
+#  copy of FVMAIN (all the DXE modules); SEC decompresses FVMAIN into RAM and
+#  launches the DXE core. Standard phone-port layout.
+#
+#  NOTHING HERE IS VALIDATED ON AN S10e. The addresses below are documented reads
+#  from the shipping 9820 device tree and from live node-name reads on the phone;
+#  anything marked UNVERIFIED is not a read (see notes/m8-dscfdf.md §3 and
+#  notes/dock-desktop.md §17).
+#
+#  #############################################################################
+#  DROPPED FROM Star2LtePkg.fdf — modules with NO 9820 equivalent. Verified by
+#  Test-Path per file, not by directory listing. firmware/Platform/Beyond0LtePkg
+#  has no Drivers/ directory at all, so every 9810 driver is out; nothing was
+#  silently substituted with a 9810 module.
+#
+#    Platform/Star2LtePkg/Drivers/SimpleFramebufferDxe/SimpleFramebufferDxe.inf
+#        PORTED after this header was written ->
+#        Platform/Beyond0LtePkg/Drivers/SimpleFramebufferDxe/, placed below.
+#        It returns EFI_NOT_READY while EXYNOS_FB_BASE is 0 (unread on this SoC),
+#        so there is no graphics output yet, but nothing about the boot depends
+#        on it. Matches PlatformMemoryMapLib.c skipping the carveout.
+#    Platform/Star2LtePkg/Drivers/Star2LteAcpiPlatformDxe/Star2LteAcpiPlatformDxe.inf
+#        No 9820 equivalent. AcpiTables.inf DOES exist for the 9820 and is still
+#        placed below (its FILE_GUID …5521 is waiting for that driver), but no
+#        installer publishes the tables via EFI_ACPI_TABLE_PROTOCOL.
+#    Platform/Star2LtePkg/Drivers/Star2LteRamManagerDxe/Star2LteRamManagerDxe.inf
+#        No 9820 equivalent. The high DRAM banks (0xC0000000, 0xE1900000,
+#        0x880000000, 0x900000000 — bases read, sizes unread) are not published.
+#    Platform/Star2LtePkg/Drivers/Star2LteUfsHcDxe/Star2LteUfsHcDxe.inf
+#        No 9820 equivalent. The UFS host-controller protocol has no producer, so
+#        UfsPassThruDxe below binds nothing and the storage chain enumerates no
+#        volumes. (9820 UFS HCI is ufs@13D60000, Exynos9820.h:268 — the 9810
+#        driver's 0x111… region does not exist on this SoC.)
+#    Platform/Star2LtePkg/Library/PlatformBootManagerLib/… and
+#    Platform/Star2LtePkg/Library/Star2LteResetSystemLib/…
+#        No 9820 equivalents; they are DSC library classes, so they appear in
+#        Beyond0LtePkg.dsc's drop list rather than here.
+#
+#  PORTED (rename only, .inf verified present):
+#    Platform/Star2LtePkg/AcpiTables/AcpiTables.inf
+#      -> Platform/Beyond0LtePkg/AcpiTables/AcpiTables.inf
+#  #############################################################################
+##
+
+[Defines]
+  # FD run address. UNVERIFIED as an observed address: Exynos9820.h states the
+  # firmware loads at 0x80080000 because the vendor DT's chosen node puts the
+  # Android initrd at 0x84000000..0x841fffff (that is the read; 0x80080000 is the
+  # decision that follows from it). Nothing has booted on an S10e yet.
+  #
+  # The 9810's 0x90000000 is NOT carried over: its justification (clean RAM above
+  # the RKP-monitored kernel zones 0x80094000-0x828DBFFF, and 0x80080000 having
+  # bootlooped) is a 9810 device observation with no 9820 equivalent read.
+  #
+  # MUST match PcdFdBaseAddress / PcdFvBaseAddress in Beyond0LtePkg.dsc.
+  DEFINE FD_BASE_ADDRESS = 0x0000000080080000
+  DEFINE FD_SIZE         = 0x0000000000700000    # 7 MB FV — carried from the 9810 (build parameter, not a read)
+
+[FD.BEYOND0LTE_UEFI]
+  BaseAddress   = $(FD_BASE_ADDRESS)
+  Size          = $(FD_SIZE)
+  ErasePolarity = 1
+  BlockSize     = 0x1000
+  NumBlocks     = 0x700        # 0x700 * 0x1000 = 0x700000 = $(FD_SIZE)
+
+  # Offset|length inside the FD, not a physical address — kept from the 9810 FDF.
+  0x00000000|0x00700000
+  FV = FVMAIN_COMPACT
+
+################################################################################
+#
+# FVMAIN_COMPACT — what sboot actually loads. Contains the SEC/PEI (PeilessSec)
+# entry plus a LZMA-compressed copy of FVMAIN (all the DXE modules). SEC
+# decompresses FVMAIN into RAM and launches the DXE core.
+#
+################################################################################
+[FV.FVMAIN_COMPACT]
+  FvAlignment        = 16
+  BlockSize          = 0x1000      # must match the FD's BlockSize (it lives in the FD)
+  NumBlocks          = 0           # auto-size to contents
+  ERASE_POLARITY     = 1
+  MEMORY_MAPPED      = TRUE
+  STICKY_WRITE       = TRUE
+  LOCK_CAP           = TRUE
+  LOCK_STATUS        = TRUE
+  WRITE_DISABLED_CAP = TRUE
+  WRITE_ENABLED_CAP  = TRUE
+  # READ_* attributes are MANDATORY: without READ_STATUS=TRUE the FV header's
+  # Attributes has EFI_FVB2_READ_STATUS clear, so DxeCore's FwVolBlockReadBlock
+  # returns EFI_ACCESS_DENIED -> GetFwVolHeader fails -> no FV2 protocol -> the
+  # dispatcher finds NO drivers. These were missing on the 9810 and silently
+  # broke ALL driver dispatch.
+  READ_LOCK_CAP      = TRUE
+  READ_LOCK_STATUS   = TRUE
+  READ_ENABLED_CAP   = TRUE
+  READ_STATUS        = TRUE
+
+  #
+  # SEC / PEI (combined PeilessSec — replaces the removed ArmPlatformPkg/PrePi).
+  # This is the firmware entry point sboot jumps to (wrapped as the kernel Image
+  # by tools/bootimg-pack.sh; a relocating stub moves it to FD_BASE_ADDRESS).
+  #
+  INF ArmPlatformPkg/PeilessSec/PeilessSec.inf
+
+  #
+  # The DXE firmware volume, LZMA-compressed inside a GUIDed section.
+  #
+  FILE FV_IMAGE = 9E21FD93-9C72-4c15-8C4B-E77F1DB2D792 {
+    SECTION GUIDED EE4E5898-3914-4259-9D6E-DC7BD79403CF PROCESSING_REQUIRED = TRUE {
+      SECTION FV_IMAGE = FVMAIN
+    }
+  }
+
+################################################################################
+#
+# FVMAIN — the DXE phase. Decompressed and executed by SEC.
+#
+################################################################################
+[FV.FVMAIN]
+  FvAlignment        = 16
+  BlockSize          = 0x1000
+  NumBlocks          = 0x400       # fixed 4 MB (auto-size NumBlocks=0 crashed GenFv — carried from the 9810)
+  ERASE_POLARITY     = 1
+  MEMORY_MAPPED      = TRUE
+  STICKY_WRITE       = TRUE
+  LOCK_CAP           = TRUE
+  LOCK_STATUS        = TRUE
+  WRITE_DISABLED_CAP = TRUE
+  WRITE_ENABLED_CAP  = TRUE
+  # READ_* mandatory (see FVMAIN_COMPACT note) — without READ_STATUS the DXE
+  # core cannot read this FV's header, so none of its drivers ever dispatch.
+  READ_LOCK_CAP      = TRUE
+  READ_LOCK_STATUS   = TRUE
+  READ_ENABLED_CAP   = TRUE
+  READ_STATUS        = TRUE
+
+  #
+  # --- DXE core + PCD ---
+  #
+  INF MdeModulePkg/Core/Dxe/DxeMain.inf
+  INF MdeModulePkg/Universal/PCD/Dxe/Pcd.inf
+
+  #
+  # --- Architectural protocols (CPU, GIC, timer, reset, runtime) ---
+  #
+  INF ArmPkg/Drivers/CpuDxe/CpuDxe.inf
+  INF ArmPkg/Drivers/ArmGicDxe/ArmGicDxe.inf
+  INF ArmPkg/Drivers/TimerDxe/TimerDxe.inf
+  INF MdeModulePkg/Core/RuntimeDxe/RuntimeDxe.inf
+  INF MdeModulePkg/Universal/SecurityStubDxe/SecurityStubDxe.inf
+  INF MdeModulePkg/Universal/Metronome/Metronome.inf
+  # ResetSystemRuntimeDxe DROPPED — no ResetSystemLib instance for the 9820
+  # (see the DROPPED block and the DSC comment).
+  INF EmbeddedPkg/RealTimeClockRuntimeDxe/RealTimeClockRuntimeDxe.inf
+  # Required arch protocols the DXE core waits for before BDS (else
+  # CoreAllEfiServicesAvailable asserts).
+  INF MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf
+  INF MdeModulePkg/Universal/CapsuleRuntimeDxe/CapsuleRuntimeDxe.inf
+  INF MdeModulePkg/Universal/MonotonicCounterRuntimeDxe/MonotonicCounterRuntimeDxe.inf
+
+  #
+  # --- UEFI variable services (memory-backed for bring-up) ---
+  #
+  INF MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf
+
+  #
+  # --- Console: serial + splitter + the 9820 first-light framebuffer driver.
+  #     Beyond0LteSimpleFramebufferDxe returns EFI_NOT_READY while EXYNOS_FB_BASE
+  #     is still 0 (the carveout has never been measured on an S10e), so the
+  #     screen stays dark without failing the boot. ---
+  #
+  INF Platform/Beyond0LtePkg/Drivers/SimpleFramebufferDxe/SimpleFramebufferDxe.inf
+  #
+  # HII database FIRST: BdsDxe links UefiHiiServicesLib which injects a DEPEX on
+  # gEfiHiiDatabaseProtocolGuid AND gEfiHiiStringProtocolGuid AND
+  # gEfiHiiConfigRoutingProtocolGuid. Without HiiDatabaseDxe producing them,
+  # BdsDxe NEVER dispatches -> the Bds arch protocol is never installed -> the
+  # DXE core asserts before BDS handoff. GraphicsConsole/Setup also use HII.
+  INF MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe.inf
+  INF MdeModulePkg/Universal/Console/ConPlatformDxe/ConPlatformDxe.inf
+  INF MdeModulePkg/Universal/Console/ConSplitterDxe/ConSplitterDxe.inf
+  INF MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsoleDxe.inf
+  INF MdeModulePkg/Universal/SerialDxe/SerialDxe.inf
+
+  #
+  # --- ACPI: table installer + the 9820 tables.
+  #     Star2LteAcpiPlatformDxe is DROPPED (no Beyond0LteAcpiPlatformDxe), so the
+  #     FFS file below is placed but never installed. ---
+  #
+  INF MdeModulePkg/Universal/Acpi/AcpiTableDxe/AcpiTableDxe.inf
+  INF RuleOverride = ACPITABLE Platform/Beyond0LtePkg/AcpiTables/AcpiTables.inf
+
+  #
+  # --- RAM discovery: Star2LteRamManagerDxe DROPPED (no 9820 equivalent). ---
+  #
+  #
+  # --- Storage + filesystem (Windows ESP on UFS).
+  #     Star2LteUfsHcDxe is DROPPED (no 9820 equivalent), so the host-controller
+  #     protocol has no producer and this chain enumerates no volumes yet. ---
+  #
+  INF MdeModulePkg/Bus/Ufs/UfsPassThruDxe/UfsPassThruDxe.inf
+  INF MdeModulePkg/Bus/Scsi/ScsiBusDxe/ScsiBusDxe.inf
+  INF MdeModulePkg/Bus/Scsi/ScsiDiskDxe/ScsiDiskDxe.inf
+  INF MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf
+  INF MdeModulePkg/Universal/Disk/PartitionDxe/PartitionDxe.inf
+  # EnglishDxe = gEfiUnicodeCollation2Protocol provider; EnhancedFatDxe needs it
+  # to start (without it Fat mounts nothing -> no ESP -> bootmgfw not found).
+  INF MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe.inf
+  INF FatPkg/EnhancedFatDxe/Fat.inf
+  # TODO: USB stack for HID/keyboard + install media:
+  # INF MdeModulePkg/Bus/Pci/XhciDxe/XhciDxe.inf
+  # INF MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBusDxe.inf
+  # INF MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf
+  # INF MdeModulePkg/Bus/Usb/UsbMassStorageDxe/UsbMassStorageDxe.inf
+
+  #
+  # --- BDS: finds and launches the Windows Boot Manager ---
+  #
+  INF MdeModulePkg/Universal/BdsDxe/BdsDxe.inf
+  # Optional, deferred until the Shell/UiApp library tail is wired (not required
+  # to launch bootmgfw.efi):
+  # INF MdeModulePkg/Application/UiApp/UiApp.inf
+  # INF ShellPkg/Application/Shell/Shell.inf
+
+################################################################################
+#
+# FFS packaging rules — how each module type is wrapped into the FV.
+# (edk2 master no longer supplies implicit defaults once any [Rule] is present.)
+#
+################################################################################
+[Rule.Common.SEC]
+  FILE SEC = $(NAMED_GUID) RELOCS_STRIPPED FIXED {
+    # Align = Auto is REQUIRED for XIP AArch64 TE images: it makes GenFfs place
+    # the TE image so that (placement - StrippedSize) stays 4KB-aligned, which is
+    # what keeps `adrp`/`ldr` global accesses correct after TE-header stripping.
+    # Without it, .data globals (e.g. mSystemMemoryEnd) read 0 -> SEC stack=0x1 ->
+    # CEntryPoint prologue faults.
+    TE  TE Align = Auto                 $(INF_OUTPUT)/$(MODULE_NAME).efi
+  }
+
+[Rule.Common.DXE_CORE]
+  FILE DXE_CORE = $(NAMED_GUID) {
+    PE32     PE32                       $(INF_OUTPUT)/$(MODULE_NAME).efi
+    UI       STRING="$(MODULE_NAME)" Optional
+  }
+
+[Rule.Common.DXE_DRIVER]
+  FILE DRIVER = $(NAMED_GUID) {
+    DXE_DEPEX    DXE_DEPEX              Optional $(INF_OUTPUT)/$(MODULE_NAME).depex
+    PE32         PE32                   $(INF_OUTPUT)/$(MODULE_NAME).efi
+    UI           STRING="$(MODULE_NAME)" Optional
+  }
+
+[Rule.Common.DXE_RUNTIME_DRIVER]
+  FILE DRIVER = $(NAMED_GUID) {
+    DXE_DEPEX    DXE_DEPEX              Optional $(INF_OUTPUT)/$(MODULE_NAME).depex
+    PE32         PE32                   $(INF_OUTPUT)/$(MODULE_NAME).efi
+    UI           STRING="$(MODULE_NAME)" Optional
+  }
+
+[Rule.Common.UEFI_DRIVER]
+  FILE DRIVER = $(NAMED_GUID) {
+    DXE_DEPEX    DXE_DEPEX              Optional $(INF_OUTPUT)/$(MODULE_NAME).depex
+    PE32         PE32                   $(INF_OUTPUT)/$(MODULE_NAME).efi
+    UI           STRING="$(MODULE_NAME)" Optional
+  }
+
+[Rule.Common.UEFI_APPLICATION]
+  FILE APPLICATION = $(NAMED_GUID) {
+    UI       STRING="$(MODULE_NAME)" Optional
+    PE32     PE32                       $(INF_OUTPUT)/$(MODULE_NAME).efi
+  }
+
+################################################################################
+#
+# FFS rule for static ACPI tables (.aslc/.asl -> .acpi section).
+#
+################################################################################
+[Rule.Common.USER_DEFINED.ACPITABLE]
+  FILE FREEFORM = $(NAMED_GUID) {
+    RAW ACPI  Optional |.acpi
+    RAW ASL   Optional |.aml
+  }

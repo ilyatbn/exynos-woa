@@ -1,0 +1,238 @@
+/** @file
+  Beyond0LteFbText — minimal direct-framebuffer text for the SEC/PEI bring-up phase
+  (Exynos 9820 / Galaxy S10e). Port of Star2LteFbText (Exynos 9810 / Galaxy S9+).
+  Renders an 8x16 bitmap font straight to the sboot scanout buffer so early boot
+  can show readable progress ("Starting UEFI...") instead of opaque colored
+  diagnostic bands.
+
+  EVERY address and every extent here comes from Silicon/Exynos9820Pkg/Include/
+  Platform/Exynos9820.h — nothing is restated. That matters on this SoC: the
+  9810's fb base 0xCC000000 is NOT reusable (notes/s10e-live-reads.md §7.3 puts it
+  inside the abox-rmem allocation range in the shipping DT), so Exynos9820.h keeps
+  EXYNOS_FB_BASE at 0 and this renderer refuses to draw rather than scribbling at
+  physical address 0.
+
+  This runs with the MMU OFF (physical stores, seen by the display DMA) and uses
+  NO boot services, so it is safe from ArmPlatformInitialize and the memory-map
+  build. The pixels are not pushed to the panel until something issues a DECON
+  present (the BDS phase does), at which point the accumulated lines appear.
+ **/
+
+#include <Library/ArmLib.h>
+#include <Platform/Exynos9820.h>
+#include "Beyond0LteFbText.h"
+
+//
+// Geometry comes from the silicon header, not from literals. The S10e panel is
+// 1440 x 3040 where the S9+ was 1440 x 2960, so anything that assumed the old
+// height (or a row picked against it) is wrong here.
+//
+#define FB_BASE     EXYNOS_FB_BASE      // 0 until the carveout is measured
+#define FB_WIDTH    EXYNOS_FB_WIDTH
+#define FB_HEIGHT   EXYNOS_FB_HEIGHT
+#define FB_MARGIN_X 160u                // layout choice, not a device read
+
+//
+// The renderer stores UINT32 pixels, so it is only valid for a 4-byte-per-pixel
+// format. The 9810 verified a8r8g8b8 (BGRA8888) on its own scanout buffer; the
+// 9820's format has NEVER been read, and postmarketOS has to force the S10's
+// decon_f fb0 to 16 bpp (notes/exynos9820-linux-boot.md §Round 2), which is a
+// hint that this panel is not 32 bpp by default. UNVERIFIED — asserted only to
+// the extent the header can assert.
+//
+STATIC_ASSERT (
+  EXYNOS_FB_BYTES_PER_PIXEL == 4,
+  "This renderer stores UINT32 pixels; a non-4-byte-per-pixel fb format needs a different store"
+  );
+
+#define FB_FG       0xFFFFFFFFu   // opaque white
+#define FB_BG       0xFF000000u   // opaque black
+#define GLYPH_W     8u
+#define GLYPH_H     16u
+#define FB_SCALE    2u            // 16x32 px per glyph on the hi-DPI panel
+
+//
+// 8x16 font, ASCII 0x20..0x7E (95 glyphs x 16 bytes); bit7 = leftmost pixel.
+// Compact public-domain-style VGA font (reused from the m1-hello bring-up);
+// identical to the 9810's — a font is not a device constant.
+//
+STATIC CONST UINT8  mFont[95][16] = {
+  { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },                                                      /* ' ' */
+  { 0, 0, 0x18, 0x3C, 0x3C, 0x3C, 0x18, 0x18, 0x18, 0, 0x18, 0x18, 0, 0, 0, 0 },                           /* ! */
+  { 0, 0x66, 0x66, 0x66, 0x24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },                                          /* " */
+  { 0, 0, 0, 0x6C, 0x6C, 0xFE, 0x6C, 0x6C, 0x6C, 0xFE, 0x6C, 0x6C, 0, 0, 0, 0 },                           /* # */
+  { 0x18, 0x18, 0x7C, 0xC6, 0xC2, 0xC0, 0x7C, 0x06, 0x86, 0xC6, 0x7C, 0x18, 0x18, 0, 0, 0 },               /* $ */
+  { 0, 0, 0, 0, 0xC2, 0xC6, 0x0C, 0x18, 0x30, 0x60, 0xC6, 0x86, 0, 0, 0, 0 },                              /* % */
+  { 0, 0, 0x38, 0x6C, 0x6C, 0x38, 0x76, 0xDC, 0xCC, 0xCC, 0xCC, 0x76, 0, 0, 0, 0 },                        /* & */
+  { 0, 0x30, 0x30, 0x30, 0x60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },                                          /* ' */
+  { 0, 0, 0x0C, 0x18, 0x30, 0x30, 0x30, 0x30, 0x30, 0x18, 0x0C, 0, 0, 0, 0, 0 },                           /* ( */
+  { 0, 0, 0x30, 0x18, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x18, 0x30, 0, 0, 0, 0, 0 },                           /* ) */
+  { 0, 0, 0, 0, 0x66, 0x3C, 0xFF, 0x3C, 0x66, 0, 0, 0, 0, 0, 0, 0 },                                       /* * */
+  { 0, 0, 0, 0, 0x18, 0x18, 0x7E, 0x18, 0x18, 0, 0, 0, 0, 0, 0, 0 },                                       /* + */
+  { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x18, 0x18, 0x18, 0x30, 0, 0, 0 },                                          /* , */
+  { 0, 0, 0, 0, 0, 0, 0xFE, 0, 0, 0, 0, 0, 0, 0, 0, 0 },                                                   /* - */
+  { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x18, 0x18, 0, 0, 0, 0 },                                                /* . */
+  { 0, 0, 0x02, 0x06, 0x0C, 0x18, 0x30, 0x60, 0xC0, 0x80, 0, 0, 0, 0, 0, 0 },                              /* / */
+  { 0, 0, 0x38, 0x6C, 0xC6, 0xC6, 0xD6, 0xD6, 0xC6, 0xC6, 0x6C, 0x38, 0, 0, 0, 0 },                        /* 0 */
+  { 0, 0, 0x18, 0x38, 0x78, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x7E, 0, 0, 0, 0 },                        /* 1 */
+  { 0, 0, 0x7C, 0xC6, 0x06, 0x0C, 0x18, 0x30, 0x60, 0xC0, 0xC6, 0xFE, 0, 0, 0, 0 },                        /* 2 */
+  { 0, 0, 0x7C, 0xC6, 0x06, 0x06, 0x3C, 0x06, 0x06, 0x06, 0xC6, 0x7C, 0, 0, 0, 0 },                        /* 3 */
+  { 0, 0, 0x0C, 0x1C, 0x3C, 0x6C, 0xCC, 0xFE, 0x0C, 0x0C, 0x0C, 0x1E, 0, 0, 0, 0 },                        /* 4 */
+  { 0, 0, 0xFE, 0xC0, 0xC0, 0xC0, 0xFC, 0x06, 0x06, 0x06, 0xC6, 0x7C, 0, 0, 0, 0 },                        /* 5 */
+  { 0, 0, 0x38, 0x60, 0xC0, 0xC0, 0xFC, 0xC6, 0xC6, 0xC6, 0xC6, 0x7C, 0, 0, 0, 0 },                        /* 6 */
+  { 0, 0, 0xFE, 0xC6, 0x06, 0x06, 0x0C, 0x18, 0x30, 0x30, 0x30, 0x30, 0, 0, 0, 0 },                        /* 7 */
+  { 0, 0, 0x7C, 0xC6, 0xC6, 0xC6, 0x7C, 0xC6, 0xC6, 0xC6, 0xC6, 0x7C, 0, 0, 0, 0 },                        /* 8 */
+  { 0, 0, 0x7C, 0xC6, 0xC6, 0xC6, 0x7E, 0x06, 0x06, 0x06, 0x0C, 0x78, 0, 0, 0, 0 },                        /* 9 */
+  { 0, 0, 0, 0, 0x18, 0x18, 0, 0, 0, 0x18, 0x18, 0, 0, 0, 0, 0 },                                          /* : */
+  { 0, 0, 0, 0, 0x18, 0x18, 0, 0, 0, 0x18, 0x18, 0x30, 0, 0, 0, 0 },                                       /* ; */
+  { 0, 0, 0x06, 0x0C, 0x18, 0x30, 0x60, 0x30, 0x18, 0x0C, 0x06, 0, 0, 0, 0, 0 },                           /* < */
+  { 0, 0, 0, 0, 0, 0x7E, 0, 0x7E, 0, 0, 0, 0, 0, 0, 0, 0 },                                                /* = */
+  { 0, 0, 0x60, 0x30, 0x18, 0x0C, 0x06, 0x0C, 0x18, 0x30, 0x60, 0, 0, 0, 0, 0 },                           /* > */
+  { 0, 0, 0x7C, 0xC6, 0xC6, 0x0C, 0x18, 0x18, 0x18, 0, 0x18, 0x18, 0, 0, 0, 0 },                           /* ? */
+  { 0, 0, 0x7C, 0xC6, 0xC6, 0xDE, 0xDE, 0xDE, 0xDC, 0xC0, 0x7C, 0, 0, 0, 0, 0 },                           /* @ */
+  { 0, 0, 0x10, 0x38, 0x6C, 0xC6, 0xC6, 0xFE, 0xC6, 0xC6, 0xC6, 0xC6, 0, 0, 0, 0 },                        /* A */
+  { 0, 0, 0xFC, 0x66, 0x66, 0x66, 0x7C, 0x66, 0x66, 0x66, 0x66, 0xFC, 0, 0, 0, 0 },                        /* B */
+  { 0, 0, 0x3C, 0x66, 0xC2, 0xC0, 0xC0, 0xC0, 0xC0, 0xC2, 0x66, 0x3C, 0, 0, 0, 0 },                        /* C */
+  { 0, 0, 0xF8, 0x6C, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x6C, 0xF8, 0, 0, 0, 0 },                        /* D */
+  { 0, 0, 0xFE, 0x66, 0x62, 0x68, 0x78, 0x68, 0x60, 0x62, 0x66, 0xFE, 0, 0, 0, 0 },                        /* E */
+  { 0, 0, 0xFE, 0x66, 0x62, 0x68, 0x78, 0x68, 0x60, 0x60, 0x60, 0xF0, 0, 0, 0, 0 },                        /* F */
+  { 0, 0, 0x3C, 0x66, 0xC2, 0xC0, 0xC0, 0xDE, 0xC6, 0xC6, 0x66, 0x3A, 0, 0, 0, 0 },                        /* G */
+  { 0, 0, 0xC6, 0xC6, 0xC6, 0xC6, 0xFE, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0, 0, 0, 0 },                        /* H */
+  { 0, 0, 0x3C, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0, 0, 0, 0 },                        /* I */
+  { 0, 0, 0x1E, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0xCC, 0xCC, 0xCC, 0x78, 0, 0, 0, 0 },                        /* J */
+  { 0, 0, 0xE6, 0x66, 0x66, 0x6C, 0x78, 0x78, 0x6C, 0x66, 0x66, 0xE6, 0, 0, 0, 0 },                        /* K */
+  { 0, 0, 0xF0, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x62, 0x66, 0xFE, 0, 0, 0, 0 },                        /* L */
+  { 0, 0, 0xC6, 0xEE, 0xFE, 0xFE, 0xD6, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0, 0, 0, 0 },                        /* M */
+  { 0, 0, 0xC6, 0xE6, 0xF6, 0xFE, 0xDE, 0xCE, 0xC6, 0xC6, 0xC6, 0xC6, 0, 0, 0, 0 },                        /* N */
+  { 0, 0, 0x7C, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x7C, 0, 0, 0, 0 },                        /* O */
+  { 0, 0, 0xFC, 0x66, 0x66, 0x66, 0x7C, 0x60, 0x60, 0x60, 0x60, 0xF0, 0, 0, 0, 0 },                        /* P */
+  { 0, 0, 0x7C, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0xD6, 0xDE, 0x7C, 0x0C, 0x0E, 0, 0, 0 },                     /* Q */
+  { 0, 0, 0xFC, 0x66, 0x66, 0x66, 0x7C, 0x6C, 0x66, 0x66, 0x66, 0xE6, 0, 0, 0, 0 },                        /* R */
+  { 0, 0, 0x7C, 0xC6, 0xC6, 0x60, 0x38, 0x0C, 0x06, 0xC6, 0xC6, 0x7C, 0, 0, 0, 0 },                        /* S */
+  { 0, 0, 0x7E, 0x7E, 0x5A, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0, 0, 0, 0 },                        /* T */
+  { 0, 0, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x7C, 0, 0, 0, 0 },                        /* U */
+  { 0, 0, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x6C, 0x38, 0x10, 0, 0, 0, 0 },                        /* V */
+  { 0, 0, 0xC6, 0xC6, 0xC6, 0xC6, 0xD6, 0xD6, 0xD6, 0xFE, 0xEE, 0x6C, 0, 0, 0, 0 },                        /* W */
+  { 0, 0, 0xC6, 0xC6, 0x6C, 0x7C, 0x38, 0x38, 0x7C, 0x6C, 0xC6, 0xC6, 0, 0, 0, 0 },                        /* X */
+  { 0, 0, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x18, 0x18, 0x18, 0x18, 0x3C, 0, 0, 0, 0 },                        /* Y */
+  { 0, 0, 0xFE, 0xC6, 0x86, 0x0C, 0x18, 0x30, 0x60, 0xC2, 0xC6, 0xFE, 0, 0, 0, 0 },                        /* Z */
+  { 0, 0, 0x3C, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x3C, 0, 0, 0, 0 },                        /* [ */
+  { 0, 0, 0x80, 0xC0, 0x60, 0x30, 0x18, 0x0C, 0x06, 0x02, 0, 0, 0, 0, 0, 0 },                              /* \ */
+  { 0, 0, 0x3C, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x3C, 0, 0, 0, 0 },                        /* ] */
+  { 0x10, 0x38, 0x6C, 0xC6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },                                          /* ^ */
+  { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0 },                                                   /* _ */
+  { 0x18, 0x18, 0x0C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },                                             /* ` */
+  { 0, 0, 0, 0, 0, 0x78, 0x0C, 0x7C, 0xCC, 0xCC, 0xCC, 0x76, 0, 0, 0, 0 },                                 /* a */
+  { 0, 0, 0xE0, 0x60, 0x60, 0x78, 0x6C, 0x66, 0x66, 0x66, 0x66, 0x7C, 0, 0, 0, 0 },                        /* b */
+  { 0, 0, 0, 0, 0, 0x7C, 0xC6, 0xC0, 0xC0, 0xC0, 0xC6, 0x7C, 0, 0, 0, 0 },                                 /* c */
+  { 0, 0, 0x1C, 0x0C, 0x0C, 0x3C, 0x6C, 0xCC, 0xCC, 0xCC, 0xCC, 0x76, 0, 0, 0, 0 },                        /* d */
+  { 0, 0, 0, 0, 0, 0x7C, 0xC6, 0xFE, 0xC0, 0xC0, 0xC6, 0x7C, 0, 0, 0, 0 },                                 /* e */
+  { 0, 0, 0x38, 0x6C, 0x64, 0x60, 0xF0, 0x60, 0x60, 0x60, 0x60, 0xF0, 0, 0, 0, 0 },                        /* f */
+  { 0, 0, 0, 0, 0, 0x76, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0x7C, 0x0C, 0xCC, 0x78, 0 },                        /* g */
+  { 0, 0, 0xE0, 0x60, 0x60, 0x6C, 0x76, 0x66, 0x66, 0x66, 0x66, 0xE6, 0, 0, 0, 0 },                        /* h */
+  { 0, 0, 0x18, 0x18, 0, 0x38, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0, 0, 0, 0 },                           /* i */
+  { 0, 0, 0x06, 0x06, 0, 0x0E, 0x06, 0x06, 0x06, 0x06, 0x06, 0x66, 0x66, 0x3C, 0, 0 },                     /* j */
+  { 0, 0, 0xE0, 0x60, 0x60, 0x66, 0x6C, 0x78, 0x78, 0x6C, 0x66, 0xE6, 0, 0, 0, 0 },                        /* k */
+  { 0, 0, 0x38, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0, 0, 0, 0 },                        /* l */
+  { 0, 0, 0, 0, 0, 0xEC, 0xFE, 0xD6, 0xD6, 0xD6, 0xD6, 0xC6, 0, 0, 0, 0 },                                 /* m */
+  { 0, 0, 0, 0, 0, 0xDC, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0, 0, 0, 0 },                                 /* n */
+  { 0, 0, 0, 0, 0, 0x7C, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x7C, 0, 0, 0, 0 },                                 /* o */
+  { 0, 0, 0, 0, 0, 0xDC, 0x66, 0x66, 0x66, 0x66, 0x7C, 0x60, 0x60, 0xF0, 0, 0 },                           /* p */
+  { 0, 0, 0, 0, 0, 0x76, 0xCC, 0xCC, 0xCC, 0xCC, 0x7C, 0x0C, 0x0C, 0x1E, 0, 0 },                           /* q */
+  { 0, 0, 0, 0, 0, 0xDC, 0x76, 0x66, 0x60, 0x60, 0x60, 0xF0, 0, 0, 0, 0 },                                 /* r */
+  { 0, 0, 0, 0, 0, 0x7C, 0xC6, 0x60, 0x38, 0x0C, 0xC6, 0x7C, 0, 0, 0, 0 },                                 /* s */
+  { 0, 0, 0x10, 0x30, 0x30, 0xFC, 0x30, 0x30, 0x30, 0x30, 0x36, 0x1C, 0, 0, 0, 0 },                        /* t */
+  { 0, 0, 0, 0, 0, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0x76, 0, 0, 0, 0 },                                 /* u */
+  { 0, 0, 0, 0, 0, 0xC6, 0xC6, 0xC6, 0xC6, 0x6C, 0x38, 0x10, 0, 0, 0, 0 },                                 /* v */
+  { 0, 0, 0, 0, 0, 0xC6, 0xC6, 0xD6, 0xD6, 0xD6, 0xFE, 0x6C, 0, 0, 0, 0 },                                 /* w */
+  { 0, 0, 0, 0, 0, 0xC6, 0x6C, 0x38, 0x38, 0x38, 0x6C, 0xC6, 0, 0, 0, 0 },                                 /* x */
+  { 0, 0, 0, 0, 0, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x7E, 0x06, 0x0C, 0xF8, 0, 0 },                           /* y */
+  { 0, 0, 0, 0, 0, 0xFE, 0xCC, 0x18, 0x30, 0x60, 0xC6, 0xFE, 0, 0, 0, 0 },                                 /* z */
+  { 0, 0, 0x0E, 0x18, 0x18, 0x18, 0x70, 0x18, 0x18, 0x18, 0x18, 0x0E, 0, 0, 0, 0 },                        /* { */
+  { 0, 0, 0x18, 0x18, 0x18, 0x18, 0, 0x18, 0x18, 0x18, 0x18, 0x18, 0, 0, 0, 0 },                           /* | */
+  { 0, 0, 0x70, 0x18, 0x18, 0x18, 0x0E, 0x18, 0x18, 0x18, 0x18, 0x70, 0, 0, 0, 0 },                        /* } */
+  { 0, 0, 0x76, 0xDC, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },                                                /* ~ */
+};
+
+/**
+  Draw one line of ASCII text directly to the panel scanout buffer at the given
+  pixel row, white-on-black, scaled 2x. Clears the line's bounding box first so
+  re-draws are clean. MMU-off safe (physical 32-bit stores + a barrier).
+
+  Refuses when EXYNOS_FB_BASE is still 0 — the carveout has to be measured on the
+  phone before anything may draw.
+**/
+VOID
+Beyond0LteFbText (
+  IN UINT32       PixelRow,
+  IN CONST CHAR8  *Str
+  )
+{
+  volatile UINT32  *Fb;
+  UINTN            PenX;
+  UINTN            Row;
+  UINTN            Col;
+  UINTN            Sx;
+  UINTN            Sy;
+  UINT8            Bits;
+  UINT8            Ch;
+  UINT32           Color;
+
+  //
+  // The honest state on this SoC: no fb base has ever been read, so there is
+  // nothing to draw into. Returning here is the whole point of keeping
+  // EXYNOS_FB_BASE at 0 in Exynos9820.h — a placeholder must never become a
+  // store to physical address 0.
+  //
+  if (FB_BASE == 0) {
+    return;
+  }
+
+  //
+  // The panel is 1440 x 3040 here, not the S9+'s 1440 x 2960: a row that was
+  // chosen against the old height can still be in range, but a row chosen near
+  // the bottom is not. Clip instead of running past the scanout buffer, whose
+  // extent beyond EXYNOS_FB_SIZE is unknown.
+  //
+  if ((PixelRow + (GLYPH_H * FB_SCALE)) > FB_HEIGHT) {
+    return;
+  }
+
+  Fb = (volatile UINT32 *)(UINTN)FB_BASE;
+
+  //
+  // Clear the line band (full width, GLYPH_H*scale tall) to black.
+  //
+  for (Row = 0; Row < GLYPH_H * FB_SCALE; Row++) {
+    for (Col = 0; Col < FB_WIDTH; Col++) {
+      Fb[(PixelRow + Row) * FB_WIDTH + Col] = FB_BG;
+    }
+  }
+
+  //
+  // Render glyphs left to right from the safe-area margin.
+  //
+  PenX = FB_MARGIN_X;
+  while ((*Str != '\0') && (PenX + GLYPH_W * FB_SCALE <= FB_WIDTH)) {
+    Ch = (UINT8)*Str++;
+    if ((Ch < 0x20) || (Ch > 0x7E)) {
+      Ch = 0x20;
+    }
+
+    for (Row = 0; Row < GLYPH_H; Row++) {
+      Bits = mFont[Ch - 0x20][Row];
+      for (Col = 0; Col < GLYPH_W; Col++) {
+        Color = ((Bits & (0x80u >> Col)) != 0) ? FB_FG : FB_BG;
+        for (Sy = 0; Sy < FB_SCALE; Sy++) {
+          for (Sx = 0; Sx < FB_SCALE; Sx++) {
+            Fb[(PixelRow + Row * FB_SCALE + Sy) * FB_WIDTH + (PenX + Col * FB_SCALE + Sx)] = Color;
+          }
+        }
+      }
+    }
+
+    PenX += GLYPH_W * FB_SCALE;
+  }
+
+  ArmDataSynchronizationBarrier ();
+}

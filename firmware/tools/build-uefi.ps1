@@ -33,13 +33,14 @@ param(
   [string]$Toolchain = "CLANGPDB",
   [ValidateSet("Off", "Snapshot", "Hid")] [string]$UsbDebugMode = "Off",
   [ValidateRange(0, 4)] [int]$RamStage = 0,
+  [ValidateSet("Star2LtePkg", "Beyond0LtePkg")] [string]$Platform = "Star2LtePkg",
   [switch]$Clean
 )
 $ErrorActionPreference = "Stop"
 
 $ws   = Split-Path -Parent $PSScriptRoot
 $edk2 = Join-Path $ws "edk2"
-$dsc  = "Platform\Star2LtePkg\Star2LtePkg.dsc"
+$dsc  = "Platform\$($Platform)\$($Platform).dsc"
 
 $llvm = "C:\Program Files\LLVM\bin\"
 if (-not (Test-Path (Join-Path $llvm "clang.exe"))) {
@@ -53,6 +54,28 @@ $env:PACKAGES_PATH   = "$edk2;$ws"
 $env:CLANG_BIN       = $llvm
 $env:CLANGDWARF_BIN  = $llvm
 $env:PYTHON_COMMAND  = "python"   # BinWrappers\*.bat (Trim, GenFds, ...) need this
+# The BinWrappers are .bat files, so PYTHON_COMMAND is resolved by cmd.exe - and the
+# WindowsApps python shim is NOT executable from cmd.exe even though PowerShell and
+# `where` find it (symptom: every .S file dies at Trim with "'python' is not
+# recognized"). Probe with cmd and fall back to the absolute path.
+cmd /c "python --version >nul 2>nul"
+if ($LASTEXITCODE -ne 0) {
+  $pyCandidates = @()
+  $pyCandidates += Get-ChildItem -Path "C:\Users\ilya\AppData\Local\Microsoft\WindowsApps" -Filter "python.exe" -EA SilentlyContinue | ForEach-Object { $_.FullName }
+  $pyCandidates += Get-ChildItem -Path "C:\Python*" -Filter "python.exe" -EA SilentlyContinue | ForEach-Object { $_.FullName }
+  $py = $pyCandidates | Where-Object { $p = $_; Test-Path $p } | Select-Object -First 1
+  if ($py) { $env:PYTHON_COMMAND = '"' + $py + '"' }
+}
+# The WindowsApps python shim resolves in PowerShell but NOT inside cmd.exe, which is
+# what the BinWrappers\WindowsLike\*.bat runtimes invoke it from ('python' is not
+# recognized -> every .S file fails at Trim). Fall back to the absolute path.
+$pythonExe = (Get-Command python -ErrorAction SilentlyContinue) | ForEach-Object { $_.Source }
+if (-not $pythonExe) {
+  $pythonExe = "C:\Users\ilya\AppData\Local\Microsoft\WindowsApps\python.exe"
+}
+if (Test-Path $pythonExe) {
+  $env:PYTHON_COMMAND = '"' + $pythonExe + '"'
+}
 $env:PYTHONPATH      = Join-Path $edk2 "BaseTools\Source\Python"
 # PATH needs BOTH: Bin\Win32 (compiled GenFfs/GenFv/...) AND BinWrappers\WindowsLike
 # (the .bat wrappers like Trim.bat that preprocess .S asm files). Missing the latter
@@ -107,10 +130,14 @@ $buildArgs = @(
   "-a", "AARCH64",
   "-t", $Toolchain,
   "-p", $dsc,
-  "-b", $Target,
-  "-D", "STAR2LTE_USB_DEBUG_MODE=$usbDebugModeValue",
-  "-D", "STAR2LTE_RAM_STAGE=$RamStage"
+  "-b", $Target
 )
+if ($Platform -eq "Star2LtePkg") {
+  # The STAR2LTE_* knobs only exist in the 9810 platform; the 9820 DSC has no
+  # such DEFINEs, so passing them there is a build error, not a no-op.
+  $buildArgs += @("-D", "STAR2LTE_USB_DEBUG_MODE=$usbDebugModeValue")
+  $buildArgs += @("-D", "STAR2LTE_RAM_STAGE=$RamStage")
+}
 if ($Module) { $buildArgs += @("-m", $Module) }
 if ($Clean)  { $buildArgs += "cleanall" }
 

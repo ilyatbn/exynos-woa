@@ -1,0 +1,153 @@
+/** @file
+  PPTT — Processor Properties Topology Table for Exynos 9820 / Galaxy S10e.
+
+  WHY THIS TABLE EXISTS
+  ---------------------
+  (rationale carried from the 9810, where it was observed 2026-08-02; the S10e
+  has not been booted yet, so the symptom below is the 9810's, not a read here)
+  Windows reported a single processor even though the MADT enabled all eight GICCs
+  and the secure monitor started the secondaries (PSCI CPU_ON ok). The MADT alone
+  tells Windows *that* GICCs exist; it does not describe the processor topology.
+  On ARM64 that topology comes from the PPTT, and a platform shipping only
+  DSDT/FADT/MADT/GTDT gives the HAL no package/cluster/core hierarchy to attach
+  the MADT's ACPI Processor UIDs to. So this table is what makes Windows see more
+  than one core.
+
+  TOPOLOGY DESCRIBED — and the one deliberate divergence from Madt.aslc
+  --------------------------------------------------------------------
+  The S10e has TWO structural facts that do NOT coincide (see Madt.aslc and
+  notes/dock-desktop.md §16):
+
+    * MPIDR affinity:  TWO clusters, sized 6 + 2 — cpu@0000..cpu@0005 (Aff1=0)
+      and cpu@0100,cpu@0101 (Aff1=1). This is what the MADT's MPIDR column carries.
+    * Efficiency classes: THREE — ananke/LITTLE (4), prometheus/MID (2),
+      cheetah/BIG (2). This is what the MADT's ProcessorPowerEfficiencyClass carries.
+
+  The PPTT's cluster level follows the THREE EFFICIENCY CLASSES, not the two MPIDR
+  clusters. Reason: the PPTT type-0 node has no MPIDR field — MPIDR lives only in the
+  MADT — and the two tables are joined by AcpiProcessorId == AcpiProcessorUid (leaf N
+  <-> GICC N), which is unaffected by how the intermediate nodes are grouped. Grouping
+  by efficiency class is the ONLY grouping that makes the IDENTICAL_IMPLEMENTATION flag
+  honest: MPIDR cluster 0 mixes ananke + prometheus, so it is NOT internally identical,
+  whereas each efficiency class (4 A55 / 2 prometheus / 2 cheetah) IS. So:
+
+    package
+      +- cluster 0 (ananke / LITTLE)  cores UID 0,1,2,3   EFF_LITTLE
+      +- cluster 1 (prometheus / MID) cores UID 4,5       EFF_MID
+      +- cluster 2 (cheetah / BIG)    cores UID 6,7       EFF_BIG
+
+  The AcpiProcessorId of each leaf MUST equal the AcpiProcessorUid of the matching
+  MADT GICC. Madt.aslc assigns UID 0..7 in exactly this order (LITTLE 0..3, MID 4..5,
+  BIG 6..7), so leaf N <-> GICC N holds.
+
+  The package does NOT set the "identical implementation" flag, because this is a
+  heterogeneous part with three different core types; the flag is set per efficiency
+  class, where the cores really are identical.
+
+  Parent links are byte offsets from the start of this table, so the node offsets are
+  load-bearing. OFFSET_OF keeps them honest against the struct layout rather than being
+  hand-copied constants.
+
+  NOTE ON CACHE (type-1) NODES: none are emitted. The 9810 PPTT shipped only type-0
+  nodes, and no cache geometry (size / associativity / line size) has been read on the
+  S10e anywhere in this tree, so per the repo's rule a cache hierarchy would be a guess,
+  not a port. The "entries that follow the three efficiency classes" are the three type-0
+  cluster nodes above.
+**/
+
+#include "Beyond0LteAcpiHeader.h"
+#include <IndustryStandard/Acpi63.h>
+
+#define BEYOND0LTE_NUM_CORES     8
+#define BEYOND0LTE_NUM_CLUSTERS  3   // efficiency classes: LITTLE / MID / BIG (NOT the 2 MPIDR clusters)
+
+#define BEYOND0LTE_PPTT_SIGNATURE  SIGNATURE_32 ('P', 'P', 'T', 'T')
+#define BEYOND0LTE_PPTT_REVISION   0x03   // UNVERIFIED: 9810 revision, not read on this SoC
+
+//
+// Processor hierarchy node (PPTT type 0) flags.
+//
+#define PPTT_FLAG_PHYSICAL_PACKAGE         BIT0
+#define PPTT_FLAG_ACPI_PROCESSOR_ID_VALID  BIT1
+#define PPTT_FLAG_PROCESSOR_IS_A_THREAD    BIT2
+#define PPTT_FLAG_NODE_IS_A_LEAF           BIT3
+#define PPTT_FLAG_IDENTICAL_IMPLEMENTATION BIT4
+
+#pragma pack (1)
+
+//
+// Type 0 processor hierarchy node with no private resources.
+//
+typedef struct {
+  UINT8     Type;
+  UINT8     Length;
+  UINT16    Reserved;
+  UINT32    Flags;
+  UINT32    Parent;
+  UINT32    AcpiProcessorId;
+  UINT32    NumberOfPrivateResources;
+} BEYOND0LTE_PPTT_NODE;
+
+typedef struct {
+  EFI_ACPI_DESCRIPTION_HEADER  Header;
+  BEYOND0LTE_PPTT_NODE         Package;
+  BEYOND0LTE_PPTT_NODE         Cluster[BEYOND0LTE_NUM_CLUSTERS];
+  BEYOND0LTE_PPTT_NODE         Core[BEYOND0LTE_NUM_CORES];
+} BEYOND0LTE_PPTT;
+
+#pragma pack ()
+
+#define PPTT_OFF_PACKAGE     ((UINT32)OFFSET_OF (BEYOND0LTE_PPTT, Package))
+#define PPTT_OFF_CLUSTER(n)  ((UINT32)(OFFSET_OF (BEYOND0LTE_PPTT, Cluster) + (n) * sizeof (BEYOND0LTE_PPTT_NODE)))
+
+#define PPTT_NODE(Flags, Parent, ProcId) \
+  { 0, sizeof (BEYOND0LTE_PPTT_NODE), 0, (Flags), (Parent), (ProcId), 0 }
+
+#define PPTT_CORE(ClusterIndex, ProcId) \
+  PPTT_NODE ( \
+    PPTT_FLAG_ACPI_PROCESSOR_ID_VALID | PPTT_FLAG_NODE_IS_A_LEAF, \
+    PPTT_OFF_CLUSTER (ClusterIndex), \
+    (ProcId) \
+    )
+
+STATIC BEYOND0LTE_PPTT  Pptt = {
+  ACPI_HEADER (
+    BEYOND0LTE_PPTT_SIGNATURE,
+    BEYOND0LTE_PPTT,
+    BEYOND0LTE_PPTT_REVISION
+    ),
+
+  //
+  // Root: the physical package. Not a leaf, no ACPI processor id, and NOT flagged
+  // identical (three different core types under it).
+  //
+  PPTT_NODE (PPTT_FLAG_PHYSICAL_PACKAGE, 0, 0),
+
+  {
+    // cluster 0 — four identical ananke / Cortex-A55 (LITTLE).
+    PPTT_NODE (PPTT_FLAG_IDENTICAL_IMPLEMENTATION, PPTT_OFF_PACKAGE, 0),
+    // cluster 1 — two identical prometheus (MID).
+    PPTT_NODE (PPTT_FLAG_IDENTICAL_IMPLEMENTATION, PPTT_OFF_PACKAGE, 0),
+    // cluster 2 — two identical cheetah (Samsung's own, BIG).
+    PPTT_NODE (PPTT_FLAG_IDENTICAL_IMPLEMENTATION, PPTT_OFF_PACKAGE, 0),
+  },
+
+  {
+    // LITTLE cores, MADT GICC UID 0..3.
+    PPTT_CORE (0, 0),
+    PPTT_CORE (0, 1),
+    PPTT_CORE (0, 2),
+    PPTT_CORE (0, 3),
+    // MID cores, MADT GICC UID 4..5.
+    PPTT_CORE (1, 4),
+    PPTT_CORE (1, 5),
+    // BIG cores, MADT GICC UID 6..7.
+    PPTT_CORE (2, 6),
+    PPTT_CORE (2, 7),
+  }
+};
+
+//
+// Referenced by AcpiPlatformDxe so the linker keeps the table.
+//
+VOID *CONST  ReferenceAcpiTable = &Pptt;

@@ -4,6 +4,12 @@
 #  points (ArmPlatformLib.c).
 #
 #  Mirrors Star2LtePkg's library. Nothing here is validated on an S10e yet.
+#
+#  Beyond0LteFbText.c is carried here as on the 9810, but it is a no-op on this
+#  SoC while EXYNOS_FB_BASE is 0 in Exynos9820.h — the framebuffer carveout has
+#  never been measured on an S10e (notes/s10e-live-reads.md §7.3). No caller in
+#  this module draws to the panel yet, so the on-panel progress channel the 9810
+#  flow uses stays unavailable until that read is taken.
 ##
 
 [Defines]
@@ -17,6 +23,7 @@
 [Sources]
   PlatformMemoryMapLib.c
   ArmPlatformLib.c
+  Beyond0LteFbText.c
 
 [Packages]
   MdePkg/MdePkg.dec

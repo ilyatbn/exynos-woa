@@ -1,0 +1,33 @@
+## @file
+#  Samsung/Exynos UART SerialPortLib for Exynos 9820 (Galaxy S10e, beyond0lte).
+#  Port of Silicon/Exynos9810Pkg/Library/Exynos9810SerialPortLib. See the .c.
+#
+#  The UART base is NOT restated here: it is PcdSerialRegisterBase, whose default
+#  lives in Exynos9820Pkg.dec and is the same read as Exynos9820.h's
+#  EXYNOS_UART_BASE (uart@10440000, VERIFIED on the live S10e and in the vendor
+#  DT). Nothing in this module is validated on an S10e yet.
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = Exynos9820SerialPortLib
+  FILE_GUID                      = 11111111-2222-3333-4444-555555555522
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 0.1
+  LIBRARY_CLASS                  = SerialPortLib
+
+[Sources]
+  Exynos9820SerialPortLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  Silicon/Exynos9820Pkg/Exynos9820Pkg.dec
+
+[LibraryClasses]
+  BaseLib
+  IoLib
+  PcdLib
+  DebugLib
+
+[FixedPcd]
+  gExynos9820TokenSpaceGuid.PcdSerialRegisterBase

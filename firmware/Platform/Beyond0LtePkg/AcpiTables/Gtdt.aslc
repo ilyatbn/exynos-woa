@@ -1,0 +1,78 @@
+/** @file
+  GTDT — Generic Timer Description Table for Exynos 9820 / Galaxy S10e.
+
+  Ported from Star2LtePkg's GTDT for the Exynos 9810. Describes the ARMv8
+  architected generic timer to Windows. The per-EL timer interrupts are PPIs;
+  their GSIVs are the architectural values and almost always match across ARMv8
+  SoCs, but they have NOT been read against the 9820's DT `timer` node — the
+  9820 silicon header carries no timer PPIs — so they stay UNVERIFIED here.
+
+  DT mapping reminder (GIC_PPI n  ->  GSIV = 16 + n):
+    secure   EL1 phys : DT PPI 13 -> GSIV 29
+    non-sec  EL1 phys : DT PPI 14 -> GSIV 30
+    virtual          : DT PPI 11 -> GSIV 27
+    non-sec  EL2 hyp : DT PPI 10 -> GSIV 26
+
+  Memory-mapped counter frames (CntControl/CntRead): on the 9810 CNTFRQ_EL0 reads
+  0 (EL3 never programs it) and the real counter is 26 MHz, so the 9810's
+  Star2LteAcpiPlatformDxe PATCHES these two fields AT INSTALL TIME: CntControlBase
+  -> a synthetic frame whose CNTFID0 = 26 MHz, and CntReadBase -> the Samsung MCT
+  global counter (0x10040100). NONE OF THAT IS ESTABLISHED ON THE S10e:
+  Exynos9820.h flags EXYNOS_ARCH_TIMER_FREQ_HZ (26 MHz) as UNVERIFIED (it is the
+  9810 value), the MCT counter address has not been read here, and there is no
+  Beyond0LteAcpiPlatformDxe in this tree yet to apply the patch at all. So the
+  all-ones placeholders below are left as-is and are NOT a working timer on this
+  SoC until the frequency, the MCT address and the patching driver are confirmed.
+**/
+
+#include "Beyond0LteAcpiHeader.h"
+#include <IndustryStandard/Acpi63.h>
+
+//
+// Architectural generic-timer GSIVs. UNVERIFIED on this SoC — not read against
+// the 9820 DT timer node (the 9810 carried the same values).
+//
+#define GTDT_SECURE_EL1_GSIV       29   // UNVERIFIED (architectural default, not read on S10e)
+#define GTDT_NON_SECURE_EL1_GSIV   30   // UNVERIFIED (architectural default, not read on S10e)
+#define GTDT_VIRTUAL_GSIV          27   // UNVERIFIED (architectural default, not read on S10e)
+#define GTDT_NON_SECURE_EL2_GSIV   26   // UNVERIFIED (architectural default, not read on S10e)
+
+//
+// Timer flags: ARM arch timers are level-triggered, active-low.
+// Bit0 = mode (0 level), Bit1 = polarity (0 active-high / 1 active-low),
+// Bit2 = always-on capability.
+//
+#define GTDT_GTIMER_FLAGS  (EFI_ACPI_6_3_GTDT_TIMER_FLAG_TIMER_INTERRUPT_POLARITY | EFI_ACPI_6_3_GTDT_TIMER_FLAG_ALWAYS_ON_CAPABILITY)
+#define GTDT_TIMER_DISABLED_FLAGS  0
+
+//
+// Counter frames not provided to the OS. These are placeholders; on the 9810 an
+// install-time driver overwrote them with a 26 MHz frame + the MCT read base. No
+// such driver exists for the 9820 yet, and neither the frequency nor the MCT
+// address is a read on this SoC, so the placeholders stay.
+//
+#define GTDT_CNT_CONTROL_BASE  0xFFFFFFFFFFFFFFFFULL
+#define GTDT_CNT_READ_BASE     0xFFFFFFFFFFFFFFFFULL
+
+EFI_ACPI_6_3_GENERIC_TIMER_DESCRIPTION_TABLE  Gtdt = {
+  ACPI_HEADER (
+    EFI_ACPI_6_3_GENERIC_TIMER_DESCRIPTION_TABLE_SIGNATURE,
+    EFI_ACPI_6_3_GENERIC_TIMER_DESCRIPTION_TABLE,
+    EFI_ACPI_6_3_GENERIC_TIMER_DESCRIPTION_TABLE_REVISION
+    ),
+  GTDT_CNT_CONTROL_BASE,            // CntControlBasePhysicalAddress
+  EFI_ACPI_RESERVED_DWORD,          // Reserved
+  GTDT_SECURE_EL1_GSIV,             // SecurePL1TimerGSIV
+  GTDT_GTIMER_FLAGS,                // SecurePL1TimerFlags
+  GTDT_NON_SECURE_EL1_GSIV,         // NonSecurePL1TimerGSIV
+  GTDT_GTIMER_FLAGS,                // NonSecurePL1TimerFlags
+  GTDT_VIRTUAL_GSIV,                // VirtualTimerGSIV
+  GTDT_GTIMER_FLAGS,                // VirtualTimerFlags
+  GTDT_NON_SECURE_EL2_GSIV,         // NonSecurePL2TimerGSIV
+  GTDT_GTIMER_FLAGS,                // NonSecurePL2TimerFlags
+  GTDT_CNT_READ_BASE,               // CntReadBasePhysicalAddress
+  0,                                // PlatformTimerCount (no SBSA watchdog described yet)
+  0,                                // PlatformTimerOffset
+};
+
+VOID *CONST  ReferenceAcpiTable = &Gtdt;

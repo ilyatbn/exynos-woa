@@ -87,7 +87,7 @@ errors.
 | M5 | Port the UFS storage driver to 9820 | todo | M3 |
 | M6 | Verify the 9820 constants against a live S10e | **done** | was **needs-phone** — resolved, see `notes/s10e-live-reads.md` |
 | M7 | Build and test-sign the three 9820 drivers | **done** | built + test-signed 2026-10-09; **nothing installed or validated on the phone yet** |
-| M8 | UEFI firmware for `beyond0lte` | todo | M5, M6 |
+| M8 | UEFI firmware for `beyond0lte` | doing | M5, M6 — the platform **builds** (`BEYOND0LTE_UEFI.fd`) but is missing the ACPI installer and the UEFI storage/reset libraries |
 | M9 | Installer: add the S10e behind honest gating | todo | M7, M8 |
 | M10 | USB-C **host** mode: keyboard, mouse, dock attachments | todo | M8 |
 | M11 | External display: the dock's HDMI over the USB-C link | todo | M10 |
@@ -223,6 +223,9 @@ tree does not contain.
 | Create the 9820 memory-map library | **done** | `firmware/Platform/Beyond0LtePkg/Library/PlatformMemoryMapLib/` — 9820 windows in, both zero-base **and zero-size** placeholders skipped, the USB PHY mapped as one envelope because the DT's three windows overlap, and the 9810's PRAM breadcrumb compiled out since `0xFED14000` is **inside bank0** on this SoC |
 | Publish the 9820 MADT | **done** | `firmware/Platform/Beyond0LtePkg/AcpiTables/Madt.aslc` — the GIC half transfers unchanged (same GICv2 bases); the CPU half is **4+2+2 across three efficiency classes**, and the MPIDR affinity **ordering** is marked UNVERIFIED because it is an inference from the power-domain naming |
 | Port the DSDT | **done** | `firmware/Platform/Beyond0LtePkg/AcpiTables/Dsdt.asl` — device classes retargeted (`SCY0761` stays, the panel really is a y761), UFS windows and the ALIVE GPIO moved, HSI2C interrupt 436→420; the CMU/SYSREG windows, the parked Storport line, the touch EINT and the CPU sub-device buffers are **left at the 9810 values and documented as such**, because the DSDT and the driver header have to be corrected in one step |
+
+| Create the 9820 DSC/FDF and actually build the platform | **done** | `firmware/Platform/Beyond0LtePkg/Beyond0LtePkg.dsc` + `.fdf`; `firmware/tools/build-uefi.ps1 -Platform Beyond0LtePkg -Target DEBUG` exits 0 and produces `BEYOND0LTE_UEFI.fd` (7 340 032 B, sha256 `ef4381b7...`). Toolchain bootstrapped on this machine: edk2 clone + submodules, LLVM, GnuWin32 make, `iasl-win-20260408`, and BaseTools host binaries built with `Edk2ToolsBuild.py -t VS2026` (`BrotliCompress` fails - its brotli submodule was not pulled; nothing here needs it). Five DSC fixes were needed and each is an edk2-master drift, not a hardware question: `LzmaDecompressLib` has no provider, `GptLib` instance added, `PlatformBootManagerLib` from ArmPkg, `PcdDefaultTerminalType|4` (MdePkg token space), `ResetSystemRuntimeDxe` dropped - `notes/m8-build.md` |
+| Port the rest of the 9820 firmware | todo | still missing and on the boot path: an ACPI **installer** (`Star2LteAcpiPlatformDxe` equivalent, without which the tables ship but are never installed), `Star2LteUfsHcDxe` (UEFI-side storage), `Star2LteRamManagerDxe`, `Star2LteResetSystemLib` (needs the 9820 PMU intra-block layout), the HSI40/GPIO-handoff subsystem, and the 9810's own `PlatformBootManagerLib` |
 
 ### M9 — Installer
 

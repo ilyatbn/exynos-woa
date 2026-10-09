@@ -32,14 +32,29 @@ a chain of small commits is not.
   as the work it describes.
 - A task is not `done` until its verification actually ran.
 
-## 4. Restart points
+## 4. Review every commit as a harsh critic
+
+- After **each** commit, re-read the diff of that commit and review it as if you
+  were an adversarial code reviewer: assume it is wrong until proven otherwise.
+- Attack the substance, not the style — a constant that was guessed, a rename
+  that missed a call site, a guard that no longer compiles out what it claims,
+  a comment that asserts something the code does not do, dead code left behind
+  a `#if 0`, an off-by-one, a silent behaviour change.
+- Verify the claims mechanically (`rg`, `git diff --stat` on the 9810 tree, a
+  build), never by re-reading them.
+- Anything the review flags becomes a **follow-up task**, fixed in its own
+  commit — never folded into the commit under review, never left as a note.
+- Record the review in the task's notes file: what was checked, what was
+  found, what was fixed.
+
+## 5. Restart points
 
 - `HANDOFF.md` gets a new numbered section per session crash: what is
   committed, what was in flight, and the exact next order of work.
 - Update it **before** the commit that ends the session's last task, so a
   fresh session can resume from `git status` alone.
 
-## 5. Hardware constants
+## 6. Hardware constants
 
 - Never guess a constant. Unverified values stay named `UNVERIFIED` in the
   source, with the read that would close them recorded in the notes file.
@@ -47,7 +62,7 @@ a chain of small commits is not.
 - The 9810 packages stay **byte-unchanged**; port by copying into the
   `Beyond0Lte*` paths, never by editing the 9810 tree.
 
-## 6. Nothing is `Ready` without device validation
+## 7. Nothing is `Ready` without device validation
 
 Unvalidated stages stay `Guided` / `NotImplemented`. A successful build says
 nothing about a boot hazard; record the difference.

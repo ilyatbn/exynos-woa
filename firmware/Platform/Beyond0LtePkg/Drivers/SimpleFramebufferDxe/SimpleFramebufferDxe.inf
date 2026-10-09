@@ -7,9 +7,8 @@
 #  entry-point symbol stays the module's own.
 #
 #  The framebuffer base is NOT restated here: it is EXYNOS_FB_BASE in
-#  Silicon/Exynos9820Pkg/Include/Platform/Exynos9820.h, which is 0 because the
-#  carveout has never been measured on an S10e. The entry point refuses with
-#  EFI_NOT_READY in that state. Nothing in this module is validated on the
+#  Silicon/Exynos9820Pkg/Include/Platform/Exynos9820.h, which is 0xCA000000, read from the device's own
+#  kernel command line (s3cfb.bootloaderfb). The entry point no longer refuses. Nothing in this module is validated on the
 #  device yet.
 ##
 

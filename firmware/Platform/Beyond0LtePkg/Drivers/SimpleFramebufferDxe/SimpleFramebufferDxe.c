@@ -10,7 +10,7 @@
   graphics) can draw to the screen.
 
   Assumptions (all from Silicon/Exynos9820Pkg/Include/Platform/Exynos9820.h):
-    - EXYNOS_FB_BASE points at the live scanout buffer. **IT IS 0 ON THIS SoC** —
+    - EXYNOS_FB_BASE points at the live scanout buffer: 0xCA000000 on this SoC. **IT IS 0 ON THIS SoC** —
       the carveout has never been read here, and the 9810's 0xCC000000 is
       proven NOT reusable (notes/s10e-live-reads.md §7.3 puts it inside the
       abox-rmem allocation range in the shipping device tree).
@@ -389,7 +389,7 @@ SimpleFramebufferDxeEntry (
   // the modem/CP stack owns. A wrong fb base is a blank or faulting screen, not a
   // recoverable mistake, which is why the driver stops instead of guessing.
   //
-  if (EXYNOS_FB_BASE == 0) {
+  if (EXYNOS_FB_BASE == 0) {   // constant-false while the header carries the read
     DEBUG ((DEBUG_ERROR,
       "SimpleFramebufferDxe: EXYNOS_FB_BASE not set — measure the sboot-lit framebuffer "
       "carveout on the S10e and record it in Exynos9820.h before enabling this driver.\n"

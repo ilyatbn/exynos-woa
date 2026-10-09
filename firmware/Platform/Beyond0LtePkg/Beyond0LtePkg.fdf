@@ -21,9 +21,9 @@
 #    Platform/Star2LtePkg/Drivers/SimpleFramebufferDxe/SimpleFramebufferDxe.inf
 #        PORTED after this header was written ->
 #        Platform/Beyond0LtePkg/Drivers/SimpleFramebufferDxe/, placed below.
-#        It returns EFI_NOT_READY while EXYNOS_FB_BASE is 0 (unread on this SoC),
-#        so there is no graphics output yet, but nothing about the boot depends
-#        on it. Matches PlatformMemoryMapLib.c skipping the carveout.
+#        EXYNOS_FB_BASE is now 0xCA000000 (read from the device's own cmdline), so the
+#        panel is drawn and PlatformMemoryMapLib.c publishes the carveout as
+#        device memory.
 #    Platform/Star2LtePkg/Drivers/Star2LteAcpiPlatformDxe/Star2LteAcpiPlatformDxe.inf
 #        PORTED after this header was written ->
 #        Platform/Beyond0LtePkg/Drivers/Beyond0LteAcpiPlatformDxe/, placed below,
@@ -180,9 +180,9 @@
 
   #
   # --- Console: serial + splitter + the 9820 first-light framebuffer driver.
-  #     Beyond0LteSimpleFramebufferDxe returns EFI_NOT_READY while EXYNOS_FB_BASE
-  #     is still 0 (the carveout has never been measured on an S10e), so the
-  #     screen stays dark without failing the boot. ---
+  #     Beyond0LteSimpleFramebufferDxe is live: EXYNOS_FB_BASE is 0xCA000000, read from
+  #     the device's own kernel command line, so the screen is drawn and the map
+  #     publishes the carveout as device memory. ---
   #
   INF Platform/Beyond0LtePkg/Drivers/SimpleFramebufferDxe/SimpleFramebufferDxe.inf
   #

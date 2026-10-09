@@ -27,10 +27,10 @@
 #    Platform/Star2LtePkg/Drivers/SimpleFramebufferDxe/SimpleFramebufferDxe.inf
 #        PORTED after this header was written:
 #        Platform/Beyond0LtePkg/Drivers/SimpleFramebufferDxe/ now exists and is
-#        placed in [Components.common] below. It returns EFI_NOT_READY while
-#        EXYNOS_FB_BASE is 0 (never read on this SoC), so the panel stays dark
-#        but the boot is not blocked. Consistent with PlatformMemoryMapLib.c,
-#        which skips the framebuffer carveout for the same reason.
+#        placed in [Components.common] below. EXYNOS_FB_BASE is now 0xCA000000,
+#        read from the device's own kernel command line (s3cfb.bootloaderfb), so
+#        the panel is drawn and PlatformMemoryMapLib.c publishes the carveout as
+#        device memory.
 #
 #    Platform/Star2LtePkg/Drivers/Star2LteAcpiPlatformDxe/Star2LteAcpiPlatformDxe.inf
 #        PORTED after this header was written ->
@@ -491,9 +491,9 @@
   MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf
 
   # --- Console: serial + splitter + the 9820 first-light framebuffer driver.
-  #     Beyond0LteSimpleFramebufferDxe returns EFI_NOT_READY while EXYNOS_FB_BASE
-  #     is still 0 (the carveout has never been measured on an S10e), so the
-  #     screen stays dark without failing the boot. ---
+  #     Beyond0LteSimpleFramebufferDxe is live: EXYNOS_FB_BASE is 0xCA000000, read from
+  #     the device's own kernel command line, so the screen is drawn and the map
+  #     publishes the carveout as device memory. ---
   Platform/Beyond0LtePkg/Drivers/SimpleFramebufferDxe/SimpleFramebufferDxe.inf
   # HiiDatabaseDxe FIRST — produces the 3 HII protocols (Database/String/
   # ConfigRouting) that BdsDxe's UefiHiiServicesLib-injected DEPEX requires.

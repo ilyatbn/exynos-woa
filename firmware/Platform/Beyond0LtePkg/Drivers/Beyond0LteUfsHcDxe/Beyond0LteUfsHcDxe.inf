@@ -10,8 +10,8 @@
 #  intra-window vendor offsets are unchanged (Exynos9820.h:260-262). The 9810's
 #  PRAM/diag telemetry channel (0xFED1xxxx) and the framebuffer HUD are COMPILED
 #  OUT, not retargeted: 0xFED1xxxx is inside bank0 DRAM on this SoC (same hazard
-#  notes/m8-dscfdf.md and Beyond0LteAcpiPlatformDxe flag) and the fb base is
-#  unread (EXYNOS_FB_BASE = 0). Clock rates, the PMU phy-isolation offset, the
+#  notes/m8-dscfdf.md and Beyond0LteAcpiPlatformDxe flag) and the fb base is now read
+#  (EXYNOS_FB_BASE = 0xCA000000, from the device's own cmdline). Clock rates, the PMU phy-isolation offset, the
 #  opt-suite value and the UFS RefClk category have no 9820 read and stay marked
 #  UNVERIFIED. Nothing here is validated on an S10e (Guided, not Ready).
 #

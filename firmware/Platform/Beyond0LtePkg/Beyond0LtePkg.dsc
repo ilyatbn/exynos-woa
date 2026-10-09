@@ -44,10 +44,12 @@
 #        only the single PcdSystemMemoryBase/Size window reaches DXE.
 #
 #    Platform/Star2LtePkg/Drivers/Star2LteUfsHcDxe/Star2LteUfsHcDxe.inf
-#        None. The EDKII_UFS_HOST_CONTROLLER_PROTOCOL producer is gone, so
-#        UfsPassThruDxe binds nothing and the storage chain below it enumerates
-#        no volumes. Not renameable anyway: the 9810 driver's UFS HCI is the
-#        0x111… region, the 9820's is ufs@13D60000 (Exynos9820.h).
+#        PORTED after this header was written ->
+#        Platform/Beyond0LtePkg/Drivers/Beyond0LteUfsHcDxe/, placed in
+#        [Components.common] below, so UfsPassThruDxe has its protocol producer
+#        again. Not a rename: every UFS window is remapped to the EXYNOS_UFS_*
+#        macros (9820 ufs@13D60000, Exynos9820.h:268-278) and the 0xFED1xxxx
+#        PRAM/diag telemetry channel is compiled out, not retargeted.
 #
 #    Platform/Star2LtePkg/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf
 #        None. The platform BDS hook is gone (and with it the 9810's USB-debug
@@ -493,9 +495,11 @@
   # --- RAM discovery: Star2LteRamManagerDxe DROPPED (no 9820 equivalent). ---
 
   # --- Storage + filesystem (Windows ESP on UFS).
-  #     Star2LteUfsHcDxe is DROPPED (no 9820 equivalent), so the host-controller
-  #     protocol below has no producer and this chain enumerates nothing yet.
+  #     Beyond0LteUfsHcDxe is the ported 9810 UFS host controller: it PRODUCES
+  #     EDKII_UFS_HOST_CONTROLLER_PROTOCOL, which UfsPassThruDxe binds, so the
+  #     chain below it can enumerate. Nothing in it is validated on an S10e.
   #     Every path listed here exists in the checkout. ---
+  Platform/Beyond0LtePkg/Drivers/Beyond0LteUfsHcDxe/Beyond0LteUfsHcDxe.inf
   MdeModulePkg/Bus/Ufs/UfsPassThruDxe/UfsPassThruDxe.inf
   MdeModulePkg/Bus/Scsi/ScsiBusDxe/ScsiBusDxe.inf
   MdeModulePkg/Bus/Scsi/ScsiDiskDxe/ScsiDiskDxe.inf

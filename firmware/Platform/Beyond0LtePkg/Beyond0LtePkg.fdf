@@ -33,10 +33,12 @@
 #        No 9820 equivalent. The high DRAM banks (0xC0000000, 0xE1900000,
 #        0x880000000, 0x900000000 — bases read, sizes unread) are not published.
 #    Platform/Star2LtePkg/Drivers/Star2LteUfsHcDxe/Star2LteUfsHcDxe.inf
-#        No 9820 equivalent. The UFS host-controller protocol has no producer, so
-#        UfsPassThruDxe below binds nothing and the storage chain enumerates no
-#        volumes. (9820 UFS HCI is ufs@13D60000, Exynos9820.h:268 — the 9810
-#        driver's 0x111… region does not exist on this SoC.)
+#        PORTED after this header was written ->
+#        Platform/Beyond0LtePkg/Drivers/Beyond0LteUfsHcDxe/, placed in the
+#        storage section below, so UfsPassThruDxe has a protocol producer again.
+#        Not a rename: the UFS windows are remapped to the EXYNOS_UFS_* macros
+#        (9820 ufs@13D60000, Exynos9820.h:268-278) and the 0xFED1xxxx PRAM/diag
+#        channel is compiled out rather than retargeted.
 #    Platform/Star2LtePkg/Library/PlatformBootManagerLib/… and
 #    Platform/Star2LtePkg/Library/Star2LteResetSystemLib/…
 #        No 9820 equivalents; they are DSC library classes, so they appear in
@@ -202,9 +204,9 @@
   #
   #
   # --- Storage + filesystem (Windows ESP on UFS).
-  #     Star2LteUfsHcDxe is DROPPED (no 9820 equivalent), so the host-controller
-  #     protocol has no producer and this chain enumerates no volumes yet. ---
-  #
+  #     Beyond0LteUfsHcDxe produces the UFS host-controller protocol that
+  #     UfsPassThruDxe binds; ScsiBus/ScsiDisk/Partition sit under it. ---
+  INF Platform/Beyond0LtePkg/Drivers/Beyond0LteUfsHcDxe/Beyond0LteUfsHcDxe.inf
   INF MdeModulePkg/Bus/Ufs/UfsPassThruDxe/UfsPassThruDxe.inf
   INF MdeModulePkg/Bus/Scsi/ScsiBusDxe/ScsiBusDxe.inf
   INF MdeModulePkg/Bus/Scsi/ScsiDiskDxe/ScsiDiskDxe.inf

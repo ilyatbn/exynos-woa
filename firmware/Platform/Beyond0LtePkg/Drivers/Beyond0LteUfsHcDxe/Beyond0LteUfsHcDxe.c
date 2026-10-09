@@ -249,6 +249,7 @@ Beyond0LteSmc (
   return x0;
 }
 
+#if BEYOND0LTE_UFS_DIAG
 STATIC
 UINT32
 Beyond0LteSmcReadSfr (
@@ -279,6 +280,7 @@ Beyond0LteSmcReadSfr (
   *Status = (UINT32)x0;
   return (UINT32)x2;
 }
+#endif
 
 STATIC
 VOID
@@ -351,8 +353,8 @@ Beyond0LteUfspConfig (
     // A98's DESCTYPE-0 (which carried other broken vars), this runs with the A46 byte-gran PRDT + iocoh-OFF + WC
     // bounce all in place. EXPECT smur=0xEFE26492. If the A108 READ BUFFER probe now PASSES (r6/o1 EFIst 00) =>
     // FMP/PRDT-format mismatch CONFIRMED as the root cause + FIXED.
-    UINT64  FmpRet = Beyond0LteSmc (SMC_CMD_FMP_SECURITY, 0, SMU_EMBEDDED, CFG_DESCTYPE_3);   // A112: back to DESCTYPE-3 (kernel-faithful: kernel CFG_DESCTYPE=3); now paired with iocoh ON
-    UINT64  SmuRet = Beyond0LteSmc (SMC_CMD_SMU, SMU_INIT_CMD, SMU_EMBEDDED, 0);
+    (VOID)Beyond0LteSmc (SMC_CMD_FMP_SECURITY, 0, SMU_EMBEDDED, CFG_DESCTYPE_3);   // A112: back to DESCTYPE-3 (kernel-faithful: kernel CFG_DESCTYPE=3); now paired with iocoh ON
+    (VOID)Beyond0LteSmc (SMC_CMD_SMU, SMU_INIT_CMD, SMU_EMBEDDED, 0);
     //
     // *** A113: also issue the SMU/FMP RESUME SMC (exynos_ufs_smu_resume -> SMC_CMD_FMP_SMU_RESUME). The kernel's
     // COLD boot does FMP_SECURITY + SMU_INIT (== my sequence, which the kernel uses successfully) - so the SMCs are
@@ -361,18 +363,14 @@ Beyond0LteUfspConfig (
     // whereas RESUME restores the working secure context. Additive + low-risk (worst case: error return, no effect).
     // Capture the return (panel "smres"): 0 => resume OK; non-zero => monitor rejected (LDFW drmdrv_result_t).
     //
-    UINT64  SmuResume = Beyond0LteSmc (SMC_CMD_FMP_SMU_RESUME, 0, SMU_EMBEDDED, 0);
-    UINT64  SmuDump0   = Beyond0LteSmc (SMC_CMD_FMP_SMU_DUMP, 0, SMU_EMBEDDED, 0x00);
-    UINT64  SmuDump10  = Beyond0LteSmc (SMC_CMD_FMP_SMU_DUMP, 0, SMU_EMBEDDED, 0x10);
-    UINT64  DiskKeyStored;
-    UINT64  DiskKeySet;
-    UINT64  UfsLogRet;
+    (VOID)Beyond0LteSmc (SMC_CMD_FMP_SMU_RESUME, 0, SMU_EMBEDDED, 0);
+    (VOID)Beyond0LteSmc (SMC_CMD_FMP_SMU_DUMP, 0, SMU_EMBEDDED, 0x00);
+    (VOID)Beyond0LteSmc (SMC_CMD_FMP_SMU_DUMP, 0, SMU_EMBEDDED, 0x10);
     WriteBackDataCacheRange (mA119FmpDiskKey, sizeof (mA119FmpDiskKey));
-    DiskKeyStored = Beyond0LteSmc (SMC_CMD_FMP_DISK_KEY_STORED, 0, (UINTN)mA119FmpDiskKey, 32);
-    DiskKeySet    = Beyond0LteSmc (SMC_CMD_FMP_DISK_KEY_SET, 0, 0, 0);
-    UfsLogRet     = Beyond0LteSmc (SMC_CMD_UFS_LOG, 0, 0, 0);
-    UINT32  RSec   = MmioRead32 ((UINTN)UFSP_BASE + UFSP_RSECURITY);
-    (VOID)SmuRet;
+    (VOID)Beyond0LteSmc (SMC_CMD_FMP_DISK_KEY_STORED, 0, (UINTN)mA119FmpDiskKey, 32);
+    (VOID)Beyond0LteSmc (SMC_CMD_FMP_DISK_KEY_SET, 0, 0, 0);
+    (VOID)Beyond0LteSmc (SMC_CMD_UFS_LOG, 0, 0, 0);
+    (VOID)MmioRead32 ((UINTN)UFSP_BASE + UFSP_RSECURITY);
 #if BEYOND0LTE_UFS_DIAG
     ((volatile UINT32 *)(UINTN)0x00000000FED13000ULL)[300] = (UINT32)FmpRet;   // panel "fmpr" = FMP_SECURITY return (0=ok)
     ((volatile UINT32 *)(UINTN)0x00000000FED13000ULL)[301] = RSec;             // panel "smur" = RSECURITY: EFE26492=DESCTYPE0, EFFA6492=DESCTYPE3
@@ -2580,9 +2578,11 @@ UfsHcAllocateBuffer (
   // DIAG: record reaching ring allocation + the UFS link state (HCS) right now.
   // If this fires, UfsPassThru.Start() got past controller-init/link-startup.
   //
+  #if BEYOND0LTE_UFS_DIAG
   if (((volatile UINT32 *)(UINTN)UFSHC_DIAG_BASE)[1] == 0) {
     UfsHcDiagSet (6, MmioRead32 ((UINTN)EXYNOS_UFS_HCI_BASE + 0x30));
   }
+  #endif
   UfsHcDiagBump (1);
 
   //
@@ -3119,8 +3119,10 @@ STATIC UINT32  mXferCount = 0;
 // This is the decisive test of "does the query truly complete" vs "OCS=0 is stale".
 //
 STATIC UINT64  mQueryCmdAddr  = 0;
+#if BEYOND0LTE_UFS_DIAG
 STATIC UINT64  mQueryRespAddr = 0;
 STATIC UINT8   mQuerySlot     = 0xFFu;
+#endif
 
 //
 // UIC error-code accumulators sampled during the stuck doorbell poll. *Accum bits OR in
@@ -3139,7 +3141,9 @@ STATIC UINT32  mUecTAccum  = 0;
 // count snapshot at the last SCSI COMMAND doorbell; the stall path reports (mPollCount-mCmdRingPoll)
 // = polls until the first PA line-reset: ~0-10 = immediate reject, thousands+ = the read waited.
 //
+#if BEYOND0LTE_UFS_DIAG
 STATIC UINT32  mCmdRingPoll = 0;
+#endif
 STATIC UINT32  mCmd2PaUs    = 0;
 STATIC UINT32  mClr2PaUs    = 0;
 
@@ -3157,7 +3161,9 @@ STATIC UINT32  mUtrlMin      = 0xFFFFFFFFu;
 // Read-poll HEARTBEAT bookkeeping. mPollCount = how many times EDK2 has read ANY HC
 // register through our hook; the generic heartbeat in UfsHcRead throttles on it.
 //
+#if BEYOND0LTE_UFS_DIAG || BEYOND0LTE_UFS_SCREEN_HUD
 STATIC UINT32  mPollCount  = 0;
+#endif
 
 //
 // mHookTick: throttle for the heavy doorbell-read hook (run 1-in-64 polls). mListRearmCount:
@@ -3332,17 +3338,21 @@ Beyond0LteSetNexusForDoorbell (
     // high 16 bits ARE the response byte offset (RuO_dword * 4).
     //
     if (mQueryCmdAddr == 0) {
+      mQueryCmdAddr = Ucd;
+      #if BEYOND0LTE_UFS_DIAG
       UINT32  ConvDw6 = MmioRead32 (Trd + UTP_TRD_RESP_DW6);
-      mQueryCmdAddr  = Ucd;
-      mQueryRespAddr = Ucd + (UINT64)(ConvDw6 >> 16);
-      mQuerySlot     = (UINT8)Slot;
+      mQueryRespAddr  = Ucd + (UINT64)(ConvDw6 >> 16);
+      mQuerySlot      = (UINT8)Slot;
+      #endif
     }
   } else if (TxType == UPIU_TXTYPE_COMMAND) {
     UfsHcDiagOr (13, UFS_PH_COMMAND);
     //
     // CYCLE 39: snapshot the EDK2 poll count at the SCSI COMMAND doorbell (timer-free).
     //
+    #if BEYOND0LTE_UFS_DIAG
     mCmdRingPoll = mPollCount;
+    #endif
     //
     // *** CYCLE 60: capture the LIVE CDB of a READ command at RING time (freshly built by EDK2, NOT a
     // churned/abandoned stuck slot). Only for READ(10)=0x28 / READ(16)=0x88, so the last value latched is
@@ -4072,7 +4082,9 @@ UfsHcRead (
   // stuck multi-second poll (> 4M reads) paints, naming the wedged register. The bounded
   // per-transfer STAGE/RING crumbs remain the primary progress signal.
   //
+  #if BEYOND0LTE_UFS_DIAG || BEYOND0LTE_UFS_SCREEN_HUD
   mPollCount++;
+  #endif
 #if BEYOND0LTE_UFS_SCREEN_HUD
   if ((mPollCount & 0x3FFFFFu) == 0) {
     CHAR8   HbLine[80];
@@ -4235,12 +4247,14 @@ Beyond0LteUfsHcEntry (
   // clean slate of how far UfsPassThru.Start() drives our callbacks.
   //
   {
+    #if BEYOND0LTE_UFS_DIAG
     volatile UINT32  *D = (volatile UINT32 *)(UINTN)UFSHC_DIAG_BASE;
     UINTN            I;
     for (I = 0; I < 39; I++) {
       D[I] = 0;
     }
     __asm__ __volatile__ ("dsb sy" ::: "memory");
+    #endif
   }
 
   //

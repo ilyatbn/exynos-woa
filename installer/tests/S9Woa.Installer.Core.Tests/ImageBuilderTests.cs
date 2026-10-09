@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: BSD-2-Clause-Patent
+using S9Woa.Installer.Core.Deploy;
 using S9Woa.Installer.Core.Image;
 using S9Woa.Installer.Core.Processes;
 
@@ -134,11 +135,27 @@ public class ImageBuilderTests
         Assert.Contains("-FileSystem NTFS -AllocationUnitSize 4096", script, StringComparison.Ordinal);
         Assert.Contains("-NewDriveLetter S", script, StringComparison.Ordinal);
         Assert.Contains("-NewDriveLetter W", script, StringComparison.Ordinal);
-        var attach = VhdxImageBuilder.AttachReadOnlyScript(@"C:\img\s9.vhdx");
+        var attach = builder.AttachReadOnlyScript(@"C:\img\s9.vhdx");
         Assert.Contains("-ReadOnly -NoDriveLetter", attach, StringComparison.Ordinal);
         Assert.Contains("6951534592", attach, StringComparison.Ordinal);
         Assert.Contains("Dismount-VHD", VhdxImageBuilder.DetachScript(@"C:\img\s9.vhdx"), StringComparison.Ordinal);
         Assert.DoesNotContain('C', VhdxImageBuilder.FreeDriveLetters());
+    }
+
+    [Fact]
+    public void Beyond0LteGeometryIsUsedWhenThePhoneIsAnS10e()
+    {
+        var geometry = PartitionMap.For("beyond0lte");
+        Assert.True(127_943_049_216L == geometry.DiskBytes);
+        Assert.True(8_811_184_128L == geometry.WindowsOffset);
+        Assert.True(119_126_622_208L == geometry.WindowsBytes);
+        Assert.True(629_145_600L == geometry.CacheBytes);
+        var builder = new VhdxImageBuilder(new RecordingRunner(), @"C:\sys", null, geometry)
+            { EspLetter = 'S', WindowsLetter = 'W' };
+        var script = builder.CreateScript(@"C:\img\b0.vhdx");
+        Assert.Contains("-SizeBytes 127943049216", script, StringComparison.Ordinal);
+        Assert.Contains("-Offset 8811184128 -Size 119126622208 -Alignment 4096", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("6951534592", script, StringComparison.Ordinal);
     }
 
     private sealed class FailingOfflineRunner(bool offlineSupported) : IProcessRunner

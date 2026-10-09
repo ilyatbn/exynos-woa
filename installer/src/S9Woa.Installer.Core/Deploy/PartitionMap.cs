@@ -64,8 +64,26 @@ public static class PartitionMap
     /// Byte geometry of the phone's main UFS unit and of USERDATA on it. The Windows image is
     /// built on a virtual disk with exactly this layout so the NTFS volume matches USERDATA.
     /// </summary>
-    public const long DiskBytes = 63_963_136_000;
-    public const long WindowsOffset = 6_951_534_592;
-    public const long WindowsBytes = 57_004_785_664;
-    public const long CacheBytes = 629_145_600;
+    public static readonly GeometryType Star2Lte = new(63_963_136_000, 6_951_534_592, 57_004_785_664,
+        629_145_600, 57_671_680, 68_148_992);
+
+    /// <summary>
+    /// Beyond0lte (SM-G970F) geometry, from Samsung's own BEYOND0LTE_EUR_OPEN.pit: its entries
+    /// carry start and length in 4096-byte units, and length x 4096 reproduces the phone's
+    /// /proc/partitions sizes for 30 of 31 partitions (notes/pit-geometry.md). USERDATA is 0-length
+    /// in the PIT ("to the end"), so its size comes from the phone. Never validated by an install.
+    /// </summary>
+    public static readonly GeometryType Beyond0Lte = new(127_943_049_216, 8_811_184_128, 119_126_622_208,
+        629_145_600, 57_671_680, 67_633_152);
+
+    public static GeometryType For(string? codename) =>
+        (codename?.ToLowerInvariant() switch
+        {
+            "beyond0lte" => Beyond0Lte,
+            _ => Star2Lte,
+        });
 }
+
+/// <summary>Byte geometry of one supported phone; see <see cref="PartitionMap.For"/>.</summary>
+public sealed record GeometryType(long DiskBytes, long WindowsOffset, long WindowsBytes,
+    long CacheBytes, long BootBytes, long RecoveryBytes);

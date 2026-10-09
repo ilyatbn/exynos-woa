@@ -33,8 +33,10 @@ public sealed class VhdxImageBuilder
     private readonly Func<int, IRawDiskSource> _diskFactory;
     private readonly string _powershell;
     private readonly string _bcdboot;
+    private GeometryType _geometry = PartitionMap.Star2Lte;
 
-    public VhdxImageBuilder(IProcessRunner runner, string? system32 = null, Func<int, IRawDiskSource>? diskFactory = null)
+    public VhdxImageBuilder(IProcessRunner runner, string? system32 = null, Func<int, IRawDiskSource>? diskFactory = null,
+        GeometryType? geometry = null)
     {
         _runner = runner;
         system32 ??= Environment.GetFolderPath(Environment.SpecialFolder.System);
@@ -43,6 +45,7 @@ public sealed class VhdxImageBuilder
         _diskFactory = diskFactory ?? (n => RawDeviceSource.ForPhysicalDrive(n));
         _powershell = Path.Combine(system32, @"WindowsPowerShell\v1.0\powershell.exe");
         _bcdboot = Path.Combine(system32, "bcdboot.exe");
+        _geometry = geometry ?? PartitionMap.Star2Lte;
         var free = FreeDriveLetters();
         EspLetter = free.Count > 1 ? free[0] : 'S';
         WindowsLetter = free.Count > 1 ? free[1] : 'W';
@@ -68,7 +71,7 @@ public sealed class VhdxImageBuilder
     internal string CreateScript(string vhdxPath) => string.Join("\n",
         "$ErrorActionPreference = 'Stop'",
         $"foreach ($l in '{EspLetter}','{WindowsLetter}') {{ if (Test-Path \"${{l}}:\\\") {{ throw \"Drive ${{l}}: is already in use\" }} }}",
-        $"$vhd = New-VHD -Path '{vhdxPath}' -Dynamic -SizeBytes {N(PartitionMap.DiskBytes)} -BlockSizeBytes 32MB -LogicalSectorSizeBytes 4096 -PhysicalSectorSizeBytes 4096",
+        $"$vhd = New-VHD -Path '{vhdxPath}' -Dynamic -SizeBytes {N(_geometry.DiskBytes)} -BlockSizeBytes 32MB -LogicalSectorSizeBytes 4096 -PhysicalSectorSizeBytes 4096",
         "$disk = Mount-VHD -Path $vhd.Path -NoDriveLetter -Passthru | Get-Disk",
         "if ($disk.LogicalSectorSize -ne 4096) { throw 'The virtual disk is not 4Kn' }",
         "Initialize-Disk -Number $disk.Number -PartitionStyle GPT | Out-Null",
@@ -76,18 +79,18 @@ public sealed class VhdxImageBuilder
         "Format-Volume -Partition $esp -FileSystem FAT32 -NewFileSystemLabel 'System' -Confirm:$false | Out-Null",
         $"$esp | Set-Partition -NewDriveLetter {EspLetter}",
         "New-Partition -DiskNumber $disk.Number -Size 16MB -GptType '{e3c9e316-0b5c-4db8-817d-f92df00215ae}' | Out-Null",
-        $"$win = New-Partition -DiskNumber $disk.Number -Offset {N(PartitionMap.WindowsOffset)} -Size {N(PartitionMap.WindowsBytes)} -Alignment 4096 -GptType '{{ebd0a0a2-b9e5-4433-87c0-68b6b72699c7}}'",
-        $"if ($win.Offset -ne {N(PartitionMap.WindowsOffset)} -or $win.Size -ne {N(PartitionMap.WindowsBytes)}) {{ throw 'The Windows partition does not match USERDATA' }}",
+        $"$win = New-Partition -DiskNumber $disk.Number -Offset {N(_geometry.WindowsOffset)} -Size {N(_geometry.WindowsBytes)} -Alignment 4096 -GptType '{{ebd0a0a2-b9e5-4433-87c0-68b6b72699c7}}'",
+        $"if ($win.Offset -ne {N(_geometry.WindowsOffset)} -or $win.Size -ne {N(_geometry.WindowsBytes)}) {{ throw 'The Windows partition does not match USERDATA' }}",
         "Format-Volume -Partition $win -FileSystem NTFS -AllocationUnitSize 4096 -NewFileSystemLabel 'Windows' -Confirm:$false | Out-Null",
         $"$win | Set-Partition -NewDriveLetter {WindowsLetter}");
 
     /// <summary>Re-attaches the finished VHDX read-only and prints its disk number.</summary>
-    internal static string AttachReadOnlyScript(string vhdxPath) => string.Join("\n",
+    internal string AttachReadOnlyScript(string vhdxPath) => string.Join("\n",
         "$ErrorActionPreference = 'Stop'",
         $"$disk = Mount-VHD -Path '{vhdxPath}' -ReadOnly -NoDriveLetter -Passthru | Get-Disk",
         "if (-not $disk.IsReadOnly -or $disk.LogicalSectorSize -ne 4096) { throw 'Read-only 4Kn attach failed' }",
-        $"$p = Get-Partition -DiskNumber $disk.Number | Where-Object {{ $_.Offset -eq {N(PartitionMap.WindowsOffset)} }}",
-        $"if (-not $p -or $p.Size -ne {N(PartitionMap.WindowsBytes)}) {{ throw 'The Windows partition is missing from the image' }}",
+        $"$p = Get-Partition -DiskNumber $disk.Number | Where-Object {{ $_.Offset -eq {N(_geometry.WindowsOffset)} }}",
+        $"if (-not $p -or $p.Size -ne {N(_geometry.WindowsBytes)}) {{ throw 'The Windows partition is missing from the image' }}",
         "Write-Output $disk.Number");
 
     internal static string DetachScript(string vhdxPath) => string.Join("\n",
@@ -139,7 +142,7 @@ public sealed class VhdxImageBuilder
             await RunScript(DetachScript(vhdxPath), CancellationToken.None).ConfigureAwait(false);
         }
 
-        log?.Report("Exporting the Windows volume from a read-only attach (about 53 GB)...");
+        log?.Report($"Exporting the Windows volume from a read-only attach ({_geometry.WindowsBytes >> 30} GB)...");
         var disk = int.Parse((await RunScript(AttachReadOnlyScript(vhdxPath), ct).ConfigureAwait(false)).Trim().Split('\n')[^1].Trim(),
             CultureInfo.InvariantCulture);
         try
@@ -147,7 +150,7 @@ public sealed class VhdxImageBuilder
             using var disposable = _diskFactory(disk) as IDisposable;
             var source = (IRawDiskSource)disposable!;
             var (bytes, sha) = await _exporter.ExportAsync(source,
-                new PartitionExtent(PartitionMap.WindowsOffset, PartitionMap.WindowsBytes), windowsImage, log, ct).ConfigureAwait(false);
+                new PartitionExtent(_geometry.WindowsOffset, _geometry.WindowsBytes), windowsImage, log, ct).ConfigureAwait(false);
             log?.Report("Windows image ready.");
             return new BuiltImage(windowsImage, bytes, sha, espOut, loaderSha, kernelSha);
         }

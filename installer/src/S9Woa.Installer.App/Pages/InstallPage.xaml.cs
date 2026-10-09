@@ -574,12 +574,17 @@ public sealed partial class InstallPage : Page, IWizardStep
         }
         var outDir = Path.Combine(AppServices.WorkDirectory, "out");
         var vhdx = Path.Combine(AppServices.WorkDirectory, "s9windows.vhdx");
+        if (AppServices.CurrentDevice is null)
+        {
+            return (false, "Identify the phone first: the Windows volume is built to the exact geometry of the phone's USERDATA, and that depends on which phone it is.");
+        }
+        var geometry = PartitionMap.For(AppServices.CurrentDevice.Codename);
         Directory.CreateDirectory(AppServices.WorkDirectory);
         if (File.Exists(vhdx))
         {
             File.Delete(vhdx);
         }
-        var built = await new VhdxImageBuilder(AppServices.Runner).BuildAsync(vhdx,
+        var built = await new VhdxImageBuilder(AppServices.Runner, null, null, geometry).BuildAsync(vhdx,
             AppServices.InstallImagePath!, AppServices.EditionIndex, drivers, AppServices.Profile,
             AppServices.Unattend, outDir, log, ct);
         AppServices.Built = built;
@@ -623,7 +628,7 @@ public sealed partial class InstallPage : Page, IWizardStep
     private static async Task<(bool, string)> RunPartitionAsync(CancellationToken ct)
     {
         await RefreshDeviceAsync(ct);
-        var twrp = RequireTwrp(out _, out var err);
+        var twrp = RequireTwrp(out var dev, out var err);
         if (twrp is null)
         {
             return (false, err);
@@ -639,7 +644,8 @@ public sealed partial class InstallPage : Page, IWizardStep
         {
             return (false, $"The phone did not expose the expected partition(s): {string.Join(", ", missing)}.");
         }
-        foreach (var (name, expected) in new[] { (PartitionMap.WindowsTarget, PartitionMap.WindowsBytes), (PartitionMap.EfiSystemPartition, PartitionMap.CacheBytes) })
+        foreach (var (name, expected) in new[] { (PartitionMap.WindowsTarget, PartitionMap.For(dev?.Codename).WindowsBytes),
+            (PartitionMap.EfiSystemPartition, PartitionMap.For(dev?.Codename).CacheBytes) })
         {
             var actual = parts.Keys.First(k => k.Equals(name, StringComparison.OrdinalIgnoreCase));
             var size = await twrp.PartitionSizeAsync(actual, ct);
@@ -648,7 +654,7 @@ public sealed partial class InstallPage : Page, IWizardStep
                 return (false, $"{actual} is {size:N0} bytes, not the validated {expected:N0}. This phone's layout differs; stopping before any write.");
             }
         }
-        return (true, $"Partitions verified: USERDATA ({PartitionMap.WindowsBytes >> 20} MiB) and the CACHE boot partition match the validated layout.");
+        return (true, $"Partitions verified: USERDATA ({PartitionMap.For(dev?.Codename).WindowsBytes >> 20} MiB) and the CACHE boot partition match the validated layout.");
     }
 
     private static async Task<(bool, string)> RunTransferAsync(IProgress<string> log, CancellationToken ct)

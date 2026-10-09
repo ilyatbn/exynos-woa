@@ -6,8 +6,10 @@ namespace S9Woa.Installer.Core.Toolset;
 /// <summary>Checks that a file is an Android boot image that fits a phone partition.</summary>
 public static class BootImage
 {
-    public const long RecoveryPartitionBytes = 16638L * 4096; // RECOVERY on star2lte (65 MiB).
-    public const long BootPartitionBytes = 14080L * 4096;     // BOOT on star2lte (55 MiB).
+    public const long RecoveryPartitionBytes = 16_512L * 4096; // RECOVERY on beyond0lte (66,048 KiB) — the SMALLER of
+                                                               // the two validated layouts (star2lte is 16,638 x 4096),
+                                                               // so an image admitted here fits on both phones.
+    public const long BootPartitionBytes = 14_080L * 4096;     // BOOT is 14,080 x 4096 on BOTH star2lte and beyond0lte.
 
     private static readonly byte[] Magic = "ANDROID!"u8.ToArray();
 
@@ -38,13 +40,16 @@ public static class BootImage
         return null;
     }
 
-    /// <summary>TWRP must be the star2lte (Galaxy S9+ Exynos) build; official files end in -star2lte.img.</summary>
+    /// <summary>TWRP must be the build for the phone being installed (star2lte = S9+, beyond0lte = S10e);
+    /// official files end in -star2lte.img or -beyond0lte.img.</summary>
     public static string? ValidateTwrp(string file)
     {
         var name = Path.GetFileName(file);
-        if (!name.Contains("star2lte", StringComparison.OrdinalIgnoreCase))
+        if (!name.Contains("star2lte", StringComparison.OrdinalIgnoreCase)
+            && !name.Contains("beyond0lte", StringComparison.OrdinalIgnoreCase))
         {
-            return "This does not look like TWRP for the Galaxy S9+ (Exynos). Official file names end in -star2lte.img "
+            return "This does not look like TWRP for the Galaxy S9+ (Exynos) or the Galaxy S10e (Exynos). "
+                + "Official file names end in -star2lte.img or -beyond0lte.img "
                 + "(not starlte, which is the S9, or star2qlte, which is the Snapdragon model).";
         }
         return Validate(file, RecoveryPartitionBytes);

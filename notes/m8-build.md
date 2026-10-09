@@ -180,3 +180,22 @@ Dead end / not done here: the §17 candidate split at `0xC0000000`/`0xE1900000` 
 bank0 stays a candidate — the reservation list already covers why the middle is not
 RAM, and the tail is covered by the logs; no further bank0 subdivision is needed to
 close the map by reads.
+
+## §8 — the FD is NOT byte-deterministic (found 2026-10-09)
+
+Two consecutive builds of the **same** tree:
+
+| Build | `FVMAIN_COMPACT` used | FD sha256 |
+|---|---|---|
+| `%TEMP%\m8-build-26.log` | 696576 | `c7e164ef…` |
+| `%TEMP%\m8-build-27.log` | 696576 | `fbe17094…` |
+
+Same used-bytes, different hash ⇒ the FD embeds something run-varying (LTO/PE
+placement or a timestamp). **Consequence:** the FD sha256 values quoted in §6/§7
+(`821af51c…`, `81b0fd9e…`) identify a *particular* build, not a content state, so
+they must not be used to tell a rebuilt binary from a shipped one. The
+comparable quantities are the sizes and the FV used/free numbers.
+
+Current numbers after the DSC comment corrections (`%TEMP%\m8-build-27.log`):
+`FVMAIN_COMPACT` [99%Full] 700416 total, 696576 used, **3840 free**;
+`FVMAIN` [27%Full] 4194304 total, 1159016 used; FD 7 340 032 B.

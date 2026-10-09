@@ -15,11 +15,14 @@
 #  cannot collide.
 #
 #  #############################################################################
-#  DROPPED FROM THE 9810 DSC — every one of these has NO 9820 equivalent in
-#  firmware/Platform/Beyond0LtePkg or firmware/Silicon/Exynos9820Pkg, and none
-#  was silently substituted with a 9810 module. Existence was checked per path
-#  (Test-Path), not by directory listing. The 9820 tree has no Drivers/
-#  directory at all, no PlatformBootManagerLib and no reset-system library.
+#  DROPPED FROM THE 9810 DSC — as of the header being written, each one of these
+#  had NO 9820 equivalent in firmware/Platform/Beyond0LtePkg or firmware/Silicon/
+#  Exynos9820Pkg, and none had been silently substituted with a 9810 module.
+#  Existence was checked per path (Test-Path), not by directory listing. The
+#  9820 tree then had no Drivers/ directory, no PlatformBootManagerLib instance
+#  and no reset-system library. Entries below are annotated PORTED once a later
+#  task added the equivalent, so this list is the ORIGINAL state, not the current
+#  one — read the per-entry note for what exists now.
 #
 #    Platform/Star2LtePkg/Drivers/SimpleFramebufferDxe/SimpleFramebufferDxe.inf
 #        PORTED after this header was written:
@@ -56,14 +59,20 @@
 #        PRAM/diag telemetry channel is compiled out, not retargeted.
 #
 #    Platform/Star2LtePkg/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf
-#        None. The platform BDS hook is gone (and with it the 9810's USB-debug
-#        modes). UefiBootManagerLib, the edk2 backing lib, still resolves.
+#        Not carried, and not needed: the library CLASS is resolved to ArmPkg's
+#        generic instance (see the [LibraryClasses.common] line below), which is
+#        what BdsDxe requires. What the 9810's platform instance added was the
+#        platform BDS hook and its USB-debug modes, neither of which is on the
+#        phase-one path (Windows boots and sees disk/RAM/CPU).
 #
 #    Platform/Star2LtePkg/Library/Star2LteResetSystemLib/Star2LteResetSystemLib.inf
-#        None. ResetSystemLib therefore has NO instance. The 9810 library is PMU
-#        based and the 9820 PMU moved (system-controller@15860000, not the 9810's
-#        0x14060000), so reusing it unchanged would have pointed at a register
-#        block that does not exist on this SoC.
+#        PORTED after this header was written ->
+#        Platform/Beyond0LtePkg/Library/Beyond0LteResetSystemLib/, which is the
+#        ResetSystemLib instance below, so ResetSystemRuntimeDxe is back in the
+#        build. Not a rename: only the architected PSCI path is carried; the
+#        PMU SWRESET/PS_HOLD fallback is compiled out (the 9820 PMU base is a
+#        read, the intra-block offsets are not) and the 0xFED14000 breadcrumb
+#        likewise. See notes/m8-reset-lib.md.
 #
 #    Also dropped: the STAR2LTE_USB_DEBUG_MODE and STAR2LTE_RAM_STAGE DEFINEs and
 #    the two -D… CC_FLAGS lines that feed them. Grep over firmware/ shows USB_DEBUG
@@ -232,7 +241,8 @@
 
   # --- BDS / boot manager (launches Windows) ---
   UefiBootManagerLib|MdeModulePkg/Library/UefiBootManagerLib/UefiBootManagerLib.inf
-  # PlatformBootManagerLib DROPPED — no 9820 equivalent (see the DROPPED block).
+  # The 9810's PLATFORM PlatformBootManagerLib is not carried; this build
+  # resolves the library class to ArmPkg's generic instance above (line 194).
   BootLogoLib|MdeModulePkg/Library/BootLogoLib/BootLogoLib.inf
   CustomizedDisplayLib|MdeModulePkg/Library/CustomizedDisplayLib/CustomizedDisplayLib.inf
   FileExplorerLib|MdeModulePkg/Library/FileExplorerLib/FileExplorerLib.inf

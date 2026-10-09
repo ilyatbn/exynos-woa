@@ -111,7 +111,7 @@ succeed with them wrong, so they are a boot-time hazard, not a compile-time one.
 | **Framebuffer base** — the 9810's `0xCC000000` was never confirmed on an S10e; the header leaves it `0` so the map skips it | `Exynos9820.h` | read the sboot-lit carveout on the phone (the 9810 flow already has a tool for this) |
 | **Which CMU bank feeds PERIC0 (touch bus) and FSYS0A (USB)** — the 9820's banks are `1A200000`, `1BC00000`–`1BF00000`, none is the 9810's `11000000` | `Exynos9820.h`, `exynos9820hsi2c.h`, DSDT | derive from Samsung's `cal-if` headers (`soc/samsung/cal-if/exynos9820/cmucal-{vclk,node,qch}.h`) — QCH ids there are enum positions, not addresses |
 | **PRAM breadcrumb address** — `0xFED14000` is *inside* DRAM bank0 on this SoC, so the 9810's scratch-above-RAM assumption is false | `PlatformMemoryMapLib.c`, `ArmPlatformLib.c`, `Exynos9820Ufs.h` | pick a reserved carveout from the DT's `reserved-memory` node |
-| **DSDT CPU sub-device buffers** — the 9810's `_MAT` encoding cannot describe 6+2 clusters (and CPU0/CPU1 look identical in the 9810 file too) | `Dsdt.asl` | re-derive from the ACPI Processor Sub-Device spec; the MADT already carries the correct topology |
+| ~~**DSDT CPU sub-device buffers**~~ — **CLOSED**: `_MAT` is the MADT GICC entry with the matching `_UID`; buffers re-derived from `Madt.aslc:149-163` and verified in the built FFS (`notes/m8-dsdt-mat.md` §5) | `Dsdt.asl`, `Acpi63.h` | done; only Windows parsing them is unvalidated |
 | **Write-fence / protected-partition LBAs** — still the 9810's partition table | `Exynos9820Ufs.h` | read the S10e's own GPT (needs root on the phone, or the driver's own LBA-1 read on Windows) |
 | **UFS hw-rev** — the S10e reports `UFS_VER_0006`; the 9810 code path handles only 0004/0005 | `Exynos9820Ufs.c` | real behavioural gap, must be ported before storage is trusted |
 
@@ -292,22 +292,20 @@ numbers to compare builds, never the FD hash.
    **not applicable** (the 9810 build never used them — `notes/m8-hsi40.md`,
    and the `PlatformBootManagerLib` class already resolves to ArmPkg's).
 2. **Close the §5 hazards:**
-   * **DSDT CPU sub-device buffers** — no longer a phone problem and no longer
-     vague: `notes/m8-dsdt-mat.md` dumps all eight buffers (they are byte-identical
-     to the 9810's, i.e. carried unchanged) and shows the varying fields are
-     offsets 4/8 (UID), 68 (core index), 69 (group), 76 (unknown flag) encoding a
-     **4+4** split, which matches neither the 6+2 MPIDR clusters nor the 4+2+2
-     efficiency classes. Closing it needs the **ACPI Processor Sub-Device spec**,
-     which is      not in this checkout and could not be fetched
-     (`developer.arm.com/documentation/den0101/` → 403). **Blocked on the spec,
-     not on the phone.** The PDF in `info/` (`DEN0101_00bet1_ADAC.pdf`) is **not**
-     that spec — it is Arm's *Authenticated Debug Access Control* (JTAG/SWJ debug
-     link + certificate/token formats); see `notes/info-den0101-adac.md`, do not
-     re-open it hoping for the `_MAT` layout.
-   * **fb base, PRAM choice, write-fence LBAs, UFS hw-rev class** — these need
-     the phone, and **this session has no `adb`** (not on PATH, not in System32,
-     not vendored; `notes/s10e-live-reads.md` §8 records the dead end). Find the
-     `adb.exe` the earlier session used and re-authorize `RF8M21HYDSZ` first.
+   * **DSDT CPU sub-device buffers** — CLOSED. `_MAT` is an 80-byte
+     `EFI_ACPI_6_3_GIC_STRUCTURE` (`MdePkg/Include/IndustryStandard/Acpi63.h:520-539`,
+     widths sum to 0x50, MPIDR at 68, `ProcessorPowerEfficiencyClass` at 76), and
+     the 9810's eight buffers reproduce its own MADT GICC entries field for field
+     (`Star2LtePkg/AcpiTables/Madt.aslc:133-141`) — so `_MAT` = the MADT GICC entry
+     with the matching `_UID` is observed, not assumed. The 9820 buffers now mirror
+     `Madt.aslc:149-163`: MPIDRs `0x00`–`0x05` / `0x100`,`0x101`, classes 2/1/0.
+     Verified in the **built** FFS sections (`...SEC1.3.raw` DSDT and `SEC2.1.raw`
+     MADT, 8 entries each, values agree). See `notes/m8-dsdt-mat.md` §5 and
+     `notes/claude-mat-layout.md`. No external spec was needed; `info/DEN0101_*.pdf`
+     is ADAC, unrelated (`notes/info-den0101-adac.md`).
+   * **fb base, PRAM choice, write-fence LBAs, UFS hw-rev class** — these need the
+     phone, and `adb` is at `C:\Users\ilya\code\platform-tools\adb.exe` (not on PATH),
+     device `RF8M21HYDSZ` attached and authorized — see AGENTS.md §8.
 3. Only then: flash and validate on the S10e (the bar is Windows boots and
    sees disk/RAM/CPU), and only after that the stretch phase M10–M15.
 

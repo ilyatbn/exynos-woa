@@ -212,6 +212,31 @@ Numbers after the successful build:
   `11111111-2222-3333-4444-555555555545Beyond0LteUfsHcDxe` 55 886 B — present in
   the FV, so the DSC/FDF wiring is proven to have taken effect.
 
+### Step 8 — harsh review of the fix commit (78d6f97 supersedes 1cf61fa)
+
+Checked mechanically: `git diff --stat <base> -- firmware/Platform/Star2LtePkg
+firmware/Silicon/Exynos9810Pkg` is EMPTY (9810 tree untouched); the generated .c
+has 0 FED1 code literals outside a `BEYOND0LTE_UFS_DIAG` region; `#if`/`#endif`
+counts balance; the FFS entry `…5545Beyond0LteUfsHcDxe` (55 886 B) is in the FV.
+
+**Flagged and fixed in its own commit:** the `#if BEYOND0LTE_UFS_DIAG` panel block
+references `FmpRet/SmuRet/SmuResume/SmuDump0/SmuDump10/DiskKeyStored/DiskKeySet/UfsLogRet/RSec`,
+which the previous commit had deleted along with the captures — so the guard did
+NOT "compile the 9810 code back in", it broke it. Restored the declarations/assignments
+and added `(VOID)x;` discards so both branches compile. Also put the `ConvDw6`
+read back BEFORE `mQueryCmdAddr = Ucd` (the previous commit reordered them, which
+made the DIAG=1 path differ from the 9810).
+
+Rebuild after the fix: exit 0, `FVMAIN_COMPACT [99%Full] 696320 total, 693928 used,
+**2392 free**` (40 B smaller than the 2352-free build — the explicit discards let
+clang drop the dead captures), `FVMAIN [25%Full] 4194304 total, 1071784 used`,
+FD 7 340 032 B. Log `%TEMP%\m8-build-21.log`.
+
+**Not verified:** that the DIAG=1 branch compiles. It is argued from the identifier
+list above, not from a build — flipping `BEYOND0LTE_UFS_DIAG` to 1 would also
+re-enable writes to 0xFED1xxxx, which is a known-bad address on this SoC, so that
+test is deliberately NOT run on the tree.
+
 Still UNVERIFIED after the port (keep marked): mclk ticks/us (HCI_1US_CNT), mclk-period
 fallback (UFS_MCLK_PRD 10u), opt-suite DME value, RefClk-26MHz category enum, SMC_CMD_*
 family codes (EL3 monitor, not MMIO), PHY_ISO (zeroed), iocoh mask (kernel-faithful).

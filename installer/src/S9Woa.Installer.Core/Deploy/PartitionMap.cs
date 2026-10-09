@@ -31,19 +31,14 @@ public static class PartitionMap
     public const string RecoveryTarget = "RECOVERY";
 
     /// <summary>
-    /// The EFI system partition the UEFI boots from: Android's CACHE (sda21, 600 MiB). It is
-    /// reformatted as FAT32 with 4096-byte sectors (the UFS block size) and holds
-    /// \EFI\Microsoft\Boot\bootmgfw.efi and the BCD, whose boot-manager device points here.
+    /// Second FAT32 copy of the boot files. This is DEVICE-SPECIFIC and lives on
+    /// <see cref="GeometryType"/>, not here: on the S9+ the slot is SYSTEM (sda18, a
+    /// 55 MiB volume the reference deployment reformatted as FAT), while on the S10e
+    /// SYSTEM is a 5.98 GiB ext4 Android system that this port does not reformat - so
+    /// beyond0lte has no secondary ESP at all. A constant here would be applied to
+    /// whichever phone is connected, which is the bug this move removes.
     /// </summary>
     public const string EfiSystemPartition = "CACHE";
-
-    /// <summary>
-    /// Second FAT32 copy of the boot files on Android's SYSTEM partition (sda18). The reference
-    /// deployment kept both; firmware builds that only connect the SYSTEM-sized FAT volume use it.
-    /// On the reference phone its GPT type is the EFI system partition GUID (a stock flash resets it
-    /// to basic data); <see cref="GptTypeService"/> puts that back.
-    /// </summary>
-    public const string SecondaryEfiSystemPartition = "SYSTEM";
 
     /// <summary>
     /// Holds the Android bootloader control block. <c>boot-recovery</c> there makes the bootloader
@@ -68,7 +63,7 @@ public static class PartitionMap
     /// built on a virtual disk with exactly this layout so the NTFS volume matches USERDATA.
     /// </summary>
     public static readonly GeometryType Star2Lte = new(63_963_136_000, 6_951_534_592, 57_004_785_664,
-        629_145_600, 57_671_680, 68_148_992, DiskGuid, CacheGuid, UserdataGuid);
+        629_145_600, 57_671_680, 68_148_992, DiskGuid, CacheGuid, UserdataGuid, "SYSTEM");
 
     /// <summary>
     /// Beyond0lte (SM-G970F) geometry, from Samsung's own BEYOND0LTE_EUR_OPEN.pit cross-checked
@@ -81,7 +76,8 @@ public static class PartitionMap
     public static readonly GeometryType Beyond0Lte = new(127_943_049_216, 8_811_184_128, 119_126_642_688,
         629_145_600, 57_671_680, 67_633_152, DiskGuid,
         "{52444e41-494f-2044-6361-636865000000}",   // "ANDROID cache"
-        "{52444e41-494f-2044-7573-657264617461}");  // "ANDROID userdata"
+        "{52444e41-494f-2044-7573-657264617461}",   // "ANDROID userdata"
+        null);                                      // no secondary ESP: SYSTEM here is a 5.98 GiB ext4 Android system
 
     /// <summary>True only for a codename whose geometry this class actually carries. The
     /// installer must not fall back to a phone's layout for an unidentified device: a wrong
@@ -103,4 +99,5 @@ public static class PartitionMap
 /// <summary>Byte geometry and the GPT identifiers of one supported phone; see <see cref="PartitionMap.For"/>.</summary>
 public sealed record GeometryType(long DiskBytes, long WindowsOffset, long WindowsBytes,
     long CacheBytes, long BootBytes, long RecoveryBytes,
-    string DiskGuid, string EfiPartitionGuid, string WindowsPartitionGuid);
+    string DiskGuid, string EfiPartitionGuid, string WindowsPartitionGuid,
+    string? SecondaryEspPartition);

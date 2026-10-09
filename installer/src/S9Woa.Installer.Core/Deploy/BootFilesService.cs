@@ -3,19 +3,25 @@ namespace S9Woa.Installer.Core.Deploy;
 
 /// <summary>
 /// Puts the Windows boot files on the phone. The UEFI boots \EFI\Microsoft\Boot\bootmgfw.efi
-/// from CACHE (<see cref="PartitionMap.EfiSystemPartition"/>); a second copy goes to SYSTEM
-/// (<see cref="PartitionMap.SecondaryEfiSystemPartition"/>), as on the reference phone. On a
-/// stock phone both hold Android ext4 file systems, so each is reformatted as FAT32 with
-/// 4096-byte sectors (the UFS block size) and one sector per cluster, which keeps even the
-/// 600 MiB CACHE above FAT32's minimum cluster count. The ESP tree itself comes from the image
-/// build (bcdboot output with the BCD pointed at the phone's partitions).
+/// from CACHE (<see cref="PartitionMap.EfiSystemPartition"/>); a second copy goes to the
+/// geometry's secondary ESP slot, which exists only on the reference phone — see
+/// <see cref="GeometryType"/>'s <c>SecondaryEspPartition</c>, null for beyond0lte. On a
+/// stock phone each holds an Android file system, so each is reformatted as FAT32 with
+/// 4096-byte sectors (the UFS block size) and one sector per cluster, which keeps even
+/// the 600 MiB CACHE above FAT32's minimum cluster count. The ESP tree itself comes from
+/// the image build (bcdboot output with the BCD pointed at the phone's partitions).
 /// </summary>
 public sealed class BootFilesService
 {
     private const string Mount = "/s9woa_esp";
     private readonly TwrpClient _twrp;
+    private readonly GeometryType _geometry;
 
-    public BootFilesService(TwrpClient twrp) => _twrp = twrp;
+    public BootFilesService(TwrpClient twrp, GeometryType geometry)
+    {
+        _twrp = twrp;
+        _geometry = geometry;
+    }
 
     /// <summary>Formatter command for FAT32 with 4 KiB sectors and 4 KiB clusters, by tool family.</summary>
     internal static string FormatCommand(string tool, string device, string label) =>
@@ -37,7 +43,12 @@ public sealed class BootFilesService
         }
         // Rides on the first shell command below (the partition lookup); no extra round trip.
         _twrp.QueueInstallStatus(WinReStatus.BootFiles());
-        foreach (var partition in new[] { PartitionMap.EfiSystemPartition, PartitionMap.SecondaryEfiSystemPartition })
+        var targets = new List<string> { PartitionMap.EfiSystemPartition };
+        if (_geometry.SecondaryEspPartition is string secondary)
+        {
+            targets.Add(secondary);
+        }
+        foreach (var partition in targets)
         {
             await WriteToAsync(partition, efi, log, ct).ConfigureAwait(false);
         }

@@ -174,6 +174,41 @@ the S10e it is a **5.98 GiB ext4 Android system**, so that path would reformat
 Android's system partition. It must become per-device (and absent for
 beyond0lte) — step 3.
 
+## 10. Step 3 done — the secondary ESP is per device, not a constant
+
+The most dangerous thing the inventory found: `PartitionMap.SecondaryEfiSystemPartition`
+was a **constant** `"SYSTEM"` used unconditionally by `BootFilesService.cs:40`
+(reformat as FAT32), `InstallPage.xaml.cs:660` (required-partition list) and
+`:706` (`GptTypeService.EnsureEspTypeAsync`). On the S9+ SYSTEM is a 55 MiB FAT
+volume; on the S10e it is a **5.98 GiB ext4 Android system** — so the transfer
+stage would have reformatted Android's system partition on an S10e.
+
+* `GeometryType` gains `string? SecondaryEspPartition`; `Star2Lte` carries
+  `"SYSTEM"`, `Beyond0Lte` carries **null** (this port does not reformat the
+  S10e's SYSTEM; whether a second copy is needed there is unvalidated either way).
+* `BootFilesService` now takes the geometry in its constructor and formats only
+  the slots the phone actually has.
+* The partition stage resolves the geometry **once** (it had called
+  `PartitionMap.For(...)` three times) and adds the secondary slot to the
+  required list only when it exists.
+* The transfer stage refuses an unknown phone and only runs
+  `EnsureEspTypeAsync` when there is a secondary slot.
+* Tests: new `OnlyTheReferencePhoneHasASecondaryEsp` asserts the two values.
+
+Verification: `dotnet build` 0 warnings / 0 errors; `dotnet test` **191 passed**
+(189 → 190 → 191 across the last three steps).
+
+Found while reviewing, still open:
+* `GptTypeService.cs:45-49` requires a **backup GPT**, which this disk does not
+  have (`notes/s10e-root-reads.md` §9 read the region back zero) — the S10e path
+  would fail there.
+* `Gpt.cs:16-17` reads the partition name at header+56; the S10e's live GPT keeps
+  the name at entry+80 (`notes/s10e-root-reads.md` §2) — the parser needs the
+  Samsung entry layout, not the spec layout.
+* `PartitionMap.cs` still exposes `UserdataGuid`/`CacheGuid`/`SystemGuid` as
+  star2lte constants; the per-device ones are inside `GeometryType`. Any consumer
+  of the bare constants is device-wrong.
+
 ## Sources
 
 * `installer/src/S9Woa.Installer.Core/Stages/StageCatalog.cs`

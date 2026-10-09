@@ -169,6 +169,13 @@ public class ImageBuilderTests
         Assert.Throws<InvalidOperationException>(() => new VhdxImageBuilder(new RecordingRunner(), @"C:\sys"));
     }
 
+    [Fact]
+    public void OnlyTheReferencePhoneHasASecondaryEsp()
+    {
+        Assert.Equal("SYSTEM", PartitionMap.Star2Lte.SecondaryEspPartition);
+        Assert.Null(PartitionMap.Beyond0Lte.SecondaryEspPartition);
+    }
+
     private sealed class FailingOfflineRunner(bool offlineSupported) : IProcessRunner
     {
         public List<string> Calls { get; } = [];

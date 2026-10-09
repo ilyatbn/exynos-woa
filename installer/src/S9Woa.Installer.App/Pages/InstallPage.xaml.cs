@@ -654,18 +654,23 @@ public sealed partial class InstallPage : Page, IWizardStep
         {
             return (false, "No partition layout is recorded for this phone, so there is nothing to verify against. Nothing has been written.");
         }
-        var required = new[]
+        var geometry = PartitionMap.For(dev?.Codename);
+        var required = new List<string>
         {
             PartitionMap.WindowsTarget, PartitionMap.UefiTarget, PartitionMap.EfiSystemPartition,
-            PartitionMap.SecondaryEfiSystemPartition, PartitionMap.RecoveryTarget, PartitionMap.Misc,
+            PartitionMap.RecoveryTarget, PartitionMap.Misc,
         };
+        if (geometry.SecondaryEspPartition is string secondarySlot)
+        {
+            required.Add(secondarySlot);
+        }
         var missing = required.Where(n => !parts.Keys.Contains(n, StringComparer.OrdinalIgnoreCase)).ToList();
         if (missing.Count > 0)
         {
             return (false, $"The phone did not expose the expected partition(s): {string.Join(", ", missing)}.");
         }
-        foreach (var (name, expected) in new[] { (PartitionMap.WindowsTarget, PartitionMap.For(dev?.Codename).WindowsBytes),
-            (PartitionMap.EfiSystemPartition, PartitionMap.For(dev?.Codename).CacheBytes) })
+        foreach (var (name, expected) in new[] { (PartitionMap.WindowsTarget, geometry.WindowsBytes),
+            (PartitionMap.EfiSystemPartition, geometry.CacheBytes) })
         {
             var actual = parts.Keys.First(k => k.Equals(name, StringComparison.OrdinalIgnoreCase));
             var size = await twrp.PartitionSizeAsync(actual, ct);
@@ -674,7 +679,7 @@ public sealed partial class InstallPage : Page, IWizardStep
                 return (false, $"{actual} is {size:N0} bytes, not the validated {expected:N0}. This phone's layout differs; stopping before any write.");
             }
         }
-        return (true, $"Partitions verified: USERDATA ({PartitionMap.For(dev?.Codename).WindowsBytes >> 20} MiB) and the CACHE boot partition match the validated layout.");
+        return (true, $"Partitions verified: USERDATA ({geometry.WindowsBytes >> 20} MiB) and the CACHE boot partition match the validated layout.");
     }
 
     private static async Task<(bool, string)> RunTransferAsync(IProgress<string> log, CancellationToken ct)
@@ -685,6 +690,11 @@ public sealed partial class InstallPage : Page, IWizardStep
         {
             return (false, err);
         }
+        if (!PartitionMap.IsKnown(dev.Codename))
+        {
+            return (false, "No partition layout is recorded for this phone, so nothing was written.");
+        }
+        var geometry = PartitionMap.For(dev.Codename);
         if (!File.Exists(AppServices.WindowsImagePath))
         {
             return (false, $"No Windows image at {AppServices.WindowsImagePath}. Run the Build the Windows image step first.");
@@ -701,10 +711,13 @@ public sealed partial class InstallPage : Page, IWizardStep
             if (Directory.Exists(AppServices.EspDirectory))
             {
                 log.Report("Writing the Windows boot files...");
-                await new BootFilesService(twrp).WriteAsync(AppServices.EspDirectory, log, ct);
+                await new BootFilesService(twrp, geometry).WriteAsync(AppServices.EspDirectory, log, ct);
             }
-            await new GptTypeService(twrp).EnsureEspTypeAsync(PartitionMap.SecondaryEfiSystemPartition,
-                Path.Combine(AppServices.BackupFolderFor(dev.Serial), "gpt"), log, ct);
+            if (geometry.SecondaryEspPartition is string secondarySlot)
+            {
+                await new GptTypeService(twrp).EnsureEspTypeAsync(secondarySlot,
+                    Path.Combine(AppServices.BackupFolderFor(dev.Serial), "gpt"), log, ct);
+            }
         }
         finally
         {

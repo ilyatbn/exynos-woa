@@ -929,59 +929,57 @@ C_ASSERT(UFS_WDT_WTCNT < UFS_WDT_WINDOW);
  * WRITE FENCE
  * ---------------------------------------------------------------------------
  *
- * Read from the live device, not assumed. /sys/block/sda/sdaN/{start,size}
- * report 512-byte units regardless of the 4096-byte logical block size, so the
- * sysfs values are divided by 8 to give the LBAs this driver actually speaks.
+ * Read from the live device, not assumed. The S10e's own GPT was captured in
+ * TWRP as root (dd of LBA 1 plus the entry array, parsed in
+ * notes/s10e-root-reads.md §2) and its starts and ends equal Samsung's own
+ * BEYOND0LTE_EUR_OPEN.pit exactly. This disk's GPT addresses partitions in
+ * 4096-byte LBAs, which is the unit this driver speaks - there is no divide-by-8
+ * step as there was for the 9810's sysfs read.
  *
- *   sda18  SYSTEM / WINSETUP   start 549888   size 9011200  (512-byte units)
- *                           => LBA 68736 .. 1195135, 1126400 blocks, 4.30 GiB
+ *   sda28  CACHE / ESP     LBA 1983488 .. 2137087    bootmgfw.efi + the BCD
+ *   sda31  USERDATA        LBA 2151168 .. 31234815   the Windows volume
+ *   tail                   LBA 31234816 .. 31236090  claimed by nothing
  *
- * sda18 is the only partition Windows already owns - boot.wim lives here and
- * every deployment rewrites it - so its worst case is the reflash this project
- * performs routinely. Critically it contains none of:
+ * The role of the Windows volume MOVES between the two phones: on the 9810 it
+ * lived in the SYSTEM slot (sda18) with USERDATA protected, and here it IS
+ * USERDATA, the last partition on the disk, with the ESP (CACHE) sitting
+ * immediately below it and two real partitions in between (omr, cp_debug).
+ * So the fence spans ESP..tail and the two partitions inside it are carved
+ * back out by the protected ranges below.
  *
- *   sda3   EFS       LBA   4096 ..    9215   IMEI + RF calibration, UNRECOVERABLE
- *   sda10  BOOT      LBA  19458 ..   33537   UEFI
- *   sda11  RECOVERY  LBA  33538 ..   50175   TWRP - the recovery path itself
- *   GPT              LBA      0 ..       5   and the backup trailer at the end
+ * Excluded by the fence's lower bound, which is where the unrecoverable things
+ * live:
+ *
+ *   sda3   EFS        LBA  4096 ..   9215   IMEI + RF calibration, UNRECOVERABLE
+ *   sda14  BOOT       LBA 27264 ..  41343   UEFI
+ *   sda15  RECOVERY   LBA 41344 ..  57855   TWRP - the way back
+ *   GPT              LBA     0 ..      5    (no backup copy on this disk)
  *
  * A write that escapes this window can end the project, so the bound is a
  * compile-time constant checked on every command rather than a policy applied
  * somewhere upstream.
  *
- * WIDENING (see UFS_PROTECTED_PARTITION_* below). The fence upper bound is now
- * the GPT's own LastUsableLBA rather than the end of sda18, which brings the
- * unallocated tail past the last partition into range:
- *
- *   sda25  USERDATA  start 13577216  size 111337472 (512-byte units)
- *                           => LBA 1697152 .. 15614335, the last partition
- *   tail             LBA 15614336 .. 15615994, 1659 blocks, claimed by nothing
- *
- * That tail was measured on the device before it was admitted, not assumed
- * free: all 6795264 bytes of it read back as zero (`tr -d '\0' | wc -c` == 0,
- * SHA-256 f5119dbade0570718d16f861d7e22d5f62aea709e6b31836fbe4a5331f11ba36).
- *
- * Widening a single contiguous range would have admitted sda19..sda25 as a side
- * effect, so it is paired with a second, independent exclusion that carves them
- * back out. The net writable set is therefore sda18 UNION the tail - strictly
- * the old window plus unallocated space, and no real partition beyond the one
- * Windows already owns.
+ * The tail was measured before it was admitted, not assumed free: every LBA
+ * from 31234812 to 31236095 - the end of the media - reads back zero, and the
+ * only non-zero LBA in the measured run is 31234811, inside USERDATA
+ * (notes/s10e-root-reads.md §9, two dd reads pulled and parsed locally). So
+ * this disk carries NO backup GPT at all, even though its primary header
+ * declares AltLBA = 31236095. The five LBAs the header reserves for that copy
+ * are still refused, so a future reflash that does mirror the table is not
+ * silently trampled.
  */
 /*
- * 9820 PORTING — every LBA in this file (the fence, the protected partitions, the
- * scratch region, the expected capacity) is still the 9810 device's own partition
- * table. The S10e has a different one: 31 partitions on sda, EFS at the same
- * range, the Windows volume candidate at sda31 — see notes/dock-desktop.md §13.
- * They are deliberately left at the 9810 values so the C_ASSERTs below stay
- * self-consistent: the compile-time checks exist precisely to catch a half-edited
- * set, so the whole block must be replaced in one step, from a real GPT read, and
- * not from the arithmetic in §13.
+ * 9820 PORTING - done. Every LBA in this block is the S10e's own table, read
+ * from the live GPT (notes/s10e-root-reads.md §2) and cross-checked against
+ * Samsung's PIT. The C_ASSERTs below were re-derived in the same step; a
+ * half-edit still fails the compile.
  */
-#define UFS_WRITE_FENCE_FIRST_LBA            68736ULL   // UNVERIFIED on 9820 (9810 table)
-#define UFS_WRITE_FENCE_LAST_LBA             15615994ULL // UNVERIFIED on 9820 (9810 table)
+#define UFS_WRITE_FENCE_FIRST_LBA            1983488ULL   // VERIFIED (sda28 CACHE/ESP start, live GPT)
+#define UFS_WRITE_FENCE_LAST_LBA             31236090ULL  // VERIFIED (this disk's LastUsableLBA, header +0x30)
 
 /*
- * PROTECTED PARTITIONS - sda19 VENDOR through sda25 USERDATA inclusive.
+ * PROTECTED PARTITIONS - sda29 OMR and sda30 CP_DEBUG, the two real
+ * partitions that fall INSIDE the widened fence, between the ESP and USERDATA.
  *
  * Deliberately expressed as its own bound rather than folded into the fence,
  * for the same reason the GPT guard is: it must still hold if a fence constant
@@ -989,17 +987,16 @@ C_ASSERT(UFS_WDT_WTCNT < UFS_WDT_WINDOW);
  * fence, so a request landing in a real partition is refused by a check that
  * does not depend on the fence being right.
  *
- *   sda19  VENDOR     LBA 1195136 .. 1361535
- *   sda20  ODM        LBA 1361536 .. 1526911
- *   sda21  CACHE      LBA 1526912 .. 1680511
- *   sda22  HIDDEN     LBA 1680512 .. 1683071
- *   sda23  OMR        LBA 1683072 .. 1695871
- *   sda24  CP_DEBUG   LBA 1695872 .. 1697151
- *   sda25  USERDATA   LBA 1697152 .. 15614335
+ *   sda26  VENDOR     LBA 1543168 .. 1824767   below the fence, refused by it
+ *   sda27  PRODUCT    LBA 1824768 .. 1983487   below the fence, refused by it
+ *   sda28  CACHE      LBA 1983488 .. 2137087   WRITABLE  <- the ESP
+ *   sda29  OMR        LBA 2137088 .. 2149887   refused   (range A)
+ *   sda30  CP_DEBUG   LBA 2149888 .. 2151167   refused   (range B)
+ *   sda31  USERDATA   LBA 2151168 .. 31234815  WRITABLE  <- Windows
  *
  * The range is contiguous because these partitions are contiguous on this
- * device - sda19 begins exactly where sda18 ends and sda25 ends exactly where
- * the unallocated tail begins, both verified from sysfs.
+ * device - sda26 begins exactly where sda25 (system) ends and sda31 ends
+ * exactly where the unallocated tail begins, both verified from the live GPT.
  */
 /*
  * FULL WINDOWS MODE
@@ -1007,23 +1004,28 @@ C_ASSERT(UFS_WDT_WTCNT < UFS_WDT_WINDOW);
  * Everything above describes a driver whose job was to prove a read path and
  * never touch the media. That job is done. This build has a different one: it
  * is the boot-start disk driver for a real Windows installation living on
- * sda25, and a disk that refuses writes is not a disk Windows can run from.
+ * sda31 USERDATA, and a disk that refuses writes is not a disk Windows can run
+ * from.
  *
  * The safeguards are therefore re-aimed, not removed. What must never be
- * writable is what cannot be rebuilt from the host - and that set is unchanged:
+ * writable is what cannot be rebuilt from the host - and that set is unchanged
+ * in kind, only in number:
  *
  *   sda3  EFS       IMEI + RF calibration, UNRECOVERABLE
- *   sda10 BOOT      UEFI
- *   sda11 RECOVERY  TWRP, the way back
- *   GPT   LBA 0..5 and the backup trailer
+ *   sda14 BOOT      UEFI
+ *   sda15 RECOVERY  TWRP, the way back
+ *   GPT   LBA 0..5  (this disk has no backup copy; the last 5 LBAs are refused)
  *
- * all of which sit below the fence's lower bound (68736) or outside its upper
- * bound, so the fence alone still refuses them, exactly as before.
+ * all of which sit below the fence's lower bound (1983488) or outside its
+ * upper bound, so the fence alone still refuses them, exactly as before.
  */
 #define UFS_FULL_WINDOWS_MODE                1
 
 /*
- * Readout boot.
+ * Readout boot.  [HISTORY - the paragraphs below are the 9810's readout
+ * experiment: every LBA and every boot number in them is the 9810's, kept
+ * because they are the evidence for why this switch exists. The switch itself
+ * is live and is 0 on this build.]
  *
  * Comes up ARMED but confined to sda18 alone, so this boot cannot be the one
  * that crashes yet can still write down what it found.
@@ -1066,21 +1068,23 @@ C_ASSERT(UFS_WDT_WTCNT < UFS_WDT_WINDOW);
  * WISSUED=0. Every one of bcdboot's writes was refused by this window, not by
  * the arm state and not by the hardware.
  *
- * Turning it off does not widen the writable set beyond what FULL_WINDOWS_MODE
- * already sanctions: the fence still bounds writes to 68736..15615994, and the
- * two protected ranges still refuse sda19, sda20, sda22, sda23 and sda24. EFS,
- * UEFI, RECOVERY and both GPT copies remain outside the fence entirely. What
- * this restores is exactly sda21 and sda25 - the ESP and the Windows volume,
- * the two things an installation must be able to write.
+  * Turning it off does not widen the writable set beyond what FULL_WINDOWS_MODE
+  * already sanctions: on THIS device the fence bounds writes to 1983488..31236090
+  * (the ESP through the GPT's LastUsableLBA), the two protected ranges still
+  * refuse sda29 OMR and sda30 CP_DEBUG, and EFS, BOOT (UEFI), RECOVERY, the
+  * whole Android run below the fence and the five LBAs the header reserves for
+  * the backup GPT remain outside it entirely. What this restores is exactly the
+  * ESP (sda28), the Windows volume (sda31) and the verified-zero tail - the
+  * things an installation must be able to write.
  */
 #define UFS_READOUT_BOOT                     0
 
 /*
- * sda18 SYSTEM, in 4 KB logical blocks. Read off the device's own partition
- * table (sysfs reports 512-byte units: start=549888 size=9011200), not guessed.
- */
-/*
  * READOUT WINDOW - scratch region ONLY.
+ *
+ * [HISTORY - the LBAs quoted in the three paragraphs below are the 9810's own
+ * partition table, kept because they are the evidence for the SHAPE of this
+ * window, not its numbers. The constants after it are this device's.]
  *
  * v19 opened this to sda18 (68736..1195135) so WinPE could persist a log to
  * FAT. That boot died: it returned in under 128 s against the DISARMED v18
@@ -1091,64 +1095,105 @@ C_ASSERT(UFS_WDT_WTCNT < UFS_WDT_WINDOW);
  * issued by the filesystem stack at all.
  *
  * So the window is now the scratch region and nothing else. Scratch is one
- * block past sda25's last LBA and below the backup GPT: no partition contains
- * it, no volume mounts it, and no filesystem ever touches it. Every mount-time
- * and bcdboot write is therefore refused before a descriptor is built - the
- * configuration v18 proved survivable - while usermode pass-through writes to
- * scratch, the exact path that passed the 2026-07-31 ladder at 4/16/32/64 KB,
- * remain permitted.
+ * block past the last partition's last LBA and below the backup GPT: no
+ * partition contains it, no volume mounts it, and no filesystem ever touches
+ * it. Every mount-time and bcdboot write is therefore refused before a
+ * descriptor is built - the configuration v18 proved survivable - while
+ * usermode pass-through writes to scratch, the exact path that passed the
+ * 2026-07-31 ladder at 4/16/32/64 KB, remain permitted.
  *
  * That makes the next boot a clean single-variable test: same rebuilt binary,
  * same hardware, only the issuer differs.
  */
-#define UFS_READOUT_WINDOW_FIRST_LBA         15614336UL
-#define UFS_READOUT_WINDOW_LAST_LBA          15614591UL
+#define UFS_READOUT_WINDOW_FIRST_LBA         31234816UL   // S10e tail start, one LBA past USERDATA
+#define UFS_READOUT_WINDOW_LAST_LBA          31235071UL   // 256 LBAs, verified zero (notes §9)
 
 /*
  * The scratch region, mirrored here because UfsDiag.c's UFS_SCRATCH_LBA is a
  * usermode definition the driver cannot see. 256 blocks starting one LBA past
- * sda25's last (15614335). Verified present on device: LBA 15614336 still
- * reads back the "UFSSCRATCHBLK" signature.
+ * USERDATA's last (31234815), i.e. the same run UfsDiag.c calls its scratch
+ * region. Verified free on THIS device: the whole run reads back zero
+ * (notes/s10e-root-reads.md §9). The "UFSSCRATCHBLK" signature UfsDiag.c
+ * looks for was stamped on the 9810's tail and nothing has been written here
+ * yet, so that check fails on the S10e until the scratch pass runs - a
+ * device-validation gap, not a wrong constant.
  */
-#define UFS_READOUT_SCRATCH_FIRST_LBA        15614336UL
-#define UFS_READOUT_SCRATCH_LAST_LBA         15614591UL
+#define UFS_READOUT_SCRATCH_FIRST_LBA        31234816UL
+#define UFS_READOUT_SCRATCH_LAST_LBA         31235071UL
 
-#define UFS_PROTECTED_PARTITION_FIRST_LBA    1195136ULL
+/*
+ * PROTECTED PARTITIONS - the real partitions that fall INSIDE the fence, i.e.
+ * between the ESP and the Windows volume. On this device that is sda29 OMR and
+ * sda30 CP_DEBUG; the rest of the Android run (sda26 VENDOR, sda27 PRODUCT) is
+ * already below the fence's lower bound and is refused by the fence itself.
+ *
+ * Deliberately expressed as its own bound rather than folded into the fence,
+ * for the same reason the GPT guard is: it must still hold if a fence constant
+ * is ever edited incorrectly. It runs alongside the GPT guard, BEFORE the
+ * fence, so a request landing in a real partition is refused by a check that
+ * does not depend on the fence being right.
+ *
+ *   sda26  VENDOR     LBA 1543168 .. 1824767   below the fence, refused by it
+ *   sda27  PRODUCT    LBA 1824768 .. 1983487   below the fence, refused by it
+ *   sda28  CACHE      LBA 1983488 .. 2137087   WRITABLE  <- the ESP
+ *   sda29  OMR        LBA 2137088 .. 2149887   refused   (range A)
+ *   sda30  CP_DEBUG   LBA 2149888 .. 2151167   refused   (range B)
+ *   sda31  USERDATA   LBA 2151168 .. 31234815  WRITABLE  <- Windows
+ *   tail             LBA 31234816 .. 31236090  WRITABLE  <- scratch, verified zero
+ *
+ * The two refused partitions are contiguous here, so either range alone would
+ * cover both; they are kept split so a half-edited pair still fails the C_ASSERTs
+ * below rather than silently admitting one of them.
+ */
 #if UFS_FULL_WINDOWS_MODE
+#define UFS_PROTECTED_PARTITION_FIRST_LBA    2137088ULL   // VERIFIED (sda29 OMR start, live GPT)
 /*
  * The writable set is no longer contiguous, so the guard is two ranges.
  *
- * sda21 CACHE is this device's ESP - it holds bootmgfw.efi and the BCD, and
+ * sda28 CACHE is this device's ESP - it holds bootmgfw.efi and the BCD, and
  * bcdboot has to write the boot store there or Windows has nothing to boot
- * from. sda25 USERDATA carries the Windows volume itself. Those two are
- * released; every other partition in the old span stays refused.
+ * from. sda31 USERDATA carries the Windows volume itself. Those two are
+ * released; every other partition inside the fence stays refused.
  *
- *   sda19 VENDOR    1195136 .. 1361535    refused   (range A)
- *   sda20 ODM       1361536 .. 1526911    refused   (range A)
- *   sda21 CACHE     1526912 .. 1680511    WRITABLE  <- the ESP
- *   sda22 HIDDEN    1680512 .. 1683071    refused   (range B)
- *   sda23 OMR       1683072 .. 1695871    refused   (range B)
- *   sda24 CP_DEBUG  1695872 .. 1697151    refused   (range B)
- *   sda25 USERDATA  1697152 .. 15614335   WRITABLE  <- Windows
+ * This is the mirror image of the 9810's layout: there the Windows volume was
+ * the SYSTEM slot (sda18) and USERDATA (sda25) had to be carved out as
+ * protected, whereas here USERDATA IS the Windows volume and the partitions
+ * that must stay refused sit between it and the ESP.
  */
-#define UFS_PROTECTED_PARTITION_LAST_LBA     1526911ULL
-#define UFS_PROTECTED_PARTITION2_FIRST_LBA   1680512ULL
-#define UFS_PROTECTED_PARTITION2_LAST_LBA    1697151ULL
+#define UFS_PROTECTED_PARTITION_LAST_LBA     2149887ULL  // VERIFIED (sda29 OMR end)
+#define UFS_PROTECTED_PARTITION2_FIRST_LBA   2149888ULL  // VERIFIED (sda30 CP_DEBUG start)
+#define UFS_PROTECTED_PARTITION2_LAST_LBA    2151167ULL  // VERIFIED (sda30 CP_DEBUG end)
 C_ASSERT(UFS_PROTECTED_PARTITION2_FIRST_LBA > UFS_PROTECTED_PARTITION_LAST_LBA);
 C_ASSERT(UFS_PROTECTED_PARTITION2_FIRST_LBA < UFS_PROTECTED_PARTITION2_LAST_LBA);
 C_ASSERT(UFS_PROTECTED_PARTITION2_LAST_LBA < UFS_WRITE_FENCE_LAST_LBA);
+/* The ESP must stay writable: range A begins after the CACHE partition ends. */
+C_ASSERT(UFS_PROTECTED_PARTITION_FIRST_LBA > 2137087ULL);
+/* USERDATA must stay writable: range B ends one LBA before it starts. */
+C_ASSERT(UFS_PROTECTED_PARTITION2_LAST_LBA < 2151168ULL);
+/* The tail must stay writable: range B ends well before it starts. */
+C_ASSERT(UFS_PROTECTED_PARTITION2_LAST_LBA < 31234816ULL);
 #else
-#define UFS_PROTECTED_PARTITION_LAST_LBA     15614335ULL
+/*
+ * A build that refuses writes does not need the split: the whole Android run,
+ * VENDOR through CP_DEBUG inclusive, is refused as one range.
+ */
+#define UFS_PROTECTED_PARTITION_FIRST_LBA    1543168ULL  // VERIFIED (sda26 VENDOR start)
+#define UFS_PROTECTED_PARTITION_LAST_LBA     2151167ULL  // VERIFIED (sda30 CP_DEBUG end)
 #endif
 
 /*
  * Independent of the fence, so a mis-set fence constant still cannot destroy
- * the partition table. LastLba comes from the device's own GPT header, read by
- * this driver at LBA 1: BackupLBA 15615999, LastUsableLBA 15615994.
+ * the partition table. The geometry comes from this device's own GPT header,
+ * read at LBA 1 (notes/s10e-root-reads.md §8): the media is 127 943 049 216
+ * bytes = 31 236 096 LBAs, so LastLba is 31 236 095, the header declares the
+ * backup copy at AltLBA = 31 236 095 and carries LastUsableLBA = 31 236 090.
+ * The backup region is the five LBAs 31 236 091 .. 31 236 095 - and on the
+ * stock media it is empty (§9 read it back all zero), but it is refused
+ * regardless so a reflashed disk that does mirror the table stays protected.
  */
 #define UFS_GPT_PRIMARY_LAST_LBA             5ULL
-#define UFS_GPT_BACKUP_FIRST_LBA             15615995ULL
-#define UFS_EXPECTED_LAST_LOGICAL_BLOCK       15615999ULL
+#define UFS_GPT_BACKUP_FIRST_LBA             31236091ULL
+#define UFS_EXPECTED_LAST_LOGICAL_BLOCK       31236095ULL
 C_ASSERT(UFS_EXPECTED_LAST_LOGICAL_BLOCK == (UFS_GPT_BACKUP_FIRST_LBA + 4ULL));
 
 /*
@@ -1160,8 +1205,10 @@ C_ASSERT(UFS_EXPECTED_LAST_LOGICAL_BLOCK == (UFS_GPT_BACKUP_FIRST_LBA + 4ULL));
 C_ASSERT(UFS_WRITE_FENCE_FIRST_LBA > UFS_GPT_PRIMARY_LAST_LBA);
 C_ASSERT(UFS_WRITE_FENCE_LAST_LBA < UFS_GPT_BACKUP_FIRST_LBA);
 C_ASSERT(UFS_WRITE_FENCE_FIRST_LBA < UFS_WRITE_FENCE_LAST_LBA);
-/* The fence must not overlap RECOVERY (sda11 ends at LBA 50175). */
-C_ASSERT(UFS_WRITE_FENCE_FIRST_LBA > 50175ULL);
+/* The fence must not overlap RECOVERY (sda15 ends at LBA 57855). */
+C_ASSERT(UFS_WRITE_FENCE_FIRST_LBA > 57855ULL);
+/* The fence must not reach EFS (sda3 starts at LBA 4096) or BOOT (sda14). */
+C_ASSERT(UFS_WRITE_FENCE_FIRST_LBA > 41343ULL);
 
 /*
  * The protected block must sit strictly inside the fence. If it did not, the
@@ -1171,10 +1218,6 @@ C_ASSERT(UFS_WRITE_FENCE_FIRST_LBA > 50175ULL);
 C_ASSERT(UFS_PROTECTED_PARTITION_FIRST_LBA < UFS_PROTECTED_PARTITION_LAST_LBA);
 C_ASSERT(UFS_PROTECTED_PARTITION_FIRST_LBA > UFS_WRITE_FENCE_FIRST_LBA);
 C_ASSERT(UFS_PROTECTED_PARTITION_LAST_LBA < UFS_WRITE_FENCE_LAST_LBA);
-/* sda18 must remain writable: the protected block starts after it ends. */
-C_ASSERT(UFS_PROTECTED_PARTITION_FIRST_LBA > 1195135ULL);
-/* The tail must remain writable: the protected block ends before it starts. */
-C_ASSERT(UFS_PROTECTED_PARTITION_LAST_LBA < 15614336ULL);
 
 /*
  * IN-FLIGHT GPT HEADER TRANSLATION.

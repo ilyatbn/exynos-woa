@@ -1,0 +1,47 @@
+## @file
+#  Publishes the device-tree-verified Exynos 9820 high DRAM banks to DXE as
+#  GCD system memory, so the DXE core can allocate from them and the memory map
+#  Windows sees covers more than the single PcdSystemMemoryBase/Size window.
+#
+#  Ported from Star2LtePkg/Drivers/Star2LteRamManagerDxe (Exynos 9810 / Galaxy
+#  S9+). The 9810's two hardcoded bank-1 ranges are NOT carried - they are
+#  9810 DRAM-shape facts. The ranges here come from EXYNOS_DRAM_BANK3_* /
+#  BANK4_* in Silicon/Exynos9820Pkg/Include/Platform/Exynos9820.h (both base
+#  AND size are vendor DT reads, :87-90). The banks at 0xC0000000 and
+#  0xE1900000 have verified bases but UNVERIFIED sizes (:84, :86) and are
+#  skipped, not guessed. The 9810's status stamp at 0xFED17F60 is COMPILED
+#  OUT (BEYOND0LTE_RAM_STATUS_DIAG 0) because that address is inside bank0
+#  DRAM on this SoC. Nothing here is validated on an S10e.
+#
+#  FILE_GUID 11111111-2222-3333-4444-555555555547 is this module's BUILD
+#  IDENTITY, not a hardware read.
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = Beyond0LteRamManagerDxe
+  FILE_GUID                      = 11111111-2222-3333-4444-555555555547
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 0.1
+  ENTRY_POINT                    = Beyond0LteRamManagerEntry
+
+[Sources]
+  Beyond0LteRamManagerDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ArmPkg/ArmPkg.dec
+  Silicon/Exynos9820Pkg/Exynos9820Pkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  DxeServicesTableLib
+  ArmMmuLib
+  BaseLib
+  DebugLib
+
+[Protocols]
+  gEfiCpuArchProtocolGuid        ## CONSUMES
+
+[Depex]
+  gEfiCpuArchProtocolGuid

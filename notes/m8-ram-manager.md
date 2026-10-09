@@ -49,9 +49,34 @@ banks is gone, so only the single PcdSystemMemoryBase/Size window reaches DXE").
   5546,5550). Build identity, not a read.
 * `MODULE_TYPE = DXE_DRIVER` (a library would not run at boot).
 
+## Step 4 — wiring + build (done)
+
+DSC: the DROPPED header note (`dsc:42-44`) rewritten, and the `[Components.common]`
+"RAM discovery" line (`dsc:493`) now lists
+`Platform/Beyond0LtePkg/Drivers/Beyond0LteRamManagerDxe/…inf`.
+FDF: same in the header (`fdf:32-34`) and the RAM-discovery section (`fdf:201`).
+
+First build failed: `fatal error: 'Library/ArmMmuLib.h' file not found`. The
+header lives in **UefiCpuPkg** (`firmware/edk2/UefiCpuPkg/Include/Library/ArmMmuLib.h`),
+not ArmPkg — that is why the 9810 `.inf` packages `UefiCpuPkg/UefiCpuPkg.dec`.
+Restoring that package fixed it; the drop was my mistake, not a 9820 fact.
+
+Second build: **exit 0**, 39 s (`%TEMP%\m8-build-25.log`).
+
+| Metric | Before the manager | After |
+|---|---|---|
+| `FVMAIN_COMPACT` total | 696320 (0xaa000) | **700416 (0xab000)** — it auto-grew one 0x1000 block |
+| `FVMAIN_COMPACT` free | 968 | 3864 |
+| `FVMAIN` used | 1108224 (26%) | 1159016 (27%) |
+| FD | 7 340 032 B | **7 340 032 B unchanged**, sha256 `c72b3490…` |
+
+The FD is fixed (`NumBlocks = 0x700`, `fdf:76`) so the growth is absorbed inside
+it — the FD size the loader expects did not change.
+
 ## Sources (local evidence actually consulted)
 
 * `firmware/Platform/Star2LtePkg/Drivers/Star2LteRamManagerDxe/Star2LteRamManagerDxe.c` (137 lines, read in full) + `.inf`.
+* `firmware/edk2/UefiCpuPkg/Include/Library/ArmMmuLib.h` — where the ArmMmuLib header actually lives.
 * `firmware/Platform/Beyond0LtePkg/Library/PlatformMemoryMapLib/PlatformMemoryMapLib.c` — the page-table map, incl. the high-bank entries added in `9339b0c`.
 * `firmware/Silicon/Exynos9820Pkg/Include/Platform/Exynos9820.h:79-90` — bank bases/sizes with VERIFIED/UNVERIFIED markers.
 * `firmware/Platform/Beyond0LtePkg/Beyond0LtePkg.dsc:42-44` — the DROPPED RamManager note.

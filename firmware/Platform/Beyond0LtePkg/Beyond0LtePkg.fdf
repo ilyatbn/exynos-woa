@@ -30,8 +30,12 @@
 #        so AcpiTables.inf's FILE_GUID (...5521) now has a consumer and the tables
 #        are published through EFI_ACPI_TABLE_PROTOCOL.
 #    Platform/Star2LtePkg/Drivers/Star2LteRamManagerDxe/Star2LteRamManagerDxe.inf
-#        No 9820 equivalent. The high DRAM banks (0xC0000000, 0xE1900000,
-#        0x880000000, 0x900000000 — bases read, sizes unread) are not published.
+#        PORTED after this header was written ->
+#        Platform/Beyond0LtePkg/Drivers/Beyond0LteRamManagerDxe/, listed in the
+#        RAM-discovery section below. The high DRAM banks (0x880000000,
+#        0x900000000 — base AND size are vendor DT reads) are published as GCD
+#        SystemMemory here; 0xC0000000 and 0xE1900000 have verified bases but
+#        unread sizes and stay out of the table (notes/m8-ram-manager.md).
 #    Platform/Star2LtePkg/Drivers/Star2LteUfsHcDxe/Star2LteUfsHcDxe.inf
 #        PORTED after this header was written ->
 #        Platform/Beyond0LtePkg/Drivers/Beyond0LteUfsHcDxe/, placed in the
@@ -203,8 +207,11 @@
   INF Platform/Beyond0LtePkg/Drivers/Beyond0LteAcpiPlatformDxe/Beyond0LteAcpiPlatformDxe.inf
 
   #
-  # --- RAM discovery: Star2LteRamManagerDxe DROPPED (no 9820 equivalent). ---
+  # --- RAM discovery: Beyond0LteRamManagerDxe publishes the verified high
+  #     banks as GCD SystemMemory (the page-table map in PlatformMemoryMapLib
+  #     does not do that; see notes/m8-ram-manager.md). ---
   #
+  INF Platform/Beyond0LtePkg/Drivers/Beyond0LteRamManagerDxe/Beyond0LteRamManagerDxe.inf
   #
   # --- Storage + filesystem (Windows ESP on UFS).
   #     Beyond0LteUfsHcDxe produces the UFS host-controller protocol that

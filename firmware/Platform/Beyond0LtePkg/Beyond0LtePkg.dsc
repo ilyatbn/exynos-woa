@@ -40,8 +40,12 @@
 #        are 9810 values), so Gtdt.aslc keeps its all-ones placeholders.
 #
 #    Platform/Star2LtePkg/Drivers/Star2LteRamManagerDxe/Star2LteRamManagerDxe.inf
-#        None. Multi-region HOB publication of the extra DRAM banks is gone, so
-#        only the single PcdSystemMemoryBase/Size window reaches DXE.
+#        PORTED after this header was written ->
+#        Platform/Beyond0LtePkg/Drivers/Beyond0LteRamManagerDxe/, listed in
+#        [Components.common] below. Not a rename: the 9810's hardcoded bank-1
+#        ranges are 9810 DRAM-shape facts, so the ranges come from the
+#        EXYNOS_DRAM_BANK3/4 macros (verified base AND size) and banks whose
+#        extent was never read are skipped, not guessed.
 #
 #    Platform/Star2LtePkg/Drivers/Star2LteUfsHcDxe/Star2LteUfsHcDxe.inf
 #        PORTED after this header was written ->
@@ -498,7 +502,11 @@
   Platform/Beyond0LtePkg/AcpiTables/AcpiTables.inf
   Platform/Beyond0LtePkg/Drivers/Beyond0LteAcpiPlatformDxe/Beyond0LteAcpiPlatformDxe.inf
 
-  # --- RAM discovery: Star2LteRamManagerDxe DROPPED (no 9820 equivalent). ---
+  # --- RAM discovery: Beyond0LteRamManagerDxe is the ported 9810 manager. It
+  #     publishes the two verified high banks as GCD SystemMemory, which is a
+  #     different thing from the page-table entries in PlatformMemoryMapLib
+  #     (see notes/m8-ram-manager.md). ---
+  Platform/Beyond0LtePkg/Drivers/Beyond0LteRamManagerDxe/Beyond0LteRamManagerDxe.inf
 
   # --- Storage + filesystem (Windows ESP on UFS).
   #     Beyond0LteUfsHcDxe is the ported 9810 UFS host controller: it PRODUCES

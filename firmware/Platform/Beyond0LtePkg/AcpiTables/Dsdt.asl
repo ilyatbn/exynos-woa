@@ -294,5 +294,34 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
             })
             Method (_STA, 0, NotSerialized) { Return (0x0F) }
         }
+
+        // USB host controller (D3): the DWC3 core's xHCI-compliant register
+        // window. Windows' INBOX usbxhci.inf matches ACPI\PNP0D10 (fact,
+        // notes/d1b-usb-vbus-hcd.md Q6: "usbxhci.inf: PCI\CC_0C0330 ACPI\PNP0D15
+        // ACPI\PNP0D10"), so no Windows driver is needed IF the firmware has
+        // left the core in host role — Beyond0LteUsbHostDxe does that before
+        // ExitBootServices and the DWC3 globals block (+0xC100) is deliberately
+        // NOT in _CRS: USBXHCI must never re-touch it (contract recorded in
+        // notes/d1-usb-host.md Q6). Shape follows the Marvell Armada70x0 EDK2
+        // DSDT (Memory32Fixed 0x8000 = DWC3_XHCI_REGS_END 0x7fff + 1).
+        // _CCA 1: standard WoA declaration (Windows' WDF DMA helpers do the
+        // cache maintenance; the vendor DT does NOT mark this node
+        // dma-coherent, and the UEFI side uses DmaTypeNonCoherent for the same
+        // reason). UNVERIFIED on device until Windows enumerates it.
+        Device (XHC0)
+        {
+            Name (_HID, "PNP0D10")   // xHCI-compliant USB controller with standard debug (Microsoft SoC _CID table)
+            Name (_UID, Zero)
+            Name (_CCA, 1)
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, 0x10C00000, 0x00008000)  // VERIFIED usb@10C00000, xHCI regs 0..0x7FFF
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)
+                {
+                    273  // VERIFIED 9820: dwc3 child SPI 0xf1 = 241, +32 = GSIV 273 (Exynos9820.h:522)
+                }
+            })
+            Method (_STA, 0, NotSerialized) { Return (0x0F) }
+        }
     }
 }

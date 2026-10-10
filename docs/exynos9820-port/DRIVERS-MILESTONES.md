@@ -80,9 +80,9 @@ ACPI/Windows half remains.
 
 | Task | State | Notes |
 |------|-------|-------|
-| Research: how WoA targets expose memory-mapped xHCI to Windows (ACPI `_HID`/`_CID`, `USBXHCI.sys` binding rules, Snapdragon prior art) | todo | subagent → `notes/d3-usb-windows.md` |
-| Add the xHCI ACPI device to `Beyond0LtePkg/AcpiTables` (MMIO `10C00000`+0x10000, GSIV 273) | todo | |
-| Decide the role-latching contract: firmware leaves DWC3 in host mode before `ExitBootServices` | todo | |
+| Research: how WoA targets expose memory-mapped xHCI to Windows (ACPI `_HID`/`_CID`, `USBXHCI.sys` binding rules, Snapdragon prior art) | **done** | closed by `notes/d1b-usb-vbus-hcd.md` Q6: inbox `usbxhci.inf` matches `ACPI\PNP0D10`/`PNP0D15`; Marvell Armada70x0 EDK2 DSDT is the working memory-mapped pattern |
+| Add the xHCI ACPI device to `Beyond0LtePkg/AcpiTables` (MMIO `10C00000`+0x8000, GSIV 273) | **done (code; built into the FD; Windows enumeration unvalidated)** | `Dsdt.asl` `Device (XHC0)`: `_HID "PNP0D10"`, `_CCA 1`, `Memory32Fixed(0x10C00000, 0x8000)` (xHCI window only — the DWC3 globals at +0xC100 are deliberately NOT in `_CRS` so USBXHCI never re-touches them), `Interrupt(Level, ActiveHigh, Exclusive){273}`. Verified `PNP0D10` present in the built `FVMAIN.Fv` |
+| Decide the role-latching contract: firmware leaves DWC3 in host mode before `ExitBootServices` | **done — decision** | the core's PRTCAP/GCTL state is hardware latched; nothing in Windows' USBXHCI path writes DWC3 globals as long as they stay out of `_CRS` (enforced by the XHC0 design above). Residual risk recorded: a Windows filter or the SoC's own power framework poking 0x10C0xxxx is untested |
 | Device test: keyboard/mouse/hub under Windows | todo | **needs-windows + needs-boot** |
 
 ### D4 — WiFi

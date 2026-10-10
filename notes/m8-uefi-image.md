@@ -1317,3 +1317,31 @@ OK, kernel = shim + FD exact. FD unchanged from boot #9 (checkpoints still in). 
 
 Pushed (on-device sha256 4fbd5df2...59a3), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
 4fbd5df287d089de7bda912e2d37ee442ad46125613eaa7c9ef0a36a04db59a3 (byte-exact). `adb reboot` next.
+
+## B44 - boot #10 OBSERVED + the PANEL IS 1080x2280, not 1440x3040 (major correction)
+
+User photo (notes/img-boot10-readout.jpg): 4 readout strips, blocks horizontally STRIPED, ~24 cells
+across instead of 32. READ: stock DTBO (opencode/stock/dtbo.dtb, from the G970F firmware) node
+`fragment@lcd/__overlay__/s6e3fa7_beyond0`: resolution = (1080, 2280), mres 1080x2280. The S10e
+panel is 1080x2280; 1440x3040 (Exynos9820.h EXYNOS_FB_WIDTH/HEIGHT) is the S10/S10+ (s6e3ha9) panel.
+32-bpp holds (a 180 B cell = 45 px -> 24 cells per 4320 B line, as seen).
+Consequence: every FB diagnostic used a 5760 B row on a 4320 B line -> our row r lands on panel line
+~4r/3, and each panel line shifts 8 cells (=> stripes; visible column c = cells {c,c+8,c+16,c+24}).
+Anything at row > ~1710 is BELOW the panel. Retractions:
+- B38: the lower band was row 1100 = "both watchdogs read back stopped" (it WAS drawn), not "copy
+  done"; row 1850 "copy done" was off-screen. Watchdogs: not armed (rows 500/800 absent, valid), and
+  the RMW stop DID read back clear.
+- B41: FD checkpoints (rows 2100-3030) were all off-screen -> boot #9 says NOTHING about FD progress.
+- B32/B34: ResetHold band rows 1300-1749 -> lines ~1733-2332, mostly visible; not seen -> the
+  "no UEFI ResetSystem" conclusion stands (weaker).
+Boot #10 decode (columns mix 4 cells; patterns repeat every 8 columns):
+- strip row 950 (first word at UEFI_BASE after copy): per-8 pattern 1,1,0,1,1,W,0,1 x3 = exactly the
+  prediction for 0x1401CC00 -> the copy's first word LANDED and reads back right.
+- strip row 650 (CurrentEL): single bit, columns 5/13/21 -> cell 29 -> bit 2 -> EL1. sboot hands
+  off at EL1 (consistent with Samsung's uH owning EL2: el2_code/el2_earlymem reservations).
+- strip row 500 (adr _head): bit31 set, page-aligned; ambiguous (column mixing) - candidates
+  0x80248000 / 0x8004A000 / 0x80A40000. Re-read with correct geometry.
+- strip row 800 (SCTLR_EL1): too many bits to unmix - re-read.
+- strip row 1100 (src/dst mismatch count over 7 MB) NOT drawn (photo spacing: 4 strips, 5th
+  position dark) -> the re-read loop did not finish: a read fault in src/dst, or the external reset
+  arrived first. OPEN.

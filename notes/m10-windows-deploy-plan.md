@@ -256,3 +256,4 @@ bank1/bank2 RAM. The 9810's winload patches act later (MMU switch), and it never
 A/B: BEYOND0LTE_PUBLISH_BANK12 0 (bank0-only, as boot #25) -> boot #28 s10e-artifacts\boot28-v2.img sha256
 507fd916a4a4e0a4b1e73439c89ea1e718d6ebc0b64b1abbc87f208077115dc2 (build exit 0, FVMAIN_COMPACT 2816 B free, shim
 same as #27). If winload passes this point on #28 -> W2 ranges are not plain RAM for EL1; bisect bank1 vs bank2.
+W16 flash: boot #28 on sda14, readback sha 507fd916…5dc2 (was #27 e256d832). adb reboot.

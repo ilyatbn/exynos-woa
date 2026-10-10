@@ -97,8 +97,8 @@ ACPI/Windows half remains.
 
 | Task | State | Notes |
 |------|-------|-------|
-| Research: Mali-G76 on Windows ARM64 — is any WDDM driver obtainable? (ARM's Windows Mali driver availability, prior art on any Exynos WoA display) | todo | subagent → `notes/d5-gpu-display.md` |
-| Research: edk2-exynos DECON/display bring-up for exynos9820 (they light the S10 panel in UEFI today) | todo | same notes file |
+| Research: Mali-G76 on Windows ARM64 — is any WDDM driver obtainable? (ARM's Windows Mali driver availability, prior art on any Exynos WoA display) | **doing** | subagent → `notes/d5-gpu-display.md` (seeded with five questions) |
+| Research: edk2-exynos DECON/display bring-up for exynos9820 (they light the S10 panel in UEFI today) | **doing** | same notes file — note the repo already has `SimpleFramebufferDxe` over the sboot fb |
 | Verdict task: GPU acceleration on Windows is either a real driver project or a documented dead end — write the decision down | todo | honest bar: no fake `Ready` |
 | Firmware GOP driver (DECON scanout at the S10e's 1440×3040) so UEFI has real graphics and Windows can use a framebuffer | todo | fb base for the FD is still `UNVERIFIED` (`Exynos9820.h`); the M8 fb-overlap task interacts |
 

@@ -107,3 +107,12 @@ adb shell 'cat /proc/cmdline' | tr ' ' '\n' | grep -i reset
   Android reboots show `REBOOTMODE0` / `INFORM3(0)`; kernel panics show `KP / SOFT, PANIC`.
   The **spacing between entries** is the useful number: same period across builds = timer.
 - `reset_reason` itself only names the last reset (usually your key combo, `RPON`).
+
+## 10. Commit identity — verify before the first commit
+
+- Before the **first** commit of any session, check `git config user.name` and
+  `git config user.email`. They must be `ilyatbn` / `ilyatbn@users.noreply.github.com`.
+- Never commit as `ntdevlabs` — that was a stale repo-local identity that mis-attributed
+  260 commits (incident + fix: `notes/git-identity.md`).
+- `main` still carries ntdevlabs commits on purpose; they get rewritten after the
+  drivers→main merge. Do not "fix" them early.

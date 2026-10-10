@@ -1312,3 +1312,8 @@ Shim DIAG now: WDT probe removed (answered, B38). New leaf _bits(x9=strip addr, 
 Verified: both DIAG modes build (464 B / 144 B; DIAG=0 byte-identical), objdump reviewed, packer
 OK, kernel = shim + FD exact. FD unchanged from boot #9 (checkpoints still in). Image
 %TEMP%\b42\boot10-v2.img sha256 4fbd5df287d089de7bda912e2d37ee442ad46125613eaa7c9ef0a36a04db59a3
+
+## B43 - boot #10 WRITE to BOOT sda14
+
+Pushed (on-device sha256 4fbd5df2...59a3), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
+4fbd5df287d089de7bda912e2d37ee442ad46125613eaa7c9ef0a36a04db59a3 (byte-exact). `adb reboot` next.

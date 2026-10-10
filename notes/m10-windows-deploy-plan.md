@@ -234,3 +234,6 @@ Build: build-uefi.ps1 -Platform Beyond0LtePkg exit 0, FVMAIN_COMPACT 2808 B free
 ref-recovery.img) exit 0; build-bootimg-v2.py --dtb stock dt.dtb -> boot #27 s10e-artifacts\boot27-v2.img, 7 587 840 B,
 sha256 e256d8327c29633cdc38e6297dc3c1344039c36de45cbb1cb5baadd3d936881e. vs boot #26: header bytes 0..575 identical
 (576.. = id/sha), shim 208 B identical. Nothing else changed vs boot #26 (bank1/bank2 RAM, UFS).
+W15 flash: boot #27 pushed (sha e256d832 on device), sda14 before = boot #26 (200bd7e1), dd conv=fsync, readback
+e256d8327c29…881e. Review of f79271f: frozen mode exits only via a new boot (sboot repaint); banner scan per write is
+O(n); last-row overflow sets FULL via FbNewLine and the loop breaks - no wrap path left in frozen mode. adb reboot next.

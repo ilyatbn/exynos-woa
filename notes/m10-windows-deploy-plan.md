@@ -257,3 +257,14 @@ A/B: BEYOND0LTE_PUBLISH_BANK12 0 (bank0-only, as boot #25) -> boot #28 s10e-arti
 507fd916a4a4e0a4b1e73439c89ea1e718d6ebc0b64b1abbc87f208077115dc2 (build exit 0, FVMAIN_COMPACT 2816 B free, shim
 same as #27). If winload passes this point on #28 -> W2 ranges are not plain RAM for EL1; bisect bank1 vs bank2.
 W16 flash: boot #28 on sda14, readback sha 507fd916…5dc2 (was #27 e256d832). adb reboot.
+
+## W17 - boot #28 OBSERVED: same crash with bank0 only; boot #29 = memory-map dump (2026-10-10)
+Photo (user): identical fault, ELR 0xB8C02158 (winload base 0xB8B55000 -> same RVA 0xAD158), X19 = 0, X0/X21/X22 =
+0xB8D35028. => NOT the W2 bank1/bank2 RAM. Closer read of the callee chain: MmHapAddToFreeList (RVA 0xEBC88) ->
+RVA 0xEBD90 saves x19/x20 with stp at its SP and restores them before ret; the dump shows X19 = 0 and X20 =
+0xC000000D (an NTSTATUS, INVALID_PARAMETER) - i.e. that STACK SLOT was overwritten while RVA 0xEBD90 ran. Hypothesis
+(UNVERIFIED): winload's heap/page allocator is handed memory that overlaps the live firmware stack (SP 0xBAAFF760,
+top of bank0 0xBAB00000) because our UEFI memory map does not mark it allocated.
+Boot #29: Beyond0LteAcpiPlatformDxe gains BEYOND0LTE_MEMMAP_DUMP (ReadyToBoot event): prints "MMAP n=.. sp=..", then
+every descriptor "type base+pages" two per line, then holds 20 s. Build exit 0 (FVMAIN_COMPACT 2352 B free), still
+bank0-only. boot29-v2.img sha256 ef9d5840709cfbe6310b24b86eebc7e762749482de090f511b9c03a6b788b5d7.

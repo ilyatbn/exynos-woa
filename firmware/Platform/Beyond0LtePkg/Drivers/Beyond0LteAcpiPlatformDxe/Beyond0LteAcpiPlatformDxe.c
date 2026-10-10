@@ -21,6 +21,14 @@
 #include <IndustryStandard/Acpi63.h>
 #include <Library/CacheMaintenanceLib.h>
 #include <Platform/Exynos9820.h>
+#include <Guid/EventGroup.h>
+
+//
+// m10 W17: winload's heap overwrites a callee-saved register slot on the firmware stack
+// (SP 0xBAAFF760). Dump the UEFI memory map at ReadyToBoot - what bootmgr/winload start
+// from - two entries per panel line, then hold 20 s for a photo. Diagnostic only.
+//
+#define BEYOND0LTE_MEMMAP_DUMP  1
 
 //
 // FFS file GUID the AcpiTables module is built under. This is the GUID the
@@ -289,6 +297,72 @@ Beyond0LtePatchGtdt (
   #endif
 }
 
+#if BEYOND0LTE_MEMMAP_DUMP
+STATIC
+VOID
+EFIAPI
+Beyond0LteDumpMemoryMap (
+  IN EFI_EVENT  Event,
+  IN VOID       *Context
+  )
+{
+  EFI_MEMORY_DESCRIPTOR  *Map;
+  EFI_MEMORY_DESCRIPTOR  *Desc;
+  UINTN                  MapSize;
+  UINTN                  MapKey;
+  UINTN                  DescSize;
+  UINT32                 DescVersion;
+  UINTN                  Count;
+  UINTN                  Index;
+  UINT64                 Sp;
+  EFI_STATUS             Status;
+
+  __asm__ __volatile__ ("mov %0, sp" : "=r" (Sp));
+  MapSize = 0;
+  Map     = NULL;
+  Status  = gBS->GetMemoryMap (&MapSize, NULL, &MapKey, &DescSize, &DescVersion);
+  if (Status != EFI_BUFFER_TOO_SMALL) {
+    DEBUG ((DEBUG_ERROR, "MMAP: GetMemoryMap %r\n", Status));
+    return;
+  }
+
+  MapSize += 8 * DescSize;
+  Status   = gBS->AllocatePool (EfiBootServicesData, MapSize, (VOID **)&Map);
+  if (EFI_ERROR (Status)) {
+    return;
+  }
+
+  Status = gBS->GetMemoryMap (&MapSize, Map, &MapKey, &DescSize, &DescVersion);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "MMAP: GetMemoryMap %r\n", Status));
+    gBS->FreePool (Map);
+    return;
+  }
+
+  Count = MapSize / DescSize;
+  DEBUG ((DEBUG_ERROR, "\nMMAP n=%u sp=%lx (type base+pages)\n", (UINT32)Count, Sp));
+  for (Index = 0; Index < Count; Index++) {
+    Desc = (EFI_MEMORY_DESCRIPTOR *)((UINT8 *)Map + Index * DescSize);
+    DEBUG ((
+      DEBUG_ERROR,
+      "%a%x %lx+%lx",
+      (Index & 1) ? "  " : "",
+      (UINT32)Desc->Type,
+      Desc->PhysicalStart,
+      Desc->NumberOfPages
+      ));
+    if ((Index & 1) || (Index + 1 == Count)) {
+      DEBUG ((DEBUG_ERROR, "\n"));
+    }
+  }
+
+  DEBUG ((DEBUG_ERROR, "MMAP end - holding 20 s\n"));
+  gBS->FreePool (Map);
+  gBS->Stall (20 * 1000 * 1000);
+}
+
+#endif
+
 EFI_STATUS
 EFIAPI
 Beyond0LteAcpiPlatformEntry (
@@ -312,6 +386,15 @@ Beyond0LteAcpiPlatformEntry (
   if (EFI_ERROR (Status)) {
     return Status;
   }
+
+  #if BEYOND0LTE_MEMMAP_DUMP
+  {
+    EFI_EVENT  ReadyToBoot;
+
+    gBS->CreateEventEx (EVT_NOTIFY_SIGNAL, TPL_CALLBACK, Beyond0LteDumpMemoryMap, NULL,
+                        &gEfiEventReadyToBootGuid, &ReadyToBoot);
+  }
+  #endif
 
   Status = gBS->LocateHandleBuffer (
                    ByProtocol,

@@ -41,5 +41,8 @@
   gEfiAcpiTableProtocolGuid       ## CONSUMES
   gEfiFirmwareVolume2ProtocolGuid ## CONSUMES
 
+[Guids]
+  gEfiEventReadyToBootGuid        ## CONSUMES ## Event (W17 memory-map dump)
+
 [Depex]
   gEfiAcpiTableProtocolGuid AND gEfiFirmwareVolume2ProtocolGuid

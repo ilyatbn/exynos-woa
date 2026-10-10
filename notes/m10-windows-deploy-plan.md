@@ -157,3 +157,10 @@ Session elevated (IsInRole Administrator = True). Enabling Microsoft-Hyper-V-Man
 ENABLED THE WHOLE Hyper-V SET, hypervisor and services included (DISM enables a container's children) -
 RestartNeeded = True, -NoRestart given, nothing restarted. New-VHD is still not available before the reboot.
 Undo if wanted: Disable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All -NoRestart (also needs a reboot).
+
+## W7 - installer bug: ISO attach (2026-10-10)
+After the PC reboot: elevated, New-VHD = Hyper-V module, vmms Running. First `S10eHarness image` run failed at
+WindowsMedia.MountIsoScript: "Mount-DiskImage : Parameter set cannot be resolved" - `-InputObject` and
+`-StorageType ISO` are in different parameter sets. Fix: drop -StorageType (Get-DiskImage -ImagePath already
+identifies the ISO). Verified by hand on this PC (mounted as F:, dismounted) and the unit test updated
+(asserts no -StorageType); dotnet test --filter OpensAnIsoReadOnly: 1 passed.

@@ -64,7 +64,8 @@ public class ImageBuilderTests
     {
         var script = WindowsMedia.MountIsoScript(@"C:\iso\it's.iso");
         Assert.Contains(@"-ImagePath 'C:\iso\it''s.iso'", script, StringComparison.Ordinal);
-        Assert.Contains("-Access ReadOnly -StorageType ISO", script, StringComparison.Ordinal);
+        Assert.Contains("Mount-DiskImage -InputObject $img -Access ReadOnly -PassThru", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("-StorageType", script, StringComparison.Ordinal);
         Assert.Contains("if (-not $img.Attached)", script, StringComparison.Ordinal);
 
         // No drive letter: a clear error instead of "no install.wim".

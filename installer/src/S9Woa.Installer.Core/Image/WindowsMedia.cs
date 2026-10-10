@@ -34,7 +34,7 @@ public sealed partial class WindowsMedia
         "$ErrorActionPreference = 'Stop'",
         $"$img = Get-DiskImage -ImagePath {Quote(iso)}",
         "$mine = 0",
-        "if (-not $img.Attached) { $img = Mount-DiskImage -InputObject $img -Access ReadOnly -StorageType ISO -PassThru; $mine = 1 }",
+        "if (-not $img.Attached) { $img = Mount-DiskImage -InputObject $img -Access ReadOnly -PassThru; $mine = 1 }",
         "$letter = ($img | Get-Volume).DriveLetter",
         "if (-not $letter) { throw 'The ISO has no drive letter.' }",
         "Write-Output \"$letter $mine\"");

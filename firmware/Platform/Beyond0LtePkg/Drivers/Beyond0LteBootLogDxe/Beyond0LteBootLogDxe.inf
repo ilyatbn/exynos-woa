@@ -29,6 +29,7 @@
   PrintLib
   PeCoffGetEntryPointLib
   DebugLib
+  IoLib
 
 [Protocols]
   gEfiSimpleFileSystemProtocolGuid   ## CONSUMES

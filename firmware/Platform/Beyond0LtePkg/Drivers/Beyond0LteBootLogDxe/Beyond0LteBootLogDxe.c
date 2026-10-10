@@ -31,10 +31,12 @@
 #include <Protocol/DebugSupport.h>
 #include <Guid/EventGroup.h>
 #include <Guid/DebugImageInfoTable.h>
+#include <Library/IoLib.h>
+#include <Platform/Exynos9820.h>
 
 #include "../../Library/Beyond0LteFbSerialPortLib/Beyond0LteBootLog.h"
 
-#define BEYOND0LTE_AUTO_RECOVERY  0
+#define BEYOND0LTE_AUTO_RECOVERY  1   // W21: after the dump + flush, reboot into TWRP
 
 #define LOG_FILE_NAME  L"\\UEFILOG.TXT"
 
@@ -174,7 +176,7 @@ FlushBootLog (
 // way LoadImage reads it) and once in 4 KB calls, and log a CRC32 per 64 KB of each, to compare
 // with the file on the PC.
 //
-#define BEYOND0LTE_READ_TEST  1
+#define BEYOND0LTE_READ_TEST  0   // W20 answered: one-shot and 4 KB reads both match the PC file
 
 #if BEYOND0LTE_READ_TEST
 STATIC
@@ -252,6 +254,40 @@ ReadTest (
 }
 
 #endif
+
+/** Writes Size bytes of memory at Address to Name on the ESP (overwrites). Logs the result. **/
+STATIC
+VOID
+DumpMemoryToEsp (
+  IN CONST CHAR16  *Name,
+  IN UINTN         Address,
+  IN UINTN         Size
+  )
+{
+  EFI_FILE_PROTOCOL  *Root;
+  EFI_FILE_PROTOCOL  *File;
+  EFI_STATUS         Status;
+
+  Root = OpenEspRoot ();
+  if (Root == NULL) {
+    DEBUG ((DEBUG_ERROR, "DUMP %s: no ESP\n", Name));
+    return;
+  }
+
+  if (!EFI_ERROR (Root->Open (Root, &File, (CHAR16 *)Name, EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE, 0))) {
+    File->Delete (File);
+  }
+
+  Status = Root->Open (Root, &File, (CHAR16 *)Name, EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, 0);
+  if (!EFI_ERROR (Status)) {
+    Status = WriteAll (File, (VOID *)Address, Size);
+    File->Flush (File);
+    File->Close (File);
+  }
+
+  Root->Close (Root);
+  DEBUG ((DEBUG_ERROR, "DUMP %s 0x%lx+0x%lx -> %r\n", Name, (UINT64)Address, (UINT64)Size, Status));
+}
 
 STATIC
 VOID
@@ -379,6 +415,30 @@ ListImages (
   }
 }
 
+#if BEYOND0LTE_AUTO_RECOVERY
+/**
+  Samsung's own `reboot recovery`, minus the kernel-only steps (notes/s10e-reboot-wdt-constants.md):
+  INFORM3 = 0x12345670 | 4 (sboot reads it as REBOOT_MODE 4 = recovery), RSTSTAT = 0, then
+  SWRESET PMU+0x3A00 = 2 - the same reset sboot itself performs.
+**/
+STATIC
+VOID
+RebootToRecovery (
+  VOID
+  )
+{
+  DEBUG ((DEBUG_ERROR, "BootLog: rebooting to recovery\n"));
+  MmioWrite32 ((UINTN)EXYNOS_PMU_BASE + EXYNOS_PMU_INFORM3_OFFSET, EXYNOS_REBOOT_REASON_BASE | EXYNOS_REBOOT_MODE_RECOVERY);
+  MmioWrite32 ((UINTN)EXYNOS_PMU_BASE + EXYNOS_PMU_RSTSTAT_OFFSET, 0);
+  __asm__ __volatile__ ("dsb sy\n isb" ::: "memory");
+  MmioWrite32 ((UINTN)EXYNOS_PMU_BASE + EXYNOS_PMU_SWRESET_OFFSET, EXYNOS_PMU_SWRESET_VALUE);
+  for ( ; ;) {
+    __asm__ __volatile__ ("wfi");
+  }
+}
+
+#endif
+
 STATIC
 VOID
 EFIAPI
@@ -445,11 +505,42 @@ BootLogExceptionHandler (
             (UINT64)(UINTN)(Sp + Index), Sp[Index], Sp[Index + 1], Sp[Index + 2], Sp[Index + 3]));
   }
 
+  //
+  // W21: is the faulting image mapped where the UEFI debug table says it was loaded? Translate
+  // its base and ELR through the CURRENT stage-1 tables, and dump the region to \IMGDUMP.BIN.
+  //
+  {
+    CONST CHAR8  *Name;
+    UINTN        ImgBase;
+    UINT64       Ttbr0;
+    UINT64       Tcr;
+    UINT64       Sctlr;
+    UINT64       Va[2];
+    UINT64       Par;
+    UINTN        Index2;
+
+    __asm__ __volatile__ ("mrs %0, ttbr0_el1" : "=r" (Ttbr0));
+    __asm__ __volatile__ ("mrs %0, tcr_el1" : "=r" (Tcr));
+    __asm__ __volatile__ ("mrs %0, sctlr_el1" : "=r" (Sctlr));
+    DEBUG ((DEBUG_ERROR, "TTBR0 %016lx TCR %016lx SCTLR %016lx\n", Ttbr0, Tcr, Sctlr));
+    Name  = ImageOf ((UINTN)C->ELR, &ImgBase);
+    Va[0] = (Name != NULL) ? ImgBase : (C->ELR & ~(UINT64)0xFFF);
+    Va[1] = C->ELR;
+    for (Index2 = 0; Index2 < 2; Index2++) {
+      __asm__ __volatile__ ("at s1e1r, %1\n isb\n mrs %0, par_el1" : "=r" (Par) : "r" (Va[Index2]) : "memory");
+      DEBUG ((DEBUG_ERROR, "AT S1E1R %016lx -> PAR %016lx\n", Va[Index2], Par));
+    }
+
+    if (Name != NULL) {
+      DumpMemoryToEsp (L"\\IMGDUMP.BIN", ImgBase - SIZE_64KB, SIZE_2MB + SIZE_128KB);
+    }
+  }
+
   Status = FlushBootLog ("exception");
   DEBUG ((DEBUG_ERROR, "BootLog: exception flush -> %r\n", Status));
 
  #if BEYOND0LTE_AUTO_RECOVERY
-  #error "reboot-to-recovery needs the verified PMU reboot-reason/SWRESET sequence (W19)"
+  RebootToRecovery ();
  #endif
   CpuDeadLoop ();
 }

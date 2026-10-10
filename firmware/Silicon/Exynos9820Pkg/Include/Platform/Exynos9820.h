@@ -272,6 +272,19 @@
 //
 #define EXYNOS_PMU_BASE           0x0000000015860000ULL   // VERIFIED (system-controller@15860000)
 #define EXYNOS_PMU_SIZE           0x0000000000010000ULL   // VERIFIED (live DTB: system-controller reg = 0x15860000 + 0x10000, notes/s10e-dtb-mmio.md S02)
+//
+// Reboot reason + software reset - VERIFIED from Samsung's own binaries (notes/s10e-reboot-wdt-constants.md):
+// kernel sec_reboot writes INFORM3 = 0x12345670 | mode (recovery = 4) then exynos_reboot writes SWRESET
+// PMU+0x3A00 = 0x2; sboot s5p_check_reboot_mode decodes INFORM3 (PINFORM, 0x1586080C) the same way and
+// itself resets with 2 -> 0x15863A00. The 9810 values (SWRESET 0x400 = 1) are WRONG on this SoC.
+//
+#define EXYNOS_PMU_INFORM2_OFFSET      0x0808u        // VERIFIED (sboot register dump name, kernel sec_reboot)
+#define EXYNOS_PMU_INFORM3_OFFSET      0x080Cu        // VERIFIED (sboot PINFORM, kernel sec_reboot 0x8e14978)
+#define EXYNOS_PMU_RSTSTAT_OFFSET      0x0404u        // VERIFIED (sboot RSTSTAT, kernel exynos_reboot 0x86391e4)
+#define EXYNOS_PMU_SWRESET_OFFSET      0x3A00u        // VERIFIED (kernel exynos_reboot 0x8639204, sboot 0xa5200)
+#define EXYNOS_PMU_SWRESET_VALUE       0x00000002u    // VERIFIED (same two sites)
+#define EXYNOS_REBOOT_REASON_BASE      0x12345670u    // VERIFIED (kernel sec_reboot, sboot s5p_check_reboot_mode)
+#define EXYNOS_REBOOT_MODE_RECOVERY    4u             // VERIFIED (sec_reboot "recovery" -> +4; sboot recovery REBOOT_MODE 4)
 #define EXYNOS_CHIPID_BASE        0x0000000010000000ULL   // VERIFIED (chipid@10000000)
 #define EXYNOS_CHIPID_SIZE        0x0000000000000100ULL   // VERIFIED
 

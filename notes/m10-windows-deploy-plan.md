@@ -327,3 +327,21 @@ Also: the ReadyToBoot flush said Not Found - the first ReadyToBoot precedes BDS 
 Boot #32: Beyond0LteBootLogDxe connects all controllers at ReadyToBoot, then READ TEST (BEYOND0LTE_READ_TEST 1):
 reads \EFI\Boot\bootaa64.efi in one File->Read and again in 4 KB reads, logs CRC32 per 64 KB of each ("RT one|4k
 <off> <crc>") for comparison with the PC copy. boot32-v2.img sha256 385f96174baf63b01ecd4ad765a0b3bb86c163edccf57d4ceedd8e1ecd58c80a.
+
+## W21 - boot #32 read test: the disk path is CLEAN; boot #33 = mapping probe + image dump + auto-recovery (2026-10-10)
+notes/uefilog-boot32.txt: bootaa64.efi (0x1B7370 B) read in one File->Read and in 4 KB reads - all 28 CRC32/64 KB
+match zlib.crc32 of the PC copy in both modes. ReadyToBoot flush now Success (connect-all fix).
+Crash identical (ELR 0xB8BE5158, image base 0xB8B0C000 -> RVA 0xD9158). bootmgfw.pdb from msdl (key
+EA3E9F5441280B69F8A01013E9CBDBCD2): RVA 0xD9158 = MmPapAllocateRegionFromMdl+0x430, but the bytes executing there are
+MmpFreeApplicationAllocations+0xb0 (file RVA 0xDC170); backtrace RVAs (LR 0x45268 = FvebpEncryptAndWrite+0x220 after
+a csel, frame EfiEntry+4) are not call sites, with or without a 0x3018 shift. The bytes match a RAW-FILE-LAYOUT copy
+of bootaa64.efi starting 0x2418 below the image base (page offset 0xBE8 - pool-buffer-like). SP 0xBAAFF760 is the UEFI
+stack only 0xB0 below BDS's ReadyToBoot SP: the fault is very early in bootmgr (EfiEntry -> ...).
+=> Not a disk problem. Either the image's pages are mapped to the wrong PA, or bootmgr's code region physically
+overlaps a file-layout buffer (allocator/memory-map fault). UNVERIFIED which.
+Reboot constants verified from Samsung's kernel + sboot (notes/s10e-reboot-wdt-constants.md, subagent) and added to
+Exynos9820.h: INFORM3 0x80C = 0x12345670|4 (recovery), RSTSTAT 0x404, SWRESET 0x3A00 = 2 (NOT the 9810's 0x400=1).
+Boot #33 (BootLogDxe): READ_TEST 0; the exception handler logs TTBR0/TCR/SCTLR and AT S1E1R -> PAR_EL1 for the image
+base and ELR, writes the image region (base-64K .. +2M+128K) to \IMGDUMP.BIN on the ESP, flushes UEFILOG.TXT, then
+BEYOND0LTE_AUTO_RECOVERY 1: INFORM3 = 0x12345674, RSTSTAT = 0, SWRESET = 2 -> sboot should boot TWRP by itself.
+Hangs (no exception) are not covered yet - WDT next. boot33-v2.img sha256 a5f09b18e3381d5d564e33509879da05d8f3355623c2e11b9e429dfb15171386.

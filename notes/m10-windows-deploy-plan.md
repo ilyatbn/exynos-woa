@@ -286,3 +286,4 @@ is the first large single read. ScsiDisk issues READ(10) up to 0xFFFF blocks; Uf
 Fix (boot #30): Beyond0LteUfsHcDxe wraps the UFS EXT_SCSI_PASS_THRU.PassThru (protocol notify) and issues READ/WRITE
 10/16 larger than 1 MiB as consecutive <= 1 MiB commands (blocking requests; short/failed chunk reports the bytes
 moved). STATIC_ASSERT 1 MiB/4 KB + 1 <= 511. Build exit 0, FVMAIN_COMPACT 1624 B free.
+Boot #30 = W18 split + reserved HOBs + dump off (bank0-only still): s10e-artifacts\boot30-v2.img sha256 e67f4e30d9c80b76022d617aaeb03702e7d5852684db50c1da38979ec9b2f06e, FVMAIN_COMPACT 2064 B free; flashed, readback verified.

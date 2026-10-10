@@ -1298,3 +1298,17 @@ User photo: only the shim's bands (row 200 entered, row 1850 copy done) + sboot 
 dark. => the FD never reaches ArmPlatformPeiBootAction, the first C call of PeilessSec's
 ModuleEntryPoint. The fault is between the shim's `br 0x90000000` and that call: the FV-header B, the
 SEC asm prologue. (B31's "something" was the splash warning text, B38.)
+
+## B42 - boot #10: binary readout strips in the shim (load address, EL, SCTLR, copy check)
+
+Offline check of the FD (B41 follow-up): word0 0x1401CC00 = B +0x73000 -> 0x90073000; bytes there are
+PeilessSec _ModuleEntryPoint exactly (d2e00004 f2c00024 f2a941e4 f2962164 = MOV64 x4,0x14a0fb10b; cmp
+x1,x4; b.ne; cbnz x2; msr TPIDRRO_EL0,x3) -> the image is right; on the device either the copy did not
+land or execution from 0x90000000 is blocked (stage-2/TZ), or the CPU state is not what SEC assumes.
+Shim DIAG now: WDT probe removed (answered, B38). New leaf _bits(x9=strip addr, w12=value): 32 cells x
+45 px, MSB left, 1 = 80-row block, 0 = 4-row underline. Strips: row 500 adr(_head); 650 CurrentEL;
+800 SCTLR_EL2 if EL2 else SCTLR_EL1; 950 first word at UEFI_BASE after copy (want 0x1401CC00);
+1100 count of differing 8-byte words src vs dst over UEFI_SIZE (want 0). Bands 200 + 1850 kept.
+Verified: both DIAG modes build (464 B / 144 B; DIAG=0 byte-identical), objdump reviewed, packer
+OK, kernel = shim + FD exact. FD unchanged from boot #9 (checkpoints still in). Image
+%TEMP%\b42\boot10-v2.img sha256 4fbd5df287d089de7bda912e2d37ee442ad46125613eaa7c9ef0a36a04db59a3

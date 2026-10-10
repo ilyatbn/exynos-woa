@@ -42,19 +42,18 @@
  *   FB 0xCA000000          VERIFIED   (Exynos9820.h EXYNOS_FB_BASE, s3cfb.bootloaderfb)
  *   stride 1440*4 B        UNVERIFIED (pixel format never read; bands are all-ones WHITE so
  *                                       the colour does not depend on the format)
- * Boot #8 adds the SoC watchdog stop (notes/m8-uefi-image.md B35/B36): every loop of boots
- * #4-#7 was a reset at a fixed ~15.5 s period. Registers:
- *   WDT cl0 0x10050000, cl2 0x10060000  VERIFIED (Exynos9820.h EXYNOS_WDT_BASE; live DTB reg)
- *   WTCON @ +0x00; ENABLE b5, INTEN b2, RSTEN b0  VERIFIED by source: the exynos9820 kernel's
- *     s3c2410_wdt.c :52-61, stop = WTCON &= ~(ENABLE|RSTEN) :461-474 (+ ~INTEN on the
- *     multistage cl2, :~180); compatibles samsung,exynos9-v1-wdt / -v2-wdt match the live DTB.
- * Bands are 200 rows each, WHITE, and each answers one question:
- *   row  200  shim entered
- *   row  500  cl0 WTCON had ENABLE set when we arrived (sboot armed it)
- *   row  800  cl2 WTCON had ENABLE set when we arrived
- *   row 1100  after the stop, BOTH WTCON read back with ENABLE|INTEN|RSTEN clear
- *   row 1850  FD copy done, next instruction is `br` into the FD
- * Uses x9-x13 only (x1/x4/x5/x6 untouched); _band is a leaf (x30). */
+ * Boot #8 sampled both SoC watchdogs: neither was armed (notes/m8-uefi-image.md B38), so that
+ * probe is gone. Boot #9 showed the FD dies before its FIRST C call (B41) although the FD bytes
+ * are right offline, so boot #10 reads the CPU state and checks the copy, and shows each value
+ * as a 32-cell BINARY STRIP (MSB left, cell = 45 px; full block = 1, thin underline = 0):
+ *   row  200  band: shim entered
+ *   row  500  strip: runtime address of _head (where sboot put us), low 32 bits
+ *   row  650  strip: CurrentEL (bits 3:2 = EL)
+ *   row  800  strip: SCTLR_EL2 if at EL2 else SCTLR_EL1 (bit0 M = MMU, bit2 C, bit12 I)
+ *   row  950  strip: first word read back at UEFI_BASE after the copy (built FD: 0x1401CC00)
+ *   row 1100  strip: number of 8-byte words that differ between source and UEFI_BASE (want 0)
+ *   row 1850  band: next instruction is `br` into the FD
+ * Uses x2/x3 (as the copy does), x7-x17; x0, x1, x4-x6 kept for the copy and the FD. */
 #ifndef BEYOND0LTE_SHIM_DIAG
 #define BEYOND0LTE_SHIM_DIAG 1
 #endif
@@ -100,40 +99,24 @@ _start:
 	movk	x9, #0xCA11, lsl #16    /* FB + row 200                            */
 	bl	_band                    /* shim entered                            */
 
-	/* ---- SoC watchdogs: sample, stop, verify ----------------------------- */
-	movz	x12, #0x1005, lsl #16   /* 0x10050000 = watchdog_cl0               */
-	ldr	w13, [x12]              /* WTCON as sboot left it                  */
-	tbz	w13, #5, 1f             /* ENABLE clear -> no band                 */
+	/* ---- CPU state readout --------------------------------------------- */
+	adr	x12, _head
 	movz	x9, #0xF200
 	movk	x9, #0xCA2B, lsl #16    /* FB + row 500                            */
-	bl	_band                    /* cl0 was armed                           */
-1:	movz	x12, #0x1006, lsl #16   /* 0x10060000 = watchdog_cl2               */
-	ldr	w13, [x12]
-	tbz	w13, #5, 2f
-	movz	x9, #0x5000
+	bl	_bits                    /* where sboot loaded us                   */
+	mrs	x12, CurrentEL
+	movz	x9, #0x2100
+	movk	x9, #0xCA39, lsl #16    /* FB + row 650                            */
+	bl	_bits                    /* CurrentEL                               */
+	mrs	x12, CurrentEL
+	cmp	x12, #8                 /* EL2 = 0b10 << 2                         */
+	b.ne	4f
+	mrs	x12, SCTLR_EL2
+	b	5f
+4:	mrs	x12, SCTLR_EL1
+5:	movz	x9, #0x5000
 	movk	x9, #0xCA46, lsl #16    /* FB + row 800                            */
-	bl	_band                    /* cl2 was armed                           */
-2:	mov	w11, #0x25              /* ENABLE(5) | INTEN(2) | RSTEN(0)         */
-	movz	x12, #0x1005, lsl #16
-	ldr	w13, [x12]
-	bic	w13, w13, w11
-	str	w13, [x12]
-	movz	x12, #0x1006, lsl #16
-	ldr	w13, [x12]
-	bic	w13, w13, w11
-	str	w13, [x12]
-	dsb	sy
-	movz	x12, #0x1005, lsl #16
-	ldr	w13, [x12]
-	movz	x12, #0x1006, lsl #16
-	ldr	w9, [x12]
-	orr	w13, w13, w9
-	tst	w13, w11
-	b.ne	3f                       /* a bit survived -> no band               */
-	movz	x9, #0xAE00
-	movk	x9, #0xCA60, lsl #16    /* FB + row 1100                           */
-	bl	_band                    /* both watchdogs read back stopped        */
-3:
+	bl	_bits                    /* SCTLR of the current EL                 */
 #endif
 	mov	x4, x1                  /* x4 = source (FD runtime address)        */
 	ldr	x5, _uefi_base          /* x5 = UEFI_BASE (destination)            */
@@ -146,6 +129,25 @@ _copyloop:
 	subs	x6, x6, #16
 	b.ne	_copyloop
 	ldr	x5, _uefi_base          /* dst was advanced by the copy            */
+#if BEYOND0LTE_SHIM_DIAG
+	ldr	w12, [x5]               /* first FD word as it now reads at dst    */
+	movz	x9, #0x7F00
+	movk	x9, #0xCA53, lsl #16    /* FB + row 950                            */
+	bl	_bits
+	mov	x13, x1                 /* src                                     */
+	mov	x14, x5                 /* dst                                     */
+	ldr	x15, _uefi_size
+	mov	x12, #0                 /* mismatching 8-byte words                */
+6:	ldr	x2, [x13], #8
+	ldr	x3, [x14], #8
+	cmp	x2, x3
+	cinc	x12, x12, ne
+	subs	x15, x15, #8
+	b.ne	6b
+	movz	x9, #0xAE00
+	movk	x9, #0xCA60, lsl #16    /* FB + row 1100                           */
+	bl	_bits                    /* copy mismatch count                     */
+#endif
 _entry:
 	/* The FD's first word is an ARM64 `B` that GenFv wrote into the FV-header
 	 * zero-vector, jumping to the PeilessSec SEC entry (BEYOND0LTE_UEFI.fd
@@ -169,6 +171,38 @@ _band:
 1:	str	w11, [x9], #4
 	subs	w10, w10, #1
 	b.ne	1b
+	dsb	sy
+	ret
+
+	/* x9 = FB address of the strip's top-left, w12 = value. 32 cells of 45 px (40 painted),
+	 * MSB first; a 1 bit is an 80-row block, a 0 bit a 4-row underline at the block's
+	 * bottom. Leaf, no stack; clobbers w7, w8, w10, w11, w13-w17. */
+_bits:
+	mov	w13, #31
+	mov	w8, #-1
+7:	lsr	w14, w12, w13
+	mov	w15, #31
+	sub	w15, w15, w13           /* cell index, MSB = 0                     */
+	mov	w16, #180               /* 45 px * 4 B                             */
+	umaddl	x17, w15, w16, x9
+	tbnz	w14, #0, 8f
+	movz	x16, #0xAE00
+	movk	x16, #0x6, lsl #16      /* 76 rows * 5760 B                        */
+	add	x17, x17, x16
+	mov	w10, #4
+	b	9f
+8:	mov	w10, #80
+9:	mov	w11, #40
+	mov	x7, x17
+10:	str	w8, [x7], #4
+	subs	w11, w11, #1
+	b.ne	10b
+	mov	x16, #5760
+	add	x17, x17, x16
+	subs	w10, w10, #1
+	b.ne	9b
+	subs	w13, w13, #1
+	b.ge	7b
 	dsb	sy
 	ret
 #endif

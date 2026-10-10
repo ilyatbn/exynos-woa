@@ -2776,6 +2776,14 @@ UfsHcMap (
   }
 
   UfsHcDiagSet (27, (UINT32)(UINTN)mBounceBuf);   // cycle 97: bounce buffer addr (0 => WC alloc failed)
+  {
+    STATIC BOOLEAN  mBounceLogged = FALSE;
+
+    if (!mBounceLogged && (mBounceBuf != NULL)) {
+      mBounceLogged = TRUE;
+      DEBUG ((DEBUG_ERROR, "UfsHc: bounce buffer 0x%lx size 0x%x (B79)\n", (UINT64)(UINTN)mBounceBuf, (UINT32)mBounceSize));
+    }
+  }
 
 #if UFS_DO_PMC
   //
@@ -3424,11 +3432,68 @@ Beyond0LteSetNexusForDoorbell (
         ((UINT32)(UINT16)RuOBytes << 16) | (UINT32)(UINT16)RuLBytes
         );
     }
-    MmioWrite32 (
-      Trd + UTP_TRD_PRDT_DW7,
-      ((UINT32)(UINT16)(PrdtO * 4u) << 16) |
-      (UINT32)(UINT16)((PrdtL != 0) ? (PrdtL * UTP_TR_PRD_SIZE + UTP_PRDT_9820_EXTRA) : 0)
-      );
+    //
+    // Boot #22 (notes/m8-uefi-image.md B79): 4 KB READ(10)s complete, the first 16 KB one
+    // resets the phone. EDK2 puts up to 256 KB in one PRDT entry; the 9820 programs
+    // PRDT_SET_SIZE(12) (= 2^12?) for TX/RX. Test: rebuild the PRDT as <= 4 KB pieces when
+    // the result fits in the UCD's page (UCDs are page-aligned whole-page allocations),
+    // else leave it and log. PRDT entry = DW0 addr[31:2]<<2, DW1 addr[63:32], DW3[17:0] = len-1.
+    //
+    {
+      UINT32  NewPrdtL = PrdtL;
+
+      if ((PrdtL != 0) && (PrdtL <= 64u)) {
+        STATIC UINT32  mPrdtSplit[240 * 4];
+        UINTN          Prdt   = (UINTN)Ucd + (UINTN)PrdtO * 4u;
+        UINT32         Out    = 0;
+        UINT32         In;
+        BOOLEAN        Fits   = TRUE;
+
+        for (In = 0; (In < PrdtL) && Fits; In++) {
+          UINT64  Addr = ((UINT64)MmioRead32 (Prdt + In * 16u + 4u) << 32) |
+                         (UINT64)(MmioRead32 (Prdt + In * 16u) & ~3u);
+          UINT32  Len  = (MmioRead32 (Prdt + In * 16u + 12u) & 0x3FFFFu) + 1u;
+
+          while (Len != 0) {
+            UINT32  Chunk = 0x1000u - (UINT32)(Addr & 0xFFFu);
+
+            if (Chunk > Len) {
+              Chunk = Len;
+            }
+
+            if ((Out >= 240u) ||
+                ((UINT32)PrdtO * 4u + (Out + 1u) * 16u + UTP_PRDT_9820_EXTRA > 0x1000u)) {
+              Fits = FALSE;
+              break;
+            }
+
+            mPrdtSplit[Out * 4u + 0] = (UINT32)Addr & ~3u;
+            mPrdtSplit[Out * 4u + 1] = (UINT32)(Addr >> 32);
+            mPrdtSplit[Out * 4u + 2] = 0;
+            mPrdtSplit[Out * 4u + 3] = Chunk - 1u;
+            Out++;
+            Addr += Chunk;
+            Len  -= Chunk;
+          }
+        }
+
+        if (Fits && (Out > PrdtL)) {
+          for (In = 0; In < Out * 4u; In++) {
+            MmioWrite32 (Prdt + In * 4u, mPrdtSplit[In]);
+          }
+
+          NewPrdtL = Out;
+        } else if (!Fits) {
+          DEBUG ((DEBUG_ERROR, "UfsHc: PRDT split does not fit (PrdtL %u PrdtO %u)\n", (UINT32)PrdtL, (UINT32)PrdtO * 4u));
+        }
+      }
+
+      MmioWrite32 (
+        Trd + UTP_TRD_PRDT_DW7,
+        ((UINT32)(UINT16)(PrdtO * 4u) << 16) |
+        (UINT32)(UINT16)((NewPrdtL != 0) ? (NewPrdtL * UTP_TR_PRD_SIZE + UTP_PRDT_9820_EXTRA) : 0)
+        );
+    }
     __asm__ __volatile__ ("dsb sy" ::: "memory");
   }
 #endif

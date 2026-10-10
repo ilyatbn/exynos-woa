@@ -1723,3 +1723,21 @@ Boot #22 image %TEMP%\b77\boot22-v2.img sha256 b057b61a0898156ad6f79a7230499819a
 
 Pushed (on-device sha256 b057b61a...ea6f), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
 b057b61a0898156ad6f79a7230499819a770a8ed7d5b1042b3a2b57fd033ea6f (byte-exact). `adb reboot` next.
+
+## B79 - boot #22 OBSERVED: the disk READS - 4 KB READ(10)s work; the first 16 KB READ(10) resets the phone
+
+Photo notes/img-boot22-ring.jpg (ring log): INQUIRY (0x12) on LUN 0-4 + WLUN 0xC4 OK; MODE SENSE(6) 0x1A
+fails (IsWriteProtected - harmless); TEST UNIT READY -> UNIT ATTENTION (handled by B75), TUR again, REQUEST
+SENSE 0x03, READ CAPACITY(10) 0x25, MODE SENSE(10) 0x5A, READ CAPACITY(16) 0x9E, BlockSize 4096 /
+LastBlock 1DC9FFF, then READ(10) lba 0 n1 edtl 4096, READ(10) lba 1 n1 edtl 4096 (GPT header - no more
+"Not Valid primary partition table"), READ(10) lba 2 n4 edtl 16384 (GPT entries) = LAST line -> reset.
+=> UEFI READS the disk now. A 16 KB transfer kills the phone (EL2-level, no exception print).
+Ground truth: the kernel allows 256 KB segments (ufshcd.c:5738 blk_queue_max_segment_size =
+PRDT_DATA_BYTE_COUNT_MAX), so a >4 KB entry is legal in Linux - but Linux rarely builds one.
+Same path for 4 KB and 16 KB: one PRDT entry, one 512 KB WC bounce buffer (UfsHcMap, AllocateMaxAddress
+0xD0000000 -> top of bank0). Two hypotheses, tested together in boot #23:
+(a) the controller wants <= 4 KB per PRDT entry -> converter now rebuilds the PRDT as <= 4 KB pieces
+    (page-aligned chunks) when it fits in the UCD's page (else logs "PRDT split does not fit"), and
+    PrdtL bytes = n*16 + 16 for the new n;
+(b) bounce pages beyond the first are not DMA-reachable -> the bounce address is logged once.
+Build exit 0. Boot #23 image %TEMP%\b79\boot23-v2.img sha256 37c092616dce1f0446bea5c14d7c9ddd9d8e5a40d894039ca36e2bc577cd61b8

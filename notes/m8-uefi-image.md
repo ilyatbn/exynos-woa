@@ -1790,3 +1790,19 @@ Build exit 0. Boot #25 image %TEMP%\b83\boot25-v2.img sha256 82045f3417755bffd20
 
 Pushed (on-device sha256 82045f34...af8b), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
 82045f3417755bffd20374104a337a7a127a4e42f1bc4bdb09a6e1de5c31af8b (byte-exact). `adb reboot` next.
+
+## B85 - boot #25 OBSERVED: **UFS WORKS IN UEFI** - GPT valid, partitions enumerated, FAT probing
+
+Photos notes/img-boot25-1..4.jpg. The 128 B PRDT stride (B83) fixed multi-entry transfers:
+- "Valid efi partition table header" x2, "Valid primary and Valid backup partition table", "Partition
+  entries read block success", "Number of partition entries: 128", "start/End check partition entries",
+  then per-entry "Index : n / Start LBA / End LBA / Partition size / Start .. End" for LUN0 and the other
+  LUNs (e.g. LUN0 index 0 Start LBA 0x400 End 0x87F; index 1 0x880..0xFFF; index 2 0x1000..0x23FF ...).
+- PartitionDxe installs a BlockIo per partition ("BlockSize : 4096 / LastBlock : 7FF, 13FF, 77F, 7F, 1FF,
+  3FF, 36FF, 407F, 31FF, FF, FFF, F, 16F, 1643FF, 3EEFF ...").
+- Fat/DiskIo probe reads: "UfsHc: ring s0 lun0 cdb 0x28 lba 0x2400 / 0x2C00 / 0x400 / 0x880 n 1 edtl 4096"
+  each followed by "done s0 cdb 0x28 ocs 0x0 resp 0x0 st 0x0 resid 0" - every completion clean.
+=> UEFI has storage (UFS block I/O + GPT), screen (GOP 1080x2280) and RAM (bank0) on the device.
+UFS fixes that got here (B66-B83): byte-granular UTRD fields; 1 KB response region for NOP/query; OCS
+FATAL/Response fixup (9820 kernel semantics); <=4 KB PRDT entries at the controller's 128 B FMP stride,
+PrdtL = n*128, AllocateBuffer slack; per-command ring/done + CHECK COND sense logging.

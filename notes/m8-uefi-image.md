@@ -1700,3 +1700,8 @@ Response != 0 ("Target Failure") and on Ocs != 0 -> ScsiDisk never sees a retrya
 Fix: Beyond0LteOcsFatalFixup (called for every completed slot, before DW6 restore): for a SCSI Response
 UPIU (code 0x21) OCS 0x7 -> 0; non-GOOD status -> Response byte 0. Build exit 0.
 Boot #21 image %TEMP%\b75\boot21-v2.img sha256 6152e76f66c6c4bf13d0a3db6842524e0fc79a7255e32e0963c68cb5dbc520bc
+
+## B76 - boot #21 WRITE to BOOT sda14
+
+Pushed (on-device sha256 6152e76f...20bc), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
+6152e76f66c6c4bf13d0a3db6842524e0fc79a7255e32e0963c68cb5dbc520bc (byte-exact). `adb reboot` next.

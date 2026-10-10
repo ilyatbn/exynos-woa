@@ -3319,10 +3319,30 @@ Beyond0LteSetNexusForDoorbell (
     mTrdSaveDw7[Slot] = Dw7;
     mTrdSaveMask     |= (1u << Slot);
 
-    MmioWrite32 (
-      Trd + UTP_TRD_RESP_DW6,
-      ((UINT32)(UINT16)(RuO * 4u) << 16) | (UINT32)(UINT16)(RuL * 4u)
-      );
+    //
+    // Response length. With a PRDT the response region ends where the PRDT starts, so
+    // keep EDK2's exact length. Without one (NOP / query), give the device the room the
+    // 9820 kernel always gives it - ALIGNED_UPIU_SIZE = 1024 B (ufshcd.c:4429-4430) -
+    // capped to the UCD's own 4 KB page (UfsAllocateAlignCommonBuffer allocates whole
+    // pages): EDK2 sizes a READ DESCRIPTOR response to the length it ASKED for, and a
+    // device that returns more trips OCS 4 (boot #19, notes/m8-uefi-image.md B71).
+    //
+    {
+      UINT32  RuOBytes = (UINT32)RuO * 4u;
+      UINT32  RuLBytes = (UINT32)RuL * 4u;
+
+      if ((PrdtL == 0) && (RuOBytes < 0x1000u)) {
+        RuLBytes = 0x1000u - RuOBytes;
+        if (RuLBytes > 1024u) {
+          RuLBytes = 1024u;
+        }
+      }
+
+      MmioWrite32 (
+        Trd + UTP_TRD_RESP_DW6,
+        ((UINT32)(UINT16)RuOBytes << 16) | (UINT32)(UINT16)RuLBytes
+        );
+    }
     MmioWrite32 (
       Trd + UTP_TRD_PRDT_DW7,
       ((UINT32)(UINT16)(PrdtO * 4u) << 16) |

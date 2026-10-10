@@ -1644,3 +1644,16 @@ Verified: build exit 0. Boot #19 image %TEMP%\b69\boot19-v2.img sha256 9d24b321d
 
 Pushed (on-device sha256 9d24b321...df4a), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
 9d24b321d1b4bbaa0002afa4ee3f4a5593e3a6e841422e11d5d5c53c4253df4a (byte-exact). `adb reboot` next.
+
+## B71 - boot #19 OBSERVED (18 s low-res video 464x832): query OCS=4 persists for some descriptors
+
+Frames at 2 fps, upscaled 3x. BDS runs as before. In the UFS section: "Failed to send query request,
+OCS = 4, QueryResp = 0" x5 -> "Failed to read unit descriptor, index = 1, status = Device Error", then
+indexes 2..7 "Failed to create DM command descriptor" / Invalid Parameter. The new "UfsHc: ... CHECK
+COND" lines were not in any sampled frame (video too coarse) - asked the user for a sharp photo.
+Fix for the query OCS=4 (built, not booted): EDK2 sizes a READ DESCRIPTOR's response region to the
+length it requested (UfsPassThruHci.c:643-647); the 9820 kernel always gives 1024 B (ALIGNED_UPIU_SIZE,
+ufshcd.c:4429-4430). Converter now sets RuL = min(1024, 4096 - RuO) BYTES when PrdtL == 0 (NOP/query);
+with a PRDT the exact EDK2 length is kept (the PRDT follows the response). UCDs are whole-page
+allocations (UfsAllocateAlignCommonBuffer -> AllocateBuffer AllocateAnyPages, EFI_SIZE_TO_PAGES), so
+the response stays inside the descriptor's page. Build exit 0.

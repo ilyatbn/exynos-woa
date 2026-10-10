@@ -1013,3 +1013,13 @@ first 7410 KiB sha256 == candidate (byte-exact). This is the proven edk2-exynos 
 boot partition, normal Android boot flow reads the header-v2 container's DTB). `adb reboot` (normal)
 issued next. PENDING: panel observation. Expect UEFI paint (RED band rows 200-649, then GREEN rows
 750-1199) if the DT check clears and the shim runs.
+
+## B20 - boot #4 OBSERVED: BOOT LOOP (not download mode) -> the DT check is now CLEARED
+
+Panel showed a reboot loop, NOT the `DT LOAD fail` download-mode fallback. That is a real change:
+the header-v2 container on the BOOT partition got PAST sboot's `load_kernel` DT check (B16/B18's
+fix was correct) and sboot jumped into the kernel blob. The loop is downstream - the shim runs (or
+partially) and faults/resets, so sboot retries. Failure has moved from the CONTAINER to the
+SHIM/PAYLOAD stage: the never-validated DECISION constants (drop address vs UEFI_BASE 0x83300000,
+temp SP 0x83000000, watchdog WTCON offsets, FB paint 0xCA000000) and the FD's own SEC entry.
+adb shows no device (mid-loop or settled). PENDING: what it settled into (download / still looping).

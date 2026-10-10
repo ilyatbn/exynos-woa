@@ -916,3 +916,43 @@ permission layer, so the user runs the flash.
 2. Record the observation as B27, then choose the next fix from it.
 3. Rollback whenever wanted: stock `boot.img` (`%TEMP%\opencode\stock\boot.img`) to sda14 from TWRP.
 
+
+## 21. Restart point — DRIVER work stream (2026-10-10, end of the first driver session)
+
+This section is the **driver work stream** (parallel to §20's boot stream; do not
+conflate them). Plan of record: `docs/exynos9820-port/DRIVERS-MILESTONES.md`.
+Everything below is committed; `git log --oneline` since `d60bbb0` is the work.
+
+**Committed and green:**
+- D1 (UEFI USB host): research `notes/d1-usb-host.md` + `notes/d1b-usb-vbus-hcd.md`;
+  driver `firmware/Platform/Beyond0LtePkg/Drivers/Beyond0LteUsbHostDxe/`
+  (PHY + DWC3-host + HSI2C/MAX77705 VBUS + NDD-xHCI registration); DSC/FDF wired
+  (stock XhciDxe/UsbBusDxe/UsbKbDxe/UsbMouseDxe + NonDiscoverablePciDeviceDxe);
+  constants in `UsbHw.h` + `Exynos9820.h` (new: `EXYNOS_PMIC_HSI2C_*`,
+  `EXYNOS_USBDRD_GSIV`) + memory map HSI2C45 entry.
+- D3 (Windows half): `Dsdt.asl Device (XHC0)` `_HID PNP0D10`, xHCI window only,
+  GSIV 273 — role latch = globals stay out of `_CRS`.
+- D5 (GPU): research + **decision**: no Mali WDDM exists; deliverable is GOP +
+  in-box BasicDisplay; acceleration permanently `NotImplemented`
+  (`notes/d5-gpu-display.md`). Bonus constant `mali@18500000` recorded there.
+- Linux verification build works end to end: `notes/d1-build-env.md` has the full
+  recipe (`/tmp/opencode/build-uefi-linux.sh` — regenerate from the notes if the
+  machine rebooted); FD 7 340 032 B sha `83a9986e…`, all USB FFS present.
+  **That FD is verification-only (GCC, no -mstrict-align) — never flash it.**
+
+**Next tasks, in order:**
+1. D4 research (USB WiFi adapter for the donation build) — seed
+   `notes/d4-usb-wifi.md`, one subagent pass, then pick the adapter.
+2. D2 device test — blocked on the boot stream: once UEFI boots, the keyboard
+   behind the **non-powered** hub must reach ConIn; the driver logs its whole
+   bring-up over serial (`DEBUG_*` lines in UsbHostDxe) — read those first.
+3. When the boot stream lands a booting FD: rebuild the USB chain on Windows
+   (`build-uefi.ps1`), reflash, and close the D1 open unknowns from
+   `notes/d1-usb-host.md` (GSNPSID rev, clock state at DXE entry, CC attach timing).
+4. D6 (DP alt mode) stays stretch; its starting facts are in
+   `notes/dock-desktop.md` §11 + the D5 notes.
+
+**Coordination notes for whoever resumes:**
+- The boot stream owns `bootshim.S`/FD-address decisions; the driver work touched
+  neither. `Exynos9820.h`/memory-map edits are additive (HSI2C45 window only).
+- Nothing destructive was run on the phone; no partition was written this session.

@@ -198,3 +198,4 @@ S10eHarness gained `backup` (BackupService over PartitionMap.IdentityBackup, as 
 (TWRP): efs 20480 KiB (20107ff20016…), cpefs 6144 KiB (84e28cbb3bb1…), param 8192 KiB, up_param 8192 KiB, steady
 4096 KiB, keystorage 512 KiB, persistent 512 KiB - each hashed on phone and PC and matched. Folder + manifest:
 C:\Users\ilya\code\s10e-artifacts\backup-RF8M21HYDSZ. Image rebuild (fixed geometry) started 22:18.
+User consent for the transfer (2026-10-10 ~22:20): "Yes, write Windows" - USERDATA overwrite + CACHE->FAT32 ESP, start automatically once the image is built.

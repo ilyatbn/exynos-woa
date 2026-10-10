@@ -1763,3 +1763,8 @@ is right, and the LineageOS "+16" declares a phantom entry (n=1 it was harmless;
 Changes: UTP_PRDT_9820_EXTRA 16 -> 0 (bootloader formula); "UfsHc: done s cdb ocs resp st resid" per
 completed READ/WRITE; ring lines only for READ/WRITE; both capped at 40 lines (mUfsLogBudget).
 Build exit 0. Boot #24 image %TEMP%\b81\boot24-v2.img sha256 ff41df999f6520ad4095e8efcc2f71b340b5c53135aa41ab822b46a97542127f
+
+## B82 - boot #24 WRITE to BOOT sda14
+
+Pushed (on-device sha256 ff41df99...127f), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
+ff41df999f6520ad4095e8efcc2f71b340b5c53135aa41ab822b46a97542127f (byte-exact). `adb reboot` next.

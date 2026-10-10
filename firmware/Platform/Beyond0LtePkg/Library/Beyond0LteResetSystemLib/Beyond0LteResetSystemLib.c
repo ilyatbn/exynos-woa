@@ -61,8 +61,8 @@
 //
 // BEYOND0LTE_RESET_HOLD - boot-bring-up diagnostic (notes/m8-uefi-image.md B32).
 //   Boot #6 drew something for <1 s after the shim's bands and then reset. With
-//   this ON, every ResetSystem path paints a THIRD white band (rows 1300-1749,
-//   below the shim's two) and parks the CPU instead of resetting, so:
+//   this ON, every ResetSystem path paints a white band (rows 1950-2149 of the
+//   1080x2280 panel, below the shim and FD checkpoint bands) and parks the CPU instead of resetting, so:
 //     - phone freezes with band 3  -> the reset came from UEFI calling ResetSystem,
 //       and whatever was drawn before it stays on the panel to be read;
 //     - phone still loops          -> the reset is external to UEFI (watchdog,
@@ -482,8 +482,8 @@ ResetHold (
 
   if (!EfiGoneVirtual ()) {
     Px = (volatile UINT32 *)(UINTN)(EXYNOS_FB_BASE +
-                                    (UINT64)1300 * EXYNOS_FB_STRIDE_PIXELS * EXYNOS_FB_BYTES_PER_PIXEL);
-    for (Count = 0; Count < (UINTN)450 * EXYNOS_FB_WIDTH; Count++) {
+                                    (UINT64)1950 * EXYNOS_FB_STRIDE_PIXELS * EXYNOS_FB_BYTES_PER_PIXEL);
+    for (Count = 0; Count < (UINTN)200 * EXYNOS_FB_WIDTH; Count++) {
       Px[Count] = 0xFFFFFFFFU;
     }
     ArmDataSynchronizationBarrier ();

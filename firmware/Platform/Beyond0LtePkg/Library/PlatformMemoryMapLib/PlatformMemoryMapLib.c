@@ -168,7 +168,7 @@ ArmPlatformGetVirtualMemoryMap (
   // bank0/3/4 gaps (up to 6) + framebuffer slot + the MMIO windows + terminator
   STATIC ARM_MEMORY_REGION_DESCRIPTOR  Table[MMIO_REGION_COUNT + 12];
 
-  BEYOND0LTE_CHECKPOINT (2500);   // MemoryPeim, MMU still off (B39)
+  BEYOND0LTE_CHECKPOINT (1540);   // MemoryPeim, MMU still off (B39)
   ASSERT (MemoryTable != NULL);
   Index = 0;
 

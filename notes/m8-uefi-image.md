@@ -1345,3 +1345,17 @@ Boot #10 decode (columns mix 4 cells; patterns repeat every 8 columns):
 - strip row 1100 (src/dst mismatch count over 7 MB) NOT drawn (photo spacing: 4 strips, 5th
   position dark) -> the re-read loop did not finish: a read fault in src/dst, or the external reset
   arrived first. OPEN.
+
+## B45 - boot #11: every diagnostic re-laid for the real 1080x2280 panel, plus a 10 s time bar
+
+Shim (DIAG=1, 608 B; DIAG=0 still byte-identical 144 B): FB_ROW(r) = 0xCA000000 + r*4320 via a LOADFB
+macro. Rows: 150-299 entered band; strips (32 cells x 33 px, 28 painted) 340 adr(_head), 450 CurrentEL,
+560 SCTLR_EL1/EL2, 670 CNTFRQ_EL0; 1000-1039 time bar = 108 segments, one per CNTFRQ/11 ticks of
+CNTVCT_EL0 (~9.8 s total, BEFORE the copy) - a reset at a fixed time after sboot's jump stops it
+partway; then copy; 780 first word at dst; 890 src/dst mismatch count; 1100-1199 band before br.
+FD: checkpoints moved onto the panel (100 rows): 1300 PeiBootAction, 1420 ArmPlatformInitialize,
+1540 GetVirtualMemoryMap, 1660 GetBootMode, 1780 SimpleFramebufferDxeEntry; ResetHold 1950-2149.
+Verified: objdump of the shim (LOADFB addresses = FB_ROW values, bar x step 40 B, line step 4320);
+build exit 0; PeiBootAction still a pure leaf (0xCA55B180 = FB_ROW(1300), 0x1A5E0 = 100*1080 px);
+packer OK (code0 0x10001301), kernel = shim + FD exact.
+Boot #11 image %TEMP%\b45\boot11-v2.img sha256 27960ba2eb9939bb13ab482c19ccdf783e3ac1d4985fb5ecc923b5996eabbe7f

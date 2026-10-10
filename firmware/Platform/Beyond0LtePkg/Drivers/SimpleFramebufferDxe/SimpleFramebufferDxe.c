@@ -379,7 +379,7 @@ SimpleFramebufferDxeEntry (
   FB_GOP_INSTANCE   *Ctx;
   EFI_HANDLE        Handle;
 
-  BEYOND0LTE_CHECKPOINT (2880);   // DXE core running, drivers dispatching (B39)
+  BEYOND0LTE_CHECKPOINT (1780);   // DXE core running, drivers dispatching (B39)
 
   //
   // Refuse to run until the framebuffer base is verified (placeholder is 0).

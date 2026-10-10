@@ -77,7 +77,7 @@ ArmPlatformInitialize (
   IN UINTN  MpId
   )
 {
-  BEYOND0LTE_CHECKPOINT (2300);   // CEntryPoint, SEC stack live (B39)
+  BEYOND0LTE_CHECKPOINT (1420);   // CEntryPoint, SEC stack live (B39)
   // TODO: any clock/GPIO setup that MUST precede DRAM/UART use (likely none,
   // because sboot configured them before chainloading us).
   return RETURN_SUCCESS;
@@ -101,7 +101,7 @@ ArmPlatformPeiBootAction (
   VOID
   )
 {
-  BEYOND0LTE_CHECKPOINT (2100);   // SEC asm entry, before the SEC stack (B39)
+  BEYOND0LTE_CHECKPOINT (1300);   // SEC asm entry, before the SEC stack (B39)
   // The 9810 dropped a breadcrumb 'P' here — the first C function the SEC asm
   // entry calls, before the EDK II stack exists — because it was the cheapest
   // way to tell a bad branch target from a faulting prologue. There is no
@@ -117,7 +117,7 @@ ArmPlatformGetBootMode (
   VOID
   )
 {
-  BEYOND0LTE_CHECKPOINT (2700);   // MMU on, HOBs built (B39)
+  BEYOND0LTE_CHECKPOINT (1660);   // MMU on, HOBs built (B39)
   return BOOT_WITH_FULL_CONFIGURATION;
 }
 

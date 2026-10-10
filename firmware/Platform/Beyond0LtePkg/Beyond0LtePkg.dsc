@@ -401,11 +401,12 @@
 
   # --- Firmware volume placement. MUST match Beyond0LtePkg.fdf.
   #
-  #     0x80080000 is the load address Exynos9820.h states for this SoC
-  #     ("the DT's chosen node also puts the Android initrd at 0x84000000..0x841fffff,
-  #     which is why the firmware loads at 0x80080000"). The initrd bounds are the
-  #     read; 0x80080000 is the decision that follows from them — UNVERIFIED as an
-  #     observed address, nothing has booted on an S10e.
+  #     DECISION, not an observed address: 0x83300000 (derived from reads, never
+  #     booted). It REPLACES the old 0x80080000, whose only justification was
+  #     "the DT's chosen node also puts the Android initrd at 0x84000000..0x841fffff,
+  #     which is why the firmware loads at 0x80080000" - and that bound is the
+  #     DTS KERNEL DEFAULT, not what sboot does (the live chosen node put this
+  #     boot's initrd at 0xD5000000..0xD5A67000).
   #
   #     2026-10-10 (notes/K10-rkp.md T18): that initrd bound is the DTS KERNEL
   #     DEFAULT. The live chosen node sboot wrote for the TWRP boot is

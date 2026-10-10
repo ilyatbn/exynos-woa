@@ -9,13 +9,13 @@
  *
  * The Galaxy S10e bootloader (sboot) loads an Android boot.img "kernel" and
  * jumps to its first byte. Our EDK II FD (BEYOND0LTE_UEFI.fd) is *linked to run*
- * at 0x80080000 (Beyond0LtePkg.dsc:415), but where sboot actually drops the
- * kernel is NOT a read on this SoC: the comment in the 9810 shim computes
- * DRAM base (Exynos9820.h:79) + text_offset (0x80000) = 0x80080000, while that
- * same comment says 0x80100000 - the two disagree by one 0x80000 and nothing
- * on the 9820 closes it (K4b, UNVERIFIED). This shim bridges the gap for
- * whichever address sboot picks, subject to the self-overwrite hazard noted at
- * the copy step.
+ * at 0x83300000 (Beyond0LtePkg.dsc / .fdf FD_BASE_ADDRESS), which is NOT where
+ * sboot puts the loaded image: the drop IS a read now (notes/k4b-drop-address.md
+ * K01-K03) - sboot loaded this boot's Image at 0x80118000, and its kernel window
+ * runs 0x80198000..0x832D0000. The shim is position-independent, so it runs
+ * wherever sboot places it and then copies the FD to 0x83300000, which is ABOVE
+ * the loaded image and therefore disjoint from it (the old 0x80080000 choice
+ * overlapped the shim itself - see the copy step below).
  *
  * K4b, best evidence to date (2026-10-10, notes/K10-rkp.md T16/T18, live DTB in
  * a TWRP root shell): sboot itself adds a reserved-memory node `kaslr` =
@@ -32,9 +32,12 @@
  * 0x832CFFFF; that kernel's Image header declares text_offset 0x80000 and
  * image_size 0x3138000, so the Image was loaded at 0x80118000 and the kernel
  * window is 0x80198000..0x832D0000 (0x80198000 + 0x3138000 = 0x832D0000, exact).
- * UEFI_BASE 0x80080000 is therefore inside the region sboot uses for the loaded
- * image. Whether sboot reuses the same base for OUR image (a 7.6 MB shim+FD) is
- * still untested - that is the question the first boot answers.
+ * The OLD UEFI_BASE 0x80080000 was therefore inside the region sboot uses for
+ * the loaded image; the current one (0x83300000) is 0x3000 above the window's
+ * end. Whether sboot reuses the same drop base for OUR image (a 7.6 MB shim+FD
+ * rather than a 44 MB kernel) is still untested - that is the question the first
+ * boot answers, and if sboot drops higher than 0x83300000 the copy would collide
+ * again.
  *
  * Layout after packaging:  [ this shim ][ BEYOND0LTE_UEFI.fd ]   (cat'd together)
  *

@@ -55,10 +55,12 @@
 ##
 
 [Defines]
-  # FD run address. UNVERIFIED as an observed address: Exynos9820.h states the
-  # firmware loads at 0x80080000 because the vendor DT's chosen node puts the
-  # Android initrd at 0x84000000..0x841fffff (that is the read; 0x80080000 is the
-  # decision that follows from it). Nothing has booted on an S10e yet.
+  # FD run address. DECISION, not an observed address: 0x83300000 is derived from
+  # reads (it is the first address above sboot's observed kernel window that is
+  # below every reservation read), but nothing has booted at it. The history
+  # below explains why the old 0x80080000 - "Exynos9820.h loads the firmware
+  # there because the vendor DT's chosen node puts the Android initrd at
+  # 0x84000000..0x841fffff" - was dropped.
   #
   # 2026-10-10, notes/K10-rkp.md T18: 0x84000000..0x841FFFFF is the KERNEL DEFAULT
   # from the SoC DTS. The live chosen node sboot wrote for the TWRP boot is

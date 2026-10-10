@@ -199,3 +199,10 @@ S10eHarness gained `backup` (BackupService over PartitionMap.IdentityBackup, as 
 4096 KiB, keystorage 512 KiB, persistent 512 KiB - each hashed on phone and PC and matched. Folder + manifest:
 C:\Users\ilya\code\s10e-artifacts\backup-RF8M21HYDSZ. Image rebuild (fixed geometry) started 22:18.
 User consent for the transfer (2026-10-10 ~22:20): "Yes, write Windows" - USERDATA overwrite + CACHE->FAT32 ESP, start automatically once the image is built.
+
+## W12 - image built (fixed geometry), transfer started (2026-10-10)
+windows.img 119 126 622 208 B (= USERDATA) sha256 fbf9672db29b8ff6e81b59b0a978d5fcce82851c30d29129058229bbe7b96ad1.
+winload.efi sha256 7106b82fb7e0f25072e8b9d9c3c7cfd5ea1cffb006bcd26e3f07527737ab0ff5
+ntoskrnl.exe sha256 db84703895bbc9f10771dabc117f7b3d3a7f8bc66d0d3e1918f01983e77e7aad
+ESP tree s10e-artifacts\win-w5\out\esp (EFI\Boot\bootaa64.efi 1 799 024 B present); BCD numproc set to 1 again after the
+rebuild (testsigning Yes, hypervisorlaunchtype Off). VHDX detached. Transfer (S10eHarness transfer, verify on) next.

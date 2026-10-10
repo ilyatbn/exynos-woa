@@ -1156,3 +1156,11 @@ New UEFI region 0xB2B00000..0xBAB00000: mapped bank0 DRAM; highest bank0 reserva
 Verified: build exit 0 (FVMAIN_COMPACT 3112 B free), AutoGen PcdSystemMemorySize 0x3AB00000 / FdBase 0x90000000;
 packer shim checks OK, shim cmp-identical to boot #5; boot #6 image %TEMP%\b29\boot6-v2.img 7 587 840 B
 sha256 97161f0df9d3fe796c97ef766407c5fd2ce74ed55dd0a16cab041479c50ec8e9 (DTB section identical to boot #5).
+
+### B29 review (harsh, of 59745b8)
+Checked: both PCD tokens changed (dsc:356/:358), AutoGen value 0x3AB00000; no C code reads PcdSystemMemorySize
+(rg); region 0xB2B00000..0xBAB00000 vs every bank0 reservation read (s10e-root-reads.md §4) - clear; FD
+range below it. Found: the region overlaps T01's UFS_DMA_WINDOW 0xA7400000..0xBAB00000 - that is the
+WINDOWS-side driver (Exynos9820Ufs.h, ENFORCE=0 default), used after ExitBootServices when the UEFI region
+is no longer live, so no boot-time conflict; flagged for when the window is enforced (UEFI runtime regions
+would then need to sit outside it). No code fix needed now.

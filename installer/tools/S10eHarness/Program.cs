@@ -80,6 +80,16 @@ switch (args.FirstOrDefault())
         Console.WriteLine($"Backed up {manifest.Partitions.Count} partitions to {args[3]}.");
         return 0;
     }
+    case "esp-type" when args.Length == 4:
+    {
+        // W30: Windows specialize needs a real EFI system partition ("BCD: Failed to get system
+        // partition c0000452"). The S9+ flow types its secondary slot with GptTypeService; on the
+        // S10e the ESP is CACHE itself, so type CACHE. Original sectors are saved to <dir>.
+        var twrp = new TwrpClient(args[1], args[2], runner);
+        var changed = await new GptTypeService(twrp).EnsureEspTypeAsync(PartitionMap.EfiSystemPartition, args[3], log);
+        Console.WriteLine(changed ? "CACHE is now typed as an EFI system partition." : "CACHE already had the EFI system partition type.");
+        return 0;
+    }
     case "transfer" when args.Length == 4:
     {
         var twrp = new TwrpClient(args[1], args[2], runner);

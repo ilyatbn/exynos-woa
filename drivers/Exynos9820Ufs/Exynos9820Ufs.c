@@ -8216,6 +8216,8 @@ UfsHandleIoControl(
  */
 static volatile ULONG *UfsBringupWdtCon;
 static volatile UCHAR *UfsBringupPmu;
+static ULONGLONG UfsBringupStart100ns;
+static BOOLEAN UfsBringupFeedExpired;
 
 //
 // W27: PET, not stop. Reloading WTCNT (WDT +0x8) keeps a Windows that is doing disk I/O alive while
@@ -8237,10 +8239,18 @@ UfsMapBringupWatchdog(
     PHYSICAL_ADDRESS Physical;
 
     Physical.QuadPart = (LONGLONG)UFS_WDT_PHYSICAL_BASE;
+    UfsBringupStart100ns = KeQueryInterruptTime();
     UfsBringupWdtCon = (volatile ULONG *)MmMapIoSpace(Physical, UFS_WDT_WINDOW, MmNonCached);
     Physical.QuadPart = (LONGLONG)UFS_PMU_PHYSICAL_BASE;
     UfsBringupPmu = (volatile UCHAR *)MmMapIoSpace(Physical, UFS_BRINGUP_PMU_WINDOW, MmNonCached);
 }
+
+//
+// W30 (user: unattended for 8 h, every attempt must come back within 10-15 min): stop feeding the
+// watchdog 12 minutes after DriverEntry no matter what Windows is doing; the watchdog then resets
+// the phone within the next 82 s and the firmware's boot pair takes it to TWRP.
+//
+#define UFS_BRINGUP_FEED_LIMIT_100NS       (12ULL * 60ULL * 10000000ULL)
 
 static
 VOID
@@ -8248,6 +8258,14 @@ UfsPetBringupWatchdog(
     VOID
     )
 {
+    if (KeQueryInterruptTime() - UfsBringupStart100ns > UFS_BRINGUP_FEED_LIMIT_100NS) {
+        if (!UfsBringupFeedExpired) {
+            UfsBringupFeedExpired = TRUE;
+            UfsEarlyMark("=WDT feed limit reached", 0);
+        }
+        return;
+    }
+
     if (UfsBringupWdtCon != NULL) {
         UfsBringupWdtCon[2] = UFS_BRINGUP_WDT_COUNT;   // WTCNT
         KeMemoryBarrier();

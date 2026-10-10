@@ -449,3 +449,14 @@ pass. Evidence to read from NTFS in TWRP: Windows\Panther\setupact.log, setuperr
 winevt\Logs. The phone sits on that dialog (driver keeps the watchdog fed) until forced to TWRP.
 Queued: w28 driver (feed the watchdog only on SRB success) and firmware boot #39 (progress word 0x8FE0F000) are
 built/committed but not yet deployed.
+
+## W30 - specialize failed: no EFI system partition -> CACHE typed as ESP; fresh image; 12-min feed cap (2026-10-11)
+Panther\setuperr.log: 'SYSPRP BCD: Failed to get system partition. Status: c0000452' -> Sysprep_Specialize_Bcd failed
+-> Callback_Specialize 0x3bc3 = the 'could not configure Windows to run on this hardware' dialog. Windows booted from
+Partition28 (CACHE) but CACHE kept the Android basic-data type GUID: the S9+ flow types only its secondary ESP slot
+(GptTypeService), which beyond0lte does not have. Also seen: the whole specialize pass ran (~16 min, 21:16-21:32).
+Fix: S10eHarness esp-type -> GptTypeService.EnsureEspTypeAsync(CACHE): primary AND backup GPT (the disk does have a
+backup at LBA 31236091) retyped to C12A7328-..., read back verified; originals saved in
+s10e-artifacts\backup-RF8M21HYDSZ\gpt\. Fresh windows.img + ESP re-transferred (harness transfer, verified).
+Driver w29: stops feeding the bring-up watchdog 12 min after DriverEntry (user: unattended 8 h, every attempt back in
+10-15 min). Firmware: boot #39 (progress word) flashed. Next: cycle with w29.

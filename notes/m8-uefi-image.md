@@ -546,3 +546,37 @@ kernel-drop address, K6 image_size requirement, K9 MMU state at handoff, K10 the
 protected zones. kernel_addr 0x10008000 in the header is the *Android* load address; bootshim.S
 says sboot drops at DRAM base + text_offset, which is the unresolved 0x80080000-vs-0x80100000
 disagreement (Step 2c / ANSWER 2 §2c).
+
+## Step 17 - starting the 9820 boot-shim port (resume after crash, HANDOFF §14 step 2)
+
+Phone attached in TWRP (`& adb devices` -> RF8M21HYDSZ recovery). Star2lte bootshim.S
+assembles with clang (exit 0), so `ic iallu` is accepted by the integrated assembler.
+
+Port location: firmware/tools/beyond0lte-bootshim/bootshim.S (sibling of the star2lte
+bootshim/bootshim.S, which stays byte-unchanged; pack-uefi.ps1:72 hardcodes the star2lte
+path so the new file is not picked up by the 9810 packer).
+
+Constant decisions (all from VERIFIED reads in Exynos9820.h unless marked):
+- UEFI_BASE 0x80080000 = Beyond0LtePkg.fdf:68 / dsc:415,417. UNVERIFIED as an OBSERVED
+  address (the initrd bound is the read; the base is the decision that follows).
+- UEFI_SIZE 0x700000 = VERIFIED (built BEYOND0LTE_UEFI.fd is exactly 7340032 B).
+- text_offset 0x80000, flags 0xa = VERIFIED via the SM-G970F kernel Image artefact
+  (C:\Users\ilya\code\Dumps\twrp_device_tree\kernel header, notes §10).
+- image_size 0x800000 = requirement UNVERIFIED (vendor kernel declares 0x03138000 for itself).
+- watchdog stores 0x10050000 (cl0) + 0x10060000 (cl2, NOT cl1) = bases VERIFIED
+  (Exynos9820.h:431 / :426). The WTCON register offset (window+0x00) is UNVERIFIED
+  (EXYNOS_WDT_SIZE:432 UNVERIFIED).
+- ramoops breadcrumb 0xFED14000 = VERIFIED WRONG (inside debug_snapshot log region
+  0xFD900000..0x100000000, Exynos9820.h:112-114). COMPILED OUT behind
+  BEYOND0LTE_PRAM_DIAG (default 0), matching ArmPlatformLib.c:31 BEYOND0LTE_PRAM_DIAG 0.
+  Chosen replacement gap 0xD9801000..0xF0000000 is a DECISION, deliberately not enabled.
+- DIAG paint base 0xCC000000 -> 0xCA000000 (EXYNOS_FB_BASE, Exynos9820.h:450), geometry
+  1440x2960 -> 1440x3040 (EXYNOS_FB_HEIGHT:452). Row offsets unchanged because width
+  (stride) is unchanged: row200 = 0xCA000000+200*1440*4 = 0xCA119400; row750 =
+  0xCA000000+750*1440*4 = 0xCA41EB00; 450 rows x 1440 = 648000 px unchanged.
+- temp SP 0xA0000000 = VERIFIED WRONG (inside camera reservation 0x99000000..0xA7400000,
+  notes/s10e-root-reads.md:115). Candidate in the unclaimed gap FD-end 0x80780000 .. el2_code
+  0x87000000, below both initrd readings (vendor DT 0x84000000, live 0x89000000): 0x83000000.
+  Marked UNVERIFIED (K10 write-protected zones still open).
+- MMU OFF at handoff = UNVERIFIED on 9820 (the 'device-verified' claim is a 9810 observation).
+- RKP-monitored zones 0x80094000-0x828DBFFF = NO 9820 equivalent read (K10 open).

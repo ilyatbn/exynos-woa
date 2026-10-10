@@ -245,6 +245,8 @@ tree does not contain.
 | Stop publishing sboot's reservations inside bank0 as Windows RAM | **todo** | `el2_code 0x87000000+0x200000`, `kaslr 0x80100000+0x100000`, `camera 0x99000000+0xE400000`, `secure_camera 0x96000000+0x2200000`, `mm_debug 0x91200000+0x100000` are all VERIFIED reservations now sitting inside the published bank0 entry — `notes/K10-rkp.md` T17/T20 |
 | Re-pick the UFS DMA window inside the live bank0 | **todo** | the carried 9810 window `0x90000000..0xBC800000` is now known ILLEGAL (live bank0 ends `0xBAB00000`); the new window stays UNVERIFIED until a device validation and the `C_ASSERT` set must stay self-consistent — `notes/K10-rkp.md` T18 |
 
+| Fix the framebuffer RAM/DEV overlap | **todo** | `EXYNOS_FB_BASE 0xCA000000` is published `MMAP_DEV` but sits inside the bank0 RAM gap `0x87200000..0xBAB00000`, so the map still has a cached-RAM and Device entry covering the same range — pre-existing, but the reservation carve made the gap explicit and this is the same class of hazard; the fix is to split the gap around the FB like the reservations — `notes/s10e-dtb-mmio.md` S04 |
+
 ### M9 — Installer
 
 | Task | State | Notes |

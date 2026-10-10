@@ -85,6 +85,29 @@ One defect: `PlatformMemoryMapLib.c:84-85` still carried the inline comment
 "size unread -> skipped" for exactly the two entries that are now read and
 published. Fixed in its own commit.
 
+### S04 — review of the map-carve commit (arithmetic checked by hand, not by reading)
+
+Bank0 `Start 0x80000000`, `End 0xBAB00000`; reservations sorted ascending, so
+the single-pass loop is valid. Emitted gaps:
+
+| gap | length | page-multiple? |
+|---|---|---|
+| `0x80001000 .. 0x80100000` | `0xFFE000` | yes (`0xFFE` pages) |
+| `0x80200000 .. 0x87000000` | `0x6E00000` | yes |
+| `0x87200000 .. 0xBAB00000` | `0x33900000` | yes |
+
+`el2_earlymem` (`0x97E000000`) is skipped in bank0 and bank3 (the guard is
+`ResBase >= End`) and lands in bank4: gaps `0x900000000+0x7E000000` and
+`0x97E200000+0x1E00000`. Bank3 emits one full `0x80000000` entry. RAM entries
+total 6, capacity `MMIO_REGION_COUNT + 12` ✓, and the terminator index is
+ASSERTed.
+
+**Pre-existing, not introduced here:** the framebuffer (`0xCA000000`, published
+`MMAP_DEV`) sits inside the bank0 RAM gap `0x87200000..0xBAB00000`, so the map
+still contains a RAM/DEV overlap. It was there before this commit and is the
+same class of hazard the reservation carve fixes — it belongs in the same
+follow-up, not in this one.
+
 ## Sources
 
 - Device: `adb shell` on `RF8M21HYDSZ   recovery` (TWRP root), `ls /proc/device-tree`.

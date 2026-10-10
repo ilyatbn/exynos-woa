@@ -407,6 +407,11 @@
   #     read; 0x80080000 is the decision that follows from them — UNVERIFIED as an
   #     observed address, nothing has booted on an S10e.
   #
+  #     2026-10-10 (notes/K10-rkp.md T18): that initrd bound is the DTS KERNEL
+  #     DEFAULT. The live chosen node sboot wrote for the TWRP boot is
+  #     0xD5000000..0xD5A67000, so the justification below is void and 0x80080000
+  #     is now an unobserved guess, not a decision derived from a read.
+  #
   #     The 9810's 0x90000000 is deliberately NOT carried over: its justification
   #     (clean RAM above the RKP-monitored kernel zones, 0x80080000 bootlooping) is
   #     a 9810 device observation with no 9820 equivalent read.

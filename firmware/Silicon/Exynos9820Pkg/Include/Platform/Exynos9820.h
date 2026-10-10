@@ -43,17 +43,26 @@
 //   memory@880000000 memory@900000000
 // The vendor DT gives bank0 exactly:
 //   memory@80000000  reg = <0x0 0x80000000 0x80000000>   (2 GiB)
-//
-// That is a DIFFERENT shape from the S9+: bank0 there was 0x3C800000 long and
-// ended at 0xBC800000, and the UFS driver's DMA window was derived from that
-// end. Here bank0 runs to 0x100000000 with no hole, so anything that assumed
-// "DRAM ends at 0xBC800000" is wrong on this SoC — see EXYNOS_UFS_* below and
-// the DMA window in drivers/Exynos9820Ufs/.
+// The LIVE DTB does not. Read in a TWRP root shell on this phone (2026-10-10,
+// notes/K10-rkp.md T18):
+//   memory@80000000  reg = <0x0 0x80000000 0x3AB00000>   (939 MiB, ends 0xBAB00000)
+//   memory@C0000000  reg = <0x0 0xC0000000 0x20000000>
+//   memory@E1900000  reg = <0x0 0xE1900000 0x1E700000>
+//   memory@880000000 reg = <0x8 0x80000000 0x80000000>
+// So bank0 is NOT 2 GiB on this phone, and it ends at 0xBAB00000 — 0x1D00000
+// BELOW the 9810's 0xBC800000. Anything that assumed "DRAM ends at 0xBC800000"
+// is still wrong, but in the other direction than first believed: the UFS
+// driver's carried DMA window 0x90000000..0xBC800000 (still marked UNVERIFIED)
+// overruns the live bank0 end and is NOT a legal 9820 window. See EXYNOS_UFS_*
+// below and the DMA window in drivers/Exynos9820Ufs/.
 //
 // For UEFI bring-up we still map ONLY bank0: it is the one bank whose extent
 // is a read, and it is large enough to host the firmware. The other four must
 // be published once their sizes are read from the DT (contents are blocked on
 // the phone; the vendor DT has them).
+//
+// UPDATE (2026-10-10): in a TWRP ROOT shell the contents are NOT blocked - every
+// size below is now a live read, see notes/K10-rkp.md T18.
 // ---------------------------------------------------------------------------
 //
 // The SoC-level DT declares three 2 GiB banks; the live phone splits the low one
@@ -74,16 +83,29 @@
 // the map publishes only up to the first reserved region until the split sizes
 // are confirmed. The DT's chosen node also puts the Android initrd at
 // 0x84000000..0x841fffff, which is why the firmware loads at 0x80080000.
+//
+// CORRECTION (2026-10-10, notes/K10-rkp.md T16-T18, read in a TWRP root shell on
+// this phone): 0x84000000..0x841FFFFF is the KERNEL DEFAULT from the SoC DTS, not
+// what sboot does. The live chosen node of the currently booted (TWRP) kernel
+// says linux,initrd-start = 0xD5000000, linux,initrd-end = 0xD5A67000. The live
+// reserved-memory node also carries the sboot-added children the static DTS has
+// none of — el2_code 0x87000000+0x200000 (owner el2,uh), el2_earlymem
+// 0x97E000000+0x200000, kaslr 0x80100000+0x100000 (owner kernel-kaslr), sec_debug_magic
+// 0x80000000+0x1000, camera 0x99000000+0xE400000, secure_camera 0x96000000+0x2200000,
+// mm_debug 0x91200000+0x100000, modem_if 0xF0000000+0xB900000, modem_spare
+// 0xD0000000+0x1600000, seclog_mem 0xC0000000+0x80000, cp_ram_logging 0xFB900000+0x2000000.
+// So 0x80080000 sits inside NO reserved node, but the justification for it is now
+// known to rest on a kernel default; it stays UNVERIFIED as an observed address.
 // ---------------------------------------------------------------------------
 //
 #define EXYNOS_DRAM_BASE          0x0000000080000000ULL   // VERIFIED
-#define EXYNOS_DRAM_BANK0_SIZE    0x0000000080000000ULL   // VERIFIED as a bank (vendor DT reg)
+#define EXYNOS_DRAM_BANK0_SIZE    0x000000003AB00000ULL   // VERIFIED (live DTB reg, TWRP root read; the vendor DT says 0x80000000)
 #define EXYNOS_DRAM_SIZE          0x0000000050000000ULL   // CONSERVATIVE: stops at the first reserved region
 
 #define EXYNOS_DRAM_BANK1_BASE    0x00000000C0000000ULL   // VERIFIED (node name)
-#define EXYNOS_DRAM_BANK1_SIZE    0x0000000000000000ULL   // UNVERIFIED — size not read; 0x21900000 is the candidate
+#define EXYNOS_DRAM_BANK1_SIZE    0x0000000020000000ULL   // VERIFIED (live DTB reg; the 0x21900000 candidate was wrong)
 #define EXYNOS_DRAM_BANK2_BASE    0x00000000E1900000ULL   // VERIFIED (node name)
-#define EXYNOS_DRAM_BANK2_SIZE    0x0000000000000000ULL   // UNVERIFIED — size not read; 0x1E700000 is the candidate
+#define EXYNOS_DRAM_BANK2_SIZE    0x000000001E700000ULL   // VERIFIED (live DTB reg; the 0x1E700000 candidate was right)
 #define EXYNOS_DRAM_BANK3_BASE    0x0000000880000000ULL   // VERIFIED (node name + vendor DT reg)
 #define EXYNOS_DRAM_BANK3_SIZE    0x0000000080000000ULL   // VERIFIED (vendor DT reg)
 #define EXYNOS_DRAM_BANK4_BASE    0x0000000900000000ULL   // VERIFIED (node name + vendor DT reg)

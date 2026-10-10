@@ -60,6 +60,12 @@
   # Android initrd at 0x84000000..0x841fffff (that is the read; 0x80080000 is the
   # decision that follows from it). Nothing has booted on an S10e yet.
   #
+  # 2026-10-10, notes/K10-rkp.md T18: 0x84000000..0x841FFFFF is the KERNEL DEFAULT
+  # from the SoC DTS. The live chosen node (this phone, booted into TWRP by sboot
+  # itself) says linux,initrd-start 0xD5000000 / end 0xD5A67000. So the initrd
+  # "read" never justified 0x80080000 against what sboot actually does; the
+  # address stays UNVERIFIED.
+  #
   # The 9810's 0x90000000 is NOT carried over: its justification (clean RAM above
   # the RKP-monitored kernel zones 0x80094000-0x828DBFFF, and 0x80080000 having
   # bootlooped) is a 9810 device observation with no 9820 equivalent read.

@@ -1035,3 +1035,17 @@ addresses, FB paint address, drop-vs-UEFI_BASE copy, temp SP, FD SEC entry). Rec
 still holds the failed boot #3 v2 image, so TWRP must be reflashed to get a shell. NEXT: reflash TWRP
 (user), restore stock boot.img to sda14 (undo the loop -> Android safe), then diff our bootshim.S vs
 edk2-exynos' device-proven exynos9820 BootShim.S to find the wrong 9820 constant.
+
+## B22 - boot-loop diagnosis: our shim does far more than the device-proven exynos9820 BootShim
+
+Fetched edk2-exynos `tools/BootShim/BootShim.S` (their proven flow for exynos9820): it is MINIMAL -
+`adr x1,_Payload; b _Start`; a fake Linux header (first header text_offset/image_size/flags all ZERO,
+then `_StackBase=UEFI_BASE`, `_StackSize=UEFI_SIZE`); `_Start`: x4=payload src, x5=UEFI_BASE, if equal
+goto _Entry else `ldp/stp` copy UEFI_SIZE bytes, then `_Entry: br x5`. It does **NOT** touch the
+watchdog, does **NOT** read/write `SCTLR_EL1`, does **NOT** disable caches, does **NOT** paint, does
+**NOT** set SP. Our `firmware/tools/beyond0lte-bootshim/bootshim.S` adds all of those (watchdog stores
+0x10050000/0x10060000, `mrs SCTLR_EL1`+`msr`, RED/GREEN paint 0xCA119400/0xCA41EB00, SP=0x83000000).
+Any one faults on the 9820 -> the boot loop. Prime suspect: `mrs SCTLR_EL1` faults if sboot hands off
+at EL0 (the proven shim never touches a privileged reg); also the watchdog/paint stores to unvalidated
+9820 addresses. GROUNDED FIX: rewrite our 9820 shim to the proven minimal copy+branch flow (keep
+UEFI_BASE/UEFI_SIZE + fake header), drop the unvalidated additions.

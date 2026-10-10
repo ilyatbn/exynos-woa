@@ -58,8 +58,8 @@ ACPI/Windows half remains.
 
 | Task | State | Notes |
 |------|-------|-------|
-| Research: how Linux/Android on the S10e brings up DWC3 (exynos-dwc3 glue, USBFN, PHY init order, VBUS/ID role) | todo | subagent → `notes/d1-usb-host.md` |
-| Research: Mu-Silicium `UsbfnDwc3Dxe` + edk2-exynos 9820 USB prior art — what exists, what is broken | todo | same notes file |
+| Research: how Linux/Android on the S10e brings up DWC3 (exynos-dwc3 glue, USBFN, PHY init order, VBUS/ID role) | **doing** | subagent → `notes/d1-usb-host.md` (seeded with the six questions) |
+| Research: Mu-Silicium `UsbfnDwc3Dxe` + edk2-exynos 9820 USB prior art — what exists, what is broken | **doing** | same notes file |
 | Write the 9820 USB init library (`UsbPlatformLib`-style): clocks (CMU_PERIC0/FSYS0A gates), PHY (10B00000/10AE0000/10AF0000), DWC3 core → host (`PRTCAP_HOST`) | todo | one MMIO block per verified window, constants from `Exynos9820.h` only |
 | Wire EDK2 USB stack into `Beyond0LtePkg.dsc/.fdf` (`UsbBusDxe`, `UsbHubDxe`, `UsbKbDxe`, `UsbMouse`-equivalent) | todo | currently commented out at `Beyond0LtePkg.fdf:259-261` |
 | Build clean (host-mode USB in the FD, FD size still fits `FVMAIN_COMPACT`) | todo | build-only proof; device proof waits on the boot stream |

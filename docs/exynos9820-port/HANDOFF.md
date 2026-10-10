@@ -629,3 +629,73 @@ device writes were to `/tmp` (ramdisk), never to a partition.
 Unchanged from §14: nothing written to the media; the 9810 packages byte-unchanged;
 no stage `Ready` without device validation; never guess a constant — name it
 `UNVERIFIED` with the read that closes it.
+
+## 16. Restart point for a fresh session (2026-10-10 — K10 research landed; the source is now corrected against live reads)
+
+A session ran out of context mid-K10 and was resumed here. Nothing is in flight:
+`git status` is clean except `info/DEN0101_00bet1_ADAC.pdf`, which stays uncommitted
+on purpose. The phone was attached in **TWRP** (`RF8M21HYDSZ   recovery`) the whole
+pass; every device action was a read (`ls`, `od`, `cat`, `adb pull` of
+`/proc/device-tree/**`), nothing was written to the phone at all this session.
+
+### What is true now (all committed, all verified by running)
+
+* **K10 research notes** `notes/K10-rkp.md` T15-T21 (three commits): the 9820
+  `reserved-memory` list from Samsung's own `exynos9820-rmem.dtsi`, the phone's own
+  live DTB values, the dead ends, and two review records.
+* **The live DTB closes things the vendor DTS could not.** In a TWRP **root** shell
+  the property contents are **not** SELinux-blocked, so `reg` values that earlier
+  sessions could only name as node names are now reads:
+  `memory@80000000` = `0x80000000 + 0x3AB00000` (**ends `0xBAB00000`**, not 2 GiB),
+  `memory@C0000000` = `+0x20000000`, `memory@E1900000` = `+0x1E700000`,
+  `el2_code` = `0x87000000 + 0x200000` (owner `el2,uh`), `el2_earlymem` =
+  `0x97E000000 + 0x200000`, `kaslr` = `0x80100000 + 0x100000` (owner
+  `kernel-kaslr`), `log_bcm` = `0xFEB10000 + 0x400000`, `camera` =
+  `0x99000000 + 0xE400000`, and the live `chosen` initrd =
+  `0xD5000000..0xD5A67000`.
+* **Three carried numbers are now provably wrong**, and the source says so:
+  (1) `EXYNOS_DRAM_BANK0_SIZE` was the DTS's 2 GiB — fixed to `0x3AB00000`;
+  (2) the UFS DMA window `0x90000000..0xBC800000` **overruns** the live bank0 end
+  by `0x1D00000`; (3) `PlatformMemoryMapLib.c` published bank0 to `0xD0000000`,
+  i.e. `0x15500000` of RAM the DTB never declared — now clamped to
+  `min(EXYNOS_DRAM_SIZE, EXYNOS_DRAM_BANK0_SIZE)`.
+* **The `0x84000000` initrd bound every FD_BASE comment cited is a kernel default**,
+  not an sboot observation; sboot put this boot's initrd at `0xD5000000`. So
+  `UEFI_BASE` / `FD_BASE_ADDRESS` `0x80080000` is now an unobserved guess in all
+  three places (`Exynos9820.h`, `Beyond0LtePkg.dsc`, `Beyond0LtePkg.fdf`), and the
+  first on-device evidence points at the **`0x80100000`** side of the K4b
+  disagreement instead.
+* **K10 is closed as a mechanism question, not an address question**: Samsung's own
+  `rkp.h` (SM-G973F_QQ_Opensource) hands RKP `_text.._etext` / `_srodata.._erodata`,
+  so the 9810's `0x80094000-0x828DBFFF` has **no 9820 constant equivalent** and must
+  not be copied. Builds re-run clean after every edit
+  (`build-uefi.ps1 -Platform Beyond0LtePkg -Target DEBUG`, exit 0; shim
+  assembled for both `BEYOND0LTE_PRAM_DIAG` values, 288 B / 392 B).
+
+### The exact next order, one commit per step
+
+1. **Decide the FD/UEFI run address against the new evidence** — `kaslr` at
+   `0x80100000` argues for that side of K4b, but the choice is still unobserved;
+   if it changes, `Beyond0LtePkg.dsc:415/417`, `.fdf:68` and the shim's `-DUEFI_BASE`
+   in `pack-uefi-beyond0lte.ps1` must move together, and the self-overwrite hazard
+   at the copy step re-checked.
+2. **The reserved regions inside bank0 are still handed to Windows as RAM**
+   (`el2_code`, `kaslr`, `camera`, `secure_camera`, `mm_debug`) — the split needs a
+   decision (publish them as `MMAP_UNMAP`/reserved, or stop bank0 at `0x80000000+`
+   the first reservation), and it is not closable by a read we already have.
+3. **The UFS DMA window**: pick a window inside the live bank0
+   (`0x80000000..0xBAB00000`) minus the reservations above it, keep it marked
+   UNVERIFIED until a device validation, and re-run the `C_ASSERT` set.
+4. **Only then a first boot**, and that needs explicit user consent (media writes,
+   ground rules 5/6, plus Team Win's AVB hazard: verity-disabled `vbmeta` first,
+   this disk's `vbmeta` at LBA 83 584..83 599).
+
+### Rules that still bind this work
+
+Unchanged from §14/§15: nothing written to the media; the 9810 packages byte-unchanged
+(`git diff` on `Star2LtePkg`, `Exynos9810Pkg`, `tools/bootshim` is empty); no stage
+`Ready` without device validation; never guess a constant — name it `UNVERIFIED`
+with the read that closes it. **New:** a TWRP root shell makes DTB property
+contents readable — the "contents are SELinux-blocked" limit only applies to an
+unprivileged shell on a booted Android, and every value read this way is a
+**TWRP-boot** value, so a stock Android boot may add nodes over it.

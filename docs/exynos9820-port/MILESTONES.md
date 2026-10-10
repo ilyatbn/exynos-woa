@@ -318,6 +318,12 @@ tree does not contain.
 | Make the build serviceable: what to do when one part fails | todo | a donated device will fail in the field |
 | Keep the 9810 and 9820 flows separate and labelled | todo | golden rule: no unvalidated `Ready` |
 
+### Parking lot — off the boot path, do later
+
+| Task | State | Notes |
+|------|-------|-------|
+| Build an automated restore/reflash path with **heimdall** for when the device breaks completely | **parking lot** | heimdall v2.1.0 (Grimler's fork) is the CLI equivalent of Odin: `detect` → `print-pit` (both read-only) → `flash --RECOVERY <file> --no-reboot`. Not installed on this machine. Two hazards already recorded in `notes/heimdall-flashing.md`: it has **no partition-size check** (PR #555 — silently overwrites neighbours; our 18 255 872 B into a 55 279 616 B slot is a 3× margin but must be checked against `print-pit`, whose `blockSizeOrOffset` field is ambiguous), and it is **untested on an S10e** (works on a 2021 device per issue #547, fails on an A14 5G per #548). The rollback file already exists locally: `ref-recovery.img` is a byte-exact snapshot of the recovery slot |
+
 ## What is blocked on the user right now
 
 | Needs | Milestones | Why |

@@ -1639,3 +1639,8 @@ path now prints, for any slot whose response UPIU Status (byte 7) == 0x02, befor
 CDB opcode (Command UPIU byte 16), OCS, Response (byte 6), sense length (32-33 BE), key/ASC/ASCQ
 (fixed-format sense at 34: [2]&0xF, [12], [13]).
 Verified: build exit 0. Boot #19 image %TEMP%\b69\boot19-v2.img sha256 9d24b321d1b4bbaa0002afa4ee3f4a5593e3a6e841422e11d5d5c53c4253df4a
+
+## B70 - boot #19 WRITE to BOOT sda14
+
+Pushed (on-device sha256 9d24b321...df4a), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
+9d24b321d1b4bbaa0002afa4ee3f4a5593e3a6e841422e11d5d5c53c4253df4a (byte-exact). `adb reboot` next.

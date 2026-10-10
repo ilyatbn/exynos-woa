@@ -90,7 +90,7 @@ ACPI/Windows half remains.
 | Task | State | Notes |
 |------|-------|-------|
 | Keep vendor bcmdhd closed (M12 verdict) — do not spend tasks on it | **done — decision** | no Windows driver, no DT node; reopening only on new evidence |
-| Research: USB WiFi adapters with **inbox or ARM64** Windows drivers (which chips does Windows ARM64 support without vendor drivers?) | todo | subagent → `notes/d4-usb-wifi.md` |
+| Research: USB WiFi adapters with **inbox or ARM64** Windows drivers (which chips does Windows ARM64 support without vendor drivers?) | **doing** | subagent → `notes/d4-usb-wifi.md` (seeded with five questions) |
 | Pick the adapter for the donation build and record it | todo | depends on the research verdict |
 
 ### D5 — GPU / display

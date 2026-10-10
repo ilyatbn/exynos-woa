@@ -420,7 +420,7 @@ actually does on this phone.
 
 | node | reg | live extent |
 |---|---|---|
-| `memory@80000000` | `00 00 00 00 80 00 00 00 3A B0 00 00` | **`0x80000000 + 0x3AB00000`** = ends `0xBAB00000` (939 MiB, **not** the DTS's 2 GiB) |
+| `memory@80000000` | `00 00 00 00 80 00 00 00 3A B0 00 00` | **`0x80000000 + 0x3AB00000`** = ends `0xBAB00000` (937.5 MiB, **not** the DTS's 2 GiB) |
 | `memory@C0000000` | `00 00 00 00 C0 00 00 00 20 00 00 00` | `0xC0000000 + 0x20000000` |
 | `memory@E1900000` | `00 00 00 00 E1 90 00 00 1E 70 00 00` | `0xE1900000 + 0x1E700000` |
 | `memory@880000000` | `00 00 00 08 80 00 00 00 80 00 00 00` | `0x880000000 + 0x80000000` |
@@ -437,6 +437,28 @@ first-bank window is `0x80000000..0xBAB00000` minus the reserved nodes above it
 Read: https://docs.kernel.org/arch/arm/samsung/bootloader-interface.html — it is Krzysztof
 Kozlowski's 2015 write-up of **mainline** Exynos 3250/4210/542x sysram/AFTR offsets. No
 9820, no sboot load address. Do not re-fetch for this question.
+
+### 2026-10-10 T20 — harsh review of the K10-half-1 source commit (`3f5c460`)
+
+Checked mechanically: `git diff --stat` on the 9810 tree (`Star2LtePkg`, `Exynos9810Pkg`,
+`tools/bootshim`) → **empty**, so the byte-unchanged rule holds. Build re-run after the
+edit: `build-uefi.ps1 -Platform Beyond0LtePkg -Target DEBUG` exit 0, `FVMAIN_COMPACT`
+700416 total / 3128 free.
+
+Two defects found, each now a follow-up commit:
+
+1. **Arithmetic in a comment claim.** `0x3AB00000` = 983 040 000 B = **937.5 MiB**, not
+   the "939 MiB" the new comment says. The hex (0xBAB00000 end, 0x1D00000 delta) is right;
+   only the human-readable size was wrong.
+2. **A silent behaviour change the read exposes.** `PlatformMemoryMapLib.c:150-161`
+   publishes bank0 as `EXYNOS_DRAM_BASE + EXYNOS_DRAM_SIZE` = `0x80000000..0xD0000000`
+   (1.25 GiB). The live `memory@80000000` bank is `0x3AB00000` long and **ends at
+   `0xBAB00000`**, so the map has been handing Windows **0x15500000 (341 MiB) of RAM the
+   DTB never declared** — the gap `0xBAB00000..0xC0000000` plus `0xC0000000..0xD0000000`,
+   the last of which is inside the *separately* declared `memory@C0000000` bank but with
+   the wrong length. This was latent before (bank0 looked 2 GiB); the live read makes it
+   provably wrong. Fix: clamp the published length to the live bank0 size, keep the
+   reserved-region hazard open.
 
 ## Sources
 

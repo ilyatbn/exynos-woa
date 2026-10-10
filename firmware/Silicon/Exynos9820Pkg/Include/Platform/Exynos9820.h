@@ -45,7 +45,7 @@
 //   memory@80000000  reg = <0x0 0x80000000 0x80000000>   (2 GiB)
 // The LIVE DTB does not. Read in a TWRP root shell on this phone (2026-10-10,
 // notes/K10-rkp.md T18):
-//   memory@80000000  reg = <0x0 0x80000000 0x3AB00000>   (939 MiB, ends 0xBAB00000)
+//   memory@80000000  reg = <0x0 0x80000000 0x3AB00000>   (937.5 MiB, ends 0xBAB00000)
 //   memory@C0000000  reg = <0x0 0xC0000000 0x20000000>
 //   memory@E1900000  reg = <0x0 0xE1900000 0x1E700000>
 //   memory@880000000 reg = <0x8 0x80000000 0x80000000>

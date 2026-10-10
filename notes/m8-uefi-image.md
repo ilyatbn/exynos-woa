@@ -1383,3 +1383,17 @@ each strip's baseline and sampling 32 equal cells (photo levels: block ~230, emp
 => the FD dies inside MemoryPeim after asking for the memory map: building translation tables or
 right after the MMU turns on. Suspects: SCTLR.A=1 + clang unaligned accesses once RAM is Normal memory;
 anything (stack/VBAR/sboot vectors) living in an address the new map leaves unmapped.
+
+## B48 - root cause candidate: DC ZVA with the MMU off (BaseMemoryLibOptDxe in SEC) -> fixed
+
+Reading the MMU path: ArmConfigureMmu (ArmMmuLibCore.c:905-971) allocates the root table, ZeroMem's it
+(4 KB) and fills it while the MMU is still OFF, then ArmDisableAlignmentCheck + caches + ArmEnableMmu
+(so SCTLR.A=1 from sboot is NOT the problem - it is cleared). PeilessSec linked BaseMemoryLibOptDxe
+(OUTPUT/static_library_files.lst); its AArch64 SetMem.S:125-145 zeroes > 96 B with `dc zva` unless
+DCZID_EL0.DZP. MMU off = Device memory; DC ZVA on Device memory = alignment fault; no UEFI vectors yet
+-> sboot/EL2 handles it -> SOFT reset. Matches B47 (memory-map checkpoint drawn, post-MMU one not).
+Fix (dsc): [LibraryClasses.common.SEC] BaseMemoryLib|MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf,
+the ArmVirtPkg precedent (ArmVirt.dsc.inc:236-238). DXE keeps OptDxe (runs with the MMU on).
+Verified: build exit 0; PeilessSec static libs now BaseMemoryLib; objdump of PeilessSec.dll: 0 `dc zva`.
+Not yet proven on device (an inference until boot #12 passes checkpoint 1660).
+Boot #12 = boot #11 shim (unchanged) + this FD: %TEMP%\b48\boot12-v2.img sha256 9a923dd8df7e7dd5f5e4a445dbf6879925a8730a895e41fc4037bd46cec24f18

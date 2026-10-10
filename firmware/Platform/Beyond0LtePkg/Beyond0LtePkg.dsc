@@ -259,6 +259,14 @@
   TpmMeasurementLib|MdeModulePkg/Library/TpmMeasurementLibNull/TpmMeasurementLibNull.inf
 
 [LibraryClasses.common.SEC]
+  # SEC runs with the MMU OFF, where every data access is Device memory. The
+  # optimized AArch64 SetMem (BaseMemoryLibOptDxe/AArch64/SetMem.S:125-145) zeroes
+  # blocks > 96 B with `dc zva`, and DC ZVA to Device memory is an alignment
+  # fault. ArmConfigureMmu zeroes the 4 KB root translation table before it turns
+  # the MMU on, which is exactly where boot #11 died (notes/m8-uefi-image.md B47/B48:
+  # checkpoint after the memory map drawn, the one after the MMU-on not). The plain
+  # C library is what ArmVirtPkg uses for SEC (ArmVirt.dsc.inc:236-238).
+  BaseMemoryLib|MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf
   # PeilessSec (combined SEC+PEI) flow — replaces the removed ArmPlatformPkg/PrePi
   PrePiLib|EmbeddedPkg/Library/PrePiLib/PrePiLib.inf
   HobLib|EmbeddedPkg/Library/PrePiHobLib/PrePiHobLib.inf

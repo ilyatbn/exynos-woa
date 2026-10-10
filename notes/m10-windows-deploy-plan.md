@@ -413,3 +413,15 @@ same dead man's switch (BEYOND0LTE_EARLY_WATCHDOG). (3) BootLogDxe at ReadyToBoo
 again at EBS. => any hang anywhere ends in TWRP; a Windows hang comes back through UEFI's boot pair when the next
 boot survives. RAM at 0x8FE00000-0x90000000 survived TWRP sessions (BootCount 1->2->3), so WINPRAM survives a detour.
 boot37-v2.img sha256 781f1174f1072a1c314aa043f02c15f6aba2b22fe9ed651b68c0a4be691db128.
+
+## W26 - the Windows driver's own story: PMA window rejected -> no disk (2026-10-11)
+Unattended cycles now run end to end (Windows -> WDT reset -> shim hang -> shim dead man's switch -> TWRP; then a
+reboot from TWRP saves WINPRAM.BIN and returns to TWRP). The shim cache flush did NOT cure the second-boot shim hang.
+Early marks (driver W25) from the run, notes/winpram-run3.bin @0x8000: =DRVENTRY, =BCREG 1, =STORPORTINIT st=0,
+=FINDADAPTER n=4, range0 0x13D60000, irq 0x103 (GSIV 259), STAGE 1 (find entered), STAGE 2 (resources captured),
+FAIL 0x8 = UFS_DIAG_FAILURE_PMA_RANGE_MISSING, STAGE 0xB (diagnostic-only), FAIL 1<<55 (old bugcheck record),
+STAGE 7, 0xB, then =BUGCHECK 0x7B P1 FFFFBD0A02A089D0 P2 C0000034 (OBJECT_NAME_NOT_FOUND) - INACCESSIBLE_BOOT_DEVICE
+because the adapter never went operational.
+Cause: UfsMapResources requires the PMA range to be >= EXYNOS_UFS_PMA_LENGTH 0x1000; the DSDT (correctly, = stock DT
+ufs-phy reg 0x13D64000+0x800) declares 0x800. The driver never maps PMA (presence check only). Fix: length 0x800.
+Firmware boot #38: BootLogDxe zeroes the 64 KB Windows region after saving it (one run per WINPRAM.BIN).

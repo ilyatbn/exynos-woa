@@ -356,6 +356,7 @@ OnReadyToBoot (
           Root->Close (Root);
           DEBUG ((DEBUG_ERROR, "BootLog: previous boot ran Windows - saving its PRAM, then recovery\n"));
           DumpMemoryToEsp (L"\\WINPRAM.BIN", (UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);
+          ZeroMem ((VOID *)(UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);   // one run per dump
           FlushBootLog ("after-windows");
           RebootToRecovery ();
         }

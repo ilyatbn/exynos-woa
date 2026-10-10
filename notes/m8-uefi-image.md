@@ -844,4 +844,47 @@ SAFETY: boot (sda14) is untouched, so normal Android still boots (`adb reboot`).
 slot now holds the UEFI container, not TWRP; restore TWRP by re-flashing the tar before any
 further experiment. Windows booting is NOT established, so ground rules 5/6 still forbid
 casual media writes.
+
+## B9 - sboot's own diagnostic text (from the download-mode screen) REFRAMES the fault
+
+User read the download-mode screen's error text:
+```
+dt table header check fail: <unknown error>
+load_kernel: could not do Normal boot. (DT LOAD fail)
+vmbeta: Error verifying vmbeta image: OK_NOT_SIGNED (3)
+CUSTOM VMBETA, VMBETA No sign info
+```
+READ (mine, from the text):
+- **vbmeta is NOT the blocker.** `OK_NOT_SIGNED (3)` + `CUSTOM VMBETA` = sboot accepts the
+  verity-disabled vbmeta as a custom/unsigned image (a warning, not a refusal). The AVB ordering
+  was fine.
+- **The blocker is the boot container's DT (device-tree) load**, not the UEFI payload:
+  `dt table header check fail` -> `load_kernel: could not do Normal boot (DT LOAD fail)`. sboot
+  took the **Normal boot** path for the recovery slot, tried to load a DTB, the DT header check
+  failed, so it never jumped to the kernel at all.
+CONCLUSION: fault class is (a) - sboot refused the container BEFORE running the payload. The
+never-booted DECISION constants (UEFI_BASE 0x83300000, temp SP, K10 zones, fb base) are NOT the
+cause here - they are never reached. The suspect is the container format: the repack kept the
+ref's `dt` section (packer log B4 said `dt 1 (verbatim)` - i.e. ~empty), but sboot's Normal-boot
+path on the 9820 wants a valid DTB header. Investigate `repack-with-ref.py` + the ref container's
+dt/dtbo fields.
+
+## B10 - the ref container has NO device tree; that is the DT LOAD fail
+
+FACT probed `ref-recovery-trim.img` (the beyond0lte TWRP recovery container we repacked):
+`kernel=44363788 ramdisk=10905981 second=0 page=2048 dt_size=1`; no `DTBH` magic and no
+DTBO magic (0xA1123344) anywhere in the 55 MB. So the TWRP-stripped recovery container carries
+**no device-tree blob**.
+READ (mine): sboot's `load_kernel` Normal-boot path requires a valid DT (DTBH/DTBO). The TWRP
+container has dt_size=1 (empty), so the DT header check fails and sboot never jumps to the
+kernel. This is a CONTAINER-format fault, upstream of the UEFI payload - the shim's ARM64 Image
+header (text_offset 0x80000, image_size 0x800000, flags 0xa) is identical in shape to the 9810's
+booting shim, so the shim is not the differentiator.
+FIX DIRECTION (ties to T06): repack the [shim][FD] kernel into a container that DOES carry a
+valid DTBH - the phone's **stock** recovery/boot container (in `C:\Users\ilya\code\Dumps\`, the
+AP_G970FXXSGHWC1 meta tar) has the vendor dtb; the TWRP one does not. T06 ("re-read the STOCK
+recovery container geometry before repacking") is exactly this. Re-derive the ref from stock,
+not from the TWRP-era pull.
+CAUTION: this is inference from sboot's diagnostic text + the container probe; not yet a
+validated fix. Nothing re-flashed; recovery slot still holds the failed container.
 - log: `%TEMP%\m8-build-ufs-run1.log`.

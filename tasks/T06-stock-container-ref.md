@@ -39,3 +39,13 @@ property contents and block devices are blocked to an unprivileged shell).
 
 A stock-recovery header is in hand, or the attempt is labelled as using the
 inference above.
+
+## Why this is now load-bearing (2026-10-10, from the first-boot failure)
+
+The first boot (T07) failed with sboot's `dt table header check fail` -> `load_kernel: could not
+do Normal boot (DT LOAD fail)`. Probing the TWRP-era ref we repacked (`notes/m8-uefi-image.md` B10):
+`dt_size=1`, **no DTBH and no DTBO magic anywhere** - the TWRP-stripped recovery container carries
+no device-tree blob, and sboot's Normal-boot path needs one. The **stock** recovery/boot container
+carries the vendor dtb (DTBH), so repacking `[shim][FD]` into a stock-derived ref is the fix
+direction. This is what T06 must close before another boot attempt. Reference stock artefacts on
+the machine: `C:\Users\ilya\code\Dumps\` (AP_G970FXXSGHWC1 meta tar - stock boot/recovery).

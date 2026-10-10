@@ -61,3 +61,9 @@ suspects are the never-booted DECISION constants: `UEFI_BASE 0x83300000` (K4b), 
 SP, the K10 write-protected zones, and the framebuffer base. `boot` (sda14) untouched, so
 Android still boots; the recovery slot now holds the UEFI container (restore TWRP by re-flash).
 Windows booting is **not** established. Full detail: `notes/m8-uefi-image.md` B7/B8.
+
+REFINED (B9/B10): sboot's download-mode text says `dt table header check fail` -> `load_kernel:
+could not do Normal boot (DT LOAD fail)`, and vbmeta is accepted (`OK_NOT_SIGNED`, CUSTOM). So the
+fault is the **container's missing device-tree blob** (the TWRP ref has `dt_size=1`, no DTBH/DTBO),
+NOT the UEFI payload or the DECISION constants - those are never reached. Fix direction = repack
+into a **stock** container that carries a valid DTBH (T06).

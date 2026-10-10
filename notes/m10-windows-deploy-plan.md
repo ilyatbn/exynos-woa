@@ -237,3 +237,22 @@ sha256 e256d8327c29633cdc38e6297dc3c1344039c36de45cbb1cb5baadd3d936881e. vs boot
 W15 flash: boot #27 pushed (sha e256d832 on device), sda14 before = boot #26 (200bd7e1), dd conv=fsync, readback
 e256d8327c29…881e. Review of f79271f: frozen mode exits only via a new boot (sboot repaint); banner scan per write is
 O(n); last-row overflow sets FULL via FbNewLine and the loop breaks - no wrap path left in frozen mode. adb reboot next.
+
+## W16 - boot #27 OBSERVED: the fault is in WINLOAD's heap code; boot #28 = bank0-only A/B (2026-10-10)
+Photo notes/img-win2-bootmgr-exception.jpg. Exception mode worked: "Synchronous Exception at 0xB8BFF158", backtrace
+PC B8BFF158 / B8B6B268 / B8B49494 (no PDB = image not in the UEFI debug table, i.e. loaded by bootmgr itself) ->
+BdsDxe+0x60C0/+0x5D9C -> DxeCore. X19 = 0, LR = 0xB8B6B268, X10 = 0xB8D05000, SPSR 0xA0000205 (EL1h).
+Identification (scripts in %TEMP%: basefind*.py): only base 0xB8B52000 for winload.efi (sha 7106b82f…) makes
+LR-4 a BL and the faulting PC a load through a zero register: RVA 0x19268 = right after `bl BlFileLoad` in
+OslpPreloadDrtmBlobsFromWim+0x148; fault RVA 0xAD158 `ldr x8,[x19]` (public symbol CompositeFsInitialize+0x190,
+really winload's inlined heap allocator: it calls MmHapHeapAllocatorExtend / MmHapAddToFreeList). Symbols:
+winload_prod.pdb from msdl (key E3B96F07D58E7B234BC5B324B82F6ED12), llvm-pdbutil dump --publics.
+Control flow: ad158 is reached only with x19 != 0 (cbnz x19 at ad120; or ad13c..ad154 where `str x0,[x19]` at
+ad150 succeeded) -> x19 was zeroed ACROSS `bl MmHapAddToFreeList` (ad154), a plain list function with no
+sysreg/tlbi/hvc. Boot #26 crashed at B8C02158 = same RVA, base +0x3000 -> deterministic.
+=> Something outside EL1 code corrupts a GPR during that call. Hypothesis (UNVERIFIED): a stage-2 abort taken
+to Samsung uH on a heap page and "emulated" with a wrong register write - heap pages come from the new W2
+bank1/bank2 RAM. The 9810's winload patches act later (MMU switch), and it never published bank2.
+A/B: BEYOND0LTE_PUBLISH_BANK12 0 (bank0-only, as boot #25) -> boot #28 s10e-artifacts\boot28-v2.img sha256
+507fd916a4a4e0a4b1e73439c89ea1e718d6ebc0b64b1abbc87f208077115dc2 (build exit 0, FVMAIN_COMPACT 2816 B free, shim
+same as #27). If winload passes this point on #28 -> W2 ranges are not plain RAM for EL1; bisect bank1 vs bank2.

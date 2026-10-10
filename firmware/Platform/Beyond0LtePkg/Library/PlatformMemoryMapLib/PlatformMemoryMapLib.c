@@ -30,6 +30,13 @@
 
 #define BEYOND0LTE_PUBLISH_HIGH_BANKS  0
 
+//
+// W2's bank1/bank2 RAM. 0 = A/B test (m10 W16): winload faults in its heap code with a
+// callee-saved register zeroed across a plain call (MmHapAddToFreeList), deterministically -
+// the bank0-only boot tells whether the new ranges (uH stage-2?) are the cause.
+//
+#define BEYOND0LTE_PUBLISH_BANK12      0
+
 #define MMAP_DRAM   ARM_MEMORY_REGION_ATTRIBUTE_WRITE_BACK
 #define MMAP_DEV    ARM_MEMORY_REGION_ATTRIBUTE_DEVICE
 
@@ -223,6 +230,10 @@ ArmPlatformGetVirtualMemoryMap (
     BankSize[3] = EXYNOS_DRAM_BANK1_SIZE;
     BankBase[4] = EXYNOS_DRAM_BANK2_BASE;
     BankSize[4] = EXYNOS_DRAM_BANK2_SIZE;
+#if !BEYOND0LTE_PUBLISH_BANK12
+    BankSize[3] = 0;
+    BankSize[4] = 0;
+#endif
 #if !BEYOND0LTE_PUBLISH_HIGH_BANKS
     //
     // UEFI uses bank0 only (notes/m8-uefi-image.md B62/B63). Boot #16 reset (no EL1 exception)

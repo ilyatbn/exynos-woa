@@ -72,7 +72,7 @@ def main() -> int:
     img.kernel = kernel
     out = img.serialize(refresh_id=not args.no_refresh_id, keep_tail=True)
 
-    # Nothing but the kernel slot and the five header words may change.
+    # Nothing but the kernel slot, the four size words and the SHA-1 id may change.
     reparsed = BootImage.parse(out)
     for name, old in before.items():
         if getattr(reparsed, name) != old:

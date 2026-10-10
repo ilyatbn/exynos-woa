@@ -689,6 +689,24 @@ Verified mechanically on the output, not by reading the code:
 - 18 253 824 < 57 671 680 (BOOT, `Validation.cs:12`) - the K3 fit holds with the
   real shim length, not the 7.34 MB estimate.
 
+## Correction pass 4 - harsh review of the repack-tool commit (4215fe8)
+
+Checked: the tool re-ran after every edit (exit 0, same 18 253 824 B); the
+byte-diff of the header page was measured (24 bytes, offsets 8..595) rather than
+asserted; `ramdisk`/`second`/`dt`/`tail` compared byte-for-byte after re-parse;
+`kernel[0:4]` and `kernel[288:292]` decoded to prove the cat order.
+
+Found and fixed (own commit):
+- The inline comment claimed "the five header words" while the docstring (and
+  bootimg.py:105-122) rewrite four size words plus the SHA-1 id - comment
+  corrected to name them.
+- Earlier in the same pass, before committing: the dead `if ... : pass` kernel
+  check, `BootImage.BOOT_MAGIC` (module constant, not a class attribute), the
+  wrong `sys.path` parent count that made the import fail, the overflow check
+  placed after `serialize()` instead of before, an unused `import struct`, and
+  a docstring sentence broken by the "five words" edit - all fixed pre-commit,
+  each verified by re-running the tool.
+
 Still NOT closed by this: the image has never been flashed or booted (ground
 rules 5/6), and K4b (where sboot drops the kernel) is what decides whether the
 shim's own copy step survives - see the hazard comment in bootshim.S.

@@ -28,7 +28,7 @@
 // (SP 0xBAAFF760). Dump the UEFI memory map at ReadyToBoot - what bootmgr/winload start
 // from - two entries per panel line, then hold 20 s for a photo. Diagnostic only.
 //
-#define BEYOND0LTE_MEMMAP_DUMP  1
+#define BEYOND0LTE_MEMMAP_DUMP  0   // W18: map read (boot #29); off - it holds the boot 20 s
 
 //
 // FFS file GUID the AcpiTables module is built under. This is the GUID the

@@ -1359,3 +1359,8 @@ Verified: objdump of the shim (LOADFB addresses = FB_ROW values, bar x step 40 B
 build exit 0; PeiBootAction still a pure leaf (0xCA55B180 = FB_ROW(1300), 0x1A5E0 = 100*1080 px);
 packer OK (code0 0x10001301), kernel = shim + FD exact.
 Boot #11 image %TEMP%\b45\boot11-v2.img sha256 27960ba2eb9939bb13ab482c19ccdf783e3ac1d4985fb5ecc923b5996eabbe7f
+
+## B46 - boot #11 WRITE to BOOT sda14
+
+Pushed (on-device sha256 27960ba2...be7f), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
+27960ba2eb9939bb13ab482c19ccdf783e3ac1d4985fb5ecc923b5996eabbe7f (byte-exact). `adb reboot` next.

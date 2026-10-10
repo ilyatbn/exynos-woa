@@ -400,6 +400,44 @@ Consequences for the committed shim (`firmware/tools/beyond0lte-bootshim/bootshi
 - Nothing reserved covers `0x83000000` (the shim's temp-SP candidate), but the window
   `0x80100000..0x80200000` (`kaslr`) and `0x84000000..0x84200000` (initrd, T10) do.
 
+### 2026-10-10 T18 — DEVICE READ part 3: owners, `chosen`, and the live DDR map
+
+`cat` of the `compatible` strings (owner tags, same vocabulary the compendium's
+`dtb_update` used in T05): `el2_code` → **`el2,uh`**, `el2_earlymem` → **`el2,uh`**,
+`kaslr` → **`kernel-kaslr`**. So all three are sboot-added, not DTS-static — which is
+why T15's static `exynos9820-rmem.dtsi` has none of them.
+
+`/proc/device-tree/chosen` (live, i.e. **this boot is TWRP's own kernel+ramdisk**, not
+stock Android): `linux,initrd-start` bytes `D5 00 00 00` → **`0xD5000000`**,
+`linux,initrd-end` bytes `D5 A6 70 00` → **`0xD5A67000`** (a 10.4 MiB ramdisk).
+⇒ **FACT (9820, sboot-loaded): the initrd does NOT live at the DTS default
+`0x84000000..0x841FFFFF`; sboot put it at `0xD5000000`.** Every repo comment that
+justifies `0x80080000` "because the DT's chosen node puts the Android initrd at
+0x84000000" is therefore justified by a **kernel-default** value, not by what sboot
+actually does on this phone.
+
+`/proc/device-tree/memory*` node names + `reg` (byte-exact, `adb pull`):
+
+| node | reg | live extent |
+|---|---|---|
+| `memory@80000000` | `00 00 00 00 80 00 00 00 3A B0 00 00` | **`0x80000000 + 0x3AB00000`** = ends `0xBAB00000` (939 MiB, **not** the DTS's 2 GiB) |
+| `memory@C0000000` | `00 00 00 00 C0 00 00 00 20 00 00 00` | `0xC0000000 + 0x20000000` |
+| `memory@E1900000` | `00 00 00 00 E1 90 00 00 1E 70 00 00` | `0xE1900000 + 0x1E700000` |
+| `memory@880000000` | `00 00 00 08 80 00 00 00 80 00 00 00` | `0x880000000 + 0x80000000` |
+| `memory@900000000` | (not pulled) | per DTS: `0x900000000 + 0x80000000` |
+
+⇒ **INFERENCE (mine):** the 9820's first bank ends at `0xBAB00000`, so the repo's
+UNVERIFIED UFS DMA window `0x90000000..0xBC800000` (the 9810's) **overruns the live
+first bank by `0x1D00000`** — it is not a legal 9820 window as carried. The legal
+first-bank window is `0x80000000..0xBAB00000` minus the reserved nodes above it
+(`cp_ram_logging 0xFB900000` is in the second bank, `modem_if 0xF0000000` too).
+
+### 2026-10-10 T19 — DEAD END: the kernel.org "Exynos bootloader interface" page
+
+Read: https://docs.kernel.org/arch/arm/samsung/bootloader-interface.html — it is Krzysztof
+Kozlowski's 2015 write-up of **mainline** Exynos 3250/4210/542x sysram/AFTR offsets. No
+9820, no sboot load address. Do not re-fetch for this question.
+
 ## Sources
 
 - https://blog.impalabs.com/2101_samsung-rkp-compendium.html (mirror of https://blog.longterm.io/samsung_rkp.html)

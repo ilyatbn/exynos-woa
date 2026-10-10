@@ -991,3 +991,28 @@ imageio-ffmpeg`, extract, use the last non-black frame. Recovery key combos: AGE
 boot25-v2.img (on the phone now), boot26-v2.img (next to flash), boot.img (STOCK, for rollback),
 dt.dtb / dtbo.dtb (stock trees; dt.dtb is the --dtb for build-bootimg-v2.py), ref-recovery.img (any
 -Ref for pack-uefi-beyond0lte.ps1), ufs-b86-default\ and ufs-b86-dmawin\ (Windows UFS driver builds).
+
+## 23. Restart point — the live one (2026-10-10 late night): boot #26 OK, harness ready, needs an elevated session
+
+**Phone state.** BOOT (sda14) holds **boot #26** (`s10e-artifacts\boot26-v2.img`, sha256 `200bd7e1…4fd7`):
+bank1/bank2 published as RAM and UEFI still runs through the GPT/BlockIo scan with no reset (W3) - EL1
+may use those ranges. TWRP on recovery. Windows NOT installed; USERDATA/CACHE untouched.
+
+**Ready (committed):** `installer/tools/S10eHarness` (verbs `image`, `check`, `transfer`) over
+Installer.Core with PartitionMap.For("beyond0lte"). Driver package (signed UFS, dmawin build):
+`C:\Users\ilya\code\s10e-artifacts\drivers-w4` (notes/m10-windows-deploy-plan.md W4).
+
+**Why the session ended:** the image build needs admin (DISM / Mount-VHD / bcdboot) and the Hyper-V
+PowerShell module (New-VHD, used by VhdxImageBuilder); the session was not elevated. The user chose to
+restart Claude Code elevated.
+
+**Next order (one commit each).**
+1. In the elevated session: `Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-Management-PowerShell`
+   (add `-All` only if it refuses for a missing parent; reboot if asked). Confirm `Get-Command New-VHD`.
+2. Build: `dotnet run -c Release --project installer\tools\S10eHarness -- image
+   C:\Users\ilya\code\Windows11_22631.2861_Pro_arm64.iso 3 C:\Users\ilya\code\s10e-artifacts\drivers-w4
+   C:\Users\ilya\code\s10e-artifacts\win-w5` (writes a ~119 GB windows.img; C: has 2.6 TB free). Record the
+   winload/ntoskrnl sha256 it prints.
+3. Phone in TWRP: `S10eHarness check <adb> RF8M21HYDSZ`; then, after re-confirming the wipe with the user,
+   `transfer` (USERDATA + CACHE as FAT32 ESP). BCD numproc 4 by default - consider `numproc 1` for the first boot.
+4. Boot; expect uH (EL2) hangs after ExitBootServices (see the W5 notes for the 9810 patch-set research).

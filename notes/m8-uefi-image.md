@@ -1090,3 +1090,18 @@ RED paint. => it died before/at the paint, OR the 0xCA000000 paint is not what t
 Not distinguishable from this. User then put the phone in download mode, reflashed TWRP: now
 `adb devices` -> `RF8M21HYDSZ recovery`, TWRP 3.7.0_9-2, root shell, by-name boot=sda14,
 recovery=sda15. User consented to boot #5 ("you can proceed in the next attempt").
+
+## B25 - FD base moved 0x83300000 -> 0x90000000 (prior art), rebuilt end to end
+
+Four lockstep sites: Beyond0LtePkg.dsc PcdFdBaseAddress/PcdFvBaseAddress, .fdf FD_BASE_ADDRESS, shim
+UEFI_BASE default, pack-uefi-beyond0lte.ps1 -UefiBase default (+ its stale `.dsc:415` pointer -> :439).
+Source: edk2-exynos configs/exynos9820.conf FD_BASE=0x90000000 (B23). Range 0x90000000..0x90700000 vs
+reads: above kernel window (ends 0x832D0000) and el2_code (ends 0x87200000), below mm_debug 0x91200000,
+inside bank0 (ends 0xBAB00000), disjoint from the UFS DMA window 0xA7400000.. . No C code reads the base.
+Unchanged and noted: PeilessSec puts the UEFI region at top of PcdSystemMemory = 0xC8000000..0xD0000000
+(bank1 RAM; contains the live boot FB 0xCA000000) - not touched here.
+Verified by running: build-uefi.ps1 exit 0 (FVMAIN_COMPACT 3136 B free), PeilessSec AutoGen
+`_PCD_VALUE_PcdFdBaseAddress 0x0000000090000000ULL`; pack-uefi-beyond0lte.ps1 -> shim header OK
+(code0 0x10000481), uefi-beyond0lte-kernel.bin 7 340 176 B = 144 + FD, quad @0x48 = 0x90000000, FD bytes
+after the shim cmp-identical to BEYOND0LTE_UEFI.fd. (Cosmetic: the packer's "kernel ([shim][FD])" line
+printed a stale 8628288 B - the file on disk is 7340176.)

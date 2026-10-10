@@ -15,8 +15,8 @@
  * Layout after packaging:  [ this shim ][ BEYOND0LTE_UEFI.fd ]   (cat'd together)
  *
  * Build: clang -target aarch64-none-elf -ffreestanding -nostdlib -mgeneral-regs-only
- *        -DUEFI_BASE=0x83300000 -DUEFI_SIZE=0x700000 -c bootshim.S -o bootshim.o
- *        ld.lld -o bootshim.elf bootshim.o -Ttext=0x83300000 -e _head --no-relax
+ *        -DUEFI_BASE=0x90000000 -DUEFI_SIZE=0x700000 -c bootshim.S -o bootshim.o
+ *        ld.lld -o bootshim.elf bootshim.o -Ttext=0x90000000 -e _head --no-relax
  *        llvm-objcopy -O binary bootshim.elf bootshim.bin
  * (The LINK step is required, not optional: a -c-only object can leave the adr/branch
  *  offsets unapplied, which silently breaks the entry. pack-uefi-beyond0lte.ps1 links at
@@ -24,7 +24,7 @@
  */
 
 #ifndef UEFI_BASE
-#define UEFI_BASE 0x0000000083300000   /* must equal PcdFdBaseAddress (Beyond0LtePkg.dsc / .fdf FD_BASE_ADDRESS). DECISION, not a read: sboot's observed drop for this boot is 0x80118000 and its kernel window ends 0x832D0000 (notes/k4b-drop-address.md K01-K03), so 0x83300000 is the first address above that window that is also below every reservation read (mm_debug 0x91200000) and inside bank0 (ends 0xBAB00000). Nothing has booted here. */
+#define UEFI_BASE 0x0000000090000000   /* must equal PcdFdBaseAddress (Beyond0LtePkg.dsc / .fdf FD_BASE_ADDRESS). PRIOR ART, not a read: edk2-exynos configs/exynos9820.conf FD_BASE=0x90000000 (notes/m8-uefi-image.md B23/B25); was the DECISION 0x83300000. Not booted on this phone yet. */
 #endif
 #ifndef UEFI_SIZE
 #define UEFI_SIZE 0x0000000000700000   /* VERIFIED: built BEYOND0LTE_UEFI.fd is exactly 7 340 032 B = 0x700000 */

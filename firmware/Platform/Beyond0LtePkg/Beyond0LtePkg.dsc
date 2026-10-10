@@ -401,6 +401,13 @@
 
   # --- Firmware volume placement. MUST match Beyond0LtePkg.fdf.
   #
+  #     2026-10-10 (notes/m8-uefi-image.md B23/B25): MOVED to 0x90000000, the PRIOR-ART
+  #     value - edk2-exynos configs/exynos9820.conf FD_BASE=0x90000000 (FD_SIZE 0x700000)
+  #     is what their shim copies to and what boots EDK2 on the 9820. Not observed on
+  #     this phone yet. 0x90000000..0x90700000 is above the kernel window, above el2_code
+  #     (ends 0x87200000), below mm_debug 0x91200000, inside bank0. The 0x83300000
+  #     history below is kept as the record of why the base moved twice.
+  #
   #     DECISION, not an observed address: 0x83300000 (derived from reads, never
   #     booted). It REPLACES the old 0x80080000, whose only justification was
   #     "the DT's chosen node also puts the Android initrd at 0x84000000..0x841fffff,
@@ -425,14 +432,13 @@
   #     own loaded range, which removes the CONFIRMED self-overwrite the 0x80080000
   #     choice had. Still unobserved: nothing has booted at it.
   #
-  #     The 9810's 0x90000000 is deliberately NOT carried over: its justification
-  #     (clean RAM above the RKP-monitored kernel zones, 0x80080000 bootlooping) is
-  #     a 9810 device observation with no 9820 equivalent read.
+  #     (Superseded: 0x90000000 was first rejected as a 9810-only value; the 9820
+  #     prior art uses the same address, which is why it is now adopted.)
   #
   #     0x700000 (7 MB) is the 9810's FV size, carried as a build parameter. ---
-  gArmTokenSpaceGuid.PcdFdBaseAddress|0x0000000083300000
+  gArmTokenSpaceGuid.PcdFdBaseAddress|0x0000000090000000
   gArmTokenSpaceGuid.PcdFdSize|0x00700000
-  gArmTokenSpaceGuid.PcdFvBaseAddress|0x0000000083300000
+  gArmTokenSpaceGuid.PcdFvBaseAddress|0x0000000090000000
   gArmTokenSpaceGuid.PcdFvSize|0x00700000
 
   # --- VFP / NEON: PcdVFPEnabled was removed upstream (handled via build flags). ---

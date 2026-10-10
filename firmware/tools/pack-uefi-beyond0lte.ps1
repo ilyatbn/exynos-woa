@@ -28,7 +28,7 @@
 .PARAMETER Toolchain EDK II toolchain directory containing the validated FD.
 .PARAMETER Ref       Reference boot image this sboot accepts (required).
 .PARAMETER Output   Explicit output image.
-.PARAMETER UefiBase  Must equal PcdFdBaseAddress in Beyond0LtePkg.dsc:415.
+.PARAMETER UefiBase  Must equal PcdFdBaseAddress in Beyond0LtePkg.dsc:439.
 .PARAMETER SkipFreshCheck Skip the stale-FD guard (GNU make 3.81 fails silently).
 #>
 [CmdletBinding()]
@@ -37,7 +37,7 @@ param(
   [ValidateSet("CLANGPDB", "CLANGDWARF")] [string]$Toolchain = "CLANGPDB",
   [string]$Ref = "",
   [string]$Output = "",
-  [string]$UefiBase = "0x83300000",
+  [string]$UefiBase = "0x90000000",
   [string]$Dtb = "",
   [string]$ImageSize = "0x800000",
   [switch]$SkipFreshCheck

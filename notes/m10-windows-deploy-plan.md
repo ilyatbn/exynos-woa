@@ -49,3 +49,30 @@ Research summary (2026-10-10, Explore subagent over the repo, citations kept; ve
   Add-Driver (>=1 driver required) + unattend; bcdboot + BootConfiguration repoint to the phone's GPT
   GUIDs; GptTypeService CACHE->ESP; BootFilesService FAT32 format; TransferService raw dd via TWRP).
   No hand-rolled replacement steps.
+
+## Readiness audit (2026-10-10, Explore subagent; verify each before acting)
+Windows UFS driver drivers/Exynos9820Ufs (Storport miniport, ACPI\EXYN9820, build-ufs.ps1 cl/link,
+UFS_FULL_WINDOWS_MODE 1, write fence LBA 1983488..31236090): ALREADY has the UEFI fixes - DW6
+0x04000400 (1024 B resp @1024), DW7 n*128 | 2048<<16 (h:1348-1363); resp/PRDT offsets 1024/2048;
+non-GOOD status returned with sense regardless of OCS, Response byte ignored (c:6567-6572, 6718-6730);
+4 KB PRDT entries at 128 B stride with 28 FMP dwords (h:851,873,1426-1432), max 16 entries (64 KB);
+vendor regs only VERIFIED not written (c:5108-5118); requires the controller warm from UEFI.
+HAZARD: PRAM at 0xFED14000/0xFED13000 (h:91,364) mapped + written unconditionally (c:2126,1480,
+4700-4704) - 9810 address, inside the 9820's debug_snapshot region. Single LUN, QD 1.
+ACPI (DSDT/FADT/MADT/GTDT/PPTT): GICv2 bases, 8 cores 6+2 MPIDRs, timer GSIVs 29/30/27/26, UFS _CRS
+consistent. Efficiency classes inverted (BIG=0) - 9810 booted with it. No DBG2/SPCR/CSRT/SMBIOS.
+Stale comments (Gtdt 26 MHz unverified, bank0 to 0x100000000, FbText 1440x3040).
+RAM: 9810 = 0x90000000+0x2C800000 + bank1 0xC0080000+0xBF80000 and 0xCD044000+0x12FBC000 (~1.2 GB).
+S10e options: (A) bank1 minus seclog 0xC0000000+0x80000, FB 0xCA000000..0xCA965000, modem
+0xD0000000..0xD9801000; (B) bank2 0xE1900000..0xF0000000 (before modem_if/CP/debug_snapshot);
+(C) banks 3/4 need proof EL1 may touch them (B62/B63). Build the UFS driver with -DmaWindow if bank1 is RAM.
+BIGGEST RISK: the 9810 needed Star2LtePkg's ~10k-line PlatformBootManagerLib (winload/ntoskrnl patching
+for Samsung uH/RKP at EL2: TLBI traps, PSCI, kernel word patches, MuCntfrqKep) - Beyond0LtePkg uses
+ArmPkg's generic one. Expect uH-related hangs after ExitBootServices. Keep a uniprocessor option.
+Installer: PartitionMap has beyond0lte geometry; other gaps per notes/installer-s10e-gaps.md.
+## Order of work
+1. Windows UFS driver: PRAM breadcrumbs off on the 9820 (no 0xFED1xxxx writes); rebuild.
+2. RAM: publish bank1/bank2 sub-ranges from PlatformMemoryMapLib; boot UEFI to prove EL1 can use them
+   (DXE allocates top-down, so a bad range resets immediately - same test as B62).
+3. Deploy with the installer's Core pipeline; first Windows boot; then attack uH hangs with the 9810's
+   BDS patch set as the reference.

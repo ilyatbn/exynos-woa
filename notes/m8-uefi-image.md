@@ -1785,3 +1785,8 @@ dwords zeroed (crypto bypass), PrdtL = n * 128 (Samsung LK formula with its 128 
 16-bit -> cap 511 entries (~2 MB per command, "PRDT split exceeds" logged beyond). UfsHcAllocateBuffer /
 FreeBuffer add UFS_COMMON_EXTRA_PAGES (17) symmetrically so the UCD has room past EDK2's layout.
 Build exit 0. Boot #25 image %TEMP%\b83\boot25-v2.img sha256 82045f3417755bffd20374104a337a7a127a4e42f1bc4bdb09a6e1de5c31af8b
+
+## B84 - boot #25 WRITE to BOOT sda14
+
+Pushed (on-device sha256 82045f34...af8b), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
+82045f3417755bffd20374104a337a7a127a4e42f1bc4bdb09a6e1de5c31af8b (byte-exact). `adb reboot` next.

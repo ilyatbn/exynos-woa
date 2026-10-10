@@ -518,3 +518,54 @@ All addresses already VERIFIED in `firmware/Silicon/Exynos9820Pkg/Include/Platfo
   `usb.org/sites/default/files/usb_20.pdf` (404, superseded by the dated zip);
   `samsung,usb-notifier` driver file not found by path search;
   `of_usb_get_phy_mode` definition not located in the downstream tree (call site only).
+
+## Safety review of the host-mode bring-up (2026-10-10, pre-device-test)
+
+Asked directly: can what we built damage the phone? Enumerating every physical
+hazard path and what the code does about each. The dangerous quantity is **5 V
+on the VBUS pin against another source** (the community rule behind
+MILESTONES ground rule 7).
+
+1. **Host-vs-host collision (feeding 5 V into a PC's port).** GATED. The boost
+   is only enabled after a LIVE read of `CC_STATUS0.CCStat == SOURCE`
+   (Pmic.c/`Max77705WaitSourceAttach`). The CCIC firmware (DRP config
+   CCCTRL1=0x19, set by the bootloader, which we never touch) only declares
+   SOURCE when the partner presents Rd — i.e. a device/hub. A PC presents Rp,
+   the CCIC settles SINK, our gate never fires. Plugging into a PC = boost off.
+2. **Powered-hub backfeed** (the "irreversibly damage" case). The donation
+   build's hub is **non-powered** (hard requirement in DRIVERS-MILESTONES);
+   nothing backfeeds. `OTG_ILIM` is set to its **minimum 500 mA** — the most
+   conservative setting the PMIC has (500 mA is also exactly the USB-2
+   bus-powered-hub budget, notes Q5).
+3. **Shorted cable/port.** The SoC has NO over-current sensing (fact:
+   `use_io_for_ovc=0`, no VBUS pad) — protection is entirely inside the
+   MAX77705 boost (current limit + its internal fault handling). *(open,
+   non-blocking)* datasheet-level confirmation of the MAX77705 boost OCP/
+   thermal-shutdown behaviour; the 500 mA ILIM bounds the worst case either way.
+4. **Blind power/clock writes: none exist in the driver.** No CMU/ACPM writes
+   (audit-only: `USBCON_CTRL_VER` 0/~0 -> abort), no SPEEDY writes (LDO10/11/12
+   are `regulator-boot-on`, we rely on that and never touch rails), the only
+   PMU write is the documented de-isolation bit the shipping kernel and Mu's
+   working 9830 firmware both set. Every MMIO window is DT+device VERIFIED.
+5. **Register-sequence hazards.** Every DWC3 write mirrors the kernel HOST
+   path with runtime GSNPSID gating; we never set `GCTL_CORESOFTRESET`, never
+   touch DCTL (kernel-faithful); the Xilinx PORTSC power-off write prevents a
+   VBUS glitch before xHCI's own reset.
+6. **Hot-swap while powered (the one real behavioural hazard we DO carry).**
+   UEFI enables the boost once at boot and never turns it off on detach
+   (Samsung's Android ccic stack does that; we don't replicate it). So:
+   **usage rule for the donation build — plug the hub in BEFORE power-on,
+   do not swap the cable between a device and a host while the phone is on.**
+   Recorded as a known limitation, not a hidden one.
+7. **Charge interaction.** Mode 0xE (not 0xF): the charger engine stays OFF
+   while OTG boosts — the phone runs on battery, the charge path is untouched.
+8. **Every failure mode is fail-safe, not destructive.** Clocks off -> abort
+   at the audit; no CC source -> no VBUS; dead I2C -> no VBUS; wrong GSNPSID
+   -> abort. The realistic worst case of a wrong guess in this driver is a
+   non-working keyboard, not smoke.
+9. **Nothing runs on the device until the boot stream succeeds**, and with
+   nothing attached the port is exactly as inert as stock Android.
+
+Verdict: with a non-powered hub and the plug-before-power rule, the built path
+is bounded by the PMIC's own 500 mA limit and gated by live CC state. The one
+open item (MAX77705 OCP datasheet confirmation) is recorded, not guessed.

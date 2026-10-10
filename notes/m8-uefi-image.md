@@ -1741,3 +1741,8 @@ Same path for 4 KB and 16 KB: one PRDT entry, one 512 KB WC bounce buffer (UfsHc
     PrdtL bytes = n*16 + 16 for the new n;
 (b) bounce pages beyond the first are not DMA-reachable -> the bounce address is logged once.
 Build exit 0. Boot #23 image %TEMP%\b79\boot23-v2.img sha256 37c092616dce1f0446bea5c14d7c9ddd9d8e5a40d894039ca36e2bc577cd61b8
+
+## B80 - boot #23 WRITE to BOOT sda14
+
+Pushed (on-device sha256 37c09261...61b8), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
+37c092616dce1f0446bea5c14d7c9ddd9d8e5a40d894039ca36e2bc577cd61b8 (byte-exact). `adb reboot` next.

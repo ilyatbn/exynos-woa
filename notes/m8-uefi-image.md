@@ -1397,3 +1397,8 @@ the ArmVirtPkg precedent (ArmVirt.dsc.inc:236-238). DXE keeps OptDxe (runs with 
 Verified: build exit 0; PeilessSec static libs now BaseMemoryLib; objdump of PeilessSec.dll: 0 `dc zva`.
 Not yet proven on device (an inference until boot #12 passes checkpoint 1660).
 Boot #12 = boot #11 shim (unchanged) + this FD: %TEMP%\b48\boot12-v2.img sha256 9a923dd8df7e7dd5f5e4a445dbf6879925a8730a895e41fc4037bd46cec24f18
+
+## B49 - boot #12 WRITE to BOOT sda14
+
+Pushed (on-device sha256 9a923dd8...4f18), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
+9a923dd8df7e7dd5f5e4a445dbf6879925a8730a895e41fc4037bd46cec24f18 (byte-exact). `adb reboot` next.

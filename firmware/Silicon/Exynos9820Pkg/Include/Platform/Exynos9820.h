@@ -283,6 +283,7 @@
 #define EXYNOS_PMU_RSTSTAT_OFFSET      0x0404u        // VERIFIED (sboot RSTSTAT, kernel exynos_reboot 0x86391e4)
 #define EXYNOS_PMU_SWRESET_OFFSET      0x3A00u        // VERIFIED (kernel exynos_reboot 0x8639204, sboot 0xa5200)
 #define EXYNOS_PMU_SWRESET_VALUE       0x00000002u    // VERIFIED (same two sites)
+#define EXYNOS_PMU_PS_HOLD_CONTROL_OFFSET  0x030Cu     // VERIFIED (kernel sec_power_off 0x8e144b0 clears bit 8, "set PS_HOLD low")
 #define EXYNOS_REBOOT_REASON_BASE      0x12345670u    // VERIFIED (kernel sec_reboot, sboot s5p_check_reboot_mode)
 #define EXYNOS_REBOOT_MODE_RECOVERY    4u             // VERIFIED (sec_reboot "recovery" -> +4; sboot recovery REBOOT_MODE 4)
 #define EXYNOS_CHIPID_BASE        0x0000000010000000ULL   // VERIFIED (chipid@10000000)

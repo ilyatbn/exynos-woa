@@ -391,6 +391,8 @@ ArmPlatformGetVirtualMemoryMap (
 
       // W19: the RAM boot log (Beyond0LteBootLog.h) - mapped as bank0 RAM, kept out of every allocator.
       BuildMemoryAllocationHob (BEYOND0LTE_BOOTLOG_BASE, BEYOND0LTE_BOOTLOG_SIZE, EfiReservedMemoryType);
+      // W23: the Windows UFS driver's PRAM ring - reserved so Windows never allocates it as RAM.
+      BuildMemoryAllocationHob (BEYOND0LTE_WINPRAM_BASE, BEYOND0LTE_WINPRAM_SIZE, EfiReservedMemoryType);
     }
   }
 

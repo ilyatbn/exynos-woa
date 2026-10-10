@@ -37,6 +37,13 @@
 #include "../../Library/Beyond0LteFbSerialPortLib/Beyond0LteBootLog.h"
 
 #define BEYOND0LTE_AUTO_RECOVERY  1   // W21: after the dump + flush, reboot into TWRP
+#define BEYOND0LTE_WINDOWS_PAIR   1   // W23: the boot after a Windows run saves \WINPRAM.BIN and goes to TWRP
+
+STATIC
+VOID
+RebootToRecovery (
+  VOID
+  );
 
 #define LOG_FILE_NAME  L"\\UEFILOG.TXT"
 
@@ -317,6 +324,44 @@ OnReadyToBoot (
  #if BEYOND0LTE_READ_TEST
   ReadTest ();
  #endif
+
+ #if BEYOND0LTE_WINDOWS_PAIR
+  //
+  // W23 boot pair: before handing over to Windows, leave \WINRUN.FLG on the ESP. When Windows
+  // resets (BSOD auto-restart -> ResetSystem -> SWRESET) the next boot finds the flag, saves the
+  // Windows driver's PRAM ring to \WINPRAM.BIN and goes to TWRP instead of looping, so every
+  // Windows attempt ends in TWRP with its evidence on the ESP. Once per boot (ReadyToBoot can be
+  // signalled more than once).
+  //
+  {
+    STATIC BOOLEAN     mPairDone = FALSE;
+    EFI_FILE_PROTOCOL  *Root;
+    EFI_FILE_PROTOCOL  *Flag;
+
+    if (!mPairDone) {
+      mPairDone = TRUE;
+      Root      = OpenEspRoot ();
+      if (Root != NULL) {
+        if (!EFI_ERROR (Root->Open (Root, &Flag, L"\\WINRUN.FLG", EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE, 0))) {
+          Flag->Delete (Flag);
+          Root->Close (Root);
+          DEBUG ((DEBUG_ERROR, "BootLog: previous boot ran Windows - saving its PRAM, then recovery\n"));
+          DumpMemoryToEsp (L"\\WINPRAM.BIN", (UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);
+          FlushBootLog ("after-windows");
+          RebootToRecovery ();
+        }
+
+        if (!EFI_ERROR (Root->Open (Root, &Flag, L"\\WINRUN.FLG", EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, 0))) {
+          Flag->Flush (Flag);
+          Flag->Close (Flag);
+        }
+
+        Root->Close (Root);
+      }
+    }
+  }
+ #endif
+
   DEBUG ((DEBUG_ERROR, "BootLog: ReadyToBoot flush\n"));
   Status = FlushBootLog ("ReadyToBoot");
   DEBUG ((DEBUG_ERROR, "BootLog: %s -> %r\n", LOG_FILE_NAME, Status));

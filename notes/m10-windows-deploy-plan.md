@@ -362,3 +362,25 @@ Fix (boot #34): UFS_BOUNCE_BYTES 512 KB -> 1 MiB, STATIC_ASSERT split (1 MiB) <=
 through the page-aligned WC bounce. RISK carried to Windows: the Windows UFS driver may hit the same rule with
 Storport SGLs that start mid-page - check its PRDT builder before relying on it.
 boot34-v2.img sha256 290f5d5182daa647b8d393547a9a0ae2aa98fdabfd53ad7167615919eb920bdf.
+
+## W23 - boot #34: WINDOWS KERNEL RUNS -> INACCESSIBLE_BOOT_DEVICE; autonomy for Windows runs (2026-10-10)
+Photo notes/img-win-bsod-inaccessible.jpg (user): Windows 11 BSOD, stop code INACCESSIBLE_BOOT_DEVICE. So the 1 MiB
+bounce fix (W22) got bootmgr -> winload -> ExitBootServices -> ntoskrnl through Samsung uH with NO winload/ntoskrnl patching
+(numproc 1). The kernel does not get its boot disk from our Windows UFS driver.
+Offline check of the image's SYSTEM hive: Services\Exynos9820Ufs Start=0 Type=1 Group 'SCSI Miniport', ImagePath in
+DriverStore\FileRepository\exynos9820ufs.inf_arm64_4efdc4525d11d997, DriverDatabase\DeviceIds\ACPI\EXYN9820 -> oem0.inf.
+The Windows driver already DMAs only through its page-aligned bounce, so the W22 rule does not explain it by itself.
+Autonomy pieces (firmware boot #35):
+- Beyond0LteResetSystemLib: BEYOND0LTE_RESET_HOLD 0, BEYOND0LTE_PMU_RESET 1 with the VERIFIED 9820 sequence: INFORM3 =
+  0x12345670 (normal) then SWRESET PMU+0x3A00 = 2 (runtime-mapped, EfiConvertPointer); PS_HOLD 0x30C bit 8 for power off;
+  PSCI SYSTEM_RESET/RESET2 calls removed (the stock kernel never uses them).
+- Reserved 1 MiB at 0x8FE00000 (BEYOND0LTE_WINPRAM_BASE) for the Windows driver's PRAM ring. RAM survives resets:
+  the UEFI boot-log BootCount went 1 -> 2 -> 3 across boots #31-#33.
+- BootLogDxe boot pair (BEYOND0LTE_WINDOWS_PAIR): at ReadyToBoot creates \WINRUN.FLG; if the flag already exists
+  (previous boot ran Windows) it deletes it, dumps 64 KB of 0x8FE00000 to \WINPRAM.BIN, flushes UEFILOG.TXT and reboots
+  to recovery. Every Windows attempt therefore ends in TWRP with evidence on the ESP.
+Windows driver (ufs-w23, -DmaWindow, signed 6ccf49ce...): UFS_PRAM_ENABLE 1 at 0x8FE00000 (low-WDT page stays
+unmapped, UFS_LOW_WDT_PRAM_ENABLE 0), UFS_FIRMWARE_WDT_BRIDGE 0 + UFS_CONTINUOUS_HARDWARE_WATCHDOG 0 (they write the
+9810's PMU WDT disable/mask 0x408/0x40C, which the 9820 lacks); handoff marker follows the ring base. Built with the
+exact recipe (EXACT_BUILD_OK, 47 616 B unsigned). Deployed in place with TWRP ntfs-3g (next).
+boot35-v2.img sha256 686421639720fac5b62074fb03e543bd28cf902acc9882c769efad3b5f6ef23e.

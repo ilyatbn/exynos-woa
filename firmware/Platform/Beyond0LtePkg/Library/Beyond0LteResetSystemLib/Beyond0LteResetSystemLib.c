@@ -55,7 +55,7 @@
 // Both are switches, not retargets: with them off, every reset path in this
 // library is the architected PSCI one.
 //
-#define BEYOND0LTE_PMU_RESET  0
+#define BEYOND0LTE_PMU_RESET  1   // W23: offsets now VERIFIED (notes/s10e-reboot-wdt-constants.md)
 #define BEYOND0LTE_PRAM_DIAG  0
 
 //
@@ -70,7 +70,7 @@
 //   Pre-virtual only (the FB is identity-mapped device memory then). Turn OFF
 //   before any real install - a held reset is a hung phone.
 //
-#define BEYOND0LTE_RESET_HOLD  1
+#define BEYOND0LTE_RESET_HOLD  0   // W23: Windows reached its kernel; a held reset is a hung phone
 
 #if BEYOND0LTE_PMU_RESET
 //
@@ -78,8 +78,8 @@
 // 0x14060000 and this SoC's system-controller is at 0x15860000, and nothing in
 // this checkout has read the 9820 block's interior.
 //
-#define BEYOND0LTE_PMU_SWRESET_OFFSET          0x0400U
-#define BEYOND0LTE_PMU_PS_HOLD_CONTROL_OFFSET  0x330CU
+#define BEYOND0LTE_PMU_SWRESET_OFFSET          EXYNOS_PMU_SWRESET_OFFSET          // 0x3A00 (9820, verified)
+#define BEYOND0LTE_PMU_PS_HOLD_CONTROL_OFFSET  EXYNOS_PMU_PS_HOLD_CONTROL_OFFSET  // 0x030C (9820, verified)
 #define BEYOND0LTE_PMU_PS_HOLD_ENABLE          BIT8
 #endif
 
@@ -97,6 +97,8 @@
 
 #if BEYOND0LTE_PMU_RESET
 STATIC volatile UINT32  *mSwReset;
+STATIC volatile UINT32  *mInform3;
+STATIC BOOLEAN          mInform3VirtualReady;
 STATIC volatile UINT32  *mPsHoldControl;
 STATIC BOOLEAN          mSwResetVirtualReady;
 STATIC BOOLEAN          mPsHoldVirtualReady;
@@ -204,6 +206,13 @@ VirtualAddressChange (
     mSwResetVirtualReady = TRUE;
   }
 
+  Address = (VOID *)(UINTN)mInform3;
+  Status  = EfiConvertPointer (0, &Address);
+  if (!EFI_ERROR (Status)) {
+    mInform3             = (volatile UINT32 *)Address;
+    mInform3VirtualReady = TRUE;
+  }
+
   Address = (VOID *)(UINTN)mPsHoldControl;
   Status  = EfiConvertPointer (0, &Address);
   if (!EFI_ERROR (Status)) {
@@ -247,6 +256,12 @@ Beyond0LteResetSystemLibConstructor (
   //
   mSwReset       = (volatile UINT32 *)(UINTN)(EXYNOS_PMU_BASE + BEYOND0LTE_PMU_SWRESET_OFFSET);
   mPsHoldControl = (volatile UINT32 *)(UINTN)(EXYNOS_PMU_BASE + BEYOND0LTE_PMU_PS_HOLD_CONTROL_OFFSET);
+  mInform3       = (volatile UINT32 *)(UINTN)(EXYNOS_PMU_BASE + EXYNOS_PMU_INFORM3_OFFSET);
+
+  Status = MarkRangeRuntime ((UINTN)mInform3, sizeof (*mInform3));
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "ResetSystem: INFORM3 runtime mapping failed: %r\n", Status));
+  }
 
   Status = MarkRangeRuntime ((UINTN)mSwReset, sizeof (*mSwReset));
   if (EFI_ERROR (Status)) {
@@ -391,40 +406,6 @@ WaitForReset (
 
 STATIC
 VOID
-AttemptPsciSystemReset (
-  VOID
-  )
-{
-  ARM_MONITOR_ARGS  Args;
-
-  Args.Arg0 = ARM_SMC_ID_PSCI_SYSTEM_RESET;
-  ArmMonitorCall (&Args);
-  RuntimePramMarker ("PSR", Args.Arg0);
-}
-
-STATIC
-VOID
-AttemptPsciSystemReset2 (
-  VOID
-  )
-{
-  ARM_MONITOR_ARGS  Args;
-
-  Args.Arg0 = ARM_SMC_ID_PSCI_FEATURES;
-  Args.Arg1 = ARM_SMC_ID_PSCI_SYSTEM_RESET2_AARCH64;
-  ArmMonitorCall (&Args);
-  RuntimePramMarker ("P2F", Args.Arg0);
-  if (Args.Arg0 == ARM_SMC_PSCI_RET_SUCCESS) {
-    Args.Arg0 = ARM_SMC_ID_PSCI_SYSTEM_RESET2_AARCH64;
-    Args.Arg1 = 0;
-    Args.Arg2 = 0;
-    ArmMonitorCall (&Args);
-    RuntimePramMarker ("P2R", Args.Arg0);
-  }
-}
-
-STATIC
-VOID
 ExynosPmuReset (
   VOID
   )
@@ -433,7 +414,16 @@ ExynosPmuReset (
   if (!EfiGoneVirtual () || mSwResetVirtualReady) {
     RuntimePramMarker ("SWR", BIT0);
     RuntimePramMarker ("SWA", BIT0);
-    MmioWrite32 ((UINTN)mSwReset, BIT0);
+    //
+    // Samsung's own sequence (kernel sec_reboot + exynos_reboot): reboot reason "normal"
+    // (INFORM3 = 0x12345670, so sboot boots BOOT = this UEFI again), then SWRESET = 2.
+    //
+    if (!EfiGoneVirtual () || mInform3VirtualReady) {
+      MmioWrite32 ((UINTN)mInform3, EXYNOS_REBOOT_REASON_BASE);
+      ArmDataSynchronizationBarrier ();
+    }
+
+    MmioWrite32 ((UINTN)mSwReset, EXYNOS_PMU_SWRESET_VALUE);
     ArmDataSynchronizationBarrier ();
     ArmInstructionSynchronizationBarrier ();
   }
@@ -501,8 +491,7 @@ ResetCold (
 #if BEYOND0LTE_RESET_HOLD
   ResetHold ();
 #endif
-  AttemptPsciSystemReset ();
-  ExynosPmuReset ();
+  ExynosPmuReset ();   // W23: PMU first - the stock kernel never uses PSCI SYSTEM_RESET on this SoC
 }
 
 VOID
@@ -514,9 +503,7 @@ ResetWarm (
 #if BEYOND0LTE_RESET_HOLD
   ResetHold ();
 #endif
-  AttemptPsciSystemReset2 ();
-  AttemptPsciSystemReset ();
-  ExynosPmuReset ();
+  ExynosPmuReset ();   // W23: PMU only - the stock kernel never uses PSCI SYSTEM_RESET(2) on this SoC
 }
 
 VOID

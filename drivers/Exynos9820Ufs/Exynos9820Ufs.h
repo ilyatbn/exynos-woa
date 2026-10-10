@@ -95,8 +95,15 @@
 // publish and Samsung's hypervisor may protect. With 0 the driver never maps them: every PRAM
 // user already treats a NULL mapping as "channel absent".
 //
-#define UFS_PRAM_ENABLE                    0
-#define UFS_PRAM_PHYSICAL_BASE             0xFED14000ULL   // UNVERIFIED on 9820 — our firmware's choice, must follow the 9820 memory map
+//
+// W23: ON, at the 9820 firmware's reserved ring (Beyond0LteBootLog.h BEYOND0LTE_WINPRAM_BASE,
+// EfiReservedMemoryType in the UEFI map). The boot after a Windows run copies it to \WINPRAM.BIN
+// on the ESP. The low-WDT page (UFS_LOW_WDT_PRAM_PHYSICAL_BASE, still a 9810 address) stays
+// unmapped: UFS_LOW_WDT_PRAM_ENABLE.
+//
+#define UFS_PRAM_ENABLE                    1
+#define UFS_LOW_WDT_PRAM_ENABLE            0
+#define UFS_PRAM_PHYSICAL_BASE             0x8FE00000ULL   // firmware choice: must equal BEYOND0LTE_WINPRAM_BASE
 #define UFS_PRAM_MAGIC                     0x43474244UL
 #define UFS_PRAM_HEADER_SIZE               0x0000000CUL
 #define UFS_PRAM_CAPACITY                  0x00003F00UL
@@ -344,7 +351,7 @@ C_ASSERT(UFS_PRAM_DMA_POOL_CHECK_OFFSET + sizeof(ULONG) <= 0x00003F60UL);
 // store, structurally immune to the unaligned-halfword class that caused the
 // V16/V20-V23 bugchecks.
 //
-#define UFS_PRAM_HANDOFF_MARKER_ADDR       0xFED17FB0ULL
+#define UFS_PRAM_HANDOFF_MARKER_ADDR       (UFS_PRAM_PHYSICAL_BASE + 0x3FB0ULL)   // W23: follows the ring base
 #define UFS_PRAM_HANDOFF_MARKER_OFFSET \
     ((ULONG)(UFS_PRAM_HANDOFF_MARKER_ADDR - UFS_PRAM_PHYSICAL_BASE))
 #define UFS_PRAM_HANDOFF_MARKER_MAGIC      0x7A5E2C01UL
@@ -396,9 +403,11 @@ C_ASSERT(UFS_LOW_WDT_STATUS_OFFSET + sizeof(ULONG) ==
  * The two PRAM windows must not overlap: this record lives one 4 KiB page below
  * the firmware trace ring, and both are mapped independently.
  */
+#if UFS_LOW_WDT_PRAM_ENABLE
 C_ASSERT(
     UFS_LOW_WDT_PRAM_PHYSICAL_BASE + UFS_LOW_WDT_PRAM_WINDOW <=
     UFS_PRAM_PHYSICAL_BASE);
+#endif
 
 /*
  * RWD1 and SMP1 share the already-mapped 0xFED13000 PRAM page. RWD1 is the
@@ -666,8 +675,13 @@ C_ASSERT(
  * switch at zero even when temporarily enabling diagnostic snapshots.
  */
 #define UFS_AUTOMATIC_RECOVERY_RESET         0
-#define UFS_FIRMWARE_WDT_BRIDGE              1
-#define UFS_CONTINUOUS_HARDWARE_WATCHDOG     1
+//
+// W23 (S10e first boot): both OFF. They program PMU+0x408/0x40C (the 9810's WDT disable/mask) and
+// the cl0 watchdog; the 9820 has no such PMU registers (exynos9-v1-wdt uses NONCPU_INT_EN 0x1244,
+// notes/s10e-reboot-wdt-constants.md). Re-port before re-enabling.
+//
+#define UFS_FIRMWARE_WDT_BRIDGE              0
+#define UFS_CONTINUOUS_HARDWARE_WATCHDOG     0
 #define UFS_BOOT_DIAG_MODE                  0
 #if UFS_CONTINUOUS_HARDWARE_WATCHDOG && !UFS_FIRMWARE_WDT_BRIDGE
 #error UFS_CONTINUOUS_HARDWARE_WATCHDOG requires UFS_FIRMWARE_WDT_BRIDGE

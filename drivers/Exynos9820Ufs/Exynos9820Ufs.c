@@ -1476,7 +1476,7 @@ UfsLowWdtPramInitialize(
     PHYSICAL_ADDRESS Physical;
 
     Adapter->LowWdtPram = NULL;
-#if UFS_PRAM_ENABLE
+#if UFS_PRAM_ENABLE && UFS_LOW_WDT_PRAM_ENABLE
     Physical.QuadPart = (LONGLONG)UFS_LOW_WDT_PRAM_PHYSICAL_BASE;
     Adapter->LowWdtPram = (PUCHAR)MmMapIoSpace(
         Physical,
@@ -8878,7 +8878,9 @@ UfsHwStartIo(
 
     case SRB_FUNCTION_SHUTDOWN:
         UfsCleanRecoveryBeginShutdown(Adapter);
+#if UFS_FIRMWARE_WDT_BRIDGE
         UfsRuntimeWatchdogBeginShutdown(Adapter);
+#endif
         (VOID)UfsPmuSetNormalBootReason(
             Adapter,
             "UFSSRBSHUT",
@@ -8974,7 +8976,9 @@ UfsHwAdapterControl(
         if (Adapter->CleanRecoveryState != UFS_CLEAN_RECOVERY_COMMITTED) {
             UfsCleanRecoveryClear(Adapter);
         }
+#if UFS_FIRMWARE_WDT_BRIDGE
         UfsRuntimeWatchdogBeginShutdown(Adapter);
+#endif
 
         /*
          * Best effort only. A missing PMU mapping must never skip the existing
@@ -9009,9 +9013,11 @@ UfsHwAdapterControl(
             UfsZeroUncached(Adapter->Bounce, UFS_BOUNCE_SIZE);
             KeMemoryBarrier();
         }
+#if UFS_FIRMWARE_WDT_BRIDGE
         if (!UfsRuntimeWatchdogFinalStop(Adapter)) {
             return ScsiAdapterControlUnsuccessful;
         }
+#endif
         Adapter->Started = FALSE;
         return ScsiAdapterControlSuccess;
 

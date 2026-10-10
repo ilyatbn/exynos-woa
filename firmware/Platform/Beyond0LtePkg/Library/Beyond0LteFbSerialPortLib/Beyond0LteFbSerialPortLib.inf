@@ -1,0 +1,22 @@
+## @file
+#  Beyond0LteFbSerialPortLib - SerialPortLib that renders the DEBUG log onto the
+#  1080 x 2280 panel (notes/m8-uefi-image.md B54). Boot bring-up diagnostic:
+#  nobody can read the UART on the S10e, so DEBUG output goes to the screen.
+#  Switch back to Exynos9820SerialPortLib in Beyond0LtePkg.dsc to restore the UART.
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = Beyond0LteFbSerialPortLib
+  FILE_GUID                      = D62AAE77-384F-4D65-8BC4-C8CF36366A72
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 0.1
+  LIBRARY_CLASS                  = SerialPortLib
+
+[Sources]
+  Beyond0LteFbSerialPortLib.c
+  Beyond0LteFont8x16.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  Silicon/Exynos9820Pkg/Exynos9820Pkg.dec

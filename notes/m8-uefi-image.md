@@ -1441,3 +1441,17 @@ in ArmPlatformInitialize, live until CpuDxe; CpuDxe's own handler would dead-loo
 => the reset is either an EL2/EL3-level event (stage-2 abort to uH, SError routed above EL1, secure
 fault) or a deliberate reset path outside ResetSystemLib, somewhere between GetBootMode and the first
 DXE driver checkpoint. Bands/strips cannot localise that range; next: mirror DEBUG output to the panel.
+
+## B54 - boot #14: the DEBUG log on the panel (Beyond0LteFbSerialPortLib)
+
+New Platform/Beyond0LtePkg/Library/Beyond0LteFbSerialPortLib (SerialPortLib class): SerialPortWrite
+renders 8x16 glyphs at 2x (16x32 px) -> 67 cols x 71 lines on 1080x2280, white on black; wraps to the
+top; the line after the cursor is always blanked (newest text sits above a black line). Cursor state
+{magic "FBC1", col, row} at EXYNOS_FB_BASE + EXYNOS_FB_SIZE (0xCA964B00, inside the page-rounded FB
+mapping) because every module links its own copy (idea from edk2-exynos InitializeSharedUartBuffers;
+own code). Font = Beyond0LteFbText.c's table, copied to Beyond0LteFont8x16.h. dsc SerialPortLib
+switched to it (UART lib kept, one line to swap back). Read/Poll return nothing.
+Verified: build exit 0; static_library_files.lst of PeilessSec and DxeMain both list
+Beyond0LteFbSerialPortLib. FVMAIN_COMPACT now 1304 B free (watch). The console overwrites the shim's
+strips/bands (it starts at row 0) - expected. PcdDebugPrintErrorLevel 0x8000004F (ERROR|WARN|INFO|LOAD).
+Boot #14 image %TEMP%\b54\boot14-v2.img sha256 e0c60afe8d66646c739928a5869cfa058481aea1ef84190699f52cc47b442658

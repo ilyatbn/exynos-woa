@@ -159,8 +159,11 @@
   DebugPrintErrorLevelLib|MdePkg/Library/BaseDebugPrintErrorLevelLib/BaseDebugPrintErrorLevelLib.inf
   ReportStatusCodeLib|MdeModulePkg/Library/DxeReportStatusCodeLib/DxeReportStatusCodeLib.inf
 
-  # --- Serial console: our Exynos UART (Milestone 1) ---
-  SerialPortLib|Silicon/Exynos9820Pkg/Library/Exynos9820SerialPortLib/Exynos9820SerialPortLib.inf
+  # --- Serial console ---
+  # Boot bring-up (notes/m8-uefi-image.md B54): nobody can read the UART on the S10e,
+  # so the DEBUG log is rendered on the panel instead. To restore the UART, swap back to:
+  #   SerialPortLib|Silicon/Exynos9820Pkg/Library/Exynos9820SerialPortLib/Exynos9820SerialPortLib.inf
+  SerialPortLib|Platform/Beyond0LtePkg/Library/Beyond0LteFbSerialPortLib/Beyond0LteFbSerialPortLib.inf
 
   # --- ARM architecture ---
   ArmLib|MdePkg/Library/ArmLib/ArmBaseLib.inf

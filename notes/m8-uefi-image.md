@@ -1141,3 +1141,18 @@ Decode (B26): band 1 (rows 200-649) AND band 2 (rows 750-1199) drawn over sboot'
   are device-validated as a path; FD stages are not.
 (Not separable from this: whether the 0x1281 write was needed, or sboot's splash buffer is live anyway.)
 User put the phone back in download mode. sda14 holds boot5-v2.img.
+
+## B29 - FD fault candidate found by reading: the UEFI region/stack sat in UNMAPPED bank1 -> moved to bank0
+
+PeilessSec ModuleEntryPoint.S:37-89: SP = top of PcdSystemMemoryBase+Size, UEFI region = top - 0x8000000.
+With Size 0x50000000 -> region 0xC8000000..0xD0000000 (stack at 0xD0000000). PlatformMemoryMapLib.c:187-256
+maps bank0 gaps (to 0xBAB00000), bank3, bank4, the FB 0xCA000000 as DEVICE, MMIO - NOT 0xC8000000-0xD0000000.
+=> once SEC enables the MMU the next stack/HOB access is a translation fault; no vectors yet -> reset.
+Also: the 9810 UFS work (Beyond0LteUfsHcDxe.c:2692, A105) found the 0xC0000000 bank data-aborts from UEFI
+at boot; seclog_mem sits at 0xC0000000. Prior art keeps stack/heap in bank0 (0x80C00000/0x80C50000).
+Fix: PcdSystemMemorySize (gArm + gExynos9820) 0x50000000 -> 0x3AB00000 (= EXYNOS_DRAM_BANK0_SIZE, VERIFIED).
+New UEFI region 0xB2B00000..0xBAB00000: mapped bank0 DRAM; highest bank0 reservation read is camera (ends
+0xA7400000); FD 0x90000000..0x90700000 is below it (no overlap). Not touched: EXYNOS_DRAM_SIZE (UFS bounce cap).
+Verified: build exit 0 (FVMAIN_COMPACT 3112 B free), AutoGen PcdSystemMemorySize 0x3AB00000 / FdBase 0x90000000;
+packer shim checks OK, shim cmp-identical to boot #5; boot #6 image %TEMP%\b29\boot6-v2.img 7 587 840 B
+sha256 97161f0df9d3fe796c97ef766407c5fd2ce74ed55dd0a16cab041479c50ec8e9 (DTB section identical to boot #5).

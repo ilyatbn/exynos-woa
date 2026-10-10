@@ -344,9 +344,18 @@
   #     only — sizes unread (Exynos9820.h:84-90) — so they stay out of this
   #     single Base/Size pair until a multi-region HOB publisher exists.
   gArmTokenSpaceGuid.PcdSystemMemoryBase|0x0000000080000000
-  gArmTokenSpaceGuid.PcdSystemMemorySize|0x0000000050000000
+  #
+  #     2026-10-10 (notes/m8-uefi-image.md B29) - SIZE NOW 0x3AB00000 = EXYNOS_DRAM_BANK0_SIZE
+  #     (VERIFIED, live DTB memory@80000000). PeilessSec (ModuleEntryPoint.S:37-89) puts its
+  #     stack, HOBs and the whole UEFI region at the TOP of Base+Size. With 0x50000000 that was
+  #     0xC8000000..0xD0000000 - bank1, which PlatformMemoryMapLib does NOT map (MMU on -> the
+  #     next stack access faults) and which the 9810 found not usable by UEFI at boot
+  #     (Beyond0LteUfsHcDxe.c A105). Boot #5 reached the FD and looped (B28). Now the region is
+  #     0xB2B00000..0xBAB00000: mapped bank0 DRAM, above every bank0 reservation read
+  #     (camera ends 0xA7400000). The paragraph above is the history of the old value.
+  gArmTokenSpaceGuid.PcdSystemMemorySize|0x000000003AB00000
   gExynos9820TokenSpaceGuid.PcdSystemMemoryBase|0x0000000080000000
-  gExynos9820TokenSpaceGuid.PcdSystemMemorySize|0x0000000050000000
+  gExynos9820TokenSpaceGuid.PcdSystemMemorySize|0x000000003AB00000
 
   # --- Debug UART base (Milestone 1). VERIFIED on the live S10e and in the vendor
   #     DT: uart@10440000, the first PERIC0 UART — same base as the S9+, but the

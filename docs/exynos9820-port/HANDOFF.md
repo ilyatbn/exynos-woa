@@ -956,3 +956,26 @@ Everything below is committed; `git log --oneline` since `d60bbb0` is the work.
 - The boot stream owns `bootshim.S`/FD-address decisions; the driver work touched
   neither. `Exynos9820.h`/memory-map edits are additive (HSI2C45 window only).
 - Nothing destructive was run on the phone; no partition was written this session.
+
+### 21a. Driver stream — progress since §21 (same day, second chunk)
+
+- **D4 done** (research + decision): no USB WiFi driver exists for Windows
+  ARM64 (inbox or vendor — chip-by-chip Update Catalog scan in
+  `notes/d4-usb-wifi.md`). Donation-build WiFi = **PicoPiFi** (Pico W,
+  WiFi→RNDIS, driverless); LAN-first (M13) confirmed by positive ARM64
+  controls (Realtek GbE/ASIX on WU). MILESTONES M12 corrected.
+- **D5 reopened as D5b** after the user's S9+ WDDM report (unreleased):
+  inventory done — the 9820 kernel ships seven Arm DDK branches (b_r10p0..
+  bv_r32p1, ~2.5-4 MB C source each family) + Exynos GPU power glue;
+  `limadriver/mali-kernel` identified as r3p2 Utgard (historical only);
+  panfrost-on-Windows sized (Mesa builds MSVC/AARCH64 but every HW driver is
+  DRM-winsys-bound; rung 2 = panfrost DRM->DXGK + winsys port, and DWM needs
+  D3D via the WDDM DDI — the S9+ screenshot is consistent with
+  display-only-WDDM+WARP, which BasicDisplay already gives us). All in
+  `notes/d5-gpu-display.md` addenda. D5b(b) needs one cheap adb read
+  (`ls /vendor/firmware | grep -i mali`) — deferred while the boot stream
+  owns the phone.
+- **Still blocked on boot:** D2 (keyboard in ConIn), D3 device test, D5b(b).
+- **Next unblocked:** D6 research (DP alt mode over the combo PHY) — stretch;
+  or start the D5b rung-1 scoping (DECON display-only WDDM) if the user
+  prioritizes external display.

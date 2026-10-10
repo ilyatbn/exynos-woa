@@ -1208,3 +1208,19 @@ or a secure-world (EL3/TZASC) reaction to an access. The tiny blue/yellow/red te
 DEBUG goes to UART only; GraphicsConsole is grey/white) - INFERENCE: Samsung's own crash/upload-style
 report, flashed before the reset. Next: read Samsung's persisted reset reason from TWRP (/proc/reset_*,
 sec_debug) right after a loop, without passing through download mode first.
+
+## B35 - Samsung's /proc/debug_history (read in TWRP after boot #7's loop): the loop is a FIXED ~15.5 s timer
+
+Read via `adb shell cat /proc/debug_history` (TWRP root); de-padded copy committed as
+notes/s10e-debug-history-20261010.txt. Also: /proc/reset_reason = RPON (the user's key combo),
+reset_reason_extra_info all fields empty, cmdline sec_debug.reset_reason=7, androidboot.debug_level=0x4f4c (LOW).
+FACTS from the history:
+- Every loop entry of boots #4 (14:29-14:32), #5 (15:58-15:59), #6 (16:04-16:08), #7 (16:11-16:18) is
+  `RP / SOFT, INFORM3(abc0ead7) > NORMAL > JUMP2K [drawLOGO]`, spaced 15-16 s (e.g. 16:16:04, :20, :35, :51).
+- Normal Android boots/reboots show INFORM3(0) or REBOOTMODE0; kernel panics show `KP / SOFT, PANIC`.
+- The period is the SAME for boot #4 (old shim, FD @0x83300000), #5 (shim OK, FD faults early) and #6/#7
+  (FD gets further, draws output) -> the reset does not depend on how far our code gets.
+INFERENCE (strong): a fixed-time reset armed before our code runs = sboot's SoC watchdog (Linux would
+take it over; UEFI does not), consistent with the 9810 shim stopping the watchdog FIRST. abc0ead7 is
+then sboot's "jumped to kernel, never heard back" mark, not a fault code. B34's "external reset" fits.
+Next: stop (or feed) the watchdog with VERIFIED register offsets, then UEFI should stay up.

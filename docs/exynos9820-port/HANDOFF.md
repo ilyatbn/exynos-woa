@@ -906,7 +906,7 @@ session for the user to review).
 `CLANGPDB_DLL` (unset -> empty PATH entry -> "'make' is not recognized"); `6272939`/B25 FD base moved
 to the prior-art **0x90000000** in all four sites, rebuilt; `62437aa`/B26 shim diagnostic (prior-art
 DECON enable + two WHITE bands). Boot #5 image built, NOT yet written:
-`%TEMP%b25boot5-v2.img`, 7 587 840 B, sha256 `1379b50a...0b3765` (full hash in notes B26).
+`%TEMP%\b25\boot5-v2.img`, 7 587 840 B, sha256 `1379b50a...0b3765` (full hash in notes B26).
 Phone: in TWRP, root adb, user consented to boot #5. The agent's write to sda14 was refused by the
 permission layer, so the user runs the flash.
 
@@ -914,5 +914,5 @@ permission layer, so the user runs the flash.
 1. Flash `boot5-v2.img` to by-name/boot (sda14), read back the first 3705 x 2048 B and compare sha256,
    `adb reboot`, observe. Decode per notes B26: no bands / band 1 only / both bands then loop / output.
 2. Record the observation as B27, then choose the next fix from it.
-3. Rollback whenever wanted: stock `boot.img` (`%TEMP%\opencode\stockboot.img`) to sda14 from TWRP.
+3. Rollback whenever wanted: stock `boot.img` (`%TEMP%\opencode\stock\boot.img`) to sda14 from TWRP.
 

@@ -289,3 +289,61 @@ the justification. IDD/BasicRender experiments are optional garnish, not the del
 - https://www.cnx-software.com/2020-09-18/arm-officially-supports-panfrost-open-source-mali-gpu-driver-development/
 - https://www.phoronix.com/news/Panfrost-Mali-October-2018
 - https://www.smartprix.com/bytes/how-to-choose-smartphone-processor-chipset/
+
+---
+
+## Addendum (2026-10-10, after the D5 verdict): the S9 WDDM report + libmali-rockchip
+
+User report: the person behind the S9 WoA project **has WDDM running** on their
+device, code not released. Treat as UNVERIFIED prior art that changes the D5
+"permanently out of scope" framing to "out of scope today, prior art exists".
+(Open question to the user: full GPU WDDM, or a display-only WDDM miniport? That
+distinction decides everything below.)
+
+### What tsukumijima/libmali-rockchip actually is (fetched)
+
+- https://github.com/tsukumijima/libmali-rockchip — a **mirror of Arm's closed
+  userspace Mali DDK** (`lib/` = prebuilt aarch64 **ELF** .so blobs, Vulkan ICD
+  data, `firmware/g610/` = GPU-internal firmware binaries) packaged for
+  Rockchip Linux; itself a mirror of https://github.com/JeffyCN/mirrors/tree/libmali.
+- License: Arm EULA `LES-PRE-20769` — redistribution allowed **with the licence
+  text**, and an explicit **no reverse-engineering / no decompiling** clause.
+- *(fact)* It works on Linux only because the **kernel side (kbase) is open
+  source** there: closed userspace DDK + open kbase module is the standard Arm
+  delivery model.
+- *(inference, high confidence)* Useless **as binaries** for Windows: ELF .so
+  cannot load as a PE DLL, and the DDK's syscall surface is Linux kbase
+  ioctls/mmap. Its value to us is the **model**, not the bits.
+
+### What the 9820 already gives us that Rockchip has to scrounge for
+
+- *(fact, from D2 above)* The LineageOS exynos9820 kernel ships **Arm's
+  open-source Bifrost kbase `b_r10p0` in full source** (`mali@18500000`,
+  max 702 MHz). The kernel-side driver — the part a WDDM port needs — is
+  already ours, in source, for this exact GPU.
+- *(fact)* G76 = Bifrost v7, panfrost-supported (GLES 3.1 / Vulkan via PanVK,
+  docs.mesa3d.org) — an **open** userspace stack exists, and Mesa builds for
+  Windows ARM64 (softpipe/llvmpipe at least).
+- *(open)* The G76 GPU-internal firmware .bin (the analogue of libmali's
+  `firmware/g610/`): on Android it lives in the vendor image or embedded in
+  the kbase module — closable with a device/vendor read.
+
+### The three ladder rungs (recorded so the next session does not re-derive them)
+
+1. **Display-only WDDM miniport for DECON** (no 3D): modeset, power management,
+   multi-monitor — and the enabler for D6 DP alt mode regardless of GPU.
+   Medium effort, no closed code involved. Possibly exactly what "got WDDM
+   running" means on the S9.
+2. **Full acceleration via open source only**: port kbase r10p0 (Linux DRM ->
+   DXGK) + run **panfrost/Mesa** userspace on Windows ARM64. Both sides open,
+   no EULA problem. Multi-month; the glue (DRM->WDDM buffer/submit path) is
+   the hard part.
+3. **Closed DDK userspace port**: DEAD END — Arm EULA forbids RE, and there is
+   no Windows build to obtain. Do not plan around it.
+
+### Legal flag (must record, not decide)
+
+kbase is GPL2 (Arm's DDK releases are); a Windows kernel-mode derivative is a
+distribution question the project owner must decide before shipping, even
+though reading it for a clean-room DXGK port is fine. Mu-Silicium's EDK2 half
+is BSD for the same reason.

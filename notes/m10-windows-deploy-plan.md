@@ -171,3 +171,13 @@ cpu_on 0xC4000003 - the same legacy PSCI 0.1 IDs the 9810 had. So the 9810's rea
 (ntoskrnl) and for CPU parking (context_id not passed in x0) plausibly apply here too (unproven on the 9820).
 First boot: numproc 1 avoids CPU_ON; PSCI_VERSION behaviour of Samsung EL3 on 0x84000000 is UNVERIFIED.
 Image build running: install.wim index 3 reports build 22621.2861 (22631 = enablement package).
+
+## W9 - image build run (2026-10-10 22:08-)
+S10eHarness image (ISO fix W7): VHDX created 22:08:58; DISM apply index 3 done by 22:12:23 (~3.5 min); Add-Driver
+Exynos9820Ufs ok; Lite profile (inbox apps removed, telemetry/ads policies, BypassNRO=1); unattend (local admin
+S10e, empty password, autologon, SkipMachineOOBE/SkipUserOOBE, en-US, UTC, GALAXY-S10E, 275 DPI); bcdboot + BCD
+repoint done 22:14:35; export of the 110 GB volume started 22:14:39.
+BCD (s10e-artifacts\win-w5\out\esp\EFI\Microsoft\Boot\BCD) as built: testsigning Yes, numproc 4, hypervisorlaunchtype
+Off, timeout 0, devices "unknown" on this PC (expected: qualified GPT GUIDs of a disk not attached). Changed by hand
+for the first boot: `bcdedit /store <BCD> /set {default} numproc 1` (avoid PSCI CPU_ON, W5/W8).
+Phone: in TWRP per the user but NOT visible over USB after the PC reboot (adb devices empty, no Samsung PnP device).

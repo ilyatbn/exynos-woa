@@ -14,7 +14,7 @@ A task is not `[x]` until its verification actually ran.
 - [ ] **T06** — Re-read the **stock** recovery container geometry before repacking (needs a root shell) → `tasks/T06-stock-container-ref.md`
 - [x] **T07** — The first boot attempt itself (consent, AVB `vbmeta` ordering, then observe) → `tasks/T07-first-boot.md`  *(attempted 2026-10-10: fell back to download mode, Windows not established)*
 - [ ] **T08** — Make the installer app able to drive the S10e (stages are `NotImplemented` on purpose) → `tasks/T08-installer-s10e-path.md`
-- [ ] **T09** — Append a valid DTB to the boot payload so sboot's load_kernel passes the DT check (the real first-boot blocker) → `tasks/T09-boot-payload-dtb.md`
+- [x] **T09** — Get past sboot's load_kernel DT check → `tasks/T09-boot-payload-dtb.md`  *(done: header-v2 container with a DTB section on the BOOT partition, device-validated boots #4-#17; the appended-DTB idea was wrong)*
 
 ## Parked — off the boot path
 

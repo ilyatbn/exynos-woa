@@ -1,6 +1,6 @@
 # T09 — Append a valid DTB to the boot payload so sboot's load_kernel passes the DT check
 
-Status: **reframed — the appended-DTB theory is DISPROVEN (B15); stock kernel has no appended FDT. Real fix = match the edk2 S10e BootShim recipe, not a guessed placement**
+Status: **done** (2026-10-10, device-validated)
 
 ## Goal
 
@@ -64,3 +64,10 @@ Appended raw `dt.dtb` (FDT) at align(image_size=0x800000) + flags 0x1a (bit4). B
 `dt table header check fail` -> download mode (AVB now bypassed: `VERIFICATION_DISABLED` bit set).
 So the placement/flag guess is wrong. Next: mirror the stock kernel Image's actual header +
 appended-DTB layout (`stock/boot.img` kernel blob) as ground truth. See `notes/m8-uefi-image.md` B14.
+
+## Closed (2026-10-10)
+
+The DT check is passed by an Android boot image **header v2 with a real DTB section**
+(`firmware/tools/build-bootimg-v2.py`, edk2-exynos recipe) written to the **BOOT** partition
+(sda14) - the recovery slot does not work (notes/m8-uefi-image.md B16-B21). The appended-DTB
+approach this task started with was wrong (B15). Every boot from #4 to #17 passed the check.

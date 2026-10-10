@@ -1080,3 +1080,13 @@ Found: (1) header comment asserted the 9810 steps "fault" on the 9820 - only sus
 cited pack-uefi.ps1 :92/:102-107, the 9820 packer is pack-uefi-beyond0lte.ps1 :91/:101-103. Fixed in
 the follow-up commit. (3) MILESTONES "header-v2 container" row still says todo though B20/B21 show it
 cleared the DT check - separate follow-up.
+
+## B24 - boot #4 loop shape (user observation, 2026-10-10) + phone state
+
+User: no colour band ever flashed; loop = Samsung logo -> "Galaxy S10e" splash -> repeat. So sboot
+reached its kernel jump each time, and the OLD shim never produced a visible RED band. Old shim order
+(git show d1c6564:.../bootshim.S :141-194): WTCON stores 0x10050000/0x10060000 -> mrs/msr SCTLR_EL1 ->
+RED paint. => it died before/at the paint, OR the 0xCA000000 paint is not what the panel scans out.
+Not distinguishable from this. User then put the phone in download mode, reflashed TWRP: now
+`adb devices` -> `RF8M21HYDSZ recovery`, TWRP 3.7.0_9-2, root shell, by-name boot=sda14,
+recovery=sda15. User consented to boot #5 ("you can proceed in the next attempt").

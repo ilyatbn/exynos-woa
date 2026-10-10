@@ -1,5 +1,5 @@
 /* @file
- * bootshim.S — relocating loader that prepends the EDK II firmware device (FD).
+ * bootshim.S â€” relocating loader that prepends the EDK II firmware device (FD).
  *
  * Adapted from tools/BootShim/BootShim.S of edk2-msm (Renegade Project,
  * https://github.com/edk2-porting/edk2-msm), as carried by edk2-exynos
@@ -37,9 +37,13 @@
  * The shim is fully position-independent (PC-relative adr / literal ldr /
  * register br), so it runs correctly wherever sboot places it.
  *
- * Build: clang -target aarch64-none-elf -c bootshim.S -o bootshim.elf
+ * Build: clang -target aarch64-none-elf -ffreestanding -nostdlib -mgeneral-regs-only
+ *        -DUEFI_BASE=0x80080000 -DUEFI_SIZE=0x700000 -c bootshim.S -o bootshim.o
+ *        ld.lld -o bootshim.elf bootshim.o -Ttext=0x80080000 -e _head --no-relax
  *        llvm-objcopy -O binary bootshim.elf bootshim.bin
- * (No link step needed — there are no absolute relocations.)
+ * (The LINK step is required, not optional: a -c-only object can leave the
+ *  adr/branch offsets unapplied, which silently breaks the entry. pack-uefi.ps1
+ *  links at :92 and checks the result at :102-107.)
  */
 
 #ifndef UEFI_BASE
@@ -57,7 +61,9 @@
  * candidate - but it is a DECISION, not a read, and enabling it is unvalidated.
  * Default 0 mirrors BEYOND0LTE_PRAM_DIAG 0 in ArmPlatformLib.c:31,
  * Beyond0LteResetSystemLib.c:59, PlatformMemoryMapLib.c:48,
- * Beyond0LteAcpiPlatformDxe.c:57. */
+ * Beyond0LteAcpiPlatformDxe.c:57. When enabled, note that the 'B' and 'M' reads
+ * of _pram_base run AFTER the FD copy, so they are only valid if sboot dropped
+ * the shim outside 0x80080000..0x80780000 - the same K4b question as the copy. */
 #ifndef BEYOND0LTE_PRAM_DIAG
 #define BEYOND0LTE_PRAM_DIAG 0
 #endif
@@ -71,7 +77,7 @@ _head:
 	adr	x1, _payload            /* x1 = runtime address of the appended FD   */
 	b	_start                  /* (this pair is the header's code0/code1)   */
 	/* ---- Linux ARM64 Image header (values read for SM-G970F) ----------- */
-	.quad	0x0000000000080000      /* text_offset: VERIFIED - the SM-G970F kernel Image artefact (C:\Users\ilya\code\Dumps\twrp_device_tree\kernel, notes §10) declares 0x80000 */
+	.quad	0x0000000000080000      /* text_offset: VERIFIED - the SM-G970F kernel Image artefact (C:\Users\ilya\code\Dumps\twrp_device_tree\kernel, notes Â§10) declares 0x80000 */
 	.quad	0x0000000000800000      /* image_size: UNVERIFIED requirement - this is a shim+FD+margin guess; the vendor kernel declares 0x03138000 for itself */
 	.quad	0x000000000000000a      /* flags: VERIFIED 0xa in that same artefact (4K pages, load anywhere, LE) */
 	.quad	0                       /* res2                                      */
@@ -140,7 +146,7 @@ _start:
 	dsb	sy
 #endif
 
-	/* ---- DIAG: paint RED band (rows 200-649) — shim entry reached ------
+	/* ---- DIAG: paint RED band (rows 200-649) â€” shim entry reached ------
 	 * Direct stores to the panel scanout buffer. The 9810's 0xCC000000 at
 	 * 1440x2960 is WRONG here: this phone's framebuffer is EXYNOS_FB_BASE
 	 * 0xCA000000 at 1440x3040 (Exynos9820.h:450,:452, read from the live
@@ -184,7 +190,7 @@ _start:
 	dsb	sy
 	isb
 
-2:	/* ---- DIAG: paint GREEN band (rows 750-1199) — relocation done ------
+2:	/* ---- DIAG: paint GREEN band (rows 750-1199) â€” relocation done ------
 	 * Reached after the FD copy (or already-at-link). About to br into the FD.
 	 * If GREEN shows but no BLUE, the EDK II SEC entry faulted before C. */
 	movz	x9, #0xEB00
@@ -250,7 +256,7 @@ _start:
 	dsb	sy
 #endif
 
-	br	x5                      	/* enter the FD @UEFI_BASE (B -> SEC entry) */
+	br	x5   /* enter the FD @UEFI_BASE (B -> SEC entry) */
 
 3:	wfe                             /* unreachable; park if the FD ever returns  */
 	b	3b

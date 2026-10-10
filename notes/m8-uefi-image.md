@@ -626,3 +626,26 @@ llvm-objcopy -O binary shim.elf shim.bin
 - The 9810 `firmware/tools/bootshim/bootshim.S` is byte-unchanged: `fc.exe` against
   the pre-port copy reported no differences before editing; `git diff` shows no change
   to that path.
+
+## Correction pass 3 - harsh review of the port commit (d54d805)
+
+Checked mechanically: `git diff HEAD~1 HEAD -- firmware/tools/bootshim/bootshim.S` empty
+(9810 untouched); FD first word re-read as 0x1401C800 and length 7 340 032 (matches the
+comment's claim); `rg x7` shows the register used only in the two new places; both
+`-DBEYOND0LTE_PRAM_DIAG=0|1` builds assemble, link at -Ttext=0x80080000 and objcopy
+exit 0; `llvm-nm` puts _payload at the last byte of the image in both builds.
+
+Found and fixed (own commit, not folded into d54d805):
+
+1. The header's Build comment claimed "No link step needed - there are no absolute
+   relocations", which contradicts pack-uefi.ps1:86-88 (the link IS needed: a -c-only
+   object can leave the adr/branch offsets unapplied). Comment corrected to show the
+   real three-step invocation.
+2. The 'B' and 'M' breadcrumbs read the `_pram_base` literal AFTER the FD copy, so
+   with the channel enabled they inherit the same K4b self-overwrite question the copy
+   has. Not silently left: recorded in the breadcrumb-channel comment.
+3. A stray tab before the `br x5` comment (introduced by the comment rewrite).
+4. `Set-Content -Encoding UTF8` used while fixing (3) added a UTF-8 BOM and CRLF to a
+   file whose 9810 sibling is BOM-less LF - rewritten to BOM-less LF
+   (`[System.IO.File]::WriteAllBytes` + `Encoding.UTF8.GetBytes`), re-verified:
+   first bytes 47,42,32 and no CR anywhere, 14 344 B.

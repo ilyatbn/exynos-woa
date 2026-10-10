@@ -3132,7 +3132,12 @@ UfsHcMmioRw (
 #define UTP_TRD_RESP_DW6     24u   // DW6: RuL[15:0] (len, dwords) | RuO[31:16] (off, dwords)
 #define UTP_TRD_PRDT_DW7     28u   // DW7: PrdtL[15:0] (entries)   | PrdtO[31:16] (off, dwords)
 #define UTP_TR_PRD_SIZE      16u   // 9820: one PRDT entry = 16 B ufshcd_sg_entry == EDK2 UTP_TR_PRD (ufshci.h:435)
-#define UTP_PRDT_9820_EXTRA  16u   // 9820 kernel adds 16 B to the byte-gran PRDT length (ufshcd.c:2635-2638)
+// B81: the LineageOS 9820 kernel adds 16 B to the byte-gran PRDT length (ufshcd.c:2635-2638), but Samsung's
+// own bootloader UFS code for this SoC (edk2-exynos Exynos9820Pkg/Library/ExynosUfsLib/ufs.c:451-463, LK
+// <dev/ufs.h>) uses prdt_len = segments * sizeof(struct ufs_prdt) with 4 KB segments (:316-323,
+// TX/RXPRDT = UFS_SG_BLOCK_SIZE_BIT :1370-1371). With +16 a 4-entry read declares a phantom 5th entry
+// (boot #23: the split 16 KB READ never completed). The bootloader formula is used.
+#define UTP_PRDT_9820_EXTRA  0u
 
 //
 // Saved DWORD-granularity DW6/DW7 of every slot we converted to byte granularity,
@@ -3142,6 +3147,7 @@ UfsHcMmioRw (
 STATIC UINT32  mTrdSaveDw6[32];
 STATIC UINT32  mTrdSaveDw7[32];
 STATIC UINT32  mTrdSaveMask  = 0;
+STATIC UINT32  mUfsLogBudget = 40;   // B81: first 40 data-command ring/done lines only, so BDS retries do not scroll them away
 
 //
 // Boot #18/#19 (notes/m8-uefi-image.md B68-B72): READ(10) ends in CHECK CONDITION. Called from
@@ -3204,6 +3210,24 @@ Beyond0LteLogCheckCond (
   }
 
   SResp = (UINTN)SUcd + (UINTN)(MmioRead32 (Trd + UTP_TRD_RESP_DW6) >> 16);
+  {
+    UINT8  DOp = MmioRead8 ((UINTN)SUcd + 16);
+
+    if (((DOp == 0x28) || (DOp == 0x2A) || (DOp == 0x88) || (DOp == 0x8A)) && (mUfsLogBudget != 0)) {
+      mUfsLogBudget--;
+      DEBUG ((
+        DEBUG_ERROR,
+        "UfsHc: done s%u cdb 0x%02x ocs 0x%x resp 0x%x st 0x%x resid %u\n",
+        Slot,
+        (UINT32)DOp,
+        MmioRead32 (Trd + UTP_TRD_OCS_DW2) & 0xFFu,
+        (UINT32)MmioRead8 (SResp + 6),
+        (UINT32)MmioRead8 (SResp + 7),
+        ((UINT32)MmioRead8 (SResp + 12) << 24) | ((UINT32)MmioRead8 (SResp + 13) << 16) |
+        ((UINT32)MmioRead8 (SResp + 14) << 8) | (UINT32)MmioRead8 (SResp + 15)
+        ));
+    }
+  }
   if (MmioRead8 (SResp + 7) != 0x02) {
     Beyond0LteOcsFatalFixup (Trd, SResp);
     return;
@@ -3510,8 +3534,13 @@ Beyond0LteSetNexusForDoorbell (
   // CDB opcode (Command UPIU byte 16), LUN (byte 2), LBA + blocks for READ/WRITE(10) (CDB 2..5,
   // 7..8 big-endian), and the expected data length (Command UPIU bytes 12..15 BE).
   //
-  if (TxType == UPIU_TXTYPE_COMMAND) {
+  if ((TxType == UPIU_TXTYPE_COMMAND) &&
+      ((MmioRead8 ((UINTN)Ucd + 16) == 0x28) || (MmioRead8 ((UINTN)Ucd + 16) == 0x2A) ||
+       (MmioRead8 ((UINTN)Ucd + 16) == 0x88) || (MmioRead8 ((UINTN)Ucd + 16) == 0x8A)) &&
+      (mUfsLogBudget != 0))
+  {
     UINT8  Op = MmioRead8 ((UINTN)Ucd + 16);
+    mUfsLogBudget--;
     DEBUG ((
       DEBUG_ERROR,
       "UfsHc: ring s%u lun%u cdb 0x%02x lba 0x%08x n %u edtl %u\n",

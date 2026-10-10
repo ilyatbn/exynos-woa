@@ -1746,3 +1746,20 @@ Build exit 0. Boot #23 image %TEMP%\b79\boot23-v2.img sha256 37c092616dce1f0446b
 
 Pushed (on-device sha256 37c09261...61b8), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
 37c092616dce1f0446bea5c14d7c9ddd9d8e5a40d894039ca36e2bc577cd61b8 (byte-exact). `adb reboot` next.
+
+## B81 - boot #23 OBSERVED: no reset any more, but the split 16 KB READ never completes; drop the +16
+
+Photo notes/img-boot23-noreset.jpg: the phone stays in BDS (retry loop) - the 4 KB PRDT split removed the
+reset. User saw the "n 4 edtl 16384" line, then every later command runs on SLOT 1 (slot 0 never retired)
+and every READ(10) lba 0 gets "ScsiDiskRead10: Check Condition happened!"; MODE SENSE(6) on LUN 1-4 fails.
+User: after a manual reboot the phone sticks at the Samsung logo (warm reset leaves UFS in our state ->
+a full power-off clears it).
+Prior art read: edk2-exynos Exynos9820Pkg/Library/ExynosUfsLib/ufs.c is Samsung's LK bootloader UFS code
+(includes <dev/ufs.h>): __utp_map_sg splits every transfer into UFS_SG_BLOCK_SIZE (4 KB) entries (:316-323),
+TX/RXPRDT = UFS_SG_BLOCK_SIZE_BIT (12 -> 2^12 = 4 KB per entry, :1370-1371), prdt_len = segments *
+sizeof(struct ufs_prdt) (16 B) with NO +16, prdt_off = 2*ALIGNED_UPIU_SIZE (:451-463). So the 4 KB split
+is right, and the LineageOS "+16" declares a phantom entry (n=1 it was harmless; also plausibly the boot
+#22 reset: an unsplit 16 KB entry spilled into the garbage 2nd entry if the HW steps 4 KB per entry).
+Changes: UTP_PRDT_9820_EXTRA 16 -> 0 (bootloader formula); "UfsHc: done s cdb ocs resp st resid" per
+completed READ/WRITE; ring lines only for READ/WRITE; both capped at 40 lines (mUfsLogBudget).
+Build exit 0. Boot #24 image %TEMP%\b81\boot24-v2.img sha256 ff41df999f6520ad4095e8efcc2f71b340b5c53135aa41ab822b46a97542127f

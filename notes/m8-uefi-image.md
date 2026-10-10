@@ -1191,4 +1191,10 @@ readable; still loops => external reset.
 Verified: build exit 0 (FVMAIN_COMPACT 3248 B free); ResetHold present in ResetSystemRuntimeDxe.map,
 .efi rebuilt; shim unchanged (cmp vs boot #5/#6). Boot #7 image %TEMP%\b32\boot7-v2.img.
 MUST be turned off before any real install (a held reset is a hung phone).
-sha256 \00a28d8a0228eaa0385ba6dfb74bfdcae20d8a1407f793f82ab84bdcf741f5a
+sha256 00a28d8a0228eaa0385ba6dfb74bfdcae20d8a1407f793f82ab84bdcf741f5af
+
+## B33 - boot #7 WRITE (reset-hold diagnostic) to BOOT sda14
+
+(The hash line above was first mis-cut - Windows sha256sum prefixes a backslash; corrected via Get-FileHash.)
+Pushed + on-device sha256 matches, sda14, dd conv=fsync 7 587 840 B, readback 3705 x 2048 B sha256
+00a28d8a0228eaa0385ba6dfb74bfdcae20d8a1407f793f82ab84bdcf741f5af (byte-exact). `adb reboot` next.

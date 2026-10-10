@@ -4,9 +4,9 @@
  * Mirrors the device-proven edk2-exynos tools/BootShim/BootShim.S flow for exynos9820
  * (https://github.com/sonic011gamer/edk2-exynos): a fake Linux ARM64 Image header, then
  * copy UEFI_SIZE bytes from the appended FD to UEFI_BASE and branch there. Nothing else.
- * The 9810 (star2lte) shim added watchdog/cache/paint/SP steps; on the 9820 those fault
- * (boot loop, notes/m8-uefi-image.md B22) - the proven 9820 flow touches no privileged
- * register and writes no unvalidated address, so it is what we ship here.
+ * The 9810 (star2lte) shim added watchdog/cache/paint/SP steps; with those, boot #4 looped
+ * (notes/m8-uefi-image.md B20-B22). Which step faulted is NOT known - they are dropped as
+ * suspects, because the proven 9820 flow touches no system register and no MMIO.
  *
  * sboot loads this boot.img "kernel" and jumps to offset 0. The EDK II FD (BEYOND0LTE_UEFI.fd)
  * is linked to run at UEFI_BASE, which is NOT where sboot places the loaded image, so the shim
@@ -19,8 +19,8 @@
  *        ld.lld -o bootshim.elf bootshim.o -Ttext=0x83300000 -e _head --no-relax
  *        llvm-objcopy -O binary bootshim.elf bootshim.bin
  * (The LINK step is required, not optional: a -c-only object can leave the adr/branch
- *  offsets unapplied, which silently breaks the entry. pack-uefi.ps1 links at :92 and
- *  checks the result at :102-107.)
+ *  offsets unapplied, which silently breaks the entry. pack-uefi-beyond0lte.ps1 links at
+ *  :91 and checks the result at :101-103.)
  */
 
 #ifndef UEFI_BASE

@@ -1071,3 +1071,12 @@ Fetched from edk2-exynos master (raw.githubusercontent / git tree API, 2026-10-1
   same as our carried value; still not an on-device read), PrePiStackBase 0x80C00000 size 0x40000,
   CpuVectorBase 0x80C40000, UefiMemPool 0x80C50000+0x0F3B0000, MipiFrameBuffer 0xca000000 (matches ours),
   GICD 0x10101000 / GICC 0x10100000.
+
+### B23 review (harsh, of b17d8f6)
+Checked mechanically: objdump of the built shim vs the fetched BootShim.S (same instruction sequence);
+`_payload` == image end (0x90 of 144 B); packer code0 mask check holds (0x10000481); 9810 shim tree
+not in the diff; nothing in pack-uefi-beyond0lte.ps1/build-bootimg-v2.py reads the old header flags.
+Found: (1) header comment asserted the 9810 steps "fault" on the 9820 - only suspected (B22); (2) it
+cited pack-uefi.ps1 :92/:102-107, the 9820 packer is pack-uefi-beyond0lte.ps1 :91/:101-103. Fixed in
+the follow-up commit. (3) MILESTONES "header-v2 container" row still says todo though B20/B21 show it
+cleared the DT check - separate follow-up.

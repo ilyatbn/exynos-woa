@@ -36,3 +36,8 @@ Research summary (2026-10-10, Explore subagent over the repo, citations kept; ve
 1. UEFI BlockIo on the UFS LUN with the Android GPT visible (validates the UFS fix).
 2. Decide RAM (bank0 + more) and the Windows UFS driver path.
 3. With consent + backup: CACHE -> ESP, USERDATA <- Windows image, BCD repointed; then boot.
+
+## Decisions (2026-10-10, user)
+- Consent: "Yes, wipe it" - USERDATA + CACHE may be overwritten when we get there (confirm again right
+  before the write).
+- Windows media: C:\Users\ilya\code\Windows11_22631.2861_Pro_arm64.iso (Windows 11 23H2 Pro ARM64).

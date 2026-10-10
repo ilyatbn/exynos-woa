@@ -512,7 +512,11 @@
 
   # --- Architectural protocols ---
   ArmPkg/Drivers/CpuDxe/CpuDxe.inf
-  ArmPkg/Drivers/ArmGicDxe/ArmGicDxe.inf
+  # GIC-400 = GICv2 (DT: arm,cortex-a15-gic, GICD/GICC/GICH/GICV). In this edk2,
+  # ArmGicDxe.inf is the GICv3 driver (ENTRY_POINT GicV3DxeInitialize: ICC_SRE_EL1,
+  # redistributors) and v2 is ArmGicV2Dxe.inf. Building the v3 one reset the phone
+  # inside its entry, with no EL1 exception (notes/m8-uefi-image.md B58/B59).
+  ArmPkg/Drivers/ArmGicDxe/ArmGicV2Dxe.inf
   ArmPkg/Drivers/TimerDxe/TimerDxe.inf
   MdeModulePkg/Core/RuntimeDxe/RuntimeDxe.inf
   MdeModulePkg/Universal/SecurityStubDxe/SecurityStubDxe.inf

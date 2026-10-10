@@ -1503,3 +1503,18 @@ edk2-exynos (boots on 9820) uses GICD 0x10101000 / GICC 0x10100000 (exynos9820.d
 prior-art GIC/timer handling and the live DTB GIC node.
 Also visible: many "Image Section Alignment(0x1000) does not match Required Alignment(0x10000)" and
 "ProtectUefiImage failed to create image properties record" (memory-protection warnings, non-fatal).
+
+## B59 - root cause #3: the GICv3 driver on a GICv2 (GIC-400) -> switched to ArmGicV2Dxe
+
+User's sharp photo (same session) confirms B58's last lines. Reading edk2: ArmPkg/Drivers/ArmGicDxe/
+ArmGicDxe.inf has ENTRY_POINT = GicV3DxeInitialize and sources GicV3/ + GicV5/ only; the v2 driver is a
+separate ArmGicV2Dxe.inf (ENTRY_POINT GicV2DxeInitialize, PcdGicDistributorBase/InterruptInterfaceBase).
+Our dsc/fdf built ArmGicDxe.inf = GICv3 on a GIC-400 (stock DT interrupt-controller@10100000:
+compatible "arm,cortex-a15-gic", reg GICD 0x10101000+0x1000, GICC 0x10102000+0x1000, GICH 0x10104000+
+0x2000, GICV 0x10106000+0x2000 - matches Exynos9820.h). GicV3DxeInitialize reads/writes ICC_SRE_EL1
+(ArmGicV3Dxe.c:789-792) and walks redistributors -> traps to EL2 under Samsung's uH -> reset with no EL1
+exception, exactly B58. (edk2-exynos still builds ArmGicDxe.inf, but from an older edk2 where that inf
+was the v2/v3-detecting driver; its GICC 0x10100000 is not adopted - the DT says 0x10102000.)
+Fix: dsc + fdf -> ArmPkg/Drivers/ArmGicDxe/ArmGicV2Dxe.inf.
+Verified: build exit 0; Guid.xref lists 8562bf1e-... ArmGicV2Dxe; ArmGicV2Dxe.efi 13 312 B rebuilt
+(the v3 ArmGicDxe.efi was 67 072 B -> FVMAIN shrank by ~53 KB, as observed). Not booted.

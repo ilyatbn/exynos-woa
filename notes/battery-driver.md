@@ -75,7 +75,7 @@ Registers we need (all `[K]` = verified in vendor source):
 | SOCREP | `0x06` | SOC 0.1% = `hi*100 + lo*100/256`, clamp 1000 |
 | REMCAP_REP | `0x05` | remaining mAh = word × `fg_resistor/2` |
 | FULLCAP_REP | `0x35` | full mAh = word × `fg_resistor/2` |
-| VCELL | `0x09` | mV: `(w&0xFFF)*78125/1e6 + ((w>>12)&0xF)*78125/1e6<<4` (12-bit × 78.125µV + 4-bit × 1.25V) |
+| VCELL | `0x09` | mV, vendor formula verbatim: `((w&0xFFF)*78125)/1e6 + (((w>>12)&0xF)*78125/1e6)*16` — integer math makes the low 12 bits contribute 0 and each high-nibble step 1.25 V; reproduce verbatim, do not "fix" |
 | AVG_CURRENT | `0x0B` | mA: signed-16 two's complement × `15625*fg_resistor/100000` (5 mΩ sense → 312.5 µA/LSB) |
 | TEMPERATURE | `0x08` | °C×10: `hi` signed, LSB 0.039 °C (`lo*39/10`) |
 | STATUS | `0x00` | bit3 of low byte = battery absent |
@@ -90,19 +90,32 @@ Still UNVERIFIED (reads that close them):
 - Samsung's UI scaling `capacity_min`/`capacity_max` (their Android % is scaled:
   `(raw − min)*1000/(max − min)`). For v1 we report raw gauge SOC and note the
   delta vs Android's number.
-- Which physical HSI2C bus carries 0x36: the vendor DT names it `hsi2c_45`
-  (d1b notes); our Windows HSI2C driver drives USI03 = HSI2C10 (touch). The
-  MAX77705 PMIC is a known touch-bus neighbour in the 9810 DSDTs — **must be
-  confirmed on-device** (cheap: `i2cdetect`-style read of 0x36 from UEFI PoC,
-  or DT symlink target read via adb).
+
+### 2026-10-10 — bus correction (harsh-review follow-up)
+
+The gauge is **not** on the touch bus. *(fact)* Touch is `hsi2c@104B0000`
+(HSI2C10/USI03, `Exynos9810.h:185`, DSDT `SAMS9810` `_UID 10` in
+`Star2LtePkg/AcpiTables/Dsdt.asl:204`); the MAX77705 clients are on
+**hsi2c_45 @ 0x15D60000** (d1b notes, verified live on device). The 9810 DSDT
+declares only the touch client (0x48) — no gauge entry exists in any shipping
+firmware here.
+
+Consequence for the Windows design: the SpbCx client needs a controller
+instance on **hsi2c_45**, not the existing HSI2C10 one. That is *easier* than
+the touch path, not harder: `Pmic.c:15-18` establishes that hsi2c_45's clocks
+are ACPM-owned, left running by the bootloader, and we **never write CMU or
+GPIO** for it. So the controller driver for it is the EHI2C ISR/DPC transfer
+engine with the CMU/QCH/GPIO bring-up compiled out — a flag or a thin variant
+of `Exynos9820Hsi2c`, not a new driver family. *(inference)*
 
 ### 2026-10-10 — Windows driver design (the "see % in Windows" path)
 
 Architecture (all pieces already exist in some form):
 
-1. **Firmware**: M8 DSDT must declare the gauge as an I2C child of the HSI2C10
-   controller — `_HID SAMBAT00`, `_ADR 0x36`, `SB`/_HID PNP0A05 battery container
-   is *not* needed for a class extension.
+1. **Firmware**: M8 DSDT must declare (a) an HSI2C controller device for
+   hsi2c_45 — `_HID SAMS9820`, `_UID 45`, `Memory32Fixed(0x15D60000, 0x1000)`,
+   no CMU/GPIO resources (ACPM-owned) — and (b) the gauge as its child
+   `_HID SAMBAT00` with `I2cSerialBusV2(0x0036, ..., "\\_SB.I2C45")`.
 2. **Driver**: KMDF kernel driver, binds `ACPI\SAMBAT00`, talks to SpbCx with
    the exact `WdfIoTargetCreate/Open/SendIoctlSynchronously` pattern already
    proven in `drivers/S6SY761Touch/Device.c:1627,2922,3004,3083`.
@@ -114,10 +127,13 @@ Architecture (all pieces already exist in some form):
 4. **v1 scope**: read-only — percentage, voltage, discharge rate, estimated
    runtime; no charge state (device runs on battery while docked, dock-desktop §10).
 
-Task order: (a) confirm gauge visibility on the touch bus (UEFI PoC read of
-`SOCREP` — reuses `Pmic.c` polled-master code), (b) DSDT `_HID SAMBAT00` entry
-in M8, (c) driver skeleton + class-extension loop, (d) validate % against
-Android's own battery reading on the same device.
+Task order: (a) UEFI PoC read of `SOCREP(0x06)` on hsi2c_45 — the polled
+master path to that bus already exists in `Pmic.c`, so this is a few lines,
+and it validates the gauge address + conversions against Android's own %,
+(b) DSDT entries (`SAMS9820` `_UID 45` + `SAMBAT00`) in M8, (c) hsi2c_45
+controller variant for Windows (CMU/GPIO bring-up off) + SpbCx battery
+class-extension driver skeleton, (d) validate % in the Windows tray against
+the UEFI PoC reading.
 
 ## Sources
 

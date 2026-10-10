@@ -1,6 +1,6 @@
 # T07 — The first boot attempt on the S10e
 
-Status: **open — needs explicit user consent before any write**
+Status: **attempted and observed (2026-10-10) — Windows NOT established; boot fell back to download mode**
 
 ## Goal
 
@@ -49,3 +49,15 @@ being a label and becomes a fact.
 Something is observed on the panel or in a bootloop, and the observation is
 written to `notes/m8-uefi-image.md` — a build succeeding says nothing about a
 boot hazard, and that difference has to be recorded.
+
+## Result (2026-10-10)
+
+Consent given; write done and verified byte-exact (see `notes/m8-uefi-image.md` B7).
+OBSERVED: `adb reboot recovery` landed the phone **straight in download mode** — no UEFI text,
+no paint, no Windows. The payload never reached a painted frame. Fault class is (a) sboot
+refused the container before jumping, or (b) the shim jumped to UEFI at the DECISION base
+`0x83300000` and it faulted before painting — the panel alone cannot separate them. Prime
+suspects are the never-booted DECISION constants: `UEFI_BASE 0x83300000` (K4b), the shim temp
+SP, the K10 write-protected zones, and the framebuffer base. `boot` (sda14) untouched, so
+Android still boots; the recovery slot now holds the UEFI container (restore TWRP by re-flash).
+Windows booting is **not** established. Full detail: `notes/m8-uefi-image.md` B7/B8.

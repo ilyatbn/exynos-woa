@@ -801,5 +801,47 @@ CONCLUSION: the "run" half of "build and run" is blocked on the device. Build si
 FACT `adb devices -l` now shows `RF8M21HYDSZ device product:beyond0ltexx model:SM_G970F` - the S10e is attached and authorized (normal Android, not recovery).
 CHANGE `Exynos9820Ufs.h:914-915`: `UFS_DMA_WINDOW_FIRST 0x90000000 -> 0xA7400000`, `LAST 0xBC800000 -> 0xBAB00000`, both still UNVERIFIED (CHOSEN band). Added `C_ASSERT(FIRST < LAST)`. Comment names the reads (bank0 end 0xBAB00000 = DTB reg + /proc/iomem; camera reservation end 0xA7400000).
 VERIFY rebuilt both modes: `-DmaWindow` (ENFORCE=1) EXACT_BUILD_OK 49152 B sha256 `47391120…` (window baked into DmaWindowFirst/Last diagnostic fields, .c:4956-4957); default (ENFORCE=0) EXACT_BUILD_OK 48640 B. Old `9810ULL` values gone from the #defines; remaining `0xBC800000` hits are prose.
-FOLLOW-UP (recorded, not fixed): `Exynos9820Ufs.c:1427` and `Exynos9820Ufs.h:79` still narrate `EXYNOS_DRAM` end as `0xBC800000` (9810 total) - stale vs live `0xBAB00000`, different constant, out of T01 scope.
+FOLLOW-UP (recorded, not fixed): `Exynos9820Ufs.c:1427` and `Exynos9820Ufs.h:79` still
+narrate `EXYNOS_DRAM` end as `0xBC800000` (9810 total) - stale vs live `0xBAB00000`, different
+constant, out of T01 scope.
+
+## B7 - the first-boot WRITE (recovery slot), consented by the user
+
+FACT user flashed vbmeta_disabled + TWRP manually, booted Android, then `adb reboot recovery`
+-> device reconnected as `recovery` (TWRP). TWRP shell OK: /tmp tmpfs 2.5G,
+`by-name/recovery -> sda15`, `by-name/boot -> sda14` (boot untouched).
+FACT `adb push pack-out-run1.img -> /tmp/uefi-recovery.img` = 18 253 824 B on device.
+FACT WRITE: `dd if=/tmp/uefi-recovery.img of=/dev/block/by-name/recovery bs=1024` ->
+17826 records in/out, 18 253 824 B copied, then `sync`. Recovery slot 55 279 616 B, so the
+image occupies the first 18.25 MB; trailing old-TWRP bytes remain (container header defines
+the size, sboot reads from the start).
+VERIFY byte-exact: local sha256 `403478fb3e528f2cebe7d83fa2c62444862c07732cdf084f2dea5f8a39424215`
+== on-device `dd if=recovery bs=1024 count=17826 | sha256sum` = same. The slot now holds the
+UEFI container.
+NEXT: reboot to recovery and OBSERVE the panel (UEFI paint at 0xCA000000 / bootloop / silent).
+
+## B8 - first-boot OBSERVATION: fell back to DOWNLOAD mode
+
+FACT `adb reboot recovery` (exit 0) -> device did NOT come back as `recovery`/Android; the
+user reports the phone **rebooted into download mode** (loke). adb stayed `(none)` through the
+poll. So sboot rejected the recovery container or the payload crashed and the boot-failure path
+entered download mode. This is a BOOT hazard, not a build error - the write was byte-exact (B7).
+FAULT CLASS (T07 §3): need to separate (a) sboot rejected the container before running it
+(header/AVB/load address) vs (b) the payload ran then reset (watchdog not stopped / crash).
+The panel content during the attempt decides which. ASKING the user what the screen showed.
+Device is currently in download mode; recovery slot still holds the UEFI container (write not
+reverted).
+
+CONFIRMED: the panel went **straight to the download-mode screen** - no UEFI text, no paint, no
+Windows. So the payload never reached a painted frame. Two readings remain, and the panel alone
+cannot fully separate them (UEFI paints only after it boots far enough):
+  (a) sboot refused the container before jumping to the payload (header / AVB / drop address), or
+  (b) the shim ran and jumped to UEFI at the DECISION base 0x83300000, but UEFI faulted before
+      painting (bad base / MMU state K9 / write-protected zone K10 / watchdog not stopped).
+Either way the prime suspects are the never-booted DECISION constants: UEFI_BASE 0x83300000
+(K4b), the shim temp SP, and the K10 write-protected zones - all UNVERIFIED, none validated.
+SAFETY: boot (sda14) is untouched, so normal Android still boots (`adb reboot`). The recovery
+slot now holds the UEFI container, not TWRP; restore TWRP by re-flashing the tar before any
+further experiment. Windows booting is NOT established, so ground rules 5/6 still forbid
+casual media writes.
 - log: `%TEMP%\m8-build-ufs-run1.log`.

@@ -8,7 +8,7 @@ No branch has been pushed. All work so far is local commits.
 
 **If you are the *next* session, jump to [`/progress.md`](../../progress.md) first**
 — it is the live task list by ID, one file per task in `tasks/`, with a done
-indicator per task. The newest restart point in this file is **§20** (§18/§19 are history); §16 and §17
+indicator per task. The newest restart point in this file is **§21** (§18-§20 are history); §16 and §17
 are history (the work they describe is committed and verified, do not redo it).
 Do not re-install VS or the WDK.
 
@@ -915,4 +915,36 @@ permission layer, so the user runs the flash.
    `adb reboot`, observe. Decode per notes B26: no bands / band 1 only / both bands then loop / output.
 2. Record the observation as B27, then choose the next fix from it.
 3. Rollback whenever wanted: stock `boot.img` (`%TEMP%\opencode\stock\boot.img`) to sda14 from TWRP.
+
+## 21. Restart point — the live one (2026-10-10 evening): **UEFI reaches BDS on the S10e**
+
+**State.** Boot #17 (`%TEMP%\b63\boot17-v2.img`, sha256 `1625b5e4…682d`) is on BOOT (sda14). It
+runs shim → SEC → PEI → DXE → BDS on the real phone (photo `notes/img-boot17-bds.jpg`). BDS then
+fails to find storage and retries forever. TWRP is on recovery (sda15). Android does not boot
+until the stock `boot.img` goes back to sda14 (`%TEMP%\opencode\stock\boot.img`). Windows is NOT
+established. Escape a loop with the key combos in AGENTS.md §10.
+
+**How we debug now (read first).**
+- The DEBUG log is ON THE PANEL (Beyond0LteFbSerialPortLib, B54). Ask the user for a short video
+  of the end of a cycle; extract frames with `imageio-ffmpeg` (pip), take the last non-black frame,
+  crop and read. The newest line is the one above the blanked line (the console wraps).
+- Samsung's reset log: AGENTS.md §9 (`/proc/debug_history` from TWRP).
+- Flash loop (adb allowed by permission rules): build-uefi.ps1 → pack-uefi-beyond0lte.ps1 (any -Ref;
+  only the kernel blob `FV/uefi-beyond0lte-kernel.bin` is used) → build-bootimg-v2.py --kernel …
+  --dtb %TEMP%\opencode\stock\dt.dtb → push + dd to by-name/boot + readback sha → adb reboot.
+
+**What it took (each fix device-validated; notes/m8-uefi-image.md B23-B65).** FD at 0x90000000;
+minimal prior-art shim; panel is 1080x2280 (not 1440x3040); UEFI region in bank0
+(PcdSystemMemorySize 0x3AB00000); SEC uses C BaseMemoryLib (DC ZVA faults MMU-off); every MMIO
+window page-aligned (UFS_IOCOH); ArmGicV2Dxe (ArmGicDxe.inf is GICv3 in this edk2); virtual timer;
+high banks + RamManagerDxe off; build-uefi.ps1 sets CLANGPDB_DLL. Timer = 26 MHz on-device (T05).
+
+**Next order (one commit each).**
+1. UFS: every query UPIU fails `OCS = 4` (UFSHCI: mismatch response UPIU size) after
+   `UfsControllerInit Finished`. Compare the UTRD response-UPIU length/offset and PRDT encoding the
+   driver writes against the 9820 HCI (hw-rev 6, P02); the 9810's A46/A48 notes in
+   Beyond0LteUfsHcDxe.c are the closest prior experience. Goal: a block device, then BOOTAA64.EFI.
+2. RAM for Windows: high banks are off for UEFI (B63); follow the 9810 record (Star2LtePkg.dsc:211-250).
+3. Before any real install: strip the diagnostics (shim DIAG, checkpoints, DiagVectors, ResetHold,
+   FB console back to UART) - FVMAIN_COMPACT has 416 B free.
 

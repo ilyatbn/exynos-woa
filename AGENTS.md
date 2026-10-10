@@ -85,3 +85,25 @@ Device: `RF8M21HYDSZ`, `model:SM_G970F` (Galaxy S10e, the **only** one).
 - **Never run anything destructive** — no partition erasing, no flashing, no
   powered-dock/host-mode test — until Windows booting is established
   (HANDOFF §2 rules 5 and 6).
+
+## 9. After a failed boot: read Samsung's own reset log before guessing
+
+The screen during a boot loop shows almost nothing usable (tiny red/blue/yellow text for
+< 1 s). Samsung records every reset; read it from TWRP instead:
+
+```
+adb shell 'cat /proc/debug_history'          # one line per boot: time, reason, INFORM3, boot path
+adb shell 'cat /proc/reset_reason; cat /proc/reset_reason_extra_info'
+adb shell 'cat /proc/cmdline' | tr ' ' '\n' | grep -i reset
+```
+
+- Go **straight from the loop into TWRP** (Vol Up + Bixby + Power). Passing through download
+  mode adds its own entries.
+- `debug_history` is mostly NUL/space padding: strip it with `tr -c '[:print:]\n' '\n'`, keep
+  lines starting with `[`.
+- What the entries meant on 2026-10-10 (`notes/m8-uefi-image.md` B35,
+  `notes/s10e-debug-history-20261010.txt`): `RP / SOFT, INFORM3(abc0ead7) > NORMAL` every ~15.5 s
+  is a loop where sboot jumped to our image and never heard back (a fixed timer, not a crash).
+  Android reboots show `REBOOTMODE0` / `INFORM3(0)`; kernel panics show `KP / SOFT, PANIC`.
+  The **spacing between entries** is the useful number: same period across builds = timer.
+- `reset_reason` itself only names the last reset (usually your key combo, `RPON`).

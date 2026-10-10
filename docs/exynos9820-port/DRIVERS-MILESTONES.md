@@ -58,11 +58,15 @@ ACPI/Windows half remains.
 
 | Task | State | Notes |
 |------|-------|-------|
-| Research: how Linux/Android on the S10e brings up DWC3 (exynos-dwc3 glue, USBFN, PHY init order, VBUS/ID role) | **doing** | subagent → `notes/d1-usb-host.md` (seeded with the six questions) |
-| Research: Mu-Silicium `UsbfnDwc3Dxe` + edk2-exynos 9820 USB prior art — what exists, what is broken | **doing** | same notes file |
-| Write the 9820 USB init library (`UsbPlatformLib`-style): clocks (CMU_PERIC0/FSYS0A gates), PHY (10B00000/10AE0000/10AF0000), DWC3 core → host (`PRTCAP_HOST`) | todo | one MMIO block per verified window, constants from `Exynos9820.h` only |
-| Wire EDK2 USB stack into `Beyond0LtePkg.dsc/.fdf` (`UsbBusDxe`, `UsbHubDxe`, `UsbKbDxe`, `UsbMouse`-equivalent) | todo | currently commented out at `Beyond0LtePkg.fdf:259-261` |
-| Build clean (host-mode USB in the FD, FD size still fits `FVMAIN_COMPACT`) | todo | build-only proof; device proof waits on the boot stream |
+| Research: how Linux/Android on the S10e brings up DWC3 (exynos-dwc3 glue, USBFN, PHY init order, VBUS/ID role) | **done** | `notes/d1-usb-host.md` Q1/Q2: full chain pinned from `LineageOS/android_kernel_samsung_exynos9820` — glue `dwc3-exynos.c`, PHY `phy-exynos-usbdrd.c` (PMU de-isolate `0x1586072C` bit0 / DP `0x15860704`), USBCON reg map, `dwc3_core_init` HOST path with absolute offsets (GCTL `0x10C00C110`, PRTCAPDIR=1<<12), xHCI MMIO = same window +0x0..0x7fff. **Trap: USB clock gates are ACPM-owned vclk/QCH, not CMU MMIO** — strategy is audit-then-rely-on-sboot-state |
+| Research: Mu-Silicium `UsbfnDwc3Dxe` + edk2-exynos 9820 USB prior art — what exists, what is broken | **done** | `notes/d1-usb-host.md` Q3/Q4: `UsbfnDwc3Dxe` is **device-mode only** (produces EFI_USB_FUNCTION_IO), Host ❌ on every Samsung target because 9820/9810 use the NULL `PlatformUsbfnLib`; but `S5E9830Pkg/Library/PlatformUsbfnLib/BoardInit.c` + `PlatformUsbRegisters.h` are a directly reusable UEFI-native PHY bring-up (same PMU offsets/bits; **9830 block bases differ — do not paste**). edk2-exynos has **zero** USB controller code. VBUS = MAX77705 boost via I2C (`CHG_CNFG_00` OTG modes, `CHG_CNFG_02` OTG_ILIM 500 mA–1.5 A); SoC has no VBUS pad, no OVC input. Windows half: inbox `usbxhci.inf` binds `ACPI\PNP0D10` — D3 is an ACPI table task, not a driver task |
+| Research follow-up: hsi2c_45 base + MAX77705 CC-role (Rp sourcing) init + UEFI xHCI-on-MMIO binding prior art (edk2 XhciDxe is PCI-bound) | todo | subagent → `notes/d1b-usb-vbus-hcd.md` |
+| Add the USB host hardware constants to the platform (USBCON/DWC3-global register map, PMU isolation offsets) | todo | values only from `notes/d1-usb-host.md`; anything unread stays `UNVERIFIED` |
+| Write `Beyond0LteUsbHostLib`: PHY de-isolation + USBCON USB2 init + DWC3 core HOST-path init (the 7-step sequence in notes §"What this means") | todo | USB2/HS-first, SS PHY deliberately held down |
+| VBUS enabler: DXE HSI2C driver for the MAX77705 bus + OTG boost writes | todo | depends on the hsi2c_45 base from the follow-up research |
+| xHCI host controller DXE driver on the MMIO window (produce EDK2's HCD protocol; XhciDxe is PCI-bound so needs a platform wrapper or a minimal driver) | todo | |
+| Wire EDK2 USB stack into `Beyond0LtePkg.dsc/.fdf` (`UsbBusDxe`, `UsbHubDxe`, `UsbKbDxe`, `UsbMouseDxe`) | todo | currently commented out at `Beyond0LtePkg.fdf:259-261` |
+| Build clean (host-mode USB in the FD, FD size still fits `FVMAIN_COMPACT`) | todo | build-only proof; device proof waits on the boot stream. **Space hazard: `FVMAIN_COMPACT` had 968 B free before this work** |
 
 ### D2 — Hub + keyboard/mouse in UEFI
 

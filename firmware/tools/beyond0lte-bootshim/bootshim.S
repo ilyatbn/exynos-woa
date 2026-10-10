@@ -122,7 +122,7 @@ _head:
 	/* ---- Linux ARM64 Image header (values read for SM-G970F) ----------- */
 	.quad	0x0000000000080000      /* text_offset: VERIFIED - the SM-G970F kernel Image artefact (C:\Users\ilya\code\Dumps\twrp_device_tree\kernel, notes Â§10) declares 0x80000 */
 	.quad	0x0000000000800000      /* image_size: UNVERIFIED requirement - this is a shim+FD+margin guess; the vendor kernel declares 0x03138000 for itself */
-	.quad	0x000000000000000a      /* flags: VERIFIED 0xa in that same artefact (4K pages, load anywhere, LE) */
+	.quad	0x000000000000001a      /* flags: DECISION 2026-10-10 - 0xa (VERIFIED in the vendor kernel artefact: 4K pages, load anywhere, LE) PLUS bit4 0x10 "can use device tree". The 9820's Android-12 ABL load_kernel failed 'dt table header check fail' with 0xa (see notes/m8-uefi-image.md B12); bit4 tells the loader to use the DTB we append after image_size instead of the empty container DTBH. UNVERIFIED until a boot passes the DT check. */
 	.quad	0                       /* res2                                      */
 	.quad	0                       /* res3                                      */
 	.quad	0                       /* res4                                      */

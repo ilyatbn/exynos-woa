@@ -1,6 +1,6 @@
 # T09 — Append a valid DTB to the boot payload so sboot's load_kernel passes the DT check
 
-Status: **open**
+Status: **doing — shim flags + packer DTB-append implemented; candidate built; second boot not yet attempted**
 
 ## Goal
 

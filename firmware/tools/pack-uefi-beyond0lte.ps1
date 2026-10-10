@@ -38,6 +38,8 @@ param(
   [string]$Ref = "",
   [string]$Output = "",
   [string]$UefiBase = "0x83300000",
+  [string]$Dtb = "",
+  [string]$ImageSize = "0x800000",
   [switch]$SkipFreshCheck
 )
 $ErrorActionPreference = "Stop"
@@ -102,12 +104,22 @@ if ($magic -ne "ARM") { throw "shim ARM64 header magic missing (got '$magic')" }
 Write-Host ("==> shim header OK (code0=0x{0:X8}; magic ARM64)" -f $code0) -ForegroundColor DarkGray
 
 $kernel = Join-Path $buildFv "uefi-beyond0lte-kernel.bin"
-$fsOut = [System.IO.File]::Create($kernel)
-try {
-  $b1 = [System.IO.File]::ReadAllBytes($shimBin); $fsOut.Write($b1, 0, $b1.Length)
-  $b2 = [System.IO.File]::ReadAllBytes($fd);      $fsOut.Write($b2, 0, $b2.Length)
-} finally { $fsOut.Dispose() }
-Write-Host "==> kernel ([shim][FD]): $kernel ($((Get-Item $kernel).Length) bytes)" -ForegroundColor DarkGray
+$shimBytes = [System.IO.File]::ReadAllBytes($shimBin)
+$fdBytes   = [System.IO.File]::ReadAllBytes($fd)
+if ($Dtb) {
+  if (-not (Test-Path $Dtb)) { throw "DTB file not found: $Dtb" }
+  $imgSize = [Convert]::ToInt64(($ImageSize -replace '^0x',''), 16)
+  $used = $shimBytes.Length + $fdBytes.Length
+  if ($imgSize -lt $used) { throw "ImageSize ($imgSize) < shim+FD ($used) - the DTB would land inside the payload" }
+  $pad = [byte[]]::new($imgSize - $used)
+  $dtbBytes = [System.IO.File]::ReadAllBytes($Dtb)
+  $kernelBytes = [byte[]]$shimBytes + [byte[]]$fdBytes + [byte[]]$pad + [byte[]]$dtbBytes
+  Write-Host ("==> kernel ([shim][FD][pad->0x{0:X}][DTB]): {1} ({2} bytes)" -f $imgSize, $kernel, $kernelBytes.Length) -ForegroundColor DarkGray
+} else {
+  $kernelBytes = [byte[]]$shimBytes + [byte[]]$fdBytes
+  Write-Host "==> kernel ([shim][FD]): $kernel ($((Get-Item $kernel).Length) bytes)" -ForegroundColor DarkGray
+}
+[System.IO.File]::WriteAllBytes($kernel, $kernelBytes)
 
 # 3. Wrap in the reference container.
 $bootPartitionBytes = 14080L * 4096   # Validation.cs:12 - BOOT on star2lte AND beyond0lte

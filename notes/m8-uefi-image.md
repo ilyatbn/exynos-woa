@@ -968,3 +968,26 @@ non-stock container, NOT about an appended FDT. Trial-and-error on the only devi
 tool here. Reliable route = the edk2 S10e (beyond0lte) BootShim recipe (the Renegade/edk2-exynos
 projects boot EDK2 on this exact device) - study how they satisfy the 9820 DT check, rather than
 guess placement. T09's appended-DTB attempt is a dead end; reframe.
+
+## B16 - ANSWER via prior art: the container must be Android boot image HEADER-V2 with a DTB section
+
+Fetched edk2-exynos `Platform/Samsung/exynos9820/s10.sh.inc` `platform_build_bootimg()`: it runs
+AOSP `mkbootimg.py --header_version 2 --dtb "Platform/Samsung/exynos9820/FdtBlob_compat/${DEVICE}.dtb"
+--base 0x10000000 --kernel_offset 0x8000 --ramdisk_offset 0x1000000 --second_offset 0xf0000000
+--tags_offset 0x100 --dtb_offset 0x0 --pagesize 2048 --os_version 13.0.0 --os_patch_level 2023-07
+--cmdline buildvariant=userdebug --ramdisk dummyramdisk --kernel uefi-s10-kernel`. So sboot's
+Android-12 ABL `load_kernel` "dt table header check" wants a **header-v2 boot image with a real
+DTB section** (the FDT lives in the container's dtb section, `dt_size` at header +0x670, `dtb_addr`
++0x674). Our v0 Samsung repack leaves `dt_size=1` -> fails. The shim/payload shape is fine.
+Built `firmware/tools/build-bootimg-v2.py` mirroring AOSP `write_header()` (V2 size 1660) byte-for-byte.
+
+## B17 - boot #3 WRITE (header-v2 candidate), consented; observation pending
+
+Candidate `pack-out-v2.img` 7 587 840 B, sha256 `53142c71776b6c6a2975de3a02da905dd6e924f1b4683f5b05b2baa8e614a9ef`
+(kernel=[shim][FD] 7 340 320, empty cpio ramdisk 512, second 0, dtb=stock/dt.dtb 239 680 at file
+offset 7 346 176 magic d00dfeed; header_version 2, page 2048, base 0x10000000, kernel_addr 0x10008000,
+dtb_addr 0x10000000). Pushed to /tmp (on-device sha256 matched), `dd` to /dev/block/by-name/recovery
+(sda15) 7 587 840 B, read back first 7410 KiB sha256 == candidate (byte-exact). `adb reboot recovery`
+issued; `adb devices` now empty (consistent with download mode OR a real boot - panel decides).
+PENDING: user observation of the panel. If it gets PAST the DT check we expect UEFI paint (the shim
+paints a RED band rows 200-649, then GREEN rows 750-1199 after the FD copy).

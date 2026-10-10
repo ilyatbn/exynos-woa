@@ -937,3 +937,17 @@ Image header so sboot's load_kernel finds a valid FDT after `image_size` (likely
 0x10 "can use device tree" -> 0xa|0x10=0x1a, and place the DTB at align_up(image_size, page)).
 UNVERIFIED: sboot's exact DTB placement rule and whether it wants dt.dtb vs dtbo.dtb - decide by
 a boot observation, not by guessing. Files: `C:\Users\ilya\AppData\Local\Temp\opencode\stock\`.
+
+## B14 - boot #2 with the DTB candidate: AVB now bypassed, DT check STILL fails
+
+FACT re-flashed TWRP, wrote `pack-out-dtb.img` (19 542 016 B, sha256 `894299e8…7994d34`, byte-exact
+on sda15), rebooted to recovery -> **download mode again**. New panel text vs attempt 1:
+`VERIFICATION_DISABLED bit is set` (standard AVB term) - so the vbmeta re-flash this time genuinely
+disabled AVB verification (attempt 1 did not show it). GOOD: AVB is bypassed.
+STILL FAILING: `dt table header check fail` -> `DT LOAD fail`. So the T09 DECISION (append raw
+`dt.dtb` FDT at align(image_size=0x800000) + set flags bit4 0x10) did NOT satisfy sboot's DT check.
+The DTB contract is still wrong. NEXT (principled): mirror the phone's OWN stock kernel Image
+convention - inspect `stock/boot.img`'s kernel blob (44 380 172 B) ARM64 Image header (image_size,
+flags) and where its appended DTB actually sits, and replicate THAT in the payload, rather than
+guessing the placement. The stock kernel boots, so its Image-header/DTB layout is the ground truth.
+SAFETY: boot (sda14) untouched, Android still boots; recovery slot holds the boot#2 container.

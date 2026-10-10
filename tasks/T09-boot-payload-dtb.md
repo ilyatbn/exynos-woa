@@ -1,6 +1,6 @@
 # T09 — Append a valid DTB to the boot payload so sboot's load_kernel passes the DT check
 
-Status: **doing — shim flags + packer DTB-append implemented; candidate built; second boot not yet attempted**
+Status: **doing — attempt made (boot #2), DT check STILL fails; the placement/flag DECISION was insufficient**
 
 ## Goal
 
@@ -37,3 +37,10 @@ padding after, so the DT header check fails and sboot never jumps. Fix the paylo
 
 The payload carries a DTB sboot accepts and the boot gets past `load_kernel` — the panel shows
 UEFI output instead of the download-mode DT-error.
+
+## Attempt 1 result (2026-10-10, boot #2)
+
+Appended raw `dt.dtb` (FDT) at align(image_size=0x800000) + flags 0x1a (bit4). Boot #2 STILL
+`dt table header check fail` -> download mode (AVB now bypassed: `VERIFICATION_DISABLED` bit set).
+So the placement/flag guess is wrong. Next: mirror the stock kernel Image's actual header +
+appended-DTB layout (`stock/boot.img` kernel blob) as ground truth. See `notes/m8-uefi-image.md` B14.

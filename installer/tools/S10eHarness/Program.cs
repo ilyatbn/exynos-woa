@@ -6,6 +6,7 @@
 //
 //   image    <media.iso|install.wim> <index> <driversRoot> <workDir>
 //   check    <adb.exe> <serial>
+//   backup   <adb.exe> <serial> <dir>           (identity partitions: EFS, PARAM, ... - read-only on the phone)
 //   transfer <adb.exe> <serial> <workDir>      (writes USERDATA and CACHE - destructive)
 using S9Woa.Installer.Core.Deploy;
 using S9Woa.Installer.Core.Image;
@@ -71,6 +72,14 @@ switch (args.FirstOrDefault())
         Console.WriteLine("partitions match the beyond0lte geometry");
         return 0;
     }
+    case "backup" when args.Length == 4:
+    {
+        // RunBackupAsync's call: BackupService over PartitionMap.IdentityBackup, hashed on phone and PC.
+        var twrp = new TwrpClient(args[1], args[2], runner);
+        var manifest = await new BackupService(twrp).BackupAsync(args[3], "SM-G970F", args[2], log);
+        Console.WriteLine($"Backed up {manifest.Partitions.Count} partitions to {args[3]}.");
+        return 0;
+    }
     case "transfer" when args.Length == 4:
     {
         var twrp = new TwrpClient(args[1], args[2], runner);
@@ -93,6 +102,6 @@ switch (args.FirstOrDefault())
         return 0;
     }
     default:
-        Console.Error.WriteLine("usage: image <media> <index> <driversRoot> <workDir> | check <adb> <serial> | transfer <adb> <serial> <workDir>");
+        Console.Error.WriteLine("usage: image <media> <index> <driversRoot> <workDir> | check <adb> <serial> | backup <adb> <serial> <dir> | transfer <adb> <serial> <workDir>");
         return 1;
 }

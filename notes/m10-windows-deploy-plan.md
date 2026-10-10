@@ -192,3 +192,9 @@ the partition. Other values re-checked: disk 249888768 x 512 = 127 943 049 216 O
 Impact: the first image had NTFS 5 LBAs larger than USERDATA (backup boot sector past the end); TransferService would
 have refused it (image > partition). Build killed at 53.5/113.6 GiB exported; VHDX detached. Fixed PartitionMap +
 tests (194 passed). Rebuild next.
+
+## W11 - identity backup done (2026-10-10 22:19)
+S10eHarness gained `backup` (BackupService over PartitionMap.IdentityBackup, as RunBackupAsync). Run against the phone
+(TWRP): efs 20480 KiB (20107ff20016…), cpefs 6144 KiB (84e28cbb3bb1…), param 8192 KiB, up_param 8192 KiB, steady
+4096 KiB, keystorage 512 KiB, persistent 512 KiB - each hashed on phone and PC and matched. Folder + manifest:
+C:\Users\ilya\code\s10e-artifacts\backup-RF8M21HYDSZ. Image rebuild (fixed geometry) started 22:18.

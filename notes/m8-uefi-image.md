@@ -1478,3 +1478,8 @@ Fix: PlatformMemoryMapLib rounds every MMIO window OUT to whole pages covering [
 (header values unchanged). Death after "Processing next firmware volume" with the MMU off is consistent
 with DXE-side code (OptDxe BaseMemoryLib DC ZVA etc.) needing the MMU on.
 Verified: build exit 0 (FVMAIN_COMPACT 1336 B free). Boot #15 image %TEMP%\b56\boot15-v2.img sha256 42eb7a285eee966502319476ac1cd1308acefca1de66969030fbff1c6e10dad6
+
+## B57 - boot #15 WRITE to BOOT sda14
+
+Pushed (on-device sha256 42eb7a28...dad6), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
+42eb7a285eee966502319476ac1cd1308acefca1de66969030fbff1c6e10dad6 (byte-exact). `adb reboot` next.

@@ -97,6 +97,18 @@ STATIC CONST MONITOR_RESERVATION  mMonitorReservations[] = {
   { EXYNOS_RS_MAGIC_BASE,     EXYNOS_RS_MAGIC_SIZE     },  // sec_debug_magic
   { EXYNOS_RS_KASLR_BASE,     EXYNOS_RS_KASLR_SIZE     },  // kaslr
   { EXYNOS_RS_EL2_CODE_BASE,  EXYNOS_RS_EL2_CODE_SIZE  },  // el2_code
+  //
+  // Bank1/bank2 carve-outs (W2, notes/m10-windows-deploy-plan.md): with those banks published as
+  // RAM, these stay out of it. seclog (live read), the boot framebuffer (mapped as DEVICE below,
+  // page-rounded), the modem block modem_spare..s5100_msi (modem_spare is a live read; IF2/CP2CP/
+  // MSI are vendor-DT values - carved conservatively), and everything from modem_if up to 4 GiB
+  // (modem_if, cp_ram_logging, debug_snapshot, log_bcm - live reads).
+  //
+  { EXYNOS_RSVD_SECLOG_BASE,  EXYNOS_RSVD_SECLOG_SIZE  },  // seclog 0xC0000000
+  { EXYNOS_FB_BASE,           ((EXYNOS_FB_SIZE + 0xFFFULL) & ~0xFFFULL) },  // boot framebuffer
+  { EXYNOS_RSVD_MODEM_SPARE_BASE,
+      (EXYNOS_RSVD_S5100_MSI_BASE + EXYNOS_RSVD_S5100_MSI_SIZE - EXYNOS_RSVD_MODEM_SPARE_BASE) },  // modem block
+  { EXYNOS_RSVD_MODEM_IF_BASE, 0x0000000100000000ULL - EXYNOS_RSVD_MODEM_IF_BASE },  // modem_if .. 4 GiB
   { EXYNOS_RS_EL2_EARLY_BASE, EXYNOS_RS_EL2_EARLY_SIZE },  // el2_earlymem
 };
 
@@ -190,8 +202,8 @@ ArmPlatformGetVirtualMemoryMap (
   // as RAM because no read says what would break if Windows used them.
   //
   {
-    UINT64 BankBase[3];
-    UINT64 BankSize[3];
+    UINT64 BankBase[5];
+    UINT64 BankSize[5];
     UINTN  B;
 
     BankBase[0] = EXYNOS_DRAM_BASE;
@@ -201,6 +213,16 @@ ArmPlatformGetVirtualMemoryMap (
     BankSize[1] = EXYNOS_DRAM_BANK3_SIZE;
     BankBase[2] = EXYNOS_DRAM_BANK4_BASE;
     BankSize[2] = EXYNOS_DRAM_BANK4_SIZE;
+    //
+    // W2: the two 32-bit banks the 9810 port also gave Windows (its RamManager published bank1
+    // around seclog + framebuffer). Carved at the reservations above. Unproven for EL1 on the
+    // 9820: DXE allocates top-down, so the first boot with these tests them immediately (a bad
+    // range resets the phone the way banks 3/4 did, B62).
+    //
+    BankBase[3] = EXYNOS_DRAM_BANK1_BASE;
+    BankSize[3] = EXYNOS_DRAM_BANK1_SIZE;
+    BankBase[4] = EXYNOS_DRAM_BANK2_BASE;
+    BankSize[4] = EXYNOS_DRAM_BANK2_SIZE;
 #if !BEYOND0LTE_PUBLISH_HIGH_BANKS
     //
     // UEFI uses bank0 only (notes/m8-uefi-image.md B62/B63). Boot #16 reset (no EL1 exception)
@@ -214,7 +236,7 @@ ArmPlatformGetVirtualMemoryMap (
     BankSize[2] = 0;
 #endif
 
-    for (B = 0; B < 3; B++) {
+    for (B = 0; B < 5; B++) {
       UINT64 Start;
       UINT64 End;
       UINT64 Cursor;

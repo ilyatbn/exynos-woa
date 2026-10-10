@@ -86,3 +86,11 @@ Build: build-ufs.ps1 needs vswhere on PATH ("C:\Program Files (x86)\Microsoft Vi
 and must run from bash/powershell -File (stderr from vcvars is fatal under PowerShell's ErrorAction).
 Verified: default 48 128 B, -DmaWindow 48 640 B, both exit 0; llvm-objdump finds no "movk #0xfed1, lsl #16"
 in either .sys. Outputs %TEMP%\ufs-b86-default, %TEMP%\ufs-b86-dmawin.
+
+## W2 - RAM for Windows: bank1 + bank2 published (carved), unproven for EL1
+PlatformMemoryMapLib: bank loop 3 -> 5 banks (+BANK1 0xC0000000+0x20000000, +BANK2 0xE1900000+0x1E700000);
+sorted carve list gains seclog 0xC0000000+0x80000, FB 0xCA000000+0x965000 (page-rounded; still mapped as
+DEVICE separately), modem block 0xD0000000..0xD9801000 (modem_spare live; IF2/CP2CP/MSI vendor DT), and
+0xF0000000..0x100000000 (modem_if, cp_ram_logging, debug_snapshot, log_bcm). New RAM: 0xC0080000..
+0xCA000000, 0xCA965000..0xD0000000, 0xD9801000..0xE0000000, 0xE1900000..0xF0000000 (~581 MB; total
+~1.5 GB with bank0). Banks 3/4 stay off (B63). Build exit 0. Test = next boot: DXE allocates top-down.

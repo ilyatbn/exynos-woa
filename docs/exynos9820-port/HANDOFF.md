@@ -1021,3 +1021,29 @@ restart Claude Code elevated.
 hypervisor included, notes W6) is enabled pending restart; the user chose to keep it and reboot the PC. After the
 reboot, in an elevated Claude session: confirm `Get-Command New-VHD`, then continue at step 2. W5 (9810 patch
 inventory) is in notes/m10-windows-deploy-plan.md.
+
+## 24. Restart point - the live one (2026-10-11): WINDOWS KERNEL RUNS; storage driver fixed; unattended loop
+
+**State.** BOOT = boot #38 (s10e-artifacts\boot38-v2.img). Windows 11 Pro 22631.2861 is on USERDATA, ESP on CACHE
+(BCD numproc 1, testsigning on). Windows UFS driver in the image: s10e-artifacts\ufs-w23\Exynos9820Ufs-w26.sys
+(swapped in place with TWRP: mount.ntfs /dev/block/by-name/userdata; DriverStore\FileRepository\
+exynos9820ufs.inf_arm64_4efdc4525d11d997\Exynos9820Ufs.sys). Full story: notes/m10-windows-deploy-plan.md W13-W26.
+
+**What got Windows to its kernel:** UEFI UFS DMA into non-page-aligned buffers is corrupt on this controller ->
+1 MiB bounce + 1 MiB SCSI split (W18, W22). No winload/ntoskrnl patching was needed to pass uH.
+**Windows storage:** the driver loads and finds ACPI\EXYN9820; it rejected the PMA range (0x1000 vs DT 0x800) ->
+fixed in w26 (W26). Boot #38 + w26 did not come back to TWRP within 10 min = the driver reached OPERATIONAL (it
+stops the firmware watchdog there) - presumably Windows first-boot setup is running. UNVERIFIED.
+
+**Unattended loop (how to iterate without a human):**
+- Shim + SEC: dead man's switch = INFORM3 recovery + watchdog cl0 82 s; BootLogDxe: reason normal + re-arm at
+  ReadyToBoot and at ExitBootServices; firmware crash -> dump + UEFILOG.TXT + SWRESET to TWRP.
+- ReadyToBoot creates \WINRUN.FLG; the next UEFI boot that finds it saves 64 KB of 0x8FE00000 as \WINPRAM.BIN
+  (driver early marks at +0x8000: stages, failures, =BUGCHECK code/params), zeroes it, goes to TWRP.
+- KNOWN: the boot right after a firmware-triggered reset (watchdog, PMIC keys) hangs in the shim (user: always so).
+  The dead man's switch turns that into TWRP after 82 s; then 'adb reboot' gives a clean first boot that saves WINPRAM.
+- Read results: adb shell mount -t vfat /dev/block/by-name/cache /tmp/esp -> UEFILOG.TXT, WINPRAM.BIN.
+
+**Next order.** (1) Read Windows' own logs from NTFS in TWRP (Panther, evtx, Minidump). (2) Fix the second-boot shim
+hang (suspects: missing exynos_acpm_reboot before our resets; stale state). (3) Strip bring-up diagnostics once
+Windows boots. (4) More RAM (bank1/2 never reached the UEFI map - W18), then numproc > 1 (PSCI 0.1, W8).

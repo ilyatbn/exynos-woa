@@ -107,3 +107,14 @@ adb shell 'cat /proc/cmdline' | tr ' ' '\n' | grep -i reset
   Android reboots show `REBOOTMODE0` / `INFORM3(0)`; kernel panics show `KP / SOFT, PANIC`.
   The **spacing between entries** is the useful number: same period across builds = timer.
 - `reset_reason` itself only names the last reset (usually your key combo, `RPON`).
+
+## 10. Getting the S10e back when it is stuck in a boot loop
+
+Only `boot` (sda14) is ever written; sboot, download mode and recovery are untouched, so the phone
+is always recoverable - but the key timing gets harder as our firmware runs longer per cycle.
+- Force restart: hold **Volume Down + Power** ~10 s (handled by the PMIC, not our code).
+- Download mode: USB cable plugged in, then the moment the screen goes black switch to
+  **Volume Down + Bixby**; Volume Up to continue at the warning.
+- TWRP: the moment it goes black switch to **Volume Up + Bixby + Power** and keep holding until
+  TWRP appears (releasing at the Samsung logo may boot our image again).
+- Rollback to Android: from TWRP write the stock `boot.img` back to `by-name/boot`.

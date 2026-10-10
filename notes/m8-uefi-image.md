@@ -1530,3 +1530,8 @@ observed to fault) - recorded so a regression can be bisected to this commit.
 Verified: build exit 0; TimerDxe static libs = ArmGenericTimerVirtCounterLib.
 Boot #16 = boot #15 + GICv2 driver (B59) + virtual timer: %TEMP%\b60\boot16-v2.img
 sha256 374f49d2f958e9a0d7055ee8e1e6245892abb3156c53093f24d33a8d6c09b145
+
+## B61 - boot #16 WRITE to BOOT sda14 (user recovered to TWRP via key combo after a hard-to-escape loop)
+
+Pushed (on-device sha256 374f49d2...b145), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
+374f49d2f958e9a0d7055ee8e1e6245892abb3156c53093f24d33a8d6c09b145 (byte-exact). `adb reboot` next.

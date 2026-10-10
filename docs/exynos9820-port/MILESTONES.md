@@ -46,6 +46,10 @@ This file is the plan of record. It is updated and committed **per task**, never
 batched at the end. Research evidence lives in [`notes/exynos9820-research.md`](../notes/exynos9820-research.md)
 and [`../notes/dock-desktop.md`](../notes/dock-desktop.md).
 
+**Phase two (drivers: USB host, hub, keyboard/mouse, WiFi, GPU) has its own task
+breakdown in [`DRIVERS-MILESTONES.md`](DRIVERS-MILESTONES.md)** — the D1–D6 list
+expands M10–M15 into buildable one-at-a-time tasks.
+
 **If you are starting a fresh session — especially one on Windows — read
 [`HANDOFF.md`](HANDOFF.md) first.** It states what exists, what does not, the
 exact build commands, and the unknowns that are boot hazards rather than build

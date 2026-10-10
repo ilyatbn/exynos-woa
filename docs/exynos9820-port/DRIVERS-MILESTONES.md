@@ -1,0 +1,117 @@
+# Driver milestones (phase two) — USB host, hub, HID, WiFi, GPU/display
+
+This file is the plan of record for the **driver work stream**, run in parallel with
+the boot work stream (M8/M9 in [`MILESTONES.md`](MILESTONES.md)). It expands the
+M10–M15 rows of that file into buildable tasks with a fixed order of attack.
+
+Scope, in the user's own words (2026-10-10): make **keyboard and mouse work over
+USB-C**, support a **non-powered USB hub** for more USB2 ports, get **WiFi**, and get
+**GPU support** — building them one by one, using research from Linux/Android
+solutions for the Galaxy S10e (`beyond0lte`, SM-G970F).
+
+## What phase one already settled (do not re-litigate, build on it)
+
+| Fact | Where |
+|---|---|
+| DWC3 core at `0x10C00000`+0x10000, **identical between 9810 and 9820**; exposes a standard xHCI register interface | `notes/dock-desktop.md` §4/§5, `Exynos9820.h:395-396` |
+| USB PHY `10B00000`+0x200, combo PHY `10AE0000`+0x2800, PCS `10AF0000`+0x800 — all VERIFIED; `has_combo_phy=1` (USB3 + DisplayPort share the PHY) | `Exynos9820.h:397-402`, `notes/dock-desktop.md` §11 |
+| Shipping DT says `dr_mode = "otg"` — host mode is a **firmware decision**, not a Windows one | `notes/dock-desktop.md` §8 |
+| USB IRQs: DWC3 SPI 241 → **GSIV 273**; PHYs SPI 277/278 | `Exynos9820.h:522-523` |
+| CMU windows for USB resolved from Samsung cal-if: `CMU_PERIC0 0x10400000+0x8000`, `CMU_FSYS0A 0x10a00000+0x8000`, gates IPCLK `0x2094`/PCLK `0x2098`/RSTNSYNC `0x2054`/OSCCLK `0x2008`, QCH `0x3038` | `notes/s10e-live-reads.md` §7.5 |
+| Mu-Silicium `UsbfnDwc3Dxe` exists but USB Host Mode is ❌ on every Exynos target — nobody finished it | `notes/dock-desktop.md` §3 |
+| Our 9810 `UsbDebugHid.c` is a full DWC3 register vocabulary but programs **peripheral** mode, and is compiled off | `notes/dock-desktop.md` §9 |
+| EDK2 USB stack (`UsbBusDxe`, `UsbKbDxe`, `UsbMassStorageDxe`) is **commented out** in both platform FDFs | `Star2LtePkg.fdf:167-169`, `Beyond0LtePkg.fdf:259-261` |
+| Phone WLAN is Broadcom `bcmdhd` with no Windows driver and no DT device node — vendor-WiFi on Windows is a **dead end**; USB WiFi adapter is the fallback | M12 in `MILESTONES.md`, `notes/dock-desktop.md` §6 |
+| **Safety:** powered hub + host mode "can irreversibly damage your device"; the user's hub is **non-powered**, which is the safe configuration | `MILESTONES.md` rule 7, woa-mh2lm5g materials.md |
+| One USB-C connector: host mode and charging compete for the same port | `notes/dock-desktop.md` §8 |
+
+## The two halves of every USB task
+
+USB host on this platform has **two independent halves**, and they are verified at
+different times:
+
+1. **Firmware half (UEFI):** a DWC3 host-mode driver inside `BEYOND0LTE_UEFI.fd` +
+   the EDK2 USB stack. This is testable **as soon as UEFI boots** — a keyboard
+   attached through the hub should reach `BdsDxe`/`ConIn` before Windows exists.
+2. **Windows half:** an ACPI-enumerated xHCI device so Windows' inbox `USBXHCI.sys`
+   binds the same MMIO window, plus whatever role/VBUS switching the firmware must
+   leave latched. Mu-Silicium has never finished this on Exynos.
+
+Every USB task below is split `fw` / `win` accordingly. The firmware half is the
+risk-reducer: if keyboard+hub work in UEFI, the DWC3 init is proven and only the
+ACPI/Windows half remains.
+
+## Milestones
+
+| # | Milestone | State | Blocked on |
+|---|-----------|-------|------------|
+| D1 | DWC3 **host mode** in UEFI (the gate for everything else) | todo | boot stream (validation only — research and coding can start now) |
+| D2 | USB hub (non-powered) + keyboard/mouse in UEFI (`ConIn`) | todo | D1 |
+| D3 | USB host under **Windows**: ACPI xHCI device, inbox `USBXHCI.sys` | todo | D1, boot stream |
+| D4 | WiFi: USB adapter path chosen + validated (vendor bcmdhd stays closed) | todo | D3 |
+| D5 | GPU/display: research verdict on Mali-G76, then DECON GOP in UEFI | todo | — (research can start now) |
+| D6 | External display (DP alt mode over the combo PHY) — stretch | todo | D1, D5 |
+
+## Task list
+
+### D1 — DWC3 host mode in UEFI
+
+| Task | State | Notes |
+|------|-------|-------|
+| Research: how Linux/Android on the S10e brings up DWC3 (exynos-dwc3 glue, USBFN, PHY init order, VBUS/ID role) | todo | subagent → `notes/d1-usb-host.md` |
+| Research: Mu-Silicium `UsbfnDwc3Dxe` + edk2-exynos 9820 USB prior art — what exists, what is broken | todo | same notes file |
+| Write the 9820 USB init library (`UsbPlatformLib`-style): clocks (CMU_PERIC0/FSYS0A gates), PHY (10B00000/10AE0000/10AF0000), DWC3 core → host (`PRTCAP_HOST`) | todo | one MMIO block per verified window, constants from `Exynos9820.h` only |
+| Wire EDK2 USB stack into `Beyond0LtePkg.dsc/.fdf` (`UsbBusDxe`, `UsbHubDxe`, `UsbKbDxe`, `UsbMouse`-equivalent) | todo | currently commented out at `Beyond0LtePkg.fdf:259-261` |
+| Build clean (host-mode USB in the FD, FD size still fits `FVMAIN_COMPACT`) | todo | build-only proof; device proof waits on the boot stream |
+
+### D2 — Hub + keyboard/mouse in UEFI
+
+| Task | State | Notes |
+|------|-------|-------|
+| Confirm EDK2 `UsbHubDxe` handles a non-powered hub's power budget (100 mA upstream → per-port accounting) | todo | the user's hub is USB2 non-powered — the safe config |
+| Keyboard reaches `ConIn` on device (type at the BDS prompt through hub) | todo | **needs-boot** — first device-visible win of phase two |
+| Mouse enumerated (UEFI pointer protocol; not required for Windows, nice-to-have in UEFI) | todo | |
+
+### D3 — USB host under Windows
+
+| Task | State | Notes |
+|------|-------|-------|
+| Research: how WoA targets expose memory-mapped xHCI to Windows (ACPI `_HID`/`_CID`, `USBXHCI.sys` binding rules, Snapdragon prior art) | todo | subagent → `notes/d3-usb-windows.md` |
+| Add the xHCI ACPI device to `Beyond0LtePkg/AcpiTables` (MMIO `10C00000`+0x10000, GSIV 273) | todo | |
+| Decide the role-latching contract: firmware leaves DWC3 in host mode before `ExitBootServices` | todo | |
+| Device test: keyboard/mouse/hub under Windows | todo | **needs-windows + needs-boot** |
+
+### D4 — WiFi
+
+| Task | State | Notes |
+|------|-------|-------|
+| Keep vendor bcmdhd closed (M12 verdict) — do not spend tasks on it | **done — decision** | no Windows driver, no DT node; reopening only on new evidence |
+| Research: USB WiFi adapters with **inbox or ARM64** Windows drivers (which chips does Windows ARM64 support without vendor drivers?) | todo | subagent → `notes/d4-usb-wifi.md` |
+| Pick the adapter for the donation build and record it | todo | depends on the research verdict |
+
+### D5 — GPU / display
+
+| Task | State | Notes |
+|------|-------|-------|
+| Research: Mali-G76 on Windows ARM64 — is any WDDM driver obtainable? (ARM's Windows Mali driver availability, prior art on any Exynos WoA display) | todo | subagent → `notes/d5-gpu-display.md` |
+| Research: edk2-exynos DECON/display bring-up for exynos9820 (they light the S10 panel in UEFI today) | todo | same notes file |
+| Verdict task: GPU acceleration on Windows is either a real driver project or a documented dead end — write the decision down | todo | honest bar: no fake `Ready` |
+| Firmware GOP driver (DECON scanout at the S10e's 1440×3040) so UEFI has real graphics and Windows can use a framebuffer | todo | fb base for the FD is still `UNVERIFIED` (`Exynos9820.h`); the M8 fb-overlap task interacts |
+
+### D6 — External display (stretch)
+
+| Task | State | Notes |
+|------|-------|-------|
+| Research: DP alt mode on the 9820 combo PHY (SMV/HPD, what DeX does at `displayport@130B0000`) | todo | `notes/dock-desktop.md` §11 is the starting point |
+| Decide: DP alt mode vs DisplayLink dock (DisplayLink is the funded fallback) | todo | |
+
+## Working rules for this file
+
+- Same ground rules as `MILESTONES.md`: one commit per task, `todo → doing → done`
+  moves in the same commit, nothing device-validated until it is actually observed.
+- Research tasks go to a **subagent** that appends findings (with source URLs) to
+  the named notes file **as it works**; the implementation pass reads only that file.
+- No MMIO constant enters code unless it is `VERIFIED` in `Exynos9820.h` or a notes
+  file; anything else stays `UNVERIFIED` and named.
+- The non-powered hub is a **hard requirement** of the donation build until a spare
+  unit exists to test powered-hub host mode.

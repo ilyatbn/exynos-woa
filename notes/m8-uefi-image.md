@@ -1023,3 +1023,15 @@ partially) and faults/resets, so sboot retries. Failure has moved from the CONTA
 SHIM/PAYLOAD stage: the never-validated DECISION constants (drop address vs UEFI_BASE 0x83300000,
 temp SP 0x83000000, watchdog WTCON offsets, FB paint 0xCA000000) and the FD's own SEC entry.
 adb shows no device (mid-loop or settled). PENDING: what it settled into (download / still looping).
+
+## B21 - CONFIRMED: DT check cleared; loop is the shim faulting; sboot healthy
+
+User brought the phone back to download mode MANUALLY (button combo) and it now shows the NORMAL
+download-mode INFO banner, NOT the `dt table header check fail` / `DT LOAD fail` error. So sboot is
+healthy and the header-v2 container on the boot partition definitively cleared the DT check (B16 fix
+correct). The boot loop = sboot loaded the kernel, jumped to the shim, the shim faulted/resets, sboot
+retries. Failure is now entirely in the SHIM/PAYLOAD stage (unvalidated 9820 constants: watchdog WTCON
+addresses, FB paint address, drop-vs-UEFI_BASE copy, temp SP, FD SEC entry). Recovery slot (sda15)
+still holds the failed boot #3 v2 image, so TWRP must be reflashed to get a shell. NEXT: reflash TWRP
+(user), restore stock boot.img to sda14 (undo the loop -> Android safe), then diff our bootshim.S vs
+edk2-exynos' device-proven exynos9820 BootShim.S to find the wrong 9820 constant.

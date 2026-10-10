@@ -76,3 +76,13 @@ Installer: PartitionMap has beyond0lte geometry; other gaps per notes/installer-
    (DXE allocates top-down, so a bad range resets immediately - same test as B62).
 3. Deploy with the installer's Core pipeline; first Windows boot; then attack uH hangs with the 9810's
    BDS patch set as the reference.
+
+## W1 - Windows UFS driver: PRAM breadcrumbs off (UFS_PRAM_ENABLE 0)
+Exynos9820Ufs.h: UFS_PRAM_ENABLE 0 (both 9810 ramoops windows 0xFED14000 / 0xFED13000 lie in the 9820
+debug_snapshot carve-out). Exynos9820Ufs.c: UfsLowWdtPramInitialize and UfsPramInitialize map only under
+#if UFS_PRAM_ENABLE; every PRAM user already guards on a NULL mapping. (A plain early return tripped
+C4702 unreachable-code-as-error; the #if form builds clean.)
+Build: build-ufs.ps1 needs vswhere on PATH ("C:\Program Files (x86)\Microsoft Visual Studio\Installer")
+and must run from bash/powershell -File (stderr from vcvars is fatal under PowerShell's ErrorAction).
+Verified: default 48 128 B, -DmaWindow 48 640 B, both exit 0; llvm-objdump finds no "movk #0xfed1, lsl #16"
+in either .sys. Outputs %TEMP%\ufs-b86-default, %TEMP%\ufs-b86-dmawin.

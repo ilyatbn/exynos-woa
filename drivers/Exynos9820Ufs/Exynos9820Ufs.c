@@ -1476,12 +1476,16 @@ UfsLowWdtPramInitialize(
     PHYSICAL_ADDRESS Physical;
 
     Adapter->LowWdtPram = NULL;
+#if UFS_PRAM_ENABLE
     Physical.QuadPart = (LONGLONG)UFS_LOW_WDT_PRAM_PHYSICAL_BASE;
     Adapter->LowWdtPram = (PUCHAR)MmMapIoSpace(
         Physical,
         UFS_LOW_WDT_PRAM_WINDOW,
         MmNonCached
         );
+#else
+    UNREFERENCED_PARAMETER(Physical);
+#endif
 }
 
 static
@@ -2123,6 +2127,7 @@ UfsPramInitialize(
     Adapter->PramRecords = 0;
     Adapter->Diagnostic.PramMapped = 0;
 
+#if UFS_PRAM_ENABLE
     PramPhysical.QuadPart = (LONGLONG)UFS_PRAM_PHYSICAL_BASE;
     Adapter->Pram = (PUCHAR)MmMapIoSpace(
         PramPhysical,
@@ -2178,6 +2183,10 @@ UfsPramInitialize(
 
     UfsPramLatchInitialize(Adapter);
     UfsPramFlushInitialize(Adapter);
+#else
+    UNREFERENCED_PARAMETER(PramPhysical);
+    UNREFERENCED_PARAMETER(Header);
+#endif
 }
 
 /*

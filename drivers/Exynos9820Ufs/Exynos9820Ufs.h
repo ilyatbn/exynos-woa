@@ -88,6 +88,14 @@
 // Every append is a single-byte store, so this channel cannot reproduce the
 // unaligned-STRH fault class that cost V16-V23.
 //
+//
+// UFS_PRAM_ENABLE (default 0, notes/m10-windows-deploy-plan.md audit): both PRAM windows below
+// (0xFED14000 ring, 0xFED13000 low-WDT record) are 9810 ramoops choices. On the 9820 they fall
+// inside the vendor's debug_snapshot carve-out (0xFD900000+), which the UEFI memory map does not
+// publish and Samsung's hypervisor may protect. With 0 the driver never maps them: every PRAM
+// user already treats a NULL mapping as "channel absent".
+//
+#define UFS_PRAM_ENABLE                    0
 #define UFS_PRAM_PHYSICAL_BASE             0xFED14000ULL   // UNVERIFIED on 9820 — our firmware's choice, must follow the 9820 memory map
 #define UFS_PRAM_MAGIC                     0x43474244UL
 #define UFS_PRAM_HEADER_SIZE               0x0000000CUL

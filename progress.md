@@ -6,7 +6,7 @@ A task is not `[x]` until its verification actually ran.
 
 ## Boot/install path — what gates trying the S10e
 
-- [ ] **T01** — Re-pick the UFS DMA window inside the live bank0 → `tasks/T01-ufs-dma-window.md`
+- [x] **T01** — Re-pick the UFS DMA window inside the live bank0 → `tasks/T01-ufs-dma-window.md`
 - [ ] **T02** — Split the framebuffer out of the bank0 RAM gap → `tasks/T02-framebuffer-overlap.md`
 - [ ] **T03** — Resolve the UFS DTB extent disagreement (live vs vendor DT) → `tasks/T03-ufs-extent-disagreement.md`
 - [ ] **T04** — Handle the second LUN (`cpefs` is `sdd1`, driver written against one `sda`) → `tasks/T04-second-lun.md`

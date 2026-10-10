@@ -753,3 +753,53 @@ container and the comparison above must be redone, not assumed.
 Still NOT closed by this: the image has never been flashed or booted (ground
 rules 5/6), and K4b (where sboot drops the kernel) is what decides whether the
 shim's own copy step survives - see the hazard comment in bootshim.S.
+
+## Session 2026-10-10 - "build and run": first boot attempt (T07)
+
+User gave explicit consent to attempt the first Windows boot on the S10e. This
+is the point where ground rules 5/6 get their green light. Progress log below.
+
+### B1 - rebuild the UEFI platform
+
+FACT ran `powershell -NoProfile -ExecutionPolicy Unrestricted -File firmware\tools\build-uefi.ps1 -Platform Beyond0LtePkg -Target DEBUG`
+- exit 0, `- Done -`, build total time 42 s (incremental).
+- `BEYOND0LTE_UEFI.fd` 7 340 032 B (unchanged size).
+- `FVMAIN_COMPACT` [99%Full] 700416 total / 697344 used / **3072 B free**; `FVMAIN` [27%Full] 1161064 used.
+- log: `%TEMP%\m8-build-uefi-20261010.log`.
+- FD is not byte-deterministic (notes/m8-build.md §8) - compare sizes/FV numbers, not hashes.
+
+### B2 - rebuild the UFS storage driver
+
+FACT ran `powershell -NoProfile -ExecutionPolicy Unrestricted -File drivers\Exynos9820Ufs\build-ufs.ps1 -SourceDir drivers\Exynos9820Ufs -OutDir %TEMP%\opencode\ufs-9820-run1 -WideUncached -DmaWindow`
+- exit 0, `EXACT_BUILD_OK` / `BUILD_OK`.
+- `Exynos9820Ufs.sys` 49152 B sha256 `3a19a6bb5b88cac04aaccbe292fb998c60bad9be0a6c783dbb1fafd22caf0d0b` - **identical to the fence-pass build** (HANDOFF §12/§13 `3a19a6bb…caf0d0b`), so the driver is byte-stable and the fence constants are unchanged.
+- `UfsDiag.exe` 213504 B sha256 `7f4f7436f275125657b0801fcb57ada1c7a49604e7909a6e02863caf542965bf` - also identical.
+- ABI `{"signature":960910165,"version":1376256,"bytes":992,"perf":1,"wide_uncached":1,"dma_window":1,"portable_kernel_contract":1}`.
+
+### B3 - rebuild the installer
+
+FACT `dotnet build installer\S9Woa.Installer.sln -c Debug -p:Platform=x64` -> Build succeeded, 0 warnings / 0 errors.
+FACT `dotnet test installer\tests\S9Woa.Installer.Core.Tests\S9Woa.Installer.Core.Tests.csproj -p:Platform=x64` -> **194 passed, 0 failed** (matches the recorded suite count; `beyond0lte` still `NotImplemented` on purpose - see T08).
+- logs: `%TEMP%\m9-installer-build.log`, `%TEMP%\m9-installer-test.log`.
+
+### B4 - regenerate the candidate boot image
+
+FACT ran `powershell -NoProfile -ExecutionPolicy Unrestricted -File firmware\tools\pack-uefi-beyond0lte.ps1 -Ref %TEMP%\opencode\ref-recovery-trim.img -Output %TEMP%\opencode\pack-out-run1.img`
+- exit 0. FD 7 340 032 B; shim.bin 288 B; code0 0x10000901; magic ARM64; kernel 7 340 320 B.
+- ref page_size 2048; kernel slot 44 363 788 -> 7 340 320; ramdisk 10 905 981 / second 0 / dt 1 / tail 0 all verbatim.
+- **output 18 253 824 B** (not 18 255 872). The 2048-byte delta vs HANDOFF §17/§18 is the ref: §17 packed against the UNtrimmed `ref-recovery.img` (55 279 616 B); this run used the byte-exact trimmed `ref-recovery-trim.img` (55 277 568 B, notes Step 21). Same kernel, same base 0x83300000. The trimmed ref is the correct container end, so 18 253 824 B is the current candidate.
+- recovery slot 55 279 616 B -> 3.0x margin, well under BOOT 57 671 680 B.
+
+### B5 - the flash/run blockers (found before any write)
+
+FACT `adb devices -l` -> **empty**, twice (also after a no-op `adb reboot`). The S10e is NOT attached to this PC right now. Nothing can be flashed or booted until the user plugs it in and accepts the access prompt.
+FACT heimdall is NOT installed as an executable (`Get-Command`/`where` empty). Only a source tarball exists: `C:\Users\ilya\code\platform-tools\Heimdall-v2.2.2.tar.gz` (note: v2.2.2, newer than the v2.1.0 the notes analysed). It has never been built or run here, and the notes' two hazards (no partition-size check PR #555; untested on an S10e) still apply.
+CONCLUSION: the "run" half of "build and run" is blocked on the device. Build side is complete and green. Stopping here per the "if it can only be decided on a real phone, say so and stop" rule; the flash is also the destructive write on the only S10e.
+
+### B6 - T01: UFS DMA window re-picked (phone re-attached first)
+
+FACT `adb devices -l` now shows `RF8M21HYDSZ device product:beyond0ltexx model:SM_G970F` - the S10e is attached and authorized (normal Android, not recovery).
+CHANGE `Exynos9820Ufs.h:914-915`: `UFS_DMA_WINDOW_FIRST 0x90000000 -> 0xA7400000`, `LAST 0xBC800000 -> 0xBAB00000`, both still UNVERIFIED (CHOSEN band). Added `C_ASSERT(FIRST < LAST)`. Comment names the reads (bank0 end 0xBAB00000 = DTB reg + /proc/iomem; camera reservation end 0xA7400000).
+VERIFY rebuilt both modes: `-DmaWindow` (ENFORCE=1) EXACT_BUILD_OK 49152 B sha256 `47391120…` (window baked into DmaWindowFirst/Last diagnostic fields, .c:4956-4957); default (ENFORCE=0) EXACT_BUILD_OK 48640 B. Old `9810ULL` values gone from the #defines; remaining `0xBC800000` hits are prose.
+FOLLOW-UP (recorded, not fixed): `Exynos9820Ufs.c:1427` and `Exynos9820Ufs.h:79` still narrate `EXYNOS_DRAM` end as `0xBC800000` (9810 total) - stale vs live `0xBAB00000`, different constant, out of T01 scope.
+- log: `%TEMP%\m8-build-ufs-run1.log`.

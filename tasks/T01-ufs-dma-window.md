@@ -1,6 +1,6 @@
 # T01 — Re-pick the UFS DMA window inside the live bank0
 
-Status: **open**
+Status: **done (window re-picked from reads; still UNVERIFIED until a device validation)**
 
 ## Goal
 
@@ -39,3 +39,19 @@ re-picked from reads.
 
 The asserts compile clean with the new window AND the comment above the macros
 names the read that bounds them.
+
+## Result (2026-10-10)
+
+`Exynos9820Ufs.h:914-915` now `UFS_DMA_WINDOW_FIRST 0xA7400000` / `LAST 0xBAB00000`,
+both still marked UNVERIFIED (a CHOSEN band, not a hardware-read aperture). The
+comment names the reads: bank0 `0x80000000+0x3AB00000` ends `0xBAB00000`
+(`notes/K10-rkp.md` T18 + `/proc/iomem` `System RAM 80000000-baafffff`), camera
+reservation ends `0x99000000+0xE400000 = 0xA7400000` (`notes/s10e-dtb-mmio.md` S02).
+Added `C_ASSERT(UFS_DMA_WINDOW_FIRST < UFS_DMA_WINDOW_LAST)`.
+Rebuilt both modes clean: `-DmaWindow` (ENFORCE=1) `EXACT_BUILD_OK` 49152 B sha256
+`47391120…` (window now baked into the diagnostic fields); default (ENFORCE=0)
+`EXACT_BUILD_OK` 48640 B.
+**Follow-up (not fixed here):** `Exynos9820Ufs.c:1427` and `Exynos9820Ufs.h:79` still
+narrate `EXYNOS_DRAM` end as `0xBC800000` (the 9810 total) — stale against the live
+`0xBAB00000`, but that is a different constant than the DMA window and out of T01's
+scope.

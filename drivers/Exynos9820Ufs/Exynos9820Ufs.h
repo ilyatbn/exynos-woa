@@ -47,8 +47,9 @@
 //   * UFS_PRAM_PHYSICAL_BASE and UFS_LOW_WDT_PRAM_PHYSICAL_BASE — these are OUR
 //     firmware's reserved DRAM, chosen against the 9810's memory map. The S10e's
 //     DRAM banks differ, so they must be re-picked with the 9820 map (M8).
-//   * UFS_DMA_WINDOW_FIRST/LAST — derived from the 9810's FMP aperture; the S10e's
-//     banks are 80000000+0x80000000, 880000000 and 900000000.
+//   * UFS_DMA_WINDOW_FIRST/LAST — re-picked to the free band inside the LIVE bank0
+//     (0xA7400000..0xBAB00000): the live DTB ends bank0 at 0x80000000+0x3AB00000,
+//     so the 9810's 0x90000000..0xBC800000 overran it. Still a CHOSEN band, UNVERIFIED.
 //   * every write-fence and protected-partition LBA — the S10e's partition table is
 //     a different list (notes/dock-desktop.md §13); the map derived there is
 //     arithmetic, not a GPT read, so it may not be written here as a constant.
@@ -897,18 +898,22 @@ C_ASSERT(UFS_WDT_WTCNT < UFS_WDT_WINDOW);
 /*
  * Samsung FMP DMA window.
  *
- * The UFS controller's DMA is restricted to the low memory region; addresses
- * outside it are simply not reachable. This is the same bound the UEFI side
- * already respects for its common buffers, stated here so the Windows driver
- * respects it too.
+ * The UFS controller's DMA is restricted to a low-memory region; addresses
+ * outside it are not reachable. The 9810's aperture (0x90000000..0xBC800000)
+ * is ILLEGAL on this SoC: the live DTB declares bank0 as 0x80000000 + 0x3AB00000
+ * (ends 0xBAB00000 - notes/K10-rkp.md T18, confirmed by /proc/iomem "System RAM
+ * 80000000-baafffff"), so the old upper bound overran the declared bank by
+ * 0x1D00000.
  *
- * It only became load-bearing when MR1 published DRAM bank1 as conventional
- * memory: before that, the only conventional memory below 4 GB was inside this
- * window, so Dma32BitAddresses=TRUE happened to be sufficient. It is not a
- * description of the hardware, and the MR1 boot proved it.
+ * The window below is the free band inside bank0, above every reserved-memory
+ * carveout read from the live DTB (notes/s10e-dtb-mmio.md S02): the camera
+ * reservation ends at 0x99000000 + 0xE400000 = 0xA7400000, and bank0 ends at
+ * 0xBAB00000. It is a CHOSEN band, not a hardware-read aperture, so it stays
+ * UNVERIFIED until a device validation says otherwise.
  */
-#define UFS_DMA_WINDOW_FIRST                0x0000000090000000ULL   // UNVERIFIED on 9820 (9810 FMP aperture)
-#define UFS_DMA_WINDOW_LAST                 0x00000000BC800000ULL   // UNVERIFIED on 9820 (9810 FMP aperture)
+#define UFS_DMA_WINDOW_FIRST                0x00000000A7400000ULL   // UNVERIFIED: chosen band, above the camera reservation (live DTB)
+#define UFS_DMA_WINDOW_LAST                 0x00000000BAB00000ULL   // UNVERIFIED: bank0 end (DTB reg + /proc/iomem)
+C_ASSERT(UFS_DMA_WINDOW_FIRST < UFS_DMA_WINDOW_LAST);
 #define UFS_STOP_TIMEOUT_US                  100000UL
 
 /*

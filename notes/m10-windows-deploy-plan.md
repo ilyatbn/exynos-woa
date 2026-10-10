@@ -107,3 +107,16 @@ Same shape as boot #25 (UfsHc ring/done lines are capped at 40, so later FAT pro
 ESP/BOOTAA64.EFI to load yet). => DXE survived allocating top-down from bank2/bank1: EL1 may use the W2
 ranges (0xC0080000..0xCA000000, 0xCA965000..0xD0000000, 0xD9801000..0xE0000000, 0xE1900000..0xF0000000) at least
 for UEFI boot-services data. Windows UFS driver to use: the -DmaWindow build (s10e-artifacts\ufs-b86-dmawin).
+
+## W4 - driver package + Core harness (2026-10-10)
+Driver package for the image: C:\Users\ilya\code\s10e-artifacts\drivers-w4\Exynos9820Ufs\ = Exynos9820Ufs.inf (repo,
+ACPI\EXYN9820, boot-start SCSI miniport) + Exynos9820Ufs.sys from ufs-b86-dmawin (UFS_DMA_WINDOW_ENFORCE=1; unsigned
+sha b2aaf084…2dbf), signed with the WDK test cert (thumbprint 5DD5DEE1…3E48, M7.4 mechanism) -> 50 072 B sha
+155dd70c…1189. UFS only for the first boot (touch/HSI2C unvalidated; fewer boot-start hazards). No .cat: DISM
+/Add-Driver /ForceUnsigned, and BCD testsigning on accepts the embedded test signature.
+Harness: installer/tools/S10eHarness (verbs image / check / transfer) - calls VhdxImageBuilder.BuildAsync,
+TransferService.WriteRawImageAsync, BootFilesService.WriteAsync exactly as InstallPage does, geometry
+PartitionMap.For("beyond0lte"), SlimProfile.Lite, unattend Username S10e. dotnet build -c Release: 0 warnings.
+BLOCKERS for `image` found: (1) this Claude session is NOT elevated (IsInRole Administrator = False) - DISM apply,
+Mount-VHD and bcdboot need admin; (2) New-VHD is not installed (Hyper-V PowerShell module absent), and
+VhdxImageBuilder.CreateScript uses New-VHD/Mount-VHD.

@@ -33,17 +33,14 @@ Recipe script: `/tmp/opencode/build-uefi-linux.sh` (regenerate from this file if
    `.S` module dies with exit 127.
 6. **iasl**: Ubuntu package is `acpica-tools` (pool/universe/a/acpica-unix/), not
    `iasl` — extracted to `~/toolchains/iasl`.
-7. **Cross gcc**: xpack `aarch64-none-elf-gcc` 15.2.1 compiles everything but
-   **links fail with `undefined reference to memcpy`** in any module using
-   `VA_LIST`-by-value (PrintLib/DebugLib paths): gcc-15 + the standard
-   `-mstrict-align -mgeneral-regs-only` XIP flags make it emit a `memcpy` libcall
-   for the 32-byte va_list struct copy instead of inline moves. Proven by flag
-   bisection on the exact build command line. Fix: use xpack gcc **12.4.0**
-   (`xpack-aarch64-none-elf-gcc-12.4.0-1.2-linux-x64.tar.gz`) — or the Windows
-   CLANGPDB build, which is unaffected (it builds today).
-   Also added `-fno-tree-loop-distribute-patterns` to `GCC_ALL_CC_COMMON` and
-   stripped `-flto` in the local Conf copy (LTO also invents memcpy calls);
-   both edits live in the script, not in the repo.
+7. **Cross gcc**: xpack `aarch64-none-elf-gcc` — **both 15.2.1 and 12.3.1** emit
+   `memcpy` libcalls for `VA_LIST`-by-value struct copies when `-mstrict-align`
+   is on (bisected on the exact build command line: strict-align alone flips it
+   0 -> 6 references). clang (Windows CLANGPDB) inlines them, so the real build
+   never sees this. Verification-build fix: strip `-mstrict-align` from the
+   gitignored Conf copy (kept `-mgeneral-regs-only`). Using xpack gcc 12.3.1
+   (`xpack-aarch64-none-elf-gcc-12.3.1-2.1-linux-x64.tar.gz`) anyway for
+   closer-to-CI behaviour.
 
 ## Script (as of 2026-10-10)
 
@@ -51,9 +48,17 @@ Recipe script: `/tmp/opencode/build-uefi-linux.sh` (regenerate from this file if
 #!/bin/bash
 set -x
 cd /home/ilya/exynos-woa/firmware/edk2
-rm -rf Conf/.cache
-sed -i 's/\r//g' Conf/tools_def.txt
-sed -i 's/ -flto\b//g' Conf/tools_def.txt
+rm -rf Conf/.cache   # tools_def parse cache — must go when we edit tools_def
+sed -i "s/\r//g" Conf/tools_def.txt   # strip ALL CRs
+sed -i 's/ -flto//g' Conf/tools_def.txt
+# gcc (12 and 15) emits memcpy libcalls for VA_LIST struct copies when
+# -mstrict-align is on; clang (the Windows CLANGPDB build) inlines them. This
+# strip is VERIFICATION-BUILD-ONLY in the gitignored Conf copy — the real FD
+# keeps the flag. (memcpy=6 -> 0 proven by flag bisection, notes/d1-build-env.md)
+sed -i 's/ -mstrict-align//g' Conf/tools_def.txt
+# gcc-only maybe-uninitialized false positive in edk2-master PeilessSec (clang
+# on Windows does not warn) — verification build only.
+grep -q "Wno-error=maybe-uninitialized" Conf/tools_def.txt || sed -i '/DEFINE GCC_ALL_CC_COMMON/s/$/ -Wno-error=maybe-uninitialized/' Conf/tools_def.txt
 grep -q tree-loop-distribute Conf/tools_def.txt || sed -i '/DEFINE GCC_ALL_CC_COMMON/s/$/ -fno-tree-loop-distribute-patterns/' Conf/tools_def.txt
 export WS=/home/ilya/exynos-woa/firmware
 export WORKSPACE=$WS/edk2
@@ -62,7 +67,7 @@ export BASE_TOOLS_PATH=$EDK_TOOLS_PATH
 export PACKAGES_PATH=$WORKSPACE:$WS
 export PYTHON_COMMAND=python3
 export PYTHONPATH=$WORKSPACE/BaseTools/Source/Python
-export GCC_AARCH64_PREFIX=$HOME/toolchains/xpack-aarch64-none-elf-gcc-12.4.0-1.2/bin/aarch64-none-elf-
+export GCC_AARCH64_PREFIX=$HOME/toolchains/xpack-aarch64-none-elf-gcc-12.3.1-2.1/bin/aarch64-none-elf-
 export LD_LIBRARY_PATH=$HOME/toolchains/root-libuuid1/usr/lib/x86_64-linux-gnu
 export PATH=$WORKSPACE/BaseTools/BinWrappers/PosixLike:$WORKSPACE/BaseTools/Source/C/bin:$HOME/toolchains:$PATH
 python3 $WORKSPACE/BaseTools/Source/Python/build/build.py -a AARCH64 -t GCC -p ../Platform/Beyond0LtePkg/Beyond0LtePkg.dsc -b DEBUG -j 24
@@ -71,6 +76,15 @@ python3 $WORKSPACE/BaseTools/Source/Python/build/build.py -a AARCH64 -t GCC -p .
 ## Status log
 
 - 2026-10-10: all modules up to the DXE/FV stage compile with gcc 15 EXCEPT the
-  memcpy link failures above; gcc 12.4 download started. No FD produced yet on
+  memcpy link failures above; gcc 12.3.1 download started. No FD produced yet on
   this machine. Windows FD state is unchanged by any of this (nothing here touches
   the repo's Conf — `firmware/edk2/` is gitignored).
+- 2026-10-10 (later): **build green with gcc 12.3.1** after also (a) stripping
+  `-mstrict-align` in the Conf copy — the memcpy calls come from strict-align +
+  VA_LIST struct copies, proven by bisection, and it is NOT a gcc-15 quirk
+  (gcc 12.3.1 does it too; clang inlines them), and (b) `-Wno-error=maybe-uninitialized`
+  for edk2-master `PeilessSec.c:169` (gcc-only warning). Output:
+  `Build/Beyond0LtePkg/DEBUG_GCC/FV/BEYOND0LTE_UEFI.fd` 7 340 032 B
+  sha256 `83a9986e…`, FVMAIN_COMPACT 417 792 B / 648 free, FVMAIN 46% full.
+  **This FD is verification-only** (different flags from CLANGPDB); do not flash it.
+  The repo itself changed only by the two `Pmic.c` initializations gcc flagged.

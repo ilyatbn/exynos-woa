@@ -246,7 +246,8 @@ EFI_STATUS
 Max77705VbusOn (VOID)
 {
   EFI_STATUS  Status;
-  UINT8       Reg;
+  UINT8       Reg = 0;   // init: gcc -Wmaybe-uninitialized across the I2C
+                         // read helpers; the reads guard use, but be explicit
 
   // OTG current limit first: 500 mA (the safe setting for a NON-POWERED hub:
   // USB 2.0 bus-powered hub budget is 5 unit loads = 500 mA total,
@@ -293,7 +294,7 @@ EFI_STATUS
 Max77705WaitSourceAttach (IN UINTN TimeoutMs, OUT UINT8 *CcStatus)
 {
   UINTN   ElapsedMs;
-  UINT8   Status0;
+  UINT8   Status0 = 0;
   UINTN   Chunk;
 
   for (ElapsedMs = 0; ElapsedMs < TimeoutMs; ElapsedMs += Chunk) {

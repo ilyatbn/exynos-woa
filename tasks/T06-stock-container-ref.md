@@ -49,3 +49,13 @@ no device-tree blob, and sboot's Normal-boot path needs one. The **stock** recov
 carries the vendor dtb (DTBH), so repacking `[shim][FD]` into a stock-derived ref is the fix
 direction. This is what T06 must close before another boot attempt. Reference stock artefacts on
 the machine: `C:\Users\ilya\code\Dumps\` (AP_G970FXXSGHWC1 meta tar - stock boot/recovery).
+
+## SUPERSEDED (2026-10-10, B11/B12) - the stock-ref premise was WRONG
+
+Probing the STOCK containers disproved it: stock `recovery.img` and `boot.img` also have
+`dt_size=1`, no DTBH/DTBO (Android-12 keeps the trees in separate `dt.img`/`dtbo.img`
+partitions). So repacking against a stock container would NOT fix the DT LOAD fail. The real
+cause is the **kernel Image's appended DTB** (the stock Linux kernel has one; our `[shim][FD]`
+EFI does not) - see `notes/m8-uefi-image.md` B12. The fix is a new task (append a DTB to the
+payload), not T06. T06 stays open only for the honest stock-geometry read; it is not the boot
+blocker.

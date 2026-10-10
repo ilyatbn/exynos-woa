@@ -887,4 +887,41 @@ recovery container geometry before repacking") is exactly this. Re-derive the re
 not from the TWRP-era pull.
 CAUTION: this is inference from sboot's diagnostic text + the container probe; not yet a
 validated fix. Nothing re-flashed; recovery slot still holds the failed container.
+
+## B11 - CORRECTION: the stock container does NOT carry a DTBH either (B10 fix-direction was wrong)
+
+FACT extracted + LZ4-decompressed the STOCK images from `AP_G970FXXSGHWC1_..._meta_OS12.tar`
+(python lz4 4.4.5, frame format):
+- stock `recovery.img` 67 633 152 B: `ANDROID!` kernel=44380172 ramdisk=14946983 second=0
+  page=2048 **dt_size=1**, no DTBH, no DTBO magic.
+- stock `boot.img` 57 671 680 B: kernel=44380172 ramdisk=0 second=0 page=2048 **dt_size=1**,
+  no DTBH/DTBO; the "dt region" is the `SEANDROIDENFORCE` trailer.
+So the stock containers have the SAME dt_size=1 as the TWRP ref. **B10's fix direction
+("repack against a stock container that carries a DTBH") is FALSE** - the stock container has no
+DTBH to carry. On this Android-12 device the device trees are SEPARATE partitions
+(`dt.img.lz4`, `dtbo.img.lz4` in the meta tar), not embedded in the boot container.
+REVISED (mine): sboot's `load_kernel` DT check is about the **kernel Image's appended DTB**
+(ARM64 boot protocol: a FDT 0xD00DFEED blob after `image_size`), which our `[shim][FD]` EFI
+payload lacks. The stock/TWRP kernels are real Linux Images that carry an appended DTB; the
+9810's `[shim][FD]` booted because the 9810 sboot is older/looser, the 9820's (Android-12 ABL)
+enforces it. So the fix is in the PAYLOAD's Image header/DTB, not the container ref.
+NEXT: compare the 9810 bootshim vs the 9820 bootshim for any appended-DTB / flag difference;
+if none, the 9820 needs a valid appended DTB (or the header flag bit4 0x10 "can use device tree")
+that sboot accepts. T06's premise (stock ref) is corrected here.
+
+## B12 - shim comparison settles the fix: the payload needs an appended DTB
+
+FACT read the 9810 `firmware/tools/bootshim/bootshim.S` in full: its ARM64 Image header is
+`text_offset 0x80000, image_size 0x800000, flags 0xa, magic "ARM\x64"` and it appends **no DTB**
+- identical shape to the 9820 `beyond0lte-bootshim/bootshim.S`. Yet star2lte boots Windows.
+CONCLUSION (mine, from B10/B11 + this): the difference is the **loader generation**, not the shim.
+The 9820 runs an Android-12 ABL whose `load_kernel` reads the kernel Image header, loads
+`image_size` bytes, then expects a **DTB (FDT magic 0xD00DFEED)** at the next page-aligned offset
+and checks its header. The stock/TWRP kernels are real Linux Images that carry an appended DTB
+inside the kernel blob; our `[shim][FD]` EFI has `image_size 0x800000` but only ~0x700000 of
+payload and zero padding after -> `dt table header check fail` -> `DT LOAD fail`.
+FIX (the real one): append a valid DTB to the payload and make the Image header's
+`image_size`/`flags` point sboot at it. Source for a DTB: the vendor `dtbo.img`/`dt.img`
+(in the meta tar) or the phone's live FDT (`/sys/firmware/fdt`) read in a TWRP root shell.
+T06 (stock-container ref) is NOT the fix; superseded. New task: append DTB to the boot payload.
 - log: `%TEMP%\m8-build-ufs-run1.log`.

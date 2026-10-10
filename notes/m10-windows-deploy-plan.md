@@ -384,3 +384,17 @@ unmapped, UFS_LOW_WDT_PRAM_ENABLE 0), UFS_FIRMWARE_WDT_BRIDGE 0 + UFS_CONTINUOUS
 9810's PMU WDT disable/mask 0x408/0x40C, which the 9820 lacks); handoff marker follows the ring base. Built with the
 exact recipe (EXACT_BUILD_OK, 47 616 B unsigned). Deployed in place with TWRP ntfs-3g (next).
 boot35-v2.img sha256 686421639720fac5b62074fb03e543bd28cf902acc9882c769efad3b5f6ef23e.
+
+## W24 - boot #35 OBSERVED + handoff watchdog (boot #36) (2026-10-10)
+User: boot #35 (new driver ufs-w23 deployed in place via TWRP ntfs-3g; old 155dd70c -> new 6ccf49ce) shows the same
+INACCESSIBLE_BOOT_DEVICE and the phone did NOT reset after 'We'll restart for you' (poller saw no recovery in 540 s):
+Windows' restart did not reach our ResetSystem (PSCI SYSTEM_RESET on a PSCI 0.1 monitor is the likely sink - UNVERIFIED).
+The user forced TWRP; boot #35's PRAM is likely overwritten by TWRP's kernel, so the stale \WINRUN.FLG was deleted.
+User: testsigning - confirmed earlier, BCD {default} testsigning Yes. User asked for Windows-side crashes to come back
+to recovery with logs/dumps and for a 90 s watchdog.
+Boot #36: BootLogDxe arms watchdog cl0 at ExitBootServices (BEYOND0LTE_HANDOFF_WATCHDOG): INFORM3 normal, WTCON=0,
+WTCLRINT=1, PMU NONCPU_INT_EN bit 2 via the atomic-set alias (write 2 to PMU+0xD244), WTDAT=WTCNT=0xFE27, WTCON=0xFF39
+= 82 s - the hardware maximum (16-bit count, prescaler <= 256, DIV128 of 26 MHz -> ~82.6 s; 90 s is not reachable).
+Any hang / failed restart -> WDT reset -> UEFI sees WINRUN.FLG -> WINPRAM.BIN + UEFILOG.TXT -> TWRP. The Windows UFS driver
+already has a bugcheck callback that writes '=UFSBUGCHECK BC=...' into its PRAM ring (now at 0x8FE00000).
+boot36-v2.img sha256 55f9825698c6d162138dab74dd1a28258552f6bf6b61f91d50866929a2ab6171.

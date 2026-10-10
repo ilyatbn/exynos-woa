@@ -284,6 +284,23 @@
 #define EXYNOS_PMU_SWRESET_OFFSET      0x3A00u        // VERIFIED (kernel exynos_reboot 0x8639204, sboot 0xa5200)
 #define EXYNOS_PMU_SWRESET_VALUE       0x00000002u    // VERIFIED (same two sites)
 #define EXYNOS_PMU_PS_HOLD_CONTROL_OFFSET  0x030Cu     // VERIFIED (kernel sec_power_off 0x8e144b0 clears bit 8, "set PS_HOLD low")
+
+//
+// Watchdog cl0 (EXYNOS_WDT_BASE, samsung,exynos9-v1-wdt) - VERIFIED from the stock kernel's
+// s3c2410_wdt (notes/s10e-reboot-wdt-constants.md): registers, the v1 variant's only PMU setup
+// (NONCPU_INT_EN 0x1244 bit 2, set through the PMU's atomic-set alias +0xC000 = write the bit
+// index), and WTCON/count for 82 s by the driver's formula at fin_pll 26 MHz (DT/binary reading,
+// not measured on the device).
+//
+#define EXYNOS_WDT_WTCON_OFFSET            0x00u
+#define EXYNOS_WDT_WTDAT_OFFSET            0x04u
+#define EXYNOS_WDT_WTCNT_OFFSET            0x08u
+#define EXYNOS_WDT_WTCLRINT_OFFSET         0x0Cu
+#define EXYNOS_PMU_WDT_NONCPU_INT_EN_OFFSET  0x1244u
+#define EXYNOS_PMU_WDT_NONCPU_INT_EN_BIT     2u
+#define EXYNOS_PMU_ATOMIC_SET_ALIAS        0xC000u   // exynos_pmu_update: write bit index to (off | 0xC000)
+#define EXYNOS_WDT_WTCON_82S               0x0000FF39u   // prescaler 0xFF (max), DIV128, RSTEN, EN: 26 MHz/128/256 = 793.46 Hz
+#define EXYNOS_WDT_COUNT_82S               0x0000FE27u   // 82 s x 793.46 Hz = 65063 (max ~82.6 s; the user asked for 90)
 #define EXYNOS_REBOOT_REASON_BASE      0x12345670u    // VERIFIED (kernel sec_reboot, sboot s5p_check_reboot_mode)
 #define EXYNOS_REBOOT_MODE_RECOVERY    4u             // VERIFIED (sec_reboot "recovery" -> +4; sboot recovery REBOOT_MODE 4)
 #define EXYNOS_CHIPID_BASE        0x0000000010000000ULL   // VERIFIED (chipid@10000000)

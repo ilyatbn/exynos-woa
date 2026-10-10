@@ -38,6 +38,7 @@
 
 #define BEYOND0LTE_AUTO_RECOVERY  1   // W21: after the dump + flush, reboot into TWRP
 #define BEYOND0LTE_WINDOWS_PAIR   1   // W23: the boot after a Windows run saves \WINPRAM.BIN and goes to TWRP
+#define BEYOND0LTE_HANDOFF_WATCHDOG  1   // W24: arm WDT cl0 (82 s) at ExitBootServices - bring-up only
 
 STATIC
 VOID
@@ -590,6 +591,40 @@ BootLogExceptionHandler (
   CpuDeadLoop ();
 }
 
+#if BEYOND0LTE_HANDOFF_WATCHDOG
+/**
+  W24: arm watchdog cl0 for 82 s (the maximum) as boot services end. Windows does not service it, so any
+  hang - or a BSOD whose restart never reaches our ResetSystem - resets the SoC with INFORM3
+  "normal", and the boot pair (WINRUN.FLG) turns that next boot into "save WINPRAM.BIN, go to
+  TWRP". A Windows that boots fine is also reset after 82 s while this is on (bring-up only).
+  Same sequence as the stock s3c2410wdt probe + start (notes/s10e-reboot-wdt-constants.md).
+**/
+STATIC
+VOID
+EFIAPI
+OnExitBootServices (
+  IN EFI_EVENT  Event,
+  IN VOID       *Context
+  )
+{
+  UINTN  Wdt;
+
+  Wdt = (UINTN)EXYNOS_WDT_BASE;
+  MmioWrite32 ((UINTN)EXYNOS_PMU_BASE + EXYNOS_PMU_INFORM3_OFFSET, EXYNOS_REBOOT_REASON_BASE);
+  MmioWrite32 (Wdt + EXYNOS_WDT_WTCON_OFFSET, 0);
+  MmioWrite32 (Wdt + EXYNOS_WDT_WTCLRINT_OFFSET, 1);
+  MmioWrite32 (
+    (UINTN)EXYNOS_PMU_BASE + (EXYNOS_PMU_WDT_NONCPU_INT_EN_OFFSET | EXYNOS_PMU_ATOMIC_SET_ALIAS),
+    EXYNOS_PMU_WDT_NONCPU_INT_EN_BIT
+    );
+  MmioWrite32 (Wdt + EXYNOS_WDT_WTDAT_OFFSET, EXYNOS_WDT_COUNT_82S);
+  MmioWrite32 (Wdt + EXYNOS_WDT_WTCNT_OFFSET, EXYNOS_WDT_COUNT_82S);
+  MmioWrite32 (Wdt + EXYNOS_WDT_WTCON_OFFSET, EXYNOS_WDT_WTCON_82S);
+  __asm__ __volatile__ ("dsb sy" ::: "memory");
+}
+
+#endif
+
 EFI_STATUS
 EFIAPI
 Beyond0LteBootLogEntry (
@@ -608,5 +643,8 @@ Beyond0LteBootLogEntry (
     Cpu->RegisterInterruptHandler (Cpu, EXCEPT_AARCH64_SERROR, BootLogExceptionHandler);
   }
 
+ #if BEYOND0LTE_HANDOFF_WATCHDOG
+  gBS->CreateEvent (EVT_SIGNAL_EXIT_BOOT_SERVICES, TPL_NOTIFY, OnExitBootServices, NULL, &Event);
+ #endif
   return gBS->CreateEventEx (EVT_NOTIFY_SIGNAL, TPL_CALLBACK, OnReadyToBoot, NULL, &gEfiEventReadyToBootGuid, &Event);
 }

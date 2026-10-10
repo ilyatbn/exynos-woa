@@ -95,3 +95,15 @@ DEVICE separately), modem block 0xD0000000..0xD9801000 (modem_spare live; IF2/CP
 0xCA000000, 0xCA965000..0xD0000000, 0xD9801000..0xE0000000, 0xE1900000..0xF0000000 (~581 MB; total
 ~1.5 GB with bank0). Banks 3/4 stay off (B63). Build exit 0. Test = next boot: DXE allocates top-down.
 Boot #26 image (W2 RAM test) %TEMP%\w2\boot26-v2.img sha256 200bd7e114a6fffb12c752ca67d2089b898f6b40fee7797336d35a01d9684fd7
+
+## W3 - boot #26 flashed (2026-10-10, new session)
+adb healthy (TWRP 3.7.0_9-2, transport recovery). Pushed s10e-artifacts\boot26-v2.img to /tmp (sha 200bd7e1 ok;
+git-bash needs MSYS_NO_PATHCONV=1 for adb remote paths). sda14 before = boot #25 (head -c 7587840 sha 82045f34).
+dd bs=4096 conv=fsync; readback sha 200bd7e1…4fd7 = boot #26 on BOOT. Next: adb reboot, observe whether UEFI
+reaches the partition scan (bank1/bank2 RAM test) or resets (then read /proc/debug_history from TWRP).
+W3 OBSERVED (user, boot #26): no reset loop; the panel log runs through the GPT scan and PartitionDxe BlockIo
+installs and stops on "LastBlock : 26BFF" (= 0x26C00 x 4 KiB = 634 880 KiB = sda27 product), then stays still.
+Same shape as boot #25 (UfsHc ring/done lines are capped at 40, so later FAT probes print nothing; BDS has no
+ESP/BOOTAA64.EFI to load yet). => DXE survived allocating top-down from bank2/bank1: EL1 may use the W2
+ranges (0xC0080000..0xCA000000, 0xCA965000..0xD0000000, 0xD9801000..0xE0000000, 0xE1900000..0xF0000000) at least
+for UEFI boot-services data. Windows UFS driver to use: the -DmaWindow build (s10e-artifacts\ufs-b86-dmawin).

@@ -1047,3 +1047,13 @@ stops the firmware watchdog there) - presumably Windows first-boot setup is runn
 **Next order.** (1) Read Windows' own logs from NTFS in TWRP (Panther, evtx, Minidump). (2) Fix the second-boot shim
 hang (suspects: missing exynos_acpm_reboot before our resets; stale state). (3) Strip bring-up diagnostics once
 Windows boots. (4) More RAM (bank1/2 never reached the UEFI map - W18), then numproc > 1 (PSCI 0.1, W8).
+
+### §24 update (2026-10-11, unattended session)
+- Windows Setup's specialize pass COMPLETED on device (W32). Fixed on the way: Windows UFS driver PMA length (W26),
+  doorbell retire via UTRLCLR (W27), CACHE typed as ESP (W30), FADT reset register 0x3A00=2 (W32), handoff RAM uncached (W32).
+- Current: BOOT = boot #41; driver w32 (s10e-artifacts\ufs-w23\Exynos9820Ufs-w32.sys). A Setup run that is interrupted
+  cannot resume: re-transfer the image first (firmware/tools/s10e-full-attempt.sh <boot.img> <driver.sys> <outdir>).
+- Unattended loop: firmware/tools/s10e-cycle.sh; driver feeds the 82 s watchdog only while Windows writes (5 min idle,
+  45 min cap); bugcheck -> SWRESET; clean shutdown -> progress 0x80 -> next boot continues into Windows.
+- Open: the 'second boot after our own reset hangs in SEC MMU bring-up' (progress 0x60/0x61) is intermittent;
+  Beyond0LteSecArmLib (MMU-on TLB flush) is prepared but not wired into PeilessSec.

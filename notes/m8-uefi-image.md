@@ -1590,3 +1590,22 @@ OCS = 4 (UFSHCI: OCS_MISMATCH_RESP_UPIU_SIZE - response UPIU length/offset in th
 what the controller wrote) -> no block device -> no BOOTAA64.EFI. That is Beyond0LteUfsHcDxe /
 UfsPassThruDxe territory (cf. P02 hw-rev class-6 HCI encoding, the 9810 A46/A48 PRDT/WC lessons).
 Diagnostics still compiled in: shim DIAG strips/bar, FD checkpoints, DiagVectors, ResetHold, FB serial.
+
+## B66 - UFS OCS=4 root cause: stock UfsPassThruHci writes DWORD UTRD fields; Exynos wants BYTES
+
+Reading: Beyond0LteUfsHcDxe.c (9810-lineage port) says "UfsPassThruHci.c now emits byte-granular fields
+directly" and keeps its own converter OFF - but firmware/edk2 is gitignored and this checkout's
+MdeModulePkg/Bus/Ufs/UfsPassThruDxe/UfsPassThruHci.c is STOCK (RuL/RuO/PrdtO in dwords, :550-553,
+:643-647, :704-705); no patch survives anywhere in the repo or notes. Exynos UFS reads DW6/DW7 in bytes ->
+a dword RuL looks 4x too small -> OCS 4 = OCS_MISMATCH_RESP_UPIU_SIZE, exactly boot #17.
+9820 ground truth (LineageOS android_kernel_samsung_exynos9820 lineage-21, drivers/scsi/ufs):
+ufs-exynos.c:585 UFSHCD_QUIRK_PRDT_BYTE_GRAN; :468-470 TXPRDT = PREFECT_EN|PRDT_SET_SIZE(12), RXPRDT =
+SET_SIZE(12) (our driver already writes these); ufshcd.c:4406-4430 byte offsets (resp @1024, PRDT @2048,
+resp len 1024 = ALIGNED_UPIU_SIZE); ufshcd.c:10184 + ufshci.h:435 PRDT entry = 16 B (no FMP extension);
+ufshcd.c:2635-2638 for CONFIG_SOC_EXYNOS9820 prd_table_length = segments*16 + 16 bytes.
+Fix (Beyond0LteUfsHcDxe.c): BEYOND0LTE_CONVERT_UTRD_BYTE_GRAN 0 -> 1 (convert DW6/DW7 at doorbell,
+restore on completion, keyed on mTrdSaveMask), UTP_TR_PRD_SIZE 128 -> 16, PrdtL bytes = n*16 + 16 (0 if
+no PRDT). The 9810's 128 B FMP entry does not apply to the 9820 kernel's layout.
+Correction to B63: FVMAIN_COMPACT is auto-sized (fdf NumBlocks = 0) inside the 7 MB FD region, so its
+"N bytes free" is rounding slack, not a limit (now 168 B; it simply grows).
+Verified: build exit 0. Boot #18 image %TEMP%\b66\boot18-v2.img sha256 51587e9acdaea0842b003f6b2866282047a961cc8c3d62ca89455de03e5c7a8b

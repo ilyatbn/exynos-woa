@@ -3103,15 +3103,28 @@ UfsHcMmioRw (
 // ref/u9810-ufs/ufs-exynos.c line 561 and the Samsung ExynosUfsLib reference,
 // which programs rsp_upiu_off/len and prdt_off/len in BYTES). The Exynos UTP
 // engine reads the UTRD Response-UPIU and PRDT length/offset fields (DW6/DW7) in
-// BYTE granularity. UfsPassThruHci.c now emits byte-granular fields directly
-// (RuO=0x400, PrdtO=0x800, PrdtL=num_entries*sizeof(UTP_TR_PRD)), so the older
-// platform-side conversion must stay disabled; doing it twice points the PRDT at
-// Ucd+0x2000 and makes the live READ descriptor look zeroed.
+// BYTE granularity. The 9810 tree relied on a locally patched edk2 UfsPassThruHci.c
+// that emitted byte-granular fields; that patch is NOT in this checkout (edk2 is
+// gitignored, notes/m8-uefi-image.md B66): stock UfsPassThruHci.c:550-553/643-647/
+// 704-705 write dwords, which is exactly boot #17's "Failed to send query request,
+// OCS = 4" (OCS_MISMATCH_RESP_UPIU_SIZE). So the platform-side conversion is ON: DW6/DW7
+// are converted when the doorbell rings and restored on completion, and stock
+// UfsPassThruDxe keeps reading dword offsets.
 //
-#define BEYOND0LTE_CONVERT_UTRD_BYTE_GRAN 0
+// 9820 values, VERIFIED from the S10-family kernel (LineageOS
+// android_kernel_samsung_exynos9820, drivers/scsi/ufs): ufs-exynos.c:585 sets
+// UFSHCD_QUIRK_PRDT_BYTE_GRAN; ufshcd.c:4424-4430 writes response/PRDT offsets and the
+// response length in bytes; PRDT entries are plain 16-byte ufshcd_sg_entry
+// (ufshcd.c:10184 sg_entry_size = sizeof, ufshci.h:435) - the same as EDK2's
+// UTP_TR_PRD - and for CONFIG_SOC_EXYNOS9820 the PRDT length is
+// segments * 16 + 16 bytes (ufshcd.c:2635-2638). The 9810 lineage's 128-byte FMP
+// entry does not apply here.
+//
+#define BEYOND0LTE_CONVERT_UTRD_BYTE_GRAN 1
 #define UTP_TRD_RESP_DW6     24u   // DW6: RuL[15:0] (len, dwords) | RuO[31:16] (off, dwords)
 #define UTP_TRD_PRDT_DW7     28u   // DW7: PrdtL[15:0] (entries)   | PrdtO[31:16] (off, dwords)
-#define UTP_TR_PRD_SIZE      128u  // one PRDT entry = 32 DWORDs (4 std + 28 FMP), == sizeof(UTP_TR_PRD); WOAXFER PrdtL=0x80/entry
+#define UTP_TR_PRD_SIZE      16u   // 9820: one PRDT entry = 16 B ufshcd_sg_entry == EDK2 UTP_TR_PRD (ufshci.h:435)
+#define UTP_PRDT_9820_EXTRA  16u   // 9820 kernel adds 16 B to the byte-gran PRDT length (ufshcd.c:2635-2638)
 
 //
 // Saved DWORD-granularity DW6/DW7 of every slot we converted to byte granularity,
@@ -3312,7 +3325,8 @@ Beyond0LteSetNexusForDoorbell (
       );
     MmioWrite32 (
       Trd + UTP_TRD_PRDT_DW7,
-      ((UINT32)(UINT16)(PrdtO * 4u) << 16) | (UINT32)(UINT16)(PrdtL * UTP_TR_PRD_SIZE)
+      ((UINT32)(UINT16)(PrdtO * 4u) << 16) |
+      (UINT32)(UINT16)((PrdtL != 0) ? (PrdtL * UTP_TR_PRD_SIZE + UTP_PRDT_9820_EXTRA) : 0)
       );
     __asm__ __volatile__ ("dsb sy" ::: "memory");
   }

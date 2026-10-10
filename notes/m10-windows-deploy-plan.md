@@ -440,3 +440,12 @@ CDB 0xA0 REPORT LUNS -> =POLLTMO db=1 is=1 (UTRCS) hcs=0x10F -> TIMEOUT_CONTAINM
 Cause: the controller completes (OCS leaves 0x0F, IS.UTRCS) but does not clear UTRLDBR; the UEFI driver retires such
 slots with UTRLCLR (HCI+0x5C) = slot bit (Exynos inverted polarity). w27b: UfsPollForCompletion does the same when
 OCS != 0x0F (logs =RETIRE ocs/db for the first 3 commands).
+
+## W29 - WINDOWS SETUP RUNS on the S10e (2026-10-11)
+Run with driver w27b (UTRLCLR retire) + firmware boot #38: no return to TWRP for 15+ min (the driver feeds the
+watchdog on I/O). User, passing by: the screen shows Windows Setup's 'Windows could not configure Windows to run on
+this computer's hardware' - i.e. the kernel booted from UFS through our Windows driver and Setup ran its specialize
+pass. Evidence to read from NTFS in TWRP: Windows\Panther\setupact.log, setuperr.log, UnattendGC\, System32\
+winevt\Logs. The phone sits on that dialog (driver keeps the watchdog fed) until forced to TWRP.
+Queued: w28 driver (feed the watchdog only on SRB success) and firmware boot #39 (progress word 0x8FE0F000) are
+built/committed but not yet deployed.

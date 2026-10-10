@@ -707,3 +707,65 @@ with the read that closes it. **New:** a TWRP root shell makes DTB property
 contents readable — the "contents are SELinux-blocked" limit only applies to an
 unprivileged shell on a booted Android, and every value read this way is a
 **TWRP-boot** value, so a stock Android boot may add nodes over it.
+
+## 17. Restart point (2026-10-10 — K10 closed, K4b closed as a read, the base moved)
+
+Nothing is in flight; `git status` is clean. The phone stayed in TWRP
+(`RF8M21HYDSZ   recovery`) and **every** device action this session was a read
+(`ls`, `cat`, `od`, `adb pull` under `/proc/device-tree/**` and `/proc/iomem`).
+No write to the phone, no flash, no dock test.
+
+### What is committed and verified by running
+
+* **K10** (`notes/K10-rkp.md` T15-T21): the 9820 write-protected set is a
+  **mechanism**, not a constant — Samsung's `rkp.h` protects `_text.._erodata`
+  at runtime, so the 9810's `0x80094000-0x828DBFFF` must not be copied. The
+  EL2 region IS a read: `el2_code 0x87000000+0x200000`, `el2_earlymem
+  0x97E000000+0x200000`, both owner `el2,uh`.
+* **K4b** (`notes/k4b-drop-address.md` K01-K04): the drop is **`0x80118000`**
+  and the kernel window is `0x80198000..0x832D0000`, derived from
+  `/proc/iomem` + the local `Image` header (`text_offset 0x80000`,
+  `image_size 0x3138000`, `flags 0xa`), cross-checked exact.
+* **The base moved to `0x83300000`** in `.dsc`, `.fdf`, the shim default and the
+  packer default, in lockstep; build exit 0, shim linked at `-Ttext=0x83300000`
+  (`_payload` = last byte of the 288 B image), packer run end to end against the
+  pulled recovery ref → 18 255 872 B, **not flashed**.
+* **DRAM and MMIO extents are now reads** (`notes/s10e-dtb-mmio.md` S01-S03):
+  bank0 `0x80000000+0x3AB00000` (confirmed twice — DTB `reg` and
+  `/proc/iomem` `System RAM 80000000-baafffff`), bank1 `+0x20000000`,
+  bank2 `+0x1E700000`; `SPEEDY`/`SPEEDY1` `+0x2000` each (they used to be
+  skipped by the map), `PMU`/`DECON_T` `+0x10000`, `WDT` `+0x1000`,
+  `dsim` three ranges, `clock-controller 0x1A240000+0x8000`.
+* **Three carried numbers were proved wrong and fixed**: the 2 GiB bank0, the
+  memory map publishing bank0 to `0xD0000000` (0x15500000 of undeclared RAM),
+  and the UFS DMA window `0x90000000..0xBC800000` (overruns the live bank end).
+
+### The exact next order, one commit per step
+
+1. **The reserved regions inside bank0 are still published to Windows as RAM**
+   — `sec_debug_magic 0x80000000+0x1000`, `kaslr 0x80100000+0x100000`,
+   `el2_code 0x87000000+0x200000`, `mm_debug 0x91200000+0x100000`,
+   `secure_camera 0x96000000+0x2200000`, `camera 0x99000000+0xE400000`. Decide
+   the split in `PlatformMemoryMapLib.c` (reserve them, or stop bank0 at
+   `0x80000000`), then rebuild and re-check the `C_ASSERT` set.
+2. **The UFS DMA window**: the live bank0 ends `0xBAB00000`, so the carried
+   `0x90000000..0xBC800000` is illegal; pick inside `0x80000000..0xBAB00000`
+   minus the reservations, keep it UNVERIFIED, re-run the asserts.
+3. **The UFS DTB extents disagree with the vendor DT** (`notes/s10e-dtb-mmio.md`
+   S02): live `reg` sizes are `+0x200`/`+0x200`/`+0x800000`/`+0x1000` where
+   `Exynos9820.h:319-327` calls `+0x2000`/`+0x8000`/`+0x1000` VERIFIED from the
+   vendor DT. Bases agree, sizes do not. Resolve before trusting the windows.
+4. **Only then a first boot** — needs explicit user consent (media writes,
+   ground rules 5/6) and Team Win's AVB order: verity-disabled `vbmeta` first
+   (this disk's `vbmeta` is LBA 83 584..83 599), then the image.
+   The candidate image is already built at
+   `C:\Users\ilya\AppData\Local\Temp\opencode\pack-out-833.img` (18 255 872 B)
+   — regenerable with `pack-uefi-beyond0lte.ps1 -Ref <pulled recovery>`.
+
+### Rules that still bind this work
+
+Unchanged: nothing written to the media until Windows booting is established;
+the 9810 packages byte-unchanged (`git diff` on `Star2LtePkg`,
+`Exynos9810Pkg`, `tools/bootshim` verified empty this session); no stage `Ready`
+without device validation; never guess a constant — name it `UNVERIFIED` or
+mark it a **DECISION** with the reads it came from.

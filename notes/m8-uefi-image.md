@@ -1614,3 +1614,15 @@ Verified: build exit 0. Boot #18 image %TEMP%\b66\boot18-v2.img sha256 51587e9ac
 
 Pushed (on-device sha256 51587e9a...7a8b), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
 51587e9acdaea0842b003f6b2866282047a961cc8c3d62ca89455de03e5c7a8b (byte-exact). `adb reboot` next.
+
+## B68 - boot #18 OBSERVED: OCS=4 GONE - the UFS disk is detected (4096 B x 0x1DCA000 = 128 GB); READ(10) fails
+
+Photo notes/img-boot18-ufs.jpg. The byte-gran fix works: the device answers, ScsiDisk installs BlockIo:
+"BlockSize : 4096", "LastBlock : 1DC9FFF" -> 31 236 096 x 4096 = 127 943 049 216 B = the disk size from the
+PIT/GPT reads (notes/s10e-root-reads.md) - INQUIRY + READ CAPACITY work on LUN0. "UFS WLUN RPMB is supported".
+Remaining errors:
+1. repeated "Failed to create DM command descriptor" -> "Failed to get response from the device after 5
+   retries" -> "Failed to read unit descriptor, index = 4..7, status = Invalid Parameter".
+2. "ScsiDisk: IsWriteProtected() fails. Status = Device Error" (MODE SENSE).
+3. "ScsiDiskRead10: Check Condition happened!" -> "Not Valid primary partition table" -> no partitions.
+=> next: (1) why UfsCreateDMCommandDesc fails; (3) the data-IN path (PRDT / sense data of the CHECK CONDITION).

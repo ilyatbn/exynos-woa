@@ -1016,3 +1016,8 @@ restart Claude Code elevated.
 3. Phone in TWRP: `S10eHarness check <adb> RF8M21HYDSZ`; then, after re-confirming the wipe with the user,
    `transfer` (USERDATA + CACHE as FAT32 ESP). BCD numproc 4 by default - consider `numproc 1` for the first boot.
 4. Boot; expect uH (EL2) hangs after ExitBootServices (see the W5 notes for the 9810 patch-set research).
+
+**§23 update (same night):** the session was elevated; step 1 is done except the PC reboot - Hyper-V (full set,
+hypervisor included, notes W6) is enabled pending restart; the user chose to keep it and reboot the PC. After the
+reboot, in an elevated Claude session: confirm `Get-Command New-VHD`, then continue at step 2. W5 (9810 patch
+inventory) is in notes/m10-windows-deploy-plan.md.

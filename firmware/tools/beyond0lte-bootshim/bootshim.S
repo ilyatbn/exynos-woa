@@ -211,12 +211,17 @@ _start:
 
 	/* ---- Copy the appended FD to UEFI_BASE ----------------------------
 	 * dst (x5) = UEFI_BASE, src (x4) = just past this shim. On the 9810 the two
-	 * were 0x10000000 apart. HERE THEY MAY NOT BE: if sboot drops the kernel at
-	 * 0x80080000 or 0x80100000 (K4b, UNVERIFIED, not closable by a cheap read),
-	 * the dst range 0x80080000..0x80780000 covers the running shim and the copy
-	 * eventually fetches overwritten instructions. The live initrd bound
-	 * (0x89000000) would be clear of it; the vendor DT bound (0x84000000) would
-	 * not. Ascending order stays safe against the source itself (dst < src). */
+	 * were 0x10000000 apart. HERE THEY MAY NOT BE: the drop on this phone is a
+	 * READ now (notes/k4b-drop-address.md K01-K03) - sboot loaded this boot's
+	 * Image at 0x80118000 - so with UEFI_BASE 0x80080000 the dst range
+	 * 0x80080000..0x80780000 COVERS the running shim at 0x80118000..0x80118120,
+	 * and the copy reaches the shim's own start after 0x98000 written bytes while
+	 * the loop is still executing there. THE SELF-OVERWRITE IS CONFIRMED, not
+	 * hypothetical, for this UEFI_BASE. Ascending order stays safe against the
+	 * source itself (dst < src); what it cannot fix is a dst range that contains
+	 * the code doing the copying. A UEFI_BASE above the kernel window
+	 * (>= 0x832D0000, e.g. 0x83300000) leaves dst disjoint from src and from the
+	 * shim, which is why the base decision below matters. */
 	ldr	x5, _uefi_base          /* x5 = UEFI_BASE (destination)              */
 	mov	x7, x5                  /* x7 = destination base, kept for the jump  */
 	mov	x4, x1                  /* x4 = source (FD runtime address)          */

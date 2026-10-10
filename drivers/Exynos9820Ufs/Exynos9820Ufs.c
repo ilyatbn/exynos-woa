@@ -8182,6 +8182,39 @@ UfsHandleIoControl(
 }
 
 /*
+ * W26: the firmware arms watchdog cl0 for 82 s at ExitBootServices (unattended bring-up: a hang
+ * resets back to the firmware and from there to TWRP). Once storage is operational Windows has
+ * to be allowed to run longer than that, so HwInitialize stops it - the stock kernel's stop,
+ * WTCON &= ~(EN | RSTEN) = ~0x21. Mapped in DriverEntry (PASSIVE); HwInitialize only stores.
+ */
+static volatile ULONG *UfsBringupWdtCon;
+
+static
+VOID
+UfsMapBringupWatchdog(
+    VOID
+    )
+{
+    PHYSICAL_ADDRESS Physical;
+
+    Physical.QuadPart = (LONGLONG)UFS_WDT_PHYSICAL_BASE;
+    UfsBringupWdtCon = (volatile ULONG *)MmMapIoSpace(Physical, UFS_WDT_WINDOW, MmNonCached);
+}
+
+static
+VOID
+UfsStopBringupWatchdog(
+    VOID
+    )
+{
+    if (UfsBringupWdtCon != NULL) {
+        *UfsBringupWdtCon &= ~0x21UL;
+        KeMemoryBarrier();
+        UfsEarlyMark("=WDT stopped wtcon=", *UfsBringupWdtCon);
+    }
+}
+
+/*
  * W25: minimal bugcheck callback, registered in DriverEntry so it exists even when the adapter
  * never gets far enough for UfsRegisterBugcheckCapture. Writes the code and the four parameters
  * into the early-mark page (no adapter needed); the firmware saves it as \WINPRAM.BIN.
@@ -8224,6 +8257,7 @@ DriverEntry(
     ULONG Status;
 
     UfsEarlyMark("=DRVENTRY", 0);
+    UfsMapBringupWatchdog();
     UfsInitializeKernelContract();
     KeInitializeCallbackRecord(&UfsEarlyBugcheckRecord);
     UfsEarlyMark("=BCREG", (ULONGLONG)KeRegisterBugCheckCallback(&UfsEarlyBugcheckRecord, UfsEarlyBugcheckCallback, NULL, 0, (PUCHAR)"UfsEarly"));
@@ -8425,6 +8459,7 @@ UfsHwInitializeWorker(
     Adapter->DiagnosticEndpointPreserved = FALSE;
     Adapter->Started = TRUE;
     UfsSetDiagnosticStage(Adapter, UFS_DIAG_STAGE_OPERATIONAL);
+    UfsStopBringupWatchdog();
     return TRUE;
 }
 

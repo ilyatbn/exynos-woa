@@ -1364,3 +1364,22 @@ Boot #11 image %TEMP%\b45\boot11-v2.img sha256 27960ba2eb9939bb13ab482c19ccdf783
 
 Pushed (on-device sha256 27960ba2...be7f), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
 27960ba2eb9939bb13ab482c19ccdf783e3ac1d4985fb5ecc923b5996eabbe7f (byte-exact). `adb reboot` next.
+
+## B47 - boot #11 OBSERVED: time bar FULL, copy verified, FD reaches the memory map, dies before GetBootMode
+
+User photo (clean, 1080-wide strips readable): "Bar loaded then the rest appeared." Decoded by measuring
+each strip's baseline and sampling 32 equal cells (photo levels: block ~230, empty ~2, logo text 30-180):
+- adr(_head)      = 0x801C0000  -> sboot loads the kernel blob here (inside the kaslr reservation
+                    0x80100000+0x100000, which PlatformMemoryMapLib does NOT map)
+- CurrentEL       = 0x00000004  -> EL1
+- SCTLR_EL1       = 0x30C5083A  -> M=0 (MMU off), C=0, I=0, **A=1 (alignment check ON)**, SA/SA0=1
+- CNTFRQ_EL0      = 0x018CBA80 = 26 000 000 Hz -> FIRST ON-DEVICE READ of the timer rate (closes T05:
+                    the carried 26 MHz is right)
+- word@0x90000000 = 0x1401CC00 (cells 3,5,15,16,17,20,21 lit; extra levels are the SAMSUNG logo)
+- mismatch count  = 0 (no block-level cell; only Galaxy-S10e text noise)
+- time bar: FILLED (~9.8 s) -> NO fixed-time reset after sboot's jump; B35's timer theory is dead.
+- copy-done band (row 1100) drawn; FD checkpoints 1300 (PeiBootAction), 1420 (ArmPlatformInitialize),
+  1540 (GetVirtualMemoryMap) drawn; 1660 (GetBootMode) and 1780 NOT drawn.
+=> the FD dies inside MemoryPeim after asking for the memory map: building translation tables or
+right after the MMU turns on. Suspects: SCTLR.A=1 + clang unaligned accesses once RAM is Normal memory;
+anything (stack/VBAR/sboot vectors) living in an address the new map leaves unmapped.

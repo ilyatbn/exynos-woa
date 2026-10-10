@@ -1518,3 +1518,15 @@ was the v2/v3-detecting driver; its GICC 0x10100000 is not adopted - the DT says
 Fix: dsc + fdf -> ArmPkg/Drivers/ArmGicDxe/ArmGicV2Dxe.inf.
 Verified: build exit 0; Guid.xref lists 8562bf1e-... ArmGicV2Dxe; ArmGicV2Dxe.efi 13 312 B rebuilt
 (the v3 ArmGicDxe.efi was 67 072 B -> FVMAIN shrank by ~53 KB, as observed). Not booted.
+
+## B60 - pre-emptive: virtual generic timer instead of physical (next driver after the GIC)
+
+TimerDxe loads right after the GIC driver. We linked ArmGenericTimerPhyCounterLib (CNTP_*/CNTPCT);
+at EL1 under a hypervisor those can be trapped by CNTHCTL_EL2, the virtual ones (CNTV_*/CNTVCT) cannot.
+Prior art for the 9820 builds USE_PHYSICAL_TIMER = FALSE (edk2-exynos ExynosCommonDsc.inc:160-163 ->
+ArmGenericTimerVirtCounterLib). TimerDxe.c:384-417 registers virt/hyp/sec/phys PPIs (27/26/29/30 here)
+regardless, so the virtual timer's interrupt is handled. INFERENCE-driven (the physical timer was not
+observed to fault) - recorded so a regression can be bisected to this commit.
+Verified: build exit 0; TimerDxe static libs = ArmGenericTimerVirtCounterLib.
+Boot #16 = boot #15 + GICv2 driver (B59) + virtual timer: %TEMP%\b60\boot16-v2.img
+sha256 374f49d2f958e9a0d7055ee8e1e6245892abb3156c53093f24d33a8d6c09b145

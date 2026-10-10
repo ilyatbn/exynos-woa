@@ -171,7 +171,13 @@
   ArmSmcLib|MdePkg/Library/ArmSmcLib/ArmSmcLib.inf
   ArmHvcLib|ArmPkg/Library/ArmHvcLib/ArmHvcLib.inf
   ArmMonitorLib|ArmPkg/Library/ArmMonitorLib/ArmMonitorLib.inf
-  ArmGenericTimerCounterLib|ArmPkg/Library/ArmGenericTimerPhyCounterLib/ArmGenericTimerPhyCounterLib.inf
+  # VIRTUAL generic timer (CNTV_*, CNTVCT_EL0). sboot enters us at EL1 under Samsung's
+  # hypervisor (boot #10/#11 readout, notes/m8-uefi-image.md B47), where EL1 access to the
+  # PHYSICAL timer/counter can be trapped by CNTHCTL_EL2; the virtual ones never are. The
+  # 9820 prior art builds with USE_PHYSICAL_TIMER = FALSE (edk2-exynos exynos9820.dsc ->
+  # ArmGenericTimerVirtCounterLib). TimerDxe registers all four timer PPIs either way.
+  # Pre-emptive (B60): the physical timer has not been observed to fault here.
+  ArmGenericTimerCounterLib|ArmPkg/Library/ArmGenericTimerVirtCounterLib/ArmGenericTimerVirtCounterLib.inf
   CacheMaintenanceLib|ArmPkg/Library/ArmCacheMaintenanceLib/ArmCacheMaintenanceLib.inf
   # edk2 master unified ARM exception handling into UefiCpuPkg and folded
   # ArmGicLib into ArmGicDxe; DefaultExceptionHandlerLib is no longer separate.

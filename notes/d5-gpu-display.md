@@ -347,3 +347,32 @@ kbase is GPL2 (Arm's DDK releases are); a Windows kernel-mode derivative is a
 distribution question the project owner must decide before shipping, even
 though reading it for a clean-room DXGK port is fine. Mu-Silicium's EDK2 half
 is BSD for the same reason.
+
+### D5b(a) inventory — kbase source in OUR trees (2026-10-10, mechanical counts)
+
+- *(fact)* The 9820 LineageOS kernel carries **seven DDK branches** under
+  `drivers/gpu/arm/`: `b_r10p0, b_r12p0, b_r14p0, b_r16p0, b_r19p0, b_r26p0,
+  bv_r32p1` (plus `exynos/`). Sizes: `b_r10p0` = 234 C files / ~2.5 MB source;
+  `bv_r32p1` = 308 C files / ~4.0 MB. The newest (`bv_r32p1`) is the unified
+  Midgard+Bifrost kbase core — same architecture family the S9+ (9810) tree
+  uses (`b_r16p0..bv_r38p1` there).
+- *(fact)* `b_r10p0/platform/exynos/` (29 files) is Samsung's own GPU platform
+  glue for this SoC: `gpu_dvfs_*`, `gpu_control`, `gpu_balance`,
+  `gpu_integration_callbacks` — i.e. the clock/power/VM bring-up sequence for
+  the 9820 GPU is documented in source, which is exactly what a DXGK port needs
+  beyond the kbase core.
+- *(fact)* `limadriver/mali-kernel` (user link) = Mali **r3p2** (2010-2013,
+  Utgard/Mali400-era GP/PP driver, GPL2, Arm's first public kernel drop —
+  `.version` = `r3p2-01rel3`). Two generations older than the S9+'s Midgard,
+  three older than our Bifrost: **no architectural transfer value**; it is a
+  historical archive collected by the Lima community.
+- *(inference)* What that archive + libmali-rockchip together confirm: Arm's
+  consistent split — **kernel side published (GPL2 kbase since the r3p2 era),
+  userspace GL/Vulkan always closed binary**. The most plausible reading of the
+  S9+ "WDDM, code not released": kernel half = a kbase→WDDM port (could be
+  released, GPL), userspace half = a port of Arm's proprietary Midgard DDK
+  binary (cannot be released) — which is exactly why it stays closed.
+- *(fact)* Userspace quality matters for the ladder: S9+ Midgard's open driver
+  is **Lima** (GL 2.1-era, no Vulkan); our G76 Bifrost's open driver is
+  **panfrost** (GLES 3.1 / Vulkan 1.3). If anyone ever does the open rung-2
+  path, the 9820 is the BETTER target of the two, not the worse.

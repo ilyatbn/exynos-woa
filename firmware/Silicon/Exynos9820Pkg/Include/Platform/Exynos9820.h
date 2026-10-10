@@ -254,7 +254,7 @@
 // CNTFRQ_EL0 (or of the kernel's own ticks) decides it.
 // ---------------------------------------------------------------------------
 //
-#define EXYNOS_ARCH_TIMER_FREQ_HZ 26000000u                // UNVERIFIED (9810 value)
+#define EXYNOS_ARCH_TIMER_FREQ_HZ  26000000u   // VERIFIED on-device: CNTFRQ_EL0 = 0x018CBA80 = 26000000 read by the boot shim (notes/m8-uefi-image.md B47, T05)
 
 //
 // ---------------------------------------------------------------------------

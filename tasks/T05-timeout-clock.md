@@ -1,6 +1,6 @@
 # T05 — Re-derive the timeout clock from the 9820 tick rate
 
-Status: **open**
+Status: **done** (2026-10-10, on-device read)
 
 ## Goal
 
@@ -34,3 +34,25 @@ the dangerous direction.
 ## Done when
 
 A printed register read names the rate, and the macro cites that read.
+
+## Read attempt (2026-10-10) - blocked, task stays open
+
+FACT the S10e is attached in normal Android (`adb devices` -> `RF8M21HYDSZ device`), and the
+adb shell runs as root, but **DTB property contents are still `Permission denied`**:
+`od /proc/device-tree/fixed-rate-clocks/oscclk/clock-frequency` and
+`/proc/device-tree/ufs@0x13D60000/{freq-table-hz,clocks,clock-names}` all deny. Node **names**
+are readable (`fixed-rate-clocks/oscclk`, `ufs@0x13D60000`), contents are not - the same
+SELinux wall as `notes/s10e-live-reads.md` §9. `freq-table-hz` is 16 bytes (the zero table the
+notes already recorded).
+CONCLUSION: the rate is NOT closable by a pre-boot read. `EXYNOS_ARCH_TIMER_FREQ_HZ` stays
+UNVERIFIED (26 MHz, 9810 value). The first boot already surfaces the assumed rate:
+`Beyond0LteAcpiPlatformDxe.c:238/279/288` publish it into the GTDT CNTFID0 frame and the PRAM
+hex, so the boot observation closes T05 - it is a boot-time task, not a pre-boot one. Do NOT
+mark it done until that read is seen.
+
+## Closed (2026-10-10) - read on the device by the boot shim
+
+Boot #11's shim painted CNTFRQ_EL0 as a binary strip; decoded from the photo it is **0x018CBA80 =
+26 000 000 Hz** (notes/m8-uefi-image.md B47). The carried 26 MHz is right; `Exynos9820.h`
+`EXYNOS_ARCH_TIMER_FREQ_HZ` now cites that read instead of saying UNVERIFIED. (edk2-exynos'
+exynos9820.dsc also sets PcdArmArchTimerFreqInHz 26000000 - prior art, consistent.)

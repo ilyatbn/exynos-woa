@@ -14,8 +14,8 @@
       the carveout has never been read here, and the 9810's 0xCC000000 is
       proven NOT reusable (notes/s10e-live-reads.md §7.3 puts it inside the
       abox-rmem allocation range in the shipping device tree).
-    - Geometry EXYNOS_FB_WIDTH x EXYNOS_FB_HEIGHT = 1440 x 3040, i.e. the S10e
-      panel is 80 rows TALLER than the S9+'s 1440 x 2960. The format (BGRX8888)
+    - Geometry EXYNOS_FB_WIDTH x EXYNOS_FB_HEIGHT = 1080 x 2280 (the S10e's own
+      s6e3fa7_beyond0 panel, stock DTBO; notes/m8-uefi-image.md B44). The format (BGRX8888)
       and the stride (width*4) are the 9810's and have NOT been re-read here.
   If the base is still 0 (unverified), the driver refuses to load rather than
   scribbling on physical address 0 — that is the honest state, not a bug.
@@ -42,27 +42,26 @@
 #define FB_PIXEL_SIZE  ((UINTN)EXYNOS_FB_BYTES_PER_PIXEL)
 
 //
-// Text-scale factor. The panel is 1440x3040 (very high DPI); EDK2's console uses
-// a fixed 8x19 px font, so at native resolution text is ~180 columns of micro
+// Text-scale factor. The panel is 1080x2280; EDK2's console uses
+// a fixed 8x19 px font, so at native resolution text is ~135 columns of small
 // text. We publish a virtual GOP mode that is 1/FB_TEXT_SCALE of the native size
 // and pixel-double every Blt write to the physical scanout buffer. The console
 // then draws into the smaller virtual screen and each virtual pixel becomes an
 // NxN block on the panel -> NxN larger, readable text. Tune here:
 //   1 = native (tiny)  2 = 90 cols  3 = 60 cols  4 = 45 cols.
 //
-// The column math is UNCHANGED from the 9810 because the S10e is the same WIDTH
-// (1440); only the height moved (2960 -> 3040), so the row count goes 155 -> 160
-// at scale 1.
+// At 1080 wide, scale 1 gives 135 columns and 120 rows; scale 2 would give 67
+// columns, which is below GraphicsConsole's 80-column floor (see below).
 //
 // HARD LIMIT (carried over from the 9810 flow, re-derived for this width):
 // GraphicsConsoleDxe ASSERTs MaxColumns>=80 && MaxRows>=25 (GraphicsConsole.c:242),
 // where MaxColumns = HorizontalResolution / EFI_GLYPH_WIDTH(8). This is a DEBUG
 // build (asserts -> CpuDeadLoop), so any virtual width < 640 (scale > 2) HANGS the
 // firmware inside GraphicsConsole:
-//   scale 1 -> 180 cols OK ; 2 -> 90 cols OK ; 3 -> 60 cols HANG ; 4 -> 45 HANG.
-// So 2 is the MAXIMUM integer scale that keeps >= 80 columns. However, Windows
+//   (1080 wide) scale 1 -> 135 cols OK ; 2 -> 67 cols HANG.
+// So 1 is the only integer scale that keeps >= 80 columns. However, Windows
 // Boot Manager writes directly to FrameBufferBase using GOP mode info, bypassing
-// Blt(). A virtual 720x1520 mode over the physical 1440-stride framebuffer makes
+// Blt(). A scaled virtual mode over the physical 1080-stride framebuffer makes
 // Windows draw a garbled/tiled screen. Keep GOP honest/native for OS handoff.
 //
 #define FB_TEXT_SCALE  1

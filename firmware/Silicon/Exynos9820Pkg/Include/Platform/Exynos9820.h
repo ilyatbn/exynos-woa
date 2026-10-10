@@ -504,13 +504,19 @@
 // No DT node reserves it (every reg property at depth <= 3 was scanned), so it
 // is ordinary bank0 DRAM the vendor happens to use as its framebuffer: the map
 // must publish it as reserved, not as RAM, or Windows would claim the page.
-// Region: 0xCA000000 .. 0xCA10B29FF at 1440 x 3040 x 4 = 17510400 bytes.
+// Region: 0xCA000000 .. 0xCA964AFF at 1080 x 2280 x 4 = 9849600 bytes.
+//
+// GEOMETRY CORRECTED 2026-10-10 (notes/m8-uefi-image.md B44): the S10e panel is
+// s6e3fa7_beyond0, resolution = <1080 2280> (stock G970F DTBO,
+// fragment@lcd/__overlay__/s6e3fa7_beyond0). 1440 x 3040 was the S10/S10+ panel
+// (s6e3ha9) and mis-strided every framebuffer diagnostic; the device photo of
+// boot #10 (24 cells per line, 8-cell shift per line) matches 1080 x 32 bpp.
 // ---------------------------------------------------------------------------
 //
 #define EXYNOS_FB_BASE            0x00000000CA000000ULL   // VERIFIED (s3cfb.bootloaderfb, live cmdline)
-#define EXYNOS_FB_WIDTH           1440                    // panel geometry (S10e)
-#define EXYNOS_FB_HEIGHT          3040                    // S10e is taller than the S9+
-#define EXYNOS_FB_BYTES_PER_PIXEL 4
+#define EXYNOS_FB_WIDTH           1080                    // VERIFIED (DTBO s6e3fa7_beyond0 resolution)
+#define EXYNOS_FB_HEIGHT          2280                    // VERIFIED (same node)
+#define EXYNOS_FB_BYTES_PER_PIXEL 4                       // consistent with the boot #10 photo (B44); format still unread
 #define EXYNOS_FB_STRIDE_PIXELS   EXYNOS_FB_WIDTH         // width*4, as on the 9810
 #define EXYNOS_FB_SIZE            ((UINT64)EXYNOS_FB_STRIDE_PIXELS * \
                                    EXYNOS_FB_HEIGHT * EXYNOS_FB_BYTES_PER_PIXEL)

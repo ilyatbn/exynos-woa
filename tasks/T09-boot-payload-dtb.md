@@ -33,6 +33,16 @@ padding after, so the DT header check fails and sboot never jumps. Fix the paylo
 3. Rebuild the candidate as `[shim][FD][DTB]` (pack-uefi-beyond0lte.ps1 + the shim header), then
    re-attempt the boot (T07 consent + vbmeta already in place).
 
+## Research reframe (2026-10-10, notes/edk2-bootshim.md)
+
+The DT is NOT handled in the shim (edk2-exynos BootShim has no DTB; the 9810 lineage relies on a
+container **DTBH**). The fix lives in the boot-image PACKAGING: edk2-exynos `build.sh` calls a
+per-device `platform_build_bootimg` hook that assembles the container's DTBH/dtbo for the SoC.
+The 9820 containers have no embedded DTBH (Android-12 separate dt.img/dtbo.img). NEXT: read edk2-exynos'
+`platform_build_bootimg` hook for exynos9820/beyond0lte to learn the exact DT presentation sboot
+wants, then mirror it in `pack-uefi-beyond0lte.ps1`/`repack-with-ref.py` (a DTBH section in the
+container, not an appended FDT in the kernel).
+
 ## Done when
 
 The payload carries a DTB sboot accepts and the boot gets past `load_kernel` — the panel shows

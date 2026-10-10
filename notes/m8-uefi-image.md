@@ -1198,3 +1198,13 @@ sha256 00a28d8a0228eaa0385ba6dfb74bfdcae20d8a1407f793f82ab84bdcf741f5af
 (The hash line above was first mis-cut - Windows sha256sum prefixes a backslash; corrected via Get-FileHash.)
 Pushed + on-device sha256 matches, sda14, dd conv=fsync 7 587 840 B, readback 3705 x 2048 B sha256
 00a28d8a0228eaa0385ba6dfb74bfdcae20d8a1407f793f82ab84bdcf741f5af (byte-exact). `adb reboot` next.
+
+## B34 - boot #7 OBSERVED: same loop, NO third band; the brief text is RED -> reset is EXTERNAL to UEFI
+
+User: "same exact issue but now the second line is clearly red text. its so tiny and so fast i cant ...
+capture it or see whats written". No band 3 => no ResetCold/Warm/Shutdown/PlatformSpecific call ran (or
+the reset happened before ResetSystemRuntimeDxe could be used). So the reset is NOT UEFI's: HW watchdog
+or a secure-world (EL3/TZASC) reaction to an access. The tiny blue/yellow/red text is not ours (our
+DEBUG goes to UART only; GraphicsConsole is grey/white) - INFERENCE: Samsung's own crash/upload-style
+report, flashed before the reset. Next: read Samsung's persisted reset reason from TWRP (/proc/reset_*,
+sec_debug) right after a loop, without passing through download mode first.

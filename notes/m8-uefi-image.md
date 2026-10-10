@@ -1123,3 +1123,10 @@ boot #4's pack-out-v2.img (which cleared the DT check): only kernel_size and the
 byte-identical, same addrs/page/v2.
 Reading boot #5: no bands = shim never entered (or 0x1281 does not unblank) ; band 1 only = fault in copy ;
 both bands then loop = FD SEC/PEI/DXE faults ; bands then UEFI/Windows output = progress.
+
+## B27 - boot #5 WRITE (FD @0x90000000 + diagnostic shim) to BOOT sda14, consented
+
+User added adb allow rules (/permissions) and asked to retry. In TWRP: pushed boot5-v2.img (sha256 1379b50a...0b3765
+on-device), by-name/boot -> /dev/block/sda14, `dd ... conv=fsync` 7 587 840 B, read back 3705 x 2048 B ->
+sha256 1379b50aa33061788a088c9ce912c38354e00cb716887d0ac80a5e37110b3765 (byte-exact). `adb reboot` next.
+Observation pending (decode per B26).

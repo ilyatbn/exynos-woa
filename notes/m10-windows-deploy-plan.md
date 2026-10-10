@@ -41,3 +41,6 @@ Research summary (2026-10-10, Explore subagent over the repo, citations kept; ve
 - Consent: "Yes, wipe it" - USERDATA + CACHE may be overwritten when we get there (confirm again right
   before the write).
 - Windows media: C:\Users\ilya\code\Windows11_22631.2861_Pro_arm64.iso (Windows 11 23H2 Pro ARM64).
+- ISO checked (mounted at F:, DISM 10.0.26100.5074, elevated shell = True): sources\install.wim
+  5 095 179 610 B; index 1 Windows 11 Home, 2 Home Single Language, 3 Windows 11 Pro (22.4 GB
+  expanded). Use index 3 (Pro) - the installer's preference order is IoT Ent > Pro > Home.

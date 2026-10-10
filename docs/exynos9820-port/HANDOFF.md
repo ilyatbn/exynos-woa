@@ -902,13 +902,17 @@ not booted). `992b7d2` review fix. `500abfc` stale MILESTONES row. Notes: `notes
 Uncommitted on purpose: `.gitignore` `info/*` and the T05 read-attempt note (left from the previous
 session for the user to review).
 
-**Next order (one commit each; every flash needs the user's consent):**
-1. Decide the FD base: prior art boots the 9820 FD at **`0x90000000`** (`configs/exynos9820.conf`);
-   ours is the DECISION `0x83300000`. If adopted, move all four lockstep sites (`.dsc`
-   Pcd{Fd,Fv}BaseAddress, `.fdf` FD_BASE_ADDRESS, shim `UEFI_BASE`, packer `-UefiBase`) and rebuild.
-   Check the FD's own PrePi stack/heap PCDs against prior art (0x80C00000 / 0x80C50000) too.
-2. Rebuild the FD, `pack-uefi-beyond0lte.ps1`, then `build-bootimg-v2.py` for a new v2 image.
-3. Boot #5: flash it to sda14 via TWRP, reboot normal, observe. The new shim does not paint, so
-   only "loop vs no loop vs UEFI output" is visible.
-4. Restore stock `boot.img` to sda14 whenever the user wants Android back.
+**Update (later the same session).** Done and committed: `95357f4` build-uefi.ps1 sets
+`CLANGPDB_DLL` (unset -> empty PATH entry -> "'make' is not recognized"); `6272939`/B25 FD base moved
+to the prior-art **0x90000000** in all four sites, rebuilt; `62437aa`/B26 shim diagnostic (prior-art
+DECON enable + two WHITE bands). Boot #5 image built, NOT yet written:
+`%TEMP%25oot5-v2.img`, 7 587 840 B, sha256 `1379b50a...0b3765` (full hash in notes B26).
+Phone: in TWRP, root adb, user consented to boot #5. The agent's write to sda14 was refused by the
+permission layer, so the user runs the flash.
+
+**Next order:**
+1. Flash `boot5-v2.img` to by-name/boot (sda14), read back the first 3705 x 2048 B and compare sha256,
+   `adb reboot`, observe. Decode per notes B26: no bands / band 1 only / both bands then loop / output.
+2. Record the observation as B27, then choose the next fix from it.
+3. Rollback whenever wanted: stock `boot.img` (`%TEMP%\opencode\stockoot.img`) to sda14 from TWRP.
 

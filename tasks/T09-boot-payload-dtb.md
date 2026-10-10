@@ -24,6 +24,9 @@ padding after, so the DT header check fails and sboot never jumps. Fix the paylo
 
 1. Get a valid DTB: the vendor `dtbo.img`/`dt.img` from `C:\Users\ilya\code\Dumps\AP_..._meta_OS12.tar`
    (LZ4 members), or the phone's live FDT (`/sys/firmware/fdt`) read in a TWRP root shell.
+   DONE (vendor route): extracted + LZ4-decompressed; `dt.img` FDT at 0x40 totalsize **239680**
+   (`stock/dt.dtb`), `dtbo.img` FDT at 0x100 totalsize **176648** (`stock/dtbo.dtb`). Primary tree
+   = `dt.dtb` (239680 B).
 2. Decide the exact contract sboot wants: DTB appended after the kernel Image at the page-aligned
    offset past `image_size`, and whether the ARM64 header `flags` bit4 (0x10 "can use device tree")
    and the DTB-alignment bits (bit8) must be set. Keep every value UNVERIFIED until a boot confirms.

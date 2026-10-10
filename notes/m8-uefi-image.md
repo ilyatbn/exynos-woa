@@ -924,4 +924,16 @@ FIX (the real one): append a valid DTB to the payload and make the Image header'
 `image_size`/`flags` point sboot at it. Source for a DTB: the vendor `dtbo.img`/`dt.img`
 (in the meta tar) or the phone's live FDT (`/sys/firmware/fdt`) read in a TWRP root shell.
 T06 (stock-container ref) is NOT the fix; superseded. New task: append DTB to the boot payload.
-- log: `%TEMP%\m8-build-ufs-run1.log`.
+
+## B13 - the vendor DTBs extracted (source for the T09 payload fix)
+
+FACT extracted + LZ4-decompressed `dt.img.lz4`/`dtbo.img.lz4` from the meta tar (both 8 MiB
+partitions, Samsung header then a real FDT):
+- `dt.img`: FDT (0xD00DFEED) at 0x40, totalsize **239680** (0x3a840) -> `stock/dt.dtb` 239680 B.
+- `dtbo.img`: FDT at 0x100, totalsize **176648** (0x2b208) -> `stock/dtbo.dtb` 176648 B.
+So the primary device tree is `dt.dtb` (239680 B). That is the blob to append to the payload.
+PLAN (T09): rebuild the container kernel as `[shim][FD][pad->align][DTB]` and set the shim's ARM64
+Image header so sboot's load_kernel finds a valid FDT after `image_size` (likely set flags bit4
+0x10 "can use device tree" -> 0xa|0x10=0x1a, and place the DTB at align_up(image_size, page)).
+UNVERIFIED: sboot's exact DTB placement rule and whether it wants dt.dtb vs dtbo.dtb - decide by
+a boot observation, not by guessing. Files: `C:\Users\ilya\AppData\Local\Temp\opencode\stock\`.

@@ -243,7 +243,8 @@
   #     banks as GCD SystemMemory (the page-table map in PlatformMemoryMapLib
   #     does not do that; see notes/m8-ram-manager.md). ---
   #
-  INF Platform/Beyond0LtePkg/Drivers/Beyond0LteRamManagerDxe/Beyond0LteRamManagerDxe.inf
+  #     DISABLED (see Beyond0LtePkg.dsc, notes/m8-uefi-image.md B63).
+  # INF Platform/Beyond0LtePkg/Drivers/Beyond0LteRamManagerDxe/Beyond0LteRamManagerDxe.inf
   #
   # --- Storage + filesystem (Windows ESP on UFS).
   #     Beyond0LteUfsHcDxe produces the UFS host-controller protocol that

@@ -1548,3 +1548,19 @@ then reset (the frame after is black). => ArmGicV2Dxe + TimerDxe (virtual timer)
 killer is in/around Beyond0LteRamManagerDxe's entry. Still a reset without an EL1 exception print
 (CpuDxe's handler would print) -> EL2/EL3-level abort again -> suspect: the driver touches RAM the
 hypervisor/TZ does not give EL1.
+
+## B63 - UEFI on bank0 only: high banks (0x880000000/0x900000000) no longer published, RamManagerDxe out
+
+Reading: Beyond0LteRamManagerDxe ArmSetMemoryAttributes + AddMemorySpace's banks 3/4 (2 GiB each), which
+PlatformMemoryMapLib ALSO publishes as RAM (bank loop) - so DXE already had them as system memory and the
+driver re-adds them. The 9810 port never gave UEFI its 64-bit banks (Star2LteRamManagerDxe: 32-bit bank-1
+ranges only) and its UFS work found RAM outside bank0 not usable by UEFI at boot (A105). INFERENCE: the
+first DXE allocation in a high bank (e.g. page tables for the 4 GiB attribute change) touches memory EL1
+may not use -> EL2/TZ abort -> reset. Not proven: the reset could also be slightly after RamManager.
+Change: PlatformMemoryMapLib BEYOND0LTE_PUBLISH_HIGH_BANKS=0 (banks 3/4 size 0 -> skipped, neither mapped
+nor RAM); RamManagerDxe commented out of dsc + fdf. UEFI RAM = bank0 gaps 0x80000000..0xBAB00000 only.
+FOLLOW-UP (milestone): Windows needs more RAM than ~0.9 GiB; the 9810 record (Star2LtePkg.dsc:211-250)
+says winload's allocator and the RKP zone need multi-region RAM - revisit high banks after BDS works.
+Verified: build exit 0; Guid.xref has no RamManager; FVMAIN_COMPACT now 416 B free (nearly full - next
+FD growth must drop DEBUG noise or enlarge the FV).
+Boot #17 image %TEMP%\b63\boot17-v2.img sha256 1625b5e49fbdfff2609e159cda772d03cdca545e4a7e223293c1984e49f8682d

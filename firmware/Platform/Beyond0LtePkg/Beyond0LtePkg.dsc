@@ -570,7 +570,12 @@
   #     publishes the two verified high banks as GCD SystemMemory, which is a
   #     different thing from the page-table entries in PlatformMemoryMapLib
   #     (see notes/m8-ram-manager.md). ---
-  Platform/Beyond0LtePkg/Drivers/Beyond0LteRamManagerDxe/Beyond0LteRamManagerDxe.inf
+  #     DISABLED: UEFI uses bank0 only (notes/m8-uefi-image.md B62/B63). Boot #16 reset (no EL1 exception)
+  #     as Beyond0LteRamManagerDxe started on the high banks; the 9810 port never gave UEFI its high
+  #     banks either (Star2LteRamManagerDxe adds 32-bit bank-1 ranges only) and its UFS work found RAM
+  #     outside bank0 not usable by UEFI at boot (Beyond0LteUfsHcDxe.c A105). Re-enable only with an
+  #     on-device read that EL1 may touch 0x880000000+ before the OS.
+  # Platform/Beyond0LtePkg/Drivers/Beyond0LteRamManagerDxe/Beyond0LteRamManagerDxe.inf
 
   # --- Storage + filesystem (Windows ESP on UFS).
   #     Beyond0LteUfsHcDxe is the ported 9810 UFS host controller: it PRODUCES

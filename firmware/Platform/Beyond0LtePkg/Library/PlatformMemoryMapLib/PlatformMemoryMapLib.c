@@ -28,6 +28,8 @@
 
 #include "Beyond0LteCheckpoint.h"
 
+#define BEYOND0LTE_PUBLISH_HIGH_BANKS  0
+
 #define MMAP_DRAM   ARM_MEMORY_REGION_ATTRIBUTE_WRITE_BACK
 #define MMAP_DEV    ARM_MEMORY_REGION_ATTRIBUTE_DEVICE
 
@@ -199,6 +201,18 @@ ArmPlatformGetVirtualMemoryMap (
     BankSize[1] = EXYNOS_DRAM_BANK3_SIZE;
     BankBase[2] = EXYNOS_DRAM_BANK4_BASE;
     BankSize[2] = EXYNOS_DRAM_BANK4_SIZE;
+#if !BEYOND0LTE_PUBLISH_HIGH_BANKS
+    //
+    // UEFI uses bank0 only (notes/m8-uefi-image.md B62/B63). Boot #16 reset (no EL1 exception)
+    // as Beyond0LteRamManagerDxe started on the high banks; the 9810 port never gave UEFI its high
+    // banks either (Star2LteRamManagerDxe adds 32-bit bank-1 ranges only) and its UFS work found RAM
+    // outside bank0 not usable by UEFI at boot (Beyond0LteUfsHcDxe.c A105). Re-enable only with an
+    // on-device read that EL1 may touch 0x880000000+ before the OS.
+    // A zero size makes the loop below skip the bank (End == Start).
+    //
+    BankSize[1] = 0;
+    BankSize[2] = 0;
+#endif
 
     for (B = 0; B < 3; B++) {
       UINT64 Start;

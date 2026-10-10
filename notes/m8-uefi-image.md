@@ -1178,3 +1178,17 @@ maybe 2 blue and 1 yellow lines or some text. very difficult to see but it was d
 => NEW visible output after the shim's white bands (boot #5 showed none) -> the B29 fix (UEFI region in
 mapped bank0) moved the fault later; the FD itself draws something, then the device resets within ~1 s.
 Next: identify which FD code paints blue/yellow to place the fault.
+
+## B32 - discriminate "UEFI called ResetSystem" vs "external reset": BEYOND0LTE_RESET_HOLD
+
+Reading: BdsDxe's no-boot path ends in CpuDeadLoop (BdsEntry.c:1148-1149); ArmPkg PlatformBm's
+"reboot after refreshing boot options" is skipped because PcdEmuVariableNvModeEnable=TRUE (dsc:459). So a
+reset is either a ResetSystem call somewhere in UEFI, or external (HW watchdog / secure-world fault).
+Change: Beyond0LteResetSystemLib.c gains BEYOND0LTE_RESET_HOLD=1 - ResetCold/Warm/Shutdown (and
+PlatformSpecific via Cold) first paint WHITE band 3 (rows 1300-1749) pre-virtual, then WaitForReset (wfi,
+IRQs off) instead of PSCI reset. Freeze + band 3 => UEFI called ResetSystem and its last output stays
+readable; still loops => external reset.
+Verified: build exit 0 (FVMAIN_COMPACT 3248 B free); ResetHold present in ResetSystemRuntimeDxe.map,
+.efi rebuilt; shim unchanged (cmp vs boot #5/#6). Boot #7 image %TEMP%\b32\boot7-v2.img.
+MUST be turned off before any real install (a held reset is a hung phone).
+sha256 \00a28d8a0228eaa0385ba6dfb74bfdcae20d8a1407f793f82ab84bdcf741f5a

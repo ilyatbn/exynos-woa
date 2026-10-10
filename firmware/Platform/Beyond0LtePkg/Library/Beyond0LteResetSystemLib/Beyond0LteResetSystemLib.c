@@ -58,6 +58,20 @@
 #define BEYOND0LTE_PMU_RESET  0
 #define BEYOND0LTE_PRAM_DIAG  0
 
+//
+// BEYOND0LTE_RESET_HOLD - boot-bring-up diagnostic (notes/m8-uefi-image.md B32).
+//   Boot #6 drew something for <1 s after the shim's bands and then reset. With
+//   this ON, every ResetSystem path paints a THIRD white band (rows 1300-1749,
+//   below the shim's two) and parks the CPU instead of resetting, so:
+//     - phone freezes with band 3  -> the reset came from UEFI calling ResetSystem,
+//       and whatever was drawn before it stays on the panel to be read;
+//     - phone still loops          -> the reset is external to UEFI (watchdog,
+//       secure-world fault), not a ResetSystem call.
+//   Pre-virtual only (the FB is identity-mapped device memory then). Turn OFF
+//   before any real install - a held reset is a hung phone.
+//
+#define BEYOND0LTE_RESET_HOLD  1
+
 #if BEYOND0LTE_PMU_RESET
 //
 // 9810 offsets, kept for reference only. NOT 9820 reads: the 9810 PMU was at
@@ -456,12 +470,37 @@ ExynosPmuPowerOff (
   WaitForReset ();
 }
 
+#if BEYOND0LTE_RESET_HOLD
+STATIC
+VOID
+ResetHold (
+  VOID
+  )
+{
+  volatile UINT32  *Px;
+  UINTN            Count;
+
+  if (!EfiGoneVirtual ()) {
+    Px = (volatile UINT32 *)(UINTN)(EXYNOS_FB_BASE +
+                                    (UINT64)1300 * EXYNOS_FB_STRIDE_PIXELS * EXYNOS_FB_BYTES_PER_PIXEL);
+    for (Count = 0; Count < (UINTN)450 * EXYNOS_FB_WIDTH; Count++) {
+      Px[Count] = 0xFFFFFFFFU;
+    }
+    ArmDataSynchronizationBarrier ();
+  }
+  WaitForReset ();
+}
+#endif
+
 VOID
 EFIAPI
 ResetCold (
   VOID
   )
 {
+#if BEYOND0LTE_RESET_HOLD
+  ResetHold ();
+#endif
   AttemptPsciSystemReset ();
   ExynosPmuReset ();
 }
@@ -472,6 +511,9 @@ ResetWarm (
   VOID
   )
 {
+#if BEYOND0LTE_RESET_HOLD
+  ResetHold ();
+#endif
   AttemptPsciSystemReset2 ();
   AttemptPsciSystemReset ();
   ExynosPmuReset ();
@@ -485,6 +527,9 @@ ResetShutdown (
 {
   ARM_MONITOR_ARGS  Args;
 
+#if BEYOND0LTE_RESET_HOLD
+  ResetHold ();
+#endif
   Args.Arg0 = ARM_SMC_ID_PSCI_SYSTEM_OFF;
   ArmMonitorCall (&Args);
   RuntimePramMarker ("PSO", Args.Arg0);

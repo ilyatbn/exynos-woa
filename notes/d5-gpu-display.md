@@ -40,4 +40,252 @@ ends recorded.
 
 ## Progress log
 
-(append below)
+### D1 — Mu-Silicium status rows + Update Catalog probe
+
+(fact) Mu-Silicium `Status.md` (github.com/Project-Silicium/Mu-Silicium/blob/main/Status.md,
+fetched 2026-10-10): every Samsung Exynos device with a Windows OS-status table shows
+**Display ✅ / GPU ❌**:
+- `beyond1lte` (S10, Exynos 9820): UEFI Display ✅, Windows Boot ❌, state *Inactive*.
+  No OS-status table at all (Windows doesn't boot there yet). "Only 23H2 Windows Builds
+  and Lower are able to Boot" note sits on the Exynos 9820 section.
+- `starlte` (S9, Exynos 9810): UEFI Display ✅, Windows Boot ✅ but "Only Windows PE boots";
+  OS status Display ✅, GPU ❌.
+- `x1s` (S20 5G, Exynos 990/Mali-G77): Windows Boot "WinPE Only" ✅; OS status Display ✅, GPU ❌.
+- `gtaxllte` (Tab A 2016, Exynos 7870/Mali-T830): Windows boots; Display ✅, GPU ❌.
+- `e1s` (S24, Exynos 2400/Xclipse 940 RDNA3): UEFI Display ✅, Windows Boot ❌.
+So Mu-Silicium ships working *UEFI display* on Mali-based Samsung SoCs and zero GPU under
+Windows — display works without any GPU driver. (inference: that display must be GOP/framebuffer.)
+
+(fact) Microsoft Update Catalog search `Mali WDDM ARM64` → "We did not find any results"
+(https://www.catalog.update.microsoft.com/Search.aspx?q=Mali+WDDM+ARM64). No Mali WDDM
+driver is distributed via Windows Update for ARM64.
+
+(fact) Catalog search `Mali` alone → 73 hits, **all** "Windows Malicious Software Removal
+Tool" (https://www.catalog.update.microsoft.com/Search.aspx?q=Mali). i.e. the Update
+Catalog contains **zero** ARM-Mali GPU drivers for any Windows edition/arch — no vendor has
+ever shipped a Mali display/GPU driver through Windows Update. (inference: consistent with
+no Mali WDDM ever existing publicly.)
+
+(fact) Mu-Silicium repo tree (api.github.com/repos/Project-Silicium/Mu-Silicium/git/trees/main?recursive=1,
+3083 paths, not truncated): the only display-related entries are
+`Silicon/Silicium/SiliciumPkg/Drivers/SimpleFbDxe/{SimpleFb.c,SimpleFbDxe.inf}`,
+`Silicon/Silicium/SiliciumPkg/Library/FrameBufferSerialPortLib/*`, and Qualcomm-only
+`QcomPkg/Drivers/DisplayReEnablerDxe` + `Include/Protocol/EFIDisplay{Pwr,Utils}.h`.
+**No DECON/DSI/LCD driver code exists in the tree** — Samsung display = SimpleFbDxe over a
+bootloader-lit framebuffer (same shape as our SimpleFramebufferDxe).
+
+(fact) Mu `SimpleFbDxe/SimpleFb.c` (raw.githubusercontent.com/Project-Silicium/Mu-Silicium/main/Silicon/Silicium/SiliciumPkg/Drivers/SimpleFbDxe/SimpleFb.c):
+locates a "Display Reserved"/"Display_Reserved" memory region from the memory map, takes
+width/height/depth from PCDs (`PcdFrameBufferWidth/Height/ColorDepth`, min 640x475),
+installs a single-mode GOP (`MaxMode = 1`, `FrameBufferSetMode` = no-op `EFI_SUCCESS`) with
+Blt via `FrameBufferBltLib`. Zero display-controller programming — the panel must already be
+lit by the Android bootloader. This is exactly the model our repo already follows.
+
+(fact) Snapdragon GPU history: the full Wikipedia list of Snapdragon SoCs
+(https://en.wikipedia.org/wiki/List_of_Qualcomm_Snapdragon_processors, fetched 2026-10-10)
+contains **zero** "Mali" mentions; every 3D-capable Snapdragon uses Adreno (pre-Adreno parts
+say "Stargate 3D"/"Defender 3D" — Imageon-derived, still not Mali; some low-ends "No 3D").
+Compute/PC parts: 8cx = Adreno 680, 8cx Gen 2 = Adreno 690, 8cx Gen 3 = Adreno 695,
+Microsoft SQ1 = Adreno 685. (fact) No Snapdragon has ever shipped with a Mali GPU, so no
+Windows-on-Snapdragon device has ever needed a Mali WDDM.
+
+### D2 — Q2: Linux side (panfrost / 9820 ports)
+
+(fact) Mesa panfrost status table (https://docs.mesa3d.org/drivers/panfrost.html, fetched
+2026-10-10): **Mali-G76 is Bifrost v7** (3rd-gen), same row as G31/G51/G52. Supported:
+GLES 3.1 (conformance footnote shown for G52), OpenGL 3.1, **Vulkan 1.3 (PanVK)**, OpenCL 3.0
+(via Rusticl). Midgard v4/v5 have no Vulkan. Utgard (Mali-4xx) uses Lima, not panfrost.
+Also: "Mali GPUs are 3D-only and do not include a display controller, Mesa uses **kmsro** to
+support display controllers paired with Mali GPUs" — i.e. on Linux the G76 needs the SoC's
+own DRM display driver (exynos DECON/DSI) + kmsro glue; panfrost never drives the panel.
+
+(fact) `chiffathefox/exynos-9820-mainline-linux` (github.com/chiffathefox/exynos-9820-mainline-linux,
+fork of torvalds/linux, active — pushed 2026-09-27): branches `exynos9820-7.1-rc2` /
+`exynos9820-7.2-rc2` carry Exynos 9820 bring-up on ~Linux 7.2-rc2: clk driver blocks
+(MIF/CORE/BUSC/PERI*/FSYS/**DPU**), "clk: exynos9820: add an **empty G3D block**" (GPU clocks
+stubbed out), samsung power domains, TMU thermal. **No exynos9820 DTS exists in the tree yet**
+(checked `arch/arm64/boot/dts/exynos` on both the default branch and `exynos9820-7.2-rc2`:
+files exist for 7870/7885/850/8895/9810/990/2200/autov9 — none for 9820). So mainline 9820
+support is SoC-clocks/thermal stage; GPU/display enablement not started. (inference: the
+"empty G3D block" shows GPU is deliberately deferred.)
+
+(dead end) postmarketOS: pmaports (gitlab.com/postmarketOS/pmaports, API 2026-10-10) has **no
+beyond0lte/beyond1lte/exynos9820 device package** in device/{main,testing,community,archived}
+— Samsung entries are only old Utgard/Exynos-3..7 era devices. The pmOS wiki page for the S10
+is bot-walled (Anubis) and could not be read; but with no pmaports package there is no
+maintained pmOS port for the 9820 today.
+
+(fact) LineageOS Samsung kernel `LineageOS/android_kernel_samsung_exynos9820` (branch
+lineage-23.2, pushed 2026-09-20): GPU is **ARM's open-source Bifrost kbase DDK r10p0** at
+`drivers/gpu/arm/b_r10p0/` (mali_kbase_*), plus gator profiling. DT node:
+`arch/arm64/boot/dts/exynos/exynos9820-mali_common.dtsi`:
+`mali: mali@18500000 { compatible = "arm,mali"; reg = <0x0 0x18500000 0x5000>; interrupts
+JOB/MMU/GPU; samsung,power-domain = <&pd_embedded_g3d>; gpu_max_clock = <702000>; ... }`
+(Samsung vendor binding `arm,mali`, not upstream `arm,mali-bifrost`; DVFS/thermal/TMU
+properties are Samsung-specific). Userspace is the matching closed Mali blob (binder r10p0).
+Useful constant: **G76 MMIO base 0x18500000** (matches this repo's Exynos9820.h if checked).
+
+### D3 — Q4: Windows display over a plain framebuffer
+
+(fact) Microsoft Learn, "Microsoft Basic Display Driver"
+(https://learn.microsoft.com/en-us/windows-hardware/drivers/display/microsoft-basic-display-driver):
+*BasicDisplay.sys* is an **in-box generic WDDM display driver** shipped with Windows; "its
+primary purpose is to enable Windows to write to the display controller's linear frame
+buffer"; "supports UEFI Graphics Output Protocol (GOP)"; "On UEFI platforms, BasicDisplay
+inherits the linear frame buffer that is set during boot. In this case, **no mode or
+resolution changes are possible**." It is "always used with *BasicRender*", the system module
+exposing **WARP** (software rasterizer) as the D3D device — i.e. D3D9/10/11 API surface
+exists, rendered on CPU. (fact) Since Win11 both run from DriverStore.
+
+(fact) ARM64 proof it works on ARM: worproject/RPi-Windows-Drivers README
+(https://github.com/worproject/RPi-Windows-Drivers) — Windows on ARM64 on Raspberry Pi 3/4:
+"Basic Display Adapter (frame buffer) | **MSBDD (Inbox)** | **Working**" on both ARM64 tables,
+while the VC4 GPU driver (`roskmd.sys`) is "Not working … unfinished". So a full Windows
+ARM64 desktop runs on the inbox fb driver with no GPU driver at all. (The RPi DSI 7" panel
+row: "Display: firmware-controlled … only the display works" — same model as DECON-lit fb.)
+
+(fact) Mu-Silicium corroborates on Samsung targets: starlte/x1s/gtaxllte Windows OS-status
+tables show Display ✅ / GPU ❌ (see D1) — their SimpleFbDxe GOP + inbox BasicDisplay is the
+working display path today. (inference) Our SimpleFramebufferDxe at 0xCA000000 is the exact
+equivalent; Windows should light up the S10e panel the same way once boot completes.
+
+(fact) HLK has a "UEFI GOP mode test"
+(https://learn.microsoft.com/en-us/windows-hardware/test/hlk/testref/6afc8979-df62-4d86-8f6a-99f05bbdc7f3)
+and WDDM docs require drivers to preserve the GOP-set mode on UEFI systems
+(https://learn.microsoft.com/en-us/windows-hardware/drivers/display/plug-and-play--pnp--start-and-stop-cases)
+— GOP-inherited framebuffer is a first-class Windows concept, not a hack.
+
+(fact) Indirect Display Driver (IDD) model: "provides a simple user-mode driver model to
+support monitors that aren't connected to traditional GPU display outputs"
+(https://learn.microsoft.com/en-us/windows-hardware/drivers/display/indirect-display-driver-model-overview);
+sample "IddSample" via learn gallery
+(https://learn.microsoft.com/en-us/samples/microsoft/windows-driver-samples/indirect-display-driver-sample/).
+IDD works on ARM64: Virtual Display Driver README comparison table has an "ARM64 Support"
+column and notes "ARM64 Support in Windows 11 24H2 or later may require test signing"
+(https://github.com/VirtualDrivers/Virtual-Display-Driver). But IDD creates a *virtual
+monitor* fed from another adapter's desktop — it does not own a physical panel; using it to
+push frames to DECON would mean an IDD+capture blitter on top of whatever already owns the
+fb. Not the primary path.
+
+(fact) The old `display/BasicRender` folder is gone from microsoft/Windows-driver-samples
+(contents API 2026-10-10: no `display` dir) — BasicRender itself is the *in-box* WARP
+exposer paired with BasicDisplay (see Learn page above), so no sample is needed.
+
+(dead end) No maintained third-party "simplefb→WDDM" shim found on GitHub — none exists
+because Windows already ships one in-box (MSBDD). Closest hits were MicaNT (hobby NT-like
+x86 OS, blits to GOP fb — not Windows) and IDD clones.
+
+(fact) Contrast case — Lumia 950 (Snapdragon 808/Adreno 418) under Windows ARM64 has real
+GPU acceleration because Windows Phone 10 already shipped an Adreno **WDDM** driver that
+LumiaWOA reuses: WOA-Project/Lumia-Drivers releases mention "Qualcomm Adreno GPU Driver
+UMD component registration", and 2020 announcements "GPU Acceleration is now available.
+Adreno(TM)" (https://github.com/WOA-Project/Lumia-Drivers/releases,
+https://t.me/s/LumiaWOA_Announcements?before=413, howtogeek/liliputing coverage).
+(inference) The reason Qualcomm phones got GPU under WoA and Samsung phones never will:
+WP10 was WDDM-native; Android's Mali DDK has no Windows counterpart to port from.
+
+### D4 — Q1 remainder: ARM Windows-driver dead end, stated precisely
+
+(dead end) Could not confirm any public ARM download named "Mali Display Processor driver
+for Windows": exact-phrase web search returns nothing; developer.arm.com download pages are
+JS-only (fetches return empty/timeout). What IS documented on developer.arm.com (search
+snippets 2026-10-10):
+- "Mali GPU User-Space Binary Drivers — for GNU/Linux and Android"
+  (https://developer.arm.com/downloads/-/Mali%20GPUs%20User-Space%20Binary%20Drivers)
+- "Mali Display Drivers — source code for Mali GPUs **Linux X11** Display Drivers"
+  (https://developer.arm.com/downloads/-/mali-drivers/display-drivers) — "display" here =
+  X11 DDX glue for Mali GPU on Linux, not a Windows display driver.
+- "Mali-DP ADF Kernel Device Drivers — open source drivers … on any **Linux or Android**"
+  (https://developer.arm.com/tools-and-software/graphics-and-gaming/mali-drivers/dp-adf-kernel)
+  — Mali-DP is the Mali-D51/D71/DP650 *display composition* IP; the 9820 does not contain
+  Mali-DP (its display is Samsung DECON), so even if a Windows Mali-DP driver existed it
+  would be irrelevant to us. (inference, high confidence)
+(fact) The GPU/WDDM distinction the task asked about holds: ARM has never offered a Windows
+GPU driver for any Mali; all Mali GPU drivers are Linux/Android (DDK) or open-source Mesa
+(panfrost).
+
+### D5 — Q5: verdict inputs
+
+Cost of an accelerated Mali path (facts → inference):
+- (fact) Mali-G76 = Bifrost v7; the only driver knowledge base is panfrost (reverse-engineered
+  ISA, officially blessed by Arm in 2020: "Arm Officially Supports Panfrost … in partnership
+  with Collabora", https://www.cnx-software.com/2020-09-18/arm-officially-supports-panfrost-open-source-mali-gpu-driver-development/)
+  plus ARM's closed DDK (Linux/Android only) and its open-source kbase kernel module
+  (b_r10p0 in the LineageOS tree, see D2).
+- (fact) panfrost took Collabora ~2016→2020+ to reach GLES 3.1 conformance on Linux
+  (Phoronix progress timeline: https://www.phoronix.com/news/Panfrost-Mali-October-2018 etc.).
+- (inference) A "Mali-G76 WDDM" would need: a WDDM miniport (kbase DRM→WDDM rewrite), an
+  ARM64 user-mode D3D11/12 driver compiling to Bifrost v7 ISA, and Dxgk integration — i.e.
+  porting the entire Mesa+DRM stack to a different OS model. Nobody has ever done this for
+  any Mali on any Windows; Arm itself hasn't, despite shipping Windows-relevant IP elsewhere.
+  Realistic cost: multi-year specialist team; not a milestone-sized task.
+- (fact) G76 core count on 9820: MP11 (S10/S10e; S10+ is MP12) — naming per
+  https://www.smartprix.com/bytes/how-to-choose-smartphone-processor-chipset/ (low stakes for
+  the driver question either way).
+
+Cost of the framebuffer path (facts):
+- (fact) We already have GOP (SimpleFramebufferDxe, 1440x3040 @ 0xCA000000); Windows ARM64
+  in-box BasicDisplay+BasicRender turns any GOP fb into a working desktop with WARP — proven
+  on ARM64 by RPi-Windows ("MSBDD (Inbox) Working", GPU driver "not working", desktop still
+  fine: https://github.com/worproject/RPi-Windows-Drivers) and by Mu-Silicium Samsung ports
+  (Display ✅ / GPU ❌ on starlte/x1s/gtaxllte).
+- (fact) Limitations are explicit: "no mode or resolution changes are possible" over inherited
+  GOP fb (Learn BasicDisplay page); no hardware 3D; D3D via WARP (CPU) only; HLK certification
+  would fail ("Verify Post Device Supports Display And Render",
+  https://learn.microsoft.com/en-us/windows-hardware/test/hlk/testref/a635f1f2-5a43-4264-a667-ce6cd1a43338)
+  — irrelevant for a hobby port.
+- (inference) Remaining real work for D5 is *display plumbing*, not drivers: keep DECON +
+  panel + fb refresh alive across sboot→UEFI→Windows handoff, fix the fb RAM/DEV overlap
+  (M8 open task), and get mode/rotation sane at 1440x3040 portrait.
+
+## Verdict recommendation
+
+**D5's honest deliverable is 2D framebuffer display (GOP + in-box BasicDisplay/WARP), with
+GPU acceleration explicitly declared out of scope — `NotImplemented`, not `Guided`.**
+
+Evidence chain:
+1. No Mali WDDM exists, has ever existed, or is distributed anywhere (Update Catalog: zero
+   Mali hits; Arm's downloads: Linux/Android only; Mu-Silicium: GPU ❌ on every Samsung
+   device; no Snapdragon ever used Mali so no Windows driver ecosystem could piggyback).
+2. The framebuffer path is proven working on Windows ARM64 twice over (RPi-Windows MSBDD,
+   Mu-Silicium starlte/x1s Display ✅) and our repo already has the required UEFI half.
+3. A Bifrost WDDM is a multi-year reverse-engineering port with no upstream to contribute
+   to and no community precedent; the mainline Linux effort itself hasn't even started GPU
+   enablement ("empty G3D block", D2).
+4. Usable OOBE/desktop does **not** require a vendor GPU driver on ARM64: BasicDisplay is a
+   WDDM driver in-box, DWM composites, BasicRender exposes WARP for D3D9/10/11. Slow, but
+   visible and interactive — exactly what M8/M9 milestones need to progress.
+
+Suggested D5 scope: (a) validate Windows boots to desktop over SimpleFramebufferDxe once M8
+completes; (b) close the fb RAM/DEV overlap; (c) DECON resume/blank + backlight control from
+UEFI; (d) document "no GPU acceleration" as a permanent known limitation with this note as
+the justification. IDD/BasicRender experiments are optional garnish, not the deliverable.
+
+## Sources
+
+- https://github.com/Project-Silicium/Mu-Silicium/blob/main/Status.md
+- https://github.com/Project-Silicium/Mu-Silicium (repo tree via api.github.com)
+- https://raw.githubusercontent.com/Project-Silicium/Mu-Silicium/main/Silicon/Silicium/SiliciumPkg/Drivers/SimpleFbDxe/SimpleFb.c
+- https://www.catalog.update.microsoft.com/Search.aspx?q=Mali+WDDM+ARM64
+- https://www.catalog.update.microsoft.com/Search.aspx?q=Mali
+- https://en.wikipedia.org/wiki/List_of_Qualcomm_Snapdragon_processors
+- https://docs.mesa3d.org/drivers/panfrost.html
+- https://github.com/chiffathefox/exynos-9820-mainline-linux (branches/commits via api.github.com)
+- https://gitlab.com/postmarketOS/pmaports (tree API)
+- https://github.com/LineageOS/android_kernel_samsung_exynos9820 (tree + dtsi raw)
+- https://learn.microsoft.com/en-us/windows-hardware/drivers/display/microsoft-basic-display-driver
+- https://support.microsoft.com/en-us/windows/hardware/display-graphics/microsoft-basic-display-adapter-in-windows
+- https://github.com/worproject/RPi-Windows-Drivers
+- https://learn.microsoft.com/en-us/windows-hardware/drivers/display/indirect-display-driver-model-overview
+- https://learn.microsoft.com/en-us/samples/microsoft/windows-driver-samples/indirect-display-driver-sample/
+- https://github.com/VirtualDrivers/Virtual-Display-Driver
+- https://github.com/WOA-Project/Lumia-Drivers/releases
+- https://t.me/s/LumiaWOA_Announcements?before=413
+- https://learn.microsoft.com/en-us/windows-hardware/drivers/display/plug-and-play--pnp--start-and-stop-cases
+- https://learn.microsoft.com/en-us/windows-hardware/test/hlk/testref/a635f1f2-5a43-4264-a667-ce6cd1a43338
+- https://developer.arm.com/downloads/-/Mali%20GPUs%20User-Space%20Binary%20Drivers
+- https://developer.arm.com/downloads/-/mali-drivers/display-drivers
+- https://developer.arm.com/tools-and-software/graphics-and-gaming/mali-drivers/dp-adf-kernel
+- https://www.cnx-software.com/2020-09-18/arm-officially-supports-panfrost-open-source-mali-gpu-driver-development/
+- https://www.phoronix.com/news/Panfrost-Mali-October-2018
+- https://www.smartprix.com/bytes/how-to-choose-smartphone-processor-chipset/

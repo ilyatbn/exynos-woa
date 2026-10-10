@@ -45,11 +45,11 @@ ACPI/Windows half remains.
 
 | # | Milestone | State | Blocked on |
 |---|-----------|-------|------------|
-| D1 | DWC3 **host mode** in UEFI (the gate for everything else) | todo | boot stream (validation only — research and coding can start now) |
+| D1 | DWC3 **host mode** in UEFI (the gate for everything else) | **doing** | research, code, wiring and a clean Linux verification build **done** (`BEYOND0LTE_UEFI.fd` sha `83a9986e…` carries the whole chain); device validation waits on the boot stream — and on the open unknowns in `notes/d1-usb-host.md` (clock state at DXE entry, GSNPSID rev, CC attach timing) |
 | D2 | USB hub (non-powered) + keyboard/mouse in UEFI (`ConIn`) | todo | D1 |
-| D3 | USB host under **Windows**: ACPI xHCI device, inbox `USBXHCI.sys` | todo | D1, boot stream |
+| D3 | USB host under **Windows**: ACPI xHCI device, inbox `USBXHCI.sys` | **doing** | D1, boot stream — DSDT `XHC0` device + role-latch decision **done** (built into the FD, `PNP0D10` verified in FVMAIN); device test waits on Windows |
 | D4 | WiFi: USB adapter path chosen + validated (vendor bcmdhd stays closed) | todo | D3 |
-| D5 | GPU/display: research verdict on Mali-G76, then DECON GOP in UEFI | todo | — (research can start now) |
+| D5 | GPU/display: Mali-G76 research verdict, then framebuffer-display validation | **doing** | research + verdict **done** (`notes/d5-gpu-display.md`): no Mali WDDM exists — deliverable is GOP + in-box BasicDisplay, acceleration permanently `NotImplemented`; remaining: fb handoff validation (**needs-boot**) + the M8 fb-overlap fix |
 | D6 | External display (DP alt mode over the combo PHY) — stretch | todo | D1, D5 |
 
 ## Task list
@@ -97,10 +97,10 @@ ACPI/Windows half remains.
 
 | Task | State | Notes |
 |------|-------|-------|
-| Research: Mali-G76 on Windows ARM64 — is any WDDM driver obtainable? (ARM's Windows Mali driver availability, prior art on any Exynos WoA display) | **doing** | subagent → `notes/d5-gpu-display.md` (seeded with five questions) |
-| Research: edk2-exynos DECON/display bring-up for exynos9820 (they light the S10 panel in UEFI today) | **doing** | same notes file — note the repo already has `SimpleFramebufferDxe` over the sboot fb |
-| Verdict task: GPU acceleration on Windows is either a real driver project or a documented dead end — write the decision down | todo | honest bar: no fake `Ready` |
-| Firmware GOP driver (DECON scanout at the S10e's 1440×3040) so UEFI has real graphics and Windows can use a framebuffer | todo | fb base for the FD is still `UNVERIFIED` (`Exynos9820.h`); the M8 fb-overlap task interacts |
+| Research: Mali-G76 on Windows ARM64 — is any WDDM driver obtainable? (ARM's Windows Mali driver availability, prior art on any Exynos WoA display) | **done** | `notes/d5-gpu-display.md`: **no Mali WDDM exists or ever shipped** — Update Catalog zero hits, Arm's downloads are Linux/Android-only, Mu-Silicium GPU ❌ on every Samsung target, and no Snapdragon ever used Mali so there is no ecosystem to piggyback |
+| Research: edk2-exynos DECON/display bring-up for exynos9820 (they light the S10 panel in UEFI today) | **done** | Mu's whole Samsung display story is `SimpleFbDxe` over a bootloader-lit fb — structurally identical to our `SimpleFramebufferDxe`; edk2-exynos has no extra display code to mine. Bonus read: the 9820 GPU is `mali@18500000` with ARM's open Bifrost kbase `b_r10p0` (max 702 MHz) in the LineageOS kernel |
+| Verdict task: GPU acceleration on Windows is either a real driver project or a documented dead end — write the decision down | **done — decision** | **GPU acceleration is out of scope: `NotImplemented`, permanently.** The deliverable is 2D framebuffer display: UEFI GOP (`SimpleFramebufferDxe`, exists) + Windows **in-box** `BasicDisplay.sys` (WDDM over GOP) + BasicRender/WARP — proven on ARM64 by RPi-Windows ("MSBDD (Inbox) Working") and Mu's Samsung WinPE. A Bifrost→WDDM port is multi-year with no precedent; even the mainline 9820 effort has an "empty G3D block" |
+| Firmware display follow-ups (re-scoped from "GOP driver"): validate the sboot fb survives into Windows, close the fb RAM/DEV overlap (M8 task), DECON blank/backlight sanity at handoff | todo | the UEFI half already exists; what is unproven is **handoff survival** — does the fb/DECON state our shim inherits still be drawing at `ExitBootServices`, and does Windows' BasicDisplay keep it — **needs-boot** |
 
 ### D6 — External display (stretch)
 

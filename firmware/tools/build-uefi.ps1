@@ -53,6 +53,11 @@ $env:BASE_TOOLS_PATH = $env:EDK_TOOLS_PATH
 $env:PACKAGES_PATH   = "$edk2;$ws"
 $env:CLANG_BIN       = $llvm
 $env:CLANGDWARF_BIN  = $llvm
+# tools_def: *_CLANGPDB_*_*_DLL = ENV(CLANGPDB_DLL). When it is unset, BaseTools
+# (PlatformAutoGen.py:945) prepends an EMPTY entry, PATH starts with ';', and the
+# cmd.exe that build.py spawns then finds neither make nor Trim ('make' is not
+# recognized). Point it at the LLVM bin dir unless the caller already set it.
+if (-not $env:CLANGPDB_DLL) { $env:CLANGPDB_DLL = $llvm }
 $env:PYTHON_COMMAND  = "python"   # BinWrappers\*.bat (Trim, GenFds, ...) need this
 # The BinWrappers are .bat files, so PYTHON_COMMAND is resolved by cmd.exe - and the
 # WindowsApps python shim is NOT executable from cmd.exe even though PowerShell and

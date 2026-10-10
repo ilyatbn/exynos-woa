@@ -197,3 +197,14 @@ rebuilds. Consequence: neither the FD sha256 nor the exact headroom identifies a
 content state. Treat the headroom as "≈3.8-3.9 KiB free" and compare builds by
 the module list and the FV total (700416 = 0xab000), not by hashes or exact
 byte counts.
+
+## 2026-10-10 - build-uefi.ps1 failed in a fresh shell: 'make' / 'Trim' is not recognized
+
+Symptom: every module failed with `'make' is not recognized` (later `'Trim' is not recognized`) although
+`make` was on PATH and `cmd /c make --version` worked. Diagnosed by wrapping build.py's Popen and logging
+the env it passes: PATH started with `;`. Cause: tools_def `*_CLANGPDB_*_*_DLL = ENV(CLANGPDB_DLL)` is
+unset -> `PlatformAutoGen.py:945` does `PATH = '' + ';' + PATH`. Reproduced in isolation: with a leading `;`
+the spawned cmd.exe finds nothing; without it, make is found (the stray `"` in the user's system PATH
+entry `C:\Program Files\Calibre2"` is NOT the cause). Fix: build-uefi.ps1 sets `CLANGPDB_DLL=$llvm` when unset.
+Verified: the unmodified invocation `powershell -File firmware\tools\build-uefi.ps1 -Platform Beyond0LtePkg
+-Target DEBUG` -> exit 0, `- Done -`, FVMAIN_COMPACT 3136 B free.

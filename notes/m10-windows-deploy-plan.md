@@ -94,3 +94,4 @@ DEVICE separately), modem block 0xD0000000..0xD9801000 (modem_spare live; IF2/CP
 0xF0000000..0x100000000 (modem_if, cp_ram_logging, debug_snapshot, log_bcm). New RAM: 0xC0080000..
 0xCA000000, 0xCA965000..0xD0000000, 0xD9801000..0xE0000000, 0xE1900000..0xF0000000 (~581 MB; total
 ~1.5 GB with bank0). Banks 3/4 stay off (B63). Build exit 0. Test = next boot: DXE allocates top-down.
+Boot #26 image (W2 RAM test) %TEMP%\w2\boot26-v2.img sha256 200bd7e114a6fffb12c752ca67d2089b898f6b40fee7797336d35a01d9684fd7

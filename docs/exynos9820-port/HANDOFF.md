@@ -8,7 +8,7 @@ No branch has been pushed. All work so far is local commits.
 
 **If you are the *next* session, jump to [`/progress.md`](../../progress.md) first**
 — it is the live task list by ID, one file per task in `tasks/`, with a done
-indicator per task. The newest restart point in this file is **§21** (§18-§20 are history); §16 and §17
+indicator per task. The newest restart point in this file is **§22** (§18-§21 are history); §16 and §17
 are history (the work they describe is committed and verified, do not redo it).
 Do not re-install VS or the WDK.
 
@@ -947,4 +947,43 @@ high banks + RamManagerDxe off; build-uefi.ps1 sets CLANGPDB_DLL. Timer = 26 MHz
 2. RAM for Windows: high banks are off for UEFI (B63); follow the 9810 record (Star2LtePkg.dsc:211-250).
 3. Before any real install: strip the diagnostics (shim DIAG, checkpoints, DiagVectors, ResetHold,
    FB console back to UART) - FVMAIN_COMPACT has 416 B free.
+
+## 22. Restart point — the live one (2026-10-10 night): UEFI reads the UFS disk; Windows prep under way
+
+**Phone state.** BOOT (sda14) holds **boot #25** (`%TEMP%\b83\boot25-v2.img`, sha256 `82045f34…af8b`):
+shim → SEC → DXE → BDS, UFS block I/O works, the GPT is valid, every partition gets a BlockIo
+(notes/m8-uefi-image.md B85). TWRP on recovery (sda15). Android does not boot until the stock
+`boot.img` (`%TEMP%\opencode\stock\boot.img`) goes back to sda14. Windows NOT installed yet.
+**The session ended with adb hanging** (push of boot #26 stalled; the queued `dd` never ran - nothing
+was written; stuck adb.exe killed). Check `adb devices` responds before any write; do push and `dd`
+as separate, verified steps (never queue a `dd` behind an unfinished push).
+
+**Built but NOT flashed: boot #26** `%TEMP%\w2\boot26-v2.img` sha256 `200bd7e1…4fd7` = boot #25 +
+bank1/bank2 published as RAM (W2) + UFS DMA pinned to bank0. Its first boot is the test that EL1 may use
+bank1/bank2 (DXE allocates top-down; a bad range resets like banks 3/4 did, B62). If it resets: drop
+bank2 or bank1 (PlatformMemoryMapLib BankBase[3]/[4]) and retry.
+
+**Done this session (all committed; details in notes/m8-uefi-image.md B66-B85, notes/m10-windows-deploy-plan.md).**
+UFS in UEFI: byte-granular UTRD fields; 1 KB response region for NOP/query; OCS 0x7 + Response 0x01 on
+CHECK CONDITION treated as the 9820 kernel does; PRDT entries <= 4 KB at the controller's 128 B FMP
+stride, PrdtL = n*128 (Samsung LK ufs.c prior art), AllocateBuffer slack; log = ERROR|WARN|INFO,
+per-command `UfsHc: ring/done` lines (capped at 40) and CHECK COND sense. Windows UFS driver
+(drivers/Exynos9820Ufs): PRAM breadcrumbs off (UFS_PRAM_ENABLE 0), builds in both modes (W1). RAM: W2.
+
+**Decisions from the user.** Consent to wipe USERDATA + CACHE for Windows (confirm again right before the
+write). Media: `C:\Users\ilya\code\Windows11_22631.2861_Pro_arm64.iso` (install.wim index 3 = Pro).
+Build/deploy Windows **the installer's way** (S9Woa.Installer.Core: VHDX + DISM Apply/Add-Driver +
+unattend + bcdboot/BCD repoint + GPT CACHE->ESP + TWRP raw transfer) - drive Core from a small harness
+since the WinUI app gates the S10e stages. The shell is elevated (DISM works).
+
+**Next order (one commit each).**
+1. Get adb healthy; flash boot #26; confirm UEFI still reaches the GPT/partition scan with bank1/bank2 RAM.
+2. Harness over S9Woa.Installer.Core with PartitionMap.For("beyond0lte"); driver set = the rebuilt
+   Exynos9820Ufs (`%TEMP%\ufs-b86-dmawin` if bank1 is RAM, i.e. build with -DmaWindow); build the VHDX.
+3. With the user's go: CACHE->ESP, USERDATA <- Windows, BCD repoint; boot.
+4. Expect uH (EL2) hangs after ExitBootServices - the 9810 needed Star2LtePkg's PlatformBootManagerLib
+   winload/ntoskrnl patching; Beyond0LtePkg still uses ArmPkg's generic one (audit in m10 notes).
+Building tips: build-uefi.ps1 runs from bash (`powershell.exe -File`); build-ufs.ps1 needs vswhere on
+PATH ("C:\Program Files (x86)\Microsoft Visual Studio\Installer"). Video frames: `pip install
+imageio-ffmpeg`, extract, use the last non-black frame. Recovery key combos: AGENTS.md §10.
 

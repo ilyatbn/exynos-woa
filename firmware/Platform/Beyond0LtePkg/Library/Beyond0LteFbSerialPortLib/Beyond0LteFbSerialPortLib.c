@@ -10,6 +10,16 @@
   top, and the line after the cursor is always blanked, so the newest text sits
   just above a black line.
 
+  Exception mode (m10 W14): the CPU exception dump (banner, "PC ... <image>"
+  backtrace, registers, stack) is longer than the screen, so the wrap used to
+  overwrite the line naming the faulting module. A write containing
+  "Exception at 0x" now clears the panel, restarts at the top and stops
+  wrapping: output past the last line is dropped, keeping the dump's head.
+  The mode flags live in two pixels of the strip below the last text row
+  (rows ROWS*CELL_H.. are never drawn), not in the state record: the record
+  survives a reset, while sboot repaints the whole scanout buffer on every boot,
+  so a dead-looped exception cannot leave the next boot's console frozen.
+
   Every module links its own copy of this library (SEC, DXE core, each driver),
   so the cursor cannot live in a global: it lives in a small record just past
   the end of the framebuffer (EXYNOS_FB_BASE + EXYNOS_FB_SIZE), inside the page-
@@ -51,6 +61,12 @@ STATIC_ASSERT (EXYNOS_FB_BYTES_PER_PIXEL == 4, "renderer stores UINT32 pixels");
 
 #define FB_PIXELS  ((volatile UINT32 *)(UINTN)EXYNOS_FB_BASE)
 #define FB_STATE   ((volatile FB_CON_STATE *)(UINTN)(EXYNOS_FB_BASE + EXYNOS_FB_SIZE))
+
+STATIC_ASSERT (ROWS * CELL_H < EXYNOS_FB_HEIGHT, "exception-mode flags need an undrawn strip below the text");
+
+// Exception-mode flags: pixels 0 and 1 of the last scanline (below the text area).
+#define FB_FROZEN  (FB_PIXELS[(UINTN)(EXYNOS_FB_HEIGHT - 1) * EXYNOS_FB_STRIDE_PIXELS])
+#define FB_FULL    (FB_PIXELS[(UINTN)(EXYNOS_FB_HEIGHT - 1) * EXYNOS_FB_STRIDE_PIXELS + 1])
 
 STATIC
 VOID
@@ -102,6 +118,16 @@ FbNewLine (
   )
 {
   St->Col = 0;
+  if (FB_FROZEN == CON_MAGIC) {
+    if (St->Row + 1 >= ROWS) {
+      FB_FULL = CON_MAGIC;
+      return;
+    }
+
+    St->Row++;
+    return;
+  }
+
   St->Row = (St->Row + 1 < ROWS) ? St->Row + 1 : 0;
   FbClearLine (St->Row);
   FbClearLine ((St->Row + 1 < ROWS) ? St->Row + 1 : 0);
@@ -125,6 +151,33 @@ FbState (
   }
 
   return St;
+}
+
+/** TRUE if Buffer contains "Exception at 0x" (CpuExceptionHandlerLib's banner). **/
+STATIC
+BOOLEAN
+HasExceptionBanner (
+  IN CONST UINT8  *Buffer,
+  IN UINTN        NumberOfBytes
+  )
+{
+  STATIC CONST CHAR8  Banner[] = "Exception at 0x";
+  UINTN               Index;
+  UINTN               Match;
+
+  for (Index = 0; Index + sizeof (Banner) - 1 <= NumberOfBytes; Index++) {
+    for (Match = 0; Match < sizeof (Banner) - 1; Match++) {
+      if (Buffer[Index + Match] != (UINT8)Banner[Match]) {
+        break;
+      }
+    }
+
+    if (Match == sizeof (Banner) - 1) {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
 }
 
 RETURN_STATUS
@@ -153,7 +206,22 @@ SerialPortWrite (
   }
 
   St = FbState ();
+  if ((FB_FROZEN != CON_MAGIC) && HasExceptionBanner (Buffer, NumberOfBytes)) {
+    for (Index = 0; Index < ROWS; Index++) {
+      FbClearLine ((UINT32)Index);
+    }
+
+    St->Col   = 0;
+    St->Row   = 0;
+    FB_FULL   = 0;
+    FB_FROZEN = CON_MAGIC;
+  }
+
   for (Index = 0; Index < NumberOfBytes; Index++) {
+    if ((FB_FROZEN == CON_MAGIC) && (FB_FULL == CON_MAGIC)) {
+      break;
+    }
+
     Ch = Buffer[Index];
     if (Ch == '\n') {
       FbNewLine (St);

@@ -223,3 +223,14 @@ Stack holds pointers 0xB8B2E260/0xB8B2F630/0xB9C98718/0xB97FF698/0xB9E63658 and 
 (0x66676D69 = "imgf", "60)/RFS(" , "0x0 0x0y") - consistent with bootmgfw (1.8 MB, mapped around 0xB8B0xxxx..)
 or a firmware driver servicing it; UNVERIFIED. No SMBIOS in either package (9810 booted without it).
 Next read: a video of the boot to catch the "Loading driver at ... bootmgfw" line and the PC/image line before it wraps.
+
+## W15 - FB console exception mode; boot #27 built (2026-10-10)
+Beyond0LteFbSerialPortLib: a SerialPortWrite containing "Exception at 0x" (CpuExceptionHandlerLib DumpCpuContext
+banner, AArch64/CpuExceptionHandlerLib.c:307) clears the panel, restarts at row 0 and stops wrapping (drop output once
+the last row is used), so the "PC 0x... (base+off) [ 0] <image>" line (:326) and the X registers stay on screen.
+Mode flags live in pixels 0/1 of scanline 2279 (text area ends at row 71*32 = 2272; STATIC_ASSERT) - not in the
+state record past the FB, which survives resets; sboot repaints the scanout buffer each boot.
+Build: build-uefi.ps1 -Platform Beyond0LtePkg exit 0, FVMAIN_COMPACT 2808 B free. pack-uefi-beyond0lte.ps1 (-Ref
+ref-recovery.img) exit 0; build-bootimg-v2.py --dtb stock dt.dtb -> boot #27 s10e-artifacts\boot27-v2.img, 7 587 840 B,
+sha256 e256d8327c29633cdc38e6297dc3c1344039c36de45cbb1cb5baadd3d936881e. vs boot #26: header bytes 0..575 identical
+(576.. = id/sha), shim 208 B identical. Nothing else changed vs boot #26 (bank1/bank2 RAM, UFS).

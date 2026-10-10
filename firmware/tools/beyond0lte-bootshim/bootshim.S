@@ -17,6 +17,16 @@
  * whichever address sboot picks, subject to the self-overwrite hazard noted at
  * the copy step.
  *
+ * K4b, best evidence to date (2026-10-10, notes/K10-rkp.md T16/T18, live DTB in
+ * a TWRP root shell): sboot itself adds a reserved-memory node `kaslr` =
+ * 0x80100000 + 0x100000 with owner "kernel-kaslr", and `sec_debug_magic` =
+ * 0x80000000 + 0x1000. On the exynos9610 sample the same node sat 0x1000 ABOVE
+ * the drop, which points at 0x80100000-ish, NOT 0x80080000, as this SoC's
+ * window. That is still an inference, not a read of the drop address, so UEFI_BASE
+ * stays UNVERIFIED - but the 0x80080000 justification it used to lean on (the
+ * 0x84000000 initrd bound) is now known to be a kernel DEFAULT, not what sboot
+ * does: sboot put this boot's initrd at 0xD5000000..0xD5A67000.
+ *
  * Layout after packaging:  [ this shim ][ BEYOND0LTE_UEFI.fd ]   (cat'd together)
  *
  * Flow (inherited from the proven edk2-exynos tools/BootShim + m1-hello start.S,
@@ -28,8 +38,16 @@
  *      handoff, so these are direct device/RAM stores).
  *   3. copy the FD (UEFI_SIZE bytes) to UEFI_BASE (0x80080000). On the 9810 this
  *      was clean RAM ABOVE the RKP-monitored kernel zones (0x80094000-0x828DBFFF);
- *      on the 9820 there is NO read of the equivalent write-protected zones (K10,
- *      UNVERIFIED), and 0x80080000 is itself only a decision, not an observation.
+ *      on the 9820 there is NO such constant to carry (K10, closed as a MECHANISM
+ *      question, not an address question): Samsung's own include/linux/rkp.h for
+ *      SM-G970F hands RKP `_text.._etext` and `_srodata.._erodata` and the monitor
+ *      makes those pages ROX in stage-2, so the protected window is wherever sboot
+ *      dropped the kernel plus that kernel's own section extents - runtime values.
+ *      What IS verified on this SoC is the EL2 region: the live DTB's reserved-memory
+ *      carries el2_code = 0x87000000+0x200000 (compatible "el2,uh") and el2_earlymem
+ *      = 0x97E000000+0x200000, and uH s2_unmaps + write-protects that region, so
+ *      anything placed at 0x87000000..0x87200000 is dead on arrival. 0x80080000
+ *      itself is still only a decision, not an observation.
  *   4. branch to UEFI_BASE. The FD's first word is an ARM64 `B` that GenFv wrote
  *      into the FV-header zero-vector, jumping to the PeilessSec SEC entry
  *      (checked mechanically on BEYOND0LTE_UEFI.fd: first word 0x1401C800).
@@ -56,9 +74,18 @@
 /* ---- DIAG breadcrumb channel ------------------------------------------------
  * The 9810's ramoops base 0xFED14000 is INSIDE debug_snapshot's log regions on
  * this SoC (0xFD900000..0x100000000, Exynos9820.h:112-115) - writing there is a
- * verified wrong. The gap 0xD9801000..0xF0000000 (between s5100_msi, Exynos9820.h:102-103,
+ * verified wrong. PROVEN ON-DEVICE (2026-10-10, notes/K10-rkp.md T17): the live
+ * DTB's debug_snapshot.log_bcm is 0xFEB10000 + 0x400000, i.e. 0xFED14000 sits
+ * 0x204000 into a live log region (log_llc is 0xFEF10000 + 0x400000 above it).
+ * The gap 0xD9801000..0xF0000000 (between s5100_msi, Exynos9820.h:102-103,
  * and modem_if, :104-105) is unclaimed by any read DT node, so it is the
  * candidate - but it is a DECISION, not a read, and enabling it is unvalidated.
+ * Two live reads tighten it without closing it: 0xD9801000 is inside the
+ * declared memory@C0000000 bank (0xC0000000 + 0x20000000, read in TWRP root), and
+ * the live modem_spare ends at 0xD1600000 (0xD0000000 + 0x1600000); the s5100_msi
+ * / cp2cp_shm / modem_if2 nodes the DTS board file declares are NOT in this boot's
+ * live reserved-memory list, so the gap is unclaimed by THIS boot's DTB, which is
+ * a TWRP boot - a stock Android boot may add nodes over it.
  * Default 0 mirrors BEYOND0LTE_PRAM_DIAG 0 in ArmPlatformLib.c:31,
  * Beyond0LteResetSystemLib.c:59, PlatformMemoryMapLib.c:48,
  * Beyond0LteAcpiPlatformDxe.c:57. When enabled, note that the 'B' and 'M' reads

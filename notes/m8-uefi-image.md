@@ -1248,3 +1248,25 @@ Boot #8 image %TEMP%\b36\boot8-v2.img sha256 2576f0f1638e250745f35b2f8a40b47304f
 
 Pushed (on-device sha256 2576f0f1...6d1), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
 2576f0f1638e250745f35b2f8a40b47304f6bd6fc2818b17b0e63842139636d1 (byte-exact). `adb reboot` next.
+
+## B38 - boot #8 OBSERVED: bands 1 (entered) + 5 (copy done) only; NO watchdog was armed; B35 corrected
+
+User: "2 white bands one at the top the second one middle bottom. red text saying 'Software updates.'
+right below the top. wasnt visible before."
+Decode (B36 legend): row 200 (entered) + row 1850 (copy done, br) present; rows 500/800/1100 absent:
+- FACT neither watchdog_cl0 nor watchdog_cl2 had WTCON.ENABLE (b5) set when the shim ran -> the SoC
+  watchdogs are NOT the reset source.
+- Band 1100 absent: after the RMW stop, (cl0|cl2) & (b5|b2|b0) != 0 -> a bit (RSTEN/INTEN, since EN
+  was already 0) read back set -> INFERENCE: writes to WTCON from here are ignored (or RSTEN is
+  sticky). Irrelevant while EN=0, but means the shim cannot be trusted to control the WDT.
+- The red text "...software updates" became visible because band 1 is now 200 rows instead of 450.
+  INFERENCE (strong): it is sboot's static unlocked-bootloader warning on the splash, NOT a crash
+  report. B31's "blue/yellow lines" and B34's "red text" are the same splash text -> retract B34's
+  "Samsung's own crash report" inference.
+CORRECTION to B35: the ~15.5 s spacing is dominated by sboot's own logo/splash time, so an equal
+period across builds does NOT show a fixed timer - an immediate fault at any point in our code looks
+identical in debug_history. What stands: SOFT reset, not via UEFI ResetSystem (B34), not the SoC WDT (B38).
+=> Leading hypothesis: a FAULT inside the FD before it has its own exception vectors, caught by whatever
+vectors are live (sboot's EL1 or EL3 for an SError/secure abort) -> SOFT reset.
+Next: checkpoint bands inside the FD (SEC entry, memory map / MMU, DXE) to locate it.
+Did the phone still loop? Assumed yes (user reported no change in behaviour) - confirm with user.

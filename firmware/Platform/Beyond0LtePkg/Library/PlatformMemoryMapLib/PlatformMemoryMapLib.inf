@@ -25,6 +25,9 @@
   ArmPlatformLib.c
   Beyond0LteFbText.c
 
+[Sources.AARCH64]
+  AArch64/Beyond0LteDiagVectors.S
+
 [Packages]
   MdePkg/MdePkg.dec
   ArmPkg/ArmPkg.dec

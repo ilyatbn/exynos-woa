@@ -1413,3 +1413,17 @@ Next fault window: PeilessSec after GetBootMode (ProcessLibraryConstructorList, 
 FV decompress + DxeCore load) -> DxeCore start -> DXE dispatch up to SimpleFramebufferDxe.
 A reset (not a hang) means the fault was not caught by EDK2's own handlers (CpuDxe's would dead-loop),
 so it is before CpuDxe, or an EL2/EL3-level abort.
+
+## B51 - boot #13: EL1 exception catcher in SEC (paints ESR/ELR/FAR, then parks)
+
+New Library/PlatformMemoryMapLib/AArch64/Beyond0LteDiagVectors.S: 16-entry table (2 KB aligned, RVA
+0x71800 -> runtime 0x90071800; PeilessSec TE runs at RVA + 0x90000000 per FVMAIN_COMPACT.Fv.map),
+each entry x19=index -> DiagCommon: strips at rows 1900 ESR_EL1, 1990 ELR_EL1[31:0], 2080 FAR_EL1[31:0],
+2170 (index<<24)|SPSR_EL1[15:0]; then wfe loop (the phone FREEZES on a caught fault). Installed from
+ArmPlatformInitialize (stack live) via BEYOND0LTE_DIAG_VECTORS=1; replaced when DXE's CpuDxe installs its
+own (which dead-loops), so a continued RESET => the fault is not an EL1 exception before CpuDxe
+(EL2/EL3-level, or later). Vector index 4 = current-EL SPx synchronous.
+Verified: build exit 0; disassembly: install = adr x0,0x71800 / msr VBAR_EL1 / isb / ret; entries
+0x71800 (x19=0) and 0x71a00 (x19=4) branch to DiagCommon 0x71f88; strip painter uses 4320 B lines.
+PeilessSec.dll.map for ELR decoding saved at %TEMP%\b51\. Shim unchanged.
+Boot #13 image %TEMP%\b51\boot13-v2.img sha256 58f8aa30689102f06d35267f33ede8bedae7fa7979921097254481d09ab900ce

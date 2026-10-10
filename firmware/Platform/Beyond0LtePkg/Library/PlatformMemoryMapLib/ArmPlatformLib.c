@@ -22,6 +22,18 @@
 #include "Beyond0LteCheckpoint.h"
 
 //
+// Boot-bring-up exception catcher (AArch64/Beyond0LteDiagVectors.S,
+// notes/m8-uefi-image.md B51): any EL1 exception before DXE's CpuDxe replaces
+// VBAR_EL1 paints ESR/ELR/FAR/vector strips and parks instead of resetting.
+//
+#define BEYOND0LTE_DIAG_VECTORS  1
+
+VOID
+Beyond0LteInstallDiagVectors (
+  VOID
+  );
+
+//
 // The 9810 flow appended single-byte breadcrumbs to 0xFED14000 so TWRP could
 // read how far bring-up got. That address is above the S9+'s last DRAM bank.
 // On the 9820 bank0 runs to 0x100000000, so 0xFED14000 is INSIDE conventional
@@ -78,6 +90,9 @@ ArmPlatformInitialize (
   )
 {
   BEYOND0LTE_CHECKPOINT (1420);   // CEntryPoint, SEC stack live (B39)
+#if BEYOND0LTE_DIAG_VECTORS
+  Beyond0LteInstallDiagVectors ();
+#endif
   // TODO: any clock/GPIO setup that MUST precede DRAM/UART use (likely none,
   // because sboot configured them before chainloading us).
   return RETURN_SUCCESS;

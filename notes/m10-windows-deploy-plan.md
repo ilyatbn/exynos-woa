@@ -206,3 +206,10 @@ winload.efi sha256 7106b82fb7e0f25072e8b9d9c3c7cfd5ea1cffb006bcd26e3f07527737ab0
 ntoskrnl.exe sha256 db84703895bbc9f10771dabc117f7b3d3a7f8bc66d0d3e1918f01983e77e7aad
 ESP tree s10e-artifacts\win-w5\out\esp (EFI\Boot\bootaa64.efi 1 799 024 B present); BCD numproc set to 1 again after the
 rebuild (testsigning Yes, hypervisorlaunchtype Off). VHDX detached. Transfer (S10eHarness transfer, verify on) next.
+
+## W13 - Windows written to the phone (2026-10-10 22:26-22:32)
+S10eHarness transfer: "Writing 12024 MiB of 113608 MiB to userdata: NTFS free space is skipped", every 128 MiB chunk
+read back + sha256-matched, ~41 MB/s, done 22:31:54. cache formatted FAT32 (ESP), EFI tree copied, "Windows and boot
+files written and verified on the phone", EXIT 0. Post-check from TWRP: cache mounts vfat, EFI/Boot/bootaa64.efi +
+EFI/Microsoft/Boot/{BCD,BCD.LOG*,...} present; userdata LBA0 = NTFS boot sector, bytes/sector 0x1000; BOOT still
+boot #26 (sha 200bd7e1…). Android user data is gone from here on. Next: adb reboot -> UEFI BDS -> bootaa64.efi.

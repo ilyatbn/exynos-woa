@@ -987,3 +987,7 @@ Building tips: build-uefi.ps1 runs from bash (`powershell.exe -File`); build-ufs
 PATH ("C:\Program Files (x86)\Microsoft Visual Studio\Installer"). Video frames: `pip install
 imageio-ffmpeg`, extract, use the last non-black frame. Recovery key combos: AGENTS.md §10.
 
+**Artifacts copied out of %TEMP% (survive a restart):** `C:\Users\ilya\code\s10e-artifacts\` -
+boot25-v2.img (on the phone now), boot26-v2.img (next to flash), boot.img (STOCK, for rollback),
+dt.dtb / dtbo.dtb (stock trees; dt.dtb is the --dtb for build-bootimg-v2.py), ref-recovery.img (any
+-Ref for pack-uefi-beyond0lte.ps1), ufs-b86-default\ and ufs-b86-dmawin\ (Windows UFS driver builds).

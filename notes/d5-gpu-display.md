@@ -411,3 +411,16 @@ is BSD for the same reason.
   the bar on what the S9+ screenshot implies — and makes a display-only WDDM
   + WARP reading (which we ALREADY get from in-box BasicDisplay) the
   conservative interpretation.
+
+### D5b(b) — G76 firmware blob: status (2026-10-10)
+
+- *(fact)* Mechanical tree scan of the LineageOS 9820 kernel: **no firmware
+  `.bin` under `drivers/gpu/arm/b_r10p0/`** (the `csf/…firmware…` files belong
+  to `bv_r32p1` and are Valhall CSF code, not our G76's JM-era PPU firmware).
+- *(inference, high confidence)* Bifrost r10p0 kbase loads PPU/shader firmware
+  via `request_firmware` from the Android vendor partition — the blobs live in
+  `/vendor/firmware/` (Samsung naming is `mali_*` / `mali_ppu_firmware_*`).
+- *(pending, one cheap read — do NOT run while the boot stream owns the phone)*
+  `adb shell ls /vendor/firmware | grep -i mali` closes this; the files can
+  then be pulled read-only for a future port. Recorded as the exact next step
+  rather than guessed at.

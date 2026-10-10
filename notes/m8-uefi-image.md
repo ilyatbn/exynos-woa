@@ -1569,3 +1569,24 @@ Boot #17 image %TEMP%\b63\boot17-v2.img sha256 1625b5e49fbdfff2609e159cda772d03c
 
 Pushed (on-device sha256 1625b5e4...682d), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
 1625b5e49fbdfff2609e159cda772d03cdca545e4a7e223293c1984e49f8682d (byte-exact). `adb reboot` next.
+
+## B65 - boot #17 OBSERVED: **UEFI REACHES BDS on the S10e** (first time); next blocker = UFS query OCS=4
+
+User photo notes/img-boot17-bds.jpg (on-panel log), in order:
+  "[Variable]END_OF_DXE is signaled" / "[Bds]BootManagerMenu FFS section can not be found, skip its
+  boot option registration" / "GraphicsConsole video resolution 1080 x 2280" / modes 0-4 (80x25 ..
+  135x120) / "Graphics Console Started, Mode: 0" / "Press ESCAPE for boot options" / "BootDiscovery
+  PolicyHandler - Failed to locate gEfiBootManagerPolicyProtocolGuid" / "[Bds]OsIndication: 0" /
+  Boot0000: UEFI Shell ?? (no Shell in the FD) / PlatformRecovery0000 / "[Bds]BdsWait(3..1)" /
+  "Process PlatformRecovery0000 (Default PlatformRecovery) ..." / "==UfsPassThru Start== Controller =
+  BA0B0898" / "UfsControllerInit Finished" / 5x "Failed to send query request, OCS = 4, QueryResp = 0"
+  / "Failed to get response from the device after 5 retries" / "Device failed to finish initialization,
+  Status = Device Error" / "[Bds] Expand \EFI\BOOT\BOOTAA64.EFI -> <null string>" / "[Bds] Unable to
+  boot!" / then UfsPassThru starts again (BDS retry loop).
+=> SEC, PEI, DXE and BDS all run on the device with: FD @0x90000000, UEFI region in bank0, C
+BaseMemoryLib in SEC, page-aligned MMIO map, ArmGicV2Dxe, virtual timer, bank0-only RAM, FB console.
+=> The boot now stops at storage: UFS host controller init succeeds, every NOP/query UPIU fails with
+OCS = 4 (UFSHCI: OCS_MISMATCH_RESP_UPIU_SIZE - response UPIU length/offset in the UTRD does not match
+what the controller wrote) -> no block device -> no BOOTAA64.EFI. That is Beyond0LteUfsHcDxe /
+UfsPassThruDxe territory (cf. P02 hw-rev class-6 HCI encoding, the 9810 A46/A48 PRDT/WC lessons).
+Diagnostics still compiled in: shim DIAG strips/bar, FD checkpoints, DiagVectors, ResetHold, FB serial.

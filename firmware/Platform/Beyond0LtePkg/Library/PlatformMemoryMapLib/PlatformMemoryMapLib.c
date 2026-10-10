@@ -81,8 +81,8 @@ STATIC CONST MMIO_REGION  mMmioRegions[] = {
 
   { EXYNOS_CHIPID_BASE,        EXYNOS_CHIPID_SIZE,        "CHIPID"      },
   { EXYNOS_PMU_BASE,           EXYNOS_PMU_SIZE,           "PMU"         },  // moved from 0x14060000
-  { EXYNOS_SPEEDY_BASE,        EXYNOS_SPEEDY_SIZE,        "SPEEDY"      },  // size unread -> skipped
-  { EXYNOS_SPEEDY1_BASE,       EXYNOS_SPEEDY1_SIZE,       "SPEEDY1"     },  // size unread -> skipped
+  { EXYNOS_SPEEDY_BASE,        EXYNOS_SPEEDY_SIZE,        "SPEEDY"      },  // extent now a live DTB read (0x2000) -> published
+  { EXYNOS_SPEEDY1_BASE,       EXYNOS_SPEEDY1_SIZE,       "SPEEDY1"     },  // extent now a live DTB read (0x2000) -> published
 
   { EXYNOS_CMU_BANK0_BASE,     EXYNOS_CMU_BANK0_SIZE,     "CMU_BANK0"   },
   { EXYNOS_CMU_BANK1_BASE,     EXYNOS_CMU_BANK1_SIZE,     "CMU_BANK1"   },

@@ -73,6 +73,18 @@ from the `dtbo` overlay. The read that separates them: the stock-Android
 `dtbo.img` node list, which is in `notes/exynos9820-research.md:77`
 (`UFS protector 13D70000 +0x100` there vs `+0x1000` live).
 
+### S03 — harsh review of the extents commit
+
+Checked mechanically: `build-uefi.ps1 -Platform Beyond0LtePkg -Target DEBUG` exit 0,
+`FVMAIN_COMPACT` 700416 total / **3096 free** (was 3104 before the two new entries);
+shim re-assembled exit 0 at 288 B; `git diff --stat` on the 9810 tree still empty.
+`PlatformMemoryMapLib.c:196-203` confirms the loop skips `Size == 0`, so the claim
+"the two skipped entries are now published" is true, not assumed.
+
+One defect: `PlatformMemoryMapLib.c:84-85` still carried the inline comment
+"size unread -> skipped" for exactly the two entries that are now read and
+published. Fixed in its own commit.
+
 ## Sources
 
 - Device: `adb shell` on `RF8M21HYDSZ   recovery` (TWRP root), `ls /proc/device-tree`.

@@ -2610,7 +2610,11 @@ UfsHcAllocateBuffer (
   // A51 (low-addr cap) reverted - it was a no-op (the >=512B data-write SBFES is address-independent).
   //
   Pages  += UFS_COMMON_EXTRA_PAGES;   // B83: room for the 128 B-stride split PRDT (freed symmetrically)
-  Address = MAX_ADDRESS;
+  //
+  // W2: bank1/bank2 are now RAM (notes/m10-windows-deploy-plan.md) but UFS DMA is only proven into
+  // bank0 (boot #25), so the UTP rings / UCDs stay below bank0's end.
+  //
+  Address = EXYNOS_DRAM_BASE + EXYNOS_DRAM_BANK0_SIZE - 1;
   Status  = gBS->AllocatePages (AllocateMaxAddress, MemoryType, Pages, &Address);
   if (EFI_ERROR (Status)) {
     return EFI_OUT_OF_RESOURCES;
@@ -2705,7 +2709,7 @@ Beyond0LteAllocWcPages (
   // A51 (low-addr cap) was a NO-OP: capping the bounce to ~0x9FF7xxxx did not change the >=512B data-write
   // SBFES, so the fault is address-independent. Reverted to MAX_ADDRESS (the stable default).
   //
-  Address = (EXYNOS_DRAM_BASE + EXYNOS_DRAM_SIZE);   // 9820: published bank0 end, derived from PlatformMemoryMapLib (replaces the 9810-shape 0x98000000 cap)
+  Address = EXYNOS_DRAM_BASE + EXYNOS_DRAM_BANK0_SIZE - 1;   // W2: bank0 only (bank1/bank2 are RAM now, UFS DMA proven into bank0 only)
   Status  = gBS->AllocatePages (AllocateMaxAddress, EfiBootServicesData, Pages, &Address);
   if (EFI_ERROR (Status)) {
     return NULL;

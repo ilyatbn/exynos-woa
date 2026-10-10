@@ -20,6 +20,7 @@ A task is not `[x]` until its verification actually ran.
 - [ ] **P01** — heimdall auto-restore/reflash path for a fully broken device → `tasks/P01-heimdall-restore.md`
 - [ ] **P02** — UFS hw-rev class-6 HCI encoding (the DTB says `hw-rev = 6`) → `tasks/P02-ufs-hw-rev.md`
 - [ ] **P03** — Which CMU bank feeds PERIC0/FSYS0A (the §5 hazard) → `tasks/P03-cmu-bank-hazard.md`
+- [ ] **P04** — Guided vbmeta→TWRP flash for a stock S10e (native Odin flasher, no zadig) → `tasks/P04-vbmeta-twrp-flash.md`
 
 ## Later milestones — tracked in MILESTONES, no task file yet
 

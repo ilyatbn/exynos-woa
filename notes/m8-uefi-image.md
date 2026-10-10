@@ -1718,3 +1718,8 @@ Instrumentation for boot #22: the doorbell hook prints every SCSI command as run
 lun<n> cdb <op> lba <READ10 LBA> n <blocks> edtl <expected data length>" (DEBUG_ERROR); log level back to
 ERROR|WARN|INFO (0x80000042), LOAD still off. Build exit 0.
 Boot #22 image %TEMP%\b77\boot22-v2.img sha256 b057b61a0898156ad6f79a7230499819a770a8ed7d5b1042b3a2b57fd033ea6f
+
+## B78 - boot #22 WRITE to BOOT sda14
+
+Pushed (on-device sha256 b057b61a...ea6f), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
+b057b61a0898156ad6f79a7230499819a770a8ed7d5b1042b3a2b57fd033ea6f (byte-exact). `adb reboot` next.

@@ -164,3 +164,10 @@ WindowsMedia.MountIsoScript: "Mount-DiskImage : Parameter set cannot be resolved
 `-StorageType ISO` are in different parameter sets. Fix: drop -StorageType (Get-DiskImage -ImagePath already
 identifies the ISO). Verified by hand on this PC (mounted as F:, dismounted) and the unit test updated
 (asserts no -StorageType); dotnet test --filter OpensAnIsoReadOnly: 1 passed.
+
+## W8 - S10e PSCI is 0.1 (stock dt.dtb read, 2026-10-10)
+/psci: compatible 'arm,psci' (no psci-0.2/1.0), method smc, cpu_suspend 0xC4000001, cpu_off 0x84000002,
+cpu_on 0xC4000003 - the same legacy PSCI 0.1 IDs the 9810 had. So the 9810's reasons for PSCI_VERSION -> 2
+(ntoskrnl) and for CPU parking (context_id not passed in x0) plausibly apply here too (unproven on the 9820).
+First boot: numproc 1 avoids CPU_ON; PSCI_VERSION behaviour of Samsung EL3 on 0x84000000 is UNVERIFIED.
+Image build running: install.wim index 3 reports build 22621.2861 (22631 = enablement package).

@@ -1455,3 +1455,8 @@ Verified: build exit 0; static_library_files.lst of PeilessSec and DxeMain both 
 Beyond0LteFbSerialPortLib. FVMAIN_COMPACT now 1304 B free (watch). The console overwrites the shim's
 strips/bands (it starts at row 0) - expected. PcdDebugPrintErrorLevel 0x8000004F (ERROR|WARN|INFO|LOAD).
 Boot #14 image %TEMP%\b54\boot14-v2.img sha256 e0c60afe8d66646c739928a5869cfa058481aea1ef84190699f52cc47b442658
+
+## B55 - boot #14 WRITE to BOOT sda14
+
+Pushed (on-device sha256 e0c60afe...2658), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
+e0c60afe8d66646c739928a5869cfa058481aea1ef84190699f52cc47b442658 (byte-exact). `adb reboot` next.

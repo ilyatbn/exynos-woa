@@ -44,3 +44,8 @@ Research summary (2026-10-10, Explore subagent over the repo, citations kept; ve
 - ISO checked (mounted at F:, DISM 10.0.26100.5074, elevated shell = True): sources\install.wim
   5 095 179 610 B; index 1 Windows 11 Home, 2 Home Single Language, 3 Windows 11 Pro (22.4 GB
   expanded). Use index 3 (Pro) - the installer's preference order is IoT Ent > Pro > Home.
+- User instruction (2026-10-10): "follow this repo's way of modifying windows, same as the installer
+  does" -> use S9Woa.Installer.Core's own pipeline (VhdxImageBuilder/ImageBuilder: DISM Apply-Image +
+  Add-Driver (>=1 driver required) + unattend; bcdboot + BootConfiguration repoint to the phone's GPT
+  GUIDs; GptTypeService CACHE->ESP; BootFilesService FAT32 format; TransferService raw dd via TWRP).
+  No hand-rolled replacement steps.

@@ -1535,3 +1535,16 @@ sha256 374f49d2f958e9a0d7055ee8e1e6245892abb3156c53093f24d33a8d6c09b145
 
 Pushed (on-device sha256 374f49d2...b145), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
 374f49d2f958e9a0d7055ee8e1e6245892abb3156c53093f24d33a8d6c09b145 (byte-exact). `adb reboot` next.
+
+## B62 - boot #16 OBSERVED (2.3 s video IMG_4343): GICv2 fix WORKS; dies entering Beyond0LteRamManagerDxe
+
+Last non-black frame (30 fps extraction, g_067) saved as notes/img-boot16-last-frame.png. The log is past
+the GIC: ... CapsuleRuntimeDxe, MonotonicCounterRuntimeDxe, Beyond0LteAcpiPlatformDxe (loaded + protected),
+then the newest lines:
+  "Loading driver 11111111-2222-3333-4444-555555555547"
+  "Loading driver at 0x000B9E17000 EntryPoint=0x000B9E185A0 Beyond0LteRamManagerDxe.efi"
+  "InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF BA03?98"
+then reset (the frame after is black). => ArmGicV2Dxe + TimerDxe (virtual timer) now pass; the next
+killer is in/around Beyond0LteRamManagerDxe's entry. Still a reset without an EL1 exception print
+(CpuDxe's handler would print) -> EL2/EL3-level abort again -> suspect: the driver touches RAM the
+hypervisor/TZ does not give EL1.

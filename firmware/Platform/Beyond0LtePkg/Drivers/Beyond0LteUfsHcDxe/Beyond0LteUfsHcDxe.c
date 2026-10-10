@@ -2680,7 +2680,13 @@ UfsHcFreeBuffer (
 // Route streaming reads/writes through a persistent WC bounce buffer (proven DMA-coherent like
 // the descriptors) + memcpy, falling back to identity if it does not fit / is busy.
 //
-#define UFS_BOUNCE_BYTES  (512u * 1024u)
+//
+// W22: 1 MiB (was 512 KB). Direct DMA into a buffer that is not 4 KB aligned is CORRUPT on this
+// controller: bootmgr, read by LoadImage into a pool buffer at page offset 0x18 in one 1.7 MB read,
+// came out 0x18 bytes low with whole pages missing (IMGDUMP.BIN, notes W22). Every transfer now fits
+// the page-aligned bounce because Beyond0LteSplitPassThru caps commands at UFS_SCSI_SPLIT_BYTES.
+//
+#define UFS_BOUNCE_BYTES  (1024u * 1024u)
 STATIC VOID     *mBounceBuf  = NULL;
 STATIC UINTN     mBounceSize = 0;
 STATIC BOOLEAN   mBounceBusy = FALSE;
@@ -4520,6 +4526,7 @@ UfsHcWrite (
 #define UFS_SCSI_SPLIT_BYTES  (1024u * 1024u)   // 256 x 4 KB entries (+1 for a misaligned start)
 
 STATIC_ASSERT (UFS_SCSI_SPLIT_BYTES / 0x1000u + 1u <= UTP_PRDT_MAX_SPLIT, "split must fit the PRDT");
+STATIC_ASSERT (UFS_SCSI_SPLIT_BYTES <= UFS_BOUNCE_BYTES, "every split command must fit the aligned bounce (W22)");
 
 STATIC EFI_EXT_SCSI_PASS_THRU_PASSTHRU  mOrigPassThru = NULL;
 STATIC VOID                             *mPassThruReg = NULL;

@@ -345,3 +345,20 @@ Boot #33 (BootLogDxe): READ_TEST 0; the exception handler logs TTBR0/TCR/SCTLR a
 base and ELR, writes the image region (base-64K .. +2M+128K) to \IMGDUMP.BIN on the ESP, flushes UEFILOG.TXT, then
 BEYOND0LTE_AUTO_RECOVERY 1: INFORM3 = 0x12345674, RSTSTAT = 0, SWRESET = 2 -> sboot should boot TWRP by itself.
 Hangs (no exception) are not covered yet - WDT next. boot33-v2.img sha256 a5f09b18e3381d5d564e33509879da05d8f3355623c2e11b9e429dfb15171386.
+
+## W22 - ROOT CAUSE: direct UFS DMA into a non-4K-aligned buffer is corrupt; boot #34 bounces everything (2026-10-10)
+Boot #33: auto-recovery WORKED - the phone was back in TWRP ~85 s after `adb reboot` with no key presses
+(INFORM3 0x12345674 + SWRESET 0x3A00=2). Log notes/uefilog-boot33.txt: TTBR0 0xBAAEF000 (UEFI's own tables), AT S1E1R
+of the image base 0xB8B0B000 and ELR -> PAR = same PA: identity, so the wrong bytes are physically in RAM.
+IMGDUMP.BIN (image region) vs bootaa64.efi laid out by its section table: 68 of 506 pages identical; the rest are the
+correct image displaced: page RVA 0x10000 holds image bytes from +0x18, 0x23000 from +0x18, 0x80000 from +0x1018,
+0xD9000 from +0x3018 - i.e. every byte 0x18 low plus a whole 4 KB page lost every so often.
+Mechanism: LoadImage reads the 1.7 MB file into a POOL buffer (page offset 0x18 = pool header) in one read; > 512 KB
+did not fit the bounce, so Map() returned the caller's address for DIRECT DMA and the PRDT was split at page
+boundaries with a 0xFE8-byte first entry. The controller evidently does not honour a non-page-aligned entry the way
+the PRDT describes (data lands page-aligned, pages dropped). The W20 read test passed only because its buffer came
+from AllocatePages (aligned).
+Fix (boot #34): UFS_BOUNCE_BYTES 512 KB -> 1 MiB, STATIC_ASSERT split (1 MiB) <= bounce, so every READ/WRITE goes
+through the page-aligned WC bounce. RISK carried to Windows: the Windows UFS driver may hit the same rule with
+Storport SGLs that start mid-page - check its PRDT builder before relying on it.
+boot34-v2.img sha256 290f5d5182daa647b8d393547a9a0ae2aa98fdabfd53ad7167615919eb920bdf.

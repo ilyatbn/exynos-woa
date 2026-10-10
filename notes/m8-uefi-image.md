@@ -1657,3 +1657,15 @@ ufshcd.c:4429-4430). Converter now sets RuL = min(1024, 4096 - RuO) BYTES when P
 with a PRDT the exact EDK2 length is kept (the PRDT follows the response). UCDs are whole-page
 allocations (UfsAllocateAlignCommonBuffer -> AllocateBuffer AllocateAnyPages, EFI_SIZE_TO_PAGES), so
 the response stays inside the descriptor's page. Build exit 0.
+
+## B72 - boot #19 photo: no "UfsHc: ... CHECK COND" line printed; both GPT reads fail -> log at BOTH restore sites
+
+Photo notes/img-boot19-read10.jpg: BlockSize 4096 / LastBlock 1DC9FFF, then "ScsiDiskRead10: Check
+Condition happened!" -> "Not Valid primary partition table" -> again -> "Not Valid backup partition
+table" -> two more -> "[Bds] Expand \EFI\BOOT\BOOTAA64.EFI -> <null string>" -> "Unable to boot!".
+The B69 sense print never fired: the driver restores DW6/DW7 at TWO sites (doorbell-read loop :3716
+and the post-poll "After" loop :3828); only the first was instrumented. Moved the decode into
+Beyond0LteLogCheckCond(Slot, Trd) and call it from both, before DW6 is restored.
+Facts: small data-in commands (INQUIRY, READ CAPACITY) succeed through the PRDT; every READ(10)
+(4096 B, media) is rejected by the DEVICE (SCSI status 0x02).
+Boot #20 = B71 query-RuL fix + this. Build exit 0. Image %TEMP%\b72\boot20-v2.img sha256 8495d20304b2cbb99e60430977da3b64df656e8ed4e570aff09dabbda5e16662

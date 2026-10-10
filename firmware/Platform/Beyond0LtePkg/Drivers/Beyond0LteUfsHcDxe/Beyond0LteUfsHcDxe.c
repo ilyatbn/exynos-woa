@@ -3134,6 +3134,48 @@ UfsHcMmioRw (
 STATIC UINT32  mTrdSaveDw6[32];
 STATIC UINT32  mTrdSaveDw7[32];
 STATIC UINT32  mTrdSaveMask  = 0;
+
+//
+// Boot #18/#19 (notes/m8-uefi-image.md B68-B72): READ(10) ends in CHECK CONDITION. Called from
+// BOTH restore-on-completion sites BEFORE DW6 goes back to dwords, while DW6[31:16] is still the
+// response UPIU's BYTE offset. Response UPIU: Status = byte 7, sense length = bytes 32-33 (BE),
+// fixed-format sense from byte 34 (key = [2] & 0xF, ASC = [12], ASCQ = [13]); CDB opcode = Command
+// UPIU byte 16. Prints only for SCSI status 0x02 (CHECK CONDITION).
+//
+STATIC
+VOID
+Beyond0LteLogCheckCond (
+  IN UINT32  Slot,
+  IN UINTN   Trd
+  )
+{
+  UINT64  SUcd;
+  UINTN   SResp;
+
+  SUcd  = (UINT64)(MmioRead32 (Trd + UTP_TRD_UCDBA_DW4) & 0xFFFFFF80u);
+  SUcd |= (UINT64)MmioRead32 (Trd + UTP_TRD_UCDBAU_DW5) << 32;
+  if (SUcd == 0) {
+    return;
+  }
+
+  SResp = (UINTN)SUcd + (UINTN)(MmioRead32 (Trd + UTP_TRD_RESP_DW6) >> 16);
+  if (MmioRead8 (SResp + 7) != 0x02) {
+    return;
+  }
+
+  DEBUG ((
+    DEBUG_ERROR,
+    "UfsHc: slot %u CDB 0x%02x CHECK COND: ocs 0x%x resp 0x%x senselen %u key 0x%x asc 0x%02x ascq 0x%02x\n",
+    Slot,
+    (UINT32)MmioRead8 ((UINTN)SUcd + 16),
+    MmioRead32 (Trd + UTP_TRD_OCS_DW2) & 0xFFu,
+    (UINT32)MmioRead8 (SResp + 6),
+    ((UINT32)MmioRead8 (SResp + 32) << 8) | MmioRead8 (SResp + 33),
+    (UINT32)(MmioRead8 (SResp + 34 + 2) & 0x0Fu),
+    (UINT32)MmioRead8 (SResp + 34 + 12),
+    (UINT32)MmioRead8 (SResp + 34 + 13)
+    ));
+}
 STATIC UINT64  mTrlBaseCache = 0;
 
 //
@@ -3681,38 +3723,7 @@ Beyond0LteFixupDoorbellRead (
     }
 
     if (((Real & (1u << Slot)) == 0) && ((mTrdSaveMask & (1u << Slot)) != 0)) {
-      //
-      // Boot #18 (notes/m8-uefi-image.md B68/B69): READ(10) ends in CHECK CONDITION. Before
-      // DW6 goes back to dwords, decode this slot's response UPIU while DW6[31:16] is still the
-      // BYTE offset: Status = byte 7, sense data length = bytes 32-33 (BE), fixed-format sense
-      // from byte 34 (key = [2] & 0xF, ASC = [12], ASCQ = [13]); CDB opcode = Command UPIU byte 16.
-      //
-      {
-        UINT64  SUcd;
-        UINTN   SResp;
-        UINT8   SStatus;
-
-        SUcd  = (UINT64)(MmioRead32 (Trd + UTP_TRD_UCDBA_DW4) & 0xFFFFFF80u);
-        SUcd |= (UINT64)MmioRead32 (Trd + UTP_TRD_UCDBAU_DW5) << 32;
-        if (SUcd != 0) {
-          SResp   = (UINTN)SUcd + (UINTN)(MmioRead32 (Trd + UTP_TRD_RESP_DW6) >> 16);
-          SStatus = MmioRead8 (SResp + 7);
-          if (SStatus == 0x02) {
-            DEBUG ((
-              DEBUG_ERROR,
-              "UfsHc: slot %u CDB 0x%02x CHECK COND: ocs 0x%x resp 0x%x senselen %u key 0x%x asc 0x%02x ascq 0x%02x\n",
-              (UINT32)Slot,
-              (UINT32)MmioRead8 ((UINTN)SUcd + 16),
-              MmioRead32 (Trd + UTP_TRD_OCS_DW2) & 0xFFu,
-              (UINT32)MmioRead8 (SResp + 6),
-              ((UINT32)MmioRead8 (SResp + 32) << 8) | MmioRead8 (SResp + 33),
-              (UINT32)(MmioRead8 (SResp + 34 + 2) & 0x0Fu),
-              (UINT32)MmioRead8 (SResp + 34 + 12),
-              (UINT32)MmioRead8 (SResp + 34 + 13)
-              ));
-          }
-        }
-      }
+      Beyond0LteLogCheckCond ((UINT32)Slot, Trd);
       MmioWrite32 (Trd + UTP_TRD_RESP_DW6, mTrdSaveDw6[Slot]);
       MmioWrite32 (Trd + UTP_TRD_PRDT_DW7, mTrdSaveDw7[Slot]);
       mTrdSaveMask &= ~(1u << Slot);
@@ -3825,6 +3836,7 @@ Beyond0LteFixupDoorbellRead (
       for (Slot2 = 0; Slot2 < 16; Slot2++) {
         if (((After & (1u << Slot2)) == 0) && ((mTrdSaveMask & (1u << Slot2)) != 0)) {
           UINTN  T = (UINTN)mTrlBaseCache + (UINTN)Slot2 * UTP_TRD_SIZE;
+          Beyond0LteLogCheckCond ((UINT32)Slot2, T);
           MmioWrite32 (T + UTP_TRD_RESP_DW6, mTrdSaveDw6[Slot2]);
           MmioWrite32 (T + UTP_TRD_PRDT_DW7, mTrdSaveDw7[Slot2]);
           mTrdSaveMask &= ~(1u << Slot2);

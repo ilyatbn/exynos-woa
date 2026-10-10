@@ -1105,3 +1105,21 @@ Verified by running: build-uefi.ps1 exit 0 (FVMAIN_COMPACT 3136 B free), Peiless
 (code0 0x10000481), uefi-beyond0lte-kernel.bin 7 340 176 B = 144 + FD, quad @0x48 = 0x90000000, FD bytes
 after the shim cmp-identical to BEYOND0LTE_UEFI.fd. (Cosmetic: the packer's "kernel ([shim][FD])" line
 printed a stale 8628288 B - the file on disk is 7340176.)
+
+## B26 - shim diagnostic for boot #5 (BEYOND0LTE_SHIM_DIAG, default ON) + the boot #5 image
+
+Why: our FD draws nothing before BDS (Beyond0LteFbText has no callers; SimpleFramebufferDxe needs a DECON
+present), and the panel does not show raw scanout stores without DECON being told - so boot #4's "nothing
+visible" said nothing. Prior art (edk2-exynos Exynos9820Pkg PlatformPrePiLib/PlatformUtils.c
+PlatformInitialize) does exactly `MmioWrite32(0x19030000, 0x1281)` "Enable Frame Buffer Writes".
+Shim (DIAG=1): str 0x1281 -> decon_f 0x19030000 (base VERIFIED Exynos9820.h, value PRIOR ART) -> WHITE
+band rows 200-649 (entered) -> copy -> WHITE band rows 750-1199 (about to br into FD) -> br. Bands are
+0xFFFFFFFF so the unread pixel format does not matter; leaf `bl _band` uses x9-x11/x30 only.
+Verified: DIAG=1 208 B / DIAG=0 144 B, _payload = last byte in both; DIAG=0 is cmp-identical to the B25
+shim; objdump reviewed; packer shim checks OK (code0 0x10000681).
+Boot #5 image: %TEMP%\b25\boot5-v2.img 7 587 840 B sha256 1379b50aa33061788a088c9ce912c38354e00cb716887d0ac80a5e37110b3765
+= build-bootimg-v2.py --kernel kernel-b5.bin (7 340 240 = 208 + FD) --dtb opencode/stock/dt.dtb. Header vs
+boot #4's pack-out-v2.img (which cleared the DT check): only kernel_size and the id hash differ; DTB section
+byte-identical, same addrs/page/v2.
+Reading boot #5: no bands = shim never entered (or 0x1281 does not unblank) ; band 1 only = fault in copy ;
+both bands then loop = FD SEC/PEI/DXE faults ; bands then UEFI/Windows output = progress.

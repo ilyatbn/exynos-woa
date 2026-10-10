@@ -120,3 +120,33 @@ PartitionMap.For("beyond0lte"), SlimProfile.Lite, unattend Username S10e. dotnet
 BLOCKERS for `image` found: (1) this Claude session is NOT elevated (IsInRole Administrator = False) - DISM apply,
 Mount-VHD and bcdboot need admin; (2) New-VHD is not installed (Hyper-V PowerShell module absent), and
 VhdxImageBuilder.CreateScript uses New-VHD/Mount-VHD.
+
+## W5 - what the 9810's PlatformBootManagerLib does to Windows (Explore subagent, 2026-10-10; cited, verify before use)
+PBML = firmware/Platform/Star2LtePkg/Library/PlatformBootManagerLib/PlatformBootManagerLib.c (10 033 lines).
+Trigger: ~25 gBS/gRT pointers hooked in AfterConsole (PBML:6288-6344, 9920). Patching runs inside the GetMemoryMap
+hook on winload's final zero-size probe (PBML:4843-4846, 4934-4935), not at ExitBootServices; the EBS hook only logs and
+scans kernel page tables at a hard-coded 0x907AA000 (PBML:4987-5074, 1214-1266). Comment PBML:4891-4932: the ntoskrnl
+CNTFRQ patch and the winload timer/TLBI patch are the two the 9810 cannot boot without.
+- ntoskrnl (PBML:1916-1990): found by PE export name in 0x90000000..0xBC800000 (build-independent). CNTFRQ: a
+  movz/movk x8,#26000000;ret stub in .text padding, every `mrs x8,cntfrq_el0` -> `bl stub` (9810 CNTFRQ reads 0, EL1
+  writes trap under uH). Fixed-RVA word table (PBML:1427-1467, 1800-1853), each guarded by an original-word check:
+  sysreg rewrites, PMU init skip (0x44B7F0), PSCI_VERSION probe -> mov w0,#2 (EL3 is PSCI 0.1, 0x9CEFA0). RVAs mix
+  at least two kernel builds (19041/22621). Pattern patch Star2LtePatchNtosPsciMemProtect (PBML:1638-1675): `ret`
+  32 B before a 16-byte match, target unchecked.
+- winload (PBML:2360-2757): ABSOLUTE 9810 physical addresses (winload at ~0x912D4000): tlbi -> nop at 4 sites (uH cannot
+  emulate an MMU-off tlbi; PBML:2337-2383), brk #0xf004/#0xf003 -> branch, an MMU-off stub at 0x91489000 mapping 9810
+  PRAM 0xFED14000; UNGUARDED trace branches T0-T3/T6 and a "MicrovisorMode" word = 1 at 0x91504C80. Would MISPATCH on
+  the 9820 (different RAM base/size => different load address) - do not port as-is.
+- Firmware shims: AllocatePages pre-reservations 0xBBC08000/0xBB752000 (PBML:5187-5205, 5814-5843); SecureBoot/
+  AuditMode/DeployedMode = 0, SetupMode = 1, OsIndicationsSupported/CurrentPolicy NOT_FOUND (PBML:5882-5955,
+  6578-6605); fake GetTime (PBML:6126-6146); exception handler repairing L3 translation faults (PBML:3145-3381);
+  PSCI parking ON: CPU_ON only for A55 MPIDRs 1-3 into a parking stub + MADT ParkedAddress patch (PBML:8253-8577),
+  because Samsung EL3 does not pass context_id in x0 and CPU_ON of an M3 core hangs the SoC.
+- MuCntfrqKep.c is NOT compiled (not in the INF [Sources]) and never called - docs/map/firmware.md:15,65 is stale.
+- No build pinning in firmware source; pinning lives only in the installer's firmware.json catalog (release assets,
+  not in git; FirmwareCatalog.cs:12-141). Validated builds: 22621/22631.2428 and 22621.7582/22631.7584. Our ISO is
+  22631.2861 (not validated anywhere).
+- Beyond0LtePkg uses ArmPkg's generic PlatformBootManagerLib (Beyond0LtePkg.dsc:212) => none of the above.
+Inference for the S10e: CNTFRQ_EL0 reads 26 MHz on the 9820 (m8-uefi-image.md:1376), so the CNTFRQ patches may be
+unneeded; the uH tlbi-in-MMU-off-winload hang, PSCI 0.1 / context_id, and Secure Boot variables are the likely
+first walls. Plan: first boot with numproc 1 and observe; port the guarded/pattern-based pieces one at a time.

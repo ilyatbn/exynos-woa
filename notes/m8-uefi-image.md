@@ -1170,3 +1170,11 @@ would then need to sit outside it). No code fix needed now.
 User reflashed TWRP (their fastest route back), asked to proceed. Pushed boot6-v2.img (on-device sha256
 97161f0d...0ec8e9), by-name/boot -> sda14, dd conv=fsync 7 587 840 B, readback 3705 x 2048 B sha256
 97161f0df9d3fe796c97ef766407c5fd2ce74ed55dd0a16cab041479c50ec8e9 (byte-exact). `adb reboot` next.
+
+## B31 - boot #6 OBSERVED: further than boot #5 - brief FD output, then loop
+
+User: "we got further but its still looping. i saw something after the white logo for a less than a second.
+maybe 2 blue and 1 yellow lines or some text. very difficult to see but it was definitely there."
+=> NEW visible output after the shim's white bands (boot #5 showed none) -> the B29 fix (UEFI region in
+mapped bank0) moved the fault later; the FD itself draws something, then the device resets within ~1 s.
+Next: identify which FD code paints blue/yellow to place the fault.

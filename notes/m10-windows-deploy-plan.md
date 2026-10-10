@@ -150,3 +150,10 @@ CNTFRQ patch and the winload timer/TLBI patch are the two the 9810 cannot boot w
 Inference for the S10e: CNTFRQ_EL0 reads 26 MHz on the 9820 (m8-uefi-image.md:1376), so the CNTFRQ patches may be
 unneeded; the uH tlbi-in-MMU-off-winload hang, PSCI 0.1 / context_id, and Secure Boot variables are the likely
 first walls. Plan: first boot with numproc 1 and observe; port the guarded/pattern-based pieces one at a time.
+
+## W6 - elevated session: Hyper-V module (2026-10-10)
+Session elevated (IsInRole Administrator = True). Enabling Microsoft-Hyper-V-Management-PowerShell alone is refused
+("parent features are disabled"). Enabling Microsoft-Hyper-V-All + Tools-All + Management-PowerShell (no -All flag)
+ENABLED THE WHOLE Hyper-V SET, hypervisor and services included (DISM enables a container's children) -
+RestartNeeded = True, -NoRestart given, nothing restarted. New-VHD is still not available before the reboot.
+Undo if wanted: Disable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All -NoRestart (also needs a reboot).

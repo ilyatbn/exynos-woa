@@ -107,9 +107,9 @@ ACPI/Windows half remains.
 
 | Task | State | Notes |
 |------|-------|-------|
-| Identify what the user's hub's HDMI actually is (DP alt mode vs DisplayLink) | **doing — needs the hub's model label from the user** | the hub is non-powered, USB2 ports + HDMI — the classic cheap USB-C hub shape, which is usually **DP alt mode** (HDMI wired to the SS lanes, no chip) — if so, Windows HDMI-out needs our own DECON_T→DP WDDM driver (ties to D5b rung 1), not a DisplayLink driver |
-| Research: DP alt mode on the 9820 combo PHY (SMV/HPD, what DeX does at `displayport@130B0000`) | **doing** | subagent → `notes/d6-external-display.md` (seeded with six questions) |
-| Decide: DP alt mode vs DisplayLink dock (DisplayLink is the funded fallback) | todo | |
+| Identify what the user's hub's HDMI actually is (DP alt mode vs DisplayLink) | **done — from live descriptors** | UGREEN hub on this PC right now: Genesys Logic GL352 hub chips + **ASIX AX88179B** GbE, **no `0x17e9` DisplayLink device** -> HDMI is **DP alt mode**. Measured worst-case draw 482 mA fits the 500 mA budget. `notes/d6-external-display.md` |
+| Research: DP alt mode on the 9820 combo PHY (SMV/HPD, what DeX does at `displayport@130B0000`) | **done** | `notes/d6-external-display.md` P1-P7: full kernel chain pinned (`displayport_drv.c` in dpu20, max77705 `max77705_alternate.c` PD state machine, three board GPIOs incl. gpg0-4 PHY_CON, `LANE_MUX_SEL_DP=0xc`, PMU 0x15860704 gates the PHY, RBR/HBR/HBR2 only); DECON_T confirmed `0x19050000` `out_type=2`(DP) with SPIs 195-197 + SYSMMUs; **no UEFI prior art exists** (edk2-exynos has none); DisplayLink driver 12.3 (Sep 2026) = WHQL + Win11 ARM64 |
+| Decide: DP alt mode vs DisplayLink dock (DisplayLink is the funded fallback) | **done — decision** | For THIS hub: HDMI is DP-alt, which under Windows needs our own display-only WDDM (D5b rung 1 + DP/PHY/CCIC halves) — **not funded now**. If an external display is wanted before that, a DisplayLink adapter/dock (~$50-150) works with the WHQL ARM64 driver on top of D1 alone. Zero-risk hardware validation first: DeX on Android with this hub + monitor |
 
 ## Working rules for this file
 

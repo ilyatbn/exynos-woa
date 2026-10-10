@@ -308,7 +308,7 @@ tree does not contain.
 
 | Task | State | Notes |
 |------|-------|-------|
-| Confirm Windows ARM64 has a driver for a generic USB ethernet adapter | todo | the 9820 kernel already lists ASIX AX88179/178A, SMSC, RTL8150/2 — so the chip class is known; the Windows driver half is still open |
+| Confirm Windows ARM64 has a driver for a generic USB ethernet adapter | **done** | the owner's UGREEN hub is live on this PC: its ethernet is **ASIX AX88179B** (`0b95:1790`), and the D4 Update-Catalog scan found ASIX shipping **ARM64 packages on Windows Update** — inbox-class expected once D1/D3 are proven |
 | Confirm the dock's ethernet does not need the phone's own network stack | **done** | it is a plain USB-net device; only host mode (M10) is required |
 
 ### M14 — Powered and cool while docked

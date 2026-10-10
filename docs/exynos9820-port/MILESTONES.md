@@ -317,6 +317,7 @@ tree does not contain.
 |------|-------|-------|
 | Confirm charging works through the dock while Windows runs | **done — dead end** | the vendor states it for the same hardware: "Android devices cannot currently enable USB and charge at the same time… not possible to charge while docked" — §10; design the build to run **on battery while docked** |
 | Decide the battery policy under Windows on ARM | **partly done** | our repo has **no battery/UPS driver at all** today, so Windows already runs with an invisible, unmanaged battery — that is the honest starting point, not a solved state (`notes/dock-desktop.md` §8) |
+| Show the battery percentage in Windows: gauge register map + class-extension design | **doing** | vendor `max77705_fuelgauge.c`/`max77705-private.h` read: gauge is Maxim ModelGauge m5 at 7-bit **0x36**, SOC = `SOCREP(0x06)`×0.1%, full map + conversions in `notes/battery-driver.md`; planned KMDF SpbCx client (`ACPI\SAMBAT00`) + battery class extension, pattern copied from `S6SY761Touch` |
 | Assume battery exhaustion is normal and make it survivable | **done — design rule** | a donated phone-desktop must degrade gracefully and be restartable by a non-technical recipient |
 | Measure thermals under a desktop workload (not destructive, but needs the device) | todo | **needs-phone** — Samsung's own thermal stack (`devfreq_*`, `sec_thermistor@*`) has no Windows equivalent |
 

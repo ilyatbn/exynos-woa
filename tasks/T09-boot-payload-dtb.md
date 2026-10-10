@@ -36,12 +36,22 @@ padding after, so the DT header check fails and sboot never jumps. Fix the paylo
 ## Research reframe (2026-10-10, notes/edk2-bootshim.md)
 
 The DT is NOT handled in the shim (edk2-exynos BootShim has no DTB; the 9810 lineage relies on a
-container **DTBH**). The fix lives in the boot-image PACKAGING: edk2-exynos `build.sh` calls a
+container **DTBH**). The fix lives in the boot-image PACKAGING: edk2-exynos `build.sh` delegates to a
 per-device `platform_build_bootimg` hook that assembles the container's DTBH/dtbo for the SoC.
 The 9820 containers have no embedded DTBH (Android-12 separate dt.img/dtbo.img). NEXT: read edk2-exynos'
 `platform_build_bootimg` hook for exynos9820/beyond0lte to learn the exact DT presentation sboot
 wants, then mirror it in `pack-uefi-beyond0lte.ps1`/`repack-with-ref.py` (a DTBH section in the
 container, not an appended FDT in the kernel).
+
+## ANSWER (fetched the hook) - the fix is a header-v2 container with a DTB section
+
+`Platform/Samsung/exynos9820/s10.sh.inc` builds the image with AOSP `mkbootimg.py --header_version 2`
+and a real `--dtb` section (`FdtBlob_compat/s10.dtb`), kernel = `[shim][FD]`, ramdisk = dummy,
+base 0x10000000, kernel_offset 0x8000, pagesize 2048. So sboot's Android-12 `load_kernel` DT check
+wants an **Android boot image header VERSION 2 with a valid DTB section** — our v0 Samsung container
+(`dt_size=1`) fails it. The shim/payload shape is fine. FIX: build the beyond0lte candidate as a
+header-v2 boot image with a DTB section (our `bootimg.py` is v0-only → needs a v2 builder or AOSP
+mkbootimg). Full recipe in `notes/edk2-bootshim.md`.
 
 ## Done when
 

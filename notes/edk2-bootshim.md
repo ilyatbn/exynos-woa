@@ -35,6 +35,26 @@ How does edk2-exynos' `platform_build_bootimg` hook for the exynos9820/beyond0lt
 the DT so sboot accepts it — a DTBH in the container, a separate dtbo, or a different boot path?
 NEXT: read that hook (`Platform/Samsung/exynos9820/...sh.inc` or the device `.conf`) in edk2-exynos.
 
+## ANSWER - the exynos9820 bootimg hook (fetched 2026-10-10)
+
+`Platform/Samsung/exynos9820/s10.sh.inc` `platform_build_bootimg()` runs AOSP `mkbootimg.py`:
+```
+--header_version 2  --pagesize 2048  --base 0x10000000
+--kernel_offset 0x8000  --ramdisk_offset 0x1000000  --second_offset 0xf0000000  --tags_offset 0x100
+--dtb_offset 0x0  --dtb "Platform/Samsung/exynos9820/FdtBlob_compat/${DEVICE}.dtb"
+--ramdisk ".../dummyramdisk"  --kernel "${WORKSPACE}/uefi-${DEVICE}-kernel"
+```
+KEY: the container is an **Android boot image header VERSION 2** with a real **DTB section**
+(`--dtb` = a device-tree blob, `FdtBlob_compat/s10.dtb`). NOT the Samsung header-v0 + DTBH that
+our `bootimg.py`/`repack-with-ref.py` produce (which leave `dt_size=1`). sboot's Android-12
+`load_kernel` "dt table header check" wants the v2 DTB section; our v0 container fails it.
+The kernel blob is still `[shim][FD]` (same shape as ours) - so the shim/payload is fine; the
+CONTAINER FORMAT is the gap.
+FIX: build the beyond0lte candidate as a **header-v2** boot image with a proper DTB section
+(our `bootimg.py` is v0-only - needs a v2 builder, or use AOSP `mkbootimg.py`). DTB source:
+`FdtBlob_compat/s10.dtb` (their compat tree) or our `stock/dt.dtb` (239680 B).
+Source: https://raw.githubusercontent.com/sonic011gamer/edk2-exynos/master/Platform/Samsung/exynos9820/s10.sh.inc
+
 ## Sources
 
 - https://deepwiki.com/ntdevlabs/exynos9810-woa/4.2-boot-shim-and-firmware-build-pipeline

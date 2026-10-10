@@ -48,7 +48,7 @@ ACPI/Windows half remains.
 | D1 | DWC3 **host mode** in UEFI (the gate for everything else) | **doing** | research, code, wiring and a clean Linux verification build **done** (`BEYOND0LTE_UEFI.fd` sha `83a9986e…` carries the whole chain); device validation waits on the boot stream — and on the open unknowns in `notes/d1-usb-host.md` (clock state at DXE entry, GSNPSID rev, CC attach timing) |
 | D2 | USB hub (non-powered) + keyboard/mouse in UEFI (`ConIn`) | todo | D1 |
 | D3 | USB host under **Windows**: ACPI xHCI device, inbox `USBXHCI.sys` | **doing** | D1, boot stream — DSDT `XHC0` device + role-latch decision **done** (built into the FD, `PNP0D10` verified in FVMAIN); device test waits on Windows |
-| D4 | WiFi: USB adapter path chosen + validated (vendor bcmdhd stays closed) | todo | D3 |
+| D4 | WiFi: USB adapter path chosen + validated (vendor bcmdhd stays closed) | **doing** | research + choice **done** (`notes/d4-usb-wifi.md`): no USB WiFi driver exists for ARM64 — decision is PicoPiFi (Pico W, driverless RNDIS) as the WiFi option, dock ethernet (M13) stays primary; device validation rides on D1/D3 |
 | D5 | GPU/display: framebuffer deliverable decided; Mali WDDM reopened as D5b | **doing** | research + verdict **done** (`notes/d5-gpu-display.md` + addendum): shipped-code deliverable is GOP + in-box BasicDisplay; acceleration reopened after the S9 WDDM report — kbase r10p0 source is already in the 9820 kernel, feasibility inventory (D5b) is next; fb handoff validation still **needs-boot** |
 | D6 | External display (DP alt mode over the combo PHY) — stretch | todo | D1, D5 |
 
@@ -90,8 +90,8 @@ ACPI/Windows half remains.
 | Task | State | Notes |
 |------|-------|-------|
 | Keep vendor bcmdhd closed (M12 verdict) — do not spend tasks on it | **done — decision** | no Windows driver, no DT node; reopening only on new evidence |
-| Research: USB WiFi adapters with **inbox or ARM64** Windows drivers (which chips does Windows ARM64 support without vendor drivers?) | **doing** | subagent → `notes/d4-usb-wifi.md` (seeded with five questions) |
-| Pick the adapter for the donation build and record it | todo | depends on the research verdict |
+| Research: USB WiFi adapters with **inbox or ARM64** Windows drivers (which chips does Windows ARM64 support without vendor drivers?) | **done** | `notes/d4-usb-wifi.md` (342 lines): **none exist.** Inbox = zero USB WLAN on any arch for ARM64 (Microsoft's own FOD table); Microsoft Update Catalog chip-by-chip scan = Realtek USB WiFi (1030.x bundle + Wi-Fi 6 5001.x), AR9271, Ralink, MTK all x86/x64-only; positive ARM64 controls (Realtek GbE, ASIX) prove it is vendor choice, not a WU limitation — and that same control is primary-source support for the M13 LAN-first plan |
+| Pick the adapter for the donation build and record it | **done — decision** | **No retail USB WiFi dongle.** WiFi option = **Raspberry Pi Pico W + PicoPiFi** (~$7, WiFi→RNDIS bridge: driverless inbox USB ethernet class, community-confirmed on WoA, ~40-60 mA so it fits the non-powered hub budget next to keyboard/mouse; 2.4 GHz only — stated limitation). Primary network path stays the dock's USB ethernet (M13). A community ARM64 WLAN miniport would need test-signing — disqualified for a donation build by rule |
 
 ### D5 — GPU / display
 

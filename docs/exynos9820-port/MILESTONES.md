@@ -302,7 +302,7 @@ tree does not contain.
 |------|-------|-------|
 | Identify the WLAN hardware in the S10e (live) | **done** | Broadcom **DHD** over Samsung reserved memory + blobs (`bcmdhd_sta.bin`, `nvram_net.txt`) — not a PC wifi card; `notes/dock-desktop.md` §1 |
 | Find existing Windows drivers for Samsung Exynos WLAN | **done — dead end** | there is nothing to bind to: the vendor DT has **no WLAN device node** (only GPIO pins), and the live `wlan` platform node has no driver and an empty `modalias` — §6 |
-| Decide whether WiFi is required at all when LAN is available | **done** | **LAN-first**; if WiFi is genuinely needed, put a **USB WiFi adapter in the dock** (an ordinary Windows device once M10 works), not the phone's WLAN |
+| Decide whether WiFi is required at all when LAN is available | **done — decision corrected 2026-10-10** | **LAN-first** (inbox ARM64 drivers for Realtek GbE/ASIX confirmed on Windows Update — `notes/d4-usb-wifi.md` Q2). The old "put a USB WiFi adapter in the dock" plan is **dead**: no USB WiFi chip has an ARM64 Windows driver, inbox or vendor (same notes, chip-by-chip scan). If WiFi is genuinely wanted the only driverless path is a **WiFi→RNDIS bridge (PicoPiFi on a Pico W)** — see D4 in `DRIVERS-MILESTONES.md` |
 
 ### M13 — LAN through the dock
 

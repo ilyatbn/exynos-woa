@@ -573,3 +573,59 @@ The §5 hazards (which CMU bank feeds PERIC0/FSYS0A; the UFS hw-rev class-6
 encoding), the second LUN (`cpefs` is `sdd1`, the driver was written against one
 `sda`), the DMA window (still the 9810's `90000000..BC800000`, marked UNVERIFIED),
 the timeout clock, and the fact that **nothing has booted on this phone yet**.
+
+## 15. Restart point for a fresh session (2026-10-10 — the shim and the repack tool are committed)
+
+A session ended here (twice). Nothing is in flight: `git status` is clean except
+`info/DEN0101_00bet1_ADAC.pdf`, which stays uncommitted on purpose. The phone was
+attached and in TWRP (`RF8M21HYDSZ   recovery`) for the whole pass, and the only
+device writes were to `/tmp` (ramdisk), never to a partition.
+
+### What is true now (all committed, all verified by running, not by reading)
+
+* **HANDOFF §14 step 1** (the container read) was already committed as `078b27f`.
+* **§14 step 2 — the 9820 boot shim: DONE** at
+  `firmware/tools/beyond0lte-bootshim/bootshim.S` (`d54d805` + review fix
+  `bf4df1b`). The 9810 `firmware/tools/bootshim/bootshim.S` is byte-unchanged
+  (`git diff` on that path is empty). Both `-DBEYOND0LTE_PRAM_DIAG=0|1` builds
+  assemble/link/objcopy with exit 0; `llvm-nm` puts `_payload` at the last byte
+  of the image in both; no live 9810 constant survives (`rg` hits are comments
+  that name the old value as WRONG here).
+* **§14 step 3 — the repack tool: DONE** at `firmware/tools/repack-with-ref.py`
+  (`4215fe8` + review fix `ce96084`): the tool `pack-uefi.ps1:121` calls but that
+  never existed in this checkout. Device-agnostic — page size, section order and
+  `tail` come from the reference image through `tools/twrp-winre/bootimg.py`.
+* **§14 step 4 — the unknown constants are named `UNVERIFIED` in the source**,
+  each with the read that would close it (`rg UNVERIFIED` in the shim: 11 sites —
+  `UEFI_BASE`, `image_size`, the WTCON offset, `BEYOND0LTE_PRAM_BASE`, the temp
+  SP, K4b the drop address, K9 the MMU state, K10 the write-protected zones).
+* **The pipeline was run end to end against a real container** pulled from the
+  phone this session: ref = `/dev/block/by-name/recovery` (sda15), 55 277 568 B,
+  page_size 2048; kernel = `cat(shim.bin 288 B, BEYOND0LTE_UEFI.fd 7 340 032 B)`
+  = 7 340 320 B; output 18 253 824 B, header differs from the ref in 24 bytes
+  only, `ramdisk`/`second`/`dt`/`tail` byte-identical after re-parse. Full detail:
+  `notes/m8-uefi-image.md` §17-§19 and correction passes 3-4.
+
+### The exact next order, one commit per step
+
+1. **A beyond0lte packer** so the run above is reproducible in-tree: the 9810
+   `pack-uefi.ps1` hardcodes `tools\bootshim` (`:71-72`), the star2lte FV path
+   (`:44-45`) and `STAR2LTE_UEFI.fd`; write `firmware/tools/pack-uefi-beyond0lte.ps1`
+   (or a `-Device` param on a new script) that uses the ported shim, the
+   Beyond0Lte FV and the pulled ref. Do not edit the 9810 script.
+2. **Record the reference container's identity** (size + SHA-1 + the exact `dd`
+   line) in `notes/m8-uefi-image.md` so the 55 MB ref can be re-pulled; the image
+   itself stays out of the repo.
+3. **K10 — the 9820's write-protected zones**: primary source is Samsung's LK4/RKP
+   configuration; the alternative is observing a reset on the first boot. Until
+   then the temp SP and `UEFI_BASE` stay UNVERIFIED.
+4. **Only then a first boot** — and that needs explicit user consent: it means
+   writing to the media, which ground rules 5/6 forbid until Windows booting is
+   established, plus Team Win's AVB hazard (a verity-disabled `vbmeta` first;
+   this disk's `vbmeta` is LBA 83 584..83 599).
+
+### Rules that still bind this work
+
+Unchanged from §14: nothing written to the media; the 9810 packages byte-unchanged;
+no stage `Ready` without device validation; never guess a constant — name it
+`UNVERIFIED` with the read that closes it.

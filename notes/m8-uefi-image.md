@@ -707,6 +707,32 @@ Found and fixed (own commit):
   a docstring sentence broken by the "five words" edit - all fixed pre-commit,
   each verified by re-running the tool.
 
+## Step 20 - the beyond0lte packer, and the run that reproduces Step 19
+
+`firmware/tools/pack-uefi-beyond0lte.ps1` written as a SIBLING of the 9810
+`pack-uefi.ps1` (which stays byte-unchanged - `git diff` on that path is empty):
+the 9810 script hardcodes `tools\bootshim` (`:71-72`), the Star2Lte FV dir
+(`:44-45`) and `STAR2LTE_UEFI.fd`, so it cannot be pointed at this phone by
+parameters alone. Differences: the ported shim path, `Beyond0LtePkg` FV dir,
+`-UefiBase` default `0x80080000` (= `Beyond0LtePkg.dsc:415`), and NO default
+reference image (nothing in this checkout is an S10e `.img`, so `-Ref` is
+required rather than silently wrong).
+
+Run (exit 0, artefacts only under the Build/ dir and the shim dir):
+
+```
+powershell -ExecutionPolicy Unrestricted -File firmware\tools\pack-uefi-beyond0lte.ps1 \
+  -Ref <pulled ref-recovery-trim.img> -Output <temp>\pack-out.img
+==> FD 7 340 032 B ; shim.bin 288 B ; code0 0x10000901 ; magic ARM
+==> kernel 7 340 320 B ; repack -> 18 253 824 B, page_size 2048 read from the ref
+```
+Same numbers as the manual Step 19 run, so the pipeline is reproducible in-tree.
+
+Also: the shim's `.o/.elf/.bin` are regenerable artefacts that were showing up
+as untracked; added explicit `.gitignore` lines for both phones' shim dirs
+(no rule existed before, and the 9810 dir happens to be clean only because it
+was never built in this checkout).
+
 Still NOT closed by this: the image has never been flashed or booted (ground
 rules 5/6), and K4b (where sboot drops the kernel) is what decides whether the
 shim's own copy step survives - see the hazard comment in bootshim.S.

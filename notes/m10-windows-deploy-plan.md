@@ -425,3 +425,18 @@ because the adapter never went operational.
 Cause: UfsMapResources requires the PMA range to be >= EXYNOS_UFS_PMA_LENGTH 0x1000; the DSDT (correctly, = stock DT
 ufs-phy reg 0x13D64000+0x800) declares 0x800. The driver never maps PMA (presence check only). Fix: length 0x800.
 Firmware boot #38: BootLogDxe zeroes the 64 KB Windows region after saving it (one run per WINPRAM.BIN).
+
+## W27 - Windows storage: first SRB never retires (doorbell stuck); UTRLCLR retire (2026-10-11)
+User away from here on; work fully unattended (firmware/tools/s10e-cycle.sh: deploy driver via TWRP ntfs-3g,
+reboot, wait for TWRP, reboot once more so the clean first boot saves WINPRAM.BIN, decode).
+Boot #38 + w26: no return in 10 min (watchdog stopped at OPERATIONAL) -> user forced TWRP. Windows wrote nothing to
+NTFS. Marks (bit-flipped by the forced reset, decoded leniently): stages 1-6, HCI_VERSION_UNCONFIRMED (1<<57,
+benign), 7-0xA OPERATIONAL, FAIL TIMEOUT_CONTAINMENT (1<<40), BUGCHECK 0x7B P2 C0000034.
+w27 driver: early marks for StartIo (first 12 SRBs), ResetBus, AdapterControl, poll timeout registers; the bring-up
+watchdog is PETTED on every StartIo instead of stopped; the early bugcheck callback SWRESETs (INFORM3 normal) so a BSOD
+returns unattended. Cycle: stage1 TWRP 163 s, stage2 162 s. Marks (notes/winpram-w27.bin): first SRB = EXECUTE_SCSI
+CDB 0xA0 REPORT LUNS -> =POLLTMO db=1 is=1 (UTRCS) hcs=0x10F -> TIMEOUT_CONTAINMENT -> every later SRB
+(REPORT LUNS / INQUIRY 0x12 on LUN 0/1) rejected with FatalError -> 0x7B.
+Cause: the controller completes (OCS leaves 0x0F, IS.UTRCS) but does not clear UTRLDBR; the UEFI driver retires such
+slots with UTRLCLR (HCI+0x5C) = slot bit (Exynos inverted polarity). w27b: UfsPollForCompletion does the same when
+OCS != 0x0F (logs =RETIRE ocs/db for the first 3 commands).

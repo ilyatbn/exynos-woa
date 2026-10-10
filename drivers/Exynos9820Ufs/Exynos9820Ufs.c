@@ -6280,6 +6280,30 @@ UfsPollForCompletion(
             return TRUE;
         }
 
+        //
+        // W27: on the 9820 the controller completes the request (OCS leaves the 0x0F the
+        // driver wrote, IS.UTRCS sets) but does NOT clear the doorbell bit: the first Windows
+        // command (REPORT LUNS) sat with UTRLDBR=1, IS=1 for 5 s. The UEFI driver retires such a
+        // slot by writing its bit to UTRLCLR (HCI +0x5C, Exynos' inverted-polarity list clear,
+        // UFSHCD_QUIRK_BROKEN_REQ_LIST_CLR) - Beyond0LteUfsHcDxe.c, proven on every UEFI
+        // command. Do the same here.
+        //
+        {
+            ULONG Ocs = *(volatile ULONG *)((PUCHAR)&Adapter->Utrl[UFS_TRANSFER_SLOT] + 8) & 0xFFUL;
+
+            if (Ocs != UFS_TRD_OCS_INITIAL) {
+                KeMemoryBarrier();
+                UfsWriteRegister(Adapter, UFS_REG_UTRL_LIST_CLEAR, UFS_TRANSFER_SLOT_MASK);
+                KeMemoryBarrier();
+                if (Adapter->Diagnostic.StartIoRequests <= 3UL) {
+                    UfsEarlyMark("=RETIRE ocs/db=",
+                        ((ULONGLONG)Ocs << 32) |
+                        UfsReadRegister(Adapter, UFS_REG_UTRL_DOORBELL));
+                }
+                return TRUE;
+            }
+        }
+
         /*
          * V33: count the stalls, not the time. Multiplied by
          * UFS_TRANSFER_POLL_US this gives the polling granularity component of
@@ -6293,6 +6317,9 @@ UfsPollForCompletion(
         StorPortStallExecution(UFS_TRANSFER_POLL_US);
     }
 
+    UfsEarlyMark("=POLLTMO db=", UfsReadRegister(Adapter, UFS_REG_UTRL_DOORBELL));
+    UfsEarlyMark("=POLLTMO is=", UfsReadRegister(Adapter, UFS_REG_INTERRUPT_STATUS));
+    UfsEarlyMark("=POLLTMO hcs=", UfsReadRegister(Adapter, UFS_REG_HOST_STATUS));
     return FALSE;
 }
 
@@ -8188,6 +8215,18 @@ UfsHandleIoControl(
  * WTCON &= ~(EN | RSTEN) = ~0x21. Mapped in DriverEntry (PASSIVE); HwInitialize only stores.
  */
 static volatile ULONG *UfsBringupWdtCon;
+static volatile UCHAR *UfsBringupPmu;
+
+//
+// W27: PET, not stop. Reloading WTCNT (WDT +0x8) keeps a Windows that is doing disk I/O alive while
+// a hang still resets after 82 s (UFS_BRINGUP_WDT_COUNT = the firmware's 0xFE27 at 793.46 Hz).
+// The PMU is mapped too, for the bugcheck reset (SWRESET +0x3A00 = 2, INFORM3 +0x80C; verified
+// from Samsung's kernel + sboot, notes/s10e-reboot-wdt-constants.md).
+//
+#define UFS_BRINGUP_WDT_COUNT              0x0000FE27UL
+#define UFS_BRINGUP_PMU_INFORM3            0x080CUL
+#define UFS_BRINGUP_PMU_SWRESET            0x3A00UL
+#define UFS_BRINGUP_PMU_WINDOW             0x4000UL
 
 static
 VOID
@@ -8199,18 +8238,33 @@ UfsMapBringupWatchdog(
 
     Physical.QuadPart = (LONGLONG)UFS_WDT_PHYSICAL_BASE;
     UfsBringupWdtCon = (volatile ULONG *)MmMapIoSpace(Physical, UFS_WDT_WINDOW, MmNonCached);
+    Physical.QuadPart = (LONGLONG)UFS_PMU_PHYSICAL_BASE;
+    UfsBringupPmu = (volatile UCHAR *)MmMapIoSpace(Physical, UFS_BRINGUP_PMU_WINDOW, MmNonCached);
 }
 
 static
 VOID
-UfsStopBringupWatchdog(
+UfsPetBringupWatchdog(
     VOID
     )
 {
     if (UfsBringupWdtCon != NULL) {
-        *UfsBringupWdtCon &= ~0x21UL;
+        UfsBringupWdtCon[2] = UFS_BRINGUP_WDT_COUNT;   // WTCNT
         KeMemoryBarrier();
-        UfsEarlyMark("=WDT stopped wtcon=", *UfsBringupWdtCon);
+    }
+}
+
+static
+VOID
+UfsBringupResetSoc(
+    VOID
+    )
+{
+    if (UfsBringupPmu != NULL) {
+        *(volatile ULONG *)(UfsBringupPmu + UFS_BRINGUP_PMU_INFORM3) = 0x12345670UL;   // normal
+        KeMemoryBarrier();
+        *(volatile ULONG *)(UfsBringupPmu + UFS_BRINGUP_PMU_SWRESET) = 0x2UL;
+        KeMemoryBarrier();
     }
 }
 
@@ -8244,6 +8298,12 @@ UfsEarlyBugcheckCallback(
     } else {
         UfsEarlyMark("=BUGCHECK nodata st=", (ULONG)UfsBugcheckProviderStatus);
     }
+
+    //
+    // W27 unattended bring-up: Windows' own restart after a bugcheck never reaches the firmware
+    // (boot #35). Reset the SoC now; the firmware's boot pair saves these marks and goes to TWRP.
+    //
+    UfsBringupResetSoc();
 }
 
 
@@ -8459,7 +8519,8 @@ UfsHwInitializeWorker(
     Adapter->DiagnosticEndpointPreserved = FALSE;
     Adapter->Started = TRUE;
     UfsSetDiagnosticStage(Adapter, UFS_DIAG_STAGE_OPERATIONAL);
-    UfsStopBringupWatchdog();
+    UfsPetBringupWatchdog();
+    UfsEarlyMark("=OPERATIONAL wdt pet", 0);
     return TRUE;
 }
 
@@ -8998,6 +9059,16 @@ UfsHwStartIo(
 
     Adapter->Diagnostic.StartIoRequests++;
     Adapter->Diagnostic.LastSrbFunction = (ULONG)Srb->Function;
+    UfsPetBringupWatchdog();
+    if (Adapter->Diagnostic.StartIoRequests <= 12UL) {
+        // W27: function | CDB[0] << 8 | target << 16 | lun << 24 | started/fatal/diagonly << 32..
+        UfsEarlyMark("=SIO fn/cdb/t/l/st=",
+            (ULONGLONG)Srb->Function |
+            ((ULONGLONG)((Srb->Function == SRB_FUNCTION_EXECUTE_SCSI) ? Srb->Cdb[0] : 0) << 8) |
+            ((ULONGLONG)Srb->TargetId << 16) | ((ULONGLONG)Srb->Lun << 24) |
+            ((ULONGLONG)Adapter->Started << 32) | ((ULONGLONG)Adapter->FatalError << 40) |
+            ((ULONGLONG)Adapter->DiagnosticOnly << 48));
+    }
 
 #if UFS_AUTOMATIC_RECOVERY_RESET && UFS_BOOT_DIAG_MODE
     /*
@@ -9088,6 +9159,7 @@ UfsHwResetBus(
     PUFS_ADAPTER_EXTENSION Adapter = (PUFS_ADAPTER_EXTENSION)DeviceExtension;
 
     UNREFERENCED_PARAMETER(PathId);
+    UfsEarlyMark("=RESETBUS sio=", Adapter->Diagnostic.StartIoRequests);
     if (Adapter->DiagnosticOnly) {
         Adapter->Started = TRUE;
         return TRUE;
@@ -9112,6 +9184,7 @@ UfsHwAdapterControl(
 {
     PUFS_ADAPTER_EXTENSION Adapter = (PUFS_ADAPTER_EXTENSION)DeviceExtension;
 
+    UfsEarlyMark("=ADAPTERCONTROL", (ULONGLONG)ControlType);
     switch (ControlType) {
     case ScsiQuerySupportedControlTypes:
     {

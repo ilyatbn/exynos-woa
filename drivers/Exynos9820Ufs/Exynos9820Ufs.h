@@ -823,6 +823,7 @@ C_ASSERT(UFS_WDT_WTCNT < UFS_WDT_WINDOW);
 #define UFS_REG_UTRL_BASE_LOW               0x0050UL
 #define UFS_REG_UTRL_BASE_HIGH              0x0054UL
 #define UFS_REG_UTRL_DOORBELL               0x0058UL
+#define UFS_REG_UTRL_LIST_CLEAR             0x005CUL   // W27: UTRLCLR; Exynos writes the slot BIT (inverted polarity), as Beyond0LteUfsHcDxe does
 #define UFS_REG_UTRL_RUN_STOP               0x0060UL
 #define UFS_REG_UTRL_CLEAR_NOT_READY         0x0064UL
 

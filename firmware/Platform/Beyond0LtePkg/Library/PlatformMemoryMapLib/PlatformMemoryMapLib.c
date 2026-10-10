@@ -156,9 +156,21 @@ ArmPlatformGetVirtualMemoryMap (
   // reads rather than by a conservative stop; the two high 2 GiB banks are
   // published as their own entries below.
   //
+  // CORRECTION (2026-10-10, notes/K10-rkp.md T18): the LIVE DTB, read in a TWRP
+  // root shell on this phone, declares memory@80000000 as 0x3AB00000 long - it
+  // ends at 0xBAB00000, not 0x100000000. Publishing EXYNOS_DRAM_SIZE (up to
+  // 0xD0000000) therefore claimed 0x15500000 of RAM the DTB never declared. The
+  // published length is now clamped to the live bank0 size. The hazard that
+  // remains is the opposite one: the sboot reservations INSIDE bank0 (el2_code
+  // 0x87000000+0x200000, kaslr 0x80100000+0x100000, camera 0x99000000+0xE400000,
+  // secure_camera 0x96000000+0x2200000, mm_debug 0x91200000+0x100000) are still
+  // handed to Windows as conventional RAM; that split is not closable by a read
+  // we have, so it stays open.
+  //
   Table[Index].PhysicalBase = EXYNOS_DRAM_BASE;
   Table[Index].VirtualBase  = EXYNOS_DRAM_BASE;
-  Table[Index].Length       = EFI_PAGES_TO_SIZE (EFI_SIZE_TO_PAGES (EXYNOS_DRAM_SIZE));
+  Table[Index].Length       = EFI_PAGES_TO_SIZE (EFI_SIZE_TO_PAGES (
+      EXYNOS_DRAM_SIZE < EXYNOS_DRAM_BANK0_SIZE ? EXYNOS_DRAM_SIZE : EXYNOS_DRAM_BANK0_SIZE));
   Table[Index].Attributes   = MMAP_DRAM;
   Index++;
 

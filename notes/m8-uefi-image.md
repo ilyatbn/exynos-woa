@@ -1483,3 +1483,23 @@ Verified: build exit 0 (FVMAIN_COMPACT 1336 B free). Boot #15 image %TEMP%\b56\b
 
 Pushed (on-device sha256 42eb7a28...dad6), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
 42eb7a285eee966502319476ac1cd1308acefca1de66969030fbff1c6e10dad6 (byte-exact). `adb reboot` next.
+
+## B58 - boot #15 OBSERVED (1.8 s video): MMU fix WORKS - DXE runs far; dies in ArmGicDxe's entry
+
+User video IMG_4339.mov (1080x1920, 45 fps); frames extracted with imageio-ffmpeg; last frame saved as
+notes/img-boot15-last-frame.png. The on-panel log shows no "Failed to enable MMU"; DXE dispatches many
+drivers: ArmCpuDxe, RuntimeDxe, SecurityStub, Metronome, ResetSystem, VariableRuntimeDxe (emulated NV),
+SerialDxe, AcpiTableDxe ("Fail to locate AcpiSiliconHob!!"), Beyond0LteSimpleFramebufferDxe ("GOP up at
+0xCA000000, 1080x2280"), Beyond0LteUfsHcDxe ("UFS host controller protocol up at 0x13D60000."), ...
+Newest lines (just above the blanked line):
+  "Loading driver at 0x000B9E87000 EntryPoint=0x000B9E895A0 ArmGicDxe.efi"
+  "InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF BA106998"
+  "ProtectUefiImageCommon - 0xBA106BC0 / - 0x00000000B9E87000 - 0x0000000000063000"
+then reset. => the fault is in ArmGicDxe's entry point (GIC init). ArmCpuDxe was already loaded, so an
+EL1 exception would have printed "Synchronous Exception" on this console and dead-looped; the reset
+instead => an EL2/EL3-level abort on a GIC register access (INFERENCE: Samsung's uH at EL2 does not let
+EL1 touch the GIC region we program). Our GICD 0x10101000 / GICC 0x10102000 (Exynos9820.h, vendor DT);
+edk2-exynos (boots on 9820) uses GICD 0x10101000 / GICC 0x10100000 (exynos9820.dsc). Next: compare
+prior-art GIC/timer handling and the live DTB GIC node.
+Also visible: many "Image Section Alignment(0x1000) does not match Required Alignment(0x10000)" and
+"ProtectUefiImage failed to create image properties record" (memory-protection warnings, non-fatal).

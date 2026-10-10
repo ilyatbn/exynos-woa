@@ -1224,3 +1224,22 @@ INFERENCE (strong): a fixed-time reset armed before our code runs = sboot's SoC 
 take it over; UEFI does not), consistent with the 9810 shim stopping the watchdog FIRST. abc0ead7 is
 then sboot's "jumped to kernel, never heard back" mark, not a fault code. B34's "external reset" fits.
 Next: stop (or feed) the watchdog with VERIFIED register offsets, then UEFI should stay up.
+
+## B36 - boot #8: shim samples, stops and verifies both SoC watchdogs (with reported bands)
+
+Reads first (TWRP root, live DTB, raw props pulled with `adb exec-out cat`): watchdog_cl0@10050000
+compatible samsung,exynos9-v1-wdt, reg 0x10050000 size **0x100**, timeout-sec 0x1e, index 0;
+watchdog_cl2@10060000 samsung,exynos9-v2-wdt, reg size **0x100**, index 1, use_multistage_wdt present;
+both samsung,syscon-phandle 0x54. DISCREPANCY (not folded in): Exynos9820.h:492 EXYNOS_WDT_SIZE says
+0x1000 "VERIFIED (live DTB ... +0x1000)"; today's live reg says 0x100 -> follow-up.
+Register layout VERIFIED by source: LineageOS android_kernel_samsung_exynos9820 (lineage-21)
+drivers/watchdog/s3c2410_wdt.c :52-61 (WTCON +0x00, ENABLE b5, INTEN b2, RSTEN b0), stop
+:461-474 (WTCON &= ~(ENABLE|RSTEN)), multistage stop clears ENABLE|INTEN, exynos9-v1/v2 variants
+:235-251 (PMU NONCPU_INT_EN path not touched by us).
+Caution: boot #4's old shim already wrote WTCON=0 to both FIRST and still looped at 15.5 s, so a stop
+alone may not fix it - hence boot #8 MEASURES. Shim DIAG bands (200 rows each, white): row 200 entered;
+500 cl0 armed (WTCON b5 set on arrival); 800 cl2 armed; 1100 both read back with b5|b2|b0 clear after
+RMW stop; 1850 copy done -> br. DIAG=0 still byte-identical to the plain prior-art shim.
+Verified: assembled/linked both modes (336 B / 144 B, _payload last), objdump reviewed (w11 mask not
+clobbered between set and tst), packer OK (code0 0x10000A81), kernel = shim + FD byte-exact.
+Boot #8 image %TEMP%\b36\boot8-v2.img sha256 2576f0f1638e250745f35b2f8a40b47304f6bd6fc2818b17b0e63842139636d1

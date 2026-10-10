@@ -42,8 +42,19 @@
  *   FB 0xCA000000          VERIFIED   (Exynos9820.h EXYNOS_FB_BASE, s3cfb.bootloaderfb)
  *   stride 1440*4 B        UNVERIFIED (pixel format never read; bands are all-ones WHITE so
  *                                       the colour does not depend on the format)
- * Band 1 = rows 200-649: the shim was entered. Band 2 = rows 750-1199: the FD copy is done
- * and the next instruction is `br` into the FD. Uses x9-x11 only (x1/x4/x5/x6 untouched). */
+ * Boot #8 adds the SoC watchdog stop (notes/m8-uefi-image.md B35/B36): every loop of boots
+ * #4-#7 was a reset at a fixed ~15.5 s period. Registers:
+ *   WDT cl0 0x10050000, cl2 0x10060000  VERIFIED (Exynos9820.h EXYNOS_WDT_BASE; live DTB reg)
+ *   WTCON @ +0x00; ENABLE b5, INTEN b2, RSTEN b0  VERIFIED by source: the exynos9820 kernel's
+ *     s3c2410_wdt.c :52-61, stop = WTCON &= ~(ENABLE|RSTEN) :461-474 (+ ~INTEN on the
+ *     multistage cl2, :~180); compatibles samsung,exynos9-v1-wdt / -v2-wdt match the live DTB.
+ * Bands are 200 rows each, WHITE, and each answers one question:
+ *   row  200  shim entered
+ *   row  500  cl0 WTCON had ENABLE set when we arrived (sboot armed it)
+ *   row  800  cl2 WTCON had ENABLE set when we arrived
+ *   row 1100  after the stop, BOTH WTCON read back with ENABLE|INTEN|RSTEN clear
+ *   row 1850  FD copy done, next instruction is `br` into the FD
+ * Uses x9-x13 only (x1/x4/x5/x6 untouched); _band is a leaf (x30). */
 #ifndef BEYOND0LTE_SHIM_DIAG
 #define BEYOND0LTE_SHIM_DIAG 1
 #endif
@@ -86,8 +97,43 @@ _start:
 	str	w10, [x9]
 	dsb	sy
 	movz	x9, #0x9400
-	movk	x9, #0xCA11, lsl #16    /* 0xCA119400 = FB + row 200 (200*5760)    */
-	bl	_band                    /* band 1: shim entered                    */
+	movk	x9, #0xCA11, lsl #16    /* FB + row 200                            */
+	bl	_band                    /* shim entered                            */
+
+	/* ---- SoC watchdogs: sample, stop, verify ----------------------------- */
+	movz	x12, #0x1005, lsl #16   /* 0x10050000 = watchdog_cl0               */
+	ldr	w13, [x12]              /* WTCON as sboot left it                  */
+	tbz	w13, #5, 1f             /* ENABLE clear -> no band                 */
+	movz	x9, #0xF200
+	movk	x9, #0xCA2B, lsl #16    /* FB + row 500                            */
+	bl	_band                    /* cl0 was armed                           */
+1:	movz	x12, #0x1006, lsl #16   /* 0x10060000 = watchdog_cl2               */
+	ldr	w13, [x12]
+	tbz	w13, #5, 2f
+	movz	x9, #0x5000
+	movk	x9, #0xCA46, lsl #16    /* FB + row 800                            */
+	bl	_band                    /* cl2 was armed                           */
+2:	mov	w11, #0x25              /* ENABLE(5) | INTEN(2) | RSTEN(0)         */
+	movz	x12, #0x1005, lsl #16
+	ldr	w13, [x12]
+	bic	w13, w13, w11
+	str	w13, [x12]
+	movz	x12, #0x1006, lsl #16
+	ldr	w13, [x12]
+	bic	w13, w13, w11
+	str	w13, [x12]
+	dsb	sy
+	movz	x12, #0x1005, lsl #16
+	ldr	w13, [x12]
+	movz	x12, #0x1006, lsl #16
+	ldr	w9, [x12]
+	orr	w13, w13, w9
+	tst	w13, w11
+	b.ne	3f                       /* a bit survived -> no band               */
+	movz	x9, #0xAE00
+	movk	x9, #0xCA60, lsl #16    /* FB + row 1100                           */
+	bl	_band                    /* both watchdogs read back stopped        */
+3:
 #endif
 	mov	x4, x1                  /* x4 = source (FD runtime address)        */
 	ldr	x5, _uefi_base          /* x5 = UEFI_BASE (destination)            */
@@ -105,9 +151,9 @@ _entry:
 	 * zero-vector, jumping to the PeilessSec SEC entry (BEYOND0LTE_UEFI.fd
 	 * first word 0x1401C800). */
 #if BEYOND0LTE_SHIM_DIAG
-	movz	x9, #0xEB00
-	movk	x9, #0xCA41, lsl #16    /* 0xCA41EB00 = FB + row 750 (750*5760)    */
-	bl	_band                    /* band 2: copy done, entering the FD      */
+	movz	x9, #0x9900
+	movk	x9, #0xCAA2, lsl #16    /* FB + row 1850                           */
+	bl	_band                    /* copy done, entering the FD              */
 #endif
 	br	x5                      /* enter the FD @UEFI_BASE                 */
 
@@ -115,10 +161,10 @@ _dead:
 	b	_dead                   /* never reached                           */
 
 #if BEYOND0LTE_SHIM_DIAG
-	/* x9 = first pixel; paints 450 rows x 1440 px of 0xFFFFFFFF. Leaf, no stack. */
+	/* x9 = first pixel; paints 200 rows x 1440 px of 0xFFFFFFFF. Leaf, no stack. */
 _band:
-	movz	w10, #0xE340
-	movk	w10, #0x9, lsl #16      /* 648000 px = 450 rows x 1440             */
+	movz	w10, #0x6500
+	movk	w10, #0x4, lsl #16      /* 288000 px = 200 rows x 1440             */
 	mov	w11, #0xFFFFFFFF
 1:	str	w11, [x9], #4
 	subs	w10, w10, #1

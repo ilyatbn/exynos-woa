@@ -140,25 +140,48 @@
 #define DWC3_GSBUSCFG1            0xC104
 #define   GSBUSCFG1_BREQLIMIT(n)            ((n) << 8)          // [K]
 #define DWC3_GCTL                 0xC110
+#define   GCTL_DSBLCLKGTNG                  BIT0    // [K core.h:251]
 #define   GCTL_PRTCAPDIR(n)                 ((n) << 12)         // [K]
 #define   GCTL_PRTCAP_HOST                  1       // [K]
 #define   GCTL_PRTCAP_DEVICE                2       // [K]
 #define   GCTL_PRTCAP_OTG                   3       // [K]
 #define   GCTL_CORESOFTRESET                BIT11   // [K]
 #define   GCTL_SOFITPSYNC                   BIT10   // [K]
+#define   GCTL_U2RSTECN                     BIT16   // [K] rev < 1.90a only
+#define   GCTL_DISSCRAMBLE                  BIT3    // [K core.h:249] FPGA quirk — always off for us
+#define   GCTL_GBLHIBERNATIONEN             BIT28   // [K core.h] hibernation mode
 #define DWC3_GSNPSID              0xC120  // [K] 0x5533xxxx = DWC_usb3, low 16 = rev
 #define   GSNPSID_ID_MASK                   0xFFFF0000          // [K]
 #define   GSNPSID_ID_DWC3                   0x55330000          // [K] "U3"
 #define   GSNPSID_ID_DWC31                  0x33310000          // [K] "13" (DWC_usb31)
+// Revision encodings [K core.h:1049-1056] — the kernel compares the FULL
+// GSNPSID value against these; the 9820's revision is UNVERIFIED until read
+// on device, so every quirk branch in the driver is gated on the read value.
+#define   DWC3_REV_190A                     0x5533190a
+#define   DWC3_REV_194A                     0x5533194a
+#define   DWC3_REV_210A                     0x5533210a
+#define   DWC3_REV_220A                     0x5533220a
+#define   DWC3_REV_250A                     0x5533250a
+#define   DWC3_REV_310A                     0x5533310a
 #define DWC3_GUID                 0xC128  // [K] write LINUX_VERSION_CODE (cosmetic)
 #define DWC3_GUCTL                0xC12C
 #define   GUCTL_REFCLKPER(n)                ((n) << 22)         // [K]
+#define   GUCTL_REFCLKPER_MASK              (0x3FF << 22)       // [K core.h:254]
 #define   GUCTL_USBHSTINAUTORETRYEN         BIT14   // [K] Samsung downstream bit
 #define   GUCTL_SPRSCTRLTRANSEN             BIT17   // [K] Samsung downstream (DT enable_sprs_transfer)
 #define DWC3_GHWPARAMS0           0xC140  // [K]
+#define   GHWPARAMS0_MODE(n)                ((n) & 0x3)         // [K core.h:316]
+#define   GHWPARAMS0_MODE_DRD               2       // [K] ours: dual-role (dr_mode otg in DT)
 #define DWC3_GHWPARAMS1           0xC144  // [K]
+#define   GHWPARAMS1_EN_PWROPT(n)           (((n) & (3 << 24)) >> 24)  // [K core.h:327]
+#define   GHWPARAMS1_EN_PWROPT_CLK          1       // [K]
+#define   GHWPARAMS1_EN_PWROPT_HIB          2       // [K]
 #define DWC3_GHWPARAMS3           0xC14C  // [K] bits 27:26 SSPHY_IFC: 0 = disabled
 #define   GHWPARAMS3_SSPHY_IFC_DIS          0       // [K]
+#define DWC3_GRXTHRCFG            0xC10C  // [K core.h:91]
+#define   GRXTHRCFG_RXPKTCNTSEL             BIT29   // [K core.h:205]
+#define   GRXTHRCFG_USBRXPKTCNT(n)          ((n) << 24)         // [K core.h:208]
+#define   GRXTHRCFG_USBMAXRXBURSTSIZE(n)    ((n) << 19)         // [K core.h:211]
 #define DWC3_GUSB2PHYCFG(n)       (0xC200 + ((n) * 4))  // [K]
 #define   GUSB2PHYCFG_PHYSOFTRST            BIT31   // [K]
 #define   GUSB2PHYCFG_U2_FREECLK_EXISTS     BIT30   // [K]
@@ -169,13 +192,21 @@
 #define   GUSB2PHYCFG_USBTRDTIM(n)          ((n) << 10)         // [K]
 #define DWC3_GUSB3PIPECTL(n)      (0xC2C0 + ((n) * 4))  // [K]
 #define   GUSB3PIPECTL_PHYSOFTRST           BIT31   // [K]
+#define   GUSB3PIPECTL_DISRXDETINP3         BIT28   // [K] rev >= 2.50a
+#define   GUSB3PIPECTL_UX_EXIT_PX           BIT27   // [K] DT snps,ux_exit_in_px_quirk
+#define   GUSB3PIPECTL_U1U2EXITFAIL_TO_RECOV BIT25  // [K] DT snps,u1u2_exitfail_quirk
 #define   GUSB3PIPECTL_DEP1P2P3(n)          ((n) << 19)         // [K]
+#define   GUSB3PIPECTL_DEP1P2P3_EN          (1 << 19)           // [K] rev <= 2.10a WA
 #define   GUSB3PIPECTL_SUSPHY               BIT17   // [K]
+#define   GUSB3PIPECTL_ELASTIC_BUFFER_MODE  BIT0    // [K core.h:303] DT snps,elastic_buf_mode_quirk (Samsung downstream bit)
 #define DWC3_GEVNTADRLO(n)        (0xC400 + ((n) * 0x10))  // [K]
 #define DWC3_GEVNTADRHI(n)        (0xC404 + ((n) * 0x10))  // [K]
 #define DWC3_GEVNTSIZ(n)          (0xC408 + ((n) * 0x10))  // [K]
 #define DWC3_GEVNTCOUNT(n)        (0xC40C + ((n) * 0x10))  // [K]
-#define   GEVNTSIZ_SIZE_MASK                0xFFFF  // [K] (event buffer size in bytes / 2 encoding: raw write of power-of-two)
+#define   GEVNTSIZ_SIZE(n)                  ((n) & 0xFFFF)      // [K core.h:313]
+#define   GEVNTSIZ_INTMASK                  BIT31   // [K core.h:312]
+#define   GEVNTCOUNT_MASK                   0xFFFC  // [K core.h:72]
+#define DWC3_EVENT_BUFFERS_SIZE   4096    // [K core.h:53]
 #define DWC3_GFLADJ               0xC630  // [K]
 #define   GFLADJ_REFCLK_240MHZ_DECR(n)      ((n) << 24)         // [K]
 #define   GFLADJ_REFCLK_LPM_SEL             BIT23   // [K]
@@ -222,16 +253,22 @@
 #define HSI2C_INT_EN              0x20    // [K]
 #define HSI2C_INT_STAT            0x24    // [K]
 #define   HSI2C_INT_TRANSFER_DONE           BIT7    // [K]
+#define   HSI2C_INT_NODEV                   BIT10   // [K]
 #define HSI2C_FIFO_STAT           0x30    // [K]
 #define   HSI2C_FIFO_STAT_TX_EMPTY          BIT8    // [K]
 #define   HSI2C_FIFO_STAT_TX_LEVEL(x)       ((x) & 0x7F)        // [K]
+#define   HSI2C_FIFO_STAT_RX_LEVEL(x)       (((x) >> 16) & 0x7F) // [K]
 #define HSI2C_TX_DATA             0x34    // [K]
+#define HSI2C_RX_DATA             0x38    // [K]
 #define HSI2C_CONF                0x40
 #define   HSI2C_CONF_AUTO_MODE              BIT31   // [K]
 #define HSI2C_AUTO_CONF           0x44
 #define   HSI2C_AUTO_CONF_READ_WRITE        BIT16   // [K]
 #define   HSI2C_AUTO_CONF_STOP_AFTER_TRANS  BIT17   // [K]
 #define   HSI2C_AUTO_CONF_MASTER_RUN        BIT31   // [K]
+#define HSI2C_TIMEOUT             0x48    // [K] bit31 = watchdog enable; kernel clears it in polling
+#define HSI2C_TRANS_STATUS        0x50    // [K]
+#define   HSI2C_MASTER_BUSY                 BIT17   // [K] TRANS_STATUS bit17
 #define HSI2C_TIMING_FS1          0x60    // [K]
 #define HSI2C_TIMING_FS2          0x64    // [K]
 #define HSI2C_TIMING_FS3          0x68    // [K]

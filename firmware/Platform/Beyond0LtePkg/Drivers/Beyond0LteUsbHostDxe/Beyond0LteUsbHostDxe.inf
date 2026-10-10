@@ -1,0 +1,49 @@
+## @file
+#  Brings the S10e's DWC3 USB3 DRD up in HOST role (PHY + core init + MAX77705
+#  VBUS boost) and publishes the xHCI window as an EDK2 non-discoverable MMIO
+#  device so the stock MdeModulePkg XhciDxe + UsbBusDxe drive it. The
+#  platform-specific half mirrors the LineageOS exynos9820 kernel bring-up
+#  (notes/d1-usb-host.md); the registration shape follows NXP Layerscape's
+#  UsbHcdInitDxe (notes/d1b-usb-vbus-hcd.md Q3). First bring-up is USB2/HS
+#  only: the SS PHY PMA is held powered down. Nothing here is validated on an
+#  S10e yet.
+#
+#  FILE_GUID 11111111-2222-3333-4444-555555555548 is this module's BUILD
+#  IDENTITY, not a hardware read.
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = Beyond0LteUsbHostDxe
+  FILE_GUID                      = 11111111-2222-3333-4444-555555555548
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 0.1
+  ENTRY_POINT                    = Beyond0LteUsbHostEntry
+
+[Sources]
+  Beyond0LteUsbHostDxe.c
+  UsbPhy.c
+  Dwc3.c
+  Pmic.c
+  UsbHw.h
+  UsbHostInternal.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  Silicon/Exynos9820Pkg/Exynos9820Pkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  BaseMemoryLib
+  DebugLib
+  IoLib
+  MemoryAllocationLib
+  NonDiscoverableDeviceRegistrationLib
+
+[Protocols]
+  gEdkiiNonDiscoverableDeviceProtocolGuid  ## PRODUCES
+
+[Depex]
+  gEfiCpuArchProtocolGuid

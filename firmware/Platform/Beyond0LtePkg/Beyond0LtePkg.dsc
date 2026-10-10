@@ -320,7 +320,8 @@
   # --- Debug mask (errors+warnings+info+load). Trim for RELEASE. ---
   # ERROR|WARN only (was 0x8000004F = +INFO|LOAD): the on-panel log (B54) is read from photos, and
   # the hundreds of Loading driver / InstallProtocolInterface lines buried the UFS errors (B73).
-  gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x80000002
+  # B77: +INFO (0x40) back - BDS / ScsiDisk progress is INFO; LOAD (0x04) stays off.
+  gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x80000042
   # PcdDebugPropertyMask: 0x0E = PRINT|CODE|CLEAR_MEMORY, but ASSERT (0x01) and
   # ASSERT_DEADLOOP (0x20) DISABLED. On this chainloaded device with no draining
   # UART, a DEBUG-build ASSERT(FALSE) -> CpuDeadLoop() hard-hangs the boot (the

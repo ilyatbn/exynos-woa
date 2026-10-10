@@ -1705,3 +1705,16 @@ Boot #21 image %TEMP%\b75\boot21-v2.img sha256 6152e76f66c6c4bf13d0a3db6842524e0
 
 Pushed (on-device sha256 6152e76f...20bc), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
 6152e76f66c6c4bf13d0a3db6842524e0fc79a7255e32e0963c68cb5dbc520bc (byte-exact). `adb reboot` next.
+
+## B77 - boot #21 OBSERVED: OCS fixup works ("Target Failure" gone) but the phone RESETS right after
+
+Photo notes/img-boot21-reset.jpg: "ScsiDisk: IsWriteProtected() fails" / "UfsHc: slot 0 CDB 0x00 CHECK
+COND: ocs 0x7 resp 0x1 ... key 0x6 asc 0x29 ascq 0x00" (logged BEFORE the fixup) and NO "UfsExecScsiCmds()
+fails with Target Failure" -> B75's fixup takes effect. Then a NEW boot begins ("UEFI firmware ... built at
+17:54:41") -> reset, as in boot #20. Nothing logged between (ERROR|WARN only). Boot #19 (no B71/B75
+changes) did not reset - it looped in BDS. Hypotheses: the first real media command after the UNIT
+ATTENTION (now that it is retried) kills the phone (DMA target / S2MPU?), or the B71 1 KB response region.
+Instrumentation for boot #22: the doorbell hook prints every SCSI command as rung - "UfsHc: ring s<slot>
+lun<n> cdb <op> lba <READ10 LBA> n <blocks> edtl <expected data length>" (DEBUG_ERROR); log level back to
+ERROR|WARN|INFO (0x80000042), LOAD still off. Build exit 0.
+Boot #22 image %TEMP%\b77\boot22-v2.img sha256 b057b61a0898156ad6f79a7230499819a770a8ed7d5b1042b3a2b57fd033ea6f

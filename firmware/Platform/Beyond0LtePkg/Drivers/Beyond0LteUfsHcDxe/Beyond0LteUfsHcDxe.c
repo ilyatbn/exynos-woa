@@ -3439,6 +3439,29 @@ Beyond0LteSetNexusForDoorbell (
   TxType = (UINT8)(MmioRead8 ((UINTN)Ucd) & 0x3Fu);
 
   //
+  // Boot #20/#21 reset right after the first TEST UNIT READY's UNIT ATTENTION, with the quiet
+  // log showing nothing in between (notes/m8-uefi-image.md B77). Name every SCSI command as it
+  // is rung, so the last "UfsHc: ring" line before a reset is the command that triggers it:
+  // CDB opcode (Command UPIU byte 16), LUN (byte 2), LBA + blocks for READ/WRITE(10) (CDB 2..5,
+  // 7..8 big-endian), and the expected data length (Command UPIU bytes 12..15 BE).
+  //
+  if (TxType == UPIU_TXTYPE_COMMAND) {
+    UINT8  Op = MmioRead8 ((UINTN)Ucd + 16);
+    DEBUG ((
+      DEBUG_ERROR,
+      "UfsHc: ring s%u lun%u cdb 0x%02x lba 0x%08x n %u edtl %u\n",
+      (UINT32)Slot,
+      (UINT32)MmioRead8 ((UINTN)Ucd + 2),
+      (UINT32)Op,
+      ((UINT32)MmioRead8 ((UINTN)Ucd + 18) << 24) | ((UINT32)MmioRead8 ((UINTN)Ucd + 19) << 16) |
+      ((UINT32)MmioRead8 ((UINTN)Ucd + 20) << 8) | (UINT32)MmioRead8 ((UINTN)Ucd + 21),
+      ((UINT32)MmioRead8 ((UINTN)Ucd + 23) << 8) | (UINT32)MmioRead8 ((UINTN)Ucd + 24),
+      ((UINT32)MmioRead8 ((UINTN)Ucd + 12) << 24) | ((UINT32)MmioRead8 ((UINTN)Ucd + 13) << 16) |
+      ((UINT32)MmioRead8 ((UINTN)Ucd + 14) << 8) | (UINT32)MmioRead8 ((UINTN)Ucd + 15)
+      ));
+  }
+
+  //
   // EXYNOS NEXUS-TYPE, EXACT KERNEL SEMANTICS (exynos_ufs_set_nexus_t_xfer_req,
   // ref/u9810-ufs/ufs-exynos.c:801): the register is initialised to 0xFFFFFFFF at HCE
   // (Beyond0LteHciVendorSetup) and thereafter READ-MODIFY-WRITTEN one slot bit at a time -

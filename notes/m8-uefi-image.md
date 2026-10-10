@@ -1679,3 +1679,8 @@ UFS/ScsiDisk failures and the new CHECK COND line are DEBUG_ERROR (ScsiDisk.c:43
 929/952, our helper), while Loading driver / InstallProtocolInterface / BDS chatter is LOAD/INFO.
 Verified: shim DIAG=1 480 B (no CNTVCT), DIAG=0 still byte-identical 144 B; build exit 0; packer shim
 matches. This boot #20 image (replaces B72's, same fixes + these) %TEMP%\b73\boot20-v2.img sha256 48a778b5932d9318bee4eab16c66c3e54afac79993bf69d1f65134c1bdad2f17
+
+## B74 - boot #20 WRITE to BOOT sda14
+
+Pushed (on-device sha256 48a778b5...2f17), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
+48a778b5932d9318bee4eab16c66c3e54afac79993bf69d1f65134c1bdad2f17 (byte-exact). `adb reboot` next.

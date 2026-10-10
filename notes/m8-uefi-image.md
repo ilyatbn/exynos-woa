@@ -649,3 +649,46 @@ Found and fixed (own commit, not folded into d54d805):
    file whose 9810 sibling is BOM-less LF - rewritten to BOM-less LF
    (`[System.IO.File]::WriteAllBytes` + `Encoding.UTF8.GetBytes`), re-verified:
    first bytes 47,42,32 and no CR anywhere, 14 344 B.
+
+## Step 19 - the repack tool (HANDOFF §14 step 3), and the run that proves it
+
+`firmware/tools/repack-with-ref.py` written: the tool pack-uefi.ps1:121 already
+calls but that never existed in this checkout. It is device-agnostic - the page
+size, the section order and the tail come from the reference image through
+`tools/twrp-winre/bootimg.py` (BootImage.parse/serialize), and it refuses to
+write unless the re-parsed output keeps ramdisk/second/dt/tail byte-identical
+and keeps `page_size`.
+
+Reference container pulled this session (reads only, root in TWRP, phone
+`RF8M21HYDSZ recovery`):
+
+```
+adb shell 'dd if=/dev/block/by-name/recovery of=/tmp/ref-recovery.img bs=2048 count=26991'
+adb pull /tmp/ref-recovery.img      # 55 279 616 B; trimmed to the header's own
+                                    # end = 2048 + pad(44363788) + pad(10905981)
+                                    #      + pad(0) + pad(1) = 55 277 568
+```
+Matches Step 16's numbers exactly (page 2048, kernel 44 363 788, ramdisk
+10 905 981, second 0, dt 1, tail 0).
+
+Run (kernel = cat(shim.bin 288 B, BEYOND0LTE_UEFI.fd 7 340 032 B) = 7 340 320 B):
+
+```
+repack-with-ref.py --ref ref-recovery-trim.img --kernel uefi-beyond0lte-kernel.bin \
+    --output uefi-beyond0lte.img            -> exit 0, 18 253 824 B
+```
+
+Verified mechanically on the output, not by reading the code:
+- `ramdisk`/`second`/`dt`/`tail` re-parse byte-identical to the ref; `page_size`
+  still 2048.
+- header page differs from the ref's in **24 bytes**, offsets 8..595: the four
+  size words at 0x08/0x10/0x18/0x28 (only 0x08 actually changes value) and the
+  refreshed SHA-1 id at 0x240..0x253. Nothing else in the header moved.
+- kernel[0:4] = 0x10000901 (the shim's `adr x1,_payload`), kernel[288:292] =
+  0x1401C800 (the FD's first word) - the cat order is right.
+- 18 253 824 < 57 671 680 (BOOT, `Validation.cs:12`) - the K3 fit holds with the
+  real shim length, not the 7.34 MB estimate.
+
+Still NOT closed by this: the image has never been flashed or booted (ground
+rules 5/6), and K4b (where sboot drops the kernel) is what decides whether the
+shim's own copy step survives - see the hazard comment in bootshim.S.

@@ -608,14 +608,14 @@ device writes were to `/tmp` (ramdisk), never to a partition.
 
 ### The exact next order, one commit per step
 
-1. **A beyond0lte packer** so the run above is reproducible in-tree: the 9810
-   `pack-uefi.ps1` hardcodes `tools\bootshim` (`:71-72`), the star2lte FV path
-   (`:44-45`) and `STAR2LTE_UEFI.fd`; write `firmware/tools/pack-uefi-beyond0lte.ps1`
-   (or a `-Device` param on a new script) that uses the ported shim, the
-   Beyond0Lte FV and the pulled ref. Do not edit the 9810 script.
+1. **A beyond0lte packer — DONE** at `firmware/tools/pack-uefi-beyond0lte.ps1`
+   (`5f50e27`): the 9810 `pack-uefi.ps1` stays byte-unchanged and cannot be
+   retargeted by parameters (it hardcodes `tools\bootshim`, the Star2Lte FV dir
+   and `STAR2LTE_UEFI.fd`). Running it with the pulled ref reproduces the manual
+   run exactly: shim 288 B, kernel 7 340 320 B, output 18 253 824 B.
 2. **Record the reference container's identity** (size + SHA-1 + the exact `dd`
    line) in `notes/m8-uefi-image.md` so the 55 MB ref can be re-pulled; the image
-   itself stays out of the repo.
+   itself stays out of the repo (`*.img` is gitignored).
 3. **K10 — the 9820's write-protected zones**: primary source is Samsung's LK4/RKP
    configuration; the alternative is observing a reset on the first boot. Until
    then the temp SP and `UEFI_BASE` stay UNVERIFIED.

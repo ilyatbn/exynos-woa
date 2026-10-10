@@ -733,6 +733,23 @@ as untracked; added explicit `.gitignore` lines for both phones' shim dirs
 (no rule existed before, and the 9810 dir happens to be clean only because it
 was never built in this checkout).
 
+## Step 21 - the reference container's identity, so the ref is re-pullable
+
+```
+adb shell 'dd if=/dev/block/by-name/recovery of=/tmp/ref-recovery.img bs=2048 count=26991'
+adb pull /tmp/ref-recovery.img
+```
+`bs=2048 count=26991` = 55 277 568 B exactly (the header's own end:
+2048 + pad(44 363 788) + pad(10 905 981) + pad(0) + pad(1)); an earlier pull
+used count=26992 and was trimmed locally to the same bytes.
+
+- ref-recovery-trim.img  SHA1 `B9CC7676445D88A5698202B84E451D2A3D5A8FE6` (55 277 568 B)
+- pack-out.img (shim+FD in that ref) SHA1 `B3F4459A9DF281B5E0DDAD3A6FD3BC1FDE486E8D` (18 253 824 B)
+
+Neither file is in the repo (`*.img` is gitignored, `.gitignore:11`); the hashes
+are the identity. A ref that does not hash to the first value is a different
+container and the comparison above must be redone, not assumed.
+
 Still NOT closed by this: the image has never been flashed or booted (ground
 rules 5/6), and K4b (where sboot drops the kernel) is what decides whether the
 shim's own copy step survives - see the hazard comment in bootshim.S.

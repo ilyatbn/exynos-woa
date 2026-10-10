@@ -1626,3 +1626,16 @@ Remaining errors:
 2. "ScsiDisk: IsWriteProtected() fails. Status = Device Error" (MODE SENSE).
 3. "ScsiDiskRead10: Check Condition happened!" -> "Not Valid primary partition table" -> no partitions.
 => next: (1) why UfsCreateDMCommandDesc fails; (3) the data-IN path (PRDT / sense data of the CHECK CONDITION).
+
+## B69 - boot #19: log the SCSI sense data of every CHECK CONDITION (why does READ(10) fail?)
+
+Reading: "Failed to create DM command descriptor" = UfsCreateDMCommandDesc rejecting DataSize 0 / NULL
+data (UfsPassThruHci.c:593-604) -> "Invalid Parameter" for unit descriptors 4..7 (likely absent LUNs) -
+noise. The 9820 kernel fills plain 16 B PRDT entries (size=len-1, addr, reserved 0) at sg_entry_size
+stride (ufshcd.c:2629-2660) = what stock EDK2 does -> PRDT layout now consistent. The driver's 9810
+re-issue/shrink code only runs after a link LINERESET (UECPA), not here.
+CHECK CONDITION is the DEVICE's verdict; its reason is the sense data. Beyond0LteUfsHcDxe.c restore
+path now prints, for any slot whose response UPIU Status (byte 7) == 0x02, before DW6 is restored:
+CDB opcode (Command UPIU byte 16), OCS, Response (byte 6), sense length (32-33 BE), key/ASC/ASCQ
+(fixed-format sense at 34: [2]&0xF, [12], [13]).
+Verified: build exit 0. Boot #19 image %TEMP%\b69\boot19-v2.img sha256 9d24b321d1b4bbaa0002afa4ee3f4a5593e3a6e841422e11d5d5c53c4253df4a

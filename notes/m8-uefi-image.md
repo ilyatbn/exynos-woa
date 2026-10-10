@@ -991,3 +991,16 @@ dtb_addr 0x10000000). Pushed to /tmp (on-device sha256 matched), `dd` to /dev/bl
 issued; `adb devices` now empty (consistent with download mode OR a real boot - panel decides).
 PENDING: user observation of the panel. If it gets PAST the DT check we expect UEFI paint (the shim
 paints a RED band rows 200-649, then GREEN rows 750-1199 after the FD copy).
+
+## B18 - boot #3 OBSERVED: SAME `DT LOAD fail` -> the v2 container did NOT clear it on the RECOVERY path
+
+Panel fell to download mode with the IDENTICAL `dt table header check fail` / `DT LOAD fail`. So
+header-v2 + in-container DTB did not help when written to the RECOVERY slot. Reframe (consistent
+with B15): the recovery partition is booted by ABL's *segmented recovery* flow - the stock recovery
+kernel is a partial/segmented ARM64 Image (container kernel_size 44.38 MB < its declared image_size
+52.9 MB) that sboot reassembles with the separate `dt.img`/`dtbo.img` partitions. A single-shot
+`[shim][FD]` does not fit that model, so the DT LOAD fail is about the RECOVERY BOOT FLOW, not the
+container header version. The proven edk2-exynos path writes `boot.img` to the **BOOT partition**
+(sda14) and boots the normal Android boot flow, where ABL reads the header-v2 container's DTB.
+NEXT (needs consent, destructive to Android boot): write `pack-out-v2.img` to sda14, reboot, observe.
+Rollback = reflash stock `boot.img` (extracted at C:\Users\ilya\AppData\Local\Temp\opencode\stock\boot.img).

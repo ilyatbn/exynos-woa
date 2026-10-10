@@ -213,3 +213,13 @@ read back + sha256-matched, ~41 MB/s, done 22:31:54. cache formatted FAT32 (ESP)
 files written and verified on the phone", EXIT 0. Post-check from TWRP: cache mounts vfat, EFI/Boot/bootaa64.efi +
 EFI/Microsoft/Boot/{BCD,BCD.LOG*,...} present; userdata LBA0 = NTFS boot sector, bytes/sector 0x1000; BOOT still
 boot #26 (sha 200bd7e1…). Android user data is gone from here on. Next: adb reboot -> UEFI BDS -> bootaa64.efi.
+
+## W14 - first Windows boot attempt OBSERVED: synchronous exception in UEFI context (2026-10-10 ~22:35)
+Photo notes/img-win1-sync-exception.jpg (user). "Synchronous Exception at 0x00000000B8C02158"; ELR 0xB8C02158,
+SP 0xBAAFF760, SPSR 0xA0000205 (EL1h), ESR 0x96000006 (EC 0x25 data abort same EL, DFSC 6 = translation fault L2),
+FAR 0x0 -> a NULL-pointer load. The console wrapped: the dump's first lines (X registers and the "PC ... [n] <image>"
+line naming the module) were overwritten by the stack dump, so the faulting image is unknown from this photo.
+Stack holds pointers 0xB8B2E260/0xB8B2F630/0xB9C98718/0xB97FF698/0xB9E63658 and ASCII fragments
+(0x66676D69 = "imgf", "60)/RFS(" , "0x0 0x0y") - consistent with bootmgfw (1.8 MB, mapped around 0xB8B0xxxx..)
+or a firmware driver servicing it; UNVERIFIED. No SMBIOS in either package (9810 booted without it).
+Next read: a video of the boot to catch the "Loading driver at ... bootmgfw" line and the PC/image line before it wraps.

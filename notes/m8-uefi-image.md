@@ -1243,3 +1243,8 @@ RMW stop; 1850 copy done -> br. DIAG=0 still byte-identical to the plain prior-a
 Verified: assembled/linked both modes (336 B / 144 B, _payload last), objdump reviewed (w11 mask not
 clobbered between set and tst), packer OK (code0 0x10000A81), kernel = shim + FD byte-exact.
 Boot #8 image %TEMP%\b36\boot8-v2.img sha256 2576f0f1638e250745f35b2f8a40b47304f6bd6fc2818b17b0e63842139636d1
+
+## B37 - boot #8 WRITE to BOOT sda14
+
+Pushed (on-device sha256 2576f0f1...6d1), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
+2576f0f1638e250745f35b2f8a40b47304f6bd6fc2818b17b0e63842139636d1 (byte-exact). `adb reboot` next.

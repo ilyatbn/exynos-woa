@@ -272,11 +272,26 @@ ArmPlatformGetVirtualMemoryMap (
         mMmioRegions[Region].Name));
       continue;
     }
-    Table[Index].PhysicalBase = mMmioRegions[Region].Base;
-    Table[Index].VirtualBase  = mMmioRegions[Region].Base;
-    Table[Index].Length       = EFI_PAGES_TO_SIZE (EFI_SIZE_TO_PAGES (mMmioRegions[Region].Size));
-    Table[Index].Attributes   = MMAP_DEV;
-    Index++;
+    //
+    // Page tables map whole 4 KB pages, and ArmConfigureMmu REJECTS the entire
+    // table if any entry is unaligned ("UpdateRegionMapping RegionStart ... are
+    // not page aligned" -> "Failed to enable MMU", boot #14, notes/m8-uefi-image.md
+    // B56). UFS_IOCOH (0x13C10700) is a register inside a page, not a page, so
+    // every window is rounded OUT to the pages that contain [Base, Base + Size).
+    //
+    {
+      UINT64  WinStart;
+      UINT64  WinEnd;
+
+      WinStart = mMmioRegions[Region].Base & ~(UINT64)EFI_PAGE_MASK;
+      WinEnd   = (mMmioRegions[Region].Base + mMmioRegions[Region].Size + EFI_PAGE_MASK) &
+                 ~(UINT64)EFI_PAGE_MASK;
+      Table[Index].PhysicalBase = WinStart;
+      Table[Index].VirtualBase  = WinStart;
+      Table[Index].Length       = WinEnd - WinStart;
+      Table[Index].Attributes   = MMAP_DEV;
+      Index++;
+    }
   }
 
   //

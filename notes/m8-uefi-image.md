@@ -1460,3 +1460,21 @@ Boot #14 image %TEMP%\b54\boot14-v2.img sha256 e0c60afe8d66646c739928a5869cfa058
 
 Pushed (on-device sha256 e0c60afe...2658), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
 e0c60afe8d66646c739928a5869cfa058481aea1ef84190699f52cc47b442658 (byte-exact). `adb reboot` next.
+
+## B56 - boot #14 OBSERVED: the on-panel DEBUG log names the bug - MMU never enabled (unaligned MMIO entry)
+
+Photo notes/img-boot14-fbconsole.jpg, text at the top of the panel (the console works):
+  "UEFI firmware (version  built at 16:57:48 on Oct 10 2026)"
+  "UpdateRegionMapping RegionStart: 0x13C10700 or RegionLength 0x...1000 are not page aligned!"
+  "Error: Failed to enable MMU"
+  "SecMain: No TransferList found, continuing boot"
+  "Processing next firmware volume instance 0."
+then the reset (same 4 checkpoint bands - checkpoint 1660 was reached because SEC CONTINUES after the
+MMU failure, so B50's "MMU-on confirmed" is retracted: B48's DC ZVA fix was real, but MMU-on was not).
+0x13C10700 = EXYNOS_UFS_IOCOH_BASE (Exynos9820.h:367, a register address, VERIFIED) published as an MMIO
+window as-is; ArmConfigureMmu rejects the whole table on any unaligned entry. A scan of every
+mMmioRegions base against Exynos9820.h: UFS_IOCOH is the ONLY unaligned one; DRAM/FB entries are aligned.
+Fix: PlatformMemoryMapLib rounds every MMIO window OUT to whole pages covering [Base, Base+Size)
+(header values unchanged). Death after "Processing next firmware volume" with the MMU off is consistent
+with DXE-side code (OptDxe BaseMemoryLib DC ZVA etc.) needing the MMU on.
+Verified: build exit 0 (FVMAIN_COMPACT 1336 B free). Boot #15 image %TEMP%\b56\boot15-v2.img sha256 42eb7a285eee966502319476ac1cd1308acefca1de66969030fbff1c6e10dad6

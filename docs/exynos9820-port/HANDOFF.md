@@ -674,11 +674,19 @@ pass; every device action was a read (`ls`, `od`, `cat`, `adb pull` of
 
 ### The exact next order, one commit per step
 
-1. **Decide the FD/UEFI run address against the new evidence** — `kaslr` at
-   `0x80100000` argues for that side of K4b, but the choice is still unobserved;
-   if it changes, `Beyond0LtePkg.dsc:415/417`, `.fdf:68` and the shim's `-DUEFI_BASE`
-   in `pack-uefi-beyond0lte.ps1` must move together, and the self-overwrite hazard
-   at the copy step re-checked.
+1. **Decide the FD/UEFI run address — K4b is now a read, not a guess.** `/proc/iomem`
+   in a TWRP root shell plus the local `Image` header of the kernel sboot just booted
+   give the drop exactly: `Kernel code` starts `0x80198000`, `text_offset` is
+   `0x80000`, so sboot loaded the `Image` at **`0x80118000`**, and
+   `0x80198000 + image_size (0x3138000) = 0x832D0000` equals the `Kernel data` end
+   (`0x832CFFFF`) — arithmetic exact. `0x80080000` is therefore **inside** the region
+   sboot uses for the loaded image, and it overlaps two sboot-owned nodes
+   (`sec_debug_magic 0x80000000+0x1000`, `kaslr 0x80100000+0x100000`). Full detail:
+   `notes/k4b-drop-address.md` K01-K04. The candidate `>= 0x832D0000` (above the
+   kernel window, below `mm_debug 0x91200000`, inside bank0 which ends
+   `0xBAB00000`) is a decision to test on device, not a value to adopt; if it moves,
+   `Beyond0LtePkg.dsc:415/417`, `.fdf:68` and the shim's `-DUEFI_BASE`
+   in `pack-uefi-beyond0lte.ps1` must move together.
 2. **The reserved regions inside bank0 are still handed to Windows as RAM**
    (`el2_code`, `kaslr`, `camera`, `secure_camera`, `mm_debug`) — the split needs a
    decision (publish them as `MMAP_UNMAP`/reserved, or stop bank0 at `0x80000000+`

@@ -168,6 +168,91 @@ FlushBootLog (
   return Status;
 }
 
+//
+// W20 read test: bootmgr's code in RAM did not match the file at the crash site (the words at
+// ELR were the file's bytes 0x3018 further on). Read \EFI\Boot\bootaa64.efi once in one call (the
+// way LoadImage reads it) and once in 4 KB calls, and log a CRC32 per 64 KB of each, to compare
+// with the file on the PC.
+//
+#define BEYOND0LTE_READ_TEST  1
+
+#if BEYOND0LTE_READ_TEST
+STATIC
+VOID
+ReadTestLogCrcs (
+  IN CONST CHAR8  *Tag,
+  IN UINT8        *Buf,
+  IN UINTN        Size
+  )
+{
+  UINTN   Off;
+  UINTN   Len;
+  UINT32  Crc;
+
+  DEBUG ((DEBUG_ERROR, "RT %a size 0x%lx\n", Tag, (UINT64)Size));
+  for (Off = 0; Off < Size; Off += SIZE_64KB) {
+    Len = MIN (SIZE_64KB, Size - Off);
+    gBS->CalculateCrc32 (Buf + Off, Len, &Crc);
+    DEBUG ((DEBUG_ERROR, "RT %a %lx %08x\n", Tag, (UINT64)Off, Crc));
+  }
+}
+
+STATIC
+VOID
+ReadTest (
+  VOID
+  )
+{
+  EFI_FILE_PROTOCOL  *Root;
+  EFI_FILE_PROTOCOL  *File;
+  UINT8              *Buf;
+  UINTN              Size;
+  UINTN              Len;
+  UINTN              Off;
+  UINT64             Pos;
+  EFI_STATUS         Status;
+
+  Root = OpenEspRoot ();
+  if ((Root == NULL) ||
+      EFI_ERROR (Root->Open (Root, &File, L"\\EFI\\Boot\\bootaa64.efi", EFI_FILE_MODE_READ, 0)))
+  {
+    DEBUG ((DEBUG_ERROR, "RT: cannot open bootaa64.efi\n"));
+    return;
+  }
+
+  Pos = MAX_UINT64;
+  File->SetPosition (File, Pos);   // end of file
+  File->GetPosition (File, &Pos);
+  Size = (UINTN)Pos;
+  Buf  = AllocatePages (EFI_SIZE_TO_PAGES (Size));
+  if (Buf != NULL) {
+    File->SetPosition (File, 0);
+    Len    = Size;
+    Status = File->Read (File, &Len, Buf);
+    DEBUG ((DEBUG_ERROR, "RT one-shot read %r len 0x%lx buf %p\n", Status, (UINT64)Len, Buf));
+    ReadTestLogCrcs ("one", Buf, Len);
+
+    SetMem (Buf, Size, 0xA5);
+    File->SetPosition (File, 0);
+    for (Off = 0; Off < Size; Off += Len) {
+      Len    = MIN (SIZE_4KB, Size - Off);
+      Status = File->Read (File, &Len, Buf + Off);
+      if (EFI_ERROR (Status) || (Len == 0)) {
+        DEBUG ((DEBUG_ERROR, "RT 4k read %r at 0x%lx\n", Status, (UINT64)Off));
+        break;
+      }
+    }
+
+    ReadTestLogCrcs ("4k", Buf, Size);
+    FreePages (Buf, EFI_SIZE_TO_PAGES (Size));
+  }
+
+  File->Close (File);
+  Root->Close (Root);
+}
+
+#endif
+
 STATIC
 VOID
 EFIAPI
@@ -177,7 +262,25 @@ OnReadyToBoot (
   )
 {
   EFI_STATUS  Status;
+  EFI_HANDLE  *Handles;
+  UINTN       Count;
+  UINTN       Index;
 
+  //
+  // Boot #31: the first ReadyToBoot (PlatformRecovery) comes before BDS has connected the disk,
+  // so no FAT volume existed yet ("Not Found"). Connect everything first.
+  //
+  if (!EFI_ERROR (gBS->LocateHandleBuffer (AllHandles, NULL, NULL, &Count, &Handles))) {
+    for (Index = 0; Index < Count; Index++) {
+      gBS->ConnectController (Handles[Index], NULL, NULL, TRUE);
+    }
+
+    FreePool (Handles);
+  }
+
+ #if BEYOND0LTE_READ_TEST
+  ReadTest ();
+ #endif
   DEBUG ((DEBUG_ERROR, "BootLog: ReadyToBoot flush\n"));
   Status = FlushBootLog ("ReadyToBoot");
   DEBUG ((DEBUG_ERROR, "BootLog: %s -> %r\n", LOG_FILE_NAME, Status));

@@ -310,3 +310,20 @@ User asked for (1) boot text in a file read from TWRP and (2) automatic reboot t
   (and sboot) binaries; no constant is used before that.
 Build exit 0 (FVMAIN_COMPACT auto-sized, it lives in a 7 MB FD region - the "bytes free" figure is only padding).
 boot31-v2.img sha256 3bf6bf1b9ba58ec58c74b8ff2c1704b0c3464e4391bcaa78489953d5703e3f2a.
+
+## W20 - boot #31 OBSERVED via \UEFILOG.TXT: the crashing code is BOOTMGR, and it is CORRUPTED in RAM (2026-10-10)
+Log pulled from TWRP (mount -t vfat by-name/cache): notes/uefilog-boot31.txt (64 KB). UEFI writes work. Hash check
+vs notes/s10e-hashes-before-boot31.txt: only boot (flashed), efs (ext4 superblock mount time/count - TWRP) and param
+(sboot's own per-boot history records "261010 19:32:30 ... RP ... drawLOGO" at 0x31cxxx) changed - none by UEFI.
+Dump: ELR 0xB8BF3158, the image containing it is "(no pdb)" at 0xB8B1A000 size 0x1FA000 = bootaa64.efi's
+SizeOfImage -> the fault is in WINDOWS BOOT MANAGER, not winload (W16's winload identification was a
+coincidental fit: same base-search freedom, wrong image). RVA 0xD9158.
+The 16 code words captured around ELR (D374CE80 97FFF46F 14000004 F9400A68 D374CD00 97FFEEB9 7100001F 1A95B015
+>F9400273 EB16027F ...) are NOT the file's bytes at RVA 0xD9158 (F94017E8 7100011F ... AD004530); they are the file's
+bytes at RVA 0xDC170 (0x3018 further). => bootmgr's image in RAM is not the file: the 1.7 MB read that loaded it
+("UfsHc: split op 0x28 lba 0x1E457C 432 x 4096 B") delivered data at the wrong offsets. Every "impossible" register
+value since W14 follows from executing misplaced code.
+Also: the ReadyToBoot flush said Not Found - the first ReadyToBoot precedes BDS connecting the disk.
+Boot #32: Beyond0LteBootLogDxe connects all controllers at ReadyToBoot, then READ TEST (BEYOND0LTE_READ_TEST 1):
+reads \EFI\Boot\bootaa64.efi in one File->Read and again in 4 KB reads, logs CRC32 per 64 KB of each ("RT one|4k
+<off> <crc>") for comparison with the PC copy. boot32-v2.img sha256 385f96174baf63b01ecd4ad765a0b3bb86c163edccf57d4ceedd8e1ecd58c80a.

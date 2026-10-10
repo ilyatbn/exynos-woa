@@ -1,0 +1,1087 @@
+=== Beyond0Lte UEFI boot log: boot 1, flush at exception, 64329 bytes ===
+UEFI firmware (version  built at 20:11:58 on Oct 10 2026)
+SecMain: No TransferList found, continuing boot
+Processing next firmware volume instance 0.
+Processed firmware volume image file.
+DXE Core found, stopping FV decompression.
+Loading DxeCore at 0x00BA264000 EntryPoint=0x00BA26578C
+PopulateMemoryTypeInformation: No Memory Type Information HOB found, S4 resume is likely to fail
+No Memory Type Information HOB found, S4 resume will likely fail
+CoreInitializeMemoryServices:
+  BaseAddress - 0xB2B01000 Length - 0x7763000 MinimalMemorySizeNeeded - 0x10000
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B BA27EF78
+ProtectUefiImageCommon - 0xBA27EF78
+  - 0x00000000BA264000 - 0x0000000000067000
+DxeMain: MemoryBaseAddress=0xB2B01000 MemoryLength=0x7763000
+HOBLIST address in DXE = 0xBA261418
+Memory Allocation 0x00000000 0x80000000 - 0x80000FFF
+Memory Allocation 0x00000000 0x80100000 - 0x801FFFFF
+Memory Allocation 0x00000000 0x87000000 - 0x871FFFFF
+Memory Allocation 0x00000000 0x8FF00000 - 0x8FFFFFFF
+Memory Allocation 0x00000004 0x90000000 - 0x906FFFFF
+Memory Allocation 0x00000004 0xBAAEF000 - 0xBAAEFFFF
+Memory Allocation 0x00000004 0xBAAEE000 - 0xBAAEEFFF
+Memory Allocation 0x00000004 0xBAAED000 - 0xBAAEDFFF
+Memory Allocation 0x00000004 0xBAAEC000 - 0xBAAECFFF
+Memory Allocation 0x00000004 0xBAAEB000 - 0xBAAEBFFF
+Memory Allocation 0x00000004 0xBAAEA000 - 0xBAAEAFFF
+Memory Allocation 0x00000004 0xBAAE9000 - 0xBAAE9FFF
+Memory Allocation 0x00000004 0xBAAE8000 - 0xBAAE8FFF
+Memory Allocation 0x00000004 0xBAAE7000 - 0xBAAE7FFF
+Memory Allocation 0x00000004 0xBAAE6000 - 0xBAAE6FFF
+Memory Allocation 0x00000004 0xBAAE5000 - 0xBAAE5FFF
+Memory Allocation 0x00000004 0xBAAE4000 - 0xBAAE4FFF
+Memory Allocation 0x00000004 0xBAAE3000 - 0xBAAE3FFF
+Memory Allocation 0x00000004 0xBAAE2000 - 0xBAAE2FFF
+Memory Allocation 0x00000004 0xBAAE1000 - 0xBAAE1FFF
+Memory Allocation 0x00000004 0xBAAE0000 - 0xBAAE0FFF
+Memory Allocation 0x00000004 0xBAADF000 - 0xBAADFFFF
+Memory Allocation 0x00000004 0xBAADE000 - 0xBAADEFFF
+Memory Allocation 0x00000004 0xBAAF0000 - 0xBAAFFFFF
+Memory Allocation 0x00000004 0xBAACE000 - 0xBAADDFFF
+Memory Allocation 0x00000004 0xBA6CC000 - 0xBAACDFFF
+Memory Allocation 0x00000004 0xBA2CB000 - 0xBA6CBFFF
+Memory Allocation 0x00000003 0xBA264000 - 0xBA2CAFFF
+Memory Allocation 0x00000003 0xBA264000 - 0xBA2CAFFF
+FV Hob            0x90000000 - 0x906FFFFF
+FV Hob            0xBA2CB000 - 0xBA6CAFFF
+FV2 Hob           0xBA2CB000 - 0xBA6CAFFF
+                  00000000-0000-0000-0000-000000000000 - 9E21FD93-9C72-4C15-8C4B-E77F1DB2D792
+FV3 Hob           0xBA2CB000 - 0xBA6CAFFF - 0x0 - 0x1
+                  00000000-0000-0000-0000-000000000000 - 9E21FD93-9C72-4C15-8C4B-E77F1DB2D792
+InstallProtocolInterface: D8117CFE-94A6-11D4-9A3A-0090273FC14D BA27E678
+InstallProtocolInterface: 8F644FA9-E850-4DB1-9CE2-0B44698E8DA4 BA24D2B0
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B BA24D398
+InstallProtocolInterface: 8F644FA9-E850-4DB1-9CE2-0B44698E8DA4 BA24BBB0
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B BA24BC98
+InstallProtocolInterface: 220E73B6-6BDB-4413-8405-B974B108619A BA24B130
+InstallProtocolInterface: 220E73B6-6BDB-4413-8405-B974B108619A BA24B2B0
+Loading driver 80CF7257-87AB-47F9-A3FE-D50B76D89541
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B BA13C0C0
+Loading driver at 0x000BA12A000 EntryPoint=0x000BA12B5A0 PcdDxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF BA13CD18
+ProtectUefiImageCommon - 0xBA13C0C0
+  - 0x00000000BA12A000 - 0x000000000000A000
+InstallProtocolInterface: 11B34006-D85B-4D0A-A290-D5A571310EF7 BA131190
+InstallProtocolInterface: 13A3F0F6-264A-3EF0-F2E0-DEC512342F34 BA131100
+InstallProtocolInterface: 5BE40F57-FA68-4610-BBBF-E9C5FCDAD365 BA1310E0
+InstallProtocolInterface: FD0F4478-0EFD-461D-BA2D-E58C45FD5F5E BA131030
+Loading driver B8D9777E-D72A-451F-9BDB-BAFB52A68415
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B BA1397C0
+Loading driver at 0x000BA0B7000 EntryPoint=0x000BA0B86FC ArmCpuDxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF BA139598
+ProtectUefiImageCommon - 0xBA1397C0
+  - 0x00000000BA0B7000 - 0x0000000000060000
+InstallProtocolInterface: 26BACCB1-6F42-11D4-BCE7-0080C73C8881 BA0BF0A0
+InstallProtocolInterface: F4560CF6-40EC-4B4A-A192-BF1D57D0B189 BA0BF088
+MemoryProtectionCpuArchProtocolNotify:
+ProtectUefiImageCommon - 0xBA27EF78
+  - 0x00000000BA264000 - 0x0000000000067000
+ProtectUefiImageCommon - 0xBA13C0C0
+  - 0x00000000BA12A000 - 0x000000000000A000
+ReplaceTableEntry: splitting block entry with MMU disabled
+ProtectUefiImageCommon - 0xBA1397C0
+  - 0x00000000BA0B7000 - 0x0000000000060000
+Loading driver B601F8C4-43B7-4784-95B1-F4226CB40CEE
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B BA124D40
+!!!!!!!!  Image Section Alignment(0x1000) does not match Required Alignment (0x10000)  !!!!!!!!
+Loading driver at 0x000BA060000 EntryPoint=0x000BA0615A0 RuntimeDxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF BA125D98
+ProtectUefiImageCommon - 0xBA124D40
+  - 0x00000000BA060000 - 0x000000000004A000
+!!!!!!!!  Image Section Alignment(0x1000) does not match Required Alignment (0x10000)  !!!!!!!!
+ProtectUefiImage failed to create image properties record
+InstallProtocolInterface: B7DFB4E1-052F-449F-87BE-9818FC91B733 BA063030
+Loading driver F80697E9-7FD6-4665-8646-88E33EF71DFC
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B BA127140
+Loading driver at 0x000BA055000 EntryPoint=0x000BA0565A0 SecurityStubDxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF BA127498
+ProtectUefiImageCommon - 0xBA127140
+  - 0x00000000BA055000 - 0x000000000000B000
+InstallProtocolInterface: 94AB2F58-1438-4EF1-9152-18941A3A0E68 BA05D018
+InstallProtocolInterface: A46423E3-4617-49F1-B9FF-D1BFA9115839 BA05D010
+InstallProtocolInterface: 15853D7C-3DDF-43E0-A1CB-EBF85B8F872C BA05D020
+Loading driver C8339973-A563-4561-B858-D8476F9DEFC4
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B BA1250C0
+Loading driver at 0x000BA03B000 EntryPoint=0x000BA03C4A0 Metronome.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF BA125498
+ProtectUefiImageCommon - 0xBA1250C0
+  - 0x00000000BA03B000 - 0x000000000001A000
+InstallProtocolInterface: 26BACCB2-6F42-11D4-BCE7-0080C73C8881 BA03E000
+Loading driver 4B28E4C7-FF36-4E10-93CF-A82159E777C5
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B BA124740
+!!!!!!!!  Image Section Alignment(0x1000) does not match Required Alignment (0x10000)  !!!!!!!!
+Loading driver at 0x000B9FC0000 EntryPoint=0x000B9FC15A0 ResetSystemRuntimeDxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF BA119F18
+ProtectUefiImageCommon - 0xBA124740
+  - 0x00000000B9FC0000 - 0x0000000000034000
+!!!!!!!!  Image Section Alignment(0x1000) does not match Required Alignment (0x10000)  !!!!!!!!
+ProtectUefiImage failed to create image properties record
+InstallProtocolInterface: 27CFAC88-46CC-11D4-9A38-0090273FC14D 0
+InstallProtocolInterface: 9DA34AE0-EAF9-4BBF-8EC3-FD60226C44BE B9FC4068
+InstallProtocolInterface: 695D7835-8D47-4C11-AB22-FA8ACCE7AE7A B9FC4090
+InstallProtocolInterface: 2DF6BA0B-7092-440D-BD04-FB091EC3F3C1 B9FC40B8
+Loading driver CBD2E4D5-7068-4FF5-B462-9822B4AD8D60
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B BA119240
+!!!!!!!!  Image Section Alignment(0x1000) does not match Required Alignment (0x10000)  !!!!!!!!
+Loading driver at 0x000B9F90000 EntryPoint=0x000B9F91654 VariableRuntimeDxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF BA119618
+ProtectUefiImageCommon - 0xBA119240
+  - 0x00000000B9F90000 - 0x0000000000024000
+!!!!!!!!  Image Section Alignment(0x1000) does not match Required Alignment (0x10000)  !!!!!!!!
+ProtectUefiImage failed to create image properties record
+Variable driver will work at emulated non-volatile variable mode!
+Variable driver will work with auth variable format!
+InstallProtocolInterface: CD3D0A05-9E24-437C-A891-1EE053DB7638 B9F9D138
+InstallProtocolInterface: AF23B340-97B4-4685-8D4F-A3F28169B21D B9F9D250
+NOTICE - AuthVariableLibInitialize() returns Unsupported!
+Variable driver will continue to work without auth variable support!
+RecordSecureBootPolicyVarData GetVariable SecureBoot Status E
+InstallProtocolInterface: 6441F818-6362-4E44-B570-7DBA31DD2453 0
+VarCheckLibRegisterSetVariableCheckHandler - 0xB9F93528 Success
+InstallProtocolInterface: 81D1675C-86F6-48DF-BD95-9A6E4F0925C3 B9F9D290
+InstallProtocolInterface: 1E5668E2-8481-11D4-BCF1-0080C73C8881 0
+Loading driver 11111111-2222-3333-4444-555555555544
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B BA123240
+Loading driver at 0x000BA0B1000 EntryPoint=0x000BA0B24A0 Beyond0LteSimpleFramebufferDxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF BA123818
+ProtectUefiImageCommon - 0xBA123240
+  - 0x00000000BA0B1000 - 0x0000000000006000
+InstallProtocolInterface: 9042A9DE-23DC-4A38-96FB-7ADED080516A BA11EC18
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B BA0B5020
+SimpleFramebufferDxe: GOP up at 0xCA000000, 1080x2280.
+Loading driver 348C4D62-BFBD-4882-9ECE-C80BB1C4783B
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B BA11E0C0
+Loading driver at 0x000B9F41000 EntryPoint=0x000B9F425A0 HiiDatabase.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF BA11E918
+ProtectUefiImageCommon - 0xBA11E0C0
+  - 0x00000000B9F41000 - 0x0000000000019000
+InstallProtocolInterface: E9CA4775-8657-47FC-97E7-7ED65A084324 B9F57158
+InstallProtocolInterface: 0FD96974-23AA-4CDC-B9CB-98D17750322A B9F571D0
+InstallProtocolInterface: EF9FC172-A1B2-4693-B327-6D32FC416042 B9F571F8
+InstallProtocolInterface: 587E72D7-CC50-4F79-8209-CA291FC1A10F B9F57250
+InstallProtocolInterface: 0A8BADD5-03B8-4D19-B128-7B8F0EDAA596 B9F57280
+InstallProtocolInterface: 31A6406A-6BDF-4E46-B2A2-EBAA89C40920 B9F57178
+InstallProtocolInterface: 1A1241E6-8F19-41A9-BC0E-E8EF39E06546 B9F571A0
+Loading driver 9A5163E7-5C29-453F-825C-837A46A81E15
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B BA1211C0
+Loading driver at 0x000BA035000 EntryPoint=0x000BA0364A0 SerialDxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF BA121798
+ProtectUefiImageCommon - 0xBA1211C0
+  - 0x00000000BA035000 - 0x0000000000006000
+InstallProtocolInterface: BB25CF6F-F1D4-11D2-9A0C-0090273FC1FD BA038070
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B BA038040
+Loading driver 9622E42C-8E38-4A08-9E8F-54F784652F6B
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B BA11D0C0
+Loading driver at 0x000BA008000 EntryPoint=0x000BA0095A0 AcpiTableDxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF BA11DA98
+ProtectUefiImageCommon - 0xBA11D0C0
+  - 0x00000000BA008000 - 0x0000000000008000
+Fail to locate AcpiSiliconHob!!
+InstallProtocolInterface: FFE06BDD-6107-46A6-7BB2-5A9C7EC5275C BA11D5A0
+Loading driver 11111111-2222-3333-4444-555555555545
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B BA11FBC0
+Loading driver at 0x000B9EF1000 EntryPoint=0x000B9EF25A0 Beyond0LteUfsHcDxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF BA11FA98
+ProtectUefiImageCommon - 0xBA11FBC0
+  - 0x00000000B9EF1000 - 0x0000000000050000
+InstallProtocolInterface: EBC01AF5-07A9-489E-B7CE-DC089E459B2F B9EFA150
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9EF8098
+InstallProtocolInterface: 3D18BA13-D9B1-4DD4-B916-D30796539ED8 B9EF80B0
+Beyond0LteUfsHc: UFS host controller protocol up at 0x13D60000.
+Loading driver 8562BF1E-F816-44FA-82D6-763F3B131E6D
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B BA11A0C0
+Loading driver at 0x000BA001000 EntryPoint=0x000BA0025A0 ArmGicV2Dxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF BA11A318
+ProtectUefiImageCommon - 0xBA11A0C0
+  - 0x00000000BA001000 - 0x0000000000007000
+InstallProtocolInterface: 2890B3EA-053D-1643-AD0C-D64808DA3FF1 BA005030
+InstallProtocolInterface: 32898322-2DA1-474A-BAAA-F3F7CF569470 BA005058
+Loading driver B336F62D-4135-4A55-AE4E-4971BBF0885D
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B BA0B0B40
+!!!!!!!!  Image Section Alignment(0x1000) does not match Required Alignment (0x10000)  !!!!!!!!
+Loading driver at 0x000B9ED0000 EntryPoint=0x000B9ED14A0 RealTimeClock.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF BA0B0E18
+ProtectUefiImageCommon - 0xBA0B0B40
+  - 0x00000000B9ED0000 - 0x000000000001A000
+!!!!!!!!  Image Section Alignment(0x1000) does not match Required Alignment (0x10000)  !!!!!!!!
+ProtectUefiImage failed to create image properties record
+InitializeRealTimeClock: using default timezone/daylight settings
+InstallProtocolInterface: 27CFAC87-46CC-11D4-9A38-0090273FC14D 0
+Loading driver 42857F0A-13F2-4B21-8A23-53D3F714B840
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B BA0B0140
+!!!!!!!!  Image Section Alignment(0x1000) does not match Required Alignment (0x10000)  !!!!!!!!
+Loading driver at 0x000B9E80000 EntryPoint=0x000B9E814A0 CapsuleRuntimeDxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF BA0B0618
+ProtectUefiImageCommon - 0xBA0B0140
+  - 0x00000000B9E80000 - 0x0000000000049000
+!!!!!!!!  Image Section Alignment(0x1000) does not match Required Alignment (0x10000)  !!!!!!!!
+ProtectUefiImage failed to create image properties record
+InstallProtocolInterface: 5053697E-2CBC-4819-90D9-0580DEEE5754 0
+Loading driver AD608272-D07F-4964-801E-7BD3B7888652
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B BA034CC0
+!!!!!!!!  Image Section Alignment(0x1000) does not match Required Alignment (0x10000)  !!!!!!!!
+Loading driver at 0x000B9F60000 EntryPoint=0x000B9F614A0 MonotonicCounterRuntimeDxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF BA034A18
+ProtectUefiImageCommon - 0xBA034CC0
+  - 0x00000000B9F60000 - 0x0000000000006000
+!!!!!!!!  Image Section Alignment(0x1000) does not match Required Alignment (0x10000)  !!!!!!!!
+ProtectUefiImage failed to create image properties record
+InstallProtocolInterface: 1DA97072-BDDC-4B30-99F1-72A0B56FFF2A 0
+Loading driver 11111111-2222-3333-4444-555555555543
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B BA031040
+Loading driver at 0x000B9F5B000 EntryPoint=0x000B9F5C4A0 Beyond0LteAcpiPlatformDxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF BA034498
+ProtectUefiImageCommon - 0xBA031040
+  - 0x00000000B9F5B000 - 0x0000000000005000
+Loading driver 11111111-2222-3333-4444-555555555548
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B BA032D40
+Loading driver at 0x000B9E74000 EntryPoint=0x000B9E755A0 Beyond0LteBootLogDxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF BA031618
+ProtectUefiImageCommon - 0xBA032D40
+  - 0x00000000B9E74000 - 0x0000000000008000
+BootLog: sync exception handler Success
+Loading driver 6D33944A-EC75-4855-A54D-809C75241F6C
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B BA0326C0
+Loading driver at 0x000B9E47000 EntryPoint=0x000B9E485A0 BdsDxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF BA032C18
+ProtectUefiImageCommon - 0xBA0326C0
+  - 0x00000000B9E47000 - 0x0000000000018000
+InstallProtocolInterface: 665E3FF6-46CC-11D4-9A38-0090273FC14D B9E5C168
+Loading driver 49EA041E-6752-42CA-B0B1-7344FE2546B7
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B BA030840
+Loading driver at 0x000B9DFF000 EntryPoint=0x000B9E005A0 ArmTimerDxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF BA030618
+ProtectUefiImageCommon - 0xBA030840
+  - 0x00000000B9DFF000 - 0x0000000000048000
+InstallProtocolInterface: 26BACCB3-6F42-11D4-BCE7-0080C73C8881 B9E03028
+Loading driver F099D67F-71AE-4C36-B2A3-DCEB0EB2B7D8
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B B9E7EC40
+Loading driver at 0x000B9E69000 EntryPoint=0x000B9E6A4A0 WatchdogTimer.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF B9E7EA18
+ProtectUefiImageCommon - 0xB9E7EC40
+  - 0x00000000B9E69000 - 0x0000000000007000
+InstallProtocolInterface: 665E3FF5-46CC-11D4-9A38-0090273FC14D B9E6D020
+Loading driver 51CCF399-4FDF-4E55-A45B-E123F84D456A
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B B9E7DB40
+Loading driver at 0x000B9DF7000 EntryPoint=0x000B9DF85A0 ConPlatformDxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF B9E7DE98
+ProtectUefiImageCommon - 0xB9E7DB40
+  - 0x00000000B9DF7000 - 0x0000000000008000
+InstallProtocolInterface: 18A031AB-B443-4D1A-A5C0-0C09261E9F71 B9DFC1A0
+InstallProtocolInterface: 107A772C-D5E1-11D4-9A46-0090273FC14D B9DFC170
+InstallProtocolInterface: 6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14 B9DFC188
+InstallProtocolInterface: 18A031AB-B443-4D1A-A5C0-0C09261E9F71 B9DFC1D0
+InstallProtocolInterface: 107A772C-D5E1-11D4-9A46-0090273FC14D B9DFC170
+InstallProtocolInterface: 6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14 B9DFC188
+Loading driver 408EDCEC-CF6D-477C-A5A8-B4844E3DE281
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B B9E7CBC0
+Loading driver at 0x000B9DEB000 EntryPoint=0x000B9DEC5A0 ConSplitterDxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF B9E7CA18
+ProtectUefiImageCommon - 0xB9E7CBC0
+  - 0x00000000B9DEB000 - 0x000000000000C000
+InstallProtocolInterface: 18A031AB-B443-4D1A-A5C0-0C09261E9F71 B9DF42A8
+InstallProtocolInterface: 107A772C-D5E1-11D4-9A46-0090273FC14D B9DF40F8
+InstallProtocolInterface: 6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14 B9DF4110
+InstallProtocolInterface: 18A031AB-B443-4D1A-A5C0-0C09261E9F71 B9DF42D8
+InstallProtocolInterface: 107A772C-D5E1-11D4-9A46-0090273FC14D B9DF4128
+InstallProtocolInterface: 6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14 B9DF4140
+InstallProtocolInterface: 18A031AB-B443-4D1A-A5C0-0C09261E9F71 B9DF4308
+InstallProtocolInterface: 107A772C-D5E1-11D4-9A46-0090273FC14D B9DF4158
+InstallProtocolInterface: 6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14 B9DF4170
+InstallProtocolInterface: 18A031AB-B443-4D1A-A5C0-0C09261E9F71 B9DF4338
+InstallProtocolInterface: 107A772C-D5E1-11D4-9A46-0090273FC14D B9DF4188
+InstallProtocolInterface: 6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14 B9DF41A0
+InstallProtocolInterface: 18A031AB-B443-4D1A-A5C0-0C09261E9F71 B9DF4368
+InstallProtocolInterface: 107A772C-D5E1-11D4-9A46-0090273FC14D B9DF41B8
+InstallProtocolInterface: 6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14 B9DF41D0
+InstallProtocolInterface: 387477C1-69C7-11D2-8E39-00A0C969723B B9DF4570
+InstallProtocolInterface: DD9E7534-7762-4698-8C14-F58517A625AA B9DF45A0
+InstallProtocolInterface: 31878C87-0B75-11D5-9A4F-0090273FC14D B9DF4610
+InstallProtocolInterface: 8D59D32B-C655-4AE9-9B15-F25904992A43 B9DF4668
+InstallProtocolInterface: 387477C2-69C7-11D2-8E39-00A0C969723B B9DF43B0
+InstallProtocolInterface: 387477C2-69C7-11D2-8E39-00A0C969723B B9DF4490
+Loading driver CCCB0C28-4B24-11D5-9A5A-0090273FC14D
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B B9E71640
+Loading driver at 0x000B9DE1000 EntryPoint=0x000B9DE25A0 GraphicsConsoleDxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF B9E70B18
+ProtectUefiImageCommon - 0xB9E71640
+  - 0x00000000B9DE1000 - 0x000000000000A000
+InstallProtocolInterface: 18A031AB-B443-4D1A-A5C0-0C09261E9F71 B9DE85E0
+InstallProtocolInterface: 107A772C-D5E1-11D4-9A46-0090273FC14D B9DE85B0
+InstallProtocolInterface: 6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14 B9DE85C8
+Loading driver E7F1DFF9-DAB6-498A-9ADF-57F344EDDF57
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B B9E70240
+Loading driver at 0x000B9DB8000 EntryPoint=0x000B9DB95A0 UfsPassThruDxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF B9E70598
+ProtectUefiImageCommon - 0xB9E70240
+  - 0x00000000B9DB8000 - 0x000000000001F000
+InstallProtocolInterface: 18A031AB-B443-4D1A-A5C0-0C09261E9F71 B9DC0100
+InstallProtocolInterface: 107A772C-D5E1-11D4-9A46-0090273FC14D B9DC0090
+InstallProtocolInterface: 6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14 B9DC00A8
+Loading driver 0167CCC4-D0F7-4F21-A3EF-9E64B7CDCE8B
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B B9E67BC0
+Loading driver at 0x000B9DDA000 EntryPoint=0x000B9DDB5A0 ScsiBus.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF B9E67A98
+ProtectUefiImageCommon - 0xB9E67BC0
+  - 0x00000000B9DDA000 - 0x0000000000007000
+InstallProtocolInterface: 18A031AB-B443-4D1A-A5C0-0C09261E9F71 B9DDE0B0
+InstallProtocolInterface: 107A772C-D5E1-11D4-9A46-0090273FC14D B9DDE080
+InstallProtocolInterface: 6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14 B9DDE098
+Loading driver 0A66E322-3740-4CCE-AD62-BD172CECCA35
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B B9E66040
+Loading driver at 0x000B9DA0000 EntryPoint=0x000B9DA15A0 ScsiDisk.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF B9E67418
+ProtectUefiImageCommon - 0xB9E66040
+  - 0x00000000B9DA0000 - 0x000000000000E000
+InstallProtocolInterface: 18A031AB-B443-4D1A-A5C0-0C09261E9F71 B9DAB170
+InstallProtocolInterface: 107A772C-D5E1-11D4-9A46-0090273FC14D B9DAB0F0
+InstallProtocolInterface: 6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14 B9DAB108
+Loading driver 6B38F7B4-AD98-40E9-9093-ACA2B5A253C4
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B B9E663C0
+Loading driver at 0x000B9D98000 EntryPoint=0x000B9D995A0 DiskIoDxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF B9E66718
+ProtectUefiImageCommon - 0xB9E663C0
+  - 0x00000000B9D98000 - 0x0000000000008000
+InstallProtocolInterface: 18A031AB-B443-4D1A-A5C0-0C09261E9F71 B9D9D0A0
+InstallProtocolInterface: 107A772C-D5E1-11D4-9A46-0090273FC14D B9D9D070
+InstallProtocolInterface: 6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14 B9D9D088
+Loading driver 1FA1F39E-FEFF-4AAE-BD7B-38A070A3B609
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B B9E650C0
+Loading driver at 0x000B9D8D000 EntryPoint=0x000B9D8E5A0 PartitionDxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF B9E65A98
+ProtectUefiImageCommon - 0xB9E650C0
+  - 0x00000000B9D8D000 - 0x000000000000B000
+InstallProtocolInterface: 18A031AB-B443-4D1A-A5C0-0C09261E9F71 B9D950E8
+InstallProtocolInterface: 107A772C-D5E1-11D4-9A46-0090273FC14D B9D950B8
+InstallProtocolInterface: 6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14 B9D950D0
+Loading driver CD3BAFB6-50FB-4FE8-8E4E-AB74D2C1A600
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B B9E60040
+Loading driver at 0x000B9DB2000 EntryPoint=0x000B9DB34A0 EnglishDxe.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF B9E60F18
+ProtectUefiImageCommon - 0xB9E60040
+  - 0x00000000B9DB2000 - 0x0000000000006000
+InstallProtocolInterface: A4C751FC-23AE-4C3E-92E9-4964CF63F349 B9DB5010
+Loading driver 961578FE-B6B7-44C3-AF35-6BC705CD2B1F
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B B9E60440
+Loading driver at 0x000B9D76000 EntryPoint=0x000B9D77734 Fat.efi
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF B9E60918
+ProtectUefiImageCommon - 0xB9E60440
+  - 0x00000000B9D76000 - 0x000000000000D000
+InstallProtocolInterface: 18A031AB-B443-4D1A-A5C0-0C09261E9F71 B9D801E0
+InstallProtocolInterface: 107A772C-D5E1-11D4-9A46-0090273FC14D B9D80170
+InstallProtocolInterface: 6A7A5CFF-E8D9-4F70-BADA-75AB3025CE14 B9D80188
+[Bds] Entry...
+[Bds]BootManagerMenu FFS section can not be found, skip its boot option registration
+[BdsDxe] Locate Variable Policy protocol - Success
+Variable Driver Auto Update Lang, Lang:eng, PlatformLang:en Status: Success
+[Variable]END_OF_DXE is signaled
+Initialize variable error flag (FF)
+[Bds]BootManagerMenu FFS section can not be found, skip its boot option registration
+[Bds]RegisterKeyNotify: 0000/000D 80000000/00 Success
+GraphicsConsole video resolution 1080 x 2280
+Graphics - Mode 0, Column = 80, Row = 25
+Graphics - Mode 1, Column = 80, Row = 50
+Graphics - Mode 2, Column = 100, Row = 31
+Graphics - Mode 3, Column = 128, Row = 40
+Graphics - Mode 4, Column = 135, Row = 120
+Graphics Console Started, Mode: 0
+InstallProtocolInterface: 387477C2-69C7-11D2-8E39-00A0C969723B B9E62628
+InstallProtocolInterface: D3B36F2C-D551-11D4-9A46-0090273FC14D 0
+InstallProtocolInterface: D3B36F2D-D551-11D4-9A46-0090273FC14D 0
+InstallProtocolInterface: 9042A9DE-23DC-4A38-96FB-7ADED080516A B9DF4418
+BootDiscoveryPolicyHandler - Failed to locate gEfiBootManagerPolicyProtocolGuid.Driver connect will be skipped.
+HandleCapsules: processing capsules ...
+[Bds]RegisterKeyNotify: 0000/0073 80000000/00 Success
+[Bds]OsIndication: 0000000000000000
+[Bds]=============Begin Load Options Dumping ...=============
+  Driver Options:
+  SysPrep Options:
+  Boot Options:
+    Boot0000: UEFI Shell 		 0x0000
+  PlatformRecovery Options:
+    PlatformRecovery0000: Default PlatformRecovery 		 0x0001
+[Bds]=============End Load Options Dumping=============
+[Bds]BootManagerMenu FFS section can not be found, skip its boot option registration
+[Bds]BdsWait ...Zzzzzzzzzzzz...
+[Bds]BdsWait(3)..Zzzz...
+[Bds]BdsWait(2)..Zzzz...
+[Bds]BdsWait(1)..Zzzz...
+[Bds]Exit the waiting!
+[Bds]Stop Hotkey Service!
+[Bds]UnregisterKeyNotify: 0000/000D Success
+[Bds]UnregisterKeyNotify: 0000/0073 Success
+BootLog: ReadyToBoot flush
+BootLog: \UEFILOG.TXT -> Not Found
+Process PlatformRecovery0000 (Default PlatformRecovery) ...
+==UfsPassThru Start== Controller = BA11B198
+UfsHc: bounce buffer 0xB9CE4000 size 0x80000 (B79)
+UfsControllerInit Finished
+UfsFinishDeviceInitialization Timeout left=7CF EFI_SUCCESS 
+UFS LUN 0 is enabled
+UFS LUN 1 is enabled
+UFS LUN 2 is enabled
+UFS LUN 3 is enabled
+UFS LUN 4 is enabled
+UFS WLUN RPMB is supported
+InstallProtocolInterface: 143B7632-B81B-4CB7-ABD3-B625A5B9BFFE B9E5FE38
+InstallProtocolInterface: B81BFAB0-0EB3-4CF9-8465-7FA986361664 B9E5FE78
+UfsHc: ExtScsiPassThru wrapped (split > 1048576 B)
+InstallProtocolInterface: 0167CCC4-D0F7-4F21-A3EF-9E64B7CDCE8B BA1231A0
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9E62898
+InstallProtocolInterface: 932F47E6-2362-4002-803E-3CD54B138F85 B9E5F128
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9E5F218
+InstallProtocolInterface: 932F47E6-2362-4002-803E-3CD54B138F85 B9E5F6A8
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9E5F418
+InstallProtocolInterface: 932F47E6-2362-4002-803E-3CD54B138F85 B9DD7028
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9DD7E98
+InstallProtocolInterface: 932F47E6-2362-4002-803E-3CD54B138F85 B9DD7DA8
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9DD7998
+InstallProtocolInterface: 932F47E6-2362-4002-803E-3CD54B138F85 B9DD7228
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9DD7398
+InstallProtocolInterface: 932F47E6-2362-4002-803E-3CD54B138F85 B9DD7428
+ScsiDisk: IsWriteProtected() fails. Status = Device Error
+UfsHc: slot 0 CDB 0x00 CHECK COND: ocs 0x7 resp 0x1 senselen 18 key 0x6 asc 0x29 ascq 0x00
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9DAF0B8
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9DAF0E8
+InstallProtocolInterface: D432A67F-14DC-484B-B3BB-3F0291849327 B9DAF1E0
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9DAF720
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9DAF738
+ BlockSize : 4096 
+ LastBlock : 1DC9FFF 
+UfsHc: ring s0 lun0 cdb 0x28 lba 0x00000000 n 1 edtl 4096
+UfsHc: done s0 cdb 0x28 ocs 0x0 resp 0x0 st 0x0 resid 0
+UfsHc: ring s0 lun0 cdb 0x28 lba 0x00000001 n 1 edtl 4096
+UfsHc: done s0 cdb 0x28 ocs 0x0 resp 0x0 st 0x0 resid 0
+UfsHc: ring s0 lun0 cdb 0x28 lba 0x00000002 n 4 edtl 16384
+UfsHc: done s0 cdb 0x28 ocs 0x0 resp 0x0 st 0x0 resid 0
+ Valid efi partition table header
+UfsHc: ring s0 lun0 cdb 0x28 lba 0x01DC9FFF n 1 edtl 4096
+UfsHc: done s0 cdb 0x28 ocs 0x0 resp 0x0 st 0x0 resid 0
+UfsHc: ring s0 lun0 cdb 0x28 lba 0x01DC9FFB n 4 edtl 16384
+UfsHc: done s0 cdb 0x28 ocs 0x0 resp 0x0 st 0x0 resid 0
+ Valid efi partition table header
+ Valid primary and Valid backup partition table
+UfsHc: ring s0 lun0 cdb 0x28 lba 0x00000002 n 4 edtl 16384
+UfsHc: done s0 cdb 0x28 ocs 0x0 resp 0x0 st 0x0 resid 0
+ Partition entries read block success
+ Number of partition entries: 128
+ start check partition entries
+ End check partition entries
+ Index : 0
+ Start LBA : 400
+ End LBA : 87F
+ Partition size: 480
+ Start : 400000 End : 87F000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9DAE798
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9D85030
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9D85060
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9D850E8
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 1
+ Start LBA : 880
+ End LBA : FFF
+ Partition size: 780
+ Start : 880000 End : FFF000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9DAE598
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9D85D30
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9D85D60
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9D85DE8
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 2
+ Start LBA : 1000
+ End LBA : 23FF
+ Partition size: 1400
+ Start : 1000000 End : 23FF000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9D85B18
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9D85330
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9D85360
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9D853E8
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 3
+ Start LBA : 2400
+ End LBA : 2BFF
+ Partition size: 800
+ Start : 2400000 End : 2BFF000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9D85798
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9D84030
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9D84060
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9D840E8
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 4
+ Start LBA : 2C00
+ End LBA : 33FF
+ Partition size: 800
+ Start : 2C00000 End : 33FF000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9D84318
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9D849B0
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9D849E0
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9D84A68
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 5
+ Start LBA : 3400
+ End LBA : 347F
+ Partition size: 80
+ Start : 3400000 End : 347F000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9D83F18
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9D84430
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9D84460
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9D844E8
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 6
+ Start LBA : 3480
+ End LBA : 487F
+ Partition size: 1400
+ Start : 3480000 End : 487F000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9D83D18
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9D830B0
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9D830E0
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9D83168
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 7
+ Start LBA : 4880
+ End LBA : 507F
+ Partition size: 800
+ Start : 4880000 End : 507F000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9D83618
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9D833B0
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9D833E0
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9D83468
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 8
+ Start LBA : 5080
+ End LBA : 547F
+ Partition size: 400
+ Start : 5080000 End : 547F000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9C91098
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9C91BB0
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9C91BE0
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9C91C68
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 9
+ Start LBA : 5480
+ End LBA : 567F
+ Partition size: 200
+ Start : 5480000 End : 567F000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9C91698
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9C91130
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9C91160
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9C911E8
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 10
+ Start LBA : 5680
+ End LBA : 5A7F
+ Partition size: 400
+ Start : 5680000 End : 5A7F000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9C90F98
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9C90B30
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9C90B60
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9C90BE8
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 11
+ Start LBA : 5A80
+ End LBA : 627F
+ Partition size: 800
+ Start : 5A80000 End : 627F000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9C90818
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9C90130
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9C90160
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9C901E8
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 12
+ Start LBA : 6280
+ End LBA : 6A7F
+ Partition size: 800
+ Start : 6280000 End : 6A7F000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9C90498
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9C8F030
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9C8F060
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9C8F0E8
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 13
+ Start LBA : 6A80
+ End LBA : A17F
+ Partition size: 3700
+ Start : 6A80000 End : A17F000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9C8FC18
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9C8F2B0
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9C8F2E0
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9C8F368
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 14
+ Start LBA : A180
+ End LBA : E1FF
+ Partition size: 4080
+ Start : A180000 End : E1FF000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9C8F918
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9C8F630
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9C8F660
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9C8F6E8
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 15
+ Start LBA : E200
+ End LBA : 113FF
+ Partition size: 3200
+ Start : E200000 End : 113FF000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9C8E998
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9C8E0B0
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9C8E0E0
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9C8E168
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 16
+ Start LBA : 11400
+ End LBA : 114FF
+ Partition size: 100
+ Start : 11400000 End : 114FF000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9C8E698
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9C8E3B0
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9C8E3E0
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9C8E468
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 17
+ Start LBA : 11500
+ End LBA : 1157F
+ Partition size: 80
+ Start : 11500000 End : 1157F000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9C8DE18
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9C8DB30
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9C8DB60
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9C8DBE8
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 18
+ Start LBA : 11580
+ End LBA : 1167F
+ Partition size: 100
+ Start : 11580000 End : 1167F000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9C8D918
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9C8D130
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9C8D160
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9C8D1E8
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 19
+ Start LBA : 11680
+ End LBA : 1267F
+ Partition size: 1000
+ Start : 11680000 End : 1267F000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9C8D598
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9C8C030
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9C8C060
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9C8C0E8
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 20
+ Start LBA : 12680
+ End LBA : 1367F
+ Partition size: 1000
+ Start : 12680000 End : 1367F000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9C8C318
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9C8C9B0
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9C8C9E0
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9C8CA68
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 21
+ Start LBA : 13680
+ End LBA : 1467F
+ Partition size: 1000
+ Start : 13680000 End : 1467F000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9C8BF18
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9C8C430
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9C8C460
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9C8C4E8
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 22
+ Start LBA : 14680
+ End LBA : 1468F
+ Partition size: 10
+ Start : 14680000 End : 1468F000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9C8BD18
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9C8B0B0
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9C8B0E0
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9C8B168
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 23
+ Start LBA : 14690
+ End LBA : 147FF
+ Partition size: 170
+ Start : 14690000 End : 147FF000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9C8B618
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9C8B3B0
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9C8B3E0
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9C8B468
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 24
+ Start LBA : 14800
+ End LBA : 178BFF
+ Partition size: 164400
+ Start : 14800000 End : 178BFF000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9C8A098
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9C8ABB0
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9C8ABE0
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9C8AC68
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 25
+ Start LBA : 178C00
+ End LBA : 1BD7FF
+ Partition size: 44C00
+ Start : 178C00000 End : 1BD7FF000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9C8A698
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9C8A130
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9C8A160
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9C8A1E8
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 26
+ Start LBA : 1BD800
+ End LBA : 1E43FF
+ Partition size: 26C00
+ Start : 1BD800000 End : 1E43FF000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9C89F98
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9C89B30
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9C89B60
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9C89BE8
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 27
+ Start LBA : 1E4400
+ End LBA : 209BFF
+ Partition size: 25800
+ Start : 1E4400000 End : 209BFF000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9C89818
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9C89130
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9C89160
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9C891E8
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 28
+ Start LBA : 209C00
+ End LBA : 20CDFF
+ Partition size: 3200
+ Start : 209C00000 End : 20CDFF000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9C89498
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9C88030
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9C88060
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9C880E8
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 29
+ Start LBA : 20CE00
+ End LBA : 20D2FF
+ Partition size: 500
+ Start : 20CE00000 End : 20D2FF000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9C88C18
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9C882B0
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9C882E0
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9C88368
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+ Index : 30
+ Start LBA : 20D300
+ End LBA : 1DC9AFF
+ Partition size: 1BBC800
+ Start : 20D300000 End : 1DC9AFF000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B9C88918
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B9C88630
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B9C88660
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B9C886E8
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+Prepare to Free Pool
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9DAE2A0
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9DAE2B8
+ BlockSize : 4096 
+ LastBlock : 47F 
+UfsHc: ring s0 lun0 cdb 0x28 lba 0x00000400 n 1 edtl 4096
+UfsHc: done s0 cdb 0x28 ocs 0x0 resp 0x0 st 0x0 resid 0
+UfsHc: ring s0 lun0 cdb 0x28 lba 0x00000400 n 1 edtl 4096
+UfsHc: done s0 cdb 0x28 ocs 0x0 resp 0x0 st 0x0 resid 0
+UfsHc: ring s0 lun0 cdb 0x28 lba 0x00000400 n 1 edtl 4096
+UfsHc: done s0 cdb 0x28 ocs 0x0 resp 0x0 st 0x0 resid 0
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9DAE0A0
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9DAE0B8
+ BlockSize : 4096 
+ LastBlock : 77F 
+UfsHc: ring s0 lun0 cdb 0x28 lba 0x00000880 n 1 edtl 4096
+UfsHc: done s0 cdb 0x28 ocs 0x0 resp 0x0 st 0x0 resid 0
+UfsHc: ring s0 lun0 cdb 0x28 lba 0x00000880 n 1 edtl 4096
+UfsHc: done s0 cdb 0x28 ocs 0x0 resp 0x0 st 0x0 resid 0
+UfsHc: ring s0 lun0 cdb 0x28 lba 0x00000880 n 1 edtl 4096
+UfsHc: done s0 cdb 0x28 ocs 0x0 resp 0x0 st 0x0 resid 0
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9D8CBA0
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9D8CBB8
+ BlockSize : 4096 
+ LastBlock : 13FF 
+UfsHc: ring s0 lun0 cdb 0x28 lba 0x00001000 n 1 edtl 4096
+UfsHc: done s0 cdb 0x28 ocs 0x0 resp 0x0 st 0x0 resid 0
+UfsHc: ring s0 lun0 cdb 0x28 lba 0x00001000 n 1 edtl 4096
+UfsHc: done s0 cdb 0x28 ocs 0x0 resp 0x0 st 0x0 resid 0
+UfsHc: ring s0 lun0 cdb 0x28 lba 0x00001000 n 1 edtl 4096
+UfsHc: done s0 cdb 0x28 ocs 0x0 resp 0x0 st 0x0 resid 0
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9D8C020
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9D8C038
+ BlockSize : 4096 
+ LastBlock : 7FF 
+UfsHc: ring s0 lun0 cdb 0x28 lba 0x00002400 n 1 edtl 4096
+UfsHc: done s0 cdb 0x28 ocs 0x0 resp 0x0 st 0x0 resid 0
+UfsHc: ring s0 lun0 cdb 0x28 lba 0x00002400 n 1 edtl 4096
+UfsHc: done s0 cdb 0x28 ocs 0x0 resp 0x0 st 0x0 resid 0
+UfsHc: ring s0 lun0 cdb 0x28 lba 0x00002400 n 1 edtl 4096
+UfsHc: done s0 cdb 0x28 ocs 0x0 resp 0x0 st 0x0 resid 0
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9D8C820
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9D8C838
+ BlockSize : 4096 
+ LastBlock : 7FF 
+UfsHc: ring s0 lun0 cdb 0x28 lba 0x00002C00 n 1 edtl 4096
+UfsHc: done s0 cdb 0x28 ocs 0x0 resp 0x0 st 0x0 resid 0
+UfsHc: ring s0 lun0 cdb 0x28 lba 0x00002C00 n 1 edtl 4096
+UfsHc: done s0 cdb 0x28 ocs 0x0 resp 0x0 st 0x0 resid 0
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9D8C420
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9D8C438
+ BlockSize : 4096 
+ LastBlock : 7F 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9D8BCA0
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9D8BCB8
+ BlockSize : 4096 
+ LastBlock : 13FF 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9D8B220
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9D8B238
+ BlockSize : 4096 
+ LastBlock : 7FF 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9D8ABA0
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9D8ABB8
+ BlockSize : 4096 
+ LastBlock : 3FF 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9D8A1A0
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9D8A1B8
+ BlockSize : 4096 
+ LastBlock : 1FF 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9D88B20
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9D88B38
+ BlockSize : 4096 
+ LastBlock : 3FF 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9D88820
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9D88838
+ BlockSize : 4096 
+ LastBlock : 7FF 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9D87020
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9D87038
+ BlockSize : 4096 
+ LastBlock : 7FF 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9D87120
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9D87138
+ BlockSize : 4096 
+ LastBlock : 36FF 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9D87320
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9D87338
+ BlockSize : 4096 
+ LastBlock : 407F 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9D86C20
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9D86C38
+ BlockSize : 4096 
+ LastBlock : 31FF 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9D86620
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9D86638
+ BlockSize : 4096 
+ LastBlock : FF 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9A06BA0
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9A06BB8
+ BlockSize : 4096 
+ LastBlock : 7F 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9A05BA0
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9A05BB8
+ BlockSize : 4096 
+ LastBlock : FF 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9A05020
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9A05038
+ BlockSize : 4096 
+ LastBlock : FFF 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9A05820
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9A05838
+ BlockSize : 4096 
+ LastBlock : FFF 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9A05420
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9A05438
+ BlockSize : 4096 
+ LastBlock : FFF 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9A04CA0
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9A04CB8
+ BlockSize : 4096 
+ LastBlock : F 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9A04220
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9A04238
+ BlockSize : 4096 
+ LastBlock : 16F 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9A03BA0
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9A03BB8
+ BlockSize : 4096 
+ LastBlock : 1643FF 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9A031A0
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9A031B8
+ BlockSize : 4096 
+ LastBlock : 44BFF 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9A01B20
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9A01B38
+ BlockSize : 4096 
+ LastBlock : 26BFF 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9A01820
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9A01838
+ BlockSize : 4096 
+ LastBlock : 257FF 
+InstallProtocolInterface: 964E5B22-6459-11D2-8E39-00A0C969723B B99F9030
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B9A00020
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B9A00038
+ BlockSize : 4096 
+ LastBlock : 31FF 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B99FFBA0
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B99FFBB8
+ BlockSize : 4096 
+ LastBlock : 4FF 
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B99FF020
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B99FF038
+ BlockSize : 4096 
+ LastBlock : 1BBC7FF 
+PartitionValidMbr: Bad MBR partition size EndingLBA(DEB56E8B) > LastLBA(DDE3FFF)
+ScsiDisk: IsWriteProtected() fails. Status = Device Error
+UfsHc: slot 0 CDB 0x00 CHECK COND: ocs 0x7 resp 0x1 senselen 18 key 0x6 asc 0x29 ascq 0x00
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B99F8038
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B99F8068
+InstallProtocolInterface: D432A67F-14DC-484B-B3BB-3F0291849327 B99F8160
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B99F8BA0
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B99F8BB8
+ BlockSize : 4096 
+ LastBlock : 3FF 
+ScsiDisk: IsWriteProtected() fails. Status = Device Error
+UfsHc: slot 0 CDB 0x00 CHECK COND: ocs 0x7 resp 0x1 senselen 18 key 0x6 asc 0x29 ascq 0x00
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B99F5038
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B99F5068
+InstallProtocolInterface: D432A67F-14DC-484B-B3BB-3F0291849327 B99F5160
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B99F5BA0
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B99F5BB8
+ BlockSize : 4096 
+ LastBlock : 3FF 
+ScsiDisk: IsWriteProtected() fails. Status = Device Error
+UfsHc: slot 0 CDB 0x00 CHECK COND: ocs 0x7 resp 0x1 senselen 18 key 0x6 asc 0x29 ascq 0x00
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B8FB2038
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B8FB2068
+InstallProtocolInterface: D432A67F-14DC-484B-B3BB-3F0291849327 B8FB2160
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B8FB2BA0
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B8FB2BB8
+ BlockSize : 4096 
+ LastBlock : 7FF 
+ Valid efi partition table header
+ Valid efi partition table header
+ Valid primary and Valid backup partition table
+ Partition entries read block success
+ Number of partition entries: 128
+ start check partition entries
+ End check partition entries
+ Index : 0
+ Start LBA : 6
+ End LBA : 605
+ Partition size: 600
+ Start : 6000 End : 605000
+InstallProtocolInterface: 09576E91-6D3F-11D2-8E39-00A0C969723B B8FB2798
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B8F6AD30
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B8F6AD60
+InstallProtocolInterface: 8CF2F62C-BC9B-4821-808D-EC9EC421A1A0 B8F6ADE8
+InstallProtocolInterface: EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 0
+Prepare to Free Pool
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B8F6AA20
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B8F6AA38
+ BlockSize : 4096 
+ LastBlock : 5FF 
+ScsiDisk: IsWriteProtected() fails. Status = Device Error
+UfsHc: slot 0 CDB 0x00 CHECK COND: ocs 0x7 resp 0x1 senselen 18 key 0x6 asc 0x29 ascq 0x00
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B8F71038
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B8F71068
+InstallProtocolInterface: D432A67F-14DC-484B-B3BB-3F0291849327 B8F71160
+InstallProtocolInterface: CE345171-BA0B-11D2-8E4F-00A0C969723B B8F71420
+InstallProtocolInterface: 151C8EAE-7F2C-472C-9E54-9828194F6A88 B8F71438
+ BlockSize : 4096 
+ LastBlock : 7FF 
+UfsHc: slot 0 CDB 0x00 CHECK COND: ocs 0x7 resp 0x1 senselen 18 key 0x6 asc 0x29 ascq 0x00
+InstallProtocolInterface: 964E5B21-6459-11D2-8E39-00A0C969723B B8F70038
+InstallProtocolInterface: A77B2472-E282-4E9F-A245-C2C0E27BBCC1 B8F70068
+InstallProtocolInterface: D432A67F-14DC-484B-B3BB-3F0291849327 B8F70160
+InstallProtocolInterface: C88B0B6D-0DFC-49A7-9CB4-49074B4C3A78 B8F70028
+FSOpen: Open '\EFI\BOOT\BOOTAA64.EFI' Success
+UfsHc: split op 0x28 lba 0x1E457C 432 x 4096 B
+[Bds] Expand \EFI\BOOT\BOOTAA64.EFI -> VenHw(3D2E9A14-6B7C-4F10-9A8D-2F1E0C4B5A60)/UFS(0x0,0x0)/HD(28,GPT,52444E41-494F-2044-6361-636865000000,0x1E4400,0x25800)/\EFI\BOOT\BOOTAA64.EFI
+[Security] 3rd party image[0] can be loaded after EndOfDxe: VenHw(3D2E9A14-6B7C-4F10-9A8D-2F1E0C4B5A60)/UFS(0x0,0x0)/HD(28,GPT,52444E41-494F-2044-6361-636865000000,0x1E4400,0x25800)/\EFI\BOOT\BOOTAA64.EFI.
+InstallProtocolInterface: 5B1B31A1-9562-11D2-8E3F-00A0C969723B B8EE44C0
+ConvertPages: failed to find range 10000000 - 101F9FFF
+Loading driver at 0x000B8B1A000 EntryPoint=0x000B8B3D490 
+InstallProtocolInterface: BC62157E-3E33-4FEC-9920-2D3B36D750DF B8F70B18
+ProtectUefiImageCommon - 0xB8EE44C0
+  - 0x00000000B8B1A000 - 0x00000000001FA000
+
+
+Synchronous Exception at 0x00000000B8BF3158
+ESR 0x96000006 (EC 0x25 ISS 0x0000006) FAR 0x0000000000000000
+SP 0x00000000BAAFF760 SPSR 0xA0000205
+PC 0xB8BF3158 = (no pdb)+0xD9158
+LR 0xB8B5F268 = (no pdb)+0x45268
+  <- 0xB8B3D494 = (no pdb)+0x23494
+  <- 0xB9E4D184 = C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Universal\BdsDxe\BdsDxe\DEBUG\BdsDxe.pdb+0x6184
+  <- 0xB9E4CE60 = C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Universal\BdsDxe\BdsDxe\DEBUG\BdsDxe.pdb+0x5E60
+  <- 0xBA266F28 = C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Core\Dxe\DxeMain\DEBUG\DxeCore.pdb+0x2F28
+  <- 0xBA2657B0 = C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Core\Dxe\DxeMain\DEBUG\DxeCore.pdb+0x17B0
+  <- 0xBA2657A0 = C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Core\Dxe\DxeMain\DEBUG\DxeCore.pdb+0x17A0
+  <- 0x900042EC (no UEFI image)
+  <- 0x900750A4 (no UEFI image)
+ X0 00000000B8EE44A8  X1 0000000000000000  X2 0000000000000000  X3 00000000BAAFF774
+ X4 00000000000000B0  X5 00000000005D2D38  X6 0000000070616D6D  X7 0000000000000000
+ X8 0000000000000000  X9 0000000069726468 X10 00000000B8CF9000 X11 0000000000000001
+X12 0000000000000000 X13 0000000000000000 X14 0000000000000001 X15 0000000000000001
+X16 00000000BAAFF8F0 X17 00000000BAAFF382 X18 0000000000000000 X19 0000000000000000
+X20 00000000C000000D X21 00000000B8EE44A8 X22 00000000B8EE44A8 X23 0000000000000000
+X24 00000000BA27EF50 X25 00000000B8EE4A98 X26 0000000000000000 X27 0000000000000000
+X28 00000000B9E57668  FP 00000000BAAFF770  LR 00000000B8B5F268
+Code at ELR-0x20: D374CE80 97FFF46F 14000004 F9400A68 D374CD00 97FFEEB9 7100001F 1A95B015 >F9400273 EB16027F 54FFFD01 910083E0 97FFF02A 2A1503E0 A8C47BFD F94013F7
+Loaded images:
+  0xBA264000 +0x67000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Core\Dxe\DxeMain\DEBUG\DxeCore.pdb
+  0xBA12A000 +0xA000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Universal\PCD\Dxe\Pcd\DEBUG\PcdDxe.pdb
+  0xBA0B7000 +0x60000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\ArmPkg\Drivers\CpuDxe\CpuDxe\DEBUG\ArmCpuDxe.pdb
+  0xBA060000 +0x4A000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Core\RuntimeDxe\RuntimeDxe\DEBUG\RuntimeDxe.pdb
+  0xBA055000 +0xB000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Universal\SecurityStubDxe\SecurityStubDxe\DEBUG\SecurityStubDxe.pdb
+  0xBA03B000 +0x1A000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Universal\Metronome\Metronome\DEBUG\Metronome.pdb
+  0xB9FC0000 +0x34000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Universal\ResetSystemRuntimeDxe\ResetSystemRuntimeDxe\DEBUG\ResetSystemRuntimeDxe.pdb
+  0xB9F90000 +0x24000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Universal\Variable\RuntimeDxe\VariableRuntimeDxe\DEBUG\VariableRuntimeDxe.pdb
+  0xBA0B1000 +0x6000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\Platform\Beyond0LtePkg\Drivers\SimpleFramebufferDxe\SimpleFramebufferDxe\DEBUG\Beyond0LteSimpleFramebufferDxe.pdb
+  0xB9F41000 +0x19000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Universal\HiiDatabaseDxe\HiiDatabaseDxe\DEBUG\HiiDatabase.pdb
+  0xBA035000 +0x6000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Universal\SerialDxe\SerialDxe\DEBUG\SerialDxe.pdb
+  0xBA008000 +0x8000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Universal\Acpi\AcpiTableDxe\AcpiTableDxe\DEBUG\AcpiTableDxe.pdb
+  0xB9EF1000 +0x50000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\Platform\Beyond0LtePkg\Drivers\Beyond0LteUfsHcDxe\Beyond0LteUfsHcDxe\DEBUG\Beyond0LteUfsHcDxe.pdb
+  0xBA001000 +0x7000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\ArmPkg\Drivers\ArmGicDxe\ArmGicV2Dxe\DEBUG\ArmGicV2Dxe.pdb
+  0xB9ED0000 +0x1A000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\EmbeddedPkg\RealTimeClockRuntimeDxe\RealTimeClockRuntimeDxe\DEBUG\RealTimeClock.pdb
+  0xB9E80000 +0x49000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Universal\CapsuleRuntimeDxe\CapsuleRuntimeDxe\DEBUG\CapsuleRuntimeDxe.pdb
+  0xB9F60000 +0x6000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Universal\MonotonicCounterRuntimeDxe\MonotonicCounterRuntimeDxe\DEBUG\MonotonicCounterRuntimeDxe.pdb
+  0xB9F5B000 +0x5000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\Platform\Beyond0LtePkg\Drivers\Beyond0LteAcpiPlatformDxe\Beyond0LteAcpiPlatformDxe\DEBUG\Beyond0LteAcpiPlatformDxe.pdb
+  0xB9E74000 +0x8000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\Platform\Beyond0LtePkg\Drivers\Beyond0LteBootLogDxe\Beyond0LteBootLogDxe\DEBUG\Beyond0LteBootLogDxe.pdb
+  0xB9E47000 +0x18000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Universal\BdsDxe\BdsDxe\DEBUG\BdsDxe.pdb
+  0xB9DFF000 +0x48000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\ArmPkg\Drivers\TimerDxe\TimerDxe\DEBUG\ArmTimerDxe.pdb
+  0xB9E69000 +0x7000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Universal\WatchdogTimerDxe\WatchdogTimer\DEBUG\WatchdogTimer.pdb
+  0xB9DF7000 +0x8000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Universal\Console\ConPlatformDxe\ConPlatformDxe\DEBUG\ConPlatformDxe.pdb
+  0xB9DEB000 +0xC000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Universal\Console\ConSplitterDxe\ConSplitterDxe\DEBUG\ConSplitterDxe.pdb
+  0xB9DE1000 +0xA000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Universal\Console\GraphicsConsoleDxe\GraphicsConsoleDxe\DEBUG\GraphicsConsoleDxe.pdb
+  0xB9DB8000 +0x1F000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Bus\Ufs\UfsPassThruDxe\UfsPassThruDxe\DEBUG\UfsPassThruDxe.pdb
+  0xB9DDA000 +0x7000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Bus\Scsi\ScsiBusDxe\ScsiBusDxe\DEBUG\ScsiBus.pdb
+  0xB9DA0000 +0xE000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Bus\Scsi\ScsiDiskDxe\ScsiDiskDxe\DEBUG\ScsiDisk.pdb
+  0xB9D98000 +0x8000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Universal\Disk\DiskIoDxe\DiskIoDxe\DEBUG\DiskIoDxe.pdb
+  0xB9D8D000 +0xB000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Universal\Disk\PartitionDxe\PartitionDxe\DEBUG\PartitionDxe.pdb
+  0xB9DB2000 +0x6000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\MdeModulePkg\Universal\Disk\UnicodeCollation\EnglishDxe\EnglishDxe\DEBUG\EnglishDxe.pdb
+  0xB9D76000 +0xD000 C:\Users\ilya\code\exynos-woa\firmware\edk2\Build\Beyond0LtePkg\DEBUG_CLANGPDB\AARCH64\FatPkg\EnhancedFatDxe\Fat\DEBUG\Fat.pdb
+  0xB8B1A000 +0x1FA000 (no pdb)
+Stack:
+ BAAFF6E0: 36383633362D3136 2C30303030303035 3030343445317830 303038353278302C
+ BAAFF700: 425C4946455C2F29 544F4F425C544F4F 00000000BAAFF870 0000000000000000
+ BAAFF720: 0000000000000000 0000000000000000 0000000000000000 0000000000000000
+ BAAFF740: 00000000B8EE44A8 00000000B8EE44A8 0000000000000000 00000000BAAFF778
+>BAAFF760: 000000000002600E 00000000B8EDEFFF 00000000BAAFF930 00000000B8B3D494
+ BAAFF780: 000000000000E6F8 0000000000000001 0000000000000000 0000000000000000
+ BAAFF7A0: 0000000000000000 0000000000000000 00000000B8EDEFFF 000000000002600E
+ BAAFF7C0: 00000000B9E57668 00000000BAAFF880 00000000B9E57668 0000000000000000
+ BAAFF7E0: 0000000000000000 00000000B8EE4A98 0000000000000000 000000000002F198
+ BAAFF800: 0008000000000010 0000000000000000 0000000000000000 8000000000000000
+ BAAFF820: 0000000000000000 00000000B8B20630 00000000BAAFF838 0000000000000002
+ BAAFF840: 00000000B8B1F260 0000000000000000 0000010000000004 0000000000000000
+ BAAFF860: 0000000100000014 0020000000000400 0000000000000000 0000000000000000
+ BAAFF880: 8000000000000000 0000000000000000 0000000000000000 0000000000000000
+ BAAFF8A0: 00000000B8EE4498 00000000B9E62260 00000000B9E62268 00000000B8EE4A98
+ BAAFF8C0: 00000000000001D5 00000000BA27EF50 00000000BA27E000 8000000000000002
+FSOpen: Open '\EFI\Microsoft\Boot\BCD' Success
+LibGetTime: RtcEpochSeconds non volatile variable was not found - Using compilation time epoch.
+FSOpen: Created new directory entry 'UEFILOG.TXT'
+FSOpen: Open '\UEFILOG.TXT' Success

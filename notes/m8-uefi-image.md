@@ -1130,3 +1130,14 @@ User added adb allow rules (/permissions) and asked to retry. In TWRP: pushed bo
 on-device), by-name/boot -> /dev/block/sda14, `dd ... conv=fsync` 7 587 840 B, read back 3705 x 2048 B ->
 sha256 1379b50aa33061788a088c9ce912c38354e00cb716887d0ac80a5e37110b3765 (byte-exact). `adb reboot` next.
 Observation pending (decode per B26).
+
+## B28 - boot #5 OBSERVED: BOTH white bands drawn over the "Galaxy S10e" splash, then boot loop
+
+User: "boot looping. the galaxy s10e logo is now kinda broken with 2 parts of white covering most of it".
+Decode (B26): band 1 (rows 200-649) AND band 2 (rows 750-1199) drawn over sboot's splash ->
+- FACT sboot enters our shim (first on-device proof); DECON/FB stores at 0x19030000/0xCA000000 are seen.
+- FACT the 0x700000 copy to 0x90000000 completed and the shim reached `br x5` into the FD.
+- => the loop is now INSIDE the FD (PeilessSec SEC -> PEI -> DxeCore -> ...). Shim + header-v2 container
+  are device-validated as a path; FD stages are not.
+(Not separable from this: whether the 0x1281 write was needed, or sboot's splash buffer is live anyway.)
+User put the phone back in download mode. sda14 holds boot5-v2.img.

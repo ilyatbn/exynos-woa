@@ -1768,3 +1768,20 @@ Build exit 0. Boot #24 image %TEMP%\b81\boot24-v2.img sha256 ff41df999f6520ad409
 
 Pushed (on-device sha256 ff41df99...127f), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
 ff41df999f6520ad4095e8efcc2f71b340b5c53135aa41ab822b46a97542127f (byte-exact). `adb reboot` next.
+
+## B83 - boot #24 OBSERVED: 1-entry reads complete cleanly, the 4-entry 16 KB read never completes -> PRDT stride
+
+Photos notes/img-boot24-a.jpg / -b.jpg: "UfsHc: bounce buffer 0xB9D0B000 size 0x80000" (bank0, UEFI region);
+READ(10) lba 0 n1 -> "done s0 cdb 0x28 ocs 0x0 resp 0x0 st 0x0 resid 0"; lba 1 n1 -> same; lba 2 n4 edtl
+16384 -> NO done line -> "ScsiDiskRead10: Check Condition happened!" -> "Not Valid primary partition table";
+afterwards every command (slot 1) times out the same way (controller wedged). DMA reach is not it (same
+bounce buffer); n*16 vs n*16+16 is not it either.
+Explanation that fits B79/B81/B83: the controller's PRDT entry is 128 B (4 std + 28 FMP dwords) - the 9810
+driver's original UTP_TR_PRD_SIZE = 128 "WOAXFER PrdtL=0x80/entry" was measured from the working Samsung
+kernel. Entry 0 sits at offset 0 for any stride (1-entry reads work); entry 1 is fetched at +128 where
+EDK2's 16 B layout left nothing -> stall (split) / garbage DMA address (unsplit 16 KB -> reset, B79).
+Change: the converter always rewrites the PRDT as <= 4 KB page-aligned pieces at a 128 B stride, FMP
+dwords zeroed (crypto bypass), PrdtL = n * 128 (Samsung LK formula with its 128 B struct); DW7 PrdtL is
+16-bit -> cap 511 entries (~2 MB per command, "PRDT split exceeds" logged beyond). UfsHcAllocateBuffer /
+FreeBuffer add UFS_COMMON_EXTRA_PAGES (17) symmetrically so the UCD has room past EDK2's layout.
+Build exit 0. Boot #25 image %TEMP%\b83\boot25-v2.img sha256 82045f3417755bffd20374104a337a7a127a4e42f1bc4bdb09a6e1de5c31af8b

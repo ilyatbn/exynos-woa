@@ -2569,6 +2569,9 @@ UfsHcGetMmioBar (
   return EFI_SUCCESS;
 }
 
+
+#define UFS_COMMON_EXTRA_PAGES 17u  // B83: AllocateBuffer slack so a UCD holds 511 x 128 B PRDT entries past EDK2's own layout
+
 /**
   Allocate common-buffer pages for the UTP descriptor/UPIU rings. Returns UNCACHED
   memory so the non-coherent UFS DMA engine and the CPU see a consistent view
@@ -2606,6 +2609,7 @@ UfsHcAllocateBuffer (
   //
   // A51 (low-addr cap) reverted - it was a no-op (the >=512B data-write SBFES is address-independent).
   //
+  Pages  += UFS_COMMON_EXTRA_PAGES;   // B83: room for the 128 B-stride split PRDT (freed symmetrically)
   Address = MAX_ADDRESS;
   Status  = gBS->AllocatePages (AllocateMaxAddress, MemoryType, Pages, &Address);
   if (EFI_ERROR (Status)) {
@@ -2652,6 +2656,7 @@ UfsHcFreeBuffer (
   IN  VOID                                *HostAddress
   )
 {
+  Pages += UFS_COMMON_EXTRA_PAGES;   // B83: matches UfsHcAllocateBuffer
   gDS->SetMemorySpaceAttributes (
          (EFI_PHYSICAL_ADDRESS)(UINTN)HostAddress,
          EFI_PAGES_TO_SIZE (Pages),
@@ -3131,7 +3136,12 @@ UfsHcMmioRw (
 #define BEYOND0LTE_CONVERT_UTRD_BYTE_GRAN 1
 #define UTP_TRD_RESP_DW6     24u   // DW6: RuL[15:0] (len, dwords) | RuO[31:16] (off, dwords)
 #define UTP_TRD_PRDT_DW7     28u   // DW7: PrdtL[15:0] (entries)   | PrdtO[31:16] (off, dwords)
-#define UTP_TR_PRD_SIZE      16u   // 9820: one PRDT entry = 16 B ufshcd_sg_entry == EDK2 UTP_TR_PRD (ufshci.h:435)
+// B83: one controller PRDT entry is 128 B (4 standard + 28 FMP dwords) - the 9810 measurement from the
+// working Samsung kernel ("WOAXFER PrdtL=0x80/entry", this file's original constant), and the only layout
+// consistent with boot #24: 1-entry reads complete (entry 0 is at offset 0 for any stride), the 4-entry
+// 16 KB read never completes (the controller reads entry 1 at +128). FMP dwords zeroed = crypto bypass.
+#define UTP_TR_PRD_SIZE      128u
+#define UTP_PRDT_MAX_SPLIT   511u   // DW7 PrdtL is 16-bit bytes: 511 x 128 = 65408 -> ~2 MB per command at 4 KB/entry
 // B81: the LineageOS 9820 kernel adds 16 B to the byte-gran PRDT length (ufshcd.c:2635-2638), but Samsung's
 // own bootloader UFS code for this SoC (edk2-exynos Exynos9820Pkg/Library/ExynosUfsLib/ufs.c:451-463, LK
 // <dev/ufs.h>) uses prdt_len = segments * sizeof(struct ufs_prdt) with 4 KB segments (:316-323,
@@ -3467,12 +3477,19 @@ Beyond0LteSetNexusForDoorbell (
       UINT32  NewPrdtL = PrdtL;
 
       if ((PrdtL != 0) && (PrdtL <= 64u)) {
-        STATIC UINT32  mPrdtSplit[240 * 4];
+        STATIC UINT32  mPrdtSplit[UTP_PRDT_MAX_SPLIT * 4];
         UINTN          Prdt   = (UINTN)Ucd + (UINTN)PrdtO * 4u;
         UINT32         Out    = 0;
         UINT32         In;
+        UINT32         Dw;
         BOOLEAN        Fits   = TRUE;
 
+        //
+        // Read EDK2's 16 B entries, cut them into <= 4 KB pieces (page-aligned chunks), then
+        // write them back at the controller's 128 B stride with the FMP dwords zeroed.
+        // UCDs come from UfsHcAllocateBuffer with UFS_COMMON_EXTRA_PAGES of slack, so
+        // PrdtO + 1024 * 128 stays inside the allocation.
+        //
         for (In = 0; (In < PrdtL) && Fits; In++) {
           UINT64  Addr = ((UINT64)MmioRead32 (Prdt + In * 16u + 4u) << 32) |
                          (UINT64)(MmioRead32 (Prdt + In * 16u) & ~3u);
@@ -3485,8 +3502,7 @@ Beyond0LteSetNexusForDoorbell (
               Chunk = Len;
             }
 
-            if ((Out >= 240u) ||
-                ((UINT32)PrdtO * 4u + (Out + 1u) * 16u + UTP_PRDT_9820_EXTRA > 0x1000u)) {
+            if (Out >= UTP_PRDT_MAX_SPLIT) {
               Fits = FALSE;
               break;
             }
@@ -3501,14 +3517,16 @@ Beyond0LteSetNexusForDoorbell (
           }
         }
 
-        if (Fits && (Out > PrdtL)) {
-          for (In = 0; In < Out * 4u; In++) {
-            MmioWrite32 (Prdt + In * 4u, mPrdtSplit[In]);
+        if (Fits) {
+          for (In = 0; In < Out; In++) {
+            for (Dw = 0; Dw < (UTP_TR_PRD_SIZE / 4u); Dw++) {
+              MmioWrite32 (Prdt + In * UTP_TR_PRD_SIZE + Dw * 4u, (Dw < 4u) ? mPrdtSplit[In * 4u + Dw] : 0u);
+            }
           }
 
           NewPrdtL = Out;
-        } else if (!Fits) {
-          DEBUG ((DEBUG_ERROR, "UfsHc: PRDT split does not fit (PrdtL %u PrdtO %u)\n", (UINT32)PrdtL, (UINT32)PrdtO * 4u));
+        } else {
+          DEBUG ((DEBUG_ERROR, "UfsHc: PRDT split exceeds %u entries\n", UTP_PRDT_MAX_SPLIT));
         }
       }
 

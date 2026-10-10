@@ -1427,3 +1427,8 @@ Verified: build exit 0; disassembly: install = adr x0,0x71800 / msr VBAR_EL1 / i
 0x71800 (x19=0) and 0x71a00 (x19=4) branch to DiagCommon 0x71f88; strip painter uses 4320 B lines.
 PeilessSec.dll.map for ELR decoding saved at %TEMP%\b51\. Shim unchanged.
 Boot #13 image %TEMP%\b51\boot13-v2.img sha256 58f8aa30689102f06d35267f33ede8bedae7fa7979921097254481d09ab900ce
+
+## B52 - boot #13 WRITE to BOOT sda14
+
+Pushed (on-device sha256 58f8aa30...00ce), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
+58f8aa30689102f06d35267f33ede8bedae7fa7979921097254481d09ab900ce (byte-exact). `adb reboot` next.

@@ -618,12 +618,20 @@ UfsInitializeDiagnostic(
 
 static
 VOID
+UfsEarlyMark(
+    _In_z_ PCSTR Text,
+    _In_ ULONGLONG Value
+    );
+
+static
+VOID
 UfsSetDiagnosticStage(
     _Inout_ PUFS_ADAPTER_EXTENSION Adapter,
     _In_ ULONG Stage
     )
 {
     Adapter->Diagnostic.Stage = Stage;
+    UfsEarlyMark("=STAGE", Stage);
 }
 
 static
@@ -634,6 +642,7 @@ UfsSetDiagnosticFailure(
     )
 {
     Adapter->Diagnostic.FailureMask |= Failure;
+    UfsEarlyMark("=FAIL", Failure);
 }
 
 static
@@ -1466,6 +1475,80 @@ UfsPramFlushComplete(
     _Inout_ PUFS_ADAPTER_EXTENSION Adapter,
     _In_ BOOLEAN Success
     );
+
+/*
+ * W25 early markers. DriverEntry and HwFindAdapter run before UfsPramInitialize maps the ring,
+ * and boot #36 left the ring all zero - so they record into their own page at
+ * UFS_PRAM_PHYSICAL_BASE + UFS_EARLY_MARK_OFFSET, inside the 64 KB the firmware saves as
+ * \WINPRAM.BIN. Header: ULONG magic 'EARL', ULONG slot count; then 63 slots of 64 bytes, each
+ * "<text> <16 hex digits>\n". Byte stores only (non-cached mapping, no alignment faults).
+ */
+#define UFS_EARLY_MARK_OFFSET              0x8000ULL
+#define UFS_EARLY_MARK_MAGIC               0x4C524145UL   /* 'EARL' */
+
+#if UFS_PRAM_ENABLE
+static volatile UCHAR *UfsEarlyMarkBase;
+#endif
+
+static
+VOID
+UfsEarlyMark(
+    _In_z_ PCSTR Text,
+    _In_ ULONGLONG Value
+    )
+{
+#if UFS_PRAM_ENABLE
+    static const CHAR Hex[] = "0123456789ABCDEF";
+    PHYSICAL_ADDRESS Physical;
+    volatile UCHAR *Base;
+    volatile ULONG *Header;
+    volatile UCHAR *Slot;
+    ULONG Index;
+    ULONG Digit;
+    ULONG Used;
+
+    //
+    // Mapped once, by the first caller (DriverEntry, PASSIVE_LEVEL), and never unmapped:
+    // stages and failures are also recorded at raised IRQL, where only stores are legal.
+    //
+    if (UfsEarlyMarkBase == NULL) {
+        if (KeGetCurrentIrql() > APC_LEVEL) {
+            return;
+        }
+        Physical.QuadPart = (LONGLONG)(UFS_PRAM_PHYSICAL_BASE + UFS_EARLY_MARK_OFFSET);
+        UfsEarlyMarkBase = (volatile UCHAR *)MmMapIoSpace(Physical, PAGE_SIZE, MmNonCached);
+        if (UfsEarlyMarkBase == NULL) {
+            return;
+        }
+    }
+    Base = UfsEarlyMarkBase;
+
+    Header = (volatile ULONG *)Base;
+    if (Header[0] != UFS_EARLY_MARK_MAGIC) {
+        Header[0] = UFS_EARLY_MARK_MAGIC;
+        Header[1] = 0;
+    }
+
+    Used = Header[1];
+    if (Used < 63UL) {
+        Slot = Base + 64UL + (Used * 64UL);
+        for (Index = 0; (Index < 40UL) && (Text[Index] != '\0'); Index++) {
+            Slot[Index] = (UCHAR)Text[Index];
+        }
+        Slot[Index++] = ' ';
+        for (Digit = 0; Digit < 16UL; Digit++) {
+            Slot[Index++] = (UCHAR)Hex[(Value >> ((15UL - Digit) * 4UL)) & 0xFUL];
+        }
+        Slot[Index] = '\n';
+        Header[1] = Used + 1UL;
+    }
+
+    KeMemoryBarrier();
+#else
+    UNREFERENCED_PARAMETER(Text);
+    UNREFERENCED_PARAMETER(Value);
+#endif
+}
 
 static
 VOID
@@ -8098,6 +8181,39 @@ UfsHandleIoControl(
     return SRB_STATUS_SUCCESS;
 }
 
+/*
+ * W25: minimal bugcheck callback, registered in DriverEntry so it exists even when the adapter
+ * never gets far enough for UfsRegisterBugcheckCapture. Writes the code and the four parameters
+ * into the early-mark page (no adapter needed); the firmware saves it as \WINPRAM.BIN.
+ */
+static KBUGCHECK_CALLBACK_RECORD UfsEarlyBugcheckRecord;
+
+static
+VOID
+UfsEarlyBugcheckCallback(
+    _In_ PVOID Buffer,
+    _In_ ULONG Length
+    )
+{
+    KBUGCHECK_DATA Early = {0};
+
+    UNREFERENCED_PARAMETER(Buffer);
+    UNREFERENCED_PARAMETER(Length);
+
+    Early.BugCheckDataSize = sizeof(Early);
+    if (NT_SUCCESS(UfsBugcheckProviderStatus) &&
+        NT_SUCCESS(AuxKlibGetBugCheckData(&Early))) {
+        UfsEarlyMark("=BUGCHECK", Early.BugCheckCode);
+        UfsEarlyMark("=BC P1", (ULONGLONG)Early.Parameter1);
+        UfsEarlyMark("=BC P2", (ULONGLONG)Early.Parameter2);
+        UfsEarlyMark("=BC P3", (ULONGLONG)Early.Parameter3);
+        UfsEarlyMark("=BC P4", (ULONGLONG)Early.Parameter4);
+    } else {
+        UfsEarlyMark("=BUGCHECK nodata st=", (ULONG)UfsBugcheckProviderStatus);
+    }
+}
+
+
 ULONG
 DriverEntry(
     _In_ PVOID Argument1,
@@ -8105,8 +8221,12 @@ DriverEntry(
     )
 {
     HW_INITIALIZATION_DATA InitializationData = {0};
+    ULONG Status;
 
+    UfsEarlyMark("=DRVENTRY", 0);
     UfsInitializeKernelContract();
+    KeInitializeCallbackRecord(&UfsEarlyBugcheckRecord);
+    UfsEarlyMark("=BCREG", (ULONGLONG)KeRegisterBugCheckCallback(&UfsEarlyBugcheckRecord, UfsEarlyBugcheckCallback, NULL, 0, (PUCHAR)"UfsEarly"));
 
     //
     // Total physical memory, captured here for the same reason: this is the only
@@ -8138,12 +8258,14 @@ DriverEntry(
     InitializationData.SrbTypeFlags = SRB_TYPE_FLAG_SCSI_REQUEST_BLOCK;
     InitializationData.AddressTypeFlags = ADDRESS_TYPE_FLAG_BTL8;
 
-    return StorPortInitialize(
+    Status = StorPortInitialize(
         Argument1,
         Argument2,
         &InitializationData,
         NULL
         );
+    UfsEarlyMark("=STORPORTINIT st=", Status);
+    return Status;
 }
 
 ULONG
@@ -8163,6 +8285,11 @@ UfsHwFindAdapter(
     UNREFERENCED_PARAMETER(ArgumentString);
 
     *Again = FALSE;
+    UfsEarlyMark("=FINDADAPTER n=", ConfigInfo->NumberOfAccessRanges);
+    UfsEarlyMark("=FA range0=",
+        (ConfigInfo->NumberOfAccessRanges != 0) ?
+            (ULONGLONG)(*ConfigInfo->AccessRanges)[0].RangeStart.QuadPart : 0ULL);
+    UfsEarlyMark("=FA irq=", ConfigInfo->BusInterruptLevel);
     RtlZeroMemory(Adapter, sizeof(*Adapter));
     UfsInitializeDiagnostic(Adapter);
     UfsSetDiagnosticStage(Adapter, UFS_DIAG_STAGE_FIND_ADAPTER_ENTERED);

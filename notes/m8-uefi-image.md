@@ -1004,3 +1004,12 @@ container header version. The proven edk2-exynos path writes `boot.img` to the *
 (sda14) and boots the normal Android boot flow, where ABL reads the header-v2 container's DTB.
 NEXT (needs consent, destructive to Android boot): write `pack-out-v2.img` to sda14, reboot, observe.
 Rollback = reflash stock `boot.img` (extracted at C:\Users\ilya\AppData\Local\Temp\opencode\stock\boot.img).
+
+## B19 - boot #4 WRITE: v2 image to the BOOT partition (sda14), consented; reboot NORMAL pending
+
+User consented ("do what you need"), back in TWRP. Confirmed by-name/boot -> sda14, by-name/recovery -> sda15.
+Pushed pack-out-v2.img (sha256 53142c71...), `dd` to /dev/block/by-name/boot (7 587 840 B), read back
+first 7410 KiB sha256 == candidate (byte-exact). This is the proven edk2-exynos path (boot.img on the
+boot partition, normal Android boot flow reads the header-v2 container's DTB). `adb reboot` (normal)
+issued next. PENDING: panel observation. Expect UEFI paint (RED band rows 200-649, then GREEN rows
+750-1199) if the DT check clears and the shim runs.

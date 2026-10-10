@@ -376,3 +376,38 @@ is BSD for the same reason.
   is **Lima** (GL 2.1-era, no Vulkan); our G76 Bifrost's open driver is
   **panfrost** (GLES 3.1 / Vulkan 1.3). If anyone ever does the open rung-2
   path, the 9820 is the BETTER target of the two, not the worse.
+
+### D5b(d) — panfrost-on-Windows sizing (2026-10-10)
+
+- *(fact)* Mesa builds on Windows with MSVC for **AARCH64** explicitly
+  (docs.mesa3d.org/install.html: "Visual Studio 2022 ... (ARM, AARCH64,
+  ARM64EC, X86, X64)").
+- *(fact)* Every Mesa hardware driver's kernel interface is a **DRM winsys**
+  (gitlab tree `src/gallium/winsys/`: panfrost, lima, freedreno, ... all
+  fd/libdrm-based). There is no Windows winsys for panfrost in tree today.
+- *(correction to my earlier ladder)* Driver pairing is strict:
+  **panfrost userspace <-> panfrost DRM kernel driver** (mainline,
+  `drivers/gpu/drm/panfrost/`), while **kbase <-> the closed Arm DDK
+  userspace**. "Port kbase + run panfrost" is NOT a thing — I had conflated
+  them. The coherent open rung-2 is: port the **panfrost DRM kernel driver**
+  to DXGK *and* port panfrost's winsys from libdrm/fd to a Windows device
+  handle.
+- *(recollection, needs verification)* The mechanism "Mesa userspace on
+  Windows over a vendor WDDM kernel driver" existed for Adreno (turnip/freedreno
+  on WoA via D3DKMT against Qualcomm's WDDM); today's Mesa main shows only
+  `tu_drm.c` in `src/freedreno/vulkan/`, so the Windows backend may have been
+  dropped or lives in forks — flagged, not relied on.
+- *(verdict, inference)* Rung 2 = two coordinated ports (kernel: panfrost DRM
+  -> DXGK, incl. replacing GEM/scheduler with DXGK allocation + present
+  machinery; userspace: panfrost winsys -> Win32). Multi-person-month. The
+  kernel-side material for the ALTERNATIVE closed pairing (kbase r10p0..r32p1
+  in our kernel) is useless without the closed DDK userspace. So the open
+  ladder's real cost center is the DXGK port, whichever kernel driver is
+  chosen.
+- *(fact, for the record)* DWM acceleration needs D3D9Ex/D3D11 via the WDDM
+  DDI — Mesa gives GL/Vulkan, so even rung-2 needs a D3D story for the
+  "GPU-accelerated DWM" screenshot specifically (DXVK-style translation is
+  not how the Windows DDI works; the ICD itself must speak D3D). This raises
+  the bar on what the S9+ screenshot implies — and makes a display-only WDDM
+  + WARP reading (which we ALREADY get from in-box BasicDisplay) the
+  conservative interpretation.

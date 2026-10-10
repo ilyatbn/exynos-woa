@@ -1402,3 +1402,14 @@ Boot #12 = boot #11 shim (unchanged) + this FD: %TEMP%\b48\boot12-v2.img sha256 
 
 Pushed (on-device sha256 9a923dd8...4f18), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
 9a923dd8df7e7dd5f5e4a445dbf6879925a8730a895e41fc4037bd46cec24f18 (byte-exact). `adb reboot` next.
+
+## B50 - boot #12 OBSERVED: 4th checkpoint drawn -> the DC ZVA fix is CONFIRMED; next death: before DXE FB driver
+
+User photo: "we have 4 lines now". Shim strips/bar/copy-done as boot #11; FD checkpoints 1300, 1420,
+1540 and NOW 1660 (ArmPlatformGetBootMode, after MemoryPeim/MMU-on) drawn; 1780
+(SimpleFramebufferDxeEntry) not. Still loops.
+=> B48 confirmed on device: BaseMemoryLibOptDxe's DC ZVA with the MMU off was the SEC killer.
+Next fault window: PeilessSec after GetBootMode (ProcessLibraryConstructorList, LoadDxeCoreFromFv:
+FV decompress + DxeCore load) -> DxeCore start -> DXE dispatch up to SimpleFramebufferDxe.
+A reset (not a hang) means the fault was not caught by EDK2's own handlers (CpuDxe's would dead-loop),
+so it is before CpuDxe, or an EL2/EL3-level abort.

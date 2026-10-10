@@ -287,3 +287,26 @@ Fix (boot #30): Beyond0LteUfsHcDxe wraps the UFS EXT_SCSI_PASS_THRU.PassThru (pr
 10/16 larger than 1 MiB as consecutive <= 1 MiB commands (blocking requests; short/failed chunk reports the bytes
 moved). STATIC_ASSERT 1 MiB/4 KB + 1 <= 511. Build exit 0, FVMAIN_COMPACT 1624 B free.
 Boot #30 = W18 split + reserved HOBs + dump off (bank0-only still): s10e-artifacts\boot30-v2.img sha256 e67f4e30d9c80b76022d617aaeb03702e7d5852684db50c1da38979ec9b2f06e, FVMAIN_COMPACT 2064 B free; flashed, readback verified.
+
+## W19 - boot #30 OBSERVED (same fault) + boot log to the ESP; boot #31 (2026-10-10)
+User: boot #30 (1 MiB SCSI split + reserved HOBs) shows the SAME winload fault -> the PRDT-overflow theory is not
+(or not alone) the cause. The split stays (it is a real bug for > 2 MB transfers).
+User asked for (1) boot text in a file read from TWRP and (2) automatic reboot to recovery after a failure.
+(1) done in boot #31:
+- Beyond0LteFbSerialPortLib also appends every byte to a 1 MiB RAM ring at 0x8FF00000 (Beyond0LteBootLog.h; a
+  FIRMWARE-CHOSEN address in bank0 RAM below the FD, clear of the monitor reservations), reset when the MMU is off
+  (SEC) and the last writer had it on (= new boot). PlatformMemoryMapLib reserves it (EfiReservedMemoryType HOB).
+- New Beyond0LteBootLogDxe (FILE_GUID ...5548, depex CpuArch): at ReadyToBoot writes \UEFILOG.TXT on the FAT volume
+  that holds \EFI\Microsoft\Boot\BCD (CACHE); registers its own SYNC + SERROR handler via CpuArch
+  RegisterInterruptHandler: banner (keeps the panel exception mode), ESR/FAR/SP/SPSR, PC/LR + FP backtrace with
+  image names (debug image info table), X0-X30, 16 code words around ELR, the loaded-image list, stack; then
+  flushes UEFILOG.TXT and parks (BEYOND0LTE_AUTO_RECOVERY 0 until the reboot-reason sequence is verified).
+- RISK: first UEFI WRITES to UFS ever on the 9820. Safety net: hashes of efs, sec_efs, cpefs, param, up_param,
+  steady, keystorage, persistent, misc, uh, uhcfg, dtb, dtbo, recovery, boot, vbmeta, GPT (LBA 0-5) and the first
+  16 MiB of userdata taken before (notes/s10e-hashes-before-boot31.txt) - compare after the boot.
+  EFS hash already differed from the 22:19 backup: only the ext4 superblock (0x42C/0x430/0x434/0x578: mount and
+  write time, mount count 0x2C->0x31) - TWRP mounts /efs at every start; benign.
+(2) in progress: a subagent extracts the 9820 reboot-reason / SWRESET / watchdog sequence from Samsung's kernel
+  (and sboot) binaries; no constant is used before that.
+Build exit 0 (FVMAIN_COMPACT auto-sized, it lives in a 7 MB FD region - the "bytes free" figure is only padding).
+boot31-v2.img sha256 3bf6bf1b9ba58ec58c74b8ff2c1704b0c3464e4391bcaa78489953d5703e3f2a.

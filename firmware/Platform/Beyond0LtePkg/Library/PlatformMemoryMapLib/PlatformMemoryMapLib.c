@@ -28,6 +28,7 @@
 #include <Platform/Exynos9820.h>
 
 #include "Beyond0LteCheckpoint.h"
+#include "../Beyond0LteFbSerialPortLib/Beyond0LteBootLog.h"
 
 #define BEYOND0LTE_PUBLISH_HIGH_BANKS  0
 
@@ -387,6 +388,9 @@ ArmPlatformGetVirtualMemoryMap (
             );
         }
       }
+
+      // W19: the RAM boot log (Beyond0LteBootLog.h) - mapped as bank0 RAM, kept out of every allocator.
+      BuildMemoryAllocationHob (BEYOND0LTE_BOOTLOG_BASE, BEYOND0LTE_BOOTLOG_SIZE, EfiReservedMemoryType);
     }
   }
 

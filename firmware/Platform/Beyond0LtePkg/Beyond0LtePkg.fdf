@@ -237,6 +237,8 @@
   INF MdeModulePkg/Universal/Acpi/AcpiTableDxe/AcpiTableDxe.inf
   INF RuleOverride = ACPITABLE Platform/Beyond0LtePkg/AcpiTables/AcpiTables.inf
   INF Platform/Beyond0LtePkg/Drivers/Beyond0LteAcpiPlatformDxe/Beyond0LteAcpiPlatformDxe.inf
+  # W19: RAM boot log -> UEFILOG.TXT on the ESP (ReadyToBoot + exception handler)
+  INF Platform/Beyond0LtePkg/Drivers/Beyond0LteBootLogDxe/Beyond0LteBootLogDxe.inf
 
   #
   # --- RAM discovery: Beyond0LteRamManagerDxe publishes the verified high

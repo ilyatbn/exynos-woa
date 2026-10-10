@@ -16,6 +16,7 @@
 [Sources]
   Beyond0LteFbSerialPortLib.c
   Beyond0LteFont8x16.h
+  Beyond0LteBootLog.h
 
 [Packages]
   MdePkg/MdePkg.dec

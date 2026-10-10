@@ -568,6 +568,8 @@
   MdeModulePkg/Universal/Acpi/AcpiTableDxe/AcpiTableDxe.inf
   Platform/Beyond0LtePkg/AcpiTables/AcpiTables.inf
   Platform/Beyond0LtePkg/Drivers/Beyond0LteAcpiPlatformDxe/Beyond0LteAcpiPlatformDxe.inf
+  # W19: RAM boot log -> UEFILOG.TXT on the ESP (ReadyToBoot + exception handler)
+  Platform/Beyond0LtePkg/Drivers/Beyond0LteBootLogDxe/Beyond0LteBootLogDxe.inf
 
   # --- RAM discovery: Beyond0LteRamManagerDxe is the ported 9810 manager. It
   #     publishes the two verified high banks as GCD SystemMemory, which is a

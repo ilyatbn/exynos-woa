@@ -39,6 +39,7 @@
 #include <Platform/Exynos9820.h>
 
 #include "Beyond0LteFont8x16.h"
+#include "Beyond0LteBootLog.h"
 
 #define GLYPH_W     8u
 #define GLYPH_H     16u
@@ -67,6 +68,64 @@ STATIC_ASSERT (ROWS * CELL_H < EXYNOS_FB_HEIGHT, "exception-mode flags need an u
 // Exception-mode flags: pixels 0 and 1 of the last scanline (below the text area).
 #define FB_FROZEN  (FB_PIXELS[(UINTN)(EXYNOS_FB_HEIGHT - 1) * EXYNOS_FB_STRIDE_PIXELS])
 #define FB_FULL    (FB_PIXELS[(UINTN)(EXYNOS_FB_HEIGHT - 1) * EXYNOS_FB_STRIDE_PIXELS + 1])
+
+//
+// RAM boot log (m10 W19): every byte written here also goes to a 1 MiB ring in reserved RAM
+// (Beyond0LteBootLog.h), which Beyond0LteBootLogDxe copies to \UEFILOG.TXT on the ESP, so a boot
+// can be read from TWRP instead of photographed. The ring is reset at the first write of a new
+// boot: SEC runs with the MMU off, every later module with it on, so "MMU off now, last writer
+// had it on" can only be the next boot. Byte stores only (the MMU-off view is Device memory).
+//
+#define BOOTLOG_HDR   ((volatile BEYOND0LTE_BOOTLOG_HEADER *)(UINTN)BEYOND0LTE_BOOTLOG_BASE)
+#define BOOTLOG_DATA  ((volatile UINT8 *)(UINTN)(BEYOND0LTE_BOOTLOG_BASE + sizeof (BEYOND0LTE_BOOTLOG_HEADER)))
+
+STATIC
+BOOLEAN
+MmuIsOn (
+  VOID
+  )
+{
+  UINT64  Sctlr;
+
+  __asm__ __volatile__ ("mrs %0, sctlr_el1" : "=r" (Sctlr));
+  return (BOOLEAN)((Sctlr & 1u) != 0);
+}
+
+STATIC
+VOID
+BootLogAppend (
+  IN CONST UINT8  *Buffer,
+  IN UINTN        NumberOfBytes
+  )
+{
+  volatile BEYOND0LTE_BOOTLOG_HEADER  *Hdr;
+  BOOLEAN                             MmuOn;
+  UINT32                              Head;
+  UINTN                               Index;
+
+  Hdr   = BOOTLOG_HDR;
+  MmuOn = MmuIsOn ();
+  if ((Hdr->Magic != BEYOND0LTE_BOOTLOG_MAGIC) || (Hdr->Head >= BEYOND0LTE_BOOTLOG_DATA_SIZE) ||
+      (!MmuOn && (Hdr->LastMmuOn != 0)))
+  {
+    Hdr->BootCount = (Hdr->Magic == BEYOND0LTE_BOOTLOG_MAGIC) ? Hdr->BootCount + 1 : 1;
+    Hdr->Head      = 0;
+    Hdr->Wrapped   = 0;
+    Hdr->Magic     = BEYOND0LTE_BOOTLOG_MAGIC;
+  }
+
+  Hdr->LastMmuOn = MmuOn ? 1u : 0u;
+  Head           = Hdr->Head;
+  for (Index = 0; Index < NumberOfBytes; Index++) {
+    BOOTLOG_DATA[Head] = Buffer[Index];
+    if (++Head >= BEYOND0LTE_BOOTLOG_DATA_SIZE) {
+      Head         = 0;
+      Hdr->Wrapped = 1;
+    }
+  }
+
+  Hdr->Head = Head;
+}
 
 STATIC
 VOID
@@ -205,6 +264,7 @@ SerialPortWrite (
     return 0;
   }
 
+  BootLogAppend (Buffer, NumberOfBytes);   // before the panel: exception mode drops panel output
   St = FbState ();
   if ((FB_FROZEN != CON_MAGIC) && HasExceptionBanner (Buffer, NumberOfBytes)) {
     for (Index = 0; Index < ROWS; Index++) {

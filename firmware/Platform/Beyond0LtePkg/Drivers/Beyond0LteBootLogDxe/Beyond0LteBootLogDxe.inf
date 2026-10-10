@@ -1,0 +1,42 @@
+## @file
+#  Beyond0LteBootLogDxe - copies the RAM boot log to \UEFILOG.TXT on the ESP at ReadyToBoot and
+#  from its own synchronous-exception / SError handler (notes/m10-windows-deploy-plan.md W19).
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = Beyond0LteBootLogDxe
+  FILE_GUID                      = 11111111-2222-3333-4444-555555555548
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 0.1
+  ENTRY_POINT                    = Beyond0LteBootLogEntry
+
+[Sources]
+  Beyond0LteBootLogDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  Silicon/Exynos9820Pkg/Exynos9820Pkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  UefiLib
+  BaseLib
+  BaseMemoryLib
+  MemoryAllocationLib
+  PrintLib
+  PeCoffGetEntryPointLib
+  DebugLib
+
+[Protocols]
+  gEfiSimpleFileSystemProtocolGuid   ## CONSUMES
+  gEfiCpuArchProtocolGuid            ## CONSUMES
+
+[Guids]
+  gEfiEventReadyToBootGuid           ## CONSUMES ## Event
+  gEfiDebugImageInfoTableGuid        ## CONSUMES ## SystemTable
+
+[Depex]
+  gEfiCpuArchProtocolGuid

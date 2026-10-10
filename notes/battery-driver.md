@@ -135,6 +135,57 @@ controller variant for Windows (CMU/GPIO bring-up off) + SpbCx battery
 class-extension driver skeleton, (d) validate % in the Windows tray against
 the UEFI PoC reading.
 
+### 2026-10-10 — UEFI PoC written (task a); build + device run pending
+
+Implemented in `Beyond0LteUsbHostDxe` (the only driver that already owns the
+hsi2c_45 polled-I2C path):
+
+- `UsbHw.h`: gauge client `0x36` + registers `STATUS/REMCAP_REP/SOCREP/
+  TEMPERATURE/VCELL/AVG_CURRENT/FULLCAP_REP` with `[K]` cites;
+  `MAX77705_FG_RESISTOR = 2` marked **UNVERIFIED on device** (affects mA/mAh
+  only, never %).
+- `FuelGauge.c` (new): `Max77705FgReadWord` (reg-pointer-no-stop + 2-byte
+  restart read = the vendor's `bulk_read(reg,2)`; matches the two-phase
+  pattern already proven on this bus in `Pmic.c:Max77705RegRead`), plus
+  SOC/VCELL/AVG_I/TEMP readers reproducing the vendor's integer math
+  **verbatim** (including VCELL's low-12-bit truncation), and
+  `FuelGaugeReport()` printing `[FG] SOC x.x% ...` at DEBUG_INFO.
+  **Read-only: no gauge register is ever written.**
+- `Pmic.c`: `Hsi2cXfer` de-`STATIC`ed (declared in `UsbHostInternal.h`).
+- Entry: report runs right after `PmicBusInit()` success, `(VOID)`-cast —
+  a gauge failure can never affect host bring-up.
+- INF: `FuelGauge.c` added to `[Sources]`.
+
+Verification status (rule 7 — a syntax check is not a build, a build is not
+a boot):
+- **done**: `gcc -fsyntax-only -fshort-wchar` with EDK2 x64 headers + stub
+  AutoGen.h — all 5 modules of the driver pass. This is a syntax/prototype
+  check only; the real ARM64 GCC/MSVC build has not run.
+- **blocked on device**: full `Beyond0LtePkg` build + flash + boot log read.
+  The S10e is in use by the Windows-boot agent (2026-10-10); when free, the
+  check is one line in the boot log: `[FG] SOC` vs Android's own % on the
+  same battery state.
+- Harsh-review notes: temp/current/SOC conversions diffed line-by-line
+  against the vendor source (all match); `Max77705FgReadWord` kept STATIC
+  (single consumer in-file).
+
+### 2026-10-10 — post-commit review of c014c66 (harsh critic)
+
+Checked mechanically, not by re-reading:
+- "read-only" claim: `grep MmioWrite|RegWrite` in FuelGauge.c → **zero hits**;
+  the only `FALSE` (write) transfer is the 1-byte register-pointer phase
+  without STOP, exactly the pattern `Max77705RegRead` already runs on this
+  bus. ✔
+- `Pmic.c` diff is exactly one line (STATIC removed from `Hsi2cXfer`); the
+  one remaining `STATIC` there is `Hsi2cPollIntStat` (still file-local). ✔
+- gauge STATUS absent-bit test matches vendor (`status_data[0] & 1<<3`). ✔
+- `-Wall` syntax pass, no warnings. ✔
+Found: nothing that changes behaviour. One accepted imprecision: the syntax
+check used x64 `ProcessorBind.h` (UINTN is 64-bit on both, so prototype
+compat is representative, but it is **not** the ARM64 build). Follow-up
+task queued in M14 row: real build + boot-log validation when the phone is
+free.
+
 ## Sources
 
 - notes/dock-desktop.md §8 (repo grep result: no battery/UPS driver)

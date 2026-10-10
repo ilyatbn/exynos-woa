@@ -310,5 +310,25 @@
 #define MAX77705_CC_STATUS0       0x0A    // CCStat[2:0]: 0 none, 1 SINK, 2 SOURCE
 #define   MAX77705_CCSTAT_SOURCE            2       // [K]
 #define MAX77705_CC_INT_M         0x0F    // init mask 0x20 (VCONNSCI masked) [K]
+// Fuel gauge block (client 0x36) [K max77705-private.h enum
+// max77705_fuelgauge_reg, max77705_fuelgauge.c conversions]. Maxim
+// ModelGauge m5-class, 16-bit little-endian words (bulk_read(reg,2),
+// value = hi<<8|lo). READ-ONLY from UEFI: the gauge already runs from the
+// bootloader; we never write its registers.
+#define MAX77705_FG_ADDR          0x36    // [K] 0x6C>>1
+#define MAX77705_FG_STATUS        0x00    // [K] low bit3 = battery absent
+#define   MAX77705_FG_STATUS_ABSENT         BIT3
+#define MAX77705_FG_REMCAP_REP    0x05    // [K] reported remaining capacity
+#define MAX77705_FG_SOCREP        0x06    // [K] reported SOC, 0.1% units
+#define MAX77705_FG_TEMPERATURE   0x08    // [K] 0.039 degC/LSB, hi byte signed
+#define MAX77705_FG_VCELL         0x09    // [K] instantaneous cell voltage
+#define MAX77705_FG_AVG_CURRENT   0x0B    // [K] signed, sense-R scaled
+#define MAX77705_FG_FULLCAP_REP   0x35    // [K] reported full capacity
+
+// fg_resistor: vendor comment "standard value is 2 which means 5mOhm"
+// [K max77705_fuelgauge.c:read_isys]. Capacity/current scaling multiplies
+// the raw word by fg_resistor/2. UNVERIFIED for beyond0lte (DT battery node
+// read closes it); only affects mA/mAh figures, never the SOC %.
+#define MAX77705_FG_RESISTOR      2       // [K-default, UNVERIFIED on device]
 
 #endif // USB_HW_H_

@@ -43,7 +43,6 @@ Hsi2cPollIntStat (IN UINT32 Wanted, OUT UINT32 *Seen)
   return 0;
 }
 
-STATIC
 EFI_STATUS
 Hsi2cXfer (IN UINT8 SlaveAddr, IN BOOLEAN Read, IN OUT UINT8 *Data, IN UINTN Length, IN BOOLEAN Stop)
 {

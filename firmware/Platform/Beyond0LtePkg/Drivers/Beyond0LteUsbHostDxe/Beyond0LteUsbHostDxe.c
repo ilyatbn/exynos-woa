@@ -58,6 +58,11 @@ Beyond0LteUsbHostEntry (
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "%a: HSI2C45 init %r — VBUS will stay OFF\n",
             __func__, Status));
+  } else {
+    // Battery PoC read (notes/battery-driver.md): proves the gauge path and
+    // gives a boot-time SOC we can cross-check against Android. Report-only;
+    // a failure here must never affect host bring-up.
+    (VOID)FuelGaugeReport ();
   }
 
   // 2. PHY (USB2-first; SS PMA held down).

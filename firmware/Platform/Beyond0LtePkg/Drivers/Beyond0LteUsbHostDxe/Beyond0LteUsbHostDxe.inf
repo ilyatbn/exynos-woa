@@ -25,6 +25,7 @@
   UsbPhy.c
   Dwc3.c
   Pmic.c
+  FuelGauge.c
   UsbHw.h
   UsbHostInternal.h
 

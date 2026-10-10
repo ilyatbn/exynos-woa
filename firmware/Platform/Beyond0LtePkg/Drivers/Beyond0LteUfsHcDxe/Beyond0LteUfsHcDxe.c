@@ -48,6 +48,7 @@
 #include <Protocol/UfsHostControllerPlatform.h>
 #include <Protocol/DevicePath.h>
 #include <Protocol/HardwareInterrupt.h>
+#include <Protocol/ScsiPassThruExt.h>
 
 #include <Platform/Exynos9820.h>
 
@@ -4503,6 +4504,209 @@ UfsHcWrite (
   Driver entry: publish the UFS host controller protocol + a device path on a
   fresh handle so UfsPassThruDxe binds and drives the Exynos UFS link.
 **/
+//
+// m10 W18: split large SCSI READ/WRITE commands before they reach the PRDT.
+//
+// The doorbell hook rewrites every PRDT as <= 4 KB entries at the controller's 128 B stride, and
+// DW7 PrdtL is a 16-bit BYTE count, so one command carries at most UTP_PRDT_MAX_SPLIT (511)
+// entries, ~2 MB. Above that the hook only logged "PRDT split exceeds" and left EDK2's packed
+// 16 B entries in place while DW7 still declared 128 B entries - the controller then reads
+// garbage descriptors and DMAs disk data to arbitrary addresses. winload faulted right after
+// BlFileLoad with a callee-saved stack slot overwritten (W16/W17). UfsPassThru has no
+// EFI_BAD_BUFFER_SIZE path, so the split is done here: EXT_SCSI_PASS_THRU.PassThru of the UFS
+// controller is wrapped and READ/WRITE (10/16) larger than UFS_SCSI_SPLIT_BYTES are issued as
+// consecutive commands of at most that size (blocking requests only).
+//
+#define UFS_SCSI_SPLIT_BYTES  (1024u * 1024u)   // 256 x 4 KB entries (+1 for a misaligned start)
+
+STATIC_ASSERT (UFS_SCSI_SPLIT_BYTES / 0x1000u + 1u <= UTP_PRDT_MAX_SPLIT, "split must fit the PRDT");
+
+STATIC EFI_EXT_SCSI_PASS_THRU_PASSTHRU  mOrigPassThru = NULL;
+STATIC VOID                             *mPassThruReg = NULL;
+STATIC UINT32                           mSplitLogged  = 0;
+
+STATIC
+EFI_STATUS
+EFIAPI
+Beyond0LteSplitPassThru (
+  IN     EFI_EXT_SCSI_PASS_THRU_PROTOCOL             *This,
+  IN     UINT8                                       *Target,
+  IN     UINT64                                      Lun,
+  IN OUT EFI_EXT_SCSI_PASS_THRU_SCSI_REQUEST_PACKET  *Packet,
+  IN     EFI_EVENT                                   Event OPTIONAL
+  )
+{
+  EFI_EXT_SCSI_PASS_THRU_SCSI_REQUEST_PACKET  Sub;
+  UINT8                                       SubCdb[16];
+  UINT8                                       *Cdb;
+  UINT8                                       Op;
+  BOOLEAN                                     Is16;
+  BOOLEAN                                     IsRead;
+  UINT64                                      Lba;
+  UINT32                                      Blocks;
+  UINT32                                      Total;
+  UINT32                                      BlockSize;
+  UINT32                                      ChunkBlocks;
+  UINT32                                      Done;
+  UINT32                                      Count;
+  UINT32                                      Got;
+  UINT8                                       SenseLen;
+  UINTN                                       Index;
+  EFI_STATUS                                  Status;
+
+  if ((Event != NULL) || (Packet == NULL) || (Packet->Cdb == NULL)) {
+    return mOrigPassThru (This, Target, Lun, Packet, Event);
+  }
+
+  Cdb = (UINT8 *)Packet->Cdb;
+  Op  = Cdb[0];
+  if ((Op != 0x28) && (Op != 0x2A) && (Op != 0x88) && (Op != 0x8A)) {
+    return mOrigPassThru (This, Target, Lun, Packet, Event);
+  }
+
+  Is16   = (BOOLEAN)((Op == 0x88) || (Op == 0x8A));
+  IsRead = (BOOLEAN)((Op == 0x28) || (Op == 0x88));
+  Total  = IsRead ? Packet->InTransferLength : Packet->OutTransferLength;
+  if ((Total <= UFS_SCSI_SPLIT_BYTES) || (Packet->CdbLength > sizeof (SubCdb)) ||
+      (Packet->CdbLength < (Is16 ? 16u : 10u)))
+  {
+    return mOrigPassThru (This, Target, Lun, Packet, Event);
+  }
+
+  if (Is16) {
+    Lba = 0;
+    for (Index = 2; Index < 10; Index++) {
+      Lba = LShiftU64 (Lba, 8) | Cdb[Index];
+    }
+
+    Blocks = ((UINT32)Cdb[10] << 24) | ((UINT32)Cdb[11] << 16) | ((UINT32)Cdb[12] << 8) | Cdb[13];
+  } else {
+    Lba    = ((UINT32)Cdb[2] << 24) | ((UINT32)Cdb[3] << 16) | ((UINT32)Cdb[4] << 8) | Cdb[5];
+    Blocks = ((UINT32)Cdb[7] << 8) | Cdb[8];
+  }
+
+  if ((Blocks == 0) || ((Total % Blocks) != 0)) {
+    return mOrigPassThru (This, Target, Lun, Packet, Event);
+  }
+
+  BlockSize = Total / Blocks;
+  if ((BlockSize > UFS_SCSI_SPLIT_BYTES) || ((UFS_SCSI_SPLIT_BYTES % BlockSize) != 0)) {
+    return mOrigPassThru (This, Target, Lun, Packet, Event);
+  }
+
+  if (mSplitLogged < 4) {
+    mSplitLogged++;
+    DEBUG ((DEBUG_ERROR, "UfsHc: split op 0x%02x lba 0x%lx %u x %u B\n", Op, Lba, Blocks, BlockSize));
+  }
+
+  ChunkBlocks = UFS_SCSI_SPLIT_BYTES / BlockSize;
+  SenseLen    = Packet->SenseDataLength;
+  CopyMem (SubCdb, Cdb, Packet->CdbLength);
+  Status = EFI_SUCCESS;
+  Done   = 0;
+  while (Done < Blocks) {
+    Count = MIN (ChunkBlocks, Blocks - Done);
+    CopyMem (&Sub, Packet, sizeof (Sub));
+    Sub.Cdb             = SubCdb;
+    Sub.SenseDataLength = SenseLen;
+    if (Is16) {
+      UINT64  L = Lba + Done;
+
+      for (Index = 9; Index >= 2; Index--) {
+        SubCdb[Index] = (UINT8)L;
+        L             = RShiftU64 (L, 8);
+      }
+
+      SubCdb[10] = (UINT8)(Count >> 24);
+      SubCdb[11] = (UINT8)(Count >> 16);
+      SubCdb[12] = (UINT8)(Count >> 8);
+      SubCdb[13] = (UINT8)Count;
+    } else {
+      UINT32  L = (UINT32)Lba + Done;
+
+      SubCdb[2] = (UINT8)(L >> 24);
+      SubCdb[3] = (UINT8)(L >> 16);
+      SubCdb[4] = (UINT8)(L >> 8);
+      SubCdb[5] = (UINT8)L;
+      SubCdb[7] = (UINT8)(Count >> 8);
+      SubCdb[8] = (UINT8)Count;
+    }
+
+    if (IsRead) {
+      Sub.InDataBuffer     = (UINT8 *)Packet->InDataBuffer + (UINTN)Done * BlockSize;
+      Sub.InTransferLength = Count * BlockSize;
+    } else {
+      Sub.OutDataBuffer     = (UINT8 *)Packet->OutDataBuffer + (UINTN)Done * BlockSize;
+      Sub.OutTransferLength = Count * BlockSize;
+    }
+
+    Status                    = mOrigPassThru (This, Target, Lun, &Sub, NULL);
+    Got                       = IsRead ? Sub.InTransferLength : Sub.OutTransferLength;
+    Packet->HostAdapterStatus = Sub.HostAdapterStatus;
+    Packet->TargetStatus      = Sub.TargetStatus;
+    Packet->SenseDataLength   = Sub.SenseDataLength;
+    if (EFI_ERROR (Status) || (Sub.HostAdapterStatus != 0) || (Sub.TargetStatus != 0) ||
+        (Got != Count * BlockSize))
+    {
+      Got = Done * BlockSize + Got;   // bytes actually moved, reported like a short transfer
+      if (IsRead) {
+        Packet->InTransferLength = Got;
+      } else {
+        Packet->OutTransferLength = Got;
+      }
+
+      return Status;
+    }
+
+    Done += Count;
+  }
+
+  return Status;
+}
+
+STATIC
+VOID
+EFIAPI
+Beyond0LteOnExtScsiPassThru (
+  IN EFI_EVENT  Event,
+  IN VOID       *Context
+  )
+{
+  EFI_HANDLE                       *Handles;
+  UINTN                            Count;
+  UINTN                            Index;
+  EFI_EXT_SCSI_PASS_THRU_PROTOCOL  *Pt;
+
+  while (!EFI_ERROR (
+            gBS->LocateHandleBuffer (
+                   ByRegisterNotify,
+                   &gEfiExtScsiPassThruProtocolGuid,
+                   mPassThruReg,
+                   &Count,
+                   &Handles
+                   )
+            ))
+  {
+    for (Index = 0; Index < Count; Index++) {
+      if (EFI_ERROR (gBS->HandleProtocol (Handles[Index], &gEfiExtScsiPassThruProtocolGuid, (VOID **)&Pt)) ||
+          (Pt->PassThru == Beyond0LteSplitPassThru))
+      {
+        continue;
+      }
+
+      if (mOrigPassThru == NULL) {
+        mOrigPassThru = Pt->PassThru;
+        Pt->PassThru  = Beyond0LteSplitPassThru;
+        DEBUG ((DEBUG_ERROR, "UfsHc: ExtScsiPassThru wrapped (split > %u B)\n", UFS_SCSI_SPLIT_BYTES));
+      } else if (Pt->PassThru == mOrigPassThru) {
+        Pt->PassThru = Beyond0LteSplitPassThru;
+      }
+    }
+
+    FreePool (Handles);
+  }
+}
+
 EFI_STATUS
 EFIAPI
 Beyond0LteUfsHcEntry (
@@ -4586,6 +4790,14 @@ Beyond0LteUfsHcEntry (
   // (UFS completion interrupt is registered from the PostHce callback, where the
   // GIC HardwareInterrupt protocol is available — not here at entry, where it isn't.)
   //
+
+  {
+    EFI_EVENT  PtEvent;
+
+    if (!EFI_ERROR (gBS->CreateEvent (EVT_NOTIFY_SIGNAL, TPL_CALLBACK, Beyond0LteOnExtScsiPassThru, NULL, &PtEvent))) {
+      gBS->RegisterProtocolNotify (&gEfiExtScsiPassThruProtocolGuid, PtEvent, &mPassThruReg);
+    }
+  }
 
   DEBUG ((DEBUG_INFO, "Beyond0LteUfsHc: UFS host controller protocol up at 0x%lx.\n",
     (UINT64)EXYNOS_UFS_HCI_BASE));

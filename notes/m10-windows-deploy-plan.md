@@ -268,3 +268,21 @@ top of bank0 0xBAB00000) because our UEFI memory map does not mark it allocated.
 Boot #29: Beyond0LteAcpiPlatformDxe gains BEYOND0LTE_MEMMAP_DUMP (ReadyToBoot event): prints "MMAP n=.. sp=..", then
 every descriptor "type base+pages" two per line, then holds 20 s. Build exit 0 (FVMAIN_COMPACT 2352 B free), still
 bank0-only. boot29-v2.img sha256 ef9d5840709cfbe6310b24b86eebc7e762749482de090f511b9c03a6b788b5d7.
+
+## W18 - boot #29 OBSERVED (memory map) + root-cause candidate: UFS PRDT overflow on >2 MB reads (2026-10-10)
+Photo notes/img-boot29-mmap.jpg: MMAP n=37, sp=0xBAAFF810; last entry `4 BA2CB000+835` (BootServicesData up to
+0xBAB00000) contains the stack -> the stack IS allocated; the W17 overlap hypothesis is wrong.
+Side findings: (1) `7 80000000+10000` = 0x80000000..0x90000000 reported CONVENTIONAL with no hole: the monitor
+reservations (sec_debug_magic 0x80000000, kaslr 0x80100000, el2_code 0x87000000) are carved only from the MMU table,
+not from the UEFI memory map (MemoryInitPeiLib builds one resource HOB for the whole PcdSystemMemory range) -> Windows
+is told uH's code is free RAM. Follow-up task. (2) Nothing above 0xBAB00000 is in the map even with BANK12=1: W2 only
+mapped bank1/bank2 in the page tables, it never published them as RAM (no RamManagerDxe) - W3's "DXE used bank2"
+reading was wrong. Follow-up task.
+Root-cause candidate for the winload fault: Beyond0LteUfsHcDxe's doorbell hook splits every PRDT into <= 4 KB entries
+at a 128 B stride, capped at UTP_PRDT_MAX_SPLIT 511 (~2 MB; DW7 PrdtL is a 16-bit byte count). For a larger transfer
+it only logs "PRDT split exceeds" and leaves EDK2's packed 16 B entries while DW7 declares 128 B entries -> the
+controller reads garbage descriptors and DMAs disk data anywhere. winload's OslpPreloadDrtmBlobsFromWim -> BlFileLoad
+is the first large single read. ScsiDisk issues READ(10) up to 0xFFFF blocks; UfsPassThru has no BAD_BUFFER_SIZE path.
+Fix (boot #30): Beyond0LteUfsHcDxe wraps the UFS EXT_SCSI_PASS_THRU.PassThru (protocol notify) and issues READ/WRITE
+10/16 larger than 1 MiB as consecutive <= 1 MiB commands (blocking requests; short/failed chunk reports the bytes
+moved). STATIC_ASSERT 1 MiB/4 KB + 1 <= 511. Build exit 0, FVMAIN_COMPACT 1624 B free.

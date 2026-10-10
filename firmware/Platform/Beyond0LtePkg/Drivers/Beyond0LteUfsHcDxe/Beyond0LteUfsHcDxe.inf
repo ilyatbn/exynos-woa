@@ -55,6 +55,7 @@
   gEfiDevicePathProtocolGuid             ## PRODUCES
   gEdkiiUfsHcPlatformProtocolGuid        ## PRODUCES
   gHardwareInterruptProtocolGuid         ## CONSUMES
+  gEfiExtScsiPassThruProtocolGuid        ## CONSUMES ## NOTIFY (W18 large-transfer split)
 
 [Depex]
   TRUE

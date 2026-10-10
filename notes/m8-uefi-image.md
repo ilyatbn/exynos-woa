@@ -1286,3 +1286,8 @@ GetVirtualMemoryMap, 2700 GetBootMode (post-MMU), 2880 SimpleFramebufferDxeEntry
 Verified: build exit 0; PeilessSec.dll.map ArmPlatformPeiBootAction @0x25a0, disassembly is a pure
 leaf (no sp use): stores 0xFFFFFFFF from 0xCAB89200 (= FB + 2100*5760) x 0x34BC0 (=150*1440), dsb, ret;
 FD 7 340 032 B; shim unchanged vs boot #8. Image %TEMP%\b39\boot9-v2.img sha256 3f53e50d8bb6ff575125cbfac50f622df05fa53317be412a10ece0d043ebd0e2
+
+## B40 - boot #9 WRITE to BOOT sda14
+
+Pushed (on-device sha256 3f53e50d...bd0e2), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
+3f53e50d8bb6ff575125cbfac50f622df05fa53317be412a10ece0d043ebd0e2 (byte-exact). `adb reboot` next.

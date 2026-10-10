@@ -8,7 +8,7 @@ No branch has been pushed. All work so far is local commits.
 
 **If you are the *next* session, jump to [`/progress.md`](../../progress.md) first**
 — it is the live task list by ID, one file per task in `tasks/`, with a done
-indicator per task. The newest restart point in this file is **§18**; §16 and §17
+indicator per task. The newest restart point in this file is **§20** (§18/§19 are history); §16 and §17
 are history (the work they describe is committed and verified, do not redo it).
 Do not re-install VS or the WDK.
 
@@ -889,3 +889,26 @@ Unchanged: nothing written to the media without the user's explicit decision (th
 far were consented first-boot experiments); the 9810 packages byte-unchanged; no stage `Ready`
 without device validation; every uncertain constant named `UNVERIFIED` or marked a **DECISION**;
 one commit per task with the MILESTONES line moved in the same commit.
+
+## 20. Restart point — the live one (2026-10-10, after boot #4)
+
+**State.** Boot #4 put the header-v2 image (`pack-out-v2.img`) on the **BOOT** partition (sda14):
+sboot's DT check now passes, but the phone **boot-loops** (B19-B21). sda14 still holds that image,
+so Android does **not** boot until stock `boot.img` is restored. sda15 (recovery) holds the
+failed boot #3 image, so TWRP must be reflashed (Odin) to get a shell. Windows is NOT established.
+
+**Committed this session.** `b17d8f6` shim = the proven edk2-exynos minimal flow (144 B, built,
+not booted). `992b7d2` review fix. `500abfc` stale MILESTONES row. Notes: `notes/m8-uefi-image.md` B23.
+Uncommitted on purpose: `.gitignore` `info/*` and the T05 read-attempt note (left from the previous
+session for the user to review).
+
+**Next order (one commit each; every flash needs the user's consent):**
+1. Decide the FD base: prior art boots the 9820 FD at **`0x90000000`** (`configs/exynos9820.conf`);
+   ours is the DECISION `0x83300000`. If adopted, move all four lockstep sites (`.dsc`
+   Pcd{Fd,Fv}BaseAddress, `.fdf` FD_BASE_ADDRESS, shim `UEFI_BASE`, packer `-UefiBase`) and rebuild.
+   Check the FD's own PrePi stack/heap PCDs against prior art (0x80C00000 / 0x80C50000) too.
+2. Rebuild the FD, `pack-uefi-beyond0lte.ps1`, then `build-bootimg-v2.py` for a new v2 image.
+3. Boot #5: flash it to sda14 via TWRP, reboot normal, observe. The new shim does not paint, so
+   only "loop vs no loop vs UEFI output" is visible.
+4. Restore stock `boot.img` to sda14 whenever the user wants Android back.
+

@@ -1,83 +1,26 @@
 /* @file
- * bootshim.S â€” relocating loader that prepends the EDK II firmware device (FD).
+ * bootshim.S - relocating loader that prepends the EDK II firmware device (FD).
  *
- * Adapted from tools/BootShim/BootShim.S of edk2-msm (Renegade Project,
- * https://github.com/edk2-porting/edk2-msm), as carried by edk2-exynos
- * (https://github.com/sonic011gamer/edk2-exynos): the fake Linux kernel header
- * and the relocating copy below are theirs. Copyright (c) Renegade Project and
- * the edk2-msm authors; BSD-2-Clause, full notice in this repository's NOTICE.
+ * Mirrors the device-proven edk2-exynos tools/BootShim/BootShim.S flow for exynos9820
+ * (https://github.com/sonic011gamer/edk2-exynos): a fake Linux ARM64 Image header, then
+ * copy UEFI_SIZE bytes from the appended FD to UEFI_BASE and branch there. Nothing else.
+ * The 9810 (star2lte) shim added watchdog/cache/paint/SP steps; on the 9820 those fault
+ * (boot loop, notes/m8-uefi-image.md B22) - the proven 9820 flow touches no privileged
+ * register and writes no unvalidated address, so it is what we ship here.
  *
- * The Galaxy S10e bootloader (sboot) loads an Android boot.img "kernel" and
- * jumps to its first byte. Our EDK II FD (BEYOND0LTE_UEFI.fd) is *linked to run*
- * at 0x83300000 (Beyond0LtePkg.dsc / .fdf FD_BASE_ADDRESS), which is NOT where
- * sboot puts the loaded image: the drop IS a read now (notes/k4b-drop-address.md
- * K01-K03) - sboot loaded this boot's Image at 0x80118000, and its kernel window
- * runs 0x80198000..0x832D0000. The shim is position-independent, so it runs
- * wherever sboot places it and then copies the FD to 0x83300000, which is ABOVE
- * the loaded image and therefore disjoint from it (the old 0x80080000 choice
- * overlapped the shim itself - see the copy step below).
- *
- * K4b, best evidence to date (2026-10-10, notes/K10-rkp.md T16/T18, live DTB in
- * a TWRP root shell): sboot itself adds a reserved-memory node `kaslr` =
- * 0x80100000 + 0x100000 with owner "kernel-kaslr", and `sec_debug_magic` =
- * 0x80000000 + 0x1000. On the exynos9610 sample the same node sat 0x1000 ABOVE
- * the drop, which points at 0x80100000-ish, NOT 0x80080000, as this SoC's
- * window. That is still an inference, not a read of the drop address, so UEFI_BASE
- * stays UNVERIFIED - but the 0x80080000 justification it used to lean on (the
- * 0x84000000 initrd bound) is now known to be a kernel DEFAULT, not what sboot
- * does: sboot put this boot's initrd at 0xD5000000..0xD5A67000.
- *
- * CLOSED as a read (2026-10-10, notes/k4b-drop-address.md K01-K03): /proc/iomem
- * for the kernel sboot booted gives Kernel code 0x80198000 and Kernel data end
- * 0x832CFFFF; that kernel's Image header declares text_offset 0x80000 and
- * image_size 0x3138000, so the Image was loaded at 0x80118000 and the kernel
- * window is 0x80198000..0x832D0000 (0x80198000 + 0x3138000 = 0x832D0000, exact).
- * The OLD UEFI_BASE 0x80080000 was therefore inside the region sboot uses for
- * the loaded image; the current one (0x83300000) is 0x3000 above the window's
- * end. Whether sboot reuses the same drop base for OUR image (a 7.6 MB shim+FD
- * rather than a 44 MB kernel) is still untested - that is the question the first
- * boot answers, and if sboot drops higher than 0x83300000 the copy would collide
- * again.
+ * sboot loads this boot.img "kernel" and jumps to offset 0. The EDK II FD (BEYOND0LTE_UEFI.fd)
+ * is linked to run at UEFI_BASE, which is NOT where sboot places the loaded image, so the shim
+ * is position-independent (adr / br / literal ldr) and relocates the FD to UEFI_BASE at runtime.
  *
  * Layout after packaging:  [ this shim ][ BEYOND0LTE_UEFI.fd ]   (cat'd together)
  *
- * Flow (inherited from the proven edk2-exynos tools/BootShim + m1-hello start.S,
- * device-verified on star2lte ONLY - no stage of this flow has been validated on
- * an S10e, see MILESTONES):
- *   1. sboot jumps to offset 0 -> `adr x1,_payload` captures the *runtime*
- *      address of the appended FD, then branch to _start.
- *   2. mask IRQs, stop the SoC watchdog, disable D/I caches (MMU is OFF at
- *      handoff, so these are direct device/RAM stores).
- *   3. copy the FD (UEFI_SIZE bytes) to UEFI_BASE (0x80080000). On the 9810 this
- *      was clean RAM ABOVE the RKP-monitored kernel zones (0x80094000-0x828DBFFF);
- *      on the 9820 there is NO such constant to carry (K10, closed as a MECHANISM
- *      question, not an address question): Samsung's own include/linux/rkp.h from
- *      the SM-G973F_QQ_Opensource drop (S10 base, same Exynos 9820 as this S10e,
- *      mirrored by LineageOS/android_kernel_samsung_exynos9820) hands RKP `_text.._etext`
- *      and `_srodata.._erodata` and the monitor makes those pages ROX in stage-2,
- *      so the protected window is wherever sboot dropped the kernel plus that
- *      kernel's own section extents - runtime values, not a constant to carry.
- *      What IS verified on this SoC is the EL2 region: the live DTB's reserved-memory
- *      carries el2_code = 0x87000000+0x200000 (compatible "el2,uh") and el2_earlymem
- *      = 0x97E000000+0x200000. INFERENCE, not observation: the s2_unmap +
- *      protected_ranges_add over that region comes from a decompiled exynos9610
- *      uh.elf (Impalabs compendium), so 0x87000000..0x87200000 is expected dead
- *      on arrival on 9820 but has never been observed there. 0x80080000
- *      itself is still only a decision, not an observation.
- *   4. branch to UEFI_BASE. The FD's first word is an ARM64 `B` that GenFv wrote
- *      into the FV-header zero-vector, jumping to the PeilessSec SEC entry
- *      (checked mechanically on BEYOND0LTE_UEFI.fd: first word 0x1401C800).
- *
- * The shim is fully position-independent (PC-relative adr / literal ldr /
- * register br), so it runs correctly wherever sboot places it.
- *
  * Build: clang -target aarch64-none-elf -ffreestanding -nostdlib -mgeneral-regs-only
- *        -DUEFI_BASE=0x80080000 -DUEFI_SIZE=0x700000 -c bootshim.S -o bootshim.o
- *        ld.lld -o bootshim.elf bootshim.o -Ttext=0x80080000 -e _head --no-relax
+ *        -DUEFI_BASE=0x83300000 -DUEFI_SIZE=0x700000 -c bootshim.S -o bootshim.o
+ *        ld.lld -o bootshim.elf bootshim.o -Ttext=0x83300000 -e _head --no-relax
  *        llvm-objcopy -O binary bootshim.elf bootshim.bin
- * (The LINK step is required, not optional: a -c-only object can leave the
- *  adr/branch offsets unapplied, which silently breaks the entry. pack-uefi.ps1
- *  links at :92 and checks the result at :102-107.)
+ * (The LINK step is required, not optional: a -c-only object can leave the adr/branch
+ *  offsets unapplied, which silently breaks the entry. pack-uefi.ps1 links at :92 and
+ *  checks the result at :102-107.)
  */
 
 #ifndef UEFI_BASE
@@ -87,232 +30,59 @@
 #define UEFI_SIZE 0x0000000000700000   /* VERIFIED: built BEYOND0LTE_UEFI.fd is exactly 7 340 032 B = 0x700000 */
 #endif
 
-/* ---- DIAG breadcrumb channel ------------------------------------------------
- * The 9810's ramoops base 0xFED14000 is INSIDE debug_snapshot's log regions on
- * this SoC (0xFD900000..0x100000000, Exynos9820.h:112-115) - writing there is a
- * verified wrong. PROVEN ON-DEVICE (2026-10-10, notes/K10-rkp.md T17): the live
- * DTB's debug_snapshot.log_bcm is 0xFEB10000 + 0x400000, i.e. 0xFED14000 sits
- * 0x204000 into a live log region (log_llc is 0xFEF10000 + 0x400000 above it).
- * The gap 0xD9801000..0xF0000000 (between s5100_msi, Exynos9820.h:102-103,
- * and modem_if, :104-105) is unclaimed by any read DT node, so it is the
- * candidate - but it is a DECISION, not a read, and enabling it is unvalidated.
- * Two live reads tighten it without closing it: 0xD9801000 is inside the
- * declared memory@C0000000 bank (0xC0000000 + 0x20000000, read in TWRP root), and
- * the live modem_spare ends at 0xD1600000 (0xD0000000 + 0x1600000); the s5100_msi
- * / cp2cp_shm / modem_if2 nodes the DTS board file declares are NOT in this boot's
- * live reserved-memory list, so the gap is unclaimed by THIS boot's DTB, which is
- * a TWRP boot - a stock Android boot may add nodes over it.
- * Default 0 mirrors BEYOND0LTE_PRAM_DIAG 0 in ArmPlatformLib.c:31,
- * Beyond0LteResetSystemLib.c:59, PlatformMemoryMapLib.c:48,
- * Beyond0LteAcpiPlatformDxe.c:57. When enabled, note that the 'B' and 'M' reads
- * of _pram_base run AFTER the FD copy, so they are only valid if sboot dropped
- * the shim outside 0x80080000..0x80780000 - the same K4b question as the copy. */
-#ifndef BEYOND0LTE_PRAM_DIAG
-#define BEYOND0LTE_PRAM_DIAG 0
-#endif
-#ifndef BEYOND0LTE_PRAM_BASE
-#define BEYOND0LTE_PRAM_BASE 0x00000000D9801000   /* UNVERIFIED (gap choice, see above) */
-#endif
-
 	.text
 	.global _head
 _head:
 	adr	x1, _payload            /* x1 = runtime address of the appended FD   */
 	b	_start                  /* (this pair is the header's code0/code1)   */
-	/* ---- Linux ARM64 Image header (values read for SM-G970F) ----------- */
-	.quad	0x0000000000080000      /* text_offset: VERIFIED - the SM-G970F kernel Image artefact (C:\Users\ilya\code\Dumps\twrp_device_tree\kernel, notes Â§10) declares 0x80000 */
-	.quad	0x0000000000800000      /* image_size: UNVERIFIED requirement - this is a shim+FD+margin guess; the vendor kernel declares 0x03138000 for itself */
-	.quad	0x000000000000001a      /* flags: DECISION 2026-10-10 - 0xa (VERIFIED in the vendor kernel artefact: 4K pages, load anywhere, LE) PLUS bit4 0x10 "can use device tree". The 9820's Android-12 ABL load_kernel failed 'dt table header check fail' with 0xa (see notes/m8-uefi-image.md B12); bit4 tells the loader to use the DTB we append after image_size instead of the empty container DTBH. UNVERIFIED until a boot passes the DT check. */
-	.quad	0                       /* res2                                      */
-	.quad	0                       /* res3                                      */
-	.quad	0                       /* res4                                      */
-	.ascii	"ARM\x64"               /* magic = 0x644d5241                        */
-	.long	0                       /* res5 (PE/COFF header offset; none)        */
+
+	/* ---- Fake Linux ARM64 Image header (what sboot reads) ----------------
+	 * text_offset/image_size/flags are ZERO, exactly as the proven edk2-exynos
+	 * shim ("has to be 0 on some devices"). The copy destination/size live in
+	 * the _uefi_base/_uefi_size quads after the tag, not in this header. */
+	.quad	0                       /* text_offset                           */
+	.quad	0                       /* image_size                            */
+	.quad	0                       /* flags                                 */
+	.quad	0                       /* res2                                  */
+	.quad	0                       /* res3                                  */
+	.quad	0                       /* res4                                  */
+	.ascii	"ARMd"               /* magic = 0x644d5241                    */
+	.long	0                       /* res5 (PE/COFF header offset; none)    */
+	.ascii	"EDK2-MSM"              /* tag, kept from the proven shim        */
 
 _uefi_base:
-	.quad	UEFI_BASE
+	.quad	UEFI_BASE               /* copy destination                      */
 _uefi_size:
-	.quad	UEFI_SIZE
-#if BEYOND0LTE_PRAM_DIAG
-_pram_base:
-	.quad	BEYOND0LTE_PRAM_BASE
-#endif
+	.quad	UEFI_SIZE               /* byte count (multiple of 16)           */
 
+	/* ---- Relocate the FD to UEFI_BASE, then branch into it --------------
+	 * Instruction-for-instruction the proven _Start/_CopyLoop/_Entry. x4 = src
+	 * (the appended FD), x5 = dst, x6 = bytes left. The copy post-increments
+	 * x5, so the base is reloaded before the branch. No cache maintenance, no
+	 * system-register access, no stack, no MMIO - the proven 9820 flow has none. */
 _start:
-	msr	DAIFSet, #0xf           /* mask D/A/I/F (all interrupts)             */
-
-	/* ---- Stop the SoC watchdog FIRST ----------------------------------
-	 * sboot arms watchdog_cl0@0x10050000 and watchdog_cl2@0x10060000 - the
-	 * SECOND counter on this SoC is cl2, not the 9810's cl1 (Exynos9820.h:426,
-	 * :431 EXYNOS_WDT_BASE: both BASES VERIFIED on the S10e). WTCON=0 halts
-	 * the counters before they can fire. The window EXTENT is now a read (both
-	 * cl0 and cl2 are +0x1000 in the live DTB, notes/s10e-dtb-mmio.md S02); what
-	 * is still UNVERIFIED here is the register OFFSET inside it - +0x00 is WTCON
-	 * by s3c2410 convention, never observed on the 9820. MMU is OFF at handoff
-	 * on the 9810 (device-verified there, UNVERIFIED here) -> direct device stores.
-	 * x0 is scratch (x1 holds the payload pointer and is preserved). */
-	movz	x0, #0x1005, lsl #16    /* 0x10050000 (cl0 WTCON, offset 0x00)       */
-	str	wzr, [x0]
-	movz	x0, #0x1006, lsl #16    /* 0x10060000 (cl2 WTCON)                    */
-	str	wzr, [x0]
-	dsb	sy
-
-	/* ---- Disable D/I caches before copying ----------------------------
-	 * MMU is OFF at handoff (device-verified on star2lte; UNVERIFIED on the 9820,
-	 * K9 in notes/m8-uefi-image.md), so data stores reach RAM.
-	 * Clearing I prevents a stale instruction-cache fetch of the freshly
-	 * copied FD. EDK II re-enables MMU + caches properly in CpuDxe. */
-	mrs	x0, SCTLR_EL1
-	bic	x0, x0, #(1 << 2)       /* C = 0 : data cache off                    */
-	bic	x0, x0, #(1 << 12)      /* I = 0 : instruction cache off             */
-	msr	SCTLR_EL1, x0
-	isb
-
-#if BEYOND0LTE_PRAM_DIAG
-	/* ---- DIAG breadcrumb 'A': shim entry, via persistent RAM ----------
-	 * The 9810's 0xFED14000 is VERIFIED WRONG here: debug_snapshot's log regions
-	 * occupy 0xFD900000..0x100000000 on this SoC (Exynos9820.h:112-115), so that
-	 * write lands in a vendor log buffer. The base used is BEYOND0LTE_PRAM_BASE,
-	 * the unclaimed gap 0xD9801000..0xF0000000 (Exynos9820.h:102-105) - a DECISION,
-	 * not a read, and this whole channel is compiled out (BEYOND0LTE_PRAM_DIAG 0)
-	 * until it is chosen deliberately. m1-format ramoops pmsg header (sig 'DBGC',
-	 * start=0) then text 'A' with size=1; TWRP exposes it at
-	 * /sys/fs/pstore/pmsg-ramoops-0. MMU off -> direct DRAM stores, dsb is enough.
-	 * x12/w13 scratch; x1 kept. */
-	ldr	x12, _pram_base           /* x12 = BEYOND0LTE_PRAM_BASE              */
-	movz	w13, #0x4244
-	movk	w13, #0x4347, lsl #16   /* w13 = 0x43474244 = 'DBGC' ramoops sig     */
-	str	w13, [x12]              /* [0] = sig                                 */
-	str	wzr, [x12, #4]          /* [4] = start = 0                           */
-	mov	w13, #0x41              /* 'A'                                       */
-	strb	w13, [x12, #12]         /* text[0] = 'A'                             */
-	mov	w13, #1
-	str	w13, [x12, #8]          /* [8] = size = 1                            */
-	dsb	sy
-#endif
-
-	/* ---- DIAG: paint RED band (rows 200-649) â€” shim entry reached ------
-	 * Direct stores to the panel scanout buffer. The 9810's 0xCC000000 at
-	 * 1440x2960 is WRONG here: this phone's framebuffer is EXYNOS_FB_BASE
-	 * 0xCA000000 at 1440x3040 (Exynos9820.h:450,:452, read from the live
-	 * cmdline s3cfb.bootloaderfb=0xca000000). Stride is unchanged (width
-	 * 1440), so the row offsets keep their low halves: row 200 =
-	 * 0xCA000000 + 200*1440*4 = 0xCA119400. MMU off = physical address.
-	 * Proves sboot jumped to us and stores work. x1 (FD pointer) preserved
-	 * (we use x9-x11). */
-	movz	x9, #0x9400
-	movk	x9, #0xCA11, lsl #16    /* 0xCA119400 = FB + row 200                 */
-	movz	w10, #0xE340
-	movk	w10, #0x9, lsl #16      /* 648000 px = 450 rows x 1440                */
-	movz	w11, #0x0000
-	movk	w11, #0xFFFF, lsl #16   /* 0xFFFF0000 = opaque RED (BGRA)            */
-.Lred:
-	str	w11, [x9], #4
-	subs	w10, w10, #1
-	b.ne	.Lred
-	dsb	sy
-
-	/* ---- Copy the appended FD to UEFI_BASE ----------------------------
-	 * dst (x5) = UEFI_BASE, src (x4) = just past this shim. On the 9810 the two
-	 * were 0x10000000 apart. HERE THEY MAY NOT BE: the drop on this phone is a
-	 * READ now (notes/k4b-drop-address.md K01-K03) - sboot loaded this boot's
-	 * Image at 0x80118000 - so with UEFI_BASE 0x80080000 the dst range
-	 * 0x80080000..0x80780000 COVERS the running shim at 0x80118000..0x80118120,
-	 * and the copy reaches the shim's own start after 0x98000 written bytes while
-	 * the loop is still executing there. THE SELF-OVERWRITE IS CONFIRMED, not
-	 * hypothetical, for this UEFI_BASE. Ascending order stays safe against the
-	 * source itself (dst < src); what it cannot fix is a dst range that contains
-	 * the code doing the copying. A UEFI_BASE above the kernel window
-	 * (>= 0x832D0000, e.g. 0x83300000) leaves dst disjoint from src and from the
-	 * shim, which is why the base decision below matters. */
-	ldr	x5, _uefi_base          /* x5 = UEFI_BASE (destination)              */
-	mov	x7, x5                  /* x7 = destination base, kept for the jump  */
-	mov	x4, x1                  /* x4 = source (FD runtime address)          */
+	mov	x4, x1                  /* x4 = source (FD runtime address)        */
+	ldr	x5, _uefi_base          /* x5 = UEFI_BASE (destination)            */
 	cmp	x4, x5
-	b.eq	2f                      /* already at the link address               */
-	ldr	x6, _uefi_size          /* x6 = byte count                           */
-1:	ldp	x2, x3, [x4], #16
+	b.eq	_entry                  /* already at the link address             */
+	ldr	x6, _uefi_size          /* x6 = byte count                         */
+_copyloop:
+	ldp	x2, x3, [x4], #16
 	stp	x2, x3, [x5], #16
 	subs	x6, x6, #16
-	b.gt	1b
-	mov	x5, x7                  /* reload base: never re-read the literal    */
-	ic	iallu                   /* drop any stale I-cache lines              */
-	dsb	sy
-	isb
+	b.ne	_copyloop
+	ldr	x5, _uefi_base          /* dst was advanced by the copy            */
+_entry:
+	/* The FD's first word is an ARM64 `B` that GenFv wrote into the FV-header
+	 * zero-vector, jumping to the PeilessSec SEC entry (BEYOND0LTE_UEFI.fd
+	 * first word 0x1401C800). */
+	br	x5                      /* enter the FD @UEFI_BASE                 */
 
-2:	/* ---- DIAG: paint GREEN band (rows 750-1199) â€” relocation done ------
-	 * Reached after the FD copy (or already-at-link). About to br into the FD.
-	 * If GREEN shows but no BLUE, the EDK II SEC entry faulted before C. */
-	movz	x9, #0xEB00
-	movk	x9, #0xCA41, lsl #16    /* 0xCA41EB00 = FB + row 750                 */
-	movz	w10, #0xE340
-	movk	w10, #0x9, lsl #16
-	movz	w11, #0xFF00
-	movk	w11, #0xFF00, lsl #16   /* 0xFF00FF00 = opaque GREEN                 */
-.Lgreen:
-	str	w11, [x9], #4
-	subs	w10, w10, #1
-	b.ne	.Lgreen
-	dsb	sy
-
-#if BEYOND0LTE_PRAM_DIAG
-	/* ---- DIAG breadcrumb 'B': shim done, about to enter the FD --------- */
-	ldr	x12, _pram_base           /* BEYOND0LTE_PRAM_BASE                    */
-	mov	w13, #0x42              /* 'B'                                       */
-	strb	w13, [x12, #13]         /* text[1] = 'B'                             */
-	mov	w13, #2
-	str	w13, [x12, #8]          /* size = 2                                  */
-	dsb	sy
-#endif
-
-	/* ---- Set up a temporary stack before entering EDK II --------------
-	 * PeilessSec's ModuleEntryPoint.S calls ArmPlatformPeiBootAction and
-	 * ArmEnableVFP BEFORE it programs SP, relying on the entry SP being usable.
-	 * sboot may leave SP pointing at a now-invalid/RKP-protected region, which
-	 * would fault those pre-stack calls (the "AB but no C" hang). m1-hello always
-	 * set SP first; do the same here. The 9810's 0xA0000000 is WRONG here: it
-	 * sits inside the VERIFIED camera reservation 0x99000000..0xA7400000
-	 * (notes/s10e-root-reads.md:115). 0x83000000 is in the gap FD-end
-	 * 0x80780000 .. el2_code 0x87000000 and below both initrd readings
-	 * (vendor DT 0x84000000, live 0x89000000) - still UNVERIFIED while K10
-	 * (the 9820's write-protected zones) is open. EDK II reprograms SP to its
-	 * real stack moments later. */
-	movz	x6, #0x0000
-	movk	x6, #0x8300, lsl #16    /* x6 = 0x83000000                           */
-	mov	sp, x6
-
-	/* ---- Leave the MMU OFF for EDK II ----------------------------------
-	 * We deliberately do NOT enable an MMU here. Earlier we did (to dodge
-	 * pre-MMU literal-pool load faults), but that was a symptom of a TE-image
-	 * stripping misalignment, since fixed properly at build time
-	 * (/ALIGN:0x1000 + SEC rule Align=Auto). With the MMU left OFF, EDK II's
-	 * MemoryPeim -> ArmConfigureMmu does its own correct break-before-make
-	 * `ArmEnableMmu()`; if the shim had left the MMU ON, ArmConfigureMmu sees
-	 * ArmMmuEnabled()==TRUE, SKIPS ArmEnableMmu, and just swaps TTBR0 on a live
-	 * MMU -> hang (DEVICE-OBSERVED on star2lte: trail stalled at '1', before ArmConfigureMmu
-	 * returns). MMU off at handoff is UNVERIFIED on the 9820 (K9); with the MMU off, all RAM is accessible (Device) for our pram breadcrumbs
-	 * too. The firmware is built -mstrict-align so it makes no unaligned accesses
-	 * before EDK II maps RAM as Normal.
-	 *
-	 * DIAG breadcrumb 'M' (= shim done its prep, about to enter the FD). */
-#if BEYOND0LTE_PRAM_DIAG
-	ldr	x12, _pram_base           /* BEYOND0LTE_PRAM_BASE                    */
-	add	x12, x12, #12             /* x12 = text start                        */
-	ldur	w13, [x12, #-4]          /* w13 = size                              */
-	mov	w14, #0x4D              /* 'M'                                       */
-	strb	w14, [x12, w13, uxtw]
-	add	w13, w13, #1
-	stur	w13, [x12, #-4]          /* size += 1                               */
-	dsb	sy
-#endif
-
-	br	x5   /* enter the FD @UEFI_BASE (B -> SEC entry) */
-
-3:	wfe                             /* unreachable; park if the FD ever returns  */
-	b	3b
+_dead:
+	b	_dead                   /* never reached                           */
 
 	/* ---- The EDK II FD is concatenated immediately after this label ----
 	 * _payload MUST be the last thing emitted so the packaging `cat` places
 	 * the FD exactly where `adr x1,_payload` points. */
-	.balign	8
+	.balign	16
 _payload:

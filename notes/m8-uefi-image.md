@@ -1049,3 +1049,25 @@ Any one faults on the 9820 -> the boot loop. Prime suspect: `mrs SCTLR_EL1` faul
 at EL0 (the proven shim never touches a privileged reg); also the watchdog/paint stores to unvalidated
 9820 addresses. GROUNDED FIX: rewrite our 9820 shim to the proven minimal copy+branch flow (keep
 UEFI_BASE/UEFI_SIZE + fake header), drop the unvalidated additions.
+
+## B23 - session resume (Claude): the working-tree shim rewrite was left BROKEN; prior-art constants fetched
+
+State found: `firmware/tools/beyond0lte-bootshim/bootshim.S` (uncommitted) was mid-rewrite to the minimal
+flow - the copy loop is TRUNCATED after `ldp` (`ldr /* placeholder */`, no `stp`/`subs`/`b.ne`), so it
+does not assemble, and `_dead` hand-encodes `.long 0xd420007e` labelled `wfe` (wfe is 0xd503205f; that
+word is a BRK-class encoding). Neither fault was ever built or flashed (boot #4 ran the OLD shim).
+
+Fetched from edk2-exynos master (raw.githubusercontent / git tree API, 2026-10-10):
+- `tools/BootShim/BootShim.S` verbatim: `adr x1,_Payload; b _Start`; zero header (text_offset/image_size/
+  flags 0) + "ARM\x64" + `.long 0` + `.ascii "EDK2-MSM"`; `_StackBase: .quad UEFI_BASE`; `_StackSize:
+  .quad UEFI_SIZE`; `_Start: mov x4,x1; ldr x5,_StackBase; cmp; beq _Entry; ldr x6,_StackSize;
+  _CopyLoop: ldp x2,x3,[x4],#16; stp x2,x3,[x5],#16; subs x6,x6,#16; b.ne; ldr x5,_StackBase;
+  _Entry: br x5; _Dead: b _Dead`. No cache maintenance, no SCTLR, no SP, no MMIO.
+- `configs/exynos9820.conf`: **FD_BASE=0x90000000, FD_SIZE=0x00700000** (build.sh:121 passes these to the
+  shim as UEFI_BASE/UEFI_SIZE). OURS IS 0x83300000 (a DECISION, notes/k4b-drop-address.md). Prior art
+  boots the 9820 FD at 0x90000000. Our reservation reads put nothing in 0x90000000..0x90700000 (nearest:
+  mm_debug 0x91200000). -> follow-up task: move the FD base to the prior-art value (4 lockstep sites).
+- `Platform/Samsung/exynos9820/exynos9820.dsc`: PcdArmArchTimerFreqInHz=26000000 (prior art for T05 -
+  same as our carried value; still not an on-device read), PrePiStackBase 0x80C00000 size 0x40000,
+  CpuVectorBase 0x80C40000, UefiMemPool 0x80C50000+0x0F3B0000, MipiFrameBuffer 0xca000000 (matches ours),
+  GICD 0x10101000 / GICC 0x10100000.

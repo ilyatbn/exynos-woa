@@ -9059,7 +9059,6 @@ UfsHwStartIo(
 
     Adapter->Diagnostic.StartIoRequests++;
     Adapter->Diagnostic.LastSrbFunction = (ULONG)Srb->Function;
-    UfsPetBringupWatchdog();
     if (Adapter->Diagnostic.StartIoRequests <= 12UL) {
         // W27: function | CDB[0] << 8 | target << 16 | lun << 24 | started/fatal/diagonly << 32..
         UfsEarlyMark("=SIO fn/cdb/t/l/st=",
@@ -9134,6 +9133,9 @@ UfsHwStartIo(
         break;
     }
 
+    if (SrbStatus == SRB_STATUS_SUCCESS) {
+        UfsPetBringupWatchdog();   // W28: only real progress keeps the bring-up watchdog fed
+    }
     UfsCompleteRequest(Adapter, Srb, SrbStatus);
     return TRUE;
 }

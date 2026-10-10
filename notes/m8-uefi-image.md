@@ -1164,3 +1164,9 @@ range below it. Found: the region overlaps T01's UFS_DMA_WINDOW 0xA7400000..0xBA
 WINDOWS-side driver (Exynos9820Ufs.h, ENFORCE=0 default), used after ExitBootServices when the UEFI region
 is no longer live, so no boot-time conflict; flagged for when the window is enforced (UEFI runtime regions
 would then need to sit outside it). No code fix needed now.
+
+## B30 - boot #6 WRITE (UEFI region in bank0) to BOOT sda14, consented
+
+User reflashed TWRP (their fastest route back), asked to proceed. Pushed boot6-v2.img (on-device sha256
+97161f0d...0ec8e9), by-name/boot -> sda14, dd conv=fsync 7 587 840 B, readback 3705 x 2048 B sha256
+97161f0df9d3fe796c97ef766407c5fd2ce74ed55dd0a16cab041479c50ec8e9 (byte-exact). `adb reboot` next.

@@ -6,10 +6,11 @@ file and it is updated and committed **per task**, never batched.
 
 No branch has been pushed. All work so far is local commits.
 
-**If you are the *next* session, jump to §11 first** — it is the newest restart
-point (the UFS HC port is done and building). §10 is the previous crash point,
-kept for the port plan; §9 is the older toolchain handoff, still valid for the
-driver builds. Do not re-install VS or the WDK.
+**If you are the *next* session, jump to [`/progress.md`](../../progress.md) first**
+— it is the live task list by ID, one file per task in `tasks/`, with a done
+indicator per task. The newest restart point in this file is **§18**; §16 and §17
+are history (the work they describe is committed and verified, do not redo it).
+Do not re-install VS or the WDK.
 
 ---
 
@@ -769,3 +770,55 @@ the 9810 packages byte-unchanged (`git diff` on `Star2LtePkg`,
 `Exynos9810Pkg`, `tools/bootshim` verified empty this session); no stage `Ready`
 without device validation; never guess a constant — name it `UNVERIFIED` or
 mark it a **DECISION** with the reads it came from.
+
+## 18. Restart point — the live one (2026-10-10, next session starts at `progress.md`)
+
+The task list, by ID, is [`/progress.md`](../../progress.md) with one file per
+task in [`/tasks/`](../../tasks/). This section exists so a fresh session can
+start from `git status` alone; §14-§17 above are history and their work is
+committed and verified — **do not redo it**.
+
+### What is true now (committed, verified by running)
+
+The 9820 platform builds (`build-uefi.ps1 -Platform Beyond0LtePkg -Target DEBUG`,
+exit 0, `FVMAIN_COMPACT` 3096 B free, FD `7 340 032 B` at
+`firmware/edk2/Build/Beyond0LtePkg/DEBUG_CLANGPDB/FV/BEYOND0LTE_UEFI.fd`); the
+shim assembles for both `BEYOND0LTE_PRAM_DIAG` values (288 B / 392 B); the packer
+runs end to end (`pack-out-833.img`, 18 255 872 B). The FD now links to run at
+**`0x83300000`** in all four places that must agree. The live DTB closed the DRAM
+and MMIO extents, closed K4b as a read (sboot drop `0x80118000`, kernel window
+`0x80198000..0x832D0000`), and closed K10 as a mechanism (RKP protects
+`_text.._erodata` at runtime — the 9810's `0x80094000-0x828DBFFF` has no 9820
+equivalent). The memory map now carves the monitor-owned RAM out of the banks.
+Nothing has booted; nothing was flashed.
+
+### Open, by ID
+
+`T01` UFS DMA window · `T02` framebuffer RAM/DEV overlap · `T03` UFS extent
+disagreement · `T04` second LUN · `T05` timeout clock · `T06` stock container
+ref (blocked on root) · `T07` **the first boot attempt** · `T08` the installer's
+S10e path · `P01` heimdall restore (parked) · `P02` UFS hw-rev 6 encoding ·
+`P03` CMU parentage for PERIC0/FSYS0A.
+
+### If the next session is "build it and run it on the phone"
+
+1. Rebuild the three artifacts in that order — `build-uefi.ps1` (platform),
+   `drivers/Exynos9820Ufs/build-ufs.ps1` (storage driver,
+   `notes/windows-m7-toolchain.md` §4.5 has the working line), then the
+   installer (`dotnet build` + `dotnet test`, `notes/m9-installer.md`; the
+   catalog keeps `beyond0lte` at `NotImplemented` on purpose — see `T08`).
+2. Regenerate the candidate image with `pack-uefi-beyond0lte.ps1 -Ref …`.
+3. Read `tasks/T07-first-boot.md` **before** any write: it names the consent
+   requirement, the AVB `vbmeta` ordering (this disk's `vbmeta` is LBA 83 584..83
+   599), the slot isolation (recovery only, `boot` untouched) and the rollback
+   caveat (the on-disk `ref-recovery.img` is a TWRP-era snapshot).
+4. `T01`/`T05` are the two constants that can make a boot hang (timeouts) rather
+   than crash — worth closing before the attempt, both are cheap code changes.
+
+### Rules that still bind this work
+
+Unchanged from §17: nothing written to the media without the user's explicit
+decision; the 9810 packages byte-unchanged; no stage `Ready` without device
+validation; every uncertain constant named `UNVERIFIED` or marked a **DECISION**
+with the reads it came from; one commit per task, and the MILESTONES line moves
+in the same commit as the work it describes.

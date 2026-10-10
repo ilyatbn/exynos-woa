@@ -121,6 +121,34 @@
 #define EXYNOS_DRAM_BANK4_SIZE    0x0000000080000000ULL   // VERIFIED (vendor DT reg)
 
 //
+// ---------------------------------------------------------------------------
+// RAM reservations that are OWNED BY THE MONITOR, not scratch  [ALL VERIFIED]
+//
+// All four are children of the live reserved-memory node, read in a TWRP root
+// shell (notes/K10-rkp.md T16/T17, notes/s10e-dtb-mmio.md S01). Their `compatible`
+// strings name the owner: sec_debug_magic and kaslr are written by sboot
+// ("kernel-kaslr"), el2_code / el2_earlymem are the uH hypervisor's own code and
+// heap ("el2,uh"), and uH maps them read-only/unmapped in stage-2. Handing them
+// to Windows as conventional RAM lets the OS overwrite live EL2 code.
+//
+// Deliberately NOT in this list: the ION heaps (camera 0x99000000+0xE400000,
+// secure_camera 0x96000000+0x2200000, ion_video_stream, ion_crypto) and the
+// modem/CP blocks (modem_spare, modem_if, cp_ram_logging). They are Android
+// driver scratch, not monitor-owned state, and no read says what would break if
+// Windows used them - that stays an open question, not a decision dressed as a
+// fact.
+// ---------------------------------------------------------------------------
+//
+#define EXYNOS_RS_MAGIC_BASE      0x0000000080000000ULL   // VERIFIED (sec_debug_magic)
+#define EXYNOS_RS_MAGIC_SIZE      0x0000000000001000ULL   // VERIFIED
+#define EXYNOS_RS_KASLR_BASE      0x0000000080100000ULL   // VERIFIED (kaslr, owner kernel-kaslr)
+#define EXYNOS_RS_KASLR_SIZE      0x0000000000100000ULL   // VERIFIED
+#define EXYNOS_RS_EL2_CODE_BASE   0x0000000087000000ULL   // VERIFIED (el2_code, owner el2,uh)
+#define EXYNOS_RS_EL2_CODE_SIZE   0x0000000000200000ULL   // VERIFIED
+#define EXYNOS_RS_EL2_EARLY_BASE  0x000000097E000000ULL   // VERIFIED (el2_earlymem, owner el2,uh)
+#define EXYNOS_RS_EL2_EARLY_SIZE  0x0000000000200000ULL   // VERIFIED
+
+//
 // Reserved inside bank0 — published so the memory map can subtract them rather
 // than discover the collision at runtime. VERIFIED from the board file.
 //

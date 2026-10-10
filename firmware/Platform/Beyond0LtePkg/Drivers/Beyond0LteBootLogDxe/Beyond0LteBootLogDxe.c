@@ -46,6 +46,14 @@ RebootToRecovery (
   VOID
   );
 
+STATIC
+VOID
+EFIAPI
+OnExitBootServices (
+  IN EFI_EVENT  Event,
+  IN VOID       *Context
+  );
+
 #define LOG_FILE_NAME  L"\\UEFILOG.TXT"
 
 STATIC BOOLEAN  mInException = FALSE;
@@ -363,6 +371,13 @@ OnReadyToBoot (
   }
  #endif
 
+ #if BEYOND0LTE_HANDOFF_WATCHDOG
+  //
+  // W25: the firmware reached the OS hand-off - cancel SEC's "recovery" dead man's switch:
+  // reason back to normal, watchdog re-armed for another 82 s (re-armed again at EBS).
+  //
+  OnExitBootServices (NULL, NULL);
+ #endif
   DEBUG ((DEBUG_ERROR, "BootLog: ReadyToBoot flush\n"));
   Status = FlushBootLog ("ReadyToBoot");
   DEBUG ((DEBUG_ERROR, "BootLog: %s -> %r\n", LOG_FILE_NAME, Status));

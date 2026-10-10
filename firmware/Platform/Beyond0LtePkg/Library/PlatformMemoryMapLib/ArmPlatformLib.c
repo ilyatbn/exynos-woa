@@ -20,6 +20,9 @@
 #include <Ppi/ArmMpCoreInfo.h>
 
 #include "Beyond0LteCheckpoint.h"
+#include <Platform/Exynos9820.h>
+
+#define BEYOND0LTE_EARLY_WATCHDOG  1   // W25: unattended bring-up - see ArmPlatformInitialize
 
 //
 // Boot-bring-up exception catcher (AArch64/Beyond0LteDiagVectors.S,
@@ -92,6 +95,31 @@ ArmPlatformInitialize (
   BEYOND0LTE_CHECKPOINT (1420);   // CEntryPoint, SEC stack live (B39)
 #if BEYOND0LTE_DIAG_VECTORS
   Beyond0LteInstallDiagVectors ();
+#endif
+#if BEYOND0LTE_EARLY_WATCHDOG
+  //
+  // W25 dead man's switch (unattended bring-up). Boot #36 stalled on the logo after a watchdog
+  // reset, before the panel console printed anything. From here on any UEFI hang ends in TWRP:
+  // reboot reason = recovery, watchdog cl0 = 82 s (the stock s3c2410wdt start sequence, constants
+  // in Exynos9820.h). Beyond0LteBootLogDxe sets the reason back to "normal" and re-arms at
+  // ReadyToBoot / ExitBootServices, so only a firmware that never reaches the OS hand-off is
+  // diverted. MMU is off here: plain device stores.
+  //
+  {
+    volatile UINT32  *Pmu;
+    volatile UINT32  *Wdt;
+
+    Pmu = (volatile UINT32 *)(UINTN)EXYNOS_PMU_BASE;
+    Wdt = (volatile UINT32 *)(UINTN)EXYNOS_WDT_BASE;
+    Pmu[EXYNOS_PMU_INFORM3_OFFSET / 4] = EXYNOS_REBOOT_REASON_BASE | EXYNOS_REBOOT_MODE_RECOVERY;
+    Wdt[EXYNOS_WDT_WTCON_OFFSET / 4]   = 0;
+    Wdt[EXYNOS_WDT_WTCLRINT_OFFSET / 4] = 1;
+    Pmu[(EXYNOS_PMU_WDT_NONCPU_INT_EN_OFFSET | EXYNOS_PMU_ATOMIC_SET_ALIAS) / 4] = EXYNOS_PMU_WDT_NONCPU_INT_EN_BIT;
+    Wdt[EXYNOS_WDT_WTDAT_OFFSET / 4]   = EXYNOS_WDT_COUNT_82S;
+    Wdt[EXYNOS_WDT_WTCNT_OFFSET / 4]   = EXYNOS_WDT_COUNT_82S;
+    Wdt[EXYNOS_WDT_WTCON_OFFSET / 4]   = EXYNOS_WDT_WTCON_82S;
+    __asm__ __volatile__ ("dsb sy" ::: "memory");
+  }
 #endif
   // TODO: any clock/GPIO setup that MUST precede DRAM/UART use (likely none,
   // because sboot configured them before chainloading us).

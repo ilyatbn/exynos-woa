@@ -398,3 +398,18 @@ WTCLRINT=1, PMU NONCPU_INT_EN bit 2 via the atomic-set alias (write 2 to PMU+0xD
 Any hang / failed restart -> WDT reset -> UEFI sees WINRUN.FLG -> WINPRAM.BIN + UEFILOG.TXT -> TWRP. The Windows UFS driver
 already has a bugcheck callback that writes '=UFSBUGCHECK BC=...' into its PRAM ring (now at 0x8FE00000).
 boot36-v2.img sha256 55f9825698c6d162138dab74dd1a28258552f6bf6b61f91d50866929a2ab6171.
+
+## W25 - unattended: dead man's switch + shim cache flush (boot #37) (2026-10-10)
+Boot #36: the 82 s handoff watchdog DID reset the phone out of the Windows BSOD, but the next boot stuck on the logo
+with the shim's white bands. User: 'hang in the shim after 1 reboot was always a thing' - every boot that follows our own
+firmware (PMIC keys, watchdog) hangs; boots that follow Linux (TWRP/Android) work.
+Facts: shim entry SCTLR_EL1 0x30C5083A (MMU/caches off, B-notes); PeilessSec invalidates D-cache only over the UEFI
+region and enables the I-cache; nothing cleans/invalidates the FD region or the rest of RAM. Linux flushes caches before
+every reboot (sec_reboot: flush_cache_all, llc_flush); our resets do not. Hypothesis (UNVERIFIED): stale cache lines from
+the previous boot shadow the fresh FD copy once caches come on.
+Boot #37: (1) shim entry: INFORM3 = 0x12345674 (recovery) + watchdog cl0 82 s, then clean+invalidate all data/unified
+levels by set/way (CLIDR/CCSIDR walk, DC CISW) + IC IALLU before the copy. (2) ArmPlatformInitialize (SEC) re-arms the
+same dead man's switch (BEYOND0LTE_EARLY_WATCHDOG). (3) BootLogDxe at ReadyToBoot: reason back to normal + re-arm,
+again at EBS. => any hang anywhere ends in TWRP; a Windows hang comes back through UEFI's boot pair when the next
+boot survives. RAM at 0x8FE00000-0x90000000 survived TWRP sessions (BootCount 1->2->3), so WINPRAM survives a detour.
+boot37-v2.img sha256 781f1174f1072a1c314aa043f02c15f6aba2b22fe9ed651b68c0a4be691db128.

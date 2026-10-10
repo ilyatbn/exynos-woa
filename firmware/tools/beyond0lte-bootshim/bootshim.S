@@ -107,6 +107,73 @@ _uefi_size:
 	 * system-register access, no stack. The only MMIO/stores outside the copy are
 	 * the BEYOND0LTE_SHIM_DIAG block (off = the exact prior-art flow). */
 _start:
+	/* ---- W25 dead man's switch (unattended bring-up) ---------------------
+	 * Reboot reason = RECOVERY (PMU INFORM3 0x1586080C = 0x12345674) and watchdog cl0 =
+	 * 82 s, before anything else can hang. The firmware sets the reason back to normal
+	 * and re-arms at ReadyToBoot / ExitBootServices. Constants: Exynos9820.h, verified
+	 * from the stock kernel + sboot (notes/s10e-reboot-wdt-constants.md). x0/x1 kept. */
+	movz	x9, #0x1586, lsl #16    /* PMU                                       */
+	movz	w10, #0x5674
+	movk	w10, #0x1234, lsl #16   /* 0x12345674 = reason base | recovery (4)  */
+	mov	x11, #0x80C              /* INFORM3                                  */
+	str	w10, [x9, x11]
+	movz	x12, #0x1005, lsl #16   /* watchdog cl0                             */
+	str	wzr, [x12]              /* WTCON = 0 (stop)                          */
+	mov	w10, #1
+	str	w10, [x12, #0xC]        /* WTCLRINT                                  */
+	mov	w10, #2                 /* NONCPU_INT_EN bit index                   */
+	movz	x11, #0xD244            /* 0x1244 | 0xC000 atomic-set alias           */
+	str	w10, [x9, x11]
+	movz	w10, #0xFE27            /* 82 s at 26 MHz / 128 / 256                */
+	str	w10, [x12, #4]          /* WTDAT                                     */
+	str	w10, [x12, #8]          /* WTCNT                                     */
+	movz	w10, #0xFF39            /* prescaler 0xFF, DIV128, RSTEN, EN         */
+	str	w10, [x12]              /* WTCON                                     */
+	dsb	sy
+
+	/* ---- W25 clean+invalidate every data/unified cache level by set/way, then
+	 * the I-cache. A reset that our firmware triggers (PMIC keys, watchdog, SWRESET)
+	 * does not flush first, and the shim runs with the MMU and caches off: lines from
+	 * the previous boot (same addresses: FD at 0x90000000, UEFI RAM) would otherwise
+	 * shadow the fresh copy once SEC enables the caches. Suspected cause of the
+	 * "second boot after our firmware hangs on the shim" behaviour (user, 2026-10-10).
+	 * Classic CCSIDR layout. Uses x2-x8, x10-x13; x0/x1 kept. */
+	mrs	x6, clidr_el1
+	ubfx	x7, x6, #24, #3         /* LoC                                       */
+	lsl	x7, x7, #1              /* LoC * 2                                   */
+	cbz	x7, 20f
+	mov	x10, #0                 /* level * 2 (CSSELR format)                 */
+21:	add	x2, x10, x10, lsr #1    /* level * 3                                 */
+	lsr	x3, x6, x2
+	and	x3, x3, #7              /* cache type at this level                  */
+	cmp	x3, #2
+	b.lt	25f                     /* no data or unified cache                  */
+	msr	csselr_el1, x10
+	isb
+	mrs	x3, ccsidr_el1
+	and	x2, x3, #7
+	add	x2, x2, #4              /* set shift = log2(line bytes)              */
+	ubfx	x4, x3, #3, #10         /* max way index                             */
+	clz	w5, w4                  /* way shift                                 */
+	ubfx	x8, x3, #13, #15        /* max set index                             */
+22:	mov	x11, x4
+23:	lsl	x12, x11, x5            /* way                                       */
+	orr	x12, x12, x10           /* | level                                   */
+	lsl	x13, x8, x2             /* set                                       */
+	orr	x12, x12, x13
+	dc	cisw, x12
+	subs	x11, x11, #1
+	b.ge	23b
+	subs	x8, x8, #1
+	b.ge	22b
+25:	add	x10, x10, #2
+	cmp	x7, x10
+	b.gt	21b
+20:	dsb	sy
+	ic	iallu
+	dsb	sy
+	isb
+
 #if BEYOND0LTE_SHIM_DIAG
 	movz	x9, #0x1903, lsl #16    /* 0x19030000 = decon_f base               */
 	mov	w10, #0x1281             /* prior-art "enable frame buffer writes"  */

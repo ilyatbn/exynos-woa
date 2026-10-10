@@ -822,3 +822,70 @@ decision; the 9810 packages byte-unchanged; no stage `Ready` without device
 validation; every uncertain constant named `UNVERIFIED` or marked a **DECISION**
 with the reads it came from; one commit per task, and the MILESTONES line moves
 in the same commit as the work it describes.
+
+## 19. Restart point — the live one (2026-10-10, next session starts at `progress.md`)
+
+Two boot attempts were made on the real S10e and both failed at the same place; the
+cause is now **identified with prior art**. Nothing is in flight; `git status` is clean
+except `info/DEN0101_00bet1_ADAC.pdf` (reference doc, stays uncommitted). The phone is in
+**download mode**; the recovery slot (sda15) holds the last failed container. `boot` (sda14)
+is untouched, so **normal Android still boots**. Windows is **NOT** established.
+
+### What is committed (newest first)
+
+| Commit | What |
+|---|---|
+| `6916ed1` | T09 ANSWER: the 9820 boot image is AOSP `mkbootimg.py --header_version 2` + a real `--dtb` section (edk2-exynos `Platform/Samsung/exynos9820/s10.sh.inc`); our v0 container fails sboot's DT check |
+| `16c6127` | research notes `notes/edk2-bootshim.md` (DT is a packaging concern, not shim/append) |
+| `6689119` | boot #2 OBSERVED: AVB bypassed (`VERIFICATION_DISABLED` bit set) but STILL `dt table header check fail` |
+| `6966bed` | CORRECTION: appended-FDT theory wrong (stock kernel has no appended FDT) |
+| `2d7b168` | T09 attempt: bootshim flags 0xa→0x1a + packer `-Dtb`/`-ImageSize` (kernel=[shim][FD][pad][DTB]); candidate `pack-out-dtb.img` built (this attempt did NOT fix it) |
+| `8ac1919` | diagnosis corrected (stock ref disproven) |
+| `d4246b8` | diagnosis: container DT LOAD fail (from sboot's download-mode text) |
+| `394523d` | T07 first boot OBSERVED: wrote UEFI to sda15, rebooted → straight to download mode |
+| `e285a53` | P04 parking-lot task (vbmeta→TWRP guide) |
+| `07cef00` | T01: UFS DMA window re-picked to 0xA7400000..0xBAB00000 |
+
+### The exact next order (one commit per step)
+
+The fix is a **container format change**: build the beyond0lte candidate as an **Android boot
+image header VERSION 2 with a valid DTB section**, not the Samsung header-v0 + DTBH our
+`tools/twrp-winre/bootimg.py` + `firmware/tools/repack-with-ref.py` emit (they leave `dt_size=1`).
+
+1. **Extend our own builder to header-v2** (preferred — keeps the donation build in-tree):
+   `bootimg.py` needs a v2 path (header_version 2 fields: `dtb_size`/`dtb_addr`, the standard
+   AOSP v0/v1/v2 layout), and `repack-with-ref.py`/`pack-uefi-beyond0lte.ps1` must emit a v2
+   image with `--dtb` = a device tree. Recipe to mirror (edk2-exynos `s10.sh.inc`):
+   `--header_version 2 --pagesize 2048 --base 0x10000000 --kernel_offset 0x8000
+   --ramdisk_offset 0x1000000 --second_offset 0xf0000000 --tags_offset 0x100 --dtb_offset 0x0
+   --dtb <FDT> --ramdisk <dummy> --kernel <[shim][FD]>`. Keep the offsets marked UNVERIFIED
+   until a boot confirms.
+2. **If our v2 builder fails**, fall back to vendor **AOSP `mkbootimg.py`** with the same flags
+   (the edk2-exynos route) to produce the v2 container.
+3. DTB source: `C:\Users\ilya\AppData\Local\Temp\opencode\stock\dt.dtb` (239680 B, the phone's
+   own primary FDT) — or edk2-exynos' `FdtBlob_compat/s10.dtb`. Prefer the phone's own tree.
+4. **Then boot #3**: re-flash TWRP (restore sda15), `adb reboot recovery`, push + `dd` the v2
+   candidate to sda15, `adb reboot recovery`, OBSERVE the panel. Expect it to get PAST the DT
+   check (UEFI paint / Windows) or fail at the NEXT stage (the never-booted DECISION constants:
+   UEFI_BASE 0x83300000, temp SP, K10 zones, fb base 0xCA000000).
+
+### Facts to trust, not re-derive
+
+`notes/edk2-bootshim.md` (the whole v2 recipe + sources), `notes/m8-uefi-image.md` B7–B16
+(the two boot attempts, the byte-exact writes, the diagnosis chain and its corrections),
+`tasks/T09-boot-payload-dtb.md` (the answer), `tasks/T06-stock-container-ref.md` (superseded
+note). The stock images were LZ4-decompressed with python `lz4` 4.4.5 from
+`C:\Users\ilya\code\Dumps\AP_G970FXXSGHWC1_..._meta_OS12.tar` (members are `*.img.lz4`).
+
+### Still open after all of the above
+
+The header-v2 container has never been built or booted; and the downstream DECISION constants
+(UEFI_BASE 0x83300000, shim temp SP, K10 write-protected zones, framebuffer base 0xCA000000)
+remain unvalidated — they are only reached once the DT check passes.
+
+### Rules that still bind this work
+
+Unchanged: nothing written to the media without the user's explicit decision (the two writes so
+far were consented first-boot experiments); the 9810 packages byte-unchanged; no stage `Ready`
+without device validation; every uncertain constant named `UNVERIFIED` or marked a **DECISION**;
+one commit per task with the MILESTONES line moved in the same commit.

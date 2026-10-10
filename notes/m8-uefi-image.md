@@ -1564,3 +1564,8 @@ says winload's allocator and the RKP zone need multi-region RAM - revisit high b
 Verified: build exit 0; Guid.xref has no RamManager; FVMAIN_COMPACT now 416 B free (nearly full - next
 FD growth must drop DEBUG noise or enlarge the FV).
 Boot #17 image %TEMP%\b63\boot17-v2.img sha256 1625b5e49fbdfff2609e159cda772d03cdca545e4a7e223293c1984e49f8682d
+
+## B64 - boot #17 WRITE to BOOT sda14
+
+Pushed (on-device sha256 1625b5e4...682d), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
+1625b5e49fbdfff2609e159cda772d03cdca545e4a7e223293c1984e49f8682d (byte-exact). `adb reboot` next.

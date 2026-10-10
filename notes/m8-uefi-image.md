@@ -1291,3 +1291,10 @@ FD 7 340 032 B; shim unchanged vs boot #8. Image %TEMP%\b39\boot9-v2.img sha256 
 
 Pushed (on-device sha256 3f53e50d...bd0e2), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
 3f53e50d8bb6ff575125cbfac50f622df05fa53317be412a10ece0d043ebd0e2 (byte-exact). `adb reboot` next.
+
+## B41 - boot #9 OBSERVED: NO FD checkpoint band at all (not even row 2100) -> dies before ArmPlatformPeiBootAction
+
+User photo: only the shim's bands (row 200 entered, row 1850 copy done) + sboot splash; rows 2100-3030
+dark. => the FD never reaches ArmPlatformPeiBootAction, the first C call of PeilessSec's
+ModuleEntryPoint. The fault is between the shim's `br 0x90000000` and that call: the FV-header B, the
+SEC asm prologue. (B31's "something" was the splash warning text, B38.)

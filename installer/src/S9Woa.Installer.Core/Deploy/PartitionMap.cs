@@ -70,12 +70,14 @@ public static class PartitionMap
     /// <summary>
     /// Beyond0lte (SM-G970F) geometry, from Samsung's own BEYOND0LTE_EUR_OPEN.pit cross-checked
     /// against the phone, and confirmed against the live GPT read in TWRP (notes/s10e-root-reads.md
-    /// §2): USERDATA is LBA 2 151 168 .. 31 234 815, i.e. 119 126 642 688 bytes of PARTITION
-    /// (the 119 126 622 208 in /proc/partitions is the filesystem, 5 LBAs of tail shorter).
+    /// §2): USERDATA is LBA 2 151 168 .. 31 234 815, i.e. 29 083 648 LBAs = 119 126 622 208 bytes.
+    /// Re-read 2026-10-10 from the raw GPT entry, sysfs start/size and blockdev --getsize64 - all
+    /// three agree. (The 119 126 642 688 carried here before was 5 LBAs too large and would have
+    /// put NTFS's backup boot sector past the end of USERDATA.)
     /// The per-partition GUIDs there are derived from LOWER-CASE names. Never validated by an
     /// install.
     /// </summary>
-    public static readonly GeometryType Beyond0Lte = new(127_943_049_216, 8_811_184_128, 119_126_642_688,
+    public static readonly GeometryType Beyond0Lte = new(127_943_049_216, 8_811_184_128, 119_126_622_208,
         629_145_600, 57_671_680, 67_633_152, DiskGuid,
         "{52444e41-494f-2044-6361-636865000000}",   // "ANDROID cache"
         "{52444e41-494f-2044-7573-657264617461}",   // "ANDROID userdata"

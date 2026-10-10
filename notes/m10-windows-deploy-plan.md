@@ -181,3 +181,14 @@ BCD (s10e-artifacts\win-w5\out\esp\EFI\Microsoft\Boot\BCD) as built: testsigning
 Off, timeout 0, devices "unknown" on this PC (expected: qualified GPT GUIDs of a disk not attached). Changed by hand
 for the first boot: `bcdedit /store <BCD> /set {default} numproc 1` (avoid PSCI CPU_ON, W5/W8).
 Phone: in TWRP per the user but NOT visible over USB after the PC reboot (adb devices empty, no Samsung PnP device).
+
+## W10 - PartitionMap.Beyond0Lte WindowsBytes was 5 LBAs too large (2026-10-10)
+`S10eHarness check` (phone back on USB after a replug): userdata 119 126 622 208 B vs geometry 119 126 642 688 B ->
+MISMATCH. Re-read three ways on the phone: raw GPT entry 30 "userdata" LBA 2 151 168..31 234 815 (29 083 648 LBAs);
+sysfs sda31 start 17209344 / size 232669184 (512 B units); blockdev --getsize64 119126622208. All agree:
+119 126 622 208 B = exactly 113 608 MiB. The old comment ("622 208 is the filesystem") was wrong - blockdev reports
+the partition. Other values re-checked: disk 249888768 x 512 = 127 943 049 216 OK; offset 2151168 x 4096 =
+8 811 184 128 OK; cache 629 145 600 OK; recovery 67 633 152 OK; GPT header size field read as well.
+Impact: the first image had NTFS 5 LBAs larger than USERDATA (backup boot sector past the end); TransferService would
+have refused it (image > partition). Build killed at 53.5/113.6 GiB exported; VHDX detached. Fixed PartitionMap +
+tests (194 passed). Rebuild next.

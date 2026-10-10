@@ -1609,3 +1609,8 @@ no PRDT). The 9810's 128 B FMP entry does not apply to the 9820 kernel's layout.
 Correction to B63: FVMAIN_COMPACT is auto-sized (fdf NumBlocks = 0) inside the 7 MB FD region, so its
 "N bytes free" is rounding slack, not a limit (now 168 B; it simply grows).
 Verified: build exit 0. Boot #18 image %TEMP%\b66\boot18-v2.img sha256 51587e9acdaea0842b003f6b2866282047a961cc8c3d62ca89455de03e5c7a8b
+
+## B67 - boot #18 WRITE to BOOT sda14
+
+Pushed (on-device sha256 51587e9a...7a8b), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
+51587e9acdaea0842b003f6b2866282047a961cc8c3d62ca89455de03e5c7a8b (byte-exact). `adb reboot` next.

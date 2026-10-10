@@ -79,9 +79,10 @@ Partition table (LBA units = 4096 B; bytes inclusive):
 
 **Every start and end equals the PIT's values** → the phone's live GPT equals
 stock, which is what `notes/pit-geometry.md` had left open. USERDATA partition
-size = 29 083 648 LBAs = **119 126 642 688 bytes** (the earlier 119 126 622 208
-from `/proc/partitions` is the *filesystem* size — TWRP's fstab carries
-`length=-20480`, i.e. 5 LBAs of tail).
+size = 29 083 648 LBAs = **119 126 622 208 bytes** (CORRECTED 2026-10-10, m10 W10: this line
+first said 119 126 642 688, an arithmetic slip - 29 083 648 x 4096 = 119 126 622 208, which is
+also what blockdev and sysfs report. TWRP's fstab `length=-20480` only shrinks the Android
+filesystem inside the partition.)
 
 ## 3. The framebuffer base — closed
 
@@ -146,7 +147,7 @@ the browser model.
 * The live-GPT confirmation the PIT analysis left open (starts == PIT).
 * The beyond0lte **unique GUIDs** (lower-case derived) — the repo's upper-case
   constants are wrong for this phone.
-* `WindowsBytes` must be the partition size 119 126 642 688, not the
+* `WindowsBytes` must be the partition size 119 126 622 208 (corrected, m10 W10), not the
   filesystem size.
 * The vendor DT values the browser model had only *claimed* — now read on-device.
 

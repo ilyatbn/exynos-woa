@@ -24,6 +24,7 @@
 #include <Library/ArmPlatformLib.h>
 #include <Library/ArmLib.h>
 #include <Library/DebugLib.h>
+#include <Library/HobLib.h>
 #include <Platform/Exynos9820.h>
 
 #include "Beyond0LteCheckpoint.h"
@@ -358,6 +359,36 @@ ArmPlatformGetVirtualMemoryMap (
   Table[Index].VirtualBase  = 0;
   Table[Index].Length       = 0;
   Table[Index].Attributes   = 0;
+
+  //
+  // m10 W18: the carve above only keeps these out of the PAGE TABLES. The UEFI memory map comes
+  // from MemoryInitPeiLib's one resource HOB over PcdSystemMemoryBase/Size, so sec_debug_magic,
+  // kaslr and el2_code (uH) were listed as EfiConventionalMemory and handed to Windows. Reserve
+  // every monitor reservation that lies inside that range. Called once, from PeilessSec's
+  // MemoryPeim (the only user of this library), with the HOB list live.
+  //
+  {
+    STATIC BOOLEAN  mReservedHobsBuilt = FALSE;
+    UINT64          MemBase;
+    UINT64          MemEnd;
+
+    MemBase = PcdGet64 (PcdSystemMemoryBase);
+    MemEnd  = MemBase + PcdGet64 (PcdSystemMemorySize);
+    if (!mReservedHobsBuilt) {
+      mReservedHobsBuilt = TRUE;
+      for (Region = 0; Region < sizeof (mMonitorReservations) / sizeof (mMonitorReservations[0]); Region++) {
+        if ((mMonitorReservations[Region].Base >= MemBase) &&
+            (mMonitorReservations[Region].Base + mMonitorReservations[Region].Size <= MemEnd))
+        {
+          BuildMemoryAllocationHob (
+            mMonitorReservations[Region].Base,
+            mMonitorReservations[Region].Size,
+            EfiReservedMemoryType
+            );
+        }
+      }
+    }
+  }
 
   *MemoryTable = Table;
 }

@@ -37,6 +37,7 @@
 [LibraryClasses]
   ArmLib
   DebugLib
+  HobLib
   PcdLib
 
 [Ppis]
@@ -46,3 +47,5 @@
   gArmPlatformTokenSpaceGuid.PcdCoreCount
   gArmPlatformTokenSpaceGuid.PcdClusterCount
   gArmTokenSpaceGuid.PcdArmPrimaryCore
+  gArmTokenSpaceGuid.PcdSystemMemoryBase   ## CONSUMES (W18 reserved HOBs)
+  gArmTokenSpaceGuid.PcdSystemMemorySize   ## CONSUMES

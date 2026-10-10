@@ -580,3 +580,49 @@ Constant decisions (all from VERIFIED reads in Exynos9820.h unless marked):
   Marked UNVERIFIED (K10 write-protected zones still open).
 - MMU OFF at handoff = UNVERIFIED on 9820 (the 'device-verified' claim is a 9810 observation).
 - RKP-monitored zones 0x80094000-0x828DBFFF = NO 9820 equivalent read (K10 open).
+
+## Step 18 - the port itself, and its mechanical verification
+
+`firmware/tools/beyond0lte-bootshim/bootshim.S` edited from the byte-identical
+copy. What changed, and how each change was checked (not by re-reading):
+
+- watchdog comment: cl1 -> cl2 (Exynos9820.h:426 says `watchdog_cl2@10060000`).
+- ramoops blocks A/B/M: compiled out behind `#if BEYOND0LTE_PRAM_DIAG` (default 0,
+  matching ArmPlatformLib.c:31 / Beyond0LteResetSystemLib.c:59 / PlatformMemoryMapLib.c:48
+  / Beyond0LteAcpiPlatformDxe.c:57), base now `ldr x12, _pram_base` from a guarded
+  `.quad BEYOND0LTE_PRAM_BASE` literal, so no 0xFED14000 survives.
+- paint: `movk x9, #0xCC11` -> `#0xCA11` (0xCA119400) and `#0xCC41` -> `#0xCA41`
+  (0xCA41EB00). Arithmetic re-checked: 0xCA000000 + 200*1440*4 = 0xCA119400;
+  + 750*1440*4 = 0xCA41EB00.
+- temp SP: `movk x6, #0xA000` -> `#0x8300` (0x83000000), marked UNVERIFIED (K10 open).
+- DEFECT FOUND AND FIXED (harsh-review style): the 9810 shim reloaded its destination
+  base with a second `ldr x5, _uefi_base` AFTER the copy loop. With UEFI_BASE 0x80080000
+  the destination range 0x80080000..0x80780000 covers the shim's own literals, so that
+  reload would read FD bytes, not the base. Fixed by keeping the base in x7 across the
+  loop (`mov x7, x5` before, `mov x5, x7` after) - no second literal read.
+- HAZARD RECORDED, NOT PAPERED OVER: if sboot drops the kernel at 0x80080000 or
+  0x80100000 (K4b, UNVERIFIED), the destination range contains the running shim and
+  the copy eventually fetches overwritten instructions. The live initrd bound
+  (0x89000000) would be clear of it; the vendor DT bound (0x84000000) would not.
+  No cheap read closes this; it stays a comment in the source.
+
+Verification that ran (all exit 0):
+
+```
+clang -target aarch64-none-elf -ffreestanding -nostdlib -mgeneral-regs-only
+      -DUEFI_BASE=0x80080000 -DUEFI_SIZE=0x700000 [-DBEYOND0LTE_PRAM_DIAG=0|1] -c bootshim.S
+ld.lld -o shim.elf shim.o -Ttext=0x80080000 -e _head --no-relax
+llvm-objcopy -O binary shim.elf shim.bin
+```
+
+- diag=0: shim.bin 288 B, code0 = 0x10000901, `code0 -band 0x9F00001F` = 0x10000001
+  (the pack-uefi.ps1:105 check), adr immediate 0x120 != 0, magic "ARM" at +56.
+  `llvm-nm`: _head 0x...0000, _payload 0x...0120 = end of file. Correct.
+- diag=1: shim.bin 392 B, code0 = 0x10000C41, _payload 0x...0188 = end of file,
+  _pram_base 0x...0050 emitted BEFORE _start 0x...0058, so the guarded literal
+  precedes its uses (no literal pool after _payload, which would break the `cat`).
+- `rg "0x90000000|0xCC|0xFED1|0xA000|STAR2LTE|2960"` in the ported file: 5 hits, all
+  in comments that explicitly name the 9810 value as WRONG here. No live 9810 constant.
+- The 9810 `firmware/tools/bootshim/bootshim.S` is byte-unchanged: `fc.exe` against
+  the pre-port copy reported no differences before editing; `git diff` shows no change
+  to that path.

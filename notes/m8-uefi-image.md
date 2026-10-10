@@ -1432,3 +1432,12 @@ Boot #13 image %TEMP%\b51\boot13-v2.img sha256 58f8aa30689102f06d35267f33ede8bed
 
 Pushed (on-device sha256 58f8aa30...00ce), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
 58f8aa30689102f06d35267f33ede8bedae7fa7979921097254481d09ab900ce (byte-exact). `adb reboot` next.
+
+## B53 - boot #13 OBSERVED: same 4 checkpoint bands, NO exception strips, still reboots
+
+User: "still got the 4 rows same as before and it reboots. i feel like its stuck there for a little bit
+longer though before rebooting. might be placebo." => no EL1 exception reached our vectors (installed
+in ArmPlatformInitialize, live until CpuDxe; CpuDxe's own handler would dead-loop, not reset).
+=> the reset is either an EL2/EL3-level event (stage-2 abort to uH, SError routed above EL1, secure
+fault) or a deliberate reset path outside ResetSystemLib, somewhere between GetBootMode and the first
+DXE driver checkpoint. Bands/strips cannot localise that range; next: mirror DEBUG output to the panel.

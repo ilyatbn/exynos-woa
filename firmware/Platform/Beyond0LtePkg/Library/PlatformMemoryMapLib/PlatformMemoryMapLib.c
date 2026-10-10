@@ -137,6 +137,7 @@ STATIC CONST MMIO_REGION  mMmioRegions[] = {
                              "USB_PHY"       },                            // envelope of all three
 
   { EXYNOS_TOUCH_HSI2C_BASE,   EXYNOS_TOUCH_HSI2C_SIZE,   "HSI2C10"     },  // touch bus, same base
+  { EXYNOS_PMIC_HSI2C_BASE,    EXYNOS_PMIC_HSI2C_SIZE,    "HSI2C45"     },  // MAX77705 bus (USB VBUS boost), new in the D1 work
   { EXYNOS_PERIC0_GPIO_BASE,   EXYNOS_PERIC0_GPIO_SIZE,   "GPIO_PERIC0" },
   { EXYNOS_ALIVE_GPIO_BASE,    EXYNOS_ALIVE_GPIO_SIZE,    "GPIO_ALIVE"  },  // moved from 0x14050000
 

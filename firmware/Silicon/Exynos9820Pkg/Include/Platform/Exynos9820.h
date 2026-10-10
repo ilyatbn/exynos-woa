@@ -234,7 +234,7 @@
 // ---------------------------------------------------------------------------
 //
 #define EXYNOS_PMU_BASE           0x0000000015860000ULL   // VERIFIED (system-controller@15860000)
-#define EXYNOS_PMU_SIZE           0x0000000000010000ULL   // UNVERIFIED (9810 extent)
+#define EXYNOS_PMU_SIZE           0x0000000000010000ULL   // VERIFIED (live DTB: system-controller reg = 0x15860000 + 0x10000, notes/s10e-dtb-mmio.md S02)
 #define EXYNOS_CHIPID_BASE        0x0000000010000000ULL   // VERIFIED (chipid@10000000)
 #define EXYNOS_CHIPID_SIZE        0x0000000000000100ULL   // VERIFIED
 
@@ -243,13 +243,14 @@
 // SPEEDY  [MOVES, and there are two]
 //
 // VERIFIED node names: speedy@15970000 and speedy1@15980000. The 9810 had one
-// at 0x141C0000. Sizes not read yet.
+// at 0x141C0000. Sizes read 2026-10-10 from the live DTB in a TWRP root shell:
+// both are 0x2000, so the two entries the map used to skip are now published.
 // ---------------------------------------------------------------------------
 //
 #define EXYNOS_SPEEDY_BASE        0x0000000015970000ULL   // VERIFIED (speedy@15970000)
-#define EXYNOS_SPEEDY_SIZE        0x0000000000000000ULL   // UNVERIFIED — extent not read
+#define EXYNOS_SPEEDY_SIZE        0x0000000000002000ULL   // VERIFIED (live DTB reg, TWRP root read - notes/s10e-dtb-mmio.md S02)
 #define EXYNOS_SPEEDY1_BASE       0x0000000015980000ULL   // VERIFIED (speedy1@15980000)
-#define EXYNOS_SPEEDY1_SIZE       0x0000000000000000ULL   // UNVERIFIED — extent not read
+#define EXYNOS_SPEEDY1_SIZE       0x0000000000002000ULL   // VERIFIED (live DTB reg, TWRP root read - notes/s10e-dtb-mmio.md S02)
 
 //
 // ---------------------------------------------------------------------------
@@ -437,9 +438,9 @@
 #define EXYNOS_DECON_F_BASE       0x0000000019030000ULL   // VERIFIED (decon_f@0x19030000)
 #define EXYNOS_DECON_F_SIZE       0x0000000000010000ULL   // VERIFIED
 #define EXYNOS_DECON_T_BASE       0x0000000019050000ULL   // VERIFIED (decon_t@0x19050000)
-#define EXYNOS_DECON_T_SIZE       0x0000000000010000ULL   // UNVERIFIED (extent not read)
-#define EXYNOS_DSIM_BASE          0x0000000019080000ULL   // VERIFIED (node name)
-#define EXYNOS_DSIM_SIZE          0x0000000000010000ULL   // UNVERIFIED (extent not read)
+#define EXYNOS_DECON_T_SIZE       0x0000000000010000ULL   // VERIFIED (live DTB reg, notes/s10e-dtb-mmio.md S02)
+#define EXYNOS_DSIM_BASE          0x0000000019080000ULL   // VERIFIED (dsim@0x19080000)
+#define EXYNOS_DSIM_SIZE          0x0000000000010000ULL   // CONSERVATIVE: the live DTB declares THREE ranges - 0x19080000+0x300, 0x19161000+0x800, 0x19160000+0x100 - so 0x10000 is a superset of the first and the extent discrepancy stays open (notes/s10e-dtb-mmio.md S02)
 
 //
 // ---------------------------------------------------------------------------
@@ -451,7 +452,7 @@
 // ---------------------------------------------------------------------------
 //
 #define EXYNOS_WDT_BASE           0x0000000010050000ULL   // VERIFIED (watchdog_cl0@10050000)
-#define EXYNOS_WDT_SIZE           0x0000000000001000ULL   // UNVERIFIED (extent not read)
+#define EXYNOS_WDT_SIZE           0x0000000000001000ULL   // VERIFIED (live DTB: watchdog_cl0 and watchdog_cl2 both +0x1000, notes/s10e-dtb-mmio.md S02)
 
 //
 // ---------------------------------------------------------------------------

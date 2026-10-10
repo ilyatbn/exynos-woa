@@ -133,8 +133,10 @@ _start:
 	 * sboot arms watchdog_cl0@0x10050000 and watchdog_cl2@0x10060000 - the
 	 * SECOND counter on this SoC is cl2, not the 9810's cl1 (Exynos9820.h:426,
 	 * :431 EXYNOS_WDT_BASE: both BASES VERIFIED on the S10e). WTCON=0 halts
-	 * the counters before they can fire. The register OFFSET (window+0x00) is
-	 * UNVERIFIED: EXYNOS_WDT_SIZE:432 is an unread extent. MMU is OFF at handoff
+	 * the counters before they can fire. The window EXTENT is now a read (both
+	 * cl0 and cl2 are +0x1000 in the live DTB, notes/s10e-dtb-mmio.md S02); what
+	 * is still UNVERIFIED here is the register OFFSET inside it - +0x00 is WTCON
+	 * by s3c2410 convention, never observed on the 9820. MMU is OFF at handoff
 	 * on the 9810 (device-verified there, UNVERIFIED here) -> direct device stores.
 	 * x0 is scratch (x1 holds the payload pointer and is preserved). */
 	movz	x0, #0x1005, lsl #16    /* 0x10050000 (cl0 WTCON, offset 0x00)       */

@@ -96,6 +96,15 @@
 // 0xD0000000+0x1600000, seclog_mem 0xC0000000+0x80000, cp_ram_logging 0xFB900000+0x2000000.
 // So 0x80080000 sits inside NO reserved node, but the justification for it is now
 // known to rest on a kernel default; it stays UNVERIFIED as an observed address.
+//
+// UPDATE (2026-10-10, notes/k4b-drop-address.md K01-K03): the drop address IS a
+// read now. sboot loaded this boot's Image at 0x80118000 (Kernel code 0x80198000
+// in /proc/iomem, minus the Image header's text_offset 0x80000), and the kernel
+// reaches 0x832D0000 (= 0x80198000 + image_size 0x3138000, exactly the Kernel
+// data end 0x832CFFFF + 1). The FD range 0x80080000..0x80780000 therefore
+// OVERLAPS the loaded-image window and two sboot-owned nodes (sec_debug_magic
+// 0x80000000+0x1000 and kaslr 0x80100000+0x100000), even though the single
+// address 0x80080000 is inside no reserved node.
 // ---------------------------------------------------------------------------
 //
 #define EXYNOS_DRAM_BASE          0x0000000080000000ULL   // VERIFIED

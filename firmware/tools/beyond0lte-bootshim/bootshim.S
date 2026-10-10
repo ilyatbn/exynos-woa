@@ -27,6 +27,15 @@
  * 0x84000000 initrd bound) is now known to be a kernel DEFAULT, not what sboot
  * does: sboot put this boot's initrd at 0xD5000000..0xD5A67000.
  *
+ * CLOSED as a read (2026-10-10, notes/k4b-drop-address.md K01-K03): /proc/iomem
+ * for the kernel sboot booted gives Kernel code 0x80198000 and Kernel data end
+ * 0x832CFFFF; that kernel's Image header declares text_offset 0x80000 and
+ * image_size 0x3138000, so the Image was loaded at 0x80118000 and the kernel
+ * window is 0x80198000..0x832D0000 (0x80198000 + 0x3138000 = 0x832D0000, exact).
+ * UEFI_BASE 0x80080000 is therefore inside the region sboot uses for the loaded
+ * image. Whether sboot reuses the same base for OUR image (a 7.6 MB shim+FD) is
+ * still untested - that is the question the first boot answers.
+ *
  * Layout after packaging:  [ this shim ][ BEYOND0LTE_UEFI.fd ]   (cat'd together)
  *
  * Flow (inherited from the proven edk2-exynos tools/BootShim + m1-hello start.S,
@@ -69,7 +78,7 @@
  */
 
 #ifndef UEFI_BASE
-#define UEFI_BASE 0x0000000080080000   /* must equal PcdFdBaseAddress (Beyond0LtePkg.dsc:415 / .fdf:69). UNVERIFIED as an OBSERVED drop address: the initrd bound is the read, this base is the decision that follows. */
+#define UEFI_BASE 0x0000000080080000   /* must equal PcdFdBaseAddress (Beyond0LtePkg.dsc:415 / .fdf:69). NOT an observed address: the drop sboot actually used on this phone is 0x80118000 (notes/k4b-drop-address.md K01-K03, /proc/iomem + Image header, arithmetic exact), so 0x80080000 sits INSIDE the loaded-image window 0x80118000..0x832D0000 and overlaps sec_debug_magic and the kaslr node. Kept as the built value, not as a decision the reads support. */
 #endif
 #ifndef UEFI_SIZE
 #define UEFI_SIZE 0x0000000000700000   /* VERIFIED: built BEYOND0LTE_UEFI.fd is exactly 7 340 032 B = 0x700000 */

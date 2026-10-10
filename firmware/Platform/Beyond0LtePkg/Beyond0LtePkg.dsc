@@ -412,6 +412,13 @@
   #     0xD5000000..0xD5A67000, so the justification below is void and 0x80080000
   #     is now an unobserved guess, not a decision derived from a read.
   #
+  #     2026-10-10 (notes/k4b-drop-address.md K01-K03): the drop HAS been read.
+  #     sboot loaded this boot's Image at 0x80118000 (Kernel code 0x80198000 minus
+  #     text_offset 0x80000), and the kernel reaches 0x832D0000 (= 0x80198000 +
+  #     image_size 0x3138000, matching the Kernel data end exactly). So 0x80080000
+  #     is inside the region sboot uses for the loaded image and overlaps
+  #     sec_debug_magic and the kaslr node. Kept as the built value only.
+  #
   #     The 9810's 0x90000000 is deliberately NOT carried over: its justification
   #     (clean RAM above the RKP-monitored kernel zones, 0x80080000 bootlooping) is
   #     a 9810 device observation with no 9820 equivalent read.

@@ -39,14 +39,18 @@
  *   3. copy the FD (UEFI_SIZE bytes) to UEFI_BASE (0x80080000). On the 9810 this
  *      was clean RAM ABOVE the RKP-monitored kernel zones (0x80094000-0x828DBFFF);
  *      on the 9820 there is NO such constant to carry (K10, closed as a MECHANISM
- *      question, not an address question): Samsung's own include/linux/rkp.h for
- *      SM-G970F hands RKP `_text.._etext` and `_srodata.._erodata` and the monitor
- *      makes those pages ROX in stage-2, so the protected window is wherever sboot
- *      dropped the kernel plus that kernel's own section extents - runtime values.
+ *      question, not an address question): Samsung's own include/linux/rkp.h from
+ *      the SM-G973F_QQ_Opensource drop (S10 base, same Exynos 9820 as this S10e,
+ *      mirrored by LineageOS/android_kernel_samsung_exynos9820) hands RKP `_text.._etext`
+ *      and `_srodata.._erodata` and the monitor makes those pages ROX in stage-2,
+ *      so the protected window is wherever sboot dropped the kernel plus that
+ *      kernel's own section extents - runtime values, not a constant to carry.
  *      What IS verified on this SoC is the EL2 region: the live DTB's reserved-memory
  *      carries el2_code = 0x87000000+0x200000 (compatible "el2,uh") and el2_earlymem
- *      = 0x97E000000+0x200000, and uH s2_unmaps + write-protects that region, so
- *      anything placed at 0x87000000..0x87200000 is dead on arrival. 0x80080000
+ *      = 0x97E000000+0x200000. INFERENCE, not observation: the s2_unmap +
+ *      protected_ranges_add over that region comes from a decompiled exynos9610
+ *      uh.elf (Impalabs compendium), so 0x87000000..0x87200000 is expected dead
+ *      on arrival on 9820 but has never been observed there. 0x80080000
  *      itself is still only a decision, not an observation.
  *   4. branch to UEFI_BASE. The FD's first word is an ARM64 `B` that GenFv wrote
  *      into the FV-header zero-vector, jumping to the PeilessSec SEC entry

@@ -460,6 +460,30 @@ Two defects found, each now a follow-up commit:
    provably wrong. Fix: clamp the published length to the live bank0 size, keep the
    reserved-region hazard open.
 
+### 2026-10-10 T21 — harsh review of the shim-comment commit (`K10 half 2`)
+
+Checked mechanically: both `-DBEYOND0LTE_PRAM_DIAG=0|1` builds re-run exit 0 (288 B /
+392 B); `llvm-nm` on the diag0 elf puts `_head` at 0x80080000, `_payload` at
+0x80080120 = the last byte of the 288-byte image; `git diff --stat` on the 9810
+`tools/bootshim/bootshim.S` stays empty.
+
+Two claims in the new text were not defensible as written, both fixed in one
+follow-up commit (`K10 half 2` review fix):
+
+1. **Attribution.** The text said "Samsung's own `include/linux/rkp.h` for
+   SM-G970F". The drop actually read is **SM-G973F_QQ_Opensource** (S10 base, same
+   Exynos 9820), mirrored by `LineageOS/android_kernel_samsung_exynos9820`. Fixed to
+   name the model that was read.
+2. **Fact vs inference.** "uH s2_unmaps + write-protects that region" was stated as a
+   9820 fact, but the decompilation behind it is an **exynos9610** `uh.elf`
+   (Impalabs compendium). Rewritten as an explicit INFERENCE with the observation
+   still open.
+
+Arithmetic re-checked and correct: `0xFED14000 - 0xFEB10000 = 0x204000`;
+`log_bcm` end `0xFEF10000` = `log_llc` base (contiguous);
+`0xC0000000 + 0x20000000 = 0xE0000000 > 0xD9801000`;
+`0xD0000000 + 0x1600000 = 0xD1600000`.
+
 ## Sources
 
 - https://blog.impalabs.com/2101_samsung-rkp-compendium.html (mirror of https://blog.longterm.io/samsung_rkp.html)

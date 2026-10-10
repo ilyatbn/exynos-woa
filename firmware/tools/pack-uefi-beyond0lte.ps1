@@ -37,7 +37,7 @@ param(
   [ValidateSet("CLANGPDB", "CLANGDWARF")] [string]$Toolchain = "CLANGPDB",
   [string]$Ref = "",
   [string]$Output = "",
-  [string]$UefiBase = "0x80080000",
+  [string]$UefiBase = "0x83300000",
   [switch]$SkipFreshCheck
 )
 $ErrorActionPreference = "Stop"

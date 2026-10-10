@@ -413,20 +413,25 @@
   #     is now an unobserved guess, not a decision derived from a read.
   #
   #     2026-10-10 (notes/k4b-drop-address.md K01-K03): the drop HAS been read.
-  #     sboot loaded this boot's Image at 0x80118000 (Kernel code 0x80198000 minus
-  #     text_offset 0x80000), and the kernel reaches 0x832D0000 (= 0x80198000 +
-  #     image_size 0x3138000, matching the Kernel data end exactly). So 0x80080000
-  #     is inside the region sboot uses for the loaded image and overlaps
-  #     sec_debug_magic and the kaslr node. Kept as the built value only.
+  #     sboot loaded this boot's Image at 0x80118000 (Kernel code 0x80198000 in
+  #     /proc/iomem minus the Image header's text_offset 0x80000), and the kernel
+  #     window reaches 0x832D0000 (= 0x80198000 + image_size 0x3138000, exactly
+  #     the Kernel data end + 1). DECISION (not a read): the FD now runs at
+  #     0x83300000 + 0x700000 = 0x83A00000 - above the whole kernel window, below
+  #     every reservation that was read (mm_debug 0x91200000, secure_camera
+  #     0x96000000, camera 0x99000000, el2_code 0x87000000), inside bank0
+  #     (0x80000000 + 0x3AB00000, ends 0xBAB00000), and disjoint from the shim's
+  #     own loaded range, which removes the CONFIRMED self-overwrite the 0x80080000
+  #     choice had. Still unobserved: nothing has booted at it.
   #
   #     The 9810's 0x90000000 is deliberately NOT carried over: its justification
   #     (clean RAM above the RKP-monitored kernel zones, 0x80080000 bootlooping) is
   #     a 9810 device observation with no 9820 equivalent read.
   #
   #     0x700000 (7 MB) is the 9810's FV size, carried as a build parameter. ---
-  gArmTokenSpaceGuid.PcdFdBaseAddress|0x0000000080080000
+  gArmTokenSpaceGuid.PcdFdBaseAddress|0x0000000083300000
   gArmTokenSpaceGuid.PcdFdSize|0x00700000
-  gArmTokenSpaceGuid.PcdFvBaseAddress|0x0000000080080000
+  gArmTokenSpaceGuid.PcdFvBaseAddress|0x0000000083300000
   gArmTokenSpaceGuid.PcdFvSize|0x00700000
 
   # --- VFP / NEON: PcdVFPEnabled was removed upstream (handled via build flags). ---

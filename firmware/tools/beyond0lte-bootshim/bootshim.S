@@ -78,7 +78,7 @@
  */
 
 #ifndef UEFI_BASE
-#define UEFI_BASE 0x0000000080080000   /* must equal PcdFdBaseAddress (Beyond0LtePkg.dsc:415 / .fdf:69). NOT an observed address: the drop sboot actually used on this phone is 0x80118000 (notes/k4b-drop-address.md K01-K03, /proc/iomem + Image header, arithmetic exact), so 0x80080000 sits INSIDE the loaded-image window 0x80118000..0x832D0000 and overlaps sec_debug_magic and the kaslr node. Kept as the built value, not as a decision the reads support. */
+#define UEFI_BASE 0x0000000083300000   /* must equal PcdFdBaseAddress (Beyond0LtePkg.dsc / .fdf FD_BASE_ADDRESS). DECISION, not a read: sboot's observed drop for this boot is 0x80118000 and its kernel window ends 0x832D0000 (notes/k4b-drop-address.md K01-K03), so 0x83300000 is the first address above that window that is also below every reservation read (mm_debug 0x91200000) and inside bank0 (ends 0xBAB00000). Nothing has booted here. */
 #endif
 #ifndef UEFI_SIZE
 #define UEFI_SIZE 0x0000000000700000   /* VERIFIED: built BEYOND0LTE_UEFI.fd is exactly 7 340 032 B = 0x700000 */

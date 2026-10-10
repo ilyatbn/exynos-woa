@@ -71,15 +71,21 @@
   # text_offset 0x80000 and image_size 0x3138000, so sboot loaded the Image at
   # 0x80118000 and the kernel window is 0x80198000..0x832D0000 (exact). 0x80080000
   # is INSIDE that window and overlaps sec_debug_magic (0x80000000+0x1000) and the
-  # kaslr node (0x80100000+0x100000). The value below is kept as the built
-  # artifact, not as a decision the reads support.
+  # kaslr node (0x80100000+0x100000), and its dst range covers the running shim
+  # (the self-overwrite is CONFIRMED, not hypothetical).
+  #
+  # DECISION (not a read): 0x83300000. Above the whole kernel window (ends
+  # 0x832D0000), below every reservation read (mm_debug 0x91200000, el2_code
+  # 0x87000000), inside bank0 (0x80000000 + 0x3AB00000, ends 0xBAB00000), and
+  # disjoint from the shim's own loaded range so the copy cannot hit itself.
+  # Nothing has booted at it yet.
   #
   # The 9810's 0x90000000 is NOT carried over: its justification (clean RAM above
   # the RKP-monitored kernel zones 0x80094000-0x828DBFFF, and 0x80080000 having
   # bootlooped) is a 9810 device observation with no 9820 equivalent read.
   #
   # MUST match PcdFdBaseAddress / PcdFvBaseAddress in Beyond0LtePkg.dsc.
-  DEFINE FD_BASE_ADDRESS = 0x0000000080080000
+  DEFINE FD_BASE_ADDRESS = 0x0000000083300000
   DEFINE FD_SIZE         = 0x0000000000700000    # 7 MB FV — carried from the 9810 (build parameter, not a read)
 
 [FD.BEYOND0LTE_UEFI]

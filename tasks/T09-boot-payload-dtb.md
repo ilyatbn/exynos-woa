@@ -1,6 +1,6 @@
 # T09 — Append a valid DTB to the boot payload so sboot's load_kernel passes the DT check
 
-Status: **doing — attempt made (boot #2), DT check STILL fails; the placement/flag DECISION was insufficient**
+Status: **reframed — the appended-DTB theory is DISPROVEN (B15); stock kernel has no appended FDT. Real fix = match the edk2 S10e BootShim recipe, not a guessed placement**
 
 ## Goal
 

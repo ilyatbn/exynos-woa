@@ -951,3 +951,20 @@ convention - inspect `stock/boot.img`'s kernel blob (44 380 172 B) ARM64 Image h
 flags) and where its appended DTB actually sits, and replicate THAT in the payload, rather than
 guessing the placement. The stock kernel boots, so its Image-header/DTB layout is the ground truth.
 SAFETY: boot (sda14) untouched, Android still boots; recovery slot holds the boot#2 container.
+
+## B15 - CORRECTION: the appended-FDT theory (B12) is WRONG; stock kernel has no appended FDT
+
+FACT parsed `stock/boot.img` kernel blob (44 380 172 B) ARM64 Image header:
+`code0=0x14688000 code1=0 text_offset=0x80000 image_size=0x327b000 (52 932 608) flags=0xa
+magic "ARM\x64" @0x38`. And `k.find(FDT 0xD00DFEED)` = **-1** - the stock kernel blob contains
+NO appended FDT. So the stock kernel boots WITHOUT an appended device tree in its kernel blob.
+=> B12's inference (sboot wants an appended FDT after image_size) is FALSE. The DT comes from the
+separate `dt.img`/`dtbo.img` partitions (Android-12 ABL loads them by partition, not from the
+container). Note the stock Image header `image_size` (52.9 MB) EXCEEDS the container `kernel_size`
+(44.38 MB) - the container kernel is a partial/segmented load; sboot reassembles it with the
+separate DT. Our single-shot `[shim][FD]` doesn't fit that model.
+CONCLUSION: the DT LOAD fail is about sboot not finding the DT for a recovery boot of a
+non-stock container, NOT about an appended FDT. Trial-and-error on the only device is the wrong
+tool here. Reliable route = the edk2 S10e (beyond0lte) BootShim recipe (the Renegade/edk2-exynos
+projects boot EDK2 on this exact device) - study how they satisfy the 9820 DT check, rather than
+guess placement. T09's appended-DTB attempt is a dead end; reframe.

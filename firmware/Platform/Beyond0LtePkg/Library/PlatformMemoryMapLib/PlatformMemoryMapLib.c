@@ -26,6 +26,8 @@
 #include <Library/DebugLib.h>
 #include <Platform/Exynos9820.h>
 
+#include "Beyond0LteCheckpoint.h"
+
 #define MMAP_DRAM   ARM_MEMORY_REGION_ATTRIBUTE_WRITE_BACK
 #define MMAP_DEV    ARM_MEMORY_REGION_ATTRIBUTE_DEVICE
 
@@ -166,6 +168,7 @@ ArmPlatformGetVirtualMemoryMap (
   // bank0/3/4 gaps (up to 6) + framebuffer slot + the MMIO windows + terminator
   STATIC ARM_MEMORY_REGION_DESCRIPTOR  Table[MMIO_REGION_COUNT + 12];
 
+  BEYOND0LTE_CHECKPOINT (2500);   // MemoryPeim, MMU still off (B39)
   ASSERT (MemoryTable != NULL);
   Index = 0;
 

@@ -1270,3 +1270,19 @@ identical in debug_history. What stands: SOFT reset, not via UEFI ResetSystem (B
 vectors are live (sboot's EL1 or EL3 for an SError/secure abort) -> SOFT reset.
 Next: checkpoint bands inside the FD (SEC entry, memory map / MMU, DXE) to locate it.
 Did the phone still loop? Assumed yes (user reported no change in behaviour) - confirm with user.
+
+## B39 - boot #9: checkpoint bands inside the FD (where does it die?)
+
+Photo from the user confirms B38: the red line is the tail of sboot's unlocked-bootloader warning
+("...software updates.") under the yellow triangle, partly hidden by the shim's top band.
+PeilessSec order (ModuleEntryPoint.S + PeilessSec.c:125-243): ArmPlatformPeiBootAction (no stack) ->
+CEntryPoint: ArmPlatformInitialize -> caches -> SerialPortInitialize -> MemoryPeim
+(ArmPlatformGetVirtualMemoryMap, MemoryInitPeiLib.c:75, then MMU on) -> BuildCpuHob ->
+ArmPlatformGetBootMode -> constructors -> LoadDxeCoreFromFv -> DXE.
+New Library/PlatformMemoryMapLib/Beyond0LteCheckpoint.h: BEYOND0LTE_CHECKPOINT(Row) = volatile store
+loop, 150 rows white, then dsb. Rows: 2100 PeiBootAction, 2300 ArmPlatformInitialize, 2500
+GetVirtualMemoryMap, 2700 GetBootMode (post-MMU), 2880 SimpleFramebufferDxeEntry (DXE). Lowest band
+= last checkpoint reached.
+Verified: build exit 0; PeilessSec.dll.map ArmPlatformPeiBootAction @0x25a0, disassembly is a pure
+leaf (no sp use): stores 0xFFFFFFFF from 0xCAB89200 (= FB + 2100*5760) x 0x34BC0 (=150*1440), dsb, ret;
+FD 7 340 032 B; shim unchanged vs boot #8. Image %TEMP%\b39\boot9-v2.img sha256 3f53e50d8bb6ff575125cbfac50f622df05fa53317be412a10ece0d043ebd0e2

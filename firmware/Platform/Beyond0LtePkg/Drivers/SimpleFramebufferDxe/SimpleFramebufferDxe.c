@@ -37,6 +37,8 @@
 
 #include <Platform/Exynos9820.h>
 
+#include "../../Library/PlatformMemoryMapLib/Beyond0LteCheckpoint.h"
+
 #define FB_PIXEL_SIZE  ((UINTN)EXYNOS_FB_BYTES_PER_PIXEL)
 
 //
@@ -377,6 +379,8 @@ SimpleFramebufferDxeEntry (
   EFI_STATUS        Status;
   FB_GOP_INSTANCE   *Ctx;
   EFI_HANDLE        Handle;
+
+  BEYOND0LTE_CHECKPOINT (2880);   // DXE core running, drivers dispatching (B39)
 
   //
   // Refuse to run until the framebuffer base is verified (placeholder is 0).

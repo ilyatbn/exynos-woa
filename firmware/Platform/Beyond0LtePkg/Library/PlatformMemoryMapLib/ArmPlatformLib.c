@@ -19,6 +19,8 @@
 #include <Library/PcdLib.h>
 #include <Ppi/ArmMpCoreInfo.h>
 
+#include "Beyond0LteCheckpoint.h"
+
 //
 // The 9810 flow appended single-byte breadcrumbs to 0xFED14000 so TWRP could
 // read how far bring-up got. That address is above the S9+'s last DRAM bank.
@@ -75,6 +77,7 @@ ArmPlatformInitialize (
   IN UINTN  MpId
   )
 {
+  BEYOND0LTE_CHECKPOINT (2300);   // CEntryPoint, SEC stack live (B39)
   // TODO: any clock/GPIO setup that MUST precede DRAM/UART use (likely none,
   // because sboot configured them before chainloading us).
   return RETURN_SUCCESS;
@@ -98,6 +101,7 @@ ArmPlatformPeiBootAction (
   VOID
   )
 {
+  BEYOND0LTE_CHECKPOINT (2100);   // SEC asm entry, before the SEC stack (B39)
   // The 9810 dropped a breadcrumb 'P' here — the first C function the SEC asm
   // entry calls, before the EDK II stack exists — because it was the cheapest
   // way to tell a bad branch target from a faulting prologue. There is no
@@ -113,6 +117,7 @@ ArmPlatformGetBootMode (
   VOID
   )
 {
+  BEYOND0LTE_CHECKPOINT (2700);   // MMU on, HOBs built (B39)
   return BOOT_WITH_FULL_CONFIGURATION;
 }
 

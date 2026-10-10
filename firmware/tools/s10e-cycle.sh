@@ -10,7 +10,7 @@ if [ -n "$SYS" ]; then
 fi
 $A shell 'mkdir -p /tmp/esp; mount -t vfat /dev/block/by-name/cache /tmp/esp 2>/dev/null; rm -f /tmp/esp/WINRUN.FLG; umount /tmp/esp'
 T0=$(date +%s); $A reboot; sleep 40
-until $A devices | grep -q recovery; do sleep 5; if [ $(( $(date +%s) - T0 )) -gt 1500 ]; then echo "STAGE1 TIMEOUT (no TWRP after 1500 s)"; exit 2; fi; done
+until $A devices | grep -q recovery; do sleep 5; if [ $(( $(date +%s) - T0 )) -gt 3600 ]; then echo "STAGE1 TIMEOUT (no TWRP after 3600 s)"; exit 2; fi; done
 echo "stage1 TWRP after $(( $(date +%s) - T0 )) s"
 $A shell 'mkdir -p /tmp/esp; mount -t vfat /dev/block/by-name/cache /tmp/esp 2>/dev/null; ls /tmp/esp | tr "\n" " "; echo; umount /tmp/esp'
 T1=$(date +%s); $A reboot; sleep 30

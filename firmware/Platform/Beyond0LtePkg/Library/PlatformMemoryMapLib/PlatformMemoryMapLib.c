@@ -300,6 +300,22 @@ ArmPlatformGetVirtualMemoryMap (
   // memory rather than RAM — otherwise Windows would claim the page the panel
   // scans out. notes/s10e-root-reads.md §3.
   //
+  //
+  // W32: the 2 MiB handoff window (Windows PRAM ring + progress word at 0x8FE00000, RAM boot log
+  // at 0x8FF00000) NON-CACHEABLE. Mapped write-back, UEFI's own writes (zeroing after a save, the
+  // progress word) sat dirty in the cache and were lost at our SWRESET, and the next boot read
+  // stale lines instead of what the Windows driver wrote non-cached: WINPRAM.BIN came back
+  // byte-identical to an older run. The shim and SEC (MMU off) already write it uncached. This
+  // entry overrides the bank0 write-back mapping above (later entries win).
+  //
+  Table[Index].PhysicalBase = BEYOND0LTE_WINPRAM_BASE;
+  Table[Index].VirtualBase  = BEYOND0LTE_WINPRAM_BASE;
+  Table[Index].Length       = BEYOND0LTE_WINPRAM_SIZE + BEYOND0LTE_BOOTLOG_SIZE;
+  Table[Index].Attributes   = ARM_MEMORY_REGION_ATTRIBUTE_UNCACHED_UNBUFFERED;
+  Index++;
+  STATIC_ASSERT (BEYOND0LTE_WINPRAM_BASE + BEYOND0LTE_WINPRAM_SIZE == BEYOND0LTE_BOOTLOG_BASE,
+                 "handoff window must be contiguous");
+
   if (EXYNOS_FB_BASE != 0) {
     Table[Index].PhysicalBase = EXYNOS_FB_BASE;
     Table[Index].VirtualBase  = EXYNOS_FB_BASE;

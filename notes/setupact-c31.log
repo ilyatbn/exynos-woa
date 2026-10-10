@@ -1,0 +1,1602 @@
+﻿2026-10-10 22:47:27, Info                  IBS    ------------------------------------------------
+2026-10-10 22:47:27, Info       [0x0601c1] IBS    InstallWindows:Install Path = C:\Windows\system32\oobe
+2026-10-10 22:47:27, Info       [0x0601c2] IBS    InstallWindows:Setup Phase = 4
+2026-10-10 22:47:27, Info       [0x0606cc] IBS    LogBootDeviceInfo:The firmware boot device ARC path is [multi(0)disk(0)rdisk(0)partition(28)] and NT path is [\Device\Harddisk0\Partition28].
+2026-10-10 22:47:27, Info       [0x0606cc] IBS    LogBootDeviceInfo:The system boot device ARC path is [multi(0)disk(0)rdisk(0)partition(31)] and NT path is [\Device\Harddisk0\Partition31].
+2026-10-10 22:47:27, Info                         [setup.exe] OrchestrateUpdateImageState: Updating image state from [IMAGE_STATE_GENERALIZE_RESEAL_TO_OOBE] --> [IMAGE_STATE_UNDEPLOYABLE]
+2026-10-10 22:47:27, Info       [0x0601ee] IBS    PrepareSetupForFirstBootPhase:Working directory is [C:\Windows\Panther]; we are starting an installation
+2026-10-10 22:47:27, Info                  IBS    PrepareSetupForFirstBootPhase:Passed drive-letter assignment sanity check.
+2026-10-10 22:47:27, Info       [0x0601cc] IBS    InstallWindows:Performing a new install from first boot phase. Working directory = C:\Windows\Panther
+2026-10-10 22:47:27, Info       [0x0601ce] IBS    Setup has started phase 4 at 2026-10-10 22:47:27
+2026-10-10 22:47:27, Info       [0x0601cf] IBS    Install source is C:\Windows\system32\oobe
+2026-10-10 22:47:27, Info       [0x0601d0] IBS    Build version is 10.0.22621.2506 (WinBuild.160101.0800)
+2026-10-10 22:47:27, Info       [0x064042] IBSLIB CreateSetupBlackboard:Creating new blackboard path is [C:\Windows\Panther\SetupInfo] Setup phase is [4]
+2026-10-10 22:47:27, Info       [0x090008] PANTHR CBlackboard::Open: C:\Windows\Panther\SetupInfo succeeded.
+2026-10-10 22:47:27, Info       [0x064043] IBSLIB CreateSetupBlackboard:Successfully created/opened Setup black board path is [C:\Windows\Panther\SetupInfo]
+2026-10-10 22:47:27, Info                  IBS    InstallWindows:No UI language from a previous boot was found on the blackboard. Using selected language [].
+2026-10-10 22:47:27, Info                  IBS    InstallWindows:Setup architecture is [ARM64]
+2026-10-10 22:47:27, Info       [0x0601d5] IBS    InstallWindows:Starting with Empty Queue. Setup Phase = 4
+2026-10-10 22:47:27, Info                  PANTHR InitializedCriticalSection for pExecQueue->csLock;
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module ScenarioDetect in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module Engine in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module Internal in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module ErrorHandler in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module Diagnostic in diagnostic.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module Unattend in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module ParseCommandLine in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module Ems  in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module PrepareInstallDrive in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module TempDrive in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module CopySetupFiles in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module BootPrep in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module BootEntries in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module CopyPrivates in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module ProductKey in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module ComputerName in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module License in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module DiskInformation in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module FixBBPaths in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module DiskConfig in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module CreatePageFile in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module Imaging in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module CopyImages in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module DeployImages in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module DiskSpace in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module Completion in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:27, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module MountDev in winsetup.dll
+2026-10-10 22:47:27, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:28, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module Cmi in cmisetup.dll
+2026-10-10 22:47:28, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:28, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module SystemRestore in winsetup.dll
+2026-10-10 22:47:28, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:28, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module FirstBootCleanup in winsetup.dll
+2026-10-10 22:47:28, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:28, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module RestartModule in winsetup.dll
+2026-10-10 22:47:28, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:28, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module ExternalDrivers in winsetup.dll
+2026-10-10 22:47:28, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:28, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module CBS in winsetup.dll
+2026-10-10 22:47:28, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:28, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module SkuAssembly in cmisetup.dll
+2026-10-10 22:47:28, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:28, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module LanguagePack in winsetup.dll
+2026-10-10 22:47:28, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:28, Info                         Module_Init_HWRequirements:Trying to validate HW requirements.
+2026-10-10 22:47:28, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module HWRequirementsCheck in winsetup.dll
+2026-10-10 22:47:28, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:28, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module ConfigSet in winsetup.dll
+2026-10-10 22:47:28, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:28, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module UnattendImgInstall in winsetup.dll
+2026-10-10 22:47:28, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:28, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module CFGOfflineImage in winsetup.dll
+2026-10-10 22:47:28, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:28, Info                         PnPIBS: Initializing the PnP IBS Module ...
+2026-10-10 22:47:28, Info                         PnPIBS: Successfully initialized the PnP IBS Module.
+2026-10-10 22:47:28, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module PnP IBS module in pnpibs.dll
+2026-10-10 22:47:28, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:28, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module Compliance in winsetup.dll
+2026-10-10 22:47:28, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:28, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module Rollback in winsetup.dll
+2026-10-10 22:47:28, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:28, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module Locale in winsetup.dll
+2026-10-10 22:47:28, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:28, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module Source media module in winsetup.dll
+2026-10-10 22:47:28, Info       [0x060359] IBS    Callback_ScenarioDetect:Setup is starting from [4] phase 
+2026-10-10 22:47:28, Info                  IBS    Callback_BootEnvironmentDetect:FirmwareType 2.
+2026-10-10 22:47:28, Info                  IBS    Callback_BootEnvironmentDetect: Detected boot environment: EFI
+2026-10-10 22:47:28, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:28, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module OnlineUI in win32ui.dll
+2026-10-10 22:47:28, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:28, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module OnlineProgress in spprgrss.dll
+2026-10-10 22:47:28, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:28, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module OnlineSettings in winsetup.dll
+2026-10-10 22:47:28, Info                  PANTHR InitializeModule: Initializing ExecQueue->csLock;
+2026-10-10 22:47:28, Info       [0x0601a4] IBS    LoadWorkerModules:Successfully added worker module Sysprep in winsetup.dll
+2026-10-10 22:47:28, Info       [0x060004] IBS    Callback_UpdateDrivePathsOnBB:No need to update the blackboard paths.
+2026-10-10 22:47:28, Info       [0x070035] DIAG   CallBack_DiagnosticDataGeneration: Called with notification for Initialization
+2026-10-10 22:47:28, Info                  DIAG   CallBack_DiagnosticDataGeneration: Setup was started from Phase 4. Disabling Diagnostics [DiagnosticDataGeneration] in this scenario
+2026-10-10 22:47:28, Info       [0x060258] IBS    GenerateName: Failed to read the Key UserData\FullName\Value from Blackboard defaulting to WIN
+2026-10-10 22:47:28, Info       [0x060259] IBS    GenerateName: Failed to read the Key UserData\OrgName\Value from Blackboard
+2026-10-10 22:47:28, Info       [0x06025d] IBS    Callback_ComputerName_Validate:Computer name is WIN-484PFLS8TI4
+2026-10-10 22:47:28, Info       [0x06025a] IBS    Callback_ComputerName_Generate:Computer name [WIN-484PFLS8TI4] is valid.
+2026-10-10 22:47:28, Info                         [setup.exe] OrchestrateSetComputerName: Computer name set to WIN-484PFLS8TI4
+2026-10-10 22:47:28, Info       [0x070035] DIAG   CallBack_DiagnosticDataGeneration: Called with notification for Initialization
+2026-10-10 22:47:29, Info                  DIAG   CallBack_DiagnosticDataGeneration: Setup was started from Phase 4. Disabling Diagnostics [DiagnosticDataGeneration] in this scenario
+2026-10-10 22:47:29, Info                  SYSPRP Callback_Specialize: Enter.
+2026-10-10 22:47:29, Error                 CONX   ApphelpDebug: ERROR,ApphelpChpeModSettingsFromQueryResult,872,SdbQueryResults was null or not the correct size.
+
+2026-10-10 22:47:29, Info                         RunSecInit: Successfully launched secinit.exe. Program files dir is [C:\Program Files (x86)]
+2026-10-10 22:47:29, Info                         Waiting for SAM service...
+2026-10-10 22:47:29, Info                         Processing security template C:\Windows\inf\defltbase.inf for clean install...
+2026-10-10 22:47:32, Info                         Processing security template succeeded
+2026-10-10 22:47:32, Info                  SYSPRP Callback_Specialize: Current State: [4]
+2026-10-10 22:47:32, Info                  SYSPRP Callback_Specialize: Attempting to specialize image
+2026-10-10 22:47:32, Info                  SYSPRP SysprepSession::CreateSession: Successfully created instance with action file C:\Windows\System32\Sysprep\ActionFiles\Specialize.xml, and mode <null>
+2026-10-10 22:47:34, Info                  SYSPRP SysprepSession::Execute: Beginning action execution from C:\Windows\System32\Sysprep\ActionFiles\Specialize.xml
+2026-10-10 22:47:34, Info                  SYSPRP SysprepSession::CreateXPathForSelection: Sysprep mode in registry is <null>
+2026-10-10 22:47:34, Info                  SYSPRP SysprepSession::CreateXPathForSelection: Processor architecture in registry is ARM64
+2026-10-10 22:47:34, Info                  SYSPRP After sorting, components will be excuted in the following order:
+2026-10-10 22:47:34, Info                  SYSPRP   Name: Microsoft-Windows-WofUtil, Order: 128
+2026-10-10 22:47:34, Info                  SYSPRP   Name: Microsoft-Windows-Sysprep-SpOpk, Order: 256
+2026-10-10 22:47:34, Info                  SYSPRP   Name: Microsoft-Windows-PnpSysprep, Order: 1280
+2026-10-10 22:47:34, Info                  SYSPRP   Name: Microsoft-Windows-Setup-Component, Order: 1408
+2026-10-10 22:47:34, Info                  SYSPRP   Name: Microsoft-Windows-Security-Security Configuration Engine Client, Order: 1536
+2026-10-10 22:47:34, Info                  SYSPRP   Name: Microsoft-Windows-TerminalServices-RemoteConnectionManager, Order: 1792
+2026-10-10 22:47:34, Info                  SYSPRP   Name: Microsoft-Windows-TerminalServices-LocalSessionManager, Order: 2048
+2026-10-10 22:47:34, Info                  SYSPRP   Name: Microsoft-Windows-Power-Sysprep, Order: 2304
+2026-10-10 22:47:34, Info                  SYSPRP   Name: Microsoft-Windows-TerminalServices-ClientActiveXCore, Order: 2560
+2026-10-10 22:47:34, Info                  SYSPRP   Name: Microsoft-Windows-AppX-Sysprep, Order: 3328
+2026-10-10 22:47:34, Info                  SYSPRP   Name: Microsoft-Windows-Resource-Exhaustion-Detector-Core, Order: 3584
+2026-10-10 22:47:34, Info                  SYSPRP   Name: Microsoft-Windows-IE-Sysprep, Order: 3840
+2026-10-10 22:47:34, Info                  SYSPRP   Name: Microsoft-Windows-Cryptography, Order: 4352
+2026-10-10 22:47:34, Info                  SYSPRP   Name: Microsoft-Windows-Sysprep-SpBcd, Order: 4608
+2026-10-10 22:47:34, Info                  SYSPRP   Name: Microsoft-Windows-COM-DTC-Runtime, Order: 4864
+2026-10-10 22:47:34, Info                  SYSPRP   Name: StartupApp-Task-Data, Order: 5376
+2026-10-10 22:47:34, Info                  SYSPRP   Name: Microsoft-Windows-WinRE-RecoveryAgent, Order: 6656
+2026-10-10 22:47:34, Info                  SYSPRP   Name: Microsoft-Windows-TIScavengeTask, Order: 6912
+2026-10-10 22:47:34, Info                  SYSPRP   Name: microsoft-windows-servicingstack, Order: 7168
+2026-10-10 22:47:34, Info                  SYSPRP   Name: Microsoft-Windows-Provisioning-Sysprep, Order: 7424
+2026-10-10 22:47:34, Info                  SYSPRP   Name: Microsoft-Windows-HypervisorEnforcedCodeIntegrity-Sysprep, Order: 7680
+2026-10-10 22:47:34, Info                  SYSPRP ActionPlatform::LaunchModule: Executing method 'Sysprep_Online_Specialize_Opk' from C:\Windows\System32\spopk.dll
+2026-10-10 22:47:34, Info                  SYSPRP ActionPlatform::LaunchModule: Successfully executed 'Sysprep_Online_Specialize_Opk' from C:\Windows\System32\spopk.dll
+2026-10-10 22:47:34, Info                  SYSPRP SysprepSession::ExecuteInternal: Skipping offline-capable module of Microsoft-Windows-Sysprep-SpOpk when running online
+2026-10-10 22:47:34, Info                  SYSPRP SysprepSession::ExecuteInternal: Skipping offline-capable module of Microsoft-Windows-PnpSysprep when running online
+2026-10-10 22:47:34, Info                  SYSPRP ActionPlatform::LaunchModule: Executing method 'Sysprep_Specialize_Pnp' from C:\Windows\System32\sppnp.dll
+2026-10-10 22:47:34, Info                  SYSPRP SPPNP: Sysprep_Specialize_Pnp: Enter
+2026-10-10 22:47:34, Info                  SYSPRP SPPNP: Created progress thread.
+2026-10-10 22:47:34, Info                  SYSPRP SPPNP: Creating device install status thread.
+2026-10-10 22:47:34, Info                  SYSPRP SPPNP: Waiting for device install status thread to exit.
+2026-10-10 22:47:34, Info                  SYSPRP SPPNP: Locking down driver files.
+2026-10-10 22:47:34, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:34, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:34, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:35, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:35, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:35, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\RoutePolicy.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\scmbus.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\sdbus.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\sdstor.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\SerPL011.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\spacedump.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\spaceport.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\storahci.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\stornvme.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\storufs.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\storvsc.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\terminpt.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\tpm.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\TsUsbGD.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\tsusbhub.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\uaspstor.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\UcmUcsiAcpiClient.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\ufxsynopsys.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\UMDF\EhStorPwdDrv.dll. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\UMDF\HidLampArray.dll. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\UMDF\HidTelephony.dll. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\UMDF\Microsoft.Bluetooth.Profiles.HidOverGatt.dll. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\UMDF\RdpIdd.dll. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\umpass.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\system32\drivers\USBAUDIO.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\usbaudio2.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\usbccgp.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\system32\drivers\usbd.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\system32\drivers\usbehci.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\system32\drivers\usbhub.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\USBHUB3.SYS. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\system32\drivers\usbport.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\usbprint.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\usbser.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\system32\drivers\USBSTOR.SYS. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\USBXHCI.SYS. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\vdrvroot.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\vhdmp.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\vhf.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\Vid.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\vmbus.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\VMBusHID.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\vmgencounter.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\vmgid.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\volmgr.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\volume.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\vpci.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\WindowsTrustedRTProxy.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\winusb.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\wmiacpi.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\xboxgip.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\drivers\xinputhid.sys. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\HalExtCCN510.dll. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\HalExtPL080.dll. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\HidCfu.dll. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\SysFxUI.dll. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\TsUsbGDCoInstaller.dll. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\vmbuspipe.dll. Err = 0x51B
+2026-10-10 22:47:35, Warning               SYSPRP SPPNP: Failed to secure driver file C:\Windows\System32\WMALFXGFXDSP.dll. Err = 0x51B
+2026-10-10 22:47:35, Info                  SYSPRP SPPNP: Finished locking down driver files.
+2026-10-10 22:47:35, Info                  SYSPRP SPPNP: Removing phantom devices.
+2026-10-10 22:47:35, Info                  SYSPRP SPPNP: Finished removing phantom devices.
+2026-10-10 22:47:35, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:35, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:35, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:36, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:36, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:36, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:36, Info                  SYSPRP SPPNP: Updated 1 driver package signature(s).
+2026-10-10 22:47:36, Info                  SYSPRP SPPNP: Installing devices.
+2026-10-10 22:47:36, Info                  SYSPRP SPPNP: Making sure system services have been started.
+2026-10-10 22:47:37, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:37, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:37, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:37, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:37, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:37, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:38, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:38, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:38, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:38, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:38, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:38, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:39, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:39, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:39, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:39, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:39, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:39, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:40, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:40, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:40, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:41, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:41, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:41, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:41, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:41, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:41, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:42, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:42, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:42, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:42, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:42, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:42, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:43, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:43, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:43, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:43, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:43, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:43, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:44, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:44, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:44, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:44, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:44, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:44, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:45, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:45, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:45, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:45, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:45, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:45, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:46, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:46, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:46, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:46, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:46, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:46, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:47, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:47, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:47, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:47, Info                  CBS    TI: --- Initializing Trusted Installer ---
+2026-10-10 22:47:47, Info                  CBS    TI: Last boot time: 2026-10-10 22:45:22.143
+2026-10-10 22:47:47, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:47, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:47, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:48, Info                  CBS    Starting TrustedInstaller initialization.
+2026-10-10 22:47:48, Info                  CBS    Lock: New lock added: CCbsPublicSessionClassFactory, level: 30, total lock:4
+2026-10-10 22:47:48, Info                  CBS    Lock: New lock added: CCbsPublicSessionClassFactory, level: 30, total lock:5
+2026-10-10 22:47:48, Info                  CBS    Lock: New lock added: WinlogonNotifyLock, level: 8, total lock:6
+2026-10-10 22:47:48, Info                  CBS    Ending TrustedInstaller initialization.
+2026-10-10 22:47:48, Info                  CBS    Starting the TrustedInstaller main loop.
+2026-10-10 22:47:48, Info                  CBS    Running under Setup's First boot, setting idle time to 30 minutes
+2026-10-10 22:47:48, Info                  CBS    TrustedInstaller service starts successfully.
+2026-10-10 22:47:48, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:48, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:48, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:48, Info                  CBS    Setup in progress, aborting startup processing checks. Will allow logon if asked by Winlogon.
+2026-10-10 22:47:48, Info                  CBS    Winlogon: Running under Setup
+2026-10-10 22:47:48, Info                  CBS    Winlogon: Registering for CreateSession notifications
+2026-10-10 22:47:48, Info                  CBS    Winlogon: Loading SysNotify DLL
+2026-10-10 22:47:48, Info                  CBS    Winlogon: Starting notify server 
+2026-10-10 22:47:48, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:48, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:48, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:48, Info                  CBS    Startup processing thread terminated normally
+2026-10-10 22:47:48, Info                  CBS    TI: Startup Processing completes, release startup processing lock.
+2026-10-10 22:47:49, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:49, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:49, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:49, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:49, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:49, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:50, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:50, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:50, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:51, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:51, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:51, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:51, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:51, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:51, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:52, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:52, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:52, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:52, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:52, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:52, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:53, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:53, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:53, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:53, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:53, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:53, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:54, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:54, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:54, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:54, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:54, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:54, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:55, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:55, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:55, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:55, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:55, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:55, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:56, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:56, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:56, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:56, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:56, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:56, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:57, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:57, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:57, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:57, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:57, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:57, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:58, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:58, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:58, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:58, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:58, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:58, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:59, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:59, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:59, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:47:59, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:47:59, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:47:59, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:00, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:00, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:00, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:01, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:01, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:01, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:02, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:02, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:02, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:02, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:02, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:02, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:03, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:03, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:03, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:03, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:03, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:03, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:04, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:04, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:04, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:04, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:04, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:04, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:05, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:05, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:05, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:05, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:05, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:05, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:06, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:06, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:06, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:06, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:06, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:06, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:07, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:07, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:07, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:07, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:07, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:07, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:08, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:08, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:08, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:08, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:08, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:08, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:09, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:09, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:09, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:10, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:10, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:10, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:10, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:10, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:10, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:11, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:11, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:11, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:11, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:11, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:11, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:12, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:12, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:12, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:12, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:12, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:12, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:13, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:13, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:13, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:13, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:13, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:13, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:14, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:14, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:14, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:14, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:14, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:14, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:15, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:15, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:15, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:15, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:15, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:15, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:16, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:16, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:16, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:16, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:16, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:16, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:17, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:17, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:17, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:17, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:17, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:17, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:18, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:18, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:18, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:18, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:18, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:18, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:19, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:19, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:19, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:19, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:19, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:19, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:20, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:20, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:20, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:21, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:21, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:21, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:21, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:21, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:21, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:22, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:22, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:22, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:22, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:22, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:22, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:23, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:23, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:23, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:23, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:23, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:23, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:24, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:24, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:24, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:24, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:24, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:24, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:25, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:25, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:25, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:26, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:26, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:26, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:26, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:26, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:26, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:27, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:27, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:27, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:27, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:27, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:27, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:28, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:28, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:28, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:28, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:28, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:28, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:29, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:29, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:29, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:29, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:29, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:29, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:30, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:30, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:30, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:30, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:30, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:30, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:31, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:31, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:31, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:31, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:31, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:31, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:32, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:32, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:32, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:32, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:32, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:32, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:33, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:33, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:33, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:33, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:33, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:33, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:34, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:34, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:34, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:34, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:34, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:34, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:35, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:35, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:35, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:35, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:35, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:35, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:36, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:36, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:36, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:36, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:36, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:36, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:37, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:37, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:37, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:37, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:37, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:37, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:38, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:38, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:38, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:38, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:38, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:38, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:39, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:39, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:39, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:39, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:39, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:39, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:40, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:40, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:40, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:42, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:42, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:42, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:42, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:42, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:42, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:43, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:43, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:43, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:44, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:44, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:44, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:45, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:45, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:45, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:45, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:45, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:45, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:46, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:46, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:46, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:46, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:46, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:46, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:47, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:47, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:47, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:47, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:47, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:47, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:48, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:48, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:48, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:48, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:48, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:48, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:49, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:49, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:49, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:49, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:49, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:49, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:50, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:50, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:50, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:50, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:50, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:50, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:51, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:51, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:51, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:51, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:51, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:51, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:52, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:52, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:52, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:52, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:52, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:52, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:53, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:53, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:53, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:53, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:53, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:53, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:54, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:54, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:54, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:54, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:54, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:54, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:55, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:55, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:55, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:55, Info                  SYSPRP SPPNP: System services have been started.
+2026-10-10 22:48:55, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:55, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:55, Info                  SYSPRP SPPNP: Status worker: Waiting for device installation to start...
+2026-10-10 22:48:56, Info                  SYSPRP SPPNP: Waiting for pending device installs.
+2026-10-10 22:48:56, Info                  SYSPRP SPPNP: Status: Starting...
+2026-10-10 22:48:56, Info                  SYSPRP SPPNP: Status: Total = 0, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:48:56, Info                  SYSPRP SPPNP: Status: Active
+2026-10-10 22:48:56, Info                  SYSPRP SPPNP: Status: Total = 2, Complete = 0, Progress = 0% (0%)
+2026-10-10 22:49:09, Info                  SYSPRP SPPNP: Status: Active
+2026-10-10 22:49:09, Info                  SYSPRP SPPNP: Status: Total = 2, Complete = 1, Progress = 50% (50%)
+2026-10-10 22:49:10, Info                  SYSPRP SPPNP: Completed pending device installs.
+2026-10-10 22:49:10, Info                  SYSPRP SPPNP: Alerting progress thread.
+2026-10-10 22:49:10, Info                  SYSPRP SPPNP: Devices pre-configured: 57
+2026-10-10 22:49:10, Info                  SYSPRP SPPNP: Devices pre-installed: 0
+2026-10-10 22:49:10, Info                  SYSPRP SPPNP: Devices need install: 1
+2026-10-10 22:49:10, Info                  SYSPRP SPPNP: Devices configured: 2
+2026-10-10 22:49:10, Info                  SYSPRP SPPNP: Devices installed: 0
+2026-10-10 22:49:10, Info                  SYSPRP SPPNP: Devices non-present: 0
+2026-10-10 22:49:10, Info                  SYSPRP SPPNP: Device installation completed.
+2026-10-10 22:49:10, Info                  SYSPRP SPPNP: No device state migrated.
+2026-10-10 22:49:10, Info                  SYSPRP SPPNP: Removing unneeded PNF files.
+2026-10-10 22:49:10, Info                  SYSPRP SPPNP: Gathering installed driver INFs.
+2026-10-10 22:49:12, Info                  SYSPRP SPPNP: Status: End
+2026-10-10 22:49:12, Info                  SYSPRP SPPNP: Status: Total = -1, Complete = -1, Progress = 100% (100%)
+2026-10-10 22:49:12, Info                  SYSPRP SPPNP: Alerting device install status thread.
+2026-10-10 22:49:12, Info                  SYSPRP SPPNP: Finished gathering installed driver INFs.
+2026-10-10 22:49:12, Info                  SYSPRP SPPNP: Skipped deleting file kdnic630.PNF.
+2026-10-10 22:49:12, Info                  SYSPRP SPPNP: Finished removing unneeded PNF files.
+2026-10-10 22:49:12, Info                  SYSPRP SPPNP: Installing primitive drivers.
+2026-10-10 22:49:13, Info                  SYSPRP SPPNP: Finished waiting for device install status.
+2026-10-10 22:49:15, Info                  SYSPRP SPPNP: Waiting for progress thread to exit.
+2026-10-10 22:49:15, Info                  SYSPRP SPPNP: Progress thread exited.
+2026-10-10 22:49:17, Info                  SYSPRP SPPNP: Sysprep_Specialize_Pnp: Exit
+2026-10-10 22:49:17, Info                  SYSPRP ActionPlatform::LaunchModule: Successfully executed 'Sysprep_Specialize_Pnp' from C:\Windows\System32\sppnp.dll
+2026-10-10 22:49:17, Info                  SYSPRP SysprepSession::ExecuteInternal: Skipping offline-capable module of Microsoft-Windows-Setup-Component when running online
+2026-10-10 22:49:17, Info                  SYSPRP ActionPlatform::LaunchModule: Executing method 'Sysprep_Specialize_Pnp_Compat' from C:\Windows\System32\oobe\winsetup.dll
+2026-10-10 22:49:17, Info                  SYSPRP SPPNP_COMPAT: Need to ensure system services are running...
+2026-10-10 22:49:17, Info                  SYSPRP EnsureSystemServicesStarted: System services are running.
+2026-10-10 22:49:17, Info                  SYSPRP SPPNP_COMPAT: System services started successfully.
+2026-10-10 22:49:17, Info                  SYSPRP ActionPlatform::LaunchModule: Successfully executed 'Sysprep_Specialize_Pnp_Compat' from C:\Windows\System32\oobe\winsetup.dll
+2026-10-10 22:49:17, Info                  SYSPRP SysprepSession::ExecuteInternal: Skipping offline-capable module of Microsoft-Windows-Security-Security Configuration Engine Client when running online
+2026-10-10 22:49:17, Info                  SYSPRP ActionPlatform::LaunchModule: Executing method 'SceSysPrep' from C:\Windows\System32\scecli.dll
+2026-10-10 22:49:17, Info                  SYSPRP ActionPlatform::LaunchModule: Successfully executed 'SceSysPrep' from C:\Windows\System32\scecli.dll
+2026-10-10 22:49:17, Info                  SYSPRP ActionPlatform::LaunchModule: Executing method 'LSMSysPrepRestoreOnline' from C:\Windows\System32\setup\tssysprep.dll
+2026-10-10 22:49:17, Info                  SYSPRP Entering LSMSysPrepRestoreOnline
+2026-10-10 22:49:17, Info                  SYSPRP bOfflineRan is FALSE
+2026-10-10 22:49:17, Info                  SYSPRP ResetTSRDSAppXKeys...
+2026-10-10 22:49:17, Info                  SYSPRP ResetTSRDSAppXKeys deleted AUINSTALLAGENT_REG_STAGINGINPROGRESS succeeded
+2026-10-10 22:49:17, Info                  SYSPRP ResetTSRDSAppXKeys status 0x00000000
+2026-10-10 22:49:17, Info                  SYSPRP Leaving LSMSysPrepRestoreOnline, status 0x00000000
+2026-10-10 22:49:17, Info                  SYSPRP ActionPlatform::LaunchModule: Successfully executed 'LSMSysPrepRestoreOnline' from C:\Windows\System32\setup\tssysprep.dll
+2026-10-10 22:49:17, Info                  SYSPRP SysprepSession::ExecuteInternal: Skipping offline-capable module of Microsoft-Windows-TerminalServices-LocalSessionManager when running online
+2026-10-10 22:49:17, Info                  SYSPRP SysprepSession::ExecuteInternal: Skipping offline-capable module of Microsoft-Windows-Power-Sysprep when running online
+2026-10-10 22:49:17, Info                  SYSPRP ActionPlatform::LaunchModule: Executing method 'PowerCustomizePlatformPowerSettingsOnline' from C:\Windows\System32\posetup.dll
+2026-10-10 22:49:17, Info                  SYSPRP PowerCustomizePlatformPowerSettingsOnline enter
+2026-10-10 22:49:17, Info                  SYSPRP Invoking PowerReplaceDefaultPowerSchemes
+2026-10-10 22:49:18, Info                  SYSPRP PoSetupMandatoryPowerSettingsCustomization calling EnumPowerSetting/EnumCsBatSaverActionCallback
+2026-10-10 22:49:18, Info                  SYSPRP PoSetupMandatoryPowerSettingsCustomization exit
+2026-10-10 22:49:18, Info                  SYSPRP PoSetupRestoreCustomizedPowerSettings enter
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupRestoreCustomizedPowerSettings, Error = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupCustomizePowerSettings enter
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupCustomizeCriticalBatteryAction, Action = 2
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupWriteDefaultIndex, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupWriteDefaultIndex, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupWriteDefaultIndex, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupCustomizePowerSetting, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupCustomizeCriticalBatteryAction calling PoSetupCustomizePowerSetting for ALL_PLANS_AC, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupWriteDefaultIndex, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupWriteDefaultIndex, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupWriteDefaultIndex, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupCustomizePowerSetting, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupCustomizeCriticalBatteryAction calling PoSetupCustomizePowerSetting for ALL_PLANS_DC, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupCustomizeClientHibernatePolicies exit
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupPortableWorkspaceHibernatePolicy, Portable = 0, Allowed (result) = 1
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupSetHibernateEnable, Enable = 1
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupSetHibernateEnable, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupSetupAggressiveStandby
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupSetupEventProcessor enter
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupWriteDefaultIndex, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupWriteDefaultIndex, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupWriteDefaultIndex, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupCustomizePowerSetting, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupWriteDefaultIndex, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupWriteDefaultIndex, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupWriteDefaultIndex, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupCustomizePowerSetting, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupWriteDefaultIndex, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupWriteDefaultIndex, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupWriteDefaultIndex, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupCustomizePowerSetting, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupCustomizeNetworkSettings, AoAc = 1
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupCustomizeNetworkSettings, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PoSetupCustomizePowerSettings, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP PowerCustomizePlatformPowerSettingsOnline, Result = 0
+2026-10-10 22:49:31, Info                  SYSPRP ActionPlatform::LaunchModule: Successfully executed 'PowerCustomizePlatformPowerSettingsOnline' from C:\Windows\System32\posetup.dll
+2026-10-10 22:49:31, Info                  SYSPRP ActionPlatform::LaunchModule: Executing method 'RdpSysPrepRestoreOnline' from C:\Windows\System32\setup\tssysprep.dll
+2026-10-10 22:49:31, Info                  SYSPRP Entering RdpSysPrepRestoreOnline, bOffLineRan is 0
+2026-10-10 22:49:32, Info                  SYSPRP Leaving RdpSysPrepRestore, err = 0x00000000
+2026-10-10 22:49:32, Info                  SYSPRP ActionPlatform::LaunchModule: Successfully executed 'RdpSysPrepRestoreOnline' from C:\Windows\System32\setup\tssysprep.dll
+2026-10-10 22:49:32, Info                  SYSPRP SysprepSession::ExecuteInternal: Skipping offline-capable module of Microsoft-Windows-TerminalServices-ClientActiveXCore when running online
+2026-10-10 22:49:32, Info                  SYSPRP ActionPlatform::LaunchModule: Executing method 'AppxSysprepSpecializeOnline' from C:\Windows\System32\AppxSysprep.dll
+2026-10-10 22:49:32, Info                  SYSPRP Entering AppxSysprepSpecializeOnline.
+2026-10-10 22:49:32, Warning               SYSPRP DetermineIfReRegisterOnUpgrade: setupApplicationsKey.Open() failed 0x80070002, assuming Yes
+2026-10-10 22:49:32, Info                  SYSPRP IsOSUpgradeWithNoReRegister: 0
+2026-10-10 22:49:32, Info                  SYSPRP !IsOSUpgradeWithNoReRegister: Loading AppxDeploymentClient.dll
+2026-10-10 22:49:32, Info                  SYSPRP NTFS Journaling already enabled.
+2026-10-10 22:49:32, Info                  SYSPRP AppxSysprepSpecializeOnline invoked during an OSUpgrade from an older system. Processing Deployment work.
+2026-10-10 22:49:32, Warning               SYSPRP Ignoring folder Deleted because could not convert to family name
+2026-10-10 22:49:32, Warning               SYSPRP Ignoring folder Merged because could not convert to family name
+2026-10-10 22:49:32, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.549981C3F5F10_3.2204.14815.0_arm64__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.549981C3F5F10_8wekyb3d8bbwe\Microsoft.549981C3F5F10_3.2204.14815.0_arm64__8wekyb3d8bbwe 
+2026-10-10 22:49:32, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.549981C3F5F10_3.2204.14815.0_neutral_~_8wekyb3d8bbwe\AppxMetadata\AppxBundleManifest.xml to appxalluserstore Staged key Microsoft.549981C3F5F10_8wekyb3d8bbwe\Microsoft.549981C3F5F10_3.2204.14815.0_neutral_~_8wekyb3d8bbwe 
+2026-10-10 22:49:32, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.DesktopAppInstaller_1.17.10691.0_arm64__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.DesktopAppInstaller_8wekyb3d8bbwe\Microsoft.DesktopAppInstaller_1.17.10691.0_arm64__8wekyb3d8bbwe 
+2026-10-10 22:49:32, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.DesktopAppInstaller_1.17.10691.0_neutral_split.scale-100_8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.DesktopAppInstaller_8wekyb3d8bbwe\Microsoft.DesktopAppInstaller_1.17.10691.0_neutral_split.scale-100_8wekyb3d8bbwe 
+2026-10-10 22:49:32, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.DesktopAppInstaller_1.17.10691.0_neutral_split.scale-125_8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.DesktopAppInstaller_8wekyb3d8bbwe\Microsoft.DesktopAppInstaller_1.17.10691.0_neutral_split.scale-125_8wekyb3d8bbwe 
+2026-10-10 22:49:32, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.DesktopAppInstaller_2022.310.2333.0_neutral_~_8wekyb3d8bbwe\AppxMetadata\AppxBundleManifest.xml to appxalluserstore Staged key Microsoft.DesktopAppInstaller_8wekyb3d8bbwe\Microsoft.DesktopAppInstaller_2022.310.2333.0_neutral_~_8wekyb3d8bbwe 
+2026-10-10 22:49:32, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.HEIFImageExtension_1.0.43012.0_arm64__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.HEIFImageExtension_8wekyb3d8bbwe\Microsoft.HEIFImageExtension_1.0.43012.0_arm64__8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.HEVCVideoExtension_1.0.50361.0_arm64__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.HEVCVideoExtension_8wekyb3d8bbwe\Microsoft.HEVCVideoExtension_1.0.50361.0_arm64__8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.NET.Native.Framework.2.2_2.2.29512.0_arm64__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.NET.Native.Framework.2.2_8wekyb3d8bbwe\Microsoft.NET.Native.Framework.2.2_2.2.29512.0_arm64__8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.NET.Native.Framework.2.2_2.2.29512.0_arm__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.NET.Native.Framework.2.2_8wekyb3d8bbwe\Microsoft.NET.Native.Framework.2.2_2.2.29512.0_arm__8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.NET.Native.Runtime.2.2_2.2.28604.0_arm64__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.NET.Native.Runtime.2.2_8wekyb3d8bbwe\Microsoft.NET.Native.Runtime.2.2_2.2.28604.0_arm64__8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.NET.Native.Runtime.2.2_2.2.28604.0_arm__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.NET.Native.Runtime.2.2_8wekyb3d8bbwe\Microsoft.NET.Native.Runtime.2.2_2.2.28604.0_arm__8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.Paint_11.2201.22.0_arm64__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.Paint_8wekyb3d8bbwe\Microsoft.Paint_11.2201.22.0_arm64__8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.Paint_11.2201.22.0_neutral_split.scale-100_8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.Paint_8wekyb3d8bbwe\Microsoft.Paint_11.2201.22.0_neutral_split.scale-100_8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.Paint_11.2201.22.0_neutral_split.scale-125_8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.Paint_8wekyb3d8bbwe\Microsoft.Paint_11.2201.22.0_neutral_split.scale-125_8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.Paint_11.2201.22.0_neutral_~_8wekyb3d8bbwe\AppxMetadata\AppxBundleManifest.xml to appxalluserstore Staged key Microsoft.Paint_8wekyb3d8bbwe\Microsoft.Paint_11.2201.22.0_neutral_~_8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.RawImageExtension_2.1.30391.0_arm64__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.RawImageExtension_8wekyb3d8bbwe\Microsoft.RawImageExtension_2.1.30391.0_arm64__8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.RawImageExtension_2.1.30391.0_neutral_~_8wekyb3d8bbwe\AppxMetadata\AppxBundleManifest.xml to appxalluserstore Staged key Microsoft.RawImageExtension_8wekyb3d8bbwe\Microsoft.RawImageExtension_2.1.30391.0_neutral_~_8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.ScreenSketch_11.2201.12.0_arm64__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.ScreenSketch_8wekyb3d8bbwe\Microsoft.ScreenSketch_11.2201.12.0_arm64__8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.ScreenSketch_11.2201.12.0_neutral_split.scale-100_8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.ScreenSketch_8wekyb3d8bbwe\Microsoft.ScreenSketch_11.2201.12.0_neutral_split.scale-100_8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.ScreenSketch_11.2201.12.0_neutral_split.scale-125_8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.ScreenSketch_8wekyb3d8bbwe\Microsoft.ScreenSketch_11.2201.12.0_neutral_split.scale-125_8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.ScreenSketch_2022.2201.12.0_neutral_~_8wekyb3d8bbwe\AppxMetadata\AppxBundleManifest.xml to appxalluserstore Staged key Microsoft.ScreenSketch_8wekyb3d8bbwe\Microsoft.ScreenSketch_2022.2201.12.0_neutral_~_8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.SecHealthUI_1000.22621.1.0_arm64__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.SecHealthUI_8wekyb3d8bbwe\Microsoft.SecHealthUI_1000.22621.1.0_arm64__8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.StorePurchaseApp_12008.1001.1.0_arm__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.StorePurchaseApp_8wekyb3d8bbwe\Microsoft.StorePurchaseApp_12008.1001.1.0_arm__8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.StorePurchaseApp_12008.1001.113.0_neutral_~_8wekyb3d8bbwe\AppxMetadata\AppxBundleManifest.xml to appxalluserstore Staged key Microsoft.StorePurchaseApp_8wekyb3d8bbwe\Microsoft.StorePurchaseApp_12008.1001.113.0_neutral_~_8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.UI.Xaml.2.4_2.42007.9001.0_arm64__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.UI.Xaml.2.4_8wekyb3d8bbwe\Microsoft.UI.Xaml.2.4_2.42007.9001.0_arm64__8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.UI.Xaml.2.4_2.42007.9001.0_arm__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.UI.Xaml.2.4_8wekyb3d8bbwe\Microsoft.UI.Xaml.2.4_2.42007.9001.0_arm__8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.UI.Xaml.2.7_7.2203.17001.0_arm64__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.UI.Xaml.2.7_8wekyb3d8bbwe\Microsoft.UI.Xaml.2.7_7.2203.17001.0_arm64__8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.UI.Xaml.2.7_7.2203.17001.0_arm__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.UI.Xaml.2.7_8wekyb3d8bbwe\Microsoft.UI.Xaml.2.7_7.2203.17001.0_arm__8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.VCLibs.140.00.UWPDesktop_14.0.30704.0_arm64__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.VCLibs.140.00.UWPDesktop_8wekyb3d8bbwe\Microsoft.VCLibs.140.00.UWPDesktop_14.0.30704.0_arm64__8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.VCLibs.140.00.UWPDesktop_14.0.30704.0_arm__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.VCLibs.140.00.UWPDesktop_8wekyb3d8bbwe\Microsoft.VCLibs.140.00.UWPDesktop_14.0.30704.0_arm__8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.VCLibs.140.00_14.0.30704.0_arm64__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.VCLibs.140.00_8wekyb3d8bbwe\Microsoft.VCLibs.140.00_14.0.30704.0_arm64__8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.VCLibs.140.00_14.0.30704.0_arm__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.VCLibs.140.00_8wekyb3d8bbwe\Microsoft.VCLibs.140.00_14.0.30704.0_arm__8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.VP9VideoExtensions_1.0.50901.0_arm64__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.VP9VideoExtensions_8wekyb3d8bbwe\Microsoft.VP9VideoExtensions_1.0.50901.0_arm64__8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.WebMediaExtensions_1.0.42192.0_arm64__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.WebMediaExtensions_8wekyb3d8bbwe\Microsoft.WebMediaExtensions_1.0.42192.0_arm64__8wekyb3d8bbwe 
+2026-10-10 22:49:33, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.WebMediaExtensions_1.0.42192.0_neutral_split.scale-100_8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.WebMediaExtensions_8wekyb3d8bbwe\Microsoft.WebMediaExtensions_1.0.42192.0_neutral_split.scale-100_8wekyb3d8bbwe 
+2026-10-10 22:49:34, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.WebMediaExtensions_1.0.42192.0_neutral_split.scale-125_8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.WebMediaExtensions_8wekyb3d8bbwe\Microsoft.WebMediaExtensions_1.0.42192.0_neutral_split.scale-125_8wekyb3d8bbwe 
+2026-10-10 22:49:34, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.WebMediaExtensions_1.0.42192.0_neutral_~_8wekyb3d8bbwe\AppxMetadata\AppxBundleManifest.xml to appxalluserstore Staged key Microsoft.WebMediaExtensions_8wekyb3d8bbwe\Microsoft.WebMediaExtensions_1.0.42192.0_neutral_~_8wekyb3d8bbwe 
+2026-10-10 22:49:34, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.WebpImageExtension_1.0.42351.0_arm64__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.WebpImageExtension_8wekyb3d8bbwe\Microsoft.WebpImageExtension_1.0.42351.0_arm64__8wekyb3d8bbwe 
+2026-10-10 22:49:34, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.Windows.Photos_21.21030.25003.0_arm__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.Windows.Photos_8wekyb3d8bbwe\Microsoft.Windows.Photos_21.21030.25003.0_arm__8wekyb3d8bbwe 
+2026-10-10 22:49:34, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.Windows.Photos_21.21030.25003.0_neutral_split.scale-100_8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.Windows.Photos_8wekyb3d8bbwe\Microsoft.Windows.Photos_21.21030.25003.0_neutral_split.scale-100_8wekyb3d8bbwe 
+2026-10-10 22:49:34, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.Windows.Photos_21.21030.25003.0_neutral_split.scale-125_8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.Windows.Photos_8wekyb3d8bbwe\Microsoft.Windows.Photos_21.21030.25003.0_neutral_split.scale-125_8wekyb3d8bbwe 
+2026-10-10 22:49:34, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.Windows.Photos_21.21030.25003.0_neutral_~_8wekyb3d8bbwe\AppxMetadata\AppxBundleManifest.xml to appxalluserstore Staged key Microsoft.Windows.Photos_8wekyb3d8bbwe\Microsoft.Windows.Photos_21.21030.25003.0_neutral_~_8wekyb3d8bbwe 
+2026-10-10 22:49:34, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.WindowsCalculator_10.2103.8.0_arm__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.WindowsCalculator_8wekyb3d8bbwe\Microsoft.WindowsCalculator_10.2103.8.0_arm__8wekyb3d8bbwe 
+2026-10-10 22:49:34, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.WindowsCalculator_10.2103.8.0_neutral_split.scale-100_8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.WindowsCalculator_8wekyb3d8bbwe\Microsoft.WindowsCalculator_10.2103.8.0_neutral_split.scale-100_8wekyb3d8bbwe 
+2026-10-10 22:49:34, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.WindowsCalculator_10.2103.8.0_neutral_split.scale-125_8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.WindowsCalculator_8wekyb3d8bbwe\Microsoft.WindowsCalculator_10.2103.8.0_neutral_split.scale-125_8wekyb3d8bbwe 
+2026-10-10 22:49:34, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.WindowsCalculator_2020.2103.8.0_neutral_~_8wekyb3d8bbwe\AppxMetadata\AppxBundleManifest.xml to appxalluserstore Staged key Microsoft.WindowsCalculator_8wekyb3d8bbwe\Microsoft.WindowsCalculator_2020.2103.8.0_neutral_~_8wekyb3d8bbwe 
+2026-10-10 22:49:34, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.WindowsNotepad_11.2112.32.0_neutral_split.scale-100_8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.WindowsNotepad_8wekyb3d8bbwe\Microsoft.WindowsNotepad_11.2112.32.0_neutral_split.scale-100_8wekyb3d8bbwe 
+2026-10-10 22:49:34, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.WindowsNotepad_11.2112.32.0_neutral_split.scale-125_8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.WindowsNotepad_8wekyb3d8bbwe\Microsoft.WindowsNotepad_11.2112.32.0_neutral_split.scale-125_8wekyb3d8bbwe 
+2026-10-10 22:49:34, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.WindowsNotepad_11.2112.32.0_neutral_~_8wekyb3d8bbwe\AppxMetadata\AppxBundleManifest.xml to appxalluserstore Staged key Microsoft.WindowsNotepad_8wekyb3d8bbwe\Microsoft.WindowsNotepad_11.2112.32.0_neutral_~_8wekyb3d8bbwe 
+2026-10-10 22:49:34, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.WindowsNotepad_11.2112.32.0_x64__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.WindowsNotepad_8wekyb3d8bbwe\Microsoft.WindowsNotepad_11.2112.32.0_x64__8wekyb3d8bbwe 
+2026-10-10 22:49:34, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.WindowsStore_22204.1400.4.0_arm__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.WindowsStore_8wekyb3d8bbwe\Microsoft.WindowsStore_22204.1400.4.0_arm__8wekyb3d8bbwe 
+2026-10-10 22:49:34, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.WindowsStore_22204.1400.4.0_neutral_~_8wekyb3d8bbwe\AppxMetadata\AppxBundleManifest.xml to appxalluserstore Staged key Microsoft.WindowsStore_8wekyb3d8bbwe\Microsoft.WindowsStore_22204.1400.4.0_neutral_~_8wekyb3d8bbwe 
+2026-10-10 22:49:34, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.WindowsTerminal_1.12.10983.0_arm64__8wekyb3d8bbwe\AppxManifest.xml to appxalluserstore Staged key Microsoft.WindowsTerminal_8wekyb3d8bbwe\Microsoft.WindowsTerminal_1.12.10983.0_arm64__8wekyb3d8bbwe 
+2026-10-10 22:49:34, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\Microsoft.WindowsTerminal_3001.12.10983.0_neutral_~_8wekyb3d8bbwe\AppxMetadata\AppxBundleManifest.xml to appxalluserstore Staged key Microsoft.WindowsTerminal_8wekyb3d8bbwe\Microsoft.WindowsTerminal_3001.12.10983.0_neutral_~_8wekyb3d8bbwe 
+2026-10-10 22:49:34, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\MicrosoftWindows.Client.WebExperience_421.20070.195.0_arm64__cw5n1h2txyewy\AppxManifest.xml to appxalluserstore Staged key MicrosoftWindows.Client.WebExperience_cw5n1h2txyewy\MicrosoftWindows.Client.WebExperience_421.20070.195.0_arm64__cw5n1h2txyewy 
+2026-10-10 22:49:34, Info                  SYSPRP Wrote C:\Program Files\WindowsApps\MicrosoftWindows.Client.WebExperience_421.20070.195.0_neutral_~_cw5n1h2txyewy\AppxMetadata\AppxBundleManifest.xml to appxalluserstore Staged key MicrosoftWindows.Client.WebExperience_cw5n1h2txyewy\MicrosoftWindows.Client.WebExperience_421.20070.195.0_neutral_~_cw5n1h2txyewy 
+2026-10-10 22:49:34, Warning               SYSPRP Ignoring folder Mutable because could not convert to family name
+2026-10-10 22:49:34, Warning               SYSPRP Ignoring folder MutableBackup because could not convert to family name
+2026-10-10 22:49:34, Warning               SYSPRP Ignoring folder Projected because could not convert to family name
+2026-10-10 22:55:20, Info                  SYSPRP Preregistered inbox packages with hr=0x00000000
+2026-10-10 22:55:21, Info                  SYSPRP Got 71 packages to pre-register.
+2026-10-10 22:55:21, Info                  SYSPRP Successfully pre-registered Microsoft.Windows.CloudExperienceHost_10.0.22621.2506_neutral_neutral_cw5n1h2txyewy
+2026-10-10 22:55:21, Warning               SYSPRP Failed to pre-register package Microsoft.BioEnrollment_10.0.19587.1000_neutral_neutral_cw5n1h2txyewy: 0x80070002.
+2026-10-10 22:55:21, Info                  SYSPRP Successfully pre-registered Microsoft.AAD.BrokerPlugin_1000.19580.1000.0_neutral_neutral_cw5n1h2txyewy
+2026-10-10 22:55:21, Warning               SYSPRP Failed to pre-register package Microsoft.Windows.OOBENetworkConnectionFlow_10.0.21302.1000_neutral_neutral_cw5n1h2txyewy: 0x80070002.
+2026-10-10 22:55:21, Warning               SYSPRP Failed to pre-register package Microsoft.Windows.OOBENetworkCaptivePortal_10.0.21302.1000_neutral_neutral_cw5n1h2txyewy: 0x80070002.
+2026-10-10 22:55:21, Info                  SYSPRP Successfully pre-registered MicrosoftWindows.UndockedDevKit_10.0.22621.1_neutral_neutral_cw5n1h2txyewy
+2026-10-10 22:55:21, Warning               SYSPRP Failed to pre-register package Microsoft.UI.Xaml.CBS_8.2305.16002.0_neutral_neutral_8wekyb3d8bbwe: 0x80070002.
+2026-10-10 22:55:21, Info                  SYSPRP Successfully pre-registered MicrosoftWindows.Client.Core_1000.22645.1000.0_arm64__cw5n1h2txyewy
+2026-10-10 22:55:21, Info                  SYSPRP Successfully pre-registered MicrosoftWindows.Client.CBS_1000.22681.1000.0_arm64__cw5n1h2txyewy
+2026-10-10 22:55:21, Info                  SYSPRP Successfully pre-registered Microsoft.Windows.StartMenuExperienceHost_10.0.22621.2506_neutral_neutral_cw5n1h2txyewy
+2026-10-10 22:55:21, Info                  SYSPRP Successfully pre-registered Microsoft.Windows.ShellExperienceHost_10.0.22621.2506_neutral_neutral_cw5n1h2txyewy
+2026-10-10 22:55:22, Info                  SYSPRP Successfully pre-registered windows.immersivecontrolpanel_10.0.6.1000_neutral_neutral_cw5n1h2txyewy
+2026-10-10 22:55:34, Info                  SYSPRP Successfully pre-registered Microsoft.549981C3F5F10_3.2204.14815.0_neutral_~_8wekyb3d8bbwe
+2026-10-10 22:55:39, Info                  SYSPRP Successfully pre-registered Microsoft.UI.Xaml.2.4_2.42007.9001.0_arm64__8wekyb3d8bbwe
+2026-10-10 22:55:44, Info                  SYSPRP Successfully pre-registered Microsoft.UI.Xaml.2.7_7.2203.17001.0_arm64__8wekyb3d8bbwe
+2026-10-10 22:55:47, Info                  SYSPRP Successfully pre-registered Microsoft.VCLibs.140.00_14.0.30704.0_arm__8wekyb3d8bbwe
+2026-10-10 22:55:53, Info                  SYSPRP Successfully pre-registered Microsoft.VCLibs.140.00.UWPDesktop_14.0.30704.0_arm__8wekyb3d8bbwe
+2026-10-10 22:55:57, Info                  SYSPRP Successfully pre-registered Microsoft.VCLibs.140.00_14.0.30704.0_arm64__8wekyb3d8bbwe
+2026-10-10 22:56:03, Info                  SYSPRP Successfully pre-registered Microsoft.VCLibs.140.00.UWPDesktop_14.0.30704.0_arm64__8wekyb3d8bbwe
+2026-10-10 22:56:06, Info                  SYSPRP Successfully pre-registered Microsoft.NET.Native.Runtime.2.2_2.2.28604.0_arm64__8wekyb3d8bbwe
+2026-10-10 22:56:10, Info                  SYSPRP Successfully pre-registered Microsoft.NET.Native.Framework.2.2_2.2.29512.0_arm64__8wekyb3d8bbwe
+2026-10-10 22:56:25, Info                  SYSPRP Successfully pre-registered Microsoft.DesktopAppInstaller_2022.310.2333.0_neutral_~_8wekyb3d8bbwe
+2026-10-10 22:56:34, Info                  SYSPRP Successfully pre-registered Microsoft.HEIFImageExtension_1.0.43012.0_arm64__8wekyb3d8bbwe
+2026-10-10 22:56:42, Info                  SYSPRP Successfully pre-registered Microsoft.HEVCVideoExtension_1.0.50361.0_arm64__8wekyb3d8bbwe
+2026-10-10 22:56:46, Info                  SYSPRP Successfully pre-registered Microsoft.NET.Native.Framework.2.2_2.2.29512.0_arm__8wekyb3d8bbwe
+2026-10-10 22:56:49, Info                  SYSPRP Successfully pre-registered Microsoft.NET.Native.Runtime.2.2_2.2.28604.0_arm__8wekyb3d8bbwe
+2026-10-10 22:57:12, Info                  SYSPRP Successfully pre-registered Microsoft.Paint_11.2201.22.0_neutral_~_8wekyb3d8bbwe
+2026-10-10 22:57:22, Info                  SYSPRP Successfully pre-registered Microsoft.RawImageExtension_2.1.30391.0_neutral_~_8wekyb3d8bbwe
+2026-10-10 22:57:37, Info                  SYSPRP Successfully pre-registered Microsoft.ScreenSketch_2022.2201.12.0_neutral_~_8wekyb3d8bbwe
+2026-10-10 22:57:49, Info                  SYSPRP Successfully pre-registered Microsoft.SecHealthUI_1000.22621.1.0_arm64__8wekyb3d8bbwe
+2026-10-10 22:57:59, Info                  SYSPRP Successfully pre-registered Microsoft.StorePurchaseApp_12008.1001.113.0_neutral_~_8wekyb3d8bbwe
+2026-10-10 22:58:03, Info                  SYSPRP Successfully pre-registered Microsoft.UI.Xaml.2.4_2.42007.9001.0_arm__8wekyb3d8bbwe
+2026-10-10 22:58:09, Info                  SYSPRP Successfully pre-registered Microsoft.UI.Xaml.2.7_7.2203.17001.0_arm__8wekyb3d8bbwe
+2026-10-10 22:58:18, Info                  SYSPRP Successfully pre-registered Microsoft.VP9VideoExtensions_1.0.50901.0_arm64__8wekyb3d8bbwe
+2026-10-10 22:58:31, Info                  SYSPRP Successfully pre-registered Microsoft.WebMediaExtensions_1.0.42192.0_neutral_~_8wekyb3d8bbwe
+2026-10-10 22:58:39, Info                  SYSPRP Successfully pre-registered Microsoft.WebpImageExtension_1.0.42351.0_arm64__8wekyb3d8bbwe
+2026-10-10 22:59:13, Info                  SYSPRP Successfully pre-registered Microsoft.Windows.Photos_21.21030.25003.0_neutral_~_8wekyb3d8bbwe
+2026-10-10 22:59:28, Info                  SYSPRP Successfully pre-registered Microsoft.WindowsCalculator_2020.2103.8.0_neutral_~_8wekyb3d8bbwe
+2026-10-10 22:59:47, Info                  SYSPRP Successfully pre-registered Microsoft.WindowsNotepad_11.2112.32.0_neutral_~_8wekyb3d8bbwe
+2026-10-10 23:00:21, Info                  SYSPRP Successfully pre-registered Microsoft.WindowsStore_22204.1400.4.0_neutral_~_8wekyb3d8bbwe
+2026-10-10 23:00:35, Info                  SYSPRP Successfully pre-registered Microsoft.WindowsTerminal_3001.12.10983.0_neutral_~_8wekyb3d8bbwe
+2026-10-10 23:02:59, Info                  SYSPRP Successfully pre-registered MicrosoftWindows.Client.WebExperience_421.20070.195.0_neutral_~_cw5n1h2txyewy
+2026-10-10 23:02:59, Info                  SYSPRP Successfully pre-registered 1527c705-839a-4832-9118-54d4Bd6a0c89_10.0.19640.1000_neutral_neutral_cw5n1h2txyewy
+2026-10-10 23:03:00, Info                  SYSPRP Successfully pre-registered c5e2524a-ea46-4f67-841f-6a9465d9d515_10.0.22621.1_neutral_neutral_cw5n1h2txyewy
+2026-10-10 23:03:00, Info                  SYSPRP Successfully pre-registered E2A4F912-2574-4A75-9BB0-0D023378592B_10.0.19640.1000_neutral_neutral_cw5n1h2txyewy
+2026-10-10 23:03:00, Info                  SYSPRP Successfully pre-registered F46D4000-FD22-4DB4-AC8E-4E1DDDE828FE_10.0.22621.1_neutral_neutral_cw5n1h2txyewy
+2026-10-10 23:03:00, Warning               SYSPRP Failed to pre-register package Microsoft.AccountsControl_10.0.22621.1_neutral_neutral_cw5n1h2txyewy: 0x80070002.
+2026-10-10 23:03:00, Warning               SYSPRP Failed to pre-register package Microsoft.AsyncTextService_10.0.22621.1_neutral_neutral_8wekyb3d8bbwe: 0x80070002.
+2026-10-10 23:03:00, Warning               SYSPRP Failed to pre-register package Microsoft.CredDialogHost_10.0.19595.1001_neutral_neutral_cw5n1h2txyewy: 0x80070002.
+2026-10-10 23:03:00, Warning               SYSPRP Failed to pre-register package Microsoft.ECApp_10.0.22621.2506_neutral_neutral_8wekyb3d8bbwe: 0x80070002.
+2026-10-10 23:03:00, Warning               SYSPRP Failed to pre-register package Microsoft.LockApp_10.0.22621.1_neutral_neutral_cw5n1h2txyewy: 0x80070002.
+2026-10-10 23:03:01, Warning               SYSPRP Failed to pre-register package Microsoft.MicrosoftEdgeDevToolsClient_10.0.22621.1_neutral__8wekyb3d8bbwe: 0x80070002.
+2026-10-10 23:03:01, Info                  SYSPRP Successfully pre-registered Microsoft.Win32WebViewHost_10.0.22621.1_neutral_neutral_cw5n1h2txyewy
+2026-10-10 23:03:01, Warning               SYSPRP Failed to pre-register package Microsoft.Windows.AppRep.ChxApp_10.0.22621.1_neutral_neutral_cw5n1h2txyewy: 0x80070002.
+2026-10-10 23:03:01, Warning               SYSPRP Failed to pre-register package Microsoft.Windows.AssignedAccessLockApp_10.0.22621.1_neutral_neutral_cw5n1h2txyewy: 0x80070002.
+2026-10-10 23:03:01, Warning               SYSPRP Failed to pre-register package Microsoft.Windows.CallingShellApp_10.0.22621.1_neutral_neutral_cw5n1h2txyewy: 0x80070002.
+2026-10-10 23:03:01, Warning               SYSPRP Failed to pre-register package Microsoft.Windows.CapturePicker_10.0.19580.1000_neutral_neutral_cw5n1h2txyewy: 0x80070002.
+2026-10-10 23:03:01, Info                  SYSPRP Successfully pre-registered Microsoft.Windows.ContentDeliveryManager_10.0.22621.2506_neutral_neutral_cw5n1h2txyewy
+2026-10-10 23:03:01, Info                  SYSPRP Successfully pre-registered Microsoft.Windows.NarratorQuickStart_10.0.22621.1_neutral_neutral_8wekyb3d8bbwe
+2026-10-10 23:03:01, Warning               SYSPRP Failed to pre-register package Microsoft.Windows.ParentalControls_10.0.22621.1_neutral_neutral_cw5n1h2txyewy: 0x80070002.
+2026-10-10 23:03:01, Info                  SYSPRP Successfully pre-registered Microsoft.Windows.PeopleExperienceHost_10.0.22621.1_neutral_neutral_cw5n1h2txyewy
+2026-10-10 23:03:01, Warning               SYSPRP Failed to pre-register package Microsoft.Windows.PinningConfirmationDialog_10.0.22621.1_neutral_neutral_cw5n1h2txyewy: 0x80070002.
+2026-10-10 23:03:01, Info                  SYSPRP Successfully pre-registered Microsoft.Windows.PrintQueueActionCenter_1.0.1.0_neutral_neutral_cw5n1h2txyewy
+2026-10-10 23:03:01, Info                  SYSPRP Successfully pre-registered Microsoft.Windows.SecureAssessmentBrowser_10.0.22621.2506_neutral_neutral_cw5n1h2txyewy
+2026-10-10 23:03:01, Info                  SYSPRP Successfully pre-registered Microsoft.Windows.XGpuEjectDialog_10.0.22621.1_neutral_neutral_cw5n1h2txyewy
+2026-10-10 23:03:02, Info                  SYSPRP Successfully pre-registered Microsoft.WindowsAppRuntime.CBS_4000.1027.2341.0_arm64__8wekyb3d8bbwe
+2026-10-10 23:03:02, Warning               SYSPRP Failed to pre-register package Microsoft.XboxGameCallableUI_10.0.22621.1_neutral_neutral_cw5n1h2txyewy: 0x80070002.
+2026-10-10 23:03:02, Info                  SYSPRP Successfully pre-registered MicrosoftWindows.Client.FileExp_1000.22651.1000.0_arm64__cw5n1h2txyewy
+2026-10-10 23:03:02, Warning               SYSPRP Failed to pre-register package NcsiUwpApp_10.0.22621.1_neutral_neutral_8wekyb3d8bbwe: 0x80070002.
+2026-10-10 23:03:02, Info                  SYSPRP Successfully pre-registered Windows.CBSPreview_10.0.19580.1000_neutral_neutral_cw5n1h2txyewy
+2026-10-10 23:03:02, Info                  SYSPRP Successfully pre-registered Windows.PrintDialog_6.2.2.0_neutral_neutral_cw5n1h2txyewy
+2026-10-10 23:03:02, Info                  SYSPRP Finished AppxPreRegisterPackage for all packages.
+2026-10-10 23:03:16, Info                  SYSPRP GenerateBytecodeForPackages completed with 0x0.
+2026-10-10 23:03:16, Info                  SYSPRP Exiting AppxSysprepSpecializeOnline with 0x0.
+2026-10-10 23:03:16, Info                  SYSPRP ActionPlatform::LaunchModule: Successfully executed 'AppxSysprepSpecializeOnline' from C:\Windows\System32\AppxSysprep.dll
+2026-10-10 23:03:16, Info                  SYSPRP SysprepSession::ExecuteInternal: Skipping offline-capable module of Microsoft-Windows-AppX-Sysprep when running online
+2026-10-10 23:03:16, Info                  SYSPRP SysprepSession::ExecuteInternal: Skipping offline-capable module of Microsoft-Windows-Resource-Exhaustion-Detector-Core when running online
+2026-10-10 23:03:16, Info                  SYSPRP ActionPlatform::LaunchModule: Executing method 'RdrSysprepSpecialize' from C:\Windows\System32\radardt.dll
+2026-10-10 23:03:17, Info                  SYSPRP ActionPlatform::LaunchModule: Successfully executed 'RdrSysprepSpecialize' from C:\Windows\System32\radardt.dll
+2026-10-10 23:03:17, Info                  SYSPRP SysprepSession::ExecuteInternal: Skipping offline-capable module of Microsoft-Windows-IE-Sysprep when running online
+2026-10-10 23:03:17, Info                  SYSPRP ActionPlatform::LaunchModule: Executing method 'Sysprep_Online_Specialize_IE' from C:\Windows\System32\iesysprep.dll
+2026-10-10 23:03:17, Info                  SYSPRP [IE sysprep provider] Sysprep_Online_Specialize_IE entered
+2026-10-10 23:03:17, Info                  SYSPRP [IE sysprep provider] Sysprep_Specialize_IE entered
+2026-10-10 23:03:17, Info                  SYSPRP [SetIEInstalledDate LIB] SetIEInstalledDate() Setting IE Installed Date
+2026-10-10 23:03:17, Info                  SYSPRP [SetIEInstalledDate LIB] On 64-bit OS: Setting IE Installed Date values
+2026-10-10 23:03:17, Info                  SYSPRP [IESetup LIB] Calling CAdjustPrivilege constructor arg: SeRestorePrivilege
+2026-10-10 23:03:17, Info                  SYSPRP [SetIEInstalledDate LIB] SetIESoftwareRegistryPath() Setting [HKLM\SOFTWARE] offline registry path SOFTWARE.
+2026-10-10 23:03:17, Info                  SYSPRP [IESetup LIB] Calling CAdjustPrivilege constructor arg: SeRestorePrivilege
+2026-10-10 23:03:17, Info                  SYSPRP [IE sysprep provider] Sysprep_Specialize_IE exit
+2026-10-10 23:03:17, Info                  SYSPRP [IE sysprep provider] Sysprep_Online_Specialize_IE exit
+2026-10-10 23:03:17, Info                  SYSPRP ActionPlatform::LaunchModule: Successfully executed 'Sysprep_Online_Specialize_IE' from C:\Windows\System32\iesysprep.dll
+2026-10-10 23:03:17, Info                  SYSPRP ActionPlatform::LaunchModule: Executing method 'Sysprep_Specialize_IE' from C:\Windows\System32\iesysprep.dll
+2026-10-10 23:03:17, Info                  SYSPRP [IE sysprep provider] Sysprep_Specialize_IE entered
+2026-10-10 23:03:17, Info                  SYSPRP [SetIEInstalledDate LIB] SetIEInstalledDate() Setting IE Installed Date
+2026-10-10 23:03:17, Info                  SYSPRP [SetIEInstalledDate LIB] On 64-bit OS: Setting IE Installed Date values
+2026-10-10 23:03:17, Info                  SYSPRP [IESetup LIB] Calling CAdjustPrivilege constructor arg: SeRestorePrivilege
+2026-10-10 23:03:17, Info                  SYSPRP [SetIEInstalledDate LIB] SetIESoftwareRegistryPath() Setting [HKLM\SOFTWARE] offline registry path SOFTWARE.
+2026-10-10 23:03:17, Info                  SYSPRP [IESetup LIB] Calling CAdjustPrivilege constructor arg: SeRestorePrivilege
+2026-10-10 23:03:17, Info                  SYSPRP [IE sysprep provider] Sysprep_Specialize_IE exit
+2026-10-10 23:03:17, Info                  SYSPRP ActionPlatform::LaunchModule: Successfully executed 'Sysprep_Specialize_IE' from C:\Windows\System32\iesysprep.dll
+2026-10-10 23:03:17, Info                  SYSPRP SysprepSession::ExecuteInternal: Skipping offline-capable module of Microsoft-Windows-Cryptography when running online
+2026-10-10 23:03:17, Info                  SYSPRP ActionPlatform::LaunchModule: Executing method 'CryptoSysPrep_Specialize' from C:\Windows\system32\capisp.dll
+2026-10-10 23:03:17, Info                         capisp.dll::CheckIFCryptoSysPrepSpecialized: returning 0
+2026-10-10 23:03:21, Info                         capisp.dll::CryptoSysPrep_Specialize: assigned CAPI machine guid "74a3db1e-0cef-4a95-bb61-e0dabdd0a6bf"
+2026-10-10 23:03:21, Info                         capisp.dll::DisableAdministratorIfApplicable disabled the admin account.
+2026-10-10 23:03:21, Info                         capisp.dll::CryptoSysPrep_Specialize: returning 0
+2026-10-10 23:03:21, Info                  SYSPRP ActionPlatform::LaunchModule: Successfully executed 'CryptoSysPrep_Specialize' from C:\Windows\system32\capisp.dll
+2026-10-10 23:03:21, Info                  SYSPRP SysprepSession::ExecuteInternal: Skipping offline-capable module of Microsoft-Windows-Sysprep-SpBcd when running online
+2026-10-10 23:03:21, Info                  SYSPRP ActionPlatform::LaunchModule: Executing method 'Sysprep_Online_Specialize_Bcd' from C:\Windows\System32\spbcd.dll
+2026-10-10 23:03:21, Info                  SYSPRP SpecializeBcdStore: Found the resume object {233a64e8-c4e0-11f1-aef3-7cb566c374e0} for the OS loader.
+2026-10-10 23:03:22, Info                  SYSPRP SpecializeBcdStore: Successfully specialized {9dea862c-5cdd-4e70-acc1-f32b344d4795} application device. Status = [0x0]
+2026-10-10 23:03:22, Info                  SYSPRP SpecializeBcdStore: Successfully specialized {fa926493-6f1c-4193-a414-58f0b2456d1e} application device. Status = [0x0]
+2026-10-10 23:03:22, Info                  SYSPRP SpecializeBcdStore: Successfully set the {fa926493-6f1c-4193-a414-58f0b2456d1e} OS device to the boot partition. Status = [0x0]
+2026-10-10 23:03:22, Info                  SYSPRP SpecializeBcdStore: Successfully removed /detecthal switch from {fa926493-6f1c-4193-a414-58f0b2456d1e}.
+2026-10-10 23:03:22, Info                  SYSPRP SpecializeBcdStore: Successfully specialized {233a64e8-c4e0-11f1-aef3-7cb566c374e0} application device. Status = [0x0]
+2026-10-10 23:03:22, Info                  SYSPRP SpecializeBcdStore: Successfully set the {233a64e8-c4e0-11f1-aef3-7cb566c374e0} hiberfile device to the boot partition. Status = [0x0]
+2026-10-10 23:03:22, Info                  SYSPRP Sysprep_Specialize_Bcd: Successfully specialized the bcd store. Status=[0x0]
+2026-10-10 23:03:22, Info                  SYSPRP ActionPlatform::LaunchModule: Successfully executed 'Sysprep_Online_Specialize_Bcd' from C:\Windows\System32\spbcd.dll
+2026-10-10 23:03:22, Info                  SYSPRP SysprepSession::ExecuteInternal: Skipping offline-capable module of Microsoft-Windows-COM-DTC-Runtime when running online
+2026-10-10 23:03:23, Info                  SYSPRP ActionPlatform::LaunchModule: Executing method 'SysPrepDtcSpecialize' from C:\Windows\system32\msdtcprx.dll
+2026-10-10 23:03:39, Info                  SYSPRP ActionPlatform::LaunchModule: Successfully executed 'SysPrepDtcSpecialize' from C:\Windows\system32\msdtcprx.dll
+2026-10-10 23:03:39, Info                  SYSPRP ActionPlatform::LaunchModule: Executing method 'SusRunOEMTaskOnline' from C:\Windows\System32\startupscan.dll
+2026-10-10 23:03:40, Info                  SYSPRP ActionPlatform::LaunchModule: Successfully executed 'SusRunOEMTaskOnline' from C:\Windows\System32\startupscan.dll
+2026-10-10 23:03:40, Info                  SYSPRP SysprepSession::ExecuteInternal: Skipping offline-capable module of StartupApp-Task-Data when running online
+2026-10-10 23:03:40, Info                  SYSPRP SysprepSession::ExecuteInternal: Skipping offline-capable module of Microsoft-Windows-WinRE-RecoveryAgent when running online
+2026-10-10 23:03:40, Info                  SYSPRP ActionPlatform::LaunchModule: Executing method 'WinRE_Specialize' from C:\Windows\System32\reagent.dll
+2026-10-10 23:03:40, Info                         [setup.exe] Enter WinRE_Specialize
+2026-10-10 23:03:40, Info                         [setup.exe] CheckRegKey Reg get value (AllowDiskPartitionChanges) failed. with error 0x2
+2026-10-10 23:03:40, Info                         [setup.exe] --Install on target OS step 1: collect info like partition list, loading reagent.xml, source winre.wim and partition
+2026-10-10 23:03:44, Info                         [setup.exe] Enumerate and log all fixed partitions:
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-6361-636865000000}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition28
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 28, offset: 8124366848, free space: 598102016, total space: 627785728
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {C12A7328-F81F-11D2-BA4B-00A0C93EC93B} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-7573-657264617461}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition31
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 31, offset: 8811184128, free space: 104339410944, total space: 119126618112
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:1, Mbr:0, Active:0, Boot:1, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-6370-5f6465627567}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition30
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 30, offset: 8805941248, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-6f6d-720000000000}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition29
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 29, offset: 8753512448, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-7072-6f6475637400}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition27
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 27, offset: 7474249728, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-7665-6e646f720000}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition26
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 26, offset: 6320816128, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-7379-7374656d0000}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition25
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 25, offset: 343932928, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-626f-746133000000}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition24
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 24, offset: 342425600, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-7662-6d6574610000}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition23
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 23, offset: 342360064, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-6471-6d6462670000}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition22
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 22, offset: 325582848, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-6b65-796461746100}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition21
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 21, offset: 308805632, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-6b65-797265667567}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition20
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 20, offset: 292028416, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-6d69-736300000000}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition19
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 19, offset: 290979840, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-7065-727369737465}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition18
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 18, offset: 290455552, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-6e61-645f72656665}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition17
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 17, offset: 289406976, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-7261-64696f000000}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition16
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 16, offset: 236978176, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-7265-636f76657279}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition15
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 15, offset: 169345024, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-626f-6f7400000000}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition14
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 14, offset: 111673344, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-6474-626f00000000}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition13
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 13, offset: 103284736, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-6474-620000000000}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition12
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 12, offset: 94896128, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-7568-636667000000}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition11
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 11, offset: 90701824, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-7568-000000000000}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition10
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 10, offset: 88604672, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-7374-656164790000}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition9
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 9, offset: 84410368, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-626f-746132000000}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition8
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 8, offset: 76021760, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-7365-635f65667300}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition7
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 7, offset: 55050240, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-6b65-7973746f7261}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition6
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 6, offset: 54525952, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-7570-5f706172616d}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition5
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 5, offset: 46137344, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-7061-72616d000000}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition4
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 4, offset: 37748736, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-6566-730000000000}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition3
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 3, offset: 16777216, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-626f-746131000000}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition2
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 2, offset: 8912896, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] --Partition info--
+2026-10-10 23:03:44, Info                         [setup.exe] VolumeName: \\?\Volume{52444e41-494f-2044-626f-746130000000}, PartitionName: \\?\GLOBALROOT\device\harddisk0\partition1
+2026-10-10 23:03:44, Info                         [setup.exe] Partition number: 1, offset: 4194304, free space: 0, total space: 0
+2026-10-10 23:03:44, Info                         [setup.exe] DiskNumber:0, DiskSignature:0, NTFS:0, Mbr:0, Active:0, Boot:0, BitlockerEnabled:0
+2026-10-10 23:03:44, Info                         [setup.exe] GPT partition GUID:: {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7} 
+2026-10-10 23:03:44, Info                         [setup.exe] DiskId: {52444E41-494F-2044-4D4D-43204449534B} 
+2026-10-10 23:03:44, Info                         [setup.exe] Get downlevel ReAgent config
+2026-10-10 23:03:44, Info                         [setup.exe]  Downlevel config file path: \Recovery\ReAgentOld.xml
+2026-10-10 23:03:44, Info                         [setup.exe]  Checking for downlevel WinRE installation.
+2026-10-10 23:03:44, Info                         [setup.exe] DisableUpdateEnhancedConfigInfo
+2026-10-10 23:03:44, Warning                      [setup.exe] read xml file (\Recovery\ReAgentOld.xml) failed: 0x2
+2026-10-10 23:03:44, Warning                      [setup.exe] ReAgentXMLParser::ParseConfigFile failed to read config xml file (0x2) in file base\diagnosis\srt\reagent2\reinfo\parser_2.0.cpp line 825
+2026-10-10 23:03:44, Warning                      [setup.exe] ReAgentXMLParser::ParseConfigFile (xml file: \Recovery\ReAgentOld.xml) returning 0x2
+2026-10-10 23:03:44, Info                         [setup.exe] ReAgentConfig::ParseConfigFile ReAgent.XML was not found or could not be parsed, creating a new config xml Err=2
+2026-10-10 23:03:44, Info                         [setup.exe] First round search
+2026-10-10 23:03:44, Info                         [setup.exe] Get ReAgent config
+2026-10-10 23:03:44, Info                         [setup.exe] GetReAgentConfig Config file path: C:\Windows\system32\Recovery\ReAgent.xml
+2026-10-10 23:03:44, Info                         [setup.exe] CheckRegKey test hook (SystemSetupInProgress) present or enabled
+2026-10-10 23:03:44, Info                         [setup.exe] GetReAgentConfig System setup is in progress.
+2026-10-10 23:03:44, Info                         [setup.exe] GetReAgentConfig Disabling update enhanced config info for legacy setup.
+2026-10-10 23:03:44, Info                         [setup.exe] DisableUpdateEnhancedConfigInfo
+2026-10-10 23:03:44, Warning                      [setup.exe] failed to get child attribute by tag: 0xd
+2026-10-10 23:03:44, Info                         [setup.exe] GetChildAttributeByTag(IsAutoRepairOn) failed: 0xd
+2026-10-10 23:03:44, Warning                      [setup.exe] failed to get child attribute by tag: 0xd
+2026-10-10 23:03:44, Info                         [setup.exe] GetChildAttributeByTag(IsServer) failed: 0xd
+2026-10-10 23:03:44, Warning                      [setup.exe] failed to get child attribute by tag: 0xd
+2026-10-10 23:03:44, Info                         [setup.exe] GetChildAttributeByTag(DownlevelWinreLocation.Dir): 0xd
+2026-10-10 23:03:44, Warning                      [setup.exe] failed to get child attribute by tag: 0xd
+2026-10-10 23:03:44, Info                         [setup.exe] GetChildAttributeByTag(DownlevelWinreLocation.DiskSignature): 0xd
+2026-10-10 23:03:44, Warning                      [setup.exe] failed to get child attribute by tag: 0xd
+2026-10-10 23:03:44, Info                         [setup.exe] GetChildAttributeByTag(DownlevelWinreLocation.Offset): 0xd
+2026-10-10 23:03:44, Warning                      [setup.exe] failed to get child attribute by tag: 0xd
+2026-10-10 23:03:44, Info                         [setup.exe] GetChildAttributeByTag(DownlevelWinreLocation.DiskId): 0xd
+2026-10-10 23:03:44, Warning                      [setup.exe] failed to get child attribute by tag: 0xd
+2026-10-10 23:03:44, Info                         [setup.exe] GetChildAttributeByTag(IsWimBoot) failed: 0xd
+2026-10-10 23:03:44, Warning                      [setup.exe] failed to get child attribute by tag: 0xd
+2026-10-10 23:03:44, Info                         [setup.exe] GetChildAttributeByTag(NarratorScheduled) failed: 0xd
+2026-10-10 23:03:44, Info                         [setup.exe] FindWinReSourceImageAndPartition No source winre.wim was specified.  Checking for a staged winre.wim.
+2026-10-10 23:03:44, Info                         [setup.exe] FindWinReSourceImageAndPartition using winre.wim from C:\Windows\system32\Recovery
+2026-10-10 23:03:44, Info                         [setup.exe] --Install on target OS step 2: detect and fix if there is any issue for winre settings
+2026-10-10 23:03:44, Info                         [setup.exe] DetectAndFixWinReIssues nothing to do because winre is not enabled.
+2026-10-10 23:03:44, Info                         [setup.exe] --Install on target OS step 3: check if we can keep winre.wim in the same partition if it is staged.
+2026-10-10 23:03:45, Info                         [setup.exe] --Install on target OS step 4: check if we can put winre.wim in other partitions or create one if needed.
+2026-10-10 23:03:45, Info                         [setup.exe] CanPutWinREOnOtherPartitions WinRE is not staged. Searching for a suitable partition for WinRE.
+2026-10-10 23:03:45, Info                         [setup.exe] Entering FindTargetPartition
+2026-10-10 23:03:45, Info                         [setup.exe] RegLoadKey $OFFLINE$SYSTEM failed. Error: 0x522.
+2026-10-10 23:03:45, Info                         [setup.exe]  Not allowed to repartition the disk
+2026-10-10 23:03:45, Info                         [setup.exe] Start looping through each partition and initialize os partition, recovery partition and system partition for MBR
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 8124366848, partition number: 28
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 8811184128, partition number: 31
+2026-10-10 23:03:45, Info                         [setup.exe]  find OS partition
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 8805941248, partition number: 30
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 8753512448, partition number: 29
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 7474249728, partition number: 27
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 6320816128, partition number: 26
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 343932928, partition number: 25
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 342425600, partition number: 24
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 342360064, partition number: 23
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 325582848, partition number: 22
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 308805632, partition number: 21
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 292028416, partition number: 20
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 290979840, partition number: 19
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 290455552, partition number: 18
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 289406976, partition number: 17
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 236978176, partition number: 16
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 169345024, partition number: 15
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 111673344, partition number: 14
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 103284736, partition number: 13
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 94896128, partition number: 12
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 90701824, partition number: 11
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 88604672, partition number: 10
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 84410368, partition number: 9
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 76021760, partition number: 8
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 55050240, partition number: 7
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 54525952, partition number: 6
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 46137344, partition number: 5
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 37748736, partition number: 4
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 16777216, partition number: 3
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 8912896, partition number: 2
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe]  Checking partition at offset 4194304, partition number: 1
+2026-10-10 23:03:45, Info                         [setup.exe]  skip GPT Partition which type is not PARTITION_MSFT_RECOVERY_GUID
+2026-10-10 23:03:45, Info                         [setup.exe] Complete looping through each partition
+2026-10-10 23:03:45, Info                         [setup.exe] ----Search target partition option #1: try existing WinRE partition
+2026-10-10 23:03:45, Info                         [setup.exe] ----Search target partition option #2: try first recovery partition
+2026-10-10 23:03:45, Info                         [setup.exe] ----Search target partition option #3: try system partition for MBR
+2026-10-10 23:03:45, Info                         [setup.exe] ----Search target partition option #4: try new recovery partition if allowed
+2026-10-10 23:03:45, Info                         [setup.exe] ----Search target partition option #5: try target OS partition
+2026-10-10 23:03:45, Info                         [setup.exe] MeetPartitionRequirements Partition details: {Offset: 8811184128, Free space: 104339410944, Total space: 119126618112}
+2026-10-10 23:03:45, Info                         [setup.exe] MeetPartitionRequirements WinRE WIM size: 730028586
+2026-10-10 23:03:45, Info                         [setup.exe] MeetPartitionRequirements Required free space: 356515840
+2026-10-10 23:03:45, Info                         [setup.exe] Found target partition: use target OS partition, offset: 8811184128
+2026-10-10 23:03:45, Info                         [setup.exe] Exit FindTargetPartition returns with status code: 0x0
+2026-10-10 23:03:45, Info                         [setup.exe] --Install on target OS step 5: set WinRE settings and restore system to a good state when hitting any errors
+2026-10-10 23:03:45, Info                         [setup.exe] Enter SetWinRESettings
+2026-10-10 23:03:45, Info                         [setup.exe] RegLoadKey $OFFLINE$SYSTEM failed. Error: 0x522.
+2026-10-10 23:03:45, Info                         [setup.exe] Copying WinRE from C:\Windows\system32\Recovery to staging location on \\?\GLOBALROOT\device\harddisk0\partition31
+2026-10-10 23:03:45, Info                         [setup.exe] RegLoadKey $OFFLINE$SYSTEM failed. Error: 0x522.
+2026-10-10 23:03:47, Info                         [setup.exe] Copied WinRE to staging location
+2026-10-10 23:03:47, Info                         [setup.exe] Creating BCD entry
+2026-10-10 23:03:47, Info                         [setup.exe] WinRE created BCD entry: : {77771B43-C4F6-11F1-B89F-EEC33AB03EC2} 
+2026-10-10 23:03:47, Info                         [setup.exe] Moving Winre and boot.sdi from staging location to target
+2026-10-10 23:03:47, Info                         [setup.exe] Moved Winre and boot.sdi from staging location to target
+2026-10-10 23:03:47, Info                         [setup.exe] Updating reagent.xml
+2026-10-10 23:03:47, Info                         [setup.exe] Set WinRE location path to: \Recovery\WindowsRE
+2026-10-10 23:03:47, Info                         [setup.exe] Set recovery guid
+2026-10-10 23:03:47, Info                         [setup.exe] Set scheduled operation: WinReNoOperation
+2026-10-10 23:03:47, Info                         [setup.exe] Set OS build version: 22621.1.arm64fre.ni_release.220506-1250
+2026-10-10 23:03:47, Info                         [setup.exe] Set Wimboot state: 0
+2026-10-10 23:03:47, Info                         [setup.exe] Set install state to: enabled
+2026-10-10 23:03:47, Info                         [setup.exe] Setting the recovery sequence for the target OS.
+2026-10-10 23:03:47, Info                         [setup.exe] Unable to get default BCD object (0xc0000225), checking display order instead
+2026-10-10 23:03:47, Info                         [setup.exe] Bootmgr has no default object set (0xc0000225), will use first display order entry instead
+2026-10-10 23:03:47, Info                         [setup.exe] Couldn't get top of display order: 0xc0000225
+2026-10-10 23:03:47, Info                         [setup.exe] We will report success and exit because recovery BCD is not used at all.
+2026-10-10 23:03:47, Info                         [setup.exe] Creating backup of reagent.xml
+2026-10-10 23:03:47, Info                         [setup.exe] Created backup of reagent.xml
+2026-10-10 23:03:47, Info                         [setup.exe] Configuring the WinRE validation task.
+2026-10-10 23:03:47, Info                         [setup.exe] Failed to clear WIM file trusted state: 0x2
+2026-10-10 23:03:47, Info                         [setup.exe] Failed to clear WIM file hash: 0x2
+2026-10-10 23:03:47, Info                         [setup.exe] Update enhanced config info is enabled.
+2026-10-10 23:03:49, Info                         [setup.exe] WinRE is installed
+2026-10-10 23:03:49, Info                         [setup.exe] Loading boot index 1
+2026-10-10 23:03:50, Info                         [setup.exe] winreValidateWimFile took 906 ms.
+2026-10-10 23:07:14, Info                         [setup.exe] WinReValidateRecoveryWimInternal took 207016 ms.
+2026-10-10 23:07:14, Info                         [setup.exe] Completed the WinRE validation task.
+2026-10-10 23:07:14, Info                         [setup.exe] Creating backup of customization file
+2026-10-10 23:07:14, Warning                      [setup.exe] Recovery file not found at C:\Windows\system32\Recovery\ReCustomization.xml
+2026-10-10 23:07:14, Warning                      [setup.exe] winreBackupRecoveryFile (C:\Windows\system32\Recovery\ReCustomization.xml, ReCustomization.xml) failed, Err: 2
+2026-10-10 23:07:14, Info                         [setup.exe] Created backup of customization file
+2026-10-10 23:07:14, Info                         [setup.exe] Storing disk info in NVRAM
+2026-10-10 23:07:14, Warning                      [setup.exe] CoInitialize returned hr=0x1
+2026-10-10 23:07:48, Info                         [setup.exe] GetFirmwareEnvironmentVariableW() = 0xcb 
+2026-10-10 23:07:48, Info                         [setup.exe] NVRAM update successful
+2026-10-10 23:07:48, Info                         [setup.exe] Stored disk info in NVRAM
+2026-10-10 23:07:48, Info                         [setup.exe] SetWinRESettings return with error code 0x0
+2026-10-10 23:07:48, Info                         [setup.exe] WinReInstallOnTargetOSInternal WinRE installation completed successfully.
+2026-10-10 23:07:48, Info                         [setup.exe] Exit WinRE_Specialize with return value which is error code: 0x0
+2026-10-10 23:07:48, Info                  SYSPRP ActionPlatform::LaunchModule: Successfully executed 'WinRE_Specialize' from C:\Windows\System32\reagent.dll
+2026-10-10 23:07:48, Info                  SYSPRP SysprepSession::ExecuteInternal: Skipping offline-capable module of Microsoft-Windows-Provisioning-Sysprep when running online
+2026-10-10 23:07:48, Info                  SYSPRP ActionPlatform::LaunchModule: Executing method 'ProvPackageSysprepSpecialize' from C:\Windows\System32\ProvSysprep.dll
+2026-10-10 23:07:48, Info                  SYSPRP Execute provtool.exe with arguments '/Turn 1'
+2026-10-10 23:07:48, Error                 CONX   ApphelpDebug: ERROR,ApphelpChpeModSettingsFromQueryResult,872,SdbQueryResults was null or not the correct size.
+
+2026-10-10 23:10:10, Info                  SYSPRP Provisioning packages are applied successfully
+2026-10-10 23:10:10, Info                  SYSPRP ActionPlatform::LaunchModule: Successfully executed 'ProvPackageSysprepSpecialize' from C:\Windows\System32\ProvSysprep.dll
+2026-10-10 23:10:10, Info                  SYSPRP SysprepSession::ExecuteInternal: Skipping offline-capable module of Microsoft-Windows-HypervisorEnforcedCodeIntegrity-Sysprep when running online
+2026-10-10 23:10:10, Info                  SYSPRP ActionPlatform::LaunchModule: Executing method 'SysprepSpecializeOnlineEntry' from C:\Windows\System32\vbssysprep.dll
+2026-10-10 23:10:10, Info                  SYSPRP HVCI: Enter Specialize Online
+2026-10-10 23:10:10, Info                  SYSPRP HVCI: Sysprep start for VBS scenario
+2026-10-10 23:10:10, Warning               SYSPRP HVCI: Compatibility did not pass. VBS_COMPAT_ISSUES 0x00010800
+2026-10-10 23:10:10, Info                  SYSPRP HVCI: Sysprep start for HVCI scenario
+2026-10-10 23:10:11, Warning               SYSPRP HVCI: Compatibility did not pass. VBS_COMPAT_ISSUES 0x00010800
+2026-10-10 23:10:11, Info                  SYSPRP HVCI: Exit Specialize Online
+2026-10-10 23:10:11, Info                  SYSPRP ActionPlatform::LaunchModule: Successfully executed 'SysprepSpecializeOnlineEntry' from C:\Windows\System32\vbssysprep.dll
+2026-10-10 23:10:11, Info                  SYSPRP SysprepSession::Execute: Sysprep mode was not specified, deleting it from registry
+2026-10-10 23:10:11, Info                  SYSPRP Callback_Specialize: Internal Providers Specialized Succeeded 
+2026-10-10 23:10:11, Info       [0x0f008a] SYSPRP RunRegistryDlls:Retrieved section name for this phase as Specialize
+2026-10-10 23:10:11, Info       [0x0f008f] SYSPRP RunRegistryDlls:Registry key is empty: SOFTWARE\Microsoft\Windows\CurrentVersion\Setup\SysPrepExternal\Specialize
+2026-10-10 23:10:11, Info                  SYSPRP Callback_Specialize: External Providers Specialized Succeeded 
+2026-10-10 23:10:11, Info                         [setup.exe] OrchestrateUpdateImageState: Updating image state from [IMAGE_STATE_UNDEPLOYABLE] --> [IMAGE_STATE_SPECIALIZE_RESEAL_TO_OOBE]
+2026-10-10 23:10:11, Info                  SYSPRP Callback_Specialize: Specialize return: [0]
+2026-10-10 23:10:11, Info                  SYSPRP Callback_Specialize: Exit.
+2026-10-10 23:10:11, Info       [0x030023] CMI    Callback_CMI_ConfigInstall: Entry.
+2026-10-10 23:10:11, Info                  CMI    CBS_Core_Initialize: Loading CBS core from: C:\Windows\winsxs\arm64_microsoft-windows-servicingstack_31bf3856ad364e35_10.0.22621.2567_none_e93fba0e42e4a8ac\CbsCore.dll
+2026-10-10 23:10:11, Info                  CMI    CBS_Core_Initialize:Loaded cbscore.dll
+2026-10-10 23:10:11, Info                  CMI    CBS_Core_Initialize:Fetched entrypoints
+2026-10-10 23:10:11, Info                  CMI    CBS_Core_Initialize:Got malloc
+2026-10-10 23:10:11, Info                  CBS    Universal Time is: 2026-10-10 22:10:11.144
+2026-10-10 23:10:11, Info                  CBS    Loaded Servicing Stack v10.0.22621.2567 with Core: C:\Windows\winsxs\arm64_microsoft-windows-servicingstack_31bf3856ad364e35_10.0.22621.2567_none_e93fba0e42e4a8ac\CbsCore.dll
+2026-10-10 23:10:11, Info                  CBS    Setting core mode: CbsCoreModeOffline
+2026-10-10 23:10:11, Info                  CSI    00000001@2026/10/10:22:10:11.269 WcpInitialize: wcp.dll version 10.0.22621.2567 (WinBuild.160101.0800)
+2026-10-10 23:10:11, Info                  CBS    TurboContainer load Successful
+2026-10-10 23:10:11, Info                  CBS    Lock: New lock added: CCbsSessionManager, level: 11, total lock:9
+2026-10-10 23:10:11, Info                  CBS    Lock: New lock added: CSIInventoryCriticalSection, level: 64, total lock:10
+2026-10-10 23:10:11, Info                  CMI    CBS_Core_Initialize:CbsCorInitialize succeeded
+2026-10-10 23:10:11, Info                  CMI    Callback_CBS_Do_OnlineInstall:Calling startup processing
+2026-10-10 23:10:11, Info                  CBS    Failed to open package file: \\?\C:\Windows\Servicing\Sessions\6772_1626234.xml [HRESULT = 0x80070002 - ERROR_FILE_NOT_FOUND]
+2026-10-10 23:10:11, Info                  CBS    Failed to read in xml content [HRESULT = 0x80070002 - ERROR_FILE_NOT_FOUND]
+2026-10-10 23:10:11, Info                  CBS    Failed to load persisted information for session: 6772_1626234 [HRESULT = 0x80070002 - ERROR_FILE_NOT_FOUND]
+2026-10-10 23:10:11, Info                  CBS    Failed to load session: 6772_1626234 [HRESULT = 0x80070002 - ERROR_FILE_NOT_FOUND]
+2026-10-10 23:10:11, Error                 CBS    Failed to load Session:6772_1626234 [HRESULT = 0x80070002 - ERROR_FILE_NOT_FOUND]
+2026-10-10 23:10:11, Info                  CBS    Failed to fully initialize session [HRESULT = 0x80070002 - ERROR_FILE_NOT_FOUND]
+2026-10-10 23:10:11, Info                  CBS    Startup: Failed to initialize exising session: 6772_1626234 [HRESULT = 0x80070002 - ERROR_FILE_NOT_FOUND]
+2026-10-10 23:10:11, Info                  CBS    Startup: delete session as corrupt since it fails to load, Session: 6772_1626234 [HRESULT = 0x80070002 - ERROR_FILE_NOT_FOUND]
+2026-10-10 23:10:11, Info                  CBS    Setting ServicingInProgress flag to 2
+2026-10-10 23:10:11, Info                  CBS    Retrieved original failure status: 0x00000000, last forward execute state: CbsExecuteStateStageDrivers
+2026-10-10 23:10:11, Info                  CBS    Progress: Failed to check generic update string policy. [HRESULT = 0xc004f012 - SL_E_VALUE_NOT_FOUND]
+2026-10-10 23:10:11, Info                  CBS    SetProgressMessage: progressMessageStage: 0, ExecuteState: ExecuteStateNone, SubStage: 0
+2026-10-10 23:10:11, Info                  CBS    Startup: current ExecuteState is CbsExecuteStateDeviceInstalls
+2026-10-10 23:10:11, Info                  CBS    SetProgressMessage: progressMessageStage: 0, ExecuteState: CbsExecuteStateDeviceInstalls, SubStage: 0
+2026-10-10 23:10:11, Info                  CBS    Disabling LKG boot option
+2026-10-10 23:10:11, Info                  CBS    Startup: Initializing driver operations queue.
+2026-10-10 23:10:11, Info                  CBS    Startup: Initializing advanced operation queue.
+2026-10-10 23:10:11, Info                  CSI    00000002 CSI Store 2067053371760 initialized
+2026-10-10 23:10:11, Info                  CBS    Startup: Running under setup, skipping wait for SC autostart event
+2026-10-10 23:10:11, Info                  CBS    SetProgressMessage: progressMessageStage: -1, ExecuteState: CbsExecuteStateDeviceInstalls, SubStage: 0
+2026-10-10 23:10:11, Info                  CBS    SetProgressMessage: progressMessageStage: -1, ExecuteState: CbsExecuteStateDeviceInstalls, SubStage: 2
+2026-10-10 23:10:11, Info                  CBS    Setting ExecuteState key to: CbsExecuteStateResolvePending
+2026-10-10 23:10:11, Info                  CBS    SetProgressMessage: progressMessageStage: -1, ExecuteState: CbsExecuteStateResolvePending, SubStage: 0
+2026-10-10 23:10:11, Info                  CBS    Startup: Processing advanced operation queue, startupPhase: 0
+2026-10-10 23:10:11, Info                  CSI    00000003 IAdvancedInstallerAwareStore_ResolvePendingTransactions (call 1) (flags = 0000000a, progress = NULL, phase = 0, pdwDisposition = @0xb83e16d00c
+2026-10-10 23:10:11, Info                  CSI    00000004 Poqexec successfully registered in [l:14 ml:15]'PoqexecCmdline'
+2026-10-10 23:10:11, Info                  CSI    00000005 ExecutionComplete online ticklers
+2026-10-10 23:10:12, Info                  CSI    00000006 Performing 1 operations as follows:
+  (0)  LockComponentPath: flags: 0 comp: {l:16 b:99c4b31e0459dd010100000090036803} pathid: {l:16 b:99c4b31e0459dd010200000090036803} path: [l:112]'\SystemRoot\WinSxS\arm64_microsoft-windows-servicingstack_31bf3856ad364e35_10.0.22621.2567_none_e93fba0e42e4a8ac' pid: 390 starttime: 134361424465101380
+2026-10-10 23:10:12, Info                  CSI    00000007 Loading installer DLL from explicit path: C:\Windows\WinSxS\arm64_microsoft-windows-servicingstack_31bf3856ad364e35_10.0.22621.2567_none_e93fba0e42e4a8ac\wcp.dll
+2026-10-10 23:10:12, Info                  CSI    00000008 Begin executing advanced installer phase 54 index 0 (sequence 0)
+    Old component: [l:0]''
+    New component: [l:0]''
+    Install mode: delta
+    Smart installer: true
+    Installer ID: {d4486727-4d36-45a5-bc81-b8935aed1429}
+    Installer name: 'Ngen Task Scheduler Tickler'
+2026-10-10 23:10:12, Info                  CSI    00000009@2026/10/10:22:10:12.613 CSI Advanced installer perf trace:
+CSIPERF:AIDONE;{d4486727-4d36-45a5-bc81-b8935aed1429};(null);836us
+2026-10-10 23:10:12, Info                  CSI    0000000a End executing advanced installer (sequence 0)
+    Completion status: S_OK 
+
+2026-10-10 23:10:12, Info                  CSI    0000000b Loading installer DLL from explicit path: C:\Windows\WinSxS\arm64_microsoft-windows-servicingstack_31bf3856ad364e35_10.0.22621.2567_none_e93fba0e42e4a8ac\wcp.dll
+2026-10-10 23:10:12, Info                  CSI    0000000c Begin executing advanced installer phase 54 index 0 (sequence 0)
+    Old component: [l:0]''
+    New component: [l:0]''
+    Install mode: delta
+    Smart installer: true
+    Installer ID: {863fbd5f-faba-4730-9858-ceca474b2195}
+    Installer name: 'BcdMirror'
+2026-10-10 23:10:12, Info                  CSI    0000000d BCD Mirror tickler always runs
+2026-10-10 23:10:12, Info                  CSI    0000000e@2026/10/10:22:10:12.675 CSI Advanced installer perf trace:
+CSIPERF:AIDONE;{863fbd5f-faba-4730-9858-ceca474b2195};(null);11206us
+2026-10-10 23:10:12, Info                  CSI    0000000f End executing advanced installer (sequence 0)
+    Completion status: S_OK 
+
+2026-10-10 23:10:12, Info                  CSI    00000010 Online ticklers finished with status S_OK
+2026-10-10 23:10:12, Info                  CBS    Setting ExecuteState key to: CbsExecuteStateComplete
+2026-10-10 23:10:12, Info                  CBS    SetProgressMessage: progressMessageStage: -1, ExecuteState: CbsExecuteStateComplete, SubStage: 0
+2026-10-10 23:10:12, Info                  CBS    Sandbox property not set ...
+2026-10-10 23:10:12, Info                  CBS    Clearing HangDetect value
+2026-10-10 23:10:12, Info                  CBS    Saved last global progress. Current: 1, Limit: 1, ExecuteState: CbsExecuteStateComplete
+2026-10-10 23:10:12, Info                  CBS    No pending packages, why was store asked to process pending packages?
+2026-10-10 23:10:12, Info                  CBS    Clearing original failure status: 0x00000000
+2026-10-10 23:10:12, Info                  CBS    Setting ExecuteState key to: ExecuteStateNone
+2026-10-10 23:10:12, Info                  CBS    Clearing HangDetect value
+2026-10-10 23:10:12, Info                  CBS    Saved last global progress. Current: 0, Limit: 1, ExecuteState: ExecuteStateNone
+2026-10-10 23:10:12, Info                  CBS    Startup: Retrying failed packages.
+2026-10-10 23:10:12, Info                  CBS    SetProgressMessage: progressMessageStage: 0, ExecuteState: ExecuteStateNone, SubStage: 0
+2026-10-10 23:10:12, Info                  CBS    Startup: Processing complete. [HRESULT = 0x00000000 - S_OK]
+2026-10-10 23:10:12, Info                  CBS    Enabling LKG boot option
+2026-10-10 23:10:12, Info                  CBS    Setting ServicingInProgress flag to 0
+2026-10-10 23:10:12, Info                  CBS    Flush: registry...
+2026-10-10 23:10:12, Info                  CBS    Flush: registry took: 32 ms.
+2026-10-10 23:10:12, Info                  CBS    Flush: system volume...
+2026-10-10 23:10:14, Info                  CBS    Flush: system volume took: 1786 ms.
+2026-10-10 23:10:14, Info                  CMI    Callback_CBS_Do_OnlineInstall:Calling startup processing succeeded
+2026-10-10 23:10:14, Info                  CMI    CBS_Core_Finalize:Calling cbs core finalize
+2026-10-10 23:10:14, Info                  CBS    CbsCoreFinalize: ExecutionEngineFinalize
+2026-10-10 23:10:14, Info                  CBS    Execution Engine Finalize
+2026-10-10 23:10:14, Info                  CBS    Execution Engine Finalize
+2026-10-10 23:10:14, Info                  CBS    Execution Engine Finalize
+2026-10-10 23:10:14, Info                  CBS    Execution Engine Finalize
+2026-10-10 23:10:14, Info                  CBS    CbsCoreFinalize: ComponentAnalyzerFinalize
+2026-10-10 23:10:14, Info                  CBS    CbsCoreFinalize: PackageTrackerFinalize
+2026-10-10 23:10:14, Info                  CBS    CbsCoreFinalize: CoreResourcesUnload
+2026-10-10 23:10:14, Info                  CBS    CbsCoreFinalize: SessionManagerFinalize
+2026-10-10 23:10:14, Info                  CBS    Lock: Lock removed: CSIInventoryCriticalSection, level: 64, total lock:10
+2026-10-10 23:10:14, Info                  CBS    Lock: Lock removed: CCbsSessionManager, level: 11, total lock:9
+2026-10-10 23:10:14, Info                  CBS    CbsCoreFinalize: CapabilityManagerFinalize
+2026-10-10 23:10:14, Info                  CBS    CbsCoreFinalize: GetPublicObjectMonitor::Audit
+2026-10-10 23:10:14, Info                  CBS    CbsCoreFinalize: PublicObjectMonitorFinalize
+2026-10-10 23:10:14, Info                  CBS    CbsCoreFinalize: Enter vCoreInitializeLock
+2026-10-10 23:10:14, Info                  CBS    CbsCoreFinalize: WcpUnload
+2026-10-10 23:10:14, Info                  CSI    00000011 Direct SIL provider: Number of files opened: 2.
+2026-10-10 23:10:14, Info                  CSI    00000012 Direct SIL provider: Number of files opened: 10.
+2026-10-10 23:10:14, Info                  CBS    CbsCoreFinalize: DrupUnload
+2026-10-10 23:10:14, Info                  CBS    CbsCoreFinalize: CfgMgr32Unload
+2026-10-10 23:10:14, Info                  CBS    CbsCoreFinalize: DpxUnload
+2026-10-10 23:10:14, Info                  CBS    CbsCoreFinalize: SrUnload
+2026-10-10 23:10:14, Info                  CBS    CbsCoreFinalize: TurboStackUnload
+2026-10-10 23:10:14, Info                  CBS    CbsCoreFinalize: TurboContainerUnload
+2026-10-10 23:10:14, Info                  CBS    TurboContainer unload Successful
+2026-10-10 23:10:14, Info                  CBS    CbsCoreFinalize: CbsEsdUnload
+2026-10-10 23:10:14, Info                  CBS    CbsCoreFinalize: CbsOneSettingsFinalize
+2026-10-10 23:10:14, Info                  CBS    CbsCoreFinalize: CbsTraceInfoUninitialize
+2026-10-10 23:10:14, Info                  CBS    CbsCoreFinalize: CbsEventUnregister
+2026-10-10 23:10:14, Info                  CBS    CbsCoreFinalize: AppContainerUnload
+2026-10-10 23:10:14, Info                  CBS    CbsCoreFinalize: WdsUnload, logging from cbscore will end.
+2026-10-10 23:10:14, Info                  CMI    CBS_Core_Finalize:Calling cbs core finalize complete
+2026-10-10 23:10:14, Info                  CMI    Callback_CMI_ConfigInstall: CBS startup processing complete.
+2026-10-10 23:10:14, Info       [0x030023] CMI    Callback_CMI_ConfigInstall: Exit.
+2026-10-10 23:10:14, Info                         [setup.exe] UnattendSearchExplicitPath: Found unattend file at [C:\Windows\Panther\unattend.xml]; examining for applicability.
+2026-10-10 23:10:14, Info                         [setup.exe] UnattendSearchExplicitPath: Found usable unattend file for pass [specialize] at [C:\Windows\Panther\unattend.xml].
+2026-10-10 23:10:14, Info                  IBS    Callback_Unattend_InitEngine:Using unattend file found at [C:\Windows\Panther\unattend.xml].
+2026-10-10 23:10:14, Info                         [setup.exe] ValidateSMIPass: serialized settings stream; status 0x00000000
+2026-10-10 23:10:15, Info                         [setup.exe] ValidateSMIPass: construct settings context; status 0x00000000
+2026-10-10 23:10:16, Info                         [setup.exe] ValidateSMIPass: load SMI settings; status 0x00000000
+2026-10-10 23:10:16, Info       [0x0600c0] IBS    Callback_Unattend_InitEngine:Successfully deserialized and validated unattend file [C:\Windows\Panther\unattend.xml].
+2026-10-10 23:10:16, Info       [0x0604d4] IBS    Callback_ConfigSetProcessUnattend: UseConfigurationSet is false.
+2026-10-10 23:10:16, Info                  DIAG   Callback_Diagnostic_Unattend: Setup was started from Phase 4. Disabling Diagnostics [ ProcessUnattend ] in this scenario
+2026-10-10 23:10:16, Info       [0x064047] IBSLIB MarkUnattendSettingAsProcessed: Marking unattend setting [ProductKey\ProductKey] as processed.
+2026-10-10 23:10:16, Info       [0x064047] IBSLIB MarkUnattendSettingAsProcessed: Marking unattend setting [UserData\ComputerName] as processed.
+2026-10-10 23:10:16, Info       [0x064047] IBSLIB MarkUnattendSettingAsProcessed: Marking unattend setting [SetupUI\SkipEula] as processed.
+2026-10-10 23:10:16, Info       [0x064047] IBSLIB MarkUnattendSettingAsProcessed: Marking unattend setting [PrepareDisks] as processed.
+2026-10-10 23:10:16, Info       [0x064047] IBSLIB MarkUnattendSettingAsProcessed: Marking unattend setting [LangPacks] as processed.
+2026-10-10 23:10:16, Info       [0x060590] IBS    CallBack_LanguagePacks_Unattend:Unattend already processed.
+2026-10-10 23:10:16, Info                         PnPIBS: Entering PnP callback to validate unattend.xml settings for component Microsoft-Windows-PnPCustomizationsWinPE ...
+2026-10-10 23:10:16, Info                         PnPIBS: Unattend settings need not be processed. Nothing more to be done here!
+2026-10-10 23:10:16, Info       [0x064047] IBSLIB MarkUnattendSettingAsProcessed: Marking unattend setting [SetupComplianceCheck] as processed.
+2026-10-10 23:10:16, Info       [0x064047] IBSLIB MarkUnattendSettingAsProcessed: Marking unattend setting [RegionalSettings] as processed.
+2026-10-10 23:10:16, Info       [0x0605fb] IBS    Callback_Locale_ProcessUnattendSettings: Layered Driver from downlevel system [0]
+2026-10-10 23:10:16, Info                  IBS    CallBack_Unattend_InitiatePass: Initiating unattend settings pass [specialize]
+2026-10-10 23:10:16, Info                         [setup.exe] Current pass status for [specialize] is [0x0]
+2026-10-10 23:10:16, Info                         [setup.exe] Applying data-only settings overrides using SMI...
+2026-10-10 23:10:16, Info                  CSI    00000001@2026/10/10:22:10:16.738 WcpInitialize: wcp.dll version 10.0.22621.2567 (WinBuild.160101.0800)
+2026-10-10 23:10:16, Info                         [setup.exe] Successfully applied data-only settings overrides.
+2026-10-10 23:10:16, Info                         [setup.exe] Calling into RunSMIActionPass to execute unattend GCs for pass [specialize]
+2026-10-10 23:10:16, Info                         [setup.exe] [Action Queue] : GenerateActionQueue begin
+2026-10-10 23:10:16, Info                         [setup.exe] [Action Queue] : Processing pass = specialize
+2026-10-10 23:10:16, Info                         [setup.exe] [Action Queue] : Generating queue file to C:\Windows\panther\actionqueue\specialize.uaq
+2026-10-10 23:10:16, Info                         [setup.exe] [Action Queue] : Identity 0: Microsoft-Windows-Deployment, Culture=neutral, Version=10.0.22621.1, PublicKeyToken=31bf3856ad364e35, ProcessorArchitecture=arm64, versionScope=NonSxS
+2026-10-10 23:10:16, Info                         [setup.exe] [Action Queue] : Using component order file C:\Windows\winsxs\arm64_microsoft-windows-servicingstack_31bf3856ad364e35_10.0.22621.2567_none_e93fba0e42e4a8ac\GlobalInstallOrder.xml
+2026-10-10 23:10:16, Info                  CSI    00000001@2026/10/10:22:10:16.988 WcpInitialize: wcp.dll version 10.0.22621.2567 (WinBuild.160101.0800)
+2026-10-10 23:10:18, Info                         [setup.exe] [Action Queue] : Found manifest file C:\Windows\Winsxs\Manifests\arm64_microsoft-windows-deployment_31bf3856ad364e35_10.0.22621.1_none_5d84cab8e10c26fe.manifest
+2026-10-10 23:10:18, Info                         [setup.exe] [Action Queue] : GenerateActionQueue finish (hr = 0x0)
+2026-10-10 23:10:18, Info                         [setup.exe] [Action Queue] : ProcessActionQueue start
+2026-10-10 23:10:18, Info                         [setup.exe] [Action Queue] : ProcessActionQueue using queue file C:\Windows\panther\actionqueue\specialize.uaq
+2026-10-10 23:10:18, Info                         [setup.exe] [Action Queue] : Command Line = C:\WINDOWS\SYSTEM32\SETUPUGC.EXE / arguments =  / pass = specialize / manifest path = C:\Windows\Winsxs\Manifests\arm64_microsoft-windows-deployment_31bf3856ad364e35_10.0.22621.1_none_5d84cab8e10c26fe.manifest
+2026-10-10 23:10:18, Info                         [setup.exe] [Action Queue] : Executing command "C:\WINDOWS\SYSTEM32\SETUPUGC.EXE"  specialize
+2026-10-10 23:10:18, Error                 CONX   ApphelpDebug: ERROR,ApphelpChpeModSettingsFromQueryResult,872,SdbQueryResults was null or not the correct size.
+
+2026-10-10 23:10:29, Info                         [setup.exe] [Action Queue] : process exit code = 0
+2026-10-10 23:10:29, Info                         [setup.exe] [Action Queue] : Unattend action returned operation complete.
+2026-10-10 23:10:29, Info                         [setup.exe] [Action Queue] : ProcessActionQueue finish (hr = 0x0)
+2026-10-10 23:10:29, Info                         [setup.exe] Successfully completed execution of GC queue
+2026-10-10 23:10:29, Info       [0x0606cc] IBS    Flushing registry to disk...
+2026-10-10 23:10:29, Info       [0x0606cc] IBS    Flush took 15 ms.
+2026-10-10 23:10:29, Info       [0x06036b] IBS    Callback_SystemRestore: Successfully set System Restore state.
+2026-10-10 23:10:29, Info                  IBSLIB ModifyBootEntriesLegacy: Not a PCAT machine.  There should be no boot.ini containing legacy boot options.
+2026-10-10 23:10:29, Info                  IBSLIB ModifyBootEntriesBCD:Setup phase is [4]
+2026-10-10 23:10:29, Info                         SideLoadHandler: Side-loading C:\Windows\system32\oobe\bootsvc.dll.
+2026-10-10 23:10:29, Info                  IBSLIB BFSVC: BfsCleanupBcdStore flags(0x8)
+2026-10-10 23:10:29, Info                  IBSLIB BFSVC: Opening recovery store from \Device\HarddiskVolume28\EFI\Microsoft\Recovery\BCD
+2026-10-10 23:10:29, Info                  IBSLIB BFSVC: Reducing duplicate winre entries.
+2026-10-10 23:10:29, Info                  IBSLIB BFSVC: Cleaning up orphaned ramdisk options.
+2026-10-10 23:10:29, Info                  IBSLIB BFSVC: Removing duplicate entries.
+2026-10-10 23:10:29, Info                  IBSLIB BFSVC: Reducing duplicate resume entries.
+2026-10-10 23:10:29, Info                  IBSLIB BFSVC: Reducing duplicate winre entries.
+2026-10-10 23:10:29, Info                  IBSLIB BFSVC: Cleaning up orphaned ramdisk options.
+2026-10-10 23:10:29, Info                  IBSLIB BFSVC: Cleaning up debugger settings.
+2026-10-10 23:10:29, Info                  IBSLIB BFSVC: Cleaning up hypervisor settings.
+2026-10-10 23:10:29, Info       [0x060215] IBS    CallBack_MungeBootEntries:Successfully modified boot entries
+2026-10-10 23:10:29, Info       [0x0605f6] IBS    Callback_Locale_InstallLayerDriver: The layer driver setting is missing or invalid: ignoring optional setting.
+2026-10-10 23:10:29, Info       [0x0600b6] IBS    Callback_Unattend_Serialize:Unattend file path is C:\Windows\Panther\unattend.xml
+2026-10-10 23:10:29, Info                  IBS    Callback_CleanupSensitiveBBData: Replacing entries under blackboard; entering new OS.
+2026-10-10 23:10:29, Info                  IBS    Callback_CleanupSensitiveBBData: Finished clearing data; 0 items cleared.
+2026-10-10 23:10:29, Info       [0x090093] PANTHR WdsEnableExit called!  When group #105 is empty, execution will stop, and the queue will be saved.
+2026-10-10 23:10:29, Info       [0x070042] DIAG   CallBack_DiagnosticDataSend: Called with notification for SetupPhaseDone published by Engine
+2026-10-10 23:10:29, Info                  DIAG   CallBack_DiagnosticDataSend: Setup was started from Phase 4. Disabling Diagnostics [DiagnosticDataSend] in this scenario
+2026-10-10 23:10:29, Info       [0x090092] PANTHR WdsEnableExit already called
+2026-10-10 23:10:29, Info                  UI     CallbackShowFinishOnline: Enter
+2026-10-10 23:10:29, Info                  UI     CallbackShowFinishOnline: Exit
+2026-10-10 23:10:29, Info       [0x09008e] PANTHR SeqExecute -- stopping, since termination group reached
+2026-10-10 23:10:29, Info       [0x090086] PANTHR pWorkerThreadFunc -- Stopping
+2026-10-10 23:10:29, Info       [0x090086] PANTHR pWorkerThreadFunc -- Stopping
+2026-10-10 23:10:29, Info       [0x090086] PANTHR pWorkerThreadFunc -- Stopping
+2026-10-10 23:10:29, Info       [0x0900c7] PANTHR SEQ EVENT_SERIALIZE_BEFORE_EXIT Received.  Will only save modules with persistent subscriptions!
+2026-10-10 23:10:29, Info       [0x0900b7] PANTHR SerializeToFile: C:\Windows\Panther\MainQueueOnline0.que
+2026-10-10 23:10:29, Info       [0x0900b8] PANTHR Saving Main Event Queue
+2026-10-10 23:10:29, Info       [0x0900b9] PANTHR Saving Permanent Event Queue
+2026-10-10 23:10:29, Info       [0x0900c5] PANTHR Queue Serialization Succeeded
+2026-10-10 23:10:29, Info                  PANTHR DeleteCriticalSection for pExecQueue->csLock;
+2026-10-10 23:10:30, Info       [0x0605a6] IBS    Requested UI to hide the language and locale selection pages.
+2026-10-10 23:10:30, Info       [0x090081] PANTHR Destroying any unreferenced modules! (SEQ6)
+2026-10-10 23:10:30, Info       [0x0601dc] IBS    Setup has completed phase 4 at 2026-10-10 23:10:30
+2026-10-10 23:10:30, Info                  IBS    Successfully logged OS information onto event viewer system channel
+2026-10-10 23:10:30, Info       [0x0601e1] IBS    InstallWindows:First boot phase of setup done!!!!
+2026-10-10 23:10:30, Info                  IBS    InstallWindows:Exiting with return code [0x0]
+2026-10-10 23:10:30, Info       [0x090009] PANTHR CBlackboard::Close: c:\windows\panther\setupinfo.
+2026-10-10 23:10:33, Info                  CBS    Trusted Installer signaled for shutdown, going to exit.
+2026-10-10 23:10:33, Info                  CBS    Trusted Installer is shutting down because: SHUTDOWN_REASON_NOTIFICATION:PRESHUTDOWN
+2026-10-10 23:10:33, Info                  CBS    Ending the TrustedInstaller main loop.
+2026-10-10 23:10:33, Info                  CBS    Starting TrustedInstaller finalization.
+2026-10-10 23:10:33, Info                  CBS    Winlogon: Simplifying Winlogon CreateSession notifications
+2026-10-10 23:10:33, Info                  CBS    Winlogon: Stopping notify server
+2026-10-10 23:10:33, Info                  CBS    Winlogon: Unloading SysNotify DLL
+2026-10-10 23:10:33, Info                  CBS    Lock: Lock removed: WinlogonNotifyLock, level: 8, total lock:6
+2026-10-10 23:10:33, Info                  CBS    Ending TrustedInstaller finalization.

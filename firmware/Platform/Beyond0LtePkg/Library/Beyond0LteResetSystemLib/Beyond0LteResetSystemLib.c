@@ -440,6 +440,8 @@ ExynosPmuReset (
 
     if (EfiGoneVirtual () && mProgressVirtualReady) {
       mProgress[1] = 0x80;   // W31: the OS asked for this reset
+      // W32: the OS maps runtime data write-back; push the line to RAM before the reset drops it.
+      __asm__ __volatile__ ("dc civac, %0" :: "r" ((UINTN)&mProgress[1]) : "memory");
       ArmDataSynchronizationBarrier ();
     }
 

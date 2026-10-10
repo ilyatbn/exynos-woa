@@ -36,7 +36,7 @@
 // offset is the 9810's (0x14060000 -> 0x14060400) and has NOT been read on the
 // S10e, so the whole address is UNVERIFIED — do not treat 0x15860400 as a fact.
 //
-#define BEYOND0LTE_PMU_SWRESET_ADDRESS  (EXYNOS_PMU_BASE + 0x400)  // UNVERIFIED offset (9810 value)
+#define BEYOND0LTE_PMU_SWRESET_ADDRESS  (EXYNOS_PMU_BASE + EXYNOS_PMU_SWRESET_OFFSET)  // W32: VERIFIED 0x3A00 (Samsung kernel exynos_reboot + sboot; the 9810 +0x400 did nothing - Windows restarts hung)
 #define BEYOND0LTE_RESET_GAS \
   { EFI_ACPI_6_3_SYSTEM_MEMORY, 32, 0, EFI_ACPI_6_3_DWORD, BEYOND0LTE_PMU_SWRESET_ADDRESS }
 
@@ -89,7 +89,7 @@ EFI_ACPI_6_3_FIXED_ACPI_DESCRIPTION_TABLE  Fadt = {
     EFI_ACPI_6_3_LOW_POWER_S0_IDLE_CAPABLE |
     EFI_ACPI_6_3_RESET_REG_SUP,
   BEYOND0LTE_RESET_GAS,                           // ResetReg: PMU SWRESET (offset UNVERIFIED)
-  1,                                              // ResetValue (UNVERIFIED: 9810 value, not read here)
+  EXYNOS_PMU_SWRESET_VALUE,                       // ResetValue: 2 (W32: VERIFIED, same sites)
   // ArmBootArch: PSCI remains required for secondary-CPU lifecycle operations.
   // UNVERIFIED on the S10e — our EL3 monitor's PSCI compliance is unconfirmed.
   EFI_ACPI_6_3_ARM_PSCI_COMPLIANT,

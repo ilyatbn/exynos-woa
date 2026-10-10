@@ -8216,6 +8216,7 @@ UfsHandleIoControl(
  */
 static volatile ULONG *UfsBringupWdtCon;
 static volatile UCHAR *UfsBringupPmu;
+static volatile ULONG *UfsBringupProgress;   // W32: firmware boot progress word page (0x8FE0F000)
 static ULONGLONG UfsBringupStart100ns;
 static ULONGLONG UfsBringupLastWrite100ns;
 static BOOLEAN UfsBringupFeedExpired;
@@ -8245,6 +8246,8 @@ UfsMapBringupWatchdog(
     UfsBringupWdtCon = (volatile ULONG *)MmMapIoSpace(Physical, UFS_WDT_WINDOW, MmNonCached);
     Physical.QuadPart = (LONGLONG)UFS_PMU_PHYSICAL_BASE;
     UfsBringupPmu = (volatile UCHAR *)MmMapIoSpace(Physical, UFS_BRINGUP_PMU_WINDOW, MmNonCached);
+    Physical.QuadPart = (LONGLONG)(UFS_PRAM_PHYSICAL_BASE + 0xF000ULL);
+    UfsBringupProgress = (volatile ULONG *)MmMapIoSpace(Physical, PAGE_SIZE, MmNonCached);
 }
 
 //
@@ -9136,6 +9139,16 @@ UfsHwStartIo(
         break;
 
     case SRB_FUNCTION_SHUTDOWN:
+        //
+        // W32: a clean Windows shutdown/restart (e.g. Setup between passes). Tell the firmware
+        // (boot progress word, 0x80 = OS-requested reset) so its boot pair lets the next boot
+        // continue into Windows instead of diverting to TWRP.
+        //
+        if (UfsBringupProgress != NULL) {
+            UfsBringupProgress[1] = 0x80UL;
+            KeMemoryBarrier();
+        }
+        UfsEarlyMark("=SHUTDOWN srb", 0);
         UfsCleanRecoveryBeginShutdown(Adapter);
 #if UFS_FIRMWARE_WDT_BRIDGE
         UfsRuntimeWatchdogBeginShutdown(Adapter);

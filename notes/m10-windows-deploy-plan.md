@@ -475,3 +475,18 @@ Driver w31: feed the bring-up watchdog only while a successful WRITE happened in
 (an error dialog stops writes -> back within ~6-7 min; a working Setup keeps going).
 Firmware boot #40 also: OS-requested reset marker 0x80 (ResetSystem, WINPRAM MiB now EfiRuntimeServicesData) and the
 boot pair lets Windows continue after such a reset (saves WINPRAM-RESTART.BIN).
+
+## W32 - SETUP SPECIALIZE COMPLETED; Windows restart + handoff-RAM cache bugs (2026-10-11)
+Attempt c31 (fresh image, boot #40, w31): Setup ran specialize 22:47-23:10 (phone clock) and finished it:
+setupact.log ends 'Trusted Installer is shutting down because: SHUTDOWN_REASON_NOTIFICATION:PRESHUTDOWN' -> Setup
+restarting for oobeSystem (notes/setupact-c31.log). setuperr.log: only ApphelpDebug noise + one CBS session-not-found.
+Samsung debug_history (notes/s10e-debug-history-c31.txt) #345 23:17:46 INFORM3(12345670) NORMAL = our watchdog 7 min
+after Setup's restart: Windows' restart never reset the SoC. Cause: FADT ResetReg = PMU+0x400 value 1 (9810 values;
+Fadt.aslc carried them as UNVERIFIED) - fixed to PMU+0x3A00 = 2 (verified). #346 the boot after the watchdog WORKED
+(no shim hang this time) and went to TWRP via the boot pair; #347-349: the oobe-pass Windows run died within ~100 s.
+WINPRAM.BIN from #348 was byte-identical to an older run (bit flips and all) and progress words were inconsistent:
+UEFI mapped 0x8FE00000-0x90000000 WRITE-BACK, so its writes sat dirty in cache and were lost at SWRESET and later reads
+hit stale lines. Fix: that 2 MiB is mapped Normal non-cacheable (later table entry overrides bank0 WB); the runtime
+ResetSystem cleans its progress write (dc civac) before SWRESET.
+Driver w32: SRB_FUNCTION_SHUTDOWN (clean shutdown/restart) writes 0x80 into the progress word (non-cached) so the
+firmware's boot pair continues into Windows after Setup's own restarts. Firmware boot #41 = FADT fix + uncached handoff.

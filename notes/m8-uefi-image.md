@@ -1669,3 +1669,13 @@ Beyond0LteLogCheckCond(Slot, Trd) and call it from both, before DW6 is restored.
 Facts: small data-in commands (INQUIRY, READ CAPACITY) succeed through the PRDT; every READ(10)
 (4096 B, media) is rejected by the DEVICE (SCSI status 0x02).
 Boot #20 = B71 query-RuL fix + this. Build exit 0. Image %TEMP%\b72\boot20-v2.img sha256 8495d20304b2cbb99e60430977da3b64df656e8ed4e570aff09dabbda5e16662
+
+## B73 - shorter, quieter boots (user request): time bar off, log ERROR|WARN only
+
+User: "reduce the initial parts if you dont need them". Shim: the 10 s CNTVCT time bar is now behind
+BEYOND0LTE_SHIM_TIMEBAR (default 0) - it answered its question in boot #11 (B47). DECON enable + the
+readout strips stay (instant). dsc PcdDebugPrintErrorLevel 0x8000004F -> 0x80000002 (ERROR|WARN): the
+UFS/ScsiDisk failures and the new CHECK COND line are DEBUG_ERROR (ScsiDisk.c:4385, UfsPassThruHci.c:
+929/952, our helper), while Loading driver / InstallProtocolInterface / BDS chatter is LOAD/INFO.
+Verified: shim DIAG=1 480 B (no CNTVCT), DIAG=0 still byte-identical 144 B; build exit 0; packer shim
+matches. This boot #20 image (replaces B72's, same fixes + these) %TEMP%\b73\boot20-v2.img sha256 48a778b5932d9318bee4eab16c66c3e54afac79993bf69d1f65134c1bdad2f17

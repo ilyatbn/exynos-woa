@@ -60,6 +60,11 @@
  * Uses x2/x3 (as the copy does), x7-x17; x0, x1, x4-x6 kept for the copy and the FD. */
 #define FB_ROW(r)  (0xCA000000 + (r) * 4320)
 
+/* The 10 s time bar answered its question in boot #11 (no fixed-time reset, notes
+ * /m8-uefi-image.md B47) and costs 10 s per boot, so it is off by default (B73). */
+#ifndef BEYOND0LTE_SHIM_TIMEBAR
+#define BEYOND0LTE_SHIM_TIMEBAR 0
+#endif
 #ifndef BEYOND0LTE_SHIM_DIAG
 #define BEYOND0LTE_SHIM_DIAG 1
 #endif
@@ -130,6 +135,7 @@ _start:
 	LOADFB	x9, 670
 	bl	_bits                    /* timer frequency                         */
 
+#if BEYOND0LTE_SHIM_TIMEBAR
 	/* ---- 10 s time bar (CNTVCT: never trapped at EL1) ------------------ */
 	mrs	x15, CNTFRQ_EL0
 	mov	x16, #11
@@ -163,6 +169,7 @@ _start:
 	add	x14, x14, #1
 	cmp	x14, #108
 	b.ne	11b
+#endif /* BEYOND0LTE_SHIM_TIMEBAR */
 #endif
 	mov	x4, x1                  /* x4 = source (FD runtime address)        */
 	ldr	x5, _uefi_base          /* x5 = UEFI_BASE (destination)            */

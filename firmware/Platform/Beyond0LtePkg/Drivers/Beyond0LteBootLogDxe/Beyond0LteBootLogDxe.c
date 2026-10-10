@@ -353,7 +353,19 @@ OnReadyToBoot (
       mPairDone = TRUE;
       Root      = OpenEspRoot ();
       if (Root != NULL) {
-        if (!EFI_ERROR (Root->Open (Root, &Flag, L"\\WINRUN.FLG", EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE, 0))) {
+        if ((((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[0] == 0x80) &&
+            !EFI_ERROR (Root->Open (Root, &Flag, L"\\WINRUN.FLG", EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE, 0)))
+        {
+          //
+          // W31: the previous Windows run ended with an OS-requested reset (Beyond0LteResetSystemLib
+          // stored 0x80) - e.g. Setup rebooting between passes. Keep its evidence but let it go on.
+          //
+          Flag->Close (Flag);
+          Root->Close (Root);
+          DEBUG ((DEBUG_ERROR, "BootLog: Windows asked for this restart - saving its PRAM and continuing\n"));
+          DumpMemoryToEsp (L"\\WINPRAM-RESTART.BIN", (UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);
+          Root = OpenEspRoot ();
+        } else if (!EFI_ERROR (Root->Open (Root, &Flag, L"\\WINRUN.FLG", EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE, 0))) {
           Flag->Delete (Flag);
           Root->Close (Root);
           DEBUG ((DEBUG_ERROR, "BootLog: previous boot ran Windows - saving its PRAM, then recovery\n"));
@@ -363,12 +375,14 @@ OnReadyToBoot (
           RebootToRecovery ();
         }
 
-        if (!EFI_ERROR (Root->Open (Root, &Flag, L"\\WINRUN.FLG", EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, 0))) {
-          Flag->Flush (Flag);
-          Flag->Close (Flag);
-        }
+        if (Root != NULL) {
+          if (!EFI_ERROR (Root->Open (Root, &Flag, L"\\WINRUN.FLG", EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, 0))) {
+            Flag->Flush (Flag);
+            Flag->Close (Flag);
+          }
 
-        Root->Close (Root);
+          Root->Close (Root);
+        }
       }
     }
   }

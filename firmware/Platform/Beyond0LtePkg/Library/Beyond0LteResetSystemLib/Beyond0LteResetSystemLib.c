@@ -99,6 +99,14 @@
 STATIC volatile UINT32  *mSwReset;
 STATIC volatile UINT32  *mInform3;
 STATIC BOOLEAN          mInform3VirtualReady;
+//
+// W31: boot progress word (0x8FE0F000, Beyond0LteBootLog.h WINPRAM MiB, published as
+// EfiRuntimeServicesData so it stays mapped after SetVirtualAddressMap). An OS-requested reset
+// stores 0x80 there; the next boot's Beyond0LteBootLogDxe then lets Windows continue (setup
+// reboots) instead of diverting to TWRP.
+//
+STATIC volatile UINT32  *mProgress = (volatile UINT32 *)(UINTN)0x8FE0F000ULL;
+STATIC BOOLEAN          mProgressVirtualReady;
 STATIC volatile UINT32  *mPsHoldControl;
 STATIC BOOLEAN          mSwResetVirtualReady;
 STATIC BOOLEAN          mPsHoldVirtualReady;
@@ -211,6 +219,13 @@ VirtualAddressChange (
   if (!EFI_ERROR (Status)) {
     mInform3             = (volatile UINT32 *)Address;
     mInform3VirtualReady = TRUE;
+  }
+
+  Address = (VOID *)(UINTN)mProgress;
+  Status  = EfiConvertPointer (0, &Address);
+  if (!EFI_ERROR (Status)) {
+    mProgress             = (volatile UINT32 *)Address;
+    mProgressVirtualReady = TRUE;
   }
 
   Address = (VOID *)(UINTN)mPsHoldControl;
@@ -420,6 +435,11 @@ ExynosPmuReset (
     //
     if (!EfiGoneVirtual () || mInform3VirtualReady) {
       MmioWrite32 ((UINTN)mInform3, EXYNOS_REBOOT_REASON_BASE);
+      ArmDataSynchronizationBarrier ();
+    }
+
+    if (EfiGoneVirtual () && mProgressVirtualReady) {
+      mProgress[1] = 0x80;   // W31: the OS asked for this reset
       ArmDataSynchronizationBarrier ();
     }
 

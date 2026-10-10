@@ -294,6 +294,7 @@ ArmPlatformGetPlatformPpiList (
   OUT EFI_PEI_PPI_DESCRIPTOR  **PpiList
   )
 {
+  ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[1] = 0x63;   // W31 progress: MMU is on (MemoryPeim returned)
   *PpiListSize = sizeof (mBeyond0LtePlatformPpiList);
   *PpiList     = mBeyond0LtePlatformPpiList;
 }

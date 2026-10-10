@@ -8217,6 +8217,7 @@ UfsHandleIoControl(
 static volatile ULONG *UfsBringupWdtCon;
 static volatile UCHAR *UfsBringupPmu;
 static ULONGLONG UfsBringupStart100ns;
+static ULONGLONG UfsBringupLastWrite100ns;
 static BOOLEAN UfsBringupFeedExpired;
 
 //
@@ -8240,6 +8241,7 @@ UfsMapBringupWatchdog(
 
     Physical.QuadPart = (LONGLONG)UFS_WDT_PHYSICAL_BASE;
     UfsBringupStart100ns = KeQueryInterruptTime();
+    UfsBringupLastWrite100ns = UfsBringupStart100ns;
     UfsBringupWdtCon = (volatile ULONG *)MmMapIoSpace(Physical, UFS_WDT_WINDOW, MmNonCached);
     Physical.QuadPart = (LONGLONG)UFS_PMU_PHYSICAL_BASE;
     UfsBringupPmu = (volatile UCHAR *)MmMapIoSpace(Physical, UFS_BRINGUP_PMU_WINDOW, MmNonCached);
@@ -8250,7 +8252,8 @@ UfsMapBringupWatchdog(
 // watchdog 12 minutes after DriverEntry no matter what Windows is doing; the watchdog then resets
 // the phone within the next 82 s and the firmware's boot pair takes it to TWRP.
 //
-#define UFS_BRINGUP_FEED_LIMIT_100NS       (12ULL * 60ULL * 10000000ULL)
+#define UFS_BRINGUP_FEED_LIMIT_100NS       (45ULL * 60ULL * 10000000ULL)   // W31: absolute ceiling
+#define UFS_BRINGUP_WRITE_IDLE_100NS       (5ULL * 60ULL * 10000000ULL)    // W31: no successful write for 5 min = stuck
 
 static
 VOID
@@ -8258,7 +8261,13 @@ UfsPetBringupWatchdog(
     VOID
     )
 {
-    if (KeQueryInterruptTime() - UfsBringupStart100ns > UFS_BRINGUP_FEED_LIMIT_100NS) {
+    //
+    // W31: the 12-minute cap (W30) killed a healthy Setup specialize pass (it pre-registers apps
+    // for 15+ minutes on one core). Feed only while Windows keeps WRITING - an error dialog or a hang
+    // stops writes - with an absolute 45-minute ceiling.
+    //
+    if ((KeQueryInterruptTime() - UfsBringupStart100ns > UFS_BRINGUP_FEED_LIMIT_100NS) ||
+        (KeQueryInterruptTime() - UfsBringupLastWrite100ns > UFS_BRINGUP_WRITE_IDLE_100NS)) {
         if (!UfsBringupFeedExpired) {
             UfsBringupFeedExpired = TRUE;
             UfsEarlyMark("=WDT feed limit reached", 0);
@@ -9152,6 +9161,10 @@ UfsHwStartIo(
     }
 
     if (SrbStatus == SRB_STATUS_SUCCESS) {
+        if ((Srb->Function == SRB_FUNCTION_EXECUTE_SCSI) &&
+            ((Srb->Cdb[0] == 0x2A) || (Srb->Cdb[0] == 0x8A))) {
+            UfsBringupLastWrite100ns = KeQueryInterruptTime();
+        }
         UfsPetBringupWatchdog();   // W28: only real progress keeps the bring-up watchdog fed
     }
     UfsCompleteRequest(Adapter, Srb, SrbStatus);

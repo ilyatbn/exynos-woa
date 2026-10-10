@@ -460,3 +460,18 @@ backup at LBA 31236091) retyped to C12A7328-..., read back verified; originals s
 s10e-artifacts\backup-RF8M21HYDSZ\gpt\. Fresh windows.img + ESP re-transferred (harness transfer, verified).
 Driver w29: stops feeding the bring-up watchdog 12 min after DriverEntry (user: unattended 8 h, every attempt back in
 10-15 min). Firmware: boot #39 (progress word) flashed. Next: cycle with w29.
+
+## W31 - specialize runs clean but needs >12 min; second-boot hang located to SEC MMU bring-up (2026-10-11)
+Cycle c29 (w29 driver, fresh image, CACHE typed ESP): unattended, stage1 1004 s, stage2 86 s. ESP got 'System Volume
+Information' (Windows mounted it as its system partition). setuperr.log: only the benign ApphelpDebug line. setupact.log
+(notes/setupact-c29.log): specialize pre-registering apps 21:53-22:02 when the 12-min cap fired - progress, no error.
+Second-boot hang: UEFILOG (notes/uefilog-c29.txt) progress prev=0x60 and the ring kept the hung boot's ONLY line, the
+PeilessSec banner -> it hung between the banner and 'SecMain: No TransferList' = HobConstructor/MemoryPeim (tables +
+ArmEnableMmu, which does 'tlbi vmalle1' with the MMU OFF; the 9810 found Samsung uH cannot emulate an MMU-off tlbi).
+Hypothesis (UNVERIFIED): stale TLB/permission state from the previous UEFI boot + MMU-off TLBI; first boots follow Linux
+whose stale entries do not collide. Boot #40 adds progress 0x61 (before MemoryPeim builds tables) and 0x63 (after the
+MMU is on) to confirm.
+Driver w31: feed the bring-up watchdog only while a successful WRITE happened in the last 5 min, absolute cap 45 min
+(an error dialog stops writes -> back within ~6-7 min; a working Setup keeps going).
+Firmware boot #40 also: OS-requested reset marker 0x80 (ResetSystem, WINPRAM MiB now EfiRuntimeServicesData) and the
+boot pair lets Windows continue after such a reset (saves WINPRAM-RESTART.BIN).

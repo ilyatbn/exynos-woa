@@ -192,6 +192,7 @@ ArmPlatformGetVirtualMemoryMap (
   STATIC ARM_MEMORY_REGION_DESCRIPTOR  Table[MMIO_REGION_COUNT + 12];
 
   BEYOND0LTE_CHECKPOINT (1540);   // MemoryPeim, MMU still off (B39)
+  ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[1] = 0x61;   // W31 progress: about to build tables + enable MMU
   ASSERT (MemoryTable != NULL);
   Index = 0;
 
@@ -392,7 +393,9 @@ ArmPlatformGetVirtualMemoryMap (
       // W19: the RAM boot log (Beyond0LteBootLog.h) - mapped as bank0 RAM, kept out of every allocator.
       BuildMemoryAllocationHob (BEYOND0LTE_BOOTLOG_BASE, BEYOND0LTE_BOOTLOG_SIZE, EfiReservedMemoryType);
       // W23: the Windows UFS driver's PRAM ring - reserved so Windows never allocates it as RAM.
-      BuildMemoryAllocationHob (BEYOND0LTE_WINPRAM_BASE, BEYOND0LTE_WINPRAM_SIZE, EfiReservedMemoryType);
+      // W31: runtime data (still never handed to the OS as RAM) so the runtime ResetSystem can
+      // reach the boot progress word at 0x8FE0F000 after SetVirtualAddressMap.
+      BuildMemoryAllocationHob (BEYOND0LTE_WINPRAM_BASE, BEYOND0LTE_WINPRAM_SIZE, EfiRuntimeServicesData);
     }
   }
 

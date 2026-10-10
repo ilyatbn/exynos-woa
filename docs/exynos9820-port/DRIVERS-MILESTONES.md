@@ -107,7 +107,8 @@ ACPI/Windows half remains.
 
 | Task | State | Notes |
 |------|-------|-------|
-| Research: DP alt mode on the 9820 combo PHY (SMV/HPD, what DeX does at `displayport@130B0000`) | todo | `notes/dock-desktop.md` §11 is the starting point |
+| Identify what the user's hub's HDMI actually is (DP alt mode vs DisplayLink) | **doing — needs the hub's model label from the user** | the hub is non-powered, USB2 ports + HDMI — the classic cheap USB-C hub shape, which is usually **DP alt mode** (HDMI wired to the SS lanes, no chip) — if so, Windows HDMI-out needs our own DECON_T→DP WDDM driver (ties to D5b rung 1), not a DisplayLink driver |
+| Research: DP alt mode on the 9820 combo PHY (SMV/HPD, what DeX does at `displayport@130B0000`) | **doing** | subagent → `notes/d6-external-display.md` (seeded with six questions) |
 | Decide: DP alt mode vs DisplayLink dock (DisplayLink is the funded fallback) | todo | |
 
 ## Working rules for this file

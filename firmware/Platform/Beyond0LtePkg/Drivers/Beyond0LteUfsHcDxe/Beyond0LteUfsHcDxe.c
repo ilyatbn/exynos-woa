@@ -3142,6 +3142,43 @@ STATIC UINT32  mTrdSaveMask  = 0;
 // fixed-format sense from byte 34 (key = [2] & 0xF, ASC = [12], ASCQ = [13]); CDB opcode = Command
 // UPIU byte 16. Prints only for SCSI status 0x02 (CHECK CONDITION).
 //
+//
+// Exynos reports OCS 0x7 (FATAL_ERROR) whenever the DEVICE answers a SCSI command with a
+// non-GOOD status, and the device then also sets the UPIU Response byte to 0x01. Samsung's
+// 9820 kernel ignores both: ufshcd_transfer_rsp_status handles "case OCS_SUCCESS: case
+// OCS_FATAL_ERROR:" alike and takes only the SCSI status byte from the response UPIU
+// (LineageOS android_kernel_samsung_exynos9820 drivers/scsi/ufs/ufshcd.c ~5856-5880). Stock
+// EDK2 fails such a command outright (UfsPassThruHci.c:1605-1610 "Target Failure", then
+// Ocs != 0), so ScsiDisk never sees the CHECK CONDITION it would retry - boot #20 showed it
+// on the power-on UNIT ATTENTION (key 6 / ASC 0x29). Present the completion the way the
+// kernel reads it: for a SCSI Response UPIU (transaction code 0x21), OCS 0x7 -> 0, and a
+// non-GOOD status clears the Response byte so status + sense reach ScsiDisk (B75).
+//
+STATIC
+VOID
+Beyond0LteOcsFatalFixup (
+  IN UINTN  Trd,
+  IN UINTN  SResp
+  )
+{
+  UINT32  Dw2;
+
+  if ((MmioRead8 (SResp) & 0x3Fu) != 0x21u) {
+    return;
+  }
+
+  Dw2 = MmioRead32 (Trd + UTP_TRD_OCS_DW2);
+  if ((Dw2 & 0xFFu) == 0x07u) {
+    MmioWrite32 (Trd + UTP_TRD_OCS_DW2, Dw2 & ~0xFFu);
+  }
+
+  if ((MmioRead8 (SResp + 7) != 0) && (MmioRead8 (SResp + 6) != 0)) {
+    MmioWrite8 (SResp + 6, 0);
+  }
+
+  __asm__ __volatile__ ("dsb sy" ::: "memory");
+}
+
 STATIC
 VOID
 Beyond0LteLogCheckCond (
@@ -3160,6 +3197,7 @@ Beyond0LteLogCheckCond (
 
   SResp = (UINTN)SUcd + (UINTN)(MmioRead32 (Trd + UTP_TRD_RESP_DW6) >> 16);
   if (MmioRead8 (SResp + 7) != 0x02) {
+    Beyond0LteOcsFatalFixup (Trd, SResp);
     return;
   }
 
@@ -3175,6 +3213,7 @@ Beyond0LteLogCheckCond (
     (UINT32)MmioRead8 (SResp + 34 + 12),
     (UINT32)MmioRead8 (SResp + 34 + 13)
     ));
+  Beyond0LteOcsFatalFixup (Trd, SResp);
 }
 STATIC UINT64  mTrlBaseCache = 0;
 

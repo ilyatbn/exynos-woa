@@ -1684,3 +1684,19 @@ matches. This boot #20 image (replaces B72's, same fixes + these) %TEMP%\b73\boo
 
 Pushed (on-device sha256 48a778b5...2f17), sda14, dd conv=fsync, readback 3705 x 2048 B sha256
 48a778b5932d9318bee4eab16c66c3e54afac79993bf69d1f65134c1bdad2f17 (byte-exact). `adb reboot` next.
+
+## B75 - boot #20 OBSERVED: sense = UNIT ATTENTION, but Exynos flags OCS FATAL -> EDK2 fails it; fixup added
+
+Photo notes/img-boot20-sense.jpg (quiet log works): "ScsiDisk: IsWriteProtected() fails. Status = Device
+Error" / "UfsHc: slot 0 CDB 0x00 CHECK COND: ocs 0x7 resp 0x1 senselen 18 key 0x6 asc 0x29 ascq 0x00" /
+"UfsExecScsiCmds() fails with Target Failure". TEST UNIT READY -> UNIT ATTENTION, POWER ON / RESET
+OCCURRED (normal first media command after HCE) - but OCS = 0x7 FATAL_ERROR and UPIU Response = 0x01.
+No "Failed to send query request, OCS = 4" in the visible log (B71 fix plausible). After this the
+phone RESET (a new boot's shim/console output appears below; the console cursor survives in the FB
+record) - cause not visible; watch for it.
+Ground truth: 9820 kernel ufshcd_transfer_rsp_status treats "case OCS_SUCCESS: case OCS_FATAL_ERROR:"
+alike and uses only the SCSI status byte (ufshcd.c ~5856-5880). EDK2 UfsPassThruHci.c:1605-1610 fails on
+Response != 0 ("Target Failure") and on Ocs != 0 -> ScsiDisk never sees a retryable CHECK CONDITION.
+Fix: Beyond0LteOcsFatalFixup (called for every completed slot, before DW6 restore): for a SCSI Response
+UPIU (code 0x21) OCS 0x7 -> 0; non-GOOD status -> Response byte 0. Build exit 0.
+Boot #21 image %TEMP%\b75\boot21-v2.img sha256 6152e76f66c6c4bf13d0a3db6842524e0fc79a7255e32e0963c68cb5dbc520bc

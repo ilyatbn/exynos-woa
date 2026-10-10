@@ -107,6 +107,23 @@ _uefi_size:
 	 * system-register access, no stack. The only MMIO/stores outside the copy are
 	 * the BEYOND0LTE_SHIM_DIAG block (off = the exact prior-art flow). */
 _start:
+	/* ---- W28 boot progress word (RAM, survives the watchdog reset) -------
+	 * 0x8FE0F000: [0] = the previous boot's last code, [1] = this boot's code. Shim
+	 * 0x51..0x56, SEC 0x60, BootLogDxe 0x70/0x71. Inside the reserved Windows-PRAM MiB
+	 * (Beyond0LteBootLog.h) and inside the 64 KB saved as WINPRAM.BIN. */
+	.macro	PROGRESS code
+	movz	x16, #0x8FE0, lsl #16
+	movk	x16, #0xF000
+	mov	w17, #\code
+	str	w17, [x16, #4]
+	dsb	sy
+	.endm
+	movz	x16, #0x8FE0, lsl #16
+	movk	x16, #0xF000
+	ldr	w17, [x16, #4]
+	str	w17, [x16]              /* prev = last boot's code                   */
+	PROGRESS 0x51                   /* shim entered                              */
+
 	/* ---- W25 dead man's switch (unattended bring-up) ---------------------
 	 * Reboot reason = RECOVERY (PMU INFORM3 0x1586080C = 0x12345674) and watchdog cl0 =
 	 * 82 s, before anything else can hang. The firmware sets the reason back to normal
@@ -130,6 +147,7 @@ _start:
 	movz	w10, #0xFF39            /* prescaler 0xFF, DIV128, RSTEN, EN         */
 	str	w10, [x12]              /* WTCON                                     */
 	dsb	sy
+	PROGRESS 0x52                   /* watchdog armed                            */
 
 	/* ---- W25 clean+invalidate every data/unified cache level by set/way, then
 	 * the I-cache. A reset that our firmware triggers (PMIC keys, watchdog, SWRESET)
@@ -173,6 +191,7 @@ _start:
 	ic	iallu
 	dsb	sy
 	isb
+	PROGRESS 0x53                   /* caches cleaned                            */
 
 #if BEYOND0LTE_SHIM_DIAG
 	movz	x9, #0x1903, lsl #16    /* 0x19030000 = decon_f base               */
@@ -238,6 +257,7 @@ _start:
 	b.ne	11b
 #endif /* BEYOND0LTE_SHIM_TIMEBAR */
 #endif
+	PROGRESS 0x54                   /* diag done, copying                        */
 	mov	x4, x1                  /* x4 = source (FD runtime address)        */
 	ldr	x5, _uefi_base          /* x5 = UEFI_BASE (destination)            */
 	cmp	x4, x5
@@ -276,6 +296,8 @@ _entry:
 	movk	w10, #0x1, lsl #16      /* 108000 px = 100 rows x 1080             */
 	bl	_band                    /* copy done, entering the FD              */
 #endif
+	PROGRESS 0x56                   /* branching into the FD                     */
+	ldr	x5, _uefi_base
 	br	x5                      /* enter the FD @UEFI_BASE                 */
 
 _dead:

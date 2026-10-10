@@ -318,6 +318,8 @@ OnReadyToBoot (
   UINTN       Count;
   UINTN       Index;
 
+  ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[1] = 0x71;   // W28 progress: ReadyToBoot
+
   //
   // Boot #31: the first ReadyToBoot (PlatformRecovery) comes before BDS has connected the disk,
   // so no FAT volume existed yet ("Not Found"). Connect everything first.
@@ -626,6 +628,10 @@ OnExitBootServices (
   UINTN  Wdt;
 
   Wdt = (UINTN)EXYNOS_WDT_BASE;
+  if (Event != NULL) {
+    ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[1] = 0x72;   // W28 progress: ExitBootServices (Windows owns the CPU)
+  }
+
   MmioWrite32 ((UINTN)EXYNOS_PMU_BASE + EXYNOS_PMU_INFORM3_OFFSET, EXYNOS_REBOOT_REASON_BASE);
   MmioWrite32 (Wdt + EXYNOS_WDT_WTCON_OFFSET, 0);
   MmioWrite32 (Wdt + EXYNOS_WDT_WTCLRINT_OFFSET, 1);
@@ -651,6 +657,19 @@ Beyond0LteBootLogEntry (
   EFI_CPU_ARCH_PROTOCOL  *Cpu;
   EFI_EVENT              Event;
   EFI_STATUS             Status;
+
+  //
+  // W28 boot progress word (0x8FE0F000, written by the shim / SEC / here): [0] = the previous
+  // boot's last code - for a boot that hung, where it stopped (0x5x shim, 0x60 SEC, 0x70 DXE,
+  // 0x71 ReadyToBoot).
+  //
+  DEBUG ((
+    DEBUG_ERROR,
+    "BootLog: progress prev=0x%x cur=0x%x\n",
+    ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[0],
+    ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[1]
+    ));
+  ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[1] = 0x70;
 
   Status = gBS->LocateProtocol (&gEfiCpuArchProtocolGuid, NULL, (VOID **)&Cpu);
   if (!EFI_ERROR (Status)) {

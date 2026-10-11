@@ -1165,3 +1165,15 @@ when VBUS in, host otherwise; DBG2 only in device role) is the next debugging im
 battery charging under Windows (charger WDT kick), audio 1b (both CS35L40 + CS47L93 IDs, LDO18M on), WiFi
 milestone 2 (BCM4375 firmware 18.41.117 running, SEMCO module, driver 1.0.2.0 swapped into DriverStore, blobs in
 C:\Windows\System32\drivers\bcm4375\). In flight (subagents): WiFi M3 (msgbuf + first ioctl), audio M2 (tone to jack).
+**§29 update (2026-10-12 ~02:40).** BOOT = boot #93 (s10e-artifacts\boot93-v2.img, 77bfd211…: main c20e6c0 =
+#92 + audio M2 tone, watchdog 1). Flash recipe: build-uefi.ps1 -Platform Beyond0LtePkg → pack-uefi-beyond0lte.ps1
+-Ref s10e-artifacts\ref-recovery.img (untrimmed -> 18 255 872 B) → dd to by-name/boot + readback. DriverStore swaps
+from TWRP: `umount /data` first (TWRP auto-mounts the Windows NTFS ro there), fsck.ntfs if mount is ro.
+- Validated: WiFi M3 (msgbuf, MAC A8:DB:03:06:3C:EF, fw ver string), audio M2 digital path (FLL1 locked on
+  MCLK2, OUT2 enabled, tone 2 s; HP2 EN_DONE 0 -> **user ear test pending**: wired headphones in before power-on,
+  ~2 s beep just before Windows Boot Manager), battery path live (Windows re-queries, values track).
+- In test: WLAN 1.0.4.0 (M4: events + escan, logs `[scan]` BSS lines and `SCAN n`), S10eBattery 1.0.0.3 (off line
+  while OTG boost is on - the likely cause of "icon does not change on unplug"; needs the user: boot without
+  cable, then plug/unplug, then read Hist00-15 in Enum\ACPI\SAMS9826\0\Device Parameters).
+- Next: WiFi M5 = firmware resident for the device lifetime (DMA in device context, ReleaseHardware teardown,
+  poll thread), then the NDIS/WDI question. Audio: wait for the ear test.

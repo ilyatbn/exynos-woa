@@ -32,6 +32,12 @@
 
   Geometry and base come from Exynos9820.h (EXYNOS_FB_BASE / WIDTH / HEIGHT,
   verified 1080 x 2280, B44); 4 B per pixel per EXYNOS_FB_BYTES_PER_PIXEL.
+
+  BEYOND0LTE_FB_CONSOLE (user, 2026-10-11: "disable it and just write it to logs and keep it clean (behind a
+  feature flag), instead put like a new loading bar looping on the bottom of the screen"): 0 (default) = no
+  text on the panel - the sboot splash stays - and every write moves a block along a progress track near the
+  bottom instead; the RAM boot log (UEFILOG.TXT) still gets every byte, and an exception banner still switches
+  the panel to the full text dump. 1 = the text console as before.
 **/
 
 #include <Base.h>
@@ -52,10 +58,25 @@
 #define BG          0xFF000000U
 #define CON_MAGIC   0x46424331U          // "FBC1"
 
+#ifndef BEYOND0LTE_FB_CONSOLE
+#define BEYOND0LTE_FB_CONSOLE  0
+#endif
+
+// Progress track (console off): above the undrawn flag strip, clear of the splash's centre.
+#define BAR_H       12u
+#define BAR_Y0      (EXYNOS_FB_HEIGHT - 120u)
+#define BAR_X0      140u
+#define BAR_W       (EXYNOS_FB_WIDTH - 2u * BAR_X0)
+#define BAR_BLK     (BAR_W / 5u)
+#define BAR_STEP    6u
+#define BAR_TRACK   0xFF303030U
+#define BAR_FG      0xFFFFFFFFU
+
 typedef struct {
   UINT32    Magic;
   UINT32    Col;
   UINT32    Row;
+  UINT32    Tick;                       // progress block position (console off)
 } FB_CON_STATE;
 
 STATIC_ASSERT (EXYNOS_FB_BYTES_PER_PIXEL == 4, "renderer stores UINT32 pixels");
@@ -192,6 +213,54 @@ FbNewLine (
   FbClearLine ((St->Row + 1 < ROWS) ? St->Row + 1 : 0);
 }
 
+#if !BEYOND0LTE_FB_CONSOLE
+/** Fill columns [X0, X1) of the progress track with Color. **/
+STATIC
+VOID
+FbBarColumns (
+  IN UINT32  X0,
+  IN UINT32  X1,
+  IN UINT32  Color
+  )
+{
+  UINT32  Y;
+  UINT32  X;
+
+  for (Y = 0; Y < BAR_H; Y++) {
+    volatile UINT32  *Line;
+
+    Line = FB_PIXELS + (UINTN)(BAR_Y0 + Y) * EXYNOS_FB_STRIDE_PIXELS + BAR_X0;
+    for (X = X0; X < X1; X++) {
+      Line[X] = Color;
+    }
+  }
+}
+
+/** Advance the progress block by BAR_STEP, drawing only the columns that change. **/
+STATIC
+VOID
+FbBarTick (
+  IN volatile FB_CON_STATE  *St
+  )
+{
+  UINT32  Old;
+  UINT32  New;
+
+  Old = St->Tick;
+  New = Old + BAR_STEP;
+  if (New + BAR_BLK > BAR_W) {
+    FbBarColumns (Old, Old + BAR_BLK, BAR_TRACK);
+    FbBarColumns (0, BAR_BLK, BAR_FG);
+    New = 0;
+  } else {
+    FbBarColumns (Old, New, BAR_TRACK);
+    FbBarColumns (Old + BAR_BLK, New + BAR_BLK, BAR_FG);
+  }
+
+  St->Tick = New;
+}
+#endif
+
 STATIC
 volatile FB_CON_STATE *
 FbState (
@@ -201,12 +270,20 @@ FbState (
   volatile FB_CON_STATE  *St;
 
   St = FB_STATE;
-  if ((St->Magic != CON_MAGIC) || (St->Col >= COLS) || (St->Row >= ROWS)) {
+  // The record survives resets; Tick is validated too (older firmware never wrote it - an out-of-range value
+  // would put the progress block outside the track, past the framebuffer).
+  if ((St->Magic != CON_MAGIC) || (St->Col >= COLS) || (St->Row >= ROWS) || (St->Tick + BAR_BLK > BAR_W)) {
     St->Magic = CON_MAGIC;
     St->Col   = 0;
     St->Row   = 0;
+    St->Tick  = 0;
+#if BEYOND0LTE_FB_CONSOLE
     FbClearLine (0);
     FbClearLine (1);
+#else
+    FbBarColumns (0, BAR_W, BAR_TRACK);
+    FbBarColumns (0, BAR_BLK, BAR_FG);
+#endif
   }
 
   return St;
@@ -276,6 +353,14 @@ SerialPortWrite (
     FB_FULL   = 0;
     FB_FROZEN = CON_MAGIC;
   }
+
+#if !BEYOND0LTE_FB_CONSOLE
+  if (FB_FROZEN != CON_MAGIC) {
+    FbBarTick (St);   // normal boot: no text on the panel, the log is in the RAM ring / UEFILOG.TXT
+    __asm__ __volatile__ ("dsb sy" ::: "memory");
+    return NumberOfBytes;
+  }
+#endif
 
   for (Index = 0; Index < NumberOfBytes; Index++) {
     if ((FB_FROZEN == CON_MAGIC) && (FB_FULL == CON_MAGIC)) {

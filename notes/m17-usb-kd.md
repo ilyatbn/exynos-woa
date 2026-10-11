@@ -250,3 +250,5 @@ hang (notes/m14-smp.md: "Needs kernel-level debugging (KDNET/USB) - parked"), ea
   COM switch to USB-AP (attach). DBG2 0x8003/0x5143 type 5, busparams 0 as designed.
 - Follow-ups (own tasks): (1) attach probe off (8 s boot cost; diagnostic answered); (2) apply the COM-switch fix
   to the M16 host path (dock/keyboard) - same open switch; (3) device-mode PHY tune kept from TWRP read, review.
+- Follow-up 1 done: BEYOND0LTE_USB_KD_ATTACH_PROBE 0 (diagnostic answered). boot #78 = KD image without the
+  8 s probe (sha 6b2bdb01…). Build exit 0.

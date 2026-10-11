@@ -70,8 +70,8 @@ Dwc3EventBufferSetup (VOID)
 // (high speed, our event buffer, RUN_STOP) and log every DSTS link-state change: a host bus reset / U0 proves the
 // D+ pull-up and the data path; staying in Rx.Detect/SS.Disabled with no reset says the attach never happens.
 // The host shows an "Unknown USB Device (Device Descriptor Request Failed)" during the window if it attaches
-// (no EP0 is armed). Diagnostic only - set 0 once answered.
-#define BEYOND0LTE_USB_KD_ATTACH_PROBE  1
+// (no EP0 is armed). Diagnostic only - answered 2026-10-11 (idle bus = USB-C switch open, fixed in Pmic.c); off.
+#define BEYOND0LTE_USB_KD_ATTACH_PROBE  0
 #define ATTACH_PROBE_MS                 8000
 
 STATIC

@@ -61,3 +61,21 @@ USI mode slots (samsung,exynos-usi, each reg = 4 bytes in sysreg 0x10421000): 'i
   samsung,exynos7-wakeup-eint (ECON 0x700, FLTCON 0x800, EMASK 0x900, EPEND 0xA00). => base 0x15850000,
   GPA1_CON 0x020, GPA1_PUD 0x028; EINT 0x704/0x808/0x904/0xA04 unchanged. INF DriverVer -> 6.0.5058.4 so pnputil
   replaces oem3. Live DT also has key-power / key-volup / key-voldown under pinctrl@15850000 (power button later).
+- Run 8: back in 325 s WITHOUT agent output - the run-7 chkdsk /spotfix ran at boot and restarts Windows when done;
+  that restart hit the PSCI 0xA0 -> S10eDiag reset -> TWRP. The UFS shutdown SRB had stored progress 0x80, so my
+  firmware bounce then CONTINUED into Windows (boot pair "Windows asked for this restart") = run 9.
+- Run 9 (touch v2 = oem4.inf, 9820 ALIVE constants): touch now gets past resources (TouchResourceMask 0x7, count 3,
+  AliveLength 0x1000, PeripheralId 1) and fails at TouchStartStage 0x21 with 0xC00000B5 (IO_TIMEOUT) = first I2C
+  transfer. HSI2C telemetry (Device Parameters): IsrCount 0, LastRequestStatus 0xC0000120 (cancelled), TX FIFO
+  stuck at 1 entry (fifo 0x01000001), trans status 0x000A0006, line_scl=0 line_sda=0.
+  Linux pin config for the bus (live DT pinctrl@10430000/hsi2c10-bus): gpp1-4/5 function 2, pud 0, drv 0 = what the
+  driver programs => pull-ups are external (on the touch IO rail). In TWRP: tsp_io enabled 1.8 V, tsp_avdd enabled
+  3.0 V (/sys/class/regulator). Live DT: tsp_avdd = speedy@15970000/s2mps19mfd@00/regulators/LDO27M, tsp_io = LDO19M,
+  both regulator-boot-on. => working hypothesis: the touch rails are OFF under Windows (the kernel's sec_ts
+  shutdown powers them off before reboot; sboot does not turn them back on). UNVERIFIED until the PMIC is read.
+  PMIC access on the 9820 is ACPM IPC only (kernel drivers/mfd/s2mps19_core.c: exynos_acpm_read/write_reg(channel 0,
+  addr I2C_ADDR_PMIC 0x01, reg); the smbus path is #if 0). s2mps19-regulator.h: L19CTRL 0x58, L27CTRL 0x60, enable
+  field [7:6] (S2MPS19_ENABLE_SHIFT 6, mask 0xC0). Live DT acpm_ipc: reg <0x15900000 0x1000> (IPC mailbox regs) +
+  <0x02039000 0x30000> (APM SRAM), initdata-base 0x7000, interrupts SPI 0x28, dump-base 0x0203c000; acpm (timer_apm
+  0x15830000, ipc channel 4), acpm_dvfs ch 5, acpm_tmu ch 9. Archive: s10e-artifacts\dt-acpm-20261011.tar.
+  Next: ACPM IPC client (UEFI, before ExitBootServices) that reads L19CTRL/L27CTRL and enables them.

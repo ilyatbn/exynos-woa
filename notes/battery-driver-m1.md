@@ -192,9 +192,13 @@ Prerequisites: firmware built from this branch (DSDT `BAT0`); the package
 3. Boot Windows; S10eAgent runs collect.cmd -> extra.cmd. Results in `%OUT%\last\battery\`.
 4. Pass criteria, in order:
    - `pnputil-battery.txt`: added + installed; `dev-battery.txt`: Started, driver S10eBattery, no problem code.
-   - `battery-params.txt`: `PollOk` > 0, `PollFail` 0, `SocTenths` within ~1-2 % of Android's own number
-     (UEFI read 88.2 % vs Android, notes/battery-driver.md), `VcellMv` ~3500-4400,
-     `FullCapMah` ~3000 (UEFILOG B42: 3000), `ChgDetails` != 0xFFFFFFFF.
+   - `battery-params.txt`: `PollOk` > 0, `PollFail` 0, `SocTenths` close to a fresh UEFILOG `[FG] SOC`
+     of the same charge state (same register, same conversion). Android's own % is Samsung-scaled
+     (capacity_min/max, notes/battery-driver.md) so a few % delta vs Android is expected — **no
+     gauge-vs-Android comparison has been recorded yet**. `VcellMv` ~3500-4400. `FullCapMah`: recorded
+     UEFI reads are 2460 (notes/m16-usb.md run, SOC 99.2 %) and 3000 (UEFILOG cited in this task's
+     brief, not committed) — the gauge's learned value moves, so accept ~2000-3200.
+     `ChgDetails` != 0xFFFFFFFF.
    - `ChgDetails` low byte bits 6:5 == 3 iff a charger is plugged; `PowerState` 1 (ON_LINE) /
      5 (ON_LINE|CHARGING) plugged, 2 (DISCHARGING) on battery.
    - `wmi-batterystatus.txt` RemainingCapacity / `win32-battery.txt` EstimatedChargeRemaining == SOC.
@@ -218,3 +222,16 @@ Prerequisites: firmware built from this branch (DSDT `BAT0`); the package
 - Whether Windows derives AC from BATTERY_POWER_ON_LINE without an ACPI0003 device (inference).
 - Clocks: HSI2C45 gates are ACPM-owned; assumed still running under Windows (UEFI found them running
   after sboot; nothing in Windows gates them). If not, the first MMIO read could fault -> step 5.
+
+### 2026-10-12 — commit 6d4b185 review (task 3, harsh critic)
+- `ACPI\SAMS9826\0` instance path: `_UID Zero` -> "0" (I2C0 `_UID 10` shows as `\a` in
+  extra-touch.cmd, i.e. hex) ✔. `s10ediag peek <phys>` syntax: S10eDiagCtl.c:122 ✔. NTSTATUS values
+  in the triage list: ntstatus.h grep ✔ (STATUS_NO_MEDIA_IN_DEVICE is 0xC0000013, written correctly).
+- `.cmd` line endings: the file was written LF; `.gitattributes` has `*.cmd eol=crlf` -> re-checked
+  out, now CRLF (`file`: "with CRLF line terminators"). No content change.
+- **F3** (fixed in the next commit): the pass criteria claimed "UEFI read 88.2 % vs Android" and
+  "UEFILOG B42: 3000" — neither is in the repo. The only committed gauge read is notes/m16-usb.md
+  (`SOC 99.2% ... FULLCAP_REP 2460`); the 88.2 % / 3000 read is from the task brief. No Android
+  comparison exists. Criteria rewritten (FULLCAP range, compare against a fresh UEFILOG).
+- **F4**: `S10eBattery.h` fg_resistor comment cites "UEFILOG FULLCAP_REP 3000" as support — must
+  cite both recorded values (2460 committed, 3000 from the brief).

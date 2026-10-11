@@ -213,3 +213,10 @@ FuelGaugeReport (VOID)
 
   return EFI_SUCCESS;
 }
+
+// ChargerMode.c: the SOC on its own (0.1 % units, vendor scaling).
+EFI_STATUS
+FuelGaugeReadSoc (OUT UINTN *TenthsPercent)
+{
+  return FgReadSoc (TenthsPercent);
+}

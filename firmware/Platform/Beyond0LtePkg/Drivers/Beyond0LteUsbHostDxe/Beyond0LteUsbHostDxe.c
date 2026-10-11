@@ -117,6 +117,7 @@ Beyond0LteUsbHostEntry (
   UINT32      Saved;
 
   mUsbProgress[2] = 0;
+  ChargerModeCheckAndRun ();   // 2026-10-12: charger power-on -> off-mode charging (does not return then)
   if (!BEYOND0LTE_USB_HOST) {
     DEBUG ((DEBUG_WARN, "UsbHost: disabled (BEYOND0LTE_USB_HOST 0)\n"));
     return EFI_UNSUPPORTED;

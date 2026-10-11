@@ -54,5 +54,7 @@ VOID Max77705CcicInit (VOID);   // M16: DRP config the kernel sends at probe (op
 // notes/battery-driver.md). Reads only; never writes a gauge register.
 //
 EFI_STATUS FuelGaugeReport (VOID);
+EFI_STATUS FuelGaugeReadSoc (OUT UINTN *TenthsPercent);
+VOID ChargerModeCheckAndRun (VOID);   // ChargerMode.c: charger power-on -> off-mode charging, never returns then
 
 #endif // USB_HOST_INTERNAL_H_

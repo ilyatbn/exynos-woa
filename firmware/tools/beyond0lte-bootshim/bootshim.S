@@ -125,6 +125,13 @@ _start:
 	movk	x16, #0xF000
 	ldr	w17, [x16, #4]
 	str	w17, [x16]              /* prev = last boot's code                   */
+	/* 2026-10-12 charger boot: keep sboot's FDT pointer (x0, Linux arm64 boot protocol) for UEFI -
+	 * its /chosen/bootargs carry the charging-mode flag. Page offset 0x20 = 64-bit pointer, 0x28 =
+	 * 'FDT0' magic (0x30544446) so a stale page is never trusted. x0 itself is not modified. */
+	str	x0, [x16, #0x20]
+	movz	w17, #0x4446
+	movk	w17, #0x3054, lsl #16
+	str	w17, [x16, #0x28]
 	PROGRESS 0x51                   /* shim entered                              */
 
 	/* ---- W34: THE second-boot hang. PeilessSec's _ModuleEntryPoint takes the

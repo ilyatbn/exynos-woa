@@ -26,6 +26,7 @@
   Dwc3.c
   Pmic.c
   FuelGauge.c
+  ChargerMode.c
   UsbHw.h
   UsbHostInternal.h
 
@@ -42,6 +43,9 @@
   IoLib
   MemoryAllocationLib
   NonDiscoverableDeviceRegistrationLib
+  FdtLib
+  UefiRuntimeServicesTableLib
+  BaseLib
 
 [Protocols]
   gEdkiiNonDiscoverableDeviceProtocolGuid  ## PRODUCES

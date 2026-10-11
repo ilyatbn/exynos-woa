@@ -586,6 +586,8 @@
   Platform/Beyond0LtePkg/Drivers/Beyond0LteBootLogDxe/Beyond0LteBootLogDxe.inf
   # M12: ACPM IPC -> S2MPS19 touch rails LDO19M/LDO27M on at ReadyToBoot (notes/m12-acpm.md)
   Platform/Beyond0LtePkg/Drivers/Beyond0LteTouchPowerDxe/Beyond0LteTouchPowerDxe.inf
+  # D8a: read the CS47L93 codec / CS35L40 amp IDs into UEFILOG, buses restored (notes/d8-audio-m1.md)
+  Platform/Beyond0LtePkg/Drivers/Beyond0LteAudioProbeDxe/Beyond0LteAudioProbeDxe.inf
 
   # --- RAM discovery: Beyond0LteRamManagerDxe is the ported 9810 manager. It
   #     publishes the two verified high banks as GCD SystemMemory, which is a

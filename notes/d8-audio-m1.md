@@ -179,3 +179,12 @@ Exynos9820.h already cites for CMU blocks).
   (CMU_PERIC0 ends 0x10408000, CMU_PERIC1 ends 0x10808000). Build (private
   workspace) exit 0, BEYOND0LTE_UEFI.fd 7 340 032 B, FVMAIN_COMPACT 99%
   (1 192 B free, auto-sized), FVMAIN 32%.
+- Task "AudioProbeDxe": `Drivers/Beyond0LteAudioProbeDxe/` (.c, .inf,
+  AudioProbeHw.h), FILE_GUID ...555554 (...553 left free for PCIe WLAN),
+  added to .dsc and .fdf after TouchPowerDxe. Flags
+  BEYOND0LTE_AUDIO_PROBE 1, BEYOND0LTE_AUDIO_PROBE_RELEASE_RESETS 1.
+  Build (private workspace) exit 0 with -Werror; Guid.xref lists
+  `11111111-2222-3333-4444-555555555554 Beyond0LteAudioProbeDxe`;
+  .efi 18 944 B; BEYOND0LTE_UEFI.fd 7 340 032 B sha256
+  67f009ab27c5c1d7045653ec28673c52a2a168e8db2dbf05648b3590396f43c3;
+  FVMAIN_COMPACT 99% (1 944 B free, auto-sized), FVMAIN 32%.

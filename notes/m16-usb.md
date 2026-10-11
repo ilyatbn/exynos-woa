@@ -162,3 +162,14 @@ Found:
 - boot68-v2.img sha256 cb25db01…d465 verified on the partition = cceb4ee (tasks 6-8 on top of run 2).
 - If it crashes again: ask the user for a photo of the exception screen (PC + image name); the
   exception flush cannot reach the ESP this early.
+
+### Run 3 (boot #68) — user report
+- Booted into Windows (the PORTSC crash is gone). Dock: no light → VBUS still off (logs pending).
+- "Reboot to TWRP.cmd" fails, every other .cmd launcher works. User: make it a small C app.
+
+### Task 9 — s10ereboot.exe
+- drivers/S10eDiag/S10eReboot.c: creates C:\S10eTmp\req\recovery.req (Users-writable, no elevation),
+  waits up to 10 s for the agent to delete it, message box if not (agent down → key-combo hint).
+- Desktop: `Reboot to TWRP.exe` (the exe itself, no .cmd in between); desktop.cmd deletes the old .cmd
+  and its idempotency check now keys on the .exe; the installer also places it directly on the NTFS.
+- build.bat → S10EDIAG_BUILD_OK (W4/WX).

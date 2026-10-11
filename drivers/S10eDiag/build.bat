@@ -29,7 +29,9 @@ cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /D _CRT_SECURE_NO_WARNINGS /Fo"%OUT
 if errorlevel 1 exit /b 8
 cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /D UNICODE /D _UNICODE /D _CRT_SECURE_NO_WARNINGS /Fo"%OUT%\S10eTouchLog.obj" /Fe"%OUT%\s10etouchlog.exe" "%SRC%S10eTouchLog.c" /link /MACHINE:ARM64 /SUBSYSTEM:WINDOWS /Brepro user32.lib gdi32.lib advapi32.lib
 if errorlevel 1 exit /b 9
+cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /D UNICODE /D _UNICODE /D _CRT_SECURE_NO_WARNINGS /Fo"%OUT%\S10eReboot.obj" /Fe"%OUT%\s10ereboot.exe" "%SRC%S10eReboot.c" /link /MACHINE:ARM64 /SUBSYSTEM:WINDOWS /Brepro user32.lib
+if errorlevel 1 exit /b 10
 
-"%KIT%\bin\%KV%\x64\signtool.exe" sign /sha1 5DD5DEE1747244C5F5F66F41D94C0A59C4443E48 /fd SHA256 "%OUT%\S10eDiag.sys" "%OUT%\s10ediag.exe" "%OUT%\S10eAgent.exe" "%OUT%\s10erotate.exe" "%OUT%\s10eperf.exe" "%OUT%\s10etouchlog.exe" >nul
+"%KIT%\bin\%KV%\x64\signtool.exe" sign /sha1 5DD5DEE1747244C5F5F66F41D94C0A59C4443E48 /fd SHA256 "%OUT%\S10eDiag.sys" "%OUT%\s10ediag.exe" "%OUT%\S10eAgent.exe" "%OUT%\s10erotate.exe" "%OUT%\s10eperf.exe" "%OUT%\s10etouchlog.exe" "%OUT%\s10ereboot.exe" >nul
 if errorlevel 1 exit /b 6
 echo S10EDIAG_BUILD_OK %OUT%

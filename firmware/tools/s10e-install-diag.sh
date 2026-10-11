@@ -30,6 +30,13 @@ $A push "$(cygpath -m "$B/S10eAgent.exe")" /tmp/win/Windows/System32/S10eAgent.e
 [ -f "$B/s10erotate.exe" ] && $A push "$(cygpath -m "$B/s10erotate.exe")" /tmp/win/Windows/System32/s10erotate.exe >/dev/null
 [ -f "$B/s10eperf.exe" ] && $A push "$(cygpath -m "$B/s10eperf.exe")" /tmp/win/Windows/System32/s10eperf.exe >/dev/null
 [ -f "$B/s10etouchlog.exe" ] && $A push "$(cygpath -m "$B/s10etouchlog.exe")" /tmp/win/Windows/System32/s10etouchlog.exe >/dev/null
+if [ -f "$B/s10ereboot.exe" ]; then
+  # m16: the "Reboot to TWRP" button is the exe itself (the .cmd version would not launch); placed directly
+  # so it exists before the agent's desktop.cmd runs again.
+  $A push "$(cygpath -m "$B/s10ereboot.exe")" /tmp/win/Windows/System32/s10ereboot.exe >/dev/null
+  $A push "$(cygpath -m "$B/s10ereboot.exe")" "/tmp/win/Users/Public/Desktop/Reboot to TWRP.exe" >/dev/null
+  $A shell 'rm -f "/tmp/win/Users/Public/Desktop/Reboot to TWRP.cmd"'
+fi
 $A shell "cd /tmp/win/Windows/System32 && sha256sum config/SYSTEM drivers/S10eDiag.sys s10ediag.exe S10eAgent.exe; cd /; sync; umount /tmp/win"
 (cd "$W" && sha256sum SYSTEM) ; (cd "$B" && sha256sum S10eDiag.sys s10ediag.exe S10eAgent.exe)
 

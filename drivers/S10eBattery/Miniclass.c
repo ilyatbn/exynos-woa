@@ -125,6 +125,9 @@ static VOID SaveDiagnostics(_In_ PS10E_BATT_FDO Fdo, _In_ PS10E_BATT_READING R)
         { L"HandoffGpm12",  Fdo->SavedScl },
         { L"HandoffGpm13",  Fdo->SavedSda },
         { L"HandoffUsiCon", Fdo->SavedUsiCon },
+        { L"NotifyCount",   Fdo->NotifyCount },
+        { L"QueryStatusCount", Fdo->QueryStatusCount },
+        { L"QueriedPowerState", Fdo->QueriedPowerState },
     };
     ULONG          i;
     UNICODE_STRING Name;
@@ -139,6 +142,35 @@ static VOID SaveDiagnostics(_In_ PS10E_BATT_FDO Fdo, _In_ PS10E_BATT_READING R)
         (VOID)WdfRegistryAssignULong(Key, &Name, Values[i].Value);
     }
 
+    WdfRegistryClose(Key);
+}
+
+/* One history line per notify, ring of S10E_BATT_HIST_SLOTS values (HistNN, slot = NotifyCount % slots):
+   n = notify number, t = seconds since boot, ps = PowerState sent, soc = tenths, chg = DETAILS_01:00,
+   i = AVG_I mA, q = QueryStatus calls so far, qps = PowerState the class driver last read. */
+static VOID SaveHistory(_In_ PS10E_BATT_FDO Fdo, _In_ PS10E_BATT_READING R)
+{
+    WDFKEY         Key;
+    WCHAR          NameBuf[8];
+    WCHAR          Line[128];
+    UNICODE_STRING Name;
+    UNICODE_STRING Value;
+
+    if (!NT_SUCCESS(RtlStringCbPrintfW(NameBuf, sizeof(NameBuf), L"Hist%02u", Fdo->NotifyCount % S10E_BATT_HIST_SLOTS)) ||
+        !NT_SUCCESS(RtlStringCbPrintfW(Line, sizeof(Line), L"n=%u t=%I64us ps=%u soc=%u chg=%04X i=%d q=%u qps=%u",
+                                       Fdo->NotifyCount, KeQueryInterruptTime() / 10000000ULL, Fdo->Status.PowerState,
+                                       R->SocTenths,
+                                       R->ChargerRead ? ((ULONG)R->ChgDetails00 | ((ULONG)R->ChgDetails01 << 8)) : 0xFFFF,
+                                       R->AvgCurrentMa, Fdo->QueryStatusCount, Fdo->QueriedPowerState))) {
+        return;
+    }
+    if (!NT_SUCCESS(WdfDeviceOpenRegistryKey(Fdo->Device, PLUGPLAY_REGKEY_DEVICE, KEY_WRITE,
+                                             WDF_NO_OBJECT_ATTRIBUTES, &Key))) {
+        return;
+    }
+    RtlInitUnicodeString(&Name, NameBuf);
+    RtlInitUnicodeString(&Value, Line);
+    (VOID)WdfRegistryAssignUnicodeString(Key, &Name, &Value);
     WdfRegistryClose(Key);
 }
 
@@ -176,7 +208,7 @@ VOID S10eBattPoll(_In_ WDFDEVICE Device)
         BuildStatus(Fdo, &R);
         Notify = (OldTag != Fdo->BatteryTag) || (OldPowerState != Fdo->Status.PowerState) ||
                  (OldPercent != R.SocTenths / 10);
-        Save = (Fdo->PollOk == 1) || Notify;
+        Save = (Fdo->PollOk == 1) || Notify || ((Fdo->PollOk % 15) == 0);   /* every 5 min: QueryStatusCount */
     } else {
         Fdo->PollFail++;
         if (Status == STATUS_NO_MEDIA_IN_DEVICE) {
@@ -190,6 +222,10 @@ VOID S10eBattPoll(_In_ WDFDEVICE Device)
         S10eBattPrint(DPFLTR_ERROR_LEVEL, "poll failed %08x (ok %u fail %u)\n", Status, Fdo->PollOk, Fdo->PollFail);
     }
 
+    if (Notify) {
+        Fdo->NotifyCount++;
+        SaveHistory(Fdo, &R);
+    }
     if (Save) {
         SaveDiagnostics(Fdo, &R);
     }
@@ -323,6 +359,8 @@ NTSTATUS S10eBattQueryStatus(PVOID Context, ULONG BatteryTag, PBATTERY_STATUS Ba
         Status = STATUS_NO_SUCH_DEVICE;
     } else {
         RtlCopyMemory(BatteryStatus, &Fdo->Status, sizeof(BATTERY_STATUS));
+        Fdo->QueryStatusCount++;
+        Fdo->QueriedPowerState = Fdo->Status.PowerState;
         Status = STATUS_SUCCESS;
     }
     WdfWaitLockRelease(Fdo->StateLock);

@@ -196,7 +196,14 @@ typedef struct _S10E_BATT_FDO {
     BATTERY_INFORMATION Info;
     BATTERY_STATUS      Status;
     ULONG               TemperatureDeciK;
+
+    /* unplug diagnosis (StateLock): did the poll see the change, and did the class driver re-query? */
+    ULONG               NotifyCount;         /* BatteryClassStatusNotify calls */
+    ULONG               QueryStatusCount;    /* QueryStatus calls from the class driver */
+    ULONG               QueriedPowerState;   /* PowerState returned by the last QueryStatus */
 } S10E_BATT_FDO, *PS10E_BATT_FDO;
+
+#define S10E_BATT_HIST_SLOTS  16             /* Device Parameters Hist00..Hist15, written on every notify */
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(S10E_BATT_GLOBAL, S10eBattGetGlobal);
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(S10E_BATT_FDO, S10eBattGetFdo);

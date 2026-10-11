@@ -271,3 +271,20 @@ device-validated** — MILESTONES row stays `doing`; the device test procedure a
   CHG_DTLS 1 (charging), PowerState 5 (online + charging), ChgCnfg00 0x15 (WDTEN + mode 5 CHG+BUCK), ChgCnfg06 0x0C,
   WdtKicked 1, SOC 53.5 %, AVG_I -13 mA (PC USB ~ load). Charging under Windows FIXED. Diagnostics are saved only
   on change, so PollOk stayed 1 in a flat 80 s window (expected). Unplug -> icon change: needs the user (cable).
+
+### 2026-10-12 — "icon does not change on unplug" (user report after batt2): instrumentation (1.0.0.2)
+- Offline SYSTEM hive (pulled from TWRP, dirty -> `reg load` refuses "corrupt"; scanned vk records directly,
+  scratchpad vkscan.py): only ONE copy of the diagnostics exists, PollOk 1 = the first poll of boot #93
+  (SOC 63.9 %, PowerState 5, ChgDetails 0x31E0). The values are overwritten in place, so the user's unplug left
+  no trace -> cannot tell whether the poll saw it or the class driver never re-queried.
+- Code review of the path: periodic 20 s timer -> passive work item -> S10eBattPoll -> Notify on PowerState /
+  percent / tag change -> BatteryClassStatusNotify; SetStatusNotify returns STATUS_NOT_SUPPORTED (simbatt
+  pattern). Nothing visibly wrong.
+- 1.0.0.2 adds: NotifyCount, QueryStatusCount, QueriedPowerState (Device Parameters), a 16-slot history
+  `HistNN` = "n= t= ps= soc= chg= i= q= qps=" written on every notify, and a diagnostics save every 15 polls
+  (5 min) so a re-query after the last notify shows up. Package s10e-artifacts\battery-m3 (sys 4B0214D4…).
+- Reading after the user's unplug test: pull SYSTEM, `python -I vkscan.py` for DWORDs; HistNN are REG_SZ (grep
+  the hive for UTF-16 "n=").
+  - If a Hist line with ps=0 or 2 (no ON_LINE) exists, the poll saw the unplug.
+  - If q does not rise after it, the class driver never re-queried, which means the batclass/compbatt wiring.
+  - If no such line exists, the reading itself did not change (CHGIN_DTLS stayed 3).

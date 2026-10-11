@@ -145,6 +145,20 @@ STATIC CONST MMIO_REGION  mMmioRegions[] = {
   { EXYNOS_DECON_T_BASE,       EXYNOS_DECON_T_SIZE,       "DECON_T"     },
   { EXYNOS_DSIM_BASE,          EXYNOS_DSIM_SIZE,          "DSIM"        },
 
+  // PCIe root port 0 — the WLAN bus (M12/D4b, notes/m12-wifi-chip.md).
+  // Envelope 0x13EC0000..0x13F00FFF covers IA/ELBI/PCS/PHY/DBI contiguously;
+  // CMU_FSYS1 also hosts the PCIe clock gates and the port's SYSREG window;
+  // CFG is the iATU config window, MEM the outbound window the EP's BAR0 lands in.
+  { EXYNOS_PCIE0_IA_BASE,
+      (EXYNOS_PCIE0_DBI_BASE + EXYNOS_PCIE0_DBI_SIZE - EXYNOS_PCIE0_IA_BASE),
+                               "PCIE0_REGS"  },            // IA..DBI envelope, 0x41000
+  { EXYNOS_CMU_FSYS1_BASE,     EXYNOS_CMU_FSYS1_SIZE,     "CMU_FSYS1"   },  // hosts the PCIe clock gates
+  { EXYNOS_PCIE0_SYSREG_BASE,  EXYNOS_PCIE0_SYSREG_SIZE,  "PCIE0_SYSREG"},  // 0x13C11044 — NOT inside CMU_FSYS1 (ends 13C07FFF)
+  { EXYNOS_PCIE0_SYSMMU_BASE,  EXYNOS_PCIE0_SYSMMU_SIZE,  "PCIE0_SYSMMU"},
+  { EXYNOS_FSYS1_GPIO_BASE,    EXYNOS_FSYS1_GPIO_SIZE,    "GPIO_FSYS1"  },  // gpf2: PERST#/CLKREQ#
+  { EXYNOS_PCIE0_CFG_BASE,     EXYNOS_PCIE0_CFG_SIZE,     "PCIE0_CFG"   },
+  { EXYNOS_PCIE0_MEM_BASE,     EXYNOS_PCIE0_MEM_SIZE,     "PCIE0_MEM"   },
+
   { EXYNOS_WDT_BASE,           EXYNOS_WDT_SIZE,           "WDT"         },  // same base as 9810
 };
 

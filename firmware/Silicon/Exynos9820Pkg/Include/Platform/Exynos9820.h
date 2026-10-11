@@ -422,6 +422,103 @@
 
 //
 // ---------------------------------------------------------------------------
+// PCIe root port 0 — the bus the WLAN chip hangs off (M12/D4b).
+//
+// The S10e's WiFi is a Broadcom BCM4375 (802.11ax) as a PCIe ENDPOINT on
+// Samsung's DesignWare-based root port `pcie_0`. The old "no DT node, dead
+// end" reading (notes/dock-desktop.md §6) was about the platform glue node
+// only; the shipping defconfig has CONFIG_BCMDHD_PCIE=y + CONFIG_PCIE_DW_HOST=y
+// and the board DT enables pcie_0 with ep-device-type = <EP_BCM_WIFI>.
+// Full evidence chain: notes/m12-wifi-chip.md W1-W8.
+//
+// Seven windows, all VERIFIED from the vendor DT node pcie0@13ED0000
+// (exynos9820.dts:4380-4418, LineageOS android_kernel_samsung_exynos9820):
+// ---------------------------------------------------------------------------
+//
+#define EXYNOS_PCIE0_ELBI_BASE    0x0000000013ED0000ULL   // VERIFIED (reg "elbi": port-logic glue)
+#define EXYNOS_PCIE0_ELBI_SIZE    0x0000000000001000ULL   // VERIFIED
+#define EXYNOS_PCIE0_PHY_BASE     0x0000000013EF0000ULL   // VERIFIED (reg "phy": PMA/analog)
+#define EXYNOS_PCIE0_PHY_SIZE     0x0000000000001000ULL   // VERIFIED
+#define EXYNOS_PCIE0_SYSREG_BASE  0x0000000013C11044ULL   // VERIFIED (reg "sysreg")
+#define EXYNOS_PCIE0_SYSREG_SIZE  0x0000000000000010ULL   // VERIFIED
+#define EXYNOS_PCIE0_DBI_BASE     0x0000000013F00000ULL   // VERIFIED (reg "dbi": RC's own config via DesignWare)
+#define EXYNOS_PCIE0_DBI_SIZE     0x0000000000001000ULL   // VERIFIED
+#define EXYNOS_PCIE0_PCS_BASE     0x0000000013EE0000ULL   // VERIFIED (reg "pcs": PHY PCS)
+#define EXYNOS_PCIE0_PCS_SIZE     0x00000000000001FCULL   // VERIFIED
+#define EXYNOS_PCIE0_CFG_BASE     0x0000000014FFE000ULL   // VERIFIED (reg "config": CFG0 iATU window)
+#define EXYNOS_PCIE0_CFG_SIZE     0x0000000000002000ULL   // VERIFIED
+#define EXYNOS_PCIE0_IA_BASE      0x0000000013EC0000ULL   // VERIFIED (reg "ia": I/A microprogram sequencer)
+#define EXYNOS_PCIE0_IA_SIZE      0x0000000000001000ULL   // VERIFIED
+// Outbound MEM iATU: CPU 0x14000000 <-> PCI 0x14000000, 0xFF0000 (DT `ranges`).
+// The EP's BAR0 lands inside this window once programmed.
+#define EXYNOS_PCIE0_MEM_BASE     0x0000000014000000ULL   // VERIFIED (DT ranges)
+#define EXYNOS_PCIE0_MEM_SIZE     0x0000000000FF0000ULL   // VERIFIED
+// Port facts (DT): num-lanes=1, max-link-speed=GEN1, use-msi="false" (INTx only),
+// use-ia="true", use-sysmmu="true" + use-cache-coherency="true" (board override),
+// ip-ver 0x982000. Interrupt: INTREQ__PCIE_WIFI0 = 253 (dt-bindings irq header:267);
+// SPI = INTREQ (calibrated against USB31DRD 241 = VERIFIED DWC3 SPI), so GSIV 285.
+#define EXYNOS_PCIE0_GSIV         285                     // VERIFIED (SPI 253 + 32)
+#define EXYNOS_PCIE0_SYSMMU_BASE  0x0000000013C20000ULL   // VERIFIED (sysmmu_pcie, +0x9000)
+#define EXYNOS_PCIE0_SYSMMU_SIZE  0x0000000000009000ULL   // VERIFIED
+
+//
+// Clocks. The PCIe GEN2 gates are ACPM/HWACG-owned vclks (clk-exynos9820.c
+// fsys1_hwacg_vclks[]) — same trap as USB (notes/d1-usb-host.md) — but the
+// underlying CMU_FSYS1 gate registers are plain MMIO; offsets VERIFIED from
+// cal-if/exynos9820/cmucal-sfr.c SFR() table (notes/m12-wifi-chip.md).
+// Manual-override convention on this SoC: bit 20 = MANUAL, bit 21 = CG_VAL.
+//
+#define EXYNOS_CMU_FSYS1_BASE     0x0000000013C00000ULL   // VERIFIED (SFR_BLOCK CMU_FSYS1)
+#define EXYNOS_CMU_FSYS1_SIZE     0x0000000000008000ULL   // VERIFIED
+#define EXYNOS_FSYS1_GATE_PCIE_PHY_REFCLK 0x2000          // VERIFIED (cmucal-sfr.c:1139)
+#define EXYNOS_FSYS1_GATE_PCIE_DBI_ACLK   0x2030          // VERIFIED (:1141)
+#define EXYNOS_FSYS1_GATE_PCIE_IEEE1500   0x2034          // VERIFIED (:1126)
+#define EXYNOS_FSYS1_GATE_PCIE_MSTR_ACLK  0x2038          // VERIFIED (:1150)
+#define EXYNOS_FSYS1_GATE_PCIE_DRIVER_APB 0x203C          // VERIFIED (:1142)
+#define EXYNOS_FSYS1_GATE_PCIE_PIPE2_APB  0x2040          // VERIFIED (:1143)
+#define EXYNOS_FSYS1_GATE_PCIE_SLV_ACLK   0x2044          // VERIFIED (:1140)
+#define EXYNOS_FSYS1_QCH_PCIE_APB         0x3034          // VERIFIED (:2255)
+#define EXYNOS_FSYS1_QCH_PCIE_DBI         0x3038          // VERIFIED (:2256)
+#define EXYNOS_FSYS1_QCH_PCIE_MSTR        0x303C          // VERIFIED (:2257)
+#define EXYNOS_FSYS1_QCH_PCIE_PCS         0x3040          // VERIFIED (:2258)
+#define EXYNOS_FSYS1_QCH_PCIE_PHY         0x3044          // VERIFIED (:2259)
+// Parent muxes live in CMU_CMU (= EXYNOS_CMU_TOP_BASE 0x1A240000):
+#define EXYNOS_CMU_TOP_MUX_FSYS1_BUS      0x1068          // VERIFIED (cmucal-sfr.c:138)
+#define EXYNOS_CMU_TOP_MUX_FSYS1_PCIE     0x1070          // VERIFIED (cmucal-sfr.c:135)
+// PMU PHY control: pmureg PCIE_PHY_CONTROL = PMU_BASE + 0x71C (ch0), mask 0x1,
+// poweron writes 1 (pcie-exynos-host-v0.h:223 + poweron()). PMU base VERIFIED above.
+#define EXYNOS_PMU_PCIE_PHY_CONTROL       0x071C          // VERIFIED (pcie-exynos-host-v0.h:223)
+
+//
+// WLAN control pins (VERIFIED from exynos9820-pinctrl.dtsi + board dts):
+//   PERST#      gpf2-2, function 1 (out)   — on FSYS1 pinctrl@13C40000 (new block)
+//   CLKREQ#     gpf2-0, function 2         — same block
+//   WLAN_EN     gpg0-5, function 1 (out)   — on PERIC0 pinctrl@10430000 (EXYNOS_PERIC0_GPIO_BASE)
+//   HOST_WAKE   gpa0-7, function 0xF (EINT)— on ALIVE pinctrl@15850000 (EXYNOS_ALIVE_GPIO_BASE)
+//   PCIE_WAKE   gpa3-2, function 0 (in)    — ALIVE
+//
+#define EXYNOS_FSYS1_GPIO_BASE    0x0000000013C40000ULL   // VERIFIED (pinctrl@13C40000 hosts gpf2)
+#define EXYNOS_FSYS1_GPIO_SIZE    0x0000000000001000ULL   // UNVERIFIED (DT reg size not re-read this pass)
+#define EXYNOS_WLAN_PERST_BANK    "gpf2"                  // VERIFIED
+#define EXYNOS_WLAN_PERST_PIN     2                       // VERIFIED (pcie0_perst, function 1)
+#define EXYNOS_WLAN_EN_BANK       "gpg0"                  // VERIFIED
+#define EXYNOS_WLAN_EN_PIN        5                       // VERIFIED (cfg_wlanen, function 1)
+#define EXYNOS_WLAN_HOST_WAKE_BANK "gpa0"                 // VERIFIED
+#define EXYNOS_WLAN_HOST_WAKE_PIN  7                      // VERIFIED (wlan_host_wake, EINT function 0xF)
+
+//
+// The endpoint itself (BCM4375). Chip identity constants from the shipping
+// bcmdhd source; the PCI enumeration ID is the one gap — marked UNVERIFIED
+// until read from live config space (needs-phone: /sys/bus/pci/devices/*/device,
+// or the UEFI driver's own DBI/CFG0 read).
+//
+#define BCM4375_PCI_VENDOR_ID     0x14E4                  // VERIFIED (dhdpcie id table + chipmatch)
+#define BCM4375_EXPECTED_PCI_ID   0x4475                  // UNVERIFIED (BCM4375_D11AX_ID, bcmdevs.h:299; live read closes it)
+#define BCM4375_CHIP_ID           0x4375                  // VERIFIED (bcmdevs.h:520, read from chipcommon over BAR0 window)
+#define BCM4375_FW_RAM_BASE       0x00170000              // VERIFIED (CR4_4369_RAM_BASE, sbchipc.h:3285; dhd_pcie.c:1600-1602 maps 4375 to it)
+
+//
+// ---------------------------------------------------------------------------
 // Touch: the HSI2C bus the panel IC hangs off, and the panel itself.
 //
 // VERIFIED on the live phone: touchscreen@48 is a CHILD of hsi2c@104B0000 —

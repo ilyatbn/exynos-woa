@@ -85,3 +85,7 @@ Shipped = GOP framebuffer + inbox BasicDisplay + WARP (CPU rendering). => speed 
   (CLK_OF_DECLARE "samsung,exynos9820-clock"). The samsung,exynos-acpm-dvfs node's channel (5) is only the MIF
   notification channel (TYPE_BUFFER, ACPM -> AP). Live DT: clock-controller@0x1a240000 acpm-ipc-channel = 0
   (VERIFIED, TWRP). Boot #61: read-only FREQ_GET on channel 0 for MIF/INT/LITTLE/MID/BIG.
+- Run 30 (boot #61): ACPM ch 0 = type 1 queue, q_len 15, elem 16, ap_poll 1; FREQ_GET replies with matching seq
+  but 0 kHz for MIF/INT/LITTLE/MID/BIG (nothing has requested a rate yet - Linux cpufreq goes straight to
+  FREQ_REQ). Boot #62: FREQ_REQ LITTLE (idx 2) = 1 456 000 kHz (exact DT ladder step), behind a progress-0x66
+  self-healing guard (a boot after a hang there skips it), 10 ms settle, then FREQ_GET readback.

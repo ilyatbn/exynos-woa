@@ -119,6 +119,11 @@
                                     // acpm-ipc-channel = 0: cal_if_init(np) -> exynos_acpm_set_device -> the
                                     // channel exynos_acpm_get/set_rate use. acpm_dvfs ch 5 = MIF notify (BUFFER).
 #define ACPM_DVFS_FREQ_GET     1u   // drivers-branch notes/cpu-driver-9820.md F9 (FREQ_REQ 0, FREQ_GET 1)
+#define ACPM_DVFS_FREQ_REQ     0u   // acpm_dvfs.h FREQ_REQ (LineageOS 9820 drivers/soc/samsung/cal-if/acpm_dvfs.h)
+#ifndef BEYOND0LTE_DVFS_SET
+#define BEYOND0LTE_DVFS_SET    1    // m15: 0 = read-only (FREQ_GET only)
+#endif
+#define BEYOND0LTE_DVFS_LITTLE_KHZ  1456000u   // exact LITTLE ladder step (DT domain@0, 9th of 13)
 
 //
 // S2MPS19 addressing through ACPM: speedy channel 0 (s2mps19_core.c:55, stock dtbo acpm-speedy-channel 0),
@@ -733,6 +738,40 @@ OnReadyToBoot (
     STATIC CONST UINT32  Idx[]  = { 0, 1, 2, 3, 4 };
     STATIC CONST CHAR8   *Name[] = { "MIF", "INT", "CPU LITTLE", "CPU MID", "CPU BIG" };
     UINTN                I;
+
+#if BEYOND0LTE_DVFS_SET
+    //
+    // m15 run 30: FREQ_GET answered 0 kHz for every domain - nothing had requested a rate yet (the kernel's
+    // cpufreq goes straight to FREQ_REQ via cal_dfs_set_rate -> exynos_acpm_set_rate, acpm_dvfs.c). Request
+    // ONE exact ladder step for the LITTLE cluster (domain idx 2): 1 456 000 kHz is entry 9 of the shipped DT
+    // ladder (drivers-branch notes/cpu-driver-9820.md F3: 442k..1950k), ~75 % of its 1.95 GHz cap. ACPM owns
+    // PLL + voltage sequencing. MID/BIG/MIF/INT stay untouched until their exact ladders are read (fvmap).
+    //
+    // Self-healing guard (same idea as the SMP parking 0x65): progress 0x66 while the request is in flight; a boot
+    // whose previous boot ended at 0x66 (hung here) skips it. The progress page is the uncached handoff window.
+    if (((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[0] == 0x66u) {
+      DEBUG ((DEBUG_ERROR, "TouchPower: previous boot hung in DVFS FREQ_REQ (progress 0x66) - skipping it\n"));
+    } else {
+      UINT32  Req[4];
+      UINT32  Saved;
+
+      Saved = ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[1];
+      ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[1] = 0x66u;
+      __asm__ __volatile__ ("dsb sy" ::: "memory");
+      Req[0] = 2;
+      Req[1] = BEYOND0LTE_DVFS_LITTLE_KHZ;
+      Req[2] = ACPM_DVFS_FREQ_REQ;
+      Req[3] = 0;
+      if (!EFI_ERROR (AcpmSend (&Ch, Req))) {
+        DEBUG ((DEBUG_ERROR, "TouchPower: DVFS FREQ_REQ LITTLE %u kHz -> reply %08x %08x %08x %08x\n",
+                BEYOND0LTE_DVFS_LITTLE_KHZ, Req[0], Req[1], Req[2], Req[3]));
+      }
+
+      gBS->Stall (10000);   // let the new operating point settle before anything else runs on it
+      ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[1] = Saved;
+      __asm__ __volatile__ ("dsb sy" ::: "memory");
+    }
+#endif
 
     for (I = 0; (I < ARRAY_SIZE (Idx)) && !mIpcBroken; I++) {
       UINT32  Cmd[4];

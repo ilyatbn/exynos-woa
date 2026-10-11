@@ -375,13 +375,34 @@ OnReadyToBoot (
           DumpMemoryToEsp (L"\\WINPRAM-RESTART.BIN", (UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);
           Root = OpenEspRoot ();
         } else if (!EFI_ERROR (Root->Open (Root, &Flag, L"\\WINRUN.FLG", EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE, 0))) {
+          EFI_FILE_PROTOCOL  *Stay;
+          BOOLEAN            Interactive;
+
           Flag->Delete (Flag);
+          //
+          // 2026-10-12 (user): a Windows shut down and later powered on (button or charger) landed in TWRP - a cold
+          // boot loses the 0x80 restart marker, so it looked like a crash. With \S10EDIAG\stay.flg (interactive use)
+          // keep the evidence but continue into Windows; the unattended loop (no stay.flg) keeps going to TWRP.
+          //
+          Interactive = !EFI_ERROR (Root->Open (Root, &Stay, L"\\S10EDIAG\\stay.flg", EFI_FILE_MODE_READ, 0));
+          if (Interactive) {
+            Stay->Close (Stay);
+          }
+
           Root->Close (Root);
-          DEBUG ((DEBUG_ERROR, "BootLog: previous boot ran Windows - saving its PRAM, then recovery\n"));
-          DumpMemoryToEsp (L"\\WINPRAM.BIN", (UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);
-          ZeroMem ((VOID *)(UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);   // one run per dump
-          FlushBootLog ("after-windows");
-          RebootToRecovery ();
+          if (Interactive) {
+            DEBUG ((DEBUG_ERROR, "BootLog: previous boot ran Windows (no restart marker) - interactive (stay.flg): "
+                    "saving its PRAM and continuing\n"));
+            DumpMemoryToEsp (L"\\WINPRAM.BIN", (UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);
+            ZeroMem ((VOID *)(UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);
+            Root = OpenEspRoot ();
+          } else {
+            DEBUG ((DEBUG_ERROR, "BootLog: previous boot ran Windows - saving its PRAM, then recovery\n"));
+            DumpMemoryToEsp (L"\\WINPRAM.BIN", (UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);
+            ZeroMem ((VOID *)(UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);   // one run per dump
+            FlushBootLog ("after-windows");
+            RebootToRecovery ();
+          }
         }
 
         if (Root != NULL) {

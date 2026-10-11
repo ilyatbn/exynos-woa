@@ -112,6 +112,48 @@ QueryDisplayState(HINSTANCE Instance)
     return gDisplayState;
 }
 
+static LRESULT CALLBACK
+BlankProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
+{
+    switch (Message) {
+    case WM_SETCURSOR:
+        SetCursor(NULL);
+        return TRUE;
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        return 0;
+    case WM_CLOSE:
+        Log(L"screen: blank window closed");
+        DestroyWindow(Window);
+        return 0;
+    }
+    return DefWindowProcW(Window, Message, WParam, LParam);
+}
+
+// "Screen off": a topmost, full-virtual-screen black window that eats all input until the next power press closes it.
+static void
+BlankScreen(HINSTANCE Instance)
+{
+    WNDCLASSW Class = { 0 };
+    HWND Window;
+    MSG Message;
+
+    Class.lpfnWndProc = BlankProc;
+    Class.hInstance = Instance;
+    Class.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+    Class.lpszClassName = L"S10eKeysBlank";
+    RegisterClassW(&Class);
+    Window = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, L"S10eKeysBlank", L"", WS_POPUP,
+                             GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN),
+                             GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN),
+                             NULL, NULL, Instance, NULL);
+    ShowWindow(Window, SW_SHOW);
+    SetForegroundWindow(Window);
+    while (GetMessageW(&Message, NULL, 0, 0) > 0) {
+        DispatchMessageW(&Message);
+    }
+}
+
 static void
 Run(const wchar_t *CommandLine)
 {
@@ -243,14 +285,19 @@ wWinMain(HINSTANCE Instance, HINSTANCE Previous, PWSTR CommandLine, int Show)
     ReleaseDC(NULL, Screen);
 
     if (_wcsicmp(CommandLine, L"screen") == 0) {
-        int State = QueryDisplayState(Instance);
+        // Buttons tests 1-2: once Windows powers the display off (SC_MONITORPOWER 2) nothing brings it back on this
+        // phone - not SC_MONITORPOWER -1, ES_DISPLAY_REQUIRED, input, the power menu or touch (BasicDisplay can turn
+        // the panel off but not on). The panel is AMOLED: black pixels are unlit, so "screen off" is a topmost
+        // full-screen black window that swallows touches; the next press closes it. The display itself stays on.
+        HWND Blank = FindWindowW(L"S10eKeysBlank", NULL);
 
-        swprintf_s(Text, 96, L"screen: display state %d -> %s", State, (State == 1) ? L"off" : L"on");
+        swprintf_s(Text, 96, L"screen: blank window %s -> %s", Blank ? L"present" : L"absent", Blank ? L"on" : L"off");
         Log(Text);
-        if (State == 1) {
-            SendMessageTimeoutW(HWND_BROADCAST, WM_SYSCOMMAND, SC_MONITORPOWER, 2, SMTO_ABORTIFHUNG, 500, NULL);
+        if (Blank != NULL) {
+            PostMessageW(Blank, WM_CLOSE, 0, 0);
         } else {
-            WakeDisplay();
+            (void)QueryDisplayState;   // kept for diagnostics; the toggle no longer trusts it
+            BlankScreen(Instance);
         }
     } else if (_wcsicmp(CommandLine, L"powermenu") == 0) {
         Log(L"powermenu: shown");

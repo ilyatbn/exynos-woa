@@ -31,3 +31,11 @@ for now; Bixby = Task Manager; everything configurable (an app later; a config f
   Taskmgr launched with the user's linked (elevated) token (highestAvailable refuses the filtered one - INFERRED
   cause of "Bixby does nothing"); helper logs on start; wake = SetThreadExecutionState(ES_DISPLAY_REQUIRED) + input +
   SC_MONITORPOWER -1.
+- Test 2 (ESP agent.log - the NTFS copies of that boot never reached the disk before the reset): every power tap
+  detected and launched "s10ekeys screen" (down/up 172-219 ms); Bixby short -> taskmgr works (elevated token fix).
+  User: the display never came back, and in test 3 even the long-press power menu did not light it -> once Windows
+  powers the display off (SC_MONITORPOWER 2) nothing turns it on again on this phone (BasicDisplay; matches W37's
+  "screen went blank" fixed by disabling display timeouts).
+- Fix: "screen off" = topmost full-virtual-screen black window (AMOLED: black = unlit), cursor hidden, swallows touch;
+  next power press finds it (FindWindow class S10eKeysBlank) and closes it. SC_MONITORPOWER no longer used for off.
+  Deployed s10ekeys.exe (hash in this commit's session log).

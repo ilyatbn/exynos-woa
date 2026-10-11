@@ -52,6 +52,11 @@ WakeDisplay(void)
 {
     INPUT Input[2];
 
+    // Buttons test 1: SC_MONITORPOWER -1 alone did not bring the panel back. ES_DISPLAY_REQUIRED is the documented
+    // way for a process to make Windows turn the display on (and reset its idle timer); the input nudge and the
+    // broadcast stay as belt and braces.
+    SetThreadExecutionState(ES_DISPLAY_REQUIRED);
+
     ZeroMemory(Input, sizeof(Input));
     Input[0].type = INPUT_MOUSE;
     Input[0].mi.dx = 1;
@@ -230,6 +235,8 @@ wWinMain(HINSTANCE Instance, HINSTANCE Previous, PWSTR CommandLine, int Show)
 
     UNREFERENCED_PARAMETER(Previous);
     UNREFERENCED_PARAMETER(Show);
+    swprintf_s(Text, 96, L"start '%.60s'", CommandLine);
+    Log(Text);
     SetProcessDPIAware();
     Screen = GetDC(NULL);
     gDpi = GetDeviceCaps(Screen, LOGPIXELSX);

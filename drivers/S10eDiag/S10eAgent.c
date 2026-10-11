@@ -230,6 +230,8 @@ Worker(LPVOID Parameter)
 
     UNREFERENCED_PARAMETER(Parameter);
 
+    // Keep the previous boot's log: buttons test 1 lost the evidence when the user rebooted from the power menu.
+    MoveFileExW(LOCAL_LOG, LOCAL_LOG L".prev", MOVEFILE_REPLACE_EXISTING);
     gLog[0] = CreateFileW(LOCAL_LOG, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     LogLine("S10eAgent start");
 
@@ -269,7 +271,13 @@ Worker(LPVOID Parameter)
     CreateDirectoryW(Path, NULL);
     SetEnvironmentVariableW(L"OUT", Path);
     SetEnvironmentVariableW(L"ESP", gEsp);
-    swprintf_s(Path, ARRAYSIZE(Path), L"%s\\S10EDIAG\\out\\agent.log", gEsp);
+    {
+        wchar_t Prev[MAX_PATH];
+
+        swprintf_s(Path, ARRAYSIZE(Path), L"%s\\S10EDIAG\\out\\agent.log", gEsp);
+        swprintf_s(Prev, ARRAYSIZE(Prev), L"%s.prev", Path);
+        MoveFileExW(Path, Prev, MOVEFILE_REPLACE_EXISTING);
+    }
     gLog[1] = CreateFileW(Path, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     LogLine("ESP %ls (attempt %lu)", gEsp, Attempt);
 
@@ -432,9 +440,11 @@ KeysWriteDefaultConfig(void)
     }
 }
 
-// Start CommandLine in the active console session as its user (the agent is LocalSystem in session 0).
+// Start CommandLine in the active console session as its user (the agent is LocalSystem in session 0). Elevated:
+// use the user's linked full token (UAC split token; LocalSystem holds SeTcbPrivilege, so it gets a usable primary
+// token) - Taskmgr is highestAvailable and refuses the filtered token (buttons test 1: Bixby did nothing).
 static void
-KeysRunInSession(const wchar_t *CommandLine)
+KeysRunInSession(const wchar_t *CommandLine, BOOL Elevated)
 {
     HANDLE Token = NULL;
     void *Environment = NULL;
@@ -446,6 +456,17 @@ KeysRunInSession(const wchar_t *CommandLine)
     if ((Session == 0xFFFFFFFF) || !WTSQueryUserToken(Session, &Token)) {
         LogLine("keys: no console user (session %lu, error %lu) for '%ls'", Session, GetLastError(), CommandLine);
         return;
+    }
+    if (Elevated) {
+        TOKEN_LINKED_TOKEN Linked = { NULL };
+        DWORD Size = 0;
+
+        if (GetTokenInformation(Token, TokenLinkedToken, &Linked, sizeof(Linked), &Size) && (Linked.LinkedToken != NULL)) {
+            CloseHandle(Token);
+            Token = Linked.LinkedToken;
+        } else {
+            LogLine("keys: no linked token (%lu), running '%ls' unelevated", GetLastError(), CommandLine);
+        }
     }
     CreateEnvironmentBlock(&Environment, Token, FALSE);
     wcscpy_s(Buffer, ARRAYSIZE(Buffer), CommandLine);
@@ -477,9 +498,9 @@ KeysAction(const KEY *Key, BOOL Long)
         wchar_t Command[96];
 
         swprintf_s(Command, ARRAYSIZE(Command), L"C:\\Windows\\System32\\s10ekeys.exe %s", Action);
-        KeysRunInSession(Command);
+        KeysRunInSession(Command, FALSE);
     } else if (_wcsicmp(Action, L"taskmgr") == 0) {
-        KeysRunInSession(L"C:\\Windows\\System32\\Taskmgr.exe");
+        KeysRunInSession(L"C:\\Windows\\System32\\Taskmgr.exe", TRUE);
     } else if (_wcsicmp(Action, L"reboot") == 0) {
         RunAndWait(L"C:\\Windows\\System32\\shutdown.exe /r /t 0", 10000, INVALID_HANDLE_VALUE);
     } else if (_wcsicmp(Action, L"shutdown") == 0) {
@@ -487,7 +508,7 @@ KeysAction(const KEY *Key, BOOL Long)
     } else if (_wcsicmp(Action, L"recovery") == 0) {
         RunAndWait(L"C:\\Windows\\System32\\s10ediag.exe flushreset", 60000, INVALID_HANDLE_VALUE);
     } else if (_wcsnicmp(Action, L"run:", 4) == 0) {
-        KeysRunInSession(Action + 4);
+        KeysRunInSession(Action + 4, FALSE);
     }
 }
 
@@ -531,6 +552,11 @@ KeysThread(LPVOID Parameter)
 
             if ((Raw == Key->Raw) && (Raw != Key->Down)) {   // two equal samples in a row = debounced edge
                 Key->Down = Raw;
+                if (Raw) {
+                    LogLine("keys: %ls down", Key->Name);
+                } else {
+                    LogLine("keys: %ls up after %llu ms", Key->Name, Now - Key->Since);
+                }
                 if (Raw) {
                     Key->Since = Now;
                     Key->LongFired = 0;

@@ -24,3 +24,10 @@ for now; Bixby = Task Manager; everything configurable (an app later; a config f
 - Deployed (TWRP): boot #87 (4e6dec2e…) + S10eAgent.exe (a16fc8d9…) + s10ekeys.exe (d1a1e80a…) into System32 = build hashes; stale req files cleared. Button test pending.
 - Test 1 (user, boot #87): power short #1 turned the screen OFF; short #2 did NOT turn it back on; power long =
   power menu works; Bixby does nothing. (Hub: unchanged - only when attached before boot -> parked.)
+- Test 1 logs: agent idle DAT gpa0 0x5E / gpa2 0x14 -> all four key bits high when released (polarity + pins
+  confirmed). s10ekeys.log: "screen: display state 1 -> off" then no second screen line -> the 2nd press never
+  reached the helper (agent log of that boot overwritten by the user's reboots, so unknown whether detected).
+- Fix (deployed same session): agent keeps agent.log.prev (local + ESP); logs every key down/up with hold time;
+  Taskmgr launched with the user's linked (elevated) token (highestAvailable refuses the filtered one - INFERRED
+  cause of "Bixby does nothing"); helper logs on start; wake = SetThreadExecutionState(ES_DISPLAY_REQUIRED) + input +
+  SC_MONITORPOWER -1.

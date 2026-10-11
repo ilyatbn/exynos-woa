@@ -100,7 +100,7 @@ ACPI/Windows half remains.
 | Task | State | Notes |
 |------|-------|-------|
 | Research: identify chip + bus + controller map + bring-up + clocks + firmware + prior art | **done** | `notes/m12-wifi-chip.md` W1-W8: BCM4375 on `pcie_0@13ED0000` (ELBI/PHY/PCS/DBI/IA/config/MEM windows VERIFIED from vendor DT), GSIV 285, Gen1 x1 INTx, RAM base 0x170000, full power-on/link-up sequence from `pcie-exynos-host-v0.c`, CMU_FSYS1 gate offsets from cal-if, no linux-firmware blob (device blobs only), no Windows driver on any arch |
-| Constants: PCIe0 windows, GSIV, CMU_FSYS1 gates, PMU PHY control, WLAN GPIOs into `Exynos9820.h` | **doing** | see task below |
+| Constants: PCIe0 windows, GSIV, CMU_FSYS1 gates, PMU PHY control, WLAN GPIOs into `Exynos9820.h` | todo | every value from `notes/m12-wifi-chip.md`; the PCI device ID stays `UNVERIFIED` until read live |
 | Design doc: two-halves architecture + risk ladder | todo | |
 | Firmware half: `Beyond0LtePcieDxe` — power-on + link-up + ECAM publish + PCI enumeration in UEFI | todo | the D1 pattern; verifiable at boot (print VID/DID) |
 | Windows half: `drivers/Exynos9820Wlan/` NDIS miniport skeleton — PCI bind, BAR0 backplane window, chip identity, firmware download, common ring | todo | port of bcmdhd/brcmfmac PCIe protocol; license posture recorded in design doc |

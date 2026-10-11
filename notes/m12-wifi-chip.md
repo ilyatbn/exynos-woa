@@ -77,7 +77,7 @@ From `LineageOS/android_kernel_samsung_exynos9820` @ `lineage-23.2`,
 - Outbound MEM iATU range (DT `ranges`): CPU `0x14000000` ↔ PCI `0x14000000`, size `0xFF0000`.
 - `interrupts = <0 INTREQ__PCIE_WIFI0 0>`; `INTREQ__PCIE_WIFI0 = 253`
   (`include/dt-bindings/interrupt-controller/exynos9820.h:267`). Calibration: `INTREQ__USB31DRD_GIC_0 = 241`
-  (line 255) equals the repo's VERIFIED DWC3 SPI 241 (`Exynos9820.h:522`), so **SPI = INTREQ** and
+  (line 255) equals the repo's VERIFIED DWC3 SPI 241 (`Exynos9820.h:403`), so **SPI = INTREQ** and
   **GSIV = INTREQ + 32 = 285** for PCIe0. interrupt-map type `0x4` = level-high.
 - `num-lanes = <1>`, `max-link-speed = LINK_SPEED_GEN1` (Gen1 x1), `ip-ver = 0x982000`,
   `use-sysmmu`/`use-cache-coherency` flipped true by the board dts, `use-msi = "false"` (INTx only),
@@ -131,7 +131,9 @@ From `LineageOS/android_kernel_samsung_exynos9820` @ `lineage-23.2`,
    (`dhd_pcie_linux.c:196` id table: **vendor 0x14e4, device ANY, class NETWORK_OTHER**).
 4. EP enable pattern (sysfs case 9, line ~935): write `PCI_COMMAND = 0x146` and
    `PCI_BASE_ADDRESS_0 = pp->mem_base` (0x14000000) through the CFG0 window, then `ioremap(0x14000000)`
-   and access the EP's BAR0 memory directly. (0x146 bit decode: MSE|BME|SERR# — verify at implementation.)
+   and access the EP's BAR0 memory directly. (0x146 decodes to MSE|Parity-Response|**INTx-Disable** —
+   the test path masks INTx and never sets BusMaster; the real driver must set MSE|BME and wire INTx
+   itself. Review correction: an earlier draft of this note mis-decoded 0x146 as MSE|BME|SERR.)
 
 ### 2026-10-11 — W1/W3: chip = BCM4375 (802.11ax), PCI enumeration identity (fact + one UNVERIFIED)
 
@@ -143,7 +145,7 @@ From `LineageOS/android_kernel_samsung_exynos9820` @ `lineage-23.2`,
   (`dhd_pcie.c:9167`). **Expected PCI identity: `14e4:4475`** — UNVERIFIED until read from the live
   PCI config space (needs-phone: `/sys/bus/pci/devices/*/device`, or our own DBI/config read).
 - MSI: `dhdpcie_chip_support_msi()` returns FALSE for 4375 → **INTx only**, matching DT `use-msi="false"`.
-- 4375 firmware RAM base: `CR4_4369_RAM_BASE = 0x170000` (`bcmdhd/include/sbchipc.h:3284`; 4375 shares
+- 4375 firmware RAM base: `CR4_4369_RAM_BASE = 0x170000` (`bcmdhd/include/sbchipc.h:3285`; 4375 shares
   the 4369 value per `dhd_pcie.c:1600-1602`). Mainline brcmfmac agrees for the 43751/43752/4377 family
   (rambase 0x170000, `chip.c:741-743`).
 
@@ -247,6 +249,23 @@ From `LineageOS/android_kernel_samsung_exynos9820` @ `lineage-23.2`,
 - https://www.catalog.update.microsoft.com/Search.aspx?q=Broadcom%20802.11%20network%20adapter (+ ScopedViewInline detail pages)
 - https://github.com/sonic011gamer/edk2-exynos (trees API scan: zero PCIe/WLAN code)
 
+## Review of commit aaff4b6 (harsh-critic pass, 2026-10-11)
+
+Checked mechanically against the fetched sources: every cited line number
+(irqs9820.h:255/267, exynos9820.dts:4380, board dtsi:2315/718, dhd_pcie.c:9167,
+dhd_pcie_linux.c:196, brcmf chip.c:741-743, brcm_hw_ids.h:98, cmucal-sfr.c:11,
+clk9820.h:206/214-219, ELBI offsets 0x02C/0x074/0x1D0/0x2C8/0x274/0x2BC/0x2C0/0xF4/0x1B8/0x018)
+and the value of every "VERIFIED" constant. Found and fixed (this commit):
+1. `CR4_4369_RAM_BASE` is at sbchipc.h line **3285**, not 3284 (3284 is CR4_4362 — same value, wrong line).
+2. `PCI_COMMAND = 0x146` mis-decoded in the draft as MSE|BME|SERR#; correct decode is
+   MSE|Parity|**INTx-Disable** — material, because it means the kernel's test path deliberately
+   masks INTx and never sets Bus Master; our driver must do both itself.
+3. Calibration anchor is `Exynos9820.h:403` (USBDRD GSIV 273), not :522.
+Confirmed correct: SPI=INTREQ mapping (241 anchor), GSIV 285, all seven pcie_0 windows,
+MEM range 0x14000000/0xFF0000, Gen1 x1, INTx-only (use-msi=false + chip_support_msi FALSE for 4375),
+WLAN_EN gpg0-5 / HOST_WAKE gpa0-7 / PERST gpf2-2, CMU_FSYS1 gate/QCH offsets, PMU 0x71C PHY control,
+"9820 skips the PMU wakeup-mask step" guard, I/A microprogram register list.
+
 ## Dead ends (do not repeat)
 
 - linux-firmware: no 4375 PCIe firmware at all (WHENCE scan).
@@ -254,7 +273,7 @@ From `LineageOS/android_kernel_samsung_exynos9820` @ `lineage-23.2`,
 - git.kernel.org cgit: Anubis bot-wall, unusable from scripts.
 - grep.app code search: Vercel challenge wall.
 - GitHub code search API: requires auth (401).
-- CR4_4369_RAM_BASE hunt: not in siutils.h/sbhndarm.h/bcmpcie.h — it is in **include/sbchipc.h:3284**.
+- CR4_4369_RAM_BASE hunt: not in siutils.h/sbhndarm.h/bcmpcie.h — it is in **include/sbchipc.h:3285**.
 - edk2-exynos: no PCIe host code exists (zero hits in full tree) — no UEFI prior art for this controller.
 - Windows: no Broadcom WLAN driver for ARM64 on WU (catalog sample), none for 4375 on any arch, no
   open-source NDIS port.

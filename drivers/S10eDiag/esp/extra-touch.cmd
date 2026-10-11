@@ -38,6 +38,8 @@ s10ediag mark t: enum
 pnputil /enum-devices /deviceid "ACPI\SAMS9820" /properties > "%T%\dev-hsi2c.txt" 2>&1
 pnputil /enum-devices /deviceid "ACPI\SCSY0761" /properties > "%T%\dev-touch.txt" 2>&1
 pnputil /enum-devices /class HIDClass > "%T%\dev-hid.txt" 2>&1
+reg query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SCSY0761\0\Device Parameters" > "%T%\touch-params.txt" 2>&1
+reg query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SAMS9820\a\Device Parameters" > "%T%\hsi2c-params.txt" 2>&1
 sc query Exynos9820Hsi2c > "%T%\sc.txt" 2>&1
 sc query S6SY761TouchBeyond0 >> "%T%\sc.txt" 2>&1
 sc query mshidkmdf >> "%T%\sc.txt" 2>&1

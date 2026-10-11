@@ -36,11 +36,20 @@ Environment:
 #define RESHUB_USE_HELPER_ROUTINES
 #include "reshub.h"
 
-#define STAR2_ALIVE_GPIO_PHYSICAL_ADDRESS  0x14050000ULL
+//
+// M12 (notes/m12-touch.md): 9820 values. The names keep the 9810 STAR2_ prefix so the code is unchanged.
+// ALIVE pinctrl = pinctrl@15850000 (Exynos9820.h EXYNOS_ALIVE_GPIO_BASE; run 7 failed start with
+// 0xC0000182 because the driver matched the 9810's 0x14050000 against the DSDT's 0x15850000).
+// Bank/EINT offsets: Samsung exynos9820 kernel pinctrl-exynos-arm64.c exynos9820_pin_banks0:
+// EXYNOS9_PIN_BANK_EINTW(alive, 8, 0x020, "gpa1", 0x04, 0x08), bank type alive = CON +0, DAT +4, PUD +8;
+// live DT wakeup-interrupt-controller = samsung,exynos7-wakeup-eint => ECON 0x700, FLTCON 0x800 (+fltcon
+// offset), EMASK 0x900, EPEND 0xA00 (+eint offset). The 9810's EINT words were the same; only the bank moved.
+//
+#define STAR2_ALIVE_GPIO_PHYSICAL_ADDRESS  0x15850000ULL   // VERIFIED (pinctrl@15850000)
 #define STAR2_ALIVE_GPIO_LENGTH            0x00001000UL
 
-#define STAR2_GPA1_CON                     0x040UL
-#define STAR2_GPA1_PUD                     0x048UL
+#define STAR2_GPA1_CON                     0x020UL         // VERIFIED (gpa1 bank 0x020 + CON 0x0)
+#define STAR2_GPA1_PUD                     0x028UL         // VERIFIED (gpa1 bank 0x020 + PUD 0x8)
 #define STAR2_EINT_CON                     0x704UL
 #define STAR2_EINT_FILTER                  0x808UL
 #define STAR2_EINT_MASK                    0x904UL

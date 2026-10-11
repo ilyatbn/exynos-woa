@@ -51,3 +51,13 @@ USI mode slots (samsung,exynos-usi, each reg = 4 bytes in sysreg 0x10421000): 'i
   'C:\Windows\TEMP\{guid}'. Error = 0x570" - C:\Windows\TEMP's index is corrupt (Ntfs 55 after the forced
   resets/ntfsfix). Package files on the ESP hash-match the PC. mshidkmdf and SpbCx services exist (stopped).
   Run 7: TMP/TEMP = C:\S10eTmp for xcopy + pnputil, hashes logged, setupapi.dev.log saved, chkdsk C: /spotfix.
+- Run 7 (11:32, back in 421 s): pnputil from C:\S10eTmp WORKED. Exynos9820Hsi2c = oem2.inf, ACPI\SAMS9820\a
+  STARTED; after: USI03 mode 0x1042101C = 0x4 (I2C), gpp1 CON 0x10430020 = 0x00220000 (SCL/SDA func 2), HSI2C
+  CTL = 0x8. S6SY761TouchBeyond0 = oem3.inf on ACPI\SCSY0761\0: code 10, 0xC0000182 STATUS_DEVICE_CONFIGURATION_
+  ERROR - Device.h kept the 9810 ALIVE base 0x14050000 (DSDT gives 0x15850000, no match -> config error) and the
+  9810 gpa1 bank offsets. chkdsk C: /spotfix scheduled for the next boot.
+  Fix (verified): 9820 kernel pinctrl-exynos-arm64.c exynos9820_pin_banks0 gpa1 = EINTW(alive, 8, 0x020, eint 0x04,
+  fltcon 0x08), bank type alive CON+0/DAT+4/PUD+8; live DT pinctrl@15850000/wakeup-interrupt-controller =
+  samsung,exynos7-wakeup-eint (ECON 0x700, FLTCON 0x800, EMASK 0x900, EPEND 0xA00). => base 0x15850000,
+  GPA1_CON 0x020, GPA1_PUD 0x028; EINT 0x704/0x808/0x904/0xA04 unchanged. INF DriverVer -> 6.0.5058.4 so pnputil
+  replaces oem3. Live DT also has key-power / key-volup / key-voldown under pinctrl@15850000 (power button later).

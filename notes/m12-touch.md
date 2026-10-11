@@ -97,3 +97,15 @@ USI mode slots (samsung,exynos-usi, each reg = 4 bytes in sysreg 0x10421000): 'i
 - If the user reports hold does nothing: check the "Press and hold" setting (legacy Pen and Touch control
   panel, per-user Wisp\Touch registry), and whether the driver keeps reporting the contact as down
   while it is held still (hold detection needs the contact to stay down, not a stream of moves).
+
+### 2026-10-11 — user: "right click doesnt work" → s10etouchlog.exe
+- Suspect from reading Device.c: reports are queued only on controller events (TouchQueueCurrentReportLocked
+  from the ISR path). If the S6SY761 sends nothing while a finger is still, Windows sees DOWN … long silence …
+  UP. Whether that defeats press-and-hold is exactly what the log measures.
+- Tool: `drivers/S10eDiag/S10eTouchLog.c` (desktop icon "Touch log", 40 s full-screen window) logs raw
+  HID 0x54 reports (gap, scan time, contacts), WM_POINTER*, the synthesized mouse messages
+  (WM_RBUTTONDOWN/UP, WM_CONTEXTMENU = the press-and-hold right-click), per-contact hold duration +
+  longest report gap, SM_DIGITIZER/SM_MAXIMUMTOUCHES, HKCU Wisp\Touch values. Output
+  `C:\S10eTmp\req\touchlog.txt`, copied to the collection dir by collect.cmd.
+- Layout check: inputReport54_t = id[0], points[1..60], scan[61..62], count[63] (Device.h C_ASSERT 64).
+- Build: `build.bat C:\Users\ilya\code\s10e-artifacts\s10ediag-m16` → S10EDIAG_BUILD_OK (W4/WX clean).

@@ -50,6 +50,7 @@ if exist %ESP%\S10EDIAG\full.flg (
   wevtutil epl Microsoft-Windows-Diagnostics-Performance/Operational "%L%\DiagPerf.evtx"
 )
 
+if exist C:\S10eTmp\req\touchlog.txt copy /y C:\S10eTmp\req\touchlog.txt "%L%\touchlog.txt" > nul
 if exist %ESP%\S10EDIAG\extra.cmd (
   echo --- extra
   s10ediag mark c: extra.cmd

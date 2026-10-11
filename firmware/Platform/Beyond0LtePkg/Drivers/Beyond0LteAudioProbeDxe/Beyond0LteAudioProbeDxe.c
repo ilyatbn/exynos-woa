@@ -15,9 +15,9 @@
   configured behind Windows' back was once suspected of bugcheck 0x14C (M16 run 5).
 
   Reset lines: the chips only answer out of reset. The probe first reads with the reset line as found;
-  only if that fails AND the line is driven low does it release the reset (pin = output high, the
-  vendor drivers' own sequence and delays), read again, and finally restore the pin, which puts the
-  chip back in reset as sboot left it. Gated by BEYOND0LTE_AUDIO_PROBE_RELEASE_RESETS.
+  only if that fails AND the line is not an output driven high does it release the reset (pin =
+  output high, the vendor drivers' own sequence and delays), read again, and finally restore the pin,
+  which puts the chip back in reset as sboot left it. Gated by BEYOND0LTE_AUDIO_PROBE_RELEASE_RESETS.
 
   What is NOT touched: PMIC rails (the codec's DCVDD is LDO18M, not boot-on in the vendor DT - if
   sboot left it off the codec cannot answer, and the log says so), CMU (clocks are read for the log,
@@ -94,12 +94,23 @@ PinDriveHigh (IN UINTN Gpio, IN UINT32 Bank, IN UINT32 Pin)
   PinSetFunc (Gpio, Bank, Pin, EXYNOS_GPIO_FUNC_OUTPUT);
 }
 
-// TRUE when the pin is an output driven low (= the chip is held in reset).
+// Reset pin into reset: DAT low first, then CON = output (the kernel's GPIOD_OUT_LOW request).
+STATIC
+VOID
+PinDriveLow (IN UINTN Gpio, IN UINT32 Bank, IN UINT32 Pin)
+{
+  MmioAnd32 (Gpio + Bank + EXYNOS_GPIO_BANK_DAT, ~(1u << Pin));
+  PinSetFunc (Gpio, Bank, Pin, EXYNOS_GPIO_FUNC_OUTPUT);
+}
+
+// TRUE unless the pin is an output driven high - the only state in which an active-low RESET is
+// released. Boot #88: the amp resets were fn 0 (input) lvl 0 at handoff, and the old rule
+// ("output AND low") never fired for them (notes/d8-audio-m1.md §5.1).
 STATIC
 BOOLEAN
-PinHeldLow (IN UINTN Gpio, IN UINT32 Bank, IN UINT32 Pin)
+PinNotDrivenHigh (IN UINTN Gpio, IN UINT32 Bank, IN UINT32 Pin)
 {
-  return (PinFunc (Gpio, Bank, Pin) == EXYNOS_GPIO_FUNC_OUTPUT) && (PinLevel (Gpio, Bank, Pin) == 0);
+  return (PinFunc (Gpio, Bank, Pin) != EXYNOS_GPIO_FUNC_OUTPUT) || (PinLevel (Gpio, Bank, Pin) == 0);
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -328,6 +339,7 @@ AmpProbe (VOID)
   UINT32   Gate;
   UINT32   Gph1Con;
   UINT32   Gph1Dat;
+  UINT32   Gph1Pud;
   UINTN    Index;
   BOOLEAN  Ok[2];
   BOOLEAN  Released;
@@ -345,6 +357,9 @@ AmpProbe (VOID)
 
   Gph1Con = MmioRead32 (GPIO1 + EXYNOS_GPIO_GPH1_OFF);
   Gph1Dat = MmioRead32 (GPIO1 + EXYNOS_GPIO_GPH1_OFF + EXYNOS_GPIO_BANK_DAT);
+  Gph1Pud = MmioRead32 (GPIO1 + EXYNOS_GPIO_GPH1_OFF + EXYNOS_GPIO_BANK_PUD);
+  DEBUG ((DEBUG_WARN, "AudioProbe: gph1 PUD %x at handoff (4 bits/pin; reset R %x L %x, 0 = no pull) - read only\n",
+          Gph1Pud, (Gph1Pud >> (EXYNOS_AMP_R_RESET_PIN * 4)) & 0xF, (Gph1Pud >> (EXYNOS_AMP_L_RESET_PIN * 4)) & 0xF));
   mGph0SavedCon   = MmioRead32 (GPIO1 + EXYNOS_GPIO_GPH0_OFF);
   mI2cSavedUsiCon = MmioRead32 (I2C + HSI2C_USI_CON);
   DEBUG ((DEBUG_WARN, "AudioProbe: amp bus at handoff: usi_17_i2c mode %x (never written), gph0 CON %x, gph1 CON %x DAT %x"
@@ -368,17 +383,28 @@ AmpProbe (VOID)
   }
 
   if ((!Ok[0] || !Ok[1]) && BEYOND0LTE_AUDIO_PROBE_RELEASE_RESETS) {
+    // cs35l41-core.c:72-92: gpiod_get(GPIOD_OUT_LOW) = output low (reset asserted), 1 ms, set 1, 2 ms.
     for (Index = 0; Index < ARRAY_SIZE (Amps); Index++) {
-      if (!Ok[Index] && PinHeldLow (GPIO1, EXYNOS_GPIO_GPH1_OFF, Amps[Index].ResetPin)) {
-        DEBUG ((DEBUG_WARN, "AudioProbe: amp %a held in reset (gph1-%u low) - releasing it for the ID read\n",
-                Amps[Index].Name, Amps[Index].ResetPin));
-        PinDriveHigh (GPIO1, EXYNOS_GPIO_GPH1_OFF, Amps[Index].ResetPin);
+      if (!Ok[Index] && PinNotDrivenHigh (GPIO1, EXYNOS_GPIO_GPH1_OFF, Amps[Index].ResetPin)) {
+        DEBUG ((DEBUG_WARN, "AudioProbe: amp %a in reset (gph1-%u fn %x lvl %u) - output low, 1 ms, high for the ID read\n",
+                Amps[Index].Name, Amps[Index].ResetPin, PinFunc (GPIO1, EXYNOS_GPIO_GPH1_OFF, Amps[Index].ResetPin),
+                PinLevel (GPIO1, EXYNOS_GPIO_GPH1_OFF, Amps[Index].ResetPin)));
+        PinDriveLow (GPIO1, EXYNOS_GPIO_GPH1_OFF, Amps[Index].ResetPin);
         Released = TRUE;
       }
     }
 
     if (Released) {
-      gBS->Stall (3000);   // cs35l41-core.c:88-92: 1 ms before, 2 ms after the release
+      gBS->Stall (1000);   // cs35l41-core.c:88 usleep_range(1000, 1100) with the reset asserted
+      for (Index = 0; Index < ARRAY_SIZE (Amps); Index++) {
+        if (!Ok[Index]) {
+          PinDriveHigh (GPIO1, EXYNOS_GPIO_GPH1_OFF, Amps[Index].ResetPin);
+        }
+      }
+
+      DEBUG ((DEBUG_WARN, "AudioProbe: amp resets released: gph1 CON %x DAT %x\n", MmioRead32 (GPIO1 + EXYNOS_GPIO_GPH1_OFF),
+              MmioRead32 (GPIO1 + EXYNOS_GPIO_GPH1_OFF + EXYNOS_GPIO_BANK_DAT)));
+      gBS->Stall (3000);   // cs35l41-core.c:92 usleep_range(2000, 2100) after the release, + 1 ms margin
       for (Index = 0; Index < ARRAY_SIZE (Amps); Index++) {
         if (!Ok[Index]) {
           Ok[Index] = AmpIdentify (Amps[Index].Addr, Amps[Index].Name);
@@ -625,9 +651,9 @@ CodecProbe (VOID)
   Released = FALSE;
   Ok       = CodecIdentify ();
   if (!Ok && BEYOND0LTE_AUDIO_PROBE_RELEASE_RESETS &&
-      PinHeldLow (GPIO0, EXYNOS_GPIO_GPG1_OFF, EXYNOS_CODEC_RESET_PIN))
+      PinNotDrivenHigh (GPIO0, EXYNOS_GPIO_GPG1_OFF, EXYNOS_CODEC_RESET_PIN))
   {
-    DEBUG ((DEBUG_WARN, "AudioProbe: codec held in reset (gpg1-0 low) - releasing it for the ID read\n"));
+    DEBUG ((DEBUG_WARN, "AudioProbe: codec in reset (gpg1-0 not driven high) - releasing it for the ID read\n"));
     PinDriveHigh (GPIO0, EXYNOS_GPIO_GPG1_OFF, EXYNOS_CODEC_RESET_PIN);
     Released = TRUE;
     gBS->Stall (2000);   // madera_disable_hard_reset: usleep_range(1000, 2000) after the release

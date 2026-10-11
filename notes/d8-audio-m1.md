@@ -462,3 +462,12 @@ amps NACK). Rules as §0 (no adb, no flash; the main session runs the device tes
 - State left behind for Windows: **LDO18M stays ON** (codec DCVDD 1.2 V; the codec itself is held in
   reset, which is the madera probe's own pre-release state - no current path beyond reset leakage).
   Every pin/bus register is restored. Nothing else stays on.
+- Build env this session: private copy of build-uefi.ps1 (scratchpad `build-private.ps1`): tools +
+  edk2 packages from main's firmware/edk2 (read only), PACKAGES_PATH 2nd entry = this worktree's
+  firmware, WORKSPACE = `C:\Users\ilya\code\w8b` (Conf copied from w8a; w8b so a concurrent w8a user
+  is not clobbered). Run via Start-Process with redirected streams.
+- Task "amp reset rule" (AudioProbeDxe): `PinHeldLow` -> `PinNotDrivenHigh` (release unless the pin is
+  already output-high), amps get the vendor sequence (PinDriveLow, 1 ms, PinDriveHigh, 3 ms), new log
+  lines "gph1 PUD", "amp ... in reset (gph1-N fn F lvl L) - output low, 1 ms, high", "amp resets
+  released: gph1 CON DAT". Codec call site uses the same rule (behaviour unchanged for boot #88, where
+  gpg1-0 was output-low). Build exit 0 (FVMAIN_COMPACT 99%, 544 B free).

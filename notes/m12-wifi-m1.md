@@ -216,3 +216,12 @@ sha256 4b8abc3f...0d815), `Exynos9820Wlan\` (sys/inf/cat), `wdktestcert.cer`, `e
 5. Regression checks on the same boot: touch still works, USB/XHC0 state as before, boot time
    (+~0.1-1.3 s for WLAN), no new bugcheck. If the link fails, Windows must simply not show SAMS9825.
 6. To disable without a rebuild of anything else: `BEYOND0LTE_PCIE_WLAN 0` in Beyond0LtePcieDxe.c.
+
+## Review of commit 0691e3c (5/5) and final state
+
+- Docs only. Checked: every log line quoted in the procedure exists verbatim in Beyond0LtePcieDxe.c /
+  PcieLink.c (grep "[PCIe]"); %r prints "Success" for EFI_SUCCESS; ESP = by-name/cache vfat, Windows =
+  by-name/userdata NTFS (firmware/tools/s10e-cycle.sh); unverified statements in the blob section are
+  marked inference/UNVERIFIED. Firmware at HEAD = the tree that was built (no firmware file changed after
+  the build; commits 1/5 and 2/5 were not built individually - only the combined state).
+- Not done here (by instruction): no adb, no pack, no flash, no push.

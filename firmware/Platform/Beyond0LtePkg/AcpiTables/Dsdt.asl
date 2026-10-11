@@ -356,5 +356,25 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
                 Return (Zero)
             }
         }
+
+        // Battery (notes/battery-driver-m1.md): the MAX77705 fuel gauge (7-bit 0x36) and charger (0x69) sit on
+        // HSI2C45, the CMGP USI03 block. drivers/S10eBattery (KMDF battc miniclass) binds this ID and owns the
+        // bus itself, polled, exactly as Beyond0LteUsbHostDxe/Pmic.c does in UEFI: so the three windows below
+        // are the I2C block, the CMGP sysreg page holding the USI_CMGP3 mode register (+0x30) and the CMGP pin
+        // controller page holding gpm12/gpm13 CON (+0x180/+0x1A0). No interrupt (polled), no CMU (ACPM-owned
+        // clocks, left running). The driver refuses to start unless these equal the Exynos9820.h values.
+        // Windows takes the AC state from the battery's BATTERY_POWER_ON_LINE flag: no ACPI0003 device.
+        Device (BAT0)
+        {
+            Name (_HID, "SAMS9826")  // project-local ID (SAMS9820 I2C, SAMS9821 UFN0, SAMS9825 WLAN are taken)
+            Name (_UID, Zero)
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, 0x15D60000, 0x00001000)  // EXYNOS_PMIC_HSI2C_BASE / _SIZE (hsi2c_45)
+                Memory32Fixed (ReadWrite, 0x15C22000, 0x00001000)  // EXYNOS_CMGP_SYSREG_USI_PAGE / _SIZE
+                Memory32Fixed (ReadWrite, 0x15C30000, 0x00001000)  // EXYNOS_CMGP_GPIO_BASE / _SIZE
+            })
+            Method (_STA, 0, NotSerialized) { Return (0x0F) }
+        }
     }
 }

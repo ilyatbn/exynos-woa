@@ -349,3 +349,9 @@ stage end to end - the same pieces the Windows driver needs.
 6. Windows: AUD0 DSDT + portcls skeleton with a loopback-only WaveRT pin
    (no hardware) to prove endpoint creation on ARM64.
 7. Windows: real RDMA -> UAIF0 -> AIF1 streaming (after 5).
+
+- Review fefa7c2 (notes): checked the "%x prints upper-case" claim
+  against a real UEFILOG (notes/uefilog-boot33.txt shows `5B1B31A1`,
+  `0xBA27EF78`) - correct. FOUND: DRIVERS-MILESTONES pointed the device
+  test at §4 (it is §3), and the M2-groundwork row was not moved in the
+  same commit - both fixed in the follow-up commit.

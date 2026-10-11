@@ -220,9 +220,26 @@ UsbHostBringUp (
               __func__, Status));
     }
   } else {
+    UINT8  BcStatus;
+
     DEBUG ((DEBUG_WARN, "%a: no CC source attach within %d ms (CC_STATUS0 = %x) — "
             "plug the hub before power-on for ConIn\n",
             __func__, CC_ATTACH_TIMEOUT_MS, CcStatus));
+
+    // M16 run 10: with a hub plugged in, CC_STATUS0 = 0x48 - CCStat 0 (the CCIC never resolves the attach after
+    // Linux's shutdown reset; proper CCIC init is being researched, notes/m16-ccic-init.md) but CCPinStat = CC1,
+    // i.e. a termination IS on a CC pin. If nothing is feeding us VBUS (BC_STATUS.VBUSDet = 0) the partner is a
+    // sink (hub/dock) waiting for power - a PC or charger always drives VBUS - so the boost is safe to enable.
+    BcStatus = 0xFF;
+    (VOID)Max77705RegRead (MAX77705_CCIC_ADDR, MAX77705_BC_STATUS, &BcStatus);
+    if (((CcStatus & 0xC0) != 0) && ((BcStatus & BIT7) == 0)) {
+      Status = Max77705VbusOn ();
+      VbusOn = !EFI_ERROR (Status);
+      DEBUG ((DEBUG_WARN, "%a: CC pin termination without VBUS in (CC_STATUS0 %x BC_STATUS %x) - fallback VBUS boost %r\n",
+              __func__, CcStatus, BcStatus, Status));
+    } else {
+      DEBUG ((DEBUG_INFO, "%a: no fallback boost (CC_STATUS0 %x BC_STATUS %x)\n", __func__, CcStatus, BcStatus));
+    }
   }
 
   // 5. Publish the controller. DmaTypeNonCoherent: the vendor DT marks UFS

@@ -355,3 +355,12 @@ Found:
   keeps [0]; one diagnostic 1-byte FW_REV read logged. boot #80 (sha f494905f…).
 - TWRP dock capture: logger (/tmp) ran, but after the dock Linux stayed in host mode, adb never came back and
   /tmp is RAM - lost on reboot. Logger now writes /cache/docklog.txt (ESP) with sync each sample.
+- Run 10 (boot #80, dock at power-on; first attempt bounced to TWRP, second reached Windows): dock still dark.
+  UEFILOG: 1-byte reads now right (PMIC id 15, USBC fw 1A, CHG FF, FG 80; diagnostic 1-byte FW_REV = 1A - so the run-9
+  zeros were real transfer failures but are gone now; 2-byte reads kept). COM switch 3F -> 09 again. CC_STATUS0 =
+  0x48 for 3 s: CCStat 0 (no connection), CCVcnStat 1, CCPinStat 01 (CC1). Kernel decodes CC_STATUS0 the same way.
+- TWRP with the same dock (docklog-run10.txt): ccic.state 3, power_role [source], data_role [host],
+  attached_dev OTG; charger CNFG_00 (0xB7) 0x14 -> 0x1E (OTG boost), CNFG_02 (0xB9) 0x4A (OTG_ILIM 900 mA).
+  -> under Linux the CCIC resolves SOURCE; after Linux's shutdown reset it does not under our firmware.
+- boot #81 (sha d027b63c…): fallback - CCPinStat != 0 and BC_STATUS.VBUSDet = 0 => VBUS boost (a PC/charger always
+  drives VBUS, so this never back-feeds). Proper CCIC init: subagent -> notes/m16-ccic-init.md.

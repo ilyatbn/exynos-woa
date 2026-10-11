@@ -86,3 +86,5 @@ USI mode slots (samsung,exynos-usi, each reg = 4 bytes in sysreg 0x10421000): 'i
   Windows: ACPI\SCSY0761\0 Started (TouchStartStage 0x1d, status 0, D0 0), HSI2C TransferCount 2 / IsrCount 2 /
   LastRequestStatus 0, line_scl=1; HID\SCSY0761\... "HID-compliant touch screen" (input.inf) Started.
   Not yet verified by a finger on the glass.
+- 2026-10-11 ~12:30 USER CONFIRMED on device: "touch is working" (boot #47, stay.flg run). Remaining: performance
+  ("everything is super slow") -> RAM (m13) and SMP.

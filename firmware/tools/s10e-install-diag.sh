@@ -28,6 +28,7 @@ $A push "$(cygpath -m "$B/S10eDiag.sys")" /tmp/win/Windows/System32/drivers/S10e
 $A push "$(cygpath -m "$B/s10ediag.exe")" /tmp/win/Windows/System32/s10ediag.exe >/dev/null
 $A push "$(cygpath -m "$B/S10eAgent.exe")" /tmp/win/Windows/System32/S10eAgent.exe >/dev/null
 [ -f "$B/s10erotate.exe" ] && $A push "$(cygpath -m "$B/s10erotate.exe")" /tmp/win/Windows/System32/s10erotate.exe >/dev/null
+[ -f "$B/s10eperf.exe" ] && $A push "$(cygpath -m "$B/s10eperf.exe")" /tmp/win/Windows/System32/s10eperf.exe >/dev/null
 $A shell "cd /tmp/win/Windows/System32 && sha256sum config/SYSTEM drivers/S10eDiag.sys s10ediag.exe S10eAgent.exe; cd /; sync; umount /tmp/win"
 (cd "$W" && sha256sum SYSTEM) ; (cd "$B" && sha256sum S10eDiag.sys s10ediag.exe S10eAgent.exe)
 

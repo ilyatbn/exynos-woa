@@ -25,7 +25,9 @@ cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /D UNICODE /D _UNICODE /Fo"%OUT%\S1
 if errorlevel 1 exit /b 5
 cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /D _CRT_SECURE_NO_WARNINGS /Fo"%OUT%\S10eRotate.obj" /Fe"%OUT%\s10erotate.exe" "%SRC%S10eRotate.c" /link /MACHINE:ARM64 /SUBSYSTEM:CONSOLE /Brepro user32.lib
 if errorlevel 1 exit /b 7
+cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /D _CRT_SECURE_NO_WARNINGS /Fo"%OUT%\S10ePerf.obj" /Fe"%OUT%\s10eperf.exe" "%SRC%S10ePerf.c" /link /MACHINE:ARM64 /SUBSYSTEM:CONSOLE /Brepro
+if errorlevel 1 exit /b 8
 
-"%KIT%\bin\%KV%\x64\signtool.exe" sign /sha1 5DD5DEE1747244C5F5F66F41D94C0A59C4443E48 /fd SHA256 "%OUT%\S10eDiag.sys" "%OUT%\s10ediag.exe" "%OUT%\S10eAgent.exe" "%OUT%\s10erotate.exe" >nul
+"%KIT%\bin\%KV%\x64\signtool.exe" sign /sha1 5DD5DEE1747244C5F5F66F41D94C0A59C4443E48 /fd SHA256 "%OUT%\S10eDiag.sys" "%OUT%\s10ediag.exe" "%OUT%\S10eAgent.exe" "%OUT%\s10erotate.exe" "%OUT%\s10eperf.exe" >nul
 if errorlevel 1 exit /b 6
 echo S10EDIAG_BUILD_OK %OUT%

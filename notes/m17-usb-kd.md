@@ -176,3 +176,8 @@ hang (notes/m14-smp.md: "Needs kernel-level debugging (KDNET/USB) - parked"), ea
   DSTS; EFI_TIMEOUT (=> no 'USBD') if it sticks. Build exit 0.
 - Fix B (DBG2 FIX2): WriteCount 2: {BAR0, phase 1 (after kd's CSFTRST), 0xC200 AND 0xFFFFFEBF} clears SUSPHY|
   ENBLSLPM inside Windows too, then the phase-2 DCFG HS write. Compiled table decoded = as intended.
+
+## Test 2 (2026-10-11 ~20:45): boot #73 (SUSPHY fixes + DBG2 FIX2 phase-1 + MADT eff fix)
+- boot #73 flashed, readback 1b927acb… = image. ESP BCD: debug on again (elevated session; dbgsettings unchanged:
+  NET busparams 0 169.254.255.255:50005 key 1.2.3.4), on-device sha fdc75865… = host. WinDbgX listening,
+  log %TEMP%\kd73.log.

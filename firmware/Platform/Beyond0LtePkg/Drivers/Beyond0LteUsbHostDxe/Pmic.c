@@ -69,6 +69,14 @@ Hsi2cReset (VOID)
 // The bus outside the I2C block: USI_CMGP3 mode = I2C and the two pins muxed to the I2C function. Same
 // three things the Windows driver does for USI03 (sysreg mode, GPP1 CON), with the CMGP addresses from
 // <Platform/Exynos9820.h>. Pull/drive are left as found (the DT values could not be read on device).
+// State found at handoff, put back by PmicBusRelease (run 5: with the bus left configured, Windows
+// bugchecked 0x14C FATAL_ABNORMAL_RESET_ERROR on every boot; run 4 - bus untouched - booted).
+STATIC BOOLEAN  mBusSaved = FALSE;
+STATIC UINT32   mSavedMode;
+STATIC UINT32   mSavedScl;
+STATIC UINT32   mSavedSda;
+STATIC UINT32   mSavedUsiCon;
+
 STATIC
 VOID
 Hsi2cBusSetup (VOID)
@@ -80,6 +88,11 @@ Hsi2cBusSetup (VOID)
   Scl = MmioRead32 (Gpio + EXYNOS_CMGP_GPM12_CON_OFFSET);
   Sda = MmioRead32 (Gpio + EXYNOS_CMGP_GPM13_CON_OFFSET);
   DEBUG ((DEBUG_WARN, "Hsi2c45 bus at handoff: USI_CMGP3 mode %x, gpm12 CON %x, gpm13 CON %x\n", *Mode, Scl, Sda));
+  mSavedMode   = *Mode;
+  mSavedScl    = Scl;
+  mSavedSda    = Sda;
+  mSavedUsiCon = MmioRead32 (I2C + HSI2C_USI_CON);
+  mBusSaved    = TRUE;
 
   *Mode = EXYNOS_USI_V2_MODE_I2C;
   MmioWrite32 (Gpio + EXYNOS_CMGP_GPM12_CON_OFFSET, (Scl & ~0xFu) | EXYNOS_GPIO_FUNC_HSI2C45);
@@ -283,6 +296,33 @@ PmicBusInit (VOID)
   mBusReady = TRUE;
   Hsi2cDump ("after init");
   return EFI_SUCCESS;
+}
+
+// Hand the bus back exactly as the bootloader left it: I2C block idle with interrupts off and the USI
+// back in reset, then the USI mode and both pin functions restored. The MAX77705 keeps whatever state we
+// programmed (e.g. the VBUS boost) - that lives in the PMIC, not on the bus.
+VOID
+PmicBusRelease (VOID)
+{
+  if (!mBusSaved) {
+    return;
+  }
+
+  MmioWrite32 (I2C + HSI2C_INT_EN, 0);
+  MmioWrite32 (I2C + HSI2C_INT_STAT, HSI2C_INT_ALL);
+  MmioWrite32 (I2C + HSI2C_AUTO_CONF, 0);
+  MmioWrite32 (I2C + HSI2C_CTL, 0);
+  MmioWrite32 (I2C + HSI2C_USI_CON, mSavedUsiCon);
+  *(volatile UINT32 *)(UINTN)EXYNOS_CMGP_USI03_MODE = mSavedMode;
+  MmioWrite32 ((UINTN)EXYNOS_CMGP_GPIO_BASE + EXYNOS_CMGP_GPM12_CON_OFFSET, mSavedScl);
+  MmioWrite32 ((UINTN)EXYNOS_CMGP_GPIO_BASE + EXYNOS_CMGP_GPM13_CON_OFFSET, mSavedSda);
+  mBusReady = FALSE;
+  mBusSaved = FALSE;
+  DEBUG ((DEBUG_WARN, "Hsi2c45 bus released: USI_CMGP3 mode %x, gpm12 CON %x, gpm13 CON %x, USI_CON %x\n",
+          *(volatile UINT32 *)(UINTN)EXYNOS_CMGP_USI03_MODE,
+          MmioRead32 ((UINTN)EXYNOS_CMGP_GPIO_BASE + EXYNOS_CMGP_GPM12_CON_OFFSET),
+          MmioRead32 ((UINTN)EXYNOS_CMGP_GPIO_BASE + EXYNOS_CMGP_GPM13_CON_OFFSET),
+          MmioRead32 (I2C + HSI2C_USI_CON)));
 }
 
 // M16 run 2: which MAX77705 clients answer at all (register 0x00 of each; reads only). Returns TRUE when

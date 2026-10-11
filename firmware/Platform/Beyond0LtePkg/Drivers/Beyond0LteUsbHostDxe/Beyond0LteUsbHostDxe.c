@@ -76,6 +76,7 @@ Beyond0LteUsbHostEntry (
   Saved           = mUsbProgress[1];
   mUsbProgress[1] = USB_PROGRESS_TRYING;
   Status          = UsbHostBringUp ();
+  PmicBusRelease ();   // every exit path: the bus goes back to the bootloader's state (run 5: 0x14C otherwise)
   mUsbProgress[1] = Saved;
   if (!EFI_ERROR (Status)) {
     mUsbProgress[2] = USB_STATUS_READY;

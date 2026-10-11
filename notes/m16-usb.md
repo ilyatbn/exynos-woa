@@ -243,3 +243,17 @@ Found:
 - BCD edited offline (`bcdedit /store`): {default} recoveryenabled No + bootlog Yes, so boot manager
   shows the winload error code instead of WinRE. Original kept: s10e-artifacts\bcd\BCD.orig-20261011
   (sha 52093777…6ec5); edited BCD.work sha 2a81716b…2e8b on the ESP. Revert = push the .orig back.
+
+### Run 5 BCD result: blue screen 0x14C FATAL_ABNORMAL_RESET_ERROR (user, boot #69, recovery disabled)
+- So the kernel DOES start; it bugchecks early (before S10eDiag) on every boot of #69, with or without
+  the dock. Microsoft: 0x14C = unrecoverable error / abnormal reset (watchdog, hang, brownout, failed
+  bugcheck path), no parameters. Our GTDT declares no watchdog; no ACPI table carries reset info.
+- Only firmware delta vs the good run 4 that persists into Windows: HSI2C45 left configured (USI_CMGP3
+  mode 4, gpm12/13 in I2C function, USI out of reset, INT_EN set). The bootloader leaves it idle (mode 0,
+  pins GPIO out, USI in reset); CMGP is the always-on domain shared with APM/CHUB. Hypothesis: the
+  configured bus/pins trip a platform-level fault once Windows runs.
+
+### Task 11 — PmicBusRelease (test of the hypothesis, and the right design regardless)
+- Hsi2cBusSetup saves mode, gpm12/13 CON, USI_CON; PmicBusRelease (called from the entry wrapper after
+  UsbHostBringUp on every path) disables INT_EN, acks, AUTO_CONF/CTL 0, USI_CON restored (reset), mode
+  and pin functions restored, logs the result. PMIC-side state (VBUS boost) is untouched by the release.

@@ -162,3 +162,9 @@ Accepted (no change): "LION" chemistry string is cosmetic (Windows convention fo
 ### 2026-10-12 — F1 fixed
 `Driver.c:S10eBattPrepareHardware` matches memory descriptors by base against the 3 expected windows
 (size must match, duplicates and missing windows refuse start). Rebuilt: exit 0, /W4 /WX clean.
+
+### 2026-10-12 — F2 fixed
+`Hsi2c.c` header now says the Hsi2cDump diagnostic reads are not ported. Rebuilt: `S10eBattery.sys`
+hash prefix 322CA9517A3B9DA3 identical before/after (/Brepro) — proof the change is comment-only.
+Review of 0e1dd7a (F1): failure path unmaps `Map[i]` with `Expected[i].Size` — index-consistent with
+the by-base placement; a duplicate base hits `Map[k] != NULL` -> refuse. ✔

@@ -1,8 +1,10 @@
 /*
  * Hsi2c.c - polled HSI2C45 master, a line-by-line port of the device-proven UEFI code in
  * firmware/Platform/Beyond0LtePkg/Drivers/Beyond0LteUsbHostDxe/Pmic.c (Hsi2cBusSetup, Hsi2cReset, Hsi2cXfer,
- * PmicBusRelease, Max77705RegReadN). Same register sequence and the same order; the only translations are
+ * PmicBusRelease, Max77705RegReadN). Same register writes in the same order; the translations are
  * MmioRead32/MmioWrite32 -> READ/WRITE_REGISTER_ULONG on the _CRS mappings and gBS->Stall -> KeStallExecutionProcessor.
+ * Not ported: Pmic.c's Hsi2cDump diagnostic register reads (reads only; the failure prints here log INT_STAT,
+ * ERROR_STATUS and TRANS_STATUS instead).
  *
  * Every function here is called with Fdo->BusLock held, at PASSIVE_LEVEL.
  * Clocks: the hsi2c_45 gates are ACPM-owned and left running by the bootloader; like Pmic.c we never touch CMU.

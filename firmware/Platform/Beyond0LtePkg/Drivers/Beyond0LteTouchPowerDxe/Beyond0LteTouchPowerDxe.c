@@ -115,6 +115,8 @@
 // The channel table in APM SRAM must also contain an entry with this id or nothing is sent.
 //
 #define ACPM_PMIC_IPC_CHANNEL  2u
+#define ACPM_DVFS_IPC_CHANNEL  5u   // VERIFIED live DT acpm_dvfs acpm-ipc-channel (dt-acpm-20261011.tar)
+#define ACPM_DVFS_FREQ_GET     1u   // drivers-branch notes/cpu-driver-9820.md F9 (FREQ_REQ 0, FREQ_GET 1)
 
 //
 // S2MPS19 addressing through ACPM: speedy channel 0 (s2mps19_core.c:55, stock dtbo acpm-speedy-channel 0),
@@ -718,6 +720,31 @@ OnReadyToBoot (
   }
 
   DEBUG ((DEBUG_ERROR, "TouchPower: done%a\n", mIpcBroken ? " (ACPM IPC failed)" : ""));
+
+  //
+  // m15 (user: "everything is still kinda slow"): what clocks does Windows inherit? READ-ONLY FREQ_GET on the
+  // ACPM DVFS channel. Live DT acpm_dvfs acpm-ipc-channel = 5 (dt-acpm-20261011.tar, VERIFIED); message per
+  // drivers-branch notes/cpu-driver-9820.md F9/F11 (exynos_acpm_get_rate: cmd[0] = fvmap idx, cmd[2] = 1
+  // FREQ_GET, reply cmd[1] = kHz); idx 0 MIF, 2 LITTLE, 3 MID, 4 BIG (shipped DT cal_ids 0xb040000/2/3/4).
+  //
+  if (!mIpcBroken && !EFI_ERROR (FindChannel (ACPM_DVFS_IPC_CHANNEL, &Ch))) {
+    STATIC CONST UINT32  Idx[]  = { 0, 2, 3, 4 };
+    STATIC CONST CHAR8   *Name[] = { "MIF", "CPU LITTLE", "CPU MID", "CPU BIG" };
+    UINTN                I;
+
+    for (I = 0; (I < ARRAY_SIZE (Idx)) && !mIpcBroken; I++) {
+      UINT32  Cmd[4];
+
+      Cmd[0] = Idx[I];
+      Cmd[1] = 0;
+      Cmd[2] = ACPM_DVFS_FREQ_GET;
+      Cmd[3] = 0;
+      if (!EFI_ERROR (AcpmSend (&Ch, Cmd))) {
+        DEBUG ((DEBUG_ERROR, "TouchPower: DVFS %a (idx %u) = %u kHz  [reply %08x %08x %08x %08x]\n",
+                Name[I], Idx[I], Cmd[1], Cmd[0], Cmd[1], Cmd[2], Cmd[3]));
+      }
+    }
+  }
 }
 
 EFI_STATUS

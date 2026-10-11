@@ -95,3 +95,10 @@ No device access in this task; build-verified only (Guided, not Ready).
 2. Then delete numproc: Windows should show 4 logical processors (Task Manager / msinfo32), CPUs 1-3 no longer
    code 10, CPUs 4-7 absent (MADT-disabled). If Windows fails to boot with PSCI off, rebuild with
    BEYOND0LTE_FADT_PSCI 1 (S9 combination).
+- Run 14 (boot #49, 13:05, numproc=1 still set, back 467 s): UEFILOG "PARK: CPU_ON gicc1..3 -> 0", all three
+  "parked ... el=4 mpidr_el1=8100010x (0 ms)" (EL1, MPIDR 0x100/0x200/0x300 = Aff1 1..3 ... NOTE the MPIDR_EL1
+  reads 0x81000100 etc - Aff1 holds the core number, the MADT/PSCI value 1/2/3 still worked for CPU_ON), gicc4..7
+  disabled, "3 core(s) parked; FADT PSCI=0". Windows booted with FADT ArmBootArch=0 (desktop 205 s), collect ran,
+  restart -> TWRP. => parking + PSCI-less FADT boot is OK on device.
+- Run 15 prep: BCD numproc removed on the device (PC bcdedit /store on the pulled ESP BCD, '{default}' quoted);
+  backup %TEMP%\c60\bcd\BCD.orig. extra-cpu.cmd: CPU counts + System events 41/6008/1074/1001.

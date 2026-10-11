@@ -88,3 +88,10 @@ within it ... after that start with getting touch working. then ... at least 1 m
   -> collect.cmd again with STAY=1 (no restart). esp/desktop.cmd (called by collect.cmd, idempotent, SYSTEM):
   Public desktop "Reboot to TWRP.cmd", "Collect logs.cmd" (they only drop the request files; Users have Modify on
   C:\S10eTmp\req), shortcuts Task Manager, On-Screen Keyboard, Command Prompt, Device Manager. Installer pushes it.
+- Interactive session after run 13 (stay.flg, 12:53): agent desktop at 191 s, "c: desktop helpers" at 216 s, then
+  NOTHING - desktop.cmd's powershell WScript.Shell step hung / never finished, so no icons; user could not reach
+  TWRP by keys ("tried 10 times"), then the phone went to TWRP by itself. UEFILOG (after-windows): progress prev=0x70
+  = a UEFI boot after the user's key resets stopped after BootLogDxe entry (before ReadyToBoot 0x71) and the SEC
+  82 s dead man's switch reset it; the next boot took the boot pair to TWRP. PRAM had bit-decay (power cycles).
+  TODO: desktop.cmd without powershell (or run it detached with a timeout); find the post-key-reset UEFI stall
+  (between BootLogDxe init and ReadyToBoot: TouchPowerDxe ACPM? connect-all?).

@@ -651,6 +651,7 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
         ULONG         EscLen;
         BOOLEAN       V2;
         ULONG         Major;
+        ULONG         Try;
         LARGE_INTEGER Delay;
 
         ReportLine(R, "---- milestone 4: events + escan ----\r\n");
@@ -672,10 +673,9 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
             Ioctl(S, WLC_UP, &One, sizeof(One), 0, "UP") != MSG_OK) {
             goto ScanEnd;
         }
-        /* escan params version, dhd rule for this firmware (wl_cfg80211.c:18501-18511): v2 only when
-           "wlc_ver" major >= 14 (wl_cfg80211.h:833) AND "scan_ver" answers; fmac uses scan_ver alone
-           (feature.c:342). Run m4-1: v2 on scan_ver alone -> escan BCME_EPERM (-26). If the chosen version is
-           refused, the other one is tried once so one run answers it. */
+        /* escan params version: v2 when "scan_ver" answers (fmac feature.c:342). Run m4-2: this fw reports
+           wlc 12.1 (dhd wl_cfg80211.c:18506 would pick v1) but refuses v1 with BCME_VERSION (-37), so the fmac
+           rule is the one that matches it. wlc_ver is still logged. */
         Major = 0;
         if (IoctlVar(S, FALSE, "wlc_ver", NULL, 0, WLC_VER_SIZE) == MSG_OK && S->RespLen >= WLC_VER_SIZE) {
             Major = *(USHORT UNALIGNED *)(S->Resp + WLC_VER_MAJOR);
@@ -684,21 +684,25 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
                        *(USHORT UNALIGNED *)(S->Resp + 10), Major, *(USHORT UNALIGNED *)(S->Resp + WLC_VER_MAJOR + 2));
         }
         V2 = (IoctlVar(S, FALSE, "scan_ver", NULL, 0, sizeof(ULONG)) == MSG_OK);
-        ReportLine(R, "[scan] scan_ver %s, wlc major %lu (dhd min %u) -> escan params v%u\r\n",
-                   V2 ? "answered" : "failed", Major, MIN_ESCAN_PARAM_V2_FW_MAJOR,
-                   (V2 && Major >= MIN_ESCAN_PARAM_V2_FW_MAJOR) ? 2 : 1);
-        V2 = V2 && (Major >= MIN_ESCAN_PARAM_V2_FW_MAJOR);
+        ReportLine(R, "[scan] scan_ver %s -> escan params v%u\r\n", V2 ? "answered" : "failed", V2 ? 2 : 1);
         EscLen = EscanBuild(Esc, V2);
-        if (IoctlVar(S, TRUE, "escan", Esc, EscLen, 0) != MSG_OK) {
-            ReportLine(R, "[scan] escan v%u refused (status %ld) - trying v%u\r\n", V2 ? 2 : 1, S->RespStatus, V2 ? 1 : 2);
-            V2 = !V2;
-            EscLen = EscanBuild(Esc, V2);
-            if (IoctlVar(S, TRUE, "escan", Esc, EscLen, 0) != MSG_OK) {
-                ReportLine(R, "[scan] escan v%u refused too (status %ld)\r\n", V2 ? 2 : 1, S->RespStatus);
+        /* dhd wl_cfgscan.c:1327-1333 treats BCME_EPERM as "not permitted at this point of time" (transient):
+           retry every 200 ms for up to ESCAN_EPERM_RETRIES, draining events meanwhile. */
+        for (Try = 0;; Try++) {
+            if (IoctlVar(S, TRUE, "escan", Esc, EscLen, 0) == MSG_OK) {
+                break;
+            }
+            if (S->RespStatus != BCME_EPERM || Try + 1 >= ESCAN_EPERM_RETRIES) {
+                ReportLine(R, "[scan] escan refused (status %ld) after %lu attempts\r\n", S->RespStatus, Try + 1);
                 goto ScanEnd;
             }
+            for (Ms = 0; Ms < 200; Ms += 10) {
+                (VOID)D2hCtrlPoll(S);
+                Delay.QuadPart = -10000LL * 10;
+                KeDelayExecutionThread(KernelMode, FALSE, &Delay);
+            }
         }
-        ReportLine(R, "[scan] escan v%u accepted\r\n", V2 ? 2 : 1);
+        ReportLine(R, "[scan] escan v%u accepted on attempt %lu\r\n", V2 ? 2 : 1, Try + 1);
         for (Ms = 0; Ms < SCAN_TIMEOUT_MS && !S->ScanDone; Ms += 10) {
             (VOID)D2hCtrlPoll(S);
             Delay.QuadPart = -10000LL * 10;

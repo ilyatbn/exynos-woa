@@ -96,3 +96,12 @@ BSS (BSSID, SSID, channel, RSSI) the firmware reports. Proves the radio receives
   (wl_cfg80211.c:18501-18511); fmac uses scan_ver alone. Hypothesis: this fw's wlc major < 14 -> expects v1.
 - 1.0.4.1: GET wlc_ver (wl_wlc_version_t, 16 B, major @12), dhd rule, and on refusal one retry with the other
   version. Build s10e-artifacts\wifi-m4b, sys FA95DCDE….
+- Run m4-2 (02:39) was void: I did not delete WINRUN.FLG before the reboot, so UEFI saved PRAM and went straight
+  to TWRP ("previous boot ran Windows"). Every deploy must `rm -f /cache/WINRUN.FLG`.
+- Run m4-3 (02:41, 1.0.4.1): wlc_ver epi 18.41.117.0 **wlc 12.1**; scan_ver answers; dhd rule -> v1 -> **-37
+  BCME_VERSION**; retry v2 -> -26 EPERM again. So this fw wants v2 (fmac rule), and EPERM is a state issue.
+  dhd wl_cfgscan.c:1327-1333 treats EPERM as "Escan not permitted at this point of time" (transient). Our
+  escan comes milliseconds after WLC_UP.
+- 1.0.4.2: v2 by scan_ver (fmac rule), escan retried on EPERM every 200 ms (events drained) up to 15 x. Note dhd
+  sets v2 length = sizeof(wl_scan_params_v2_t) (wl_cfgscan.c:1043, includes channel_list[1] -> 76), fmac
+  BRCMF_SCAN_PARAMS_V2_FIXED_SIZE 72; kept 72 (one change per run). Build wifi-m4c, sys 30267EB7….

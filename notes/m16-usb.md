@@ -425,3 +425,18 @@ Found:
   3 ms; on timeout g2_disable-order teardown and the other port; both fail -> USB2-only as before.
   DWC3 after core init when SS is up: LLUCTL |= 0xB<<16|b15|b10 (FORCE_GEN1), LSKIPFREQ |= 9<<20|5<<24|b27.
 - Risk: a hang on the first PMA/PCS or GPIO read -> the existing 0x67 progress guard skips USB on the next boot.
+
+### Run 15 (boot #85) - DOCK + USB3 STICK WORK (at USB2 speed) - user 2026-10-11 ~23:20
+- User: the UGREEN dock and the MOVESPEED USB3 NVMe stick both work in Windows; Device Manager adds/removes on
+  replug; mouse + USB2 flash drive through the hub work; mouse + keyboard together through the hub -> repeated
+  disconnects, hub LED pulsing (power).
+- UEFILOG: SS did NOT come up - gpg0 DAT = 1 -> port 0; port 0: PMA_CTRL 10E, 0x350 = 8 -> after 100 ms 3E (LC PLL
+  lock bit7 never set; bits 1-5 = AFC/FLD done); port 1 same (38); "staying USB2-only". But UEFI's own stack now
+  sees "new device connected at port 0" at power-on (never before).
+- => The fix for SS-capable devices was the SIDE EFFECT of the SS attempt: PMU 0x704 de-isolated + PMA left in
+  low-power with all its resets released (teardown) instead of isolated/half-reset. INFERRED: the isolated combo
+  PHY presented an SS receiver state that kept USB3 devices from falling back to USB2. Runs at HS 480 Mbps.
+- Open: LC PLL lock (reference clock / PMIC LDO10-12 that Linux switches at runtime - notes/m16-ss-phy.md §12);
+  keyboard+mouse via the dock = OTG budget (900 mA) -> try 1.2/1.5 A; HDMI needs SS + PD/DP alt mode.
+- Follow-up (own commit): make the "de-isolate + clean teardown" state explicit in the USB2-only path, so it does
+  not depend on a failed SS attempt (and skip the 2x100 ms PLL polls once SS is known not to lock).

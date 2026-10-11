@@ -313,7 +313,41 @@ Worker(LPVOID Parameter)
         CloseHandle(Output);
     }
     LogLine("collect.cmd exit %lu", Exit);
-    return 0;
+
+    //
+    // 4. User requests (user: "a reboot script (to recovery would be great) or any other stuff that might be
+    // helpful when you need me to interact with the ui"). The desktop shortcuts collect.cmd creates only drop a
+    // file into C:\S10eTmp\req (writable by Users); this LocalSystem service acts on it, so no UAC prompt:
+    //   recovery.req -> s10ediag recovery + clean restart (the PSCI restart bugcheck also lands in TWRP)
+    //   collect.req  -> run collect.cmd again with STAY=1 (logs refreshed, Windows keeps running)
+    //
+    for (;;) {
+        if (GetFileAttributesW(L"C:\\S10eTmp\\req\\recovery.req") != INVALID_FILE_ATTRIBUTES) {
+            DeleteFileW(L"C:\\S10eTmp\\req\\recovery.req");
+            LogLine("request: reboot to TWRP");
+            RunAndWait(L"C:\\Windows\\System32\\s10ediag.exe recovery", 30000, INVALID_HANDLE_VALUE);
+            RunAndWait(L"C:\\Windows\\System32\\s10ediag.exe fallback 300", 30000, INVALID_HANDLE_VALUE);
+            RunAndWait(L"C:\\Windows\\System32\\shutdown.exe /r /t 0 /f /d p:4:1", 30000, INVALID_HANDLE_VALUE);
+        }
+        if (GetFileAttributesW(L"C:\\S10eTmp\\req\\collect.req") != INVALID_FILE_ATTRIBUTES) {
+            DeleteFileW(L"C:\\S10eTmp\\req\\collect.req");
+            LogLine("request: collect logs");
+            SetEnvironmentVariableW(L"STAY", L"1");
+            swprintf_s(Path, ARRAYSIZE(Path), L"%s\\S10EDIAG\\out\\collect.log", gEsp);
+            Output = CreateFileW(Path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &Inherit, CREATE_ALWAYS,
+                                 FILE_ATTRIBUTE_NORMAL, NULL);
+            Exit = RunAndWait(Command, SCRIPT_LIMIT_MS, Output);
+            if (Output != INVALID_HANDLE_VALUE) {
+                FlushFileBuffers(Output);
+                CloseHandle(Output);
+            }
+            SetEnvironmentVariableW(L"STAY", NULL);
+            LogLine("request: collect done, exit %lu", Exit);
+        }
+        if (WaitForSingleObject(gStopEvent, 2000) == WAIT_OBJECT_0) {
+            return 0;
+        }
+    }
 }
 
 static DWORD WINAPI

@@ -5,6 +5,8 @@ rem notes/m11-s10ediag.md.
 rem   %ESP%\S10EDIAG\full.flg  present -> also the slow inventory (systeminfo, driverquery, full pnp dump)
 rem   %ESP%\S10EDIAG\extra.cmd present -> called after the standard collection
 rem   %ESP%\S10EDIAG\stay.flg  present -> collect only, Windows keeps running (interactive use)
+rem   STAY=1 (env, set by the agent for a "Collect logs" desktop request) -> same
+rem   %ESP%\S10EDIAG\desktop.cmd present -> desktop helper shortcuts (idempotent)
 rem   otherwise: clean restart into TWRP (5 min hard-reset fallback). \WINRUN.FLG is LEFT on the ESP: if the
 rem   restart crashes, the bugcheck reset goes through the firmware boot pair (PRAM dump, then TWRP).
 rem   Delete it from TWRP before the next run.
@@ -15,6 +17,11 @@ if exist "%L%" rd /s /q "%L%"
 mkdir "%L%"
 echo === collect start %DATE% %TIME%
 s10ediag info
+
+if exist %ESP%\S10EDIAG\desktop.cmd (
+  s10ediag mark c: desktop helpers
+  call %ESP%\S10EDIAG\desktop.cmd
+)
 
 echo --- quick
 s10ediag mark c: pnputil problem
@@ -51,6 +58,10 @@ if exist %ESP%\S10EDIAG\extra.cmd (
 
 echo === collect done %DATE% %TIME%
 s10ediag mark c: done
+if "%STAY%"=="1" (
+  echo STAY=1 ^(agent collect request^) - leaving Windows running
+  exit /b 0
+)
 if exist %ESP%\S10EDIAG\stay.flg (
   echo stay.flg present - leaving Windows running
   exit /b 0

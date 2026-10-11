@@ -83,3 +83,8 @@ within it ... after that start with getting touch working. then ... at least 1 m
   power keys). Unattended loop: S10eDiag's callback now resets to recovery on it. Real fix (with SMP): stop
   advertising PSCI to Windows (FADT ARM boot flags) or handle SYSTEM_RESET - TODO, separate task.
   Mark ring confirmed: shutdown notification at 286510 ms, BUGCHECK callback at 286526 ms.
+- User request (12:50): desktop helpers. Agent now keeps polling C:\S10eTmp\req after collect.cmd: recovery.req ->
+  s10ediag recovery + fallback 300 + shutdown /r (lands in TWRP; the PSCI restart bugcheck path too); collect.req
+  -> collect.cmd again with STAY=1 (no restart). esp/desktop.cmd (called by collect.cmd, idempotent, SYSTEM):
+  Public desktop "Reboot to TWRP.cmd", "Collect logs.cmd" (they only drop the request files; Users have Modify on
+  C:\S10eTmp\req), shortcuts Task Manager, On-Screen Keyboard, Command Prompt, Device Manager. Installer pushes it.

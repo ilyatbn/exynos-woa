@@ -34,6 +34,8 @@ $A shell "cd /tmp/win/Windows/System32 && sha256sum config/SYSTEM drivers/S10eDi
 $A shell 'mount -t vfat /dev/block/by-name/cache /tmp/esp && mkdir -p /tmp/esp/S10EDIAG'
 sed 's/\r*$/\r/' "$REPO/drivers/S10eDiag/esp/collect.cmd" > "$W/collect.cmd"
 $A push "$(cygpath -m "$W/collect.cmd")" /tmp/esp/S10EDIAG/collect.cmd >/dev/null
+sed 's/*$//' "$REPO/drivers/S10eDiag/esp/desktop.cmd" > "$W/desktop.cmd"
+$A push "$(cygpath -m "$W/desktop.cmd")" /tmp/esp/S10EDIAG/desktop.cmd >/dev/null
 if [ -n "${2:-}" ]; then
   sed 's/*$//' "$2" > "$W/extra.cmd"
   $A push "$(cygpath -m "$W/extra.cmd")" /tmp/esp/S10EDIAG/extra.cmd >/dev/null

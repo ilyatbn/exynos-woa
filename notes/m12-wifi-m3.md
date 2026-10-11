@@ -45,12 +45,12 @@ pcie_shared v7 (`pciedev_shared_t`, dhd include/bcmpcie.h:330-395; members are u
 | 0x40 | host_scb_addr | untouched (HSCB off). fmac writes a "ringupd" buffer at 64/68 (pcie.c:236-237) = this member in v7: fmac legacy, NOT copied |
 | 0x50 | flags2 | logged |
 | 0x54 | host_cap | host writes (dhd_set_host_cap dhd_msgbuf.c:3071-3190, called :3270; writeshared HOST_API_VERSION dhd_pcie.c:4361) |
-| 0x58 | host_trap_addr | NOT written (dhd writes its fw_trap_buf, :3189) -> HOSTCAP_EXTENDED_TRAP_DATA must not be advertised |
+| 0x58 | host_trap_addr | NOT written (dhd writes its fw_trap_buf, :3184-3185) -> HOSTCAP_EXTENDED_TRAP_DATA must not be advertised |
 
 host_cap the driver writes (registry `HostCap` overrides; 0xFFFFFFFF = do not write at all = fmac style, fmac
 never writes host_cap): active ipc version min(host 7, fw 7) = 7 (dhd :3082-3087) | HOSTCAP_H2D_ENABLE_HOSTRDY
 0x400 if flags has HOSTRDY_SUPPORT (:3089-3092; dhdpcie_bus_get_pcie_hostready_supported dhd_pcie.c:10133 returns
-d2h_hostrdy_supported) | HOSTCAP_DS_NO_OOB_DW 0x1000 (:3094) | HOSTCAP_UR_FW_NO_TRAP 0x800000 (:3141)
+d2h_hostrdy_supported) | HOSTCAP_DS_NO_OOB_DW 0x1000 (:3095) | HOSTCAP_UR_FW_NO_TRAP 0x800000 (:3137)
 = **0x00801407**. Left out of dhd's set: EXTENDED_TRAP_DATA 0x20000 (no trap buffer), FAST_DELETE_RING (no
 flowrings), TXSTATUS_METADATA, IDMA/IFRM/DAR/HSCB/EDL/HP2P (fw flags clear or not needed). Constants
 bcmpcie.h:403-418.
@@ -59,7 +59,7 @@ ring_info_t (bcmpcie.h:290-324): ringmem_ptr 0x00, h2d_w_idx_ptr 0x04, h2d_r_idx
 d2h_r_idx_ptr 0x10, four sh_addr_t host index arrays 0x14..0x33 (DMA_INDEX only: unused here),
 max_tx_flowrings 0x34, max_submission_queues 0x36, max_completion_rings 0x38, max_vdevs 0x3A (u16).
 fmac struct brcmf_pcie_dhi_ringinfo pcie.c:393-406 agrees. dhd rejects 0 for any of the three maxima
-(dhd_pcie.c:8673-8686).
+(dhd_pcie.c:8701-8714).
 
 ring_mem_t (bcmpcie.h:275-282), 16 B, one per common ring at ringmem_ptr + 16*ringid; ring ids H2D ctrl submit 0,
 H2D rxpost 1, D2H ctrl cpl 2, D2H tx cpl 3, D2H rx cpl 4 (bcmpcie.h:171-175; dhd_fillup_ring_sharedptr_info
@@ -68,7 +68,7 @@ Host writes base_addr, max_item, len_items (dhd_prot_ring_init dhd_msgbuf.c:8292
 RING_BUF_ADDR/RING_MAX_ITEMS/RING_ITEM_LEN dhd_pcie.c:4322-4340; fmac brcmf_pcie_alloc_dma_and_ring
 pcie.c:1131-1158).
 
-Indices (no DMA_INDEX -> in TCM), rw_index_sz = 4 (dhd_pcie.c:8601-8602): H2D ring i (0,1): w at
+Indices (no DMA_INDEX -> in TCM), rw_index_sz = 4 (dhd_pcie.c:8597-8598): H2D ring i (0,1): w at
 h2d_w_idx_ptr + 4i, r at h2d_r_idx_ptr + 4i; D2H ring 2+j: w at d2h_w_idx_ptr + 4j, r at d2h_r_idx_ptr + 4j
 (dhd_pcie.c:8884-8908; bcmpcie.h:208-243; fmac pcie.c:1318-1345). Both drivers access an index as a 16-bit TCM
 word (dhd writeshared/readshared RING_WR_UPD/RING_RD_UPD wtcm16/rtcm16 dhd_pcie.c:4341-4350, 4402-4410; fmac
@@ -127,7 +127,7 @@ Path: BCM4375 PCIe master -> Exynos PCIe0 RC (DesignWare) inbound -> SysMMU_PCIE
    address matches no inbound region through untranslated, which is what Android runs on -> PCI bus address ==
    AXI address. **No DBI window and no DSDT change are needed for M3.**
 2. **RC bus master: already on.** The RC forwards upstream memory requests only with its own COMMAND.BME set;
-   Beyond0LtePcieDxe SetupRc writes IO|MEM|MASTER|SERR (PcieLink.c:226-227, dw-host.c / kernel 0x146 v0.c:500).
+   Beyond0LtePcieDxe SetupRc writes IO|MEM|MASTER|SERR (PcieLink.c:226-227, from the generic dw_pcie_setup_rc).
    The EP's COMMAND.BME (bit 2) is the only switch the driver flips (CFG0 window, already in _CRS).
 3. **SysMMU: bypass, UNVERIFIED reset state.** The board DT enables SysMMU for pcie_0 (`use-sysmmu = "true"`,
    beyond0lte_common.dtsi:2320) - under Android DMA addresses are IOVAs. Our UEFI never touches the SysMMU
@@ -159,3 +159,15 @@ Path: BCM4375 PCIe master -> Exynos PCIe0 RC (DesignWare) inbound -> SysMMU_PCIE
    `Parameters\Msgbuf` = 0 the M2 behaviour is kept unchanged). Recorded behaviour change vs M2.
 
 - Task 1 committed next: this notes file + MILESTONES M3 line (doing). No DSDT/UEFI change needed (DMA decision 1-2).
+
+## Review of commit 49a8cec (task 1)
+
+- Checked mechanically: every cited file:line printed with a sed script (scratchpad chk1.sh) against the
+  fetched trees + this worktree. Commit stat: 2 files (notes + MILESTONES, one new line, no other line
+  touched).
+- FOUND, fixed in the follow-up commit: five wrong citations - host_trap_addr write :3189 -> :3184-3185;
+  DS_NO_OOB_DW :3094 -> :3095 and UR_FW_NO_TRAP :3141 -> :3137 (dhd_msgbuf.c); the max-rings checks
+  dhd_pcie.c:8673-8686 -> :8701-8714; rw_index_sz :8601-8602 -> :8597-8598; and "RC BME = kernel 0x146
+  v0.c:500" was wrong (v0.c:500 is chk_epconf_access writing the EP's command in a debug test) - the RC
+  command comes from the generic dw_pcie_setup_rc, cited via PcieLink.c only.
+- Claim downgraded during the commit: pcie_1 `use-sysmmu=false` is on a port that is status disabled.

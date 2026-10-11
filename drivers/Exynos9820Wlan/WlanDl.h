@@ -70,6 +70,8 @@ typedef VOID WLAN_FW_UP_FN(_Inout_ PWLAN_REPORT R, _Inout_ PWLAN_BUS Bus, _Inout
 
 ULONG WlanBusBpRd(_Inout_ PWLAN_BUS Bus, _In_ ULONG Addr);              /* backplane via the BAR0 window */
 VOID  WlanBusBpWr(_Inout_ PWLAN_BUS Bus, _In_ ULONG Addr, _In_ ULONG Val);
+/* Reads WLAN_BLOB_DIR\Name into a paged pool buffer (tag 'lDlW', caller frees); fails above Max bytes. */
+NTSTATUS WlanLoadBlob(_In_z_ PCWSTR Name, _Outptr_result_bytebuffer_(*Len) PUCHAR *Buf, _Out_ PULONG Len, _In_ ULONG Max);
 VOID  WlanBusArmHalt(_Inout_ PWLAN_BUS Bus);                            /* CR4 core reset, CPUHALT */
 VOID  WlanBusConsoleDump(_Inout_ PWLAN_REPORT R, _Inout_ PWLAN_BUS Bus);  /* new console bytes since last */
 

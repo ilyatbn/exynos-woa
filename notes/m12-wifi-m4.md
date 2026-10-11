@@ -105,3 +105,12 @@ BSS (BSSID, SSID, channel, RSSI) the firmware reports. Proves the radio receives
 - 1.0.4.2: v2 by scan_ver (fmac rule), escan retried on EPERM every 200 ms (events drained) up to 15 x. Note dhd
   sets v2 length = sizeof(wl_scan_params_v2_t) (wl_cfgscan.c:1043, includes channel_list[1] -> 76), fmac
   BRCMF_SCAN_PARAMS_V2_FIXED_SIZE 72; kept 72 (one change per run). Build wifi-m4c, sys 30267EB7….
+- Run m4-4 (02:45, 1.0.4.2): escan v2 refused with EPERM on all 15 attempts over 3 s -> not transient.
+- Cause candidate: no CLM (regulatory) blob. The vendor ships bcmdhd_clm.blob (29232 B, on the phone in
+  drivers\bcm4375\); dhd applies it in preinit before UP (dhd_linux.c:10199 dhd_apply_default_clm); fmac does
+  too (common.c:177-198 brcmf_c_process_clm_blob -> "clmload" chunks, :102-170).
+- 1.0.4.3: WlanLoadBlob exported from WlanDl.c (was static LoadFile); ClmLoad before event_msgs SET + UP:
+  - 1400 B chunks, header {flag = DL_BEGIN/DL_END | 1<<12, type 2, len, crc 0} (fwil_types.h:185-194,
+    :1106-1112);
+  - clmload_status logged on failure, clmver logged on success.
+  IoctlVar now uses a 2008 B state buffer. Build wifi-m4d, sys 8340DDF7….

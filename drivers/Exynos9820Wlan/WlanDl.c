@@ -393,8 +393,8 @@ CoreReset(_Inout_ PBCM_CHIP C, _In_ const ULONG Wrap[3], _In_ ULONG Bits, _In_ U
 
 /* ---------------------------------------------------------------- blobs */
 
-static NTSTATUS
-LoadFile(_In_z_ PCWSTR Name, _Outptr_result_bytebuffer_(*Len) PUCHAR *Buf, _Out_ PULONG Len, _In_ ULONG Max)
+NTSTATUS
+WlanLoadBlob(_In_z_ PCWSTR Name, _Outptr_result_bytebuffer_(*Len) PUCHAR *Buf, _Out_ PULONG Len, _In_ ULONG Max)
 {
     WCHAR                     Path[160];
     UNICODE_STRING            U;
@@ -782,12 +782,12 @@ WlanDlRun(PWLAN_REPORT R, volatile UCHAR *Cfg, ULONG Bar0Lo, ULONG Bar2Lo, ULONG
 
     /* 5. blobs */
     Out->DlResult = DL_BLOB;
-    Status = LoadFile(FwName, &Fw, &FwLen, WLAN_FW_MAX_SIZE);
+    Status = WlanLoadBlob(FwName, &Fw, &FwLen, WLAN_FW_MAX_SIZE);
     if (!NT_SUCCESS(Status)) {
         ReportLine(R, "DL %u: firmware %ls: 0x%08lX\r\n", DL_BLOB, FwName, Status);
         goto Done;
     }
-    Status = LoadFile(NvName, &NvRaw, &NvRawLen, NVRAM_MAX_SIZE);
+    Status = WlanLoadBlob(NvName, &NvRaw, &NvRawLen, NVRAM_MAX_SIZE);
     if (!NT_SUCCESS(Status)) {
         ReportLine(R, "DL %u: nvram %ls: 0x%08lX\r\n", DL_BLOB, NvName, Status);
         goto Done;

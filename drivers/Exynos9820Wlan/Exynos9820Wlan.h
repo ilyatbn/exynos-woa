@@ -435,6 +435,20 @@
 #define MIN_ESCAN_PARAM_V2_FW_MAJOR 14             /* dhd wl_cfg80211.h:833 */
 #define BCME_EPERM                  (-26)          /* dhd bcmutils.h:385 */
 #define ESCAN_EPERM_RETRIES         15             /* host choice: 15 x 200 ms = 3 s */
+/* CLM blob download (fmac fwil_types.h:185-194, struct brcmf_dload_data_le :1106-1112) */
+#define CLM_BLOB_NAME               L"bcmdhd_clm.blob"   /* vendor /vendor/etc/wifi name, 29232 B */
+#define CLM_BLOB_MAX_SIZE           0x40000
+#define MAX_CHUNK_LEN               1400
+#define DLOAD_HANDLER_VER           1
+#define DLOAD_FLAG_VER_SHIFT        12
+#define DL_BEGIN                    0x0002
+#define DL_END                      0x0004
+#define DL_TYPE_CLM                 2
+#define DLOAD_FLAG                  0              /* u16 */
+#define DLOAD_TYPE                  2              /* u16 */
+#define DLOAD_LEN                   4              /* u32 */
+#define DLOAD_CRC                   8              /* u32 */
+#define DLOAD_HDR_SIZE              12
 #define WLC_VER_SIZE                16             /* wl_wlc_version_t, dhd wlioctl.h:14092-14104 (8 x u16) */
 #define WLC_VER_MAJOR               12             /* wlc_ver_major u16 (version, length, 4 x epi, major, minor) */
 #define DOT11_BSSTYPE_ANY           2              /* fmac fwil_types.h:72 */

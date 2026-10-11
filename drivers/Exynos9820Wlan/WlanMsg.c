@@ -54,6 +54,7 @@ typedef struct _MSG_STATE {
     ULONG               ScanStatus;
     ULONG               BssCount;
     UCHAR               Bss[SCAN_MAX_BSS][6];
+    UCHAR               VarBuf[IOCTL_REQ_MAX_INPUT];   /* iovar name + value (clmload chunks) */
 } MSG_STATE, *PMSG_STATE;
 
 static ULONG
@@ -401,17 +402,77 @@ static ULONG
 IoctlVar(_Inout_ PMSG_STATE S, _In_ BOOLEAN Set, _In_z_ PCSTR Name, _In_reads_bytes_opt_(ValLen) const VOID *Val,
          _In_ ULONG ValLen, _In_ ULONG OutLen)
 {
-    UCHAR  Buf[128];
+    PUCHAR Buf = S->VarBuf;
     size_t NameLen;
 
-    if (!NT_SUCCESS(RtlStringCbLengthA(Name, 64, &NameLen)) || NameLen + 1 + ValLen > sizeof(Buf)) {
+    if (!NT_SUCCESS(RtlStringCbLengthA(Name, 64, &NameLen)) || NameLen + 1 + ValLen > sizeof(S->VarBuf)) {
         return MSG_IOCTL_ERROR;
     }
     RtlCopyMemory(Buf, Name, NameLen + 1);
     if (ValLen != 0) {
-        RtlCopyMemory(Buf + NameLen + 1, Val, ValLen);
+        RtlMoveMemory(Buf + NameLen + 1, Val, ValLen);
     }
     return Ioctl(S, Set ? WLC_SET_VAR : WLC_GET_VAR, Buf, (ULONG)NameLen + 1 + ValLen, OutLen, Name);
+}
+
+/* CLM (regulatory) blob download, as fmac common.c:102-198 brcmf_c_download_blob ("clmload", 1400 B chunks with
+   a dload header, DL_BEGIN on the first, DL_END on the last) and dhd preinit dhd_apply_default_clm
+   (dhd_linux.c:10199, before UP). Without it this fw refuses escan with BCME_EPERM (run m4-4). */
+static ULONG
+ClmLoad(_Inout_ PMSG_STATE S)
+{
+    PUCHAR   Blob = NULL;
+    ULONG    Len = 0, Done = 0, Chunk, Rc = MSG_OK;
+    USHORT   Flag = DL_BEGIN;
+    UCHAR    Hdr[DLOAD_HDR_SIZE + MAX_CHUNK_LEN];
+    NTSTATUS Status;
+
+    Status = WlanLoadBlob(CLM_BLOB_NAME, &Blob, &Len, CLM_BLOB_MAX_SIZE);
+    if (!NT_SUCCESS(Status)) {
+        ReportLine(S->R, "[clm] %ws not loaded (0x%08lX) - firmware keeps its built-in limits\r\n", CLM_BLOB_NAME, Status);
+        return MSG_IOCTL_ERROR;
+    }
+    while (Done < Len) {
+        Chunk = Len - Done;
+        if (Chunk > MAX_CHUNK_LEN) {
+            Chunk = MAX_CHUNK_LEN;
+        } else {
+            Flag |= DL_END;
+        }
+        *(USHORT UNALIGNED *)(Hdr + DLOAD_FLAG) = (USHORT)(Flag | (DLOAD_HANDLER_VER << DLOAD_FLAG_VER_SHIFT));
+        *(USHORT UNALIGNED *)(Hdr + DLOAD_TYPE) = DL_TYPE_CLM;
+        *(ULONG UNALIGNED *)(Hdr + DLOAD_LEN)   = Chunk;
+        *(ULONG UNALIGNED *)(Hdr + DLOAD_CRC)   = 0;
+        RtlCopyMemory(Hdr + DLOAD_HDR_SIZE, Blob + Done, Chunk);
+        Rc = IoctlVar(S, TRUE, "clmload", Hdr, DLOAD_HDR_SIZE + Chunk, 0);
+        if (Rc != MSG_OK) {
+            ULONG St = 0xFFFFFFFF;
+
+            if (IoctlVar(S, FALSE, "clmload_status", NULL, 0, sizeof(ULONG)) == MSG_OK && S->RespLen >= 4) {
+                St = *(ULONG UNALIGNED *)S->Resp;
+            }
+            ReportLine(S->R, "[clm] clmload chunk at %lu failed (status %ld), clmload_status %ld\r\n", Done, S->RespStatus,
+                       (LONG)St);
+            break;
+        }
+        Flag &= ~DL_BEGIN;
+        Done += Chunk;
+    }
+    ReportLine(S->R, "[clm] %ws: %lu of %lu B loaded in %lu B chunks -> %s\r\n", CLM_BLOB_NAME, Done, Len, MAX_CHUNK_LEN,
+               Rc == MSG_OK ? "OK" : "FAILED");
+    ExFreePoolWithTag(Blob, 'lDlW');
+    if (Rc == MSG_OK && IoctlVar(S, FALSE, "clmver", NULL, 0, 200) == MSG_OK) {
+        ULONG I;
+
+        S->Resp[(S->RespLen < sizeof(S->Resp)) ? S->RespLen : sizeof(S->Resp) - 1] = 0;
+        for (I = 0; I < S->RespLen && S->Resp[I] != 0; I++) {
+            if (S->Resp[I] < 0x20 || S->Resp[I] >= 0x7F) {
+                S->Resp[I] = ' ';
+            }
+        }
+        ReportLine(S->R, "[clm] clmver = %s\r\n", (PCSTR)S->Resp);
+    }
+    return Rc;
 }
 
 /* escan request (fmac cfg80211.c brcmf_run_escan / brcmf_escan_prep): all channels, broadcast SSID, active,
@@ -669,6 +730,7 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
         ReportLine(R, "[scan] event_msgs byte 8 = 0x%02X (ESCAN_RESULT bit %s)\r\n", Mask[WLC_E_ESCAN_RESULT / 8],
                    (Mask[WLC_E_ESCAN_RESULT / 8] & (1 << (WLC_E_ESCAN_RESULT % 8))) ? "set" : "clear");
         Mask[WLC_E_ESCAN_RESULT / 8] |= (UCHAR)(1 << (WLC_E_ESCAN_RESULT % 8));
+        (VOID)ClmLoad(S);   /* logged; a failure still lets the scan show what the fw does without it */
         if (IoctlVar(S, TRUE, "event_msgs", Mask, WL_EVENTING_MASK_LEN, 0) != MSG_OK ||
             Ioctl(S, WLC_UP, &One, sizeof(One), 0, "UP") != MSG_OK) {
             goto ScanEnd;

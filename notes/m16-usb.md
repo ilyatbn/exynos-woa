@@ -346,3 +346,5 @@ Found:
   its cause; fresh install since). BEYOND0LTE_USB_KD_DEVICE default 0 = host image.
 - boot #79 (sha cbf70f68…) = host/dock image; boot #78 = KD image. BCD debug must be OFF with #79 (the kd module
   would claim the same DWC3).
+- Run 9 setup (21:35): boot #79 flashed (readback cbf70f68… = image), ESP BCD debug No (sha 8cce4f9b…). User boots
+  with the dock + keyboard/mouse attached (no adb during the run).

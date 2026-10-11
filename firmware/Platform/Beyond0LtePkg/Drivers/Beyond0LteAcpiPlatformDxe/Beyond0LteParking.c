@@ -93,6 +93,7 @@ Beyond0LteParkSecondaries (
   EFI_ACPI_6_3_GIC_STRUCTURE  *Gicc[PARK_MAX_GICC];
   UINT64                      Page[PARK_MAX_GICC];
   UINTN                       OnStatus[PARK_MAX_GICC];
+  UINT32                      Arrive[PARK_MAX_GICC];
   UINTN                       GiccCount;
   UINTN                       ParkCount;
   UINTN                       Index;
@@ -208,6 +209,12 @@ Beyond0LteParkSecondaries (
     InvalidateInstructionCacheRange ((VOID *)(UINTN)Pages, ParkCount * EFI_PAGE_SIZE);
   }
 
+  //
+  // m14 boots #55/#56: with the panel text console gone, the CPU_ON calls went out back to back and only the
+  // LAST core started reached the stub (gicc1-4 never wrote their mark, even after 2 s). The text console used
+  // to space the calls out by its rendering time. So: one core at a time - CPU_ON, then wait for that core's
+  // own mark before the next CPU_ON.
+  //
   SavedProgress = mParkProgress[1];
   for (Index = 0; Index < GiccCount; Index++) {
     if (Page[Index] == 0) {
@@ -226,35 +233,27 @@ Beyond0LteParkSecondaries (
     Smc.Arg3 = (UINTN)Page[Index];   // context_id: unused by the stub (see the .S)
     ArmCallSmc (&Smc);
     OnStatus[Index] = Smc.Arg0;
-    DEBUG ((DEBUG_ERROR, "PARK: CPU_ON gicc%u mpidr=%lx entry=%lx -> %lx\n",
-            (UINT32)Index, Gicc[Index]->MPIDR, Page[Index] + PARK_STUB_OFF, (UINT64)Smc.Arg0));
-  }
 
-  //
-  // Wait for each started core's own alive mark.
-  //
-  for (Step = 0; Step < PARK_WAIT_STEPS; Step++) {
-    UINTN  Missing;
+    Arrive[Index] = MAX_UINT32;
+    if (OnStatus[Index] == 0) {
+      for (Step = 0; Step < PARK_WAIT_STEPS; Step++) {
+        if (ParkRd32 (Page[Index] + PARK_MARK_OFF) == PARK_ALIVE) {
+          Arrive[Index] = (UINT32)Step;
+          break;
+        }
 
-    Missing = 0;
-    for (Index = 0; Index < GiccCount; Index++) {
-      if ((Page[Index] != 0) && (OnStatus[Index] == 0) &&
-          (ParkRd32 (Page[Index] + PARK_MARK_OFF) != PARK_ALIVE))
-      {
-        Missing++;
+        //
+        // TimerLib, not gBS->Stall: this driver's depex does not include the
+        // Metronome arch protocol, and CoreStall returns EFI_NOT_AVAILABLE_YET (no delay)
+        // until it is installed.
+        //
+        MicroSecondDelay (PARK_WAIT_STEP_US);
       }
     }
 
-    if (Missing == 0) {
-      break;
-    }
-
-    //
-    // TimerLib, not gBS->Stall: this driver's depex does not include the
-    // Metronome arch protocol, and CoreStall returns EFI_NOT_AVAILABLE_YET (no delay)
-    // until it is installed.
-    //
-    MicroSecondDelay (PARK_WAIT_STEP_US);
+    DEBUG ((DEBUG_ERROR, "PARK: CPU_ON gicc%u mpidr=%lx entry=%lx -> %lx, mark after %d ms\n",
+            (UINT32)Index, Gicc[Index]->MPIDR, Page[Index] + PARK_STUB_OFF, (UINT64)Smc.Arg0,
+            (INT32)Arrive[Index]));
   }
 
   mParkProgress[1] = SavedProgress;   // every started core reported in or timed out - no SoC hang here
@@ -280,7 +279,7 @@ Beyond0LteParkSecondaries (
       DEBUG ((DEBUG_ERROR, "PARK: gicc%u parked mb=%lx el=%lx mpidr_el1=%lx (%u ms)\n",
               (UINT32)Index, Page[Index],
               ParkRd64 (Page[Index] + PARK_EL_OFF), ParkRd64 (Page[Index] + PARK_MPIDR_OFF),
-              (UINT32)Step));
+              Arrive[Index]));
     } else if ((Gicc[Index]->Flags & EFI_ACPI_6_3_GIC_ENABLED) != 0) {
       Gicc[Index]->Flags &= ~(UINT32)EFI_ACPI_6_3_GIC_ENABLED;
       DEBUG ((DEBUG_ERROR, "PARK: gicc%u mpidr=%lx disabled (page=%lx on=%lx mark=%x)\n",

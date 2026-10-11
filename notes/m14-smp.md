@@ -152,3 +152,8 @@ No device access in this task; build-verified only (Guided, not Ready).
   actually running into the stub => MADT said disabled, cores alive -> HAL_INITIALIZATION_FAILED. Cause: a core
   needs ~100 ms from CPU_ON to the stub (EL3/uH bring-up); the old text console's slow DEBUG rendering between
   CPU_ON and the wait padded that. Fix: PARK_WAIT_STEPS 100 -> 2000 (2 s max). Boot #56.
+- Boot #56 (2 s wait): HAL_INITIALIZATION_FAILED again (user). UEFILOG: gicc1-4 still never marked, gicc5 (the LAST
+  CPU_ON) seen only at the end => not a timing problem. Hypothesis: back-to-back CPU_ON calls (no text-console
+  rendering between them any more) - only the last one reaches the stub (EL3/uH keep a single pending entry?).
+  UNVERIFIED. Fix (boot #58 = + clean shim): one core at a time - CPU_ON, wait for its own mark (<= 2 s), then
+  the next; per-core arrival ms logged on the CPU_ON line.

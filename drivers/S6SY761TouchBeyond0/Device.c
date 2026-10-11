@@ -556,6 +556,74 @@ TouchDrainInputReports(
 }
 
 static
+BOOLEAN
+TouchAnyContactActiveLocked(
+	_In_ PDEVICE_CONTEXT DeviceContext
+)
+{
+	ULONG contactId;
+
+	for (contactId = 0; contactId < S6SY761_MAX_CONTACTS; contactId++)
+	{
+		if (DeviceContext->Contacts[contactId].Active)
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+static
+VOID
+TouchArmHoldTimer(
+	_Inout_ PDEVICE_CONTEXT DeviceContext
+)
+{
+	if (InterlockedCompareExchange(&DeviceContext->HoldTimerArmed, 1, 0) == 0)
+	{
+		WdfTimerStart(
+			DeviceContext->HoldTimer,
+			WDF_REL_TIMEOUT_IN_MS(S6SY761_HOLD_REPEAT_MS));
+	}
+}
+
+//
+// Held-contact repeat (see DEVICE_CONTEXT.HoldTimer). Only repeats into an EMPTY report queue, so a slow
+// reader never accumulates stale copies; the repeat is queued as a move, which the queue coalesces.
+//
+VOID
+TouchHoldTimerFunc(
+	_In_ WDFTIMER Timer
+)
+{
+	PDEVICE_CONTEXT pDevice;
+	BOOLEAN         anyActive;
+	BOOLEAN         queued;
+
+	pDevice = GetDeviceContext((WDFDEVICE)WdfTimerGetParentObject(Timer));
+	InterlockedExchange(&pDevice->HoldTimerArmed, 0);
+	queued = FALSE;
+
+	WdfWaitLockAcquire(pDevice->InputLock, NULL);
+	anyActive = !pDevice->InputStopping && TouchAnyContactActiveLocked(pDevice);
+	if (anyActive && (pDevice->InputReportCount == 0))
+	{
+		queued = TouchQueueCurrentReportLocked(pDevice, TRUE);
+	}
+	WdfWaitLockRelease(pDevice->InputLock);
+
+	if (queued)
+	{
+		InterlockedIncrement(&pDevice->HoldRepeatCount);
+		TouchDrainInputReports(pDevice);
+	}
+	if (anyActive)
+	{
+		TouchArmHoldTimer(pDevice);
+	}
+}
+
+static
 VOID
 TouchQueueAllUpReport(
 	_Inout_ PDEVICE_CONTEXT DeviceContext
@@ -1154,6 +1222,27 @@ Return Value:
 		&deviceContext->InputLock);
 	if (!NT_SUCCESS(status)) {
 		return status;
+	}
+
+	{
+		WDF_TIMER_CONFIG       holdTimerConfig;
+		WDF_OBJECT_ATTRIBUTES  holdTimerAttributes;
+
+		// Passive: the callback takes InputLock (a wait lock). One-shot, re-armed by the callback.
+		WDF_TIMER_CONFIG_INIT(&holdTimerConfig, TouchHoldTimerFunc);
+		holdTimerConfig.AutomaticSerialization = FALSE;
+		WDF_OBJECT_ATTRIBUTES_INIT(&holdTimerAttributes);
+		holdTimerAttributes.ParentObject = device;
+		holdTimerAttributes.ExecutionLevel = WdfExecutionLevelPassive;
+		deviceContext->HoldTimerArmed = 0;
+		deviceContext->HoldRepeatCount = 0;
+		status = WdfTimerCreate(
+			&holdTimerConfig,
+			&holdTimerAttributes,
+			&deviceContext->HoldTimer);
+		if (!NT_SUCCESS(status)) {
+			return status;
+		}
 	}
 
 	hidAttributes = &deviceContext->HidDeviceAttributes;
@@ -2784,6 +2873,7 @@ OnInterruptIsr(
 	int                     remain, x, y;
 	NTSTATUS                status;
 	BOOLEAN                 queued;
+	BOOLEAN                 anyActive;
 	BYTE                    touchType, touchId;
 	UINT8					event_id, * event;
 	UNREFERENCED_PARAMETER(MessageID);
@@ -2909,11 +2999,16 @@ OnInterruptIsr(
 		}
 	}
 
+	anyActive = !pDevice->InputStopping && TouchAnyContactActiveLocked(pDevice);
 	WdfWaitLockRelease(pDevice->InputLock);
 
 	if (queued)
 	{
 		TouchDrainInputReports(pDevice);
+	}
+	if (anyActive)
+	{
+		TouchArmHoldTimer(pDevice);
 	}
 
 Exit:

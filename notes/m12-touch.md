@@ -109,3 +109,16 @@ USI mode slots (samsung,exynos-usi, each reg = 4 bytes in sysreg 0x10421000): 'i
   `C:\S10eTmp\req\touchlog.txt`, copied to the collection dir by collect.cmd.
 - Layout check: inputReport54_t = id[0], points[1..60], scan[61..62], count[63] (Device.h C_ASSERT 64).
 - Build: `build.bat C:\Users\ilya\code\s10e-artifacts\s10ediag-m16` → S10EDIAG_BUILD_OK (W4/WX clean).
+
+### 2026-10-11 — touchlog result (run m16-3) → cause of "no right-click"
+- Header: SM_DIGITIZER 0xc1 (integrated touch, ready, multi-input), SM_MAXIMUMTOUCHES 10, SM_TABLETPC 1,
+  Wisp\Touch TouchMode_hold = 1 (press-and-hold enabled). Windows-side settings are fine.
+- One 3.7 s hold = ONE HID contact (id 0, 19 reports) but Windows produced ~7 pointer DOWN/UP pairs with
+  new pointer ids (= taps, WM_LBUTTONDOWN/UP each), never WM_RBUTTON*/WM_CONTEXTMENU.
+- Raw reports: the S6SY761 sends nothing while the finger is still; gaps 172-1937 ms. Windows lifted the
+  pointer ~200 ms after the last report (2828 → PTR UP at 3031) and re-created it at the next report.
+- Fix (driver 6.0.5058.5): `HoldTimer` - one-shot passive KMDF timer, armed by the ISR while any contact is
+  Active, repeats the current report every 20 ms into an EMPTY queue only (no stale backlog), re-arms
+  itself while a contact is down. HoldRepeatCount counts repeats.
+- Installed from TWRP into BOTH DriverStore copies (…40e80cfbb0f9f994, …b05675c579e4165b; old sys sha
+  50b836df…/207066747c…), new sys 63ad6ab5…. Not yet validated on device.

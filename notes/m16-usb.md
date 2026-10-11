@@ -173,3 +173,9 @@ Found:
 - Desktop: `Reboot to TWRP.exe` (the exe itself, no .cmd in between); desktop.cmd deletes the old .cmd
   and its idempotency check now keys on the .exe; the installer also places it directly on the NTFS.
 - build.bat → S10EDIAG_BUILD_OK (W4/WX).
+
+### Run 3 UEFILOG (boot 123)
+- `UsbHost: previous boot hung in USB bring-up (progress 0x67) - skipping it` → run 3 did NOT test USB;
+  the guard skipped it after run 2's exception (progress survived the TWRP boot in between). The next boot
+  (#68 still flashed) retries with tasks 6-8. Also: the installer had to fsck the NTFS (dirty after reset);
+  TWRP auto-mounts userdata ro at /data, which blocks a second mount - umount /data first.

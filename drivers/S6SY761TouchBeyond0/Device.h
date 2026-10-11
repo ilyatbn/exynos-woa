@@ -102,6 +102,9 @@ typedef struct _S6SY761_CONTACT_STATE
 DRIVER_INITIALIZE                   DriverEntry;
 EVT_WDF_DRIVER_DEVICE_ADD           EvtDeviceAdd;
 EVT_WDF_TIMER                       EvtTimerFunc;
+EVT_WDF_TIMER                       TouchHoldTimerFunc;
+
+#define S6SY761_HOLD_REPEAT_MS              20
 EVT_WDF_OBJECT_CONTEXT_CLEANUP      EvtDriverCleanup;
 
 EVT_WDF_DEVICE_PREPARE_HARDWARE      OnPrepareHardware;
@@ -140,6 +143,14 @@ typedef struct _DEVICE_CONTEXT
     volatile LONG           InputQueueFlushCount;
     volatile LONG           InputReportCoalesceCount;
     volatile LONG           InputReportCompleteCount;
+
+    // m12 right-click (notes/m12-touch.md, s10etouchlog run m16-3): the S6SY761 only raises events when a
+    // finger moves; Windows lifts a pointer ~200 ms after the last report, so a held finger became a burst
+    // of taps and press-and-hold never fired. While any contact is down this one-shot passive timer
+    // repeats the current report every S6SY761_HOLD_REPEAT_MS and re-arms itself.
+    WDFTIMER                HoldTimer;
+    volatile LONG           HoldTimerArmed;
+    volatile LONG           HoldRepeatCount;
 
     PVOID PoFxPowerSettingCallbackHandle1;
     PVOID PoFxPowerSettingCallbackHandle2;

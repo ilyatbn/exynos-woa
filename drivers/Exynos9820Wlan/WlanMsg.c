@@ -414,6 +414,39 @@ IoctlVar(_Inout_ PMSG_STATE S, _In_ BOOLEAN Set, _In_z_ PCSTR Name, _In_reads_by
     return Ioctl(S, Set ? WLC_SET_VAR : WLC_GET_VAR, Buf, (ULONG)NameLen + 1 + ValLen, OutLen, Name);
 }
 
+/* escan request (fmac cfg80211.c brcmf_run_escan / brcmf_escan_prep): all channels, broadcast SSID, active,
+   default dwell times. Returns the length. */
+static ULONG
+EscanBuild(_Out_writes_bytes_(ESCAN_PARAMS_V2_SIZE) PUCHAR Esc, _In_ BOOLEAN V2)
+{
+    PUCHAR P = Esc + ESCAN_PARAMS;
+
+    RtlZeroMemory(Esc, ESCAN_PARAMS_V2_SIZE);
+    *(ULONG UNALIGNED *)(Esc + ESCAN_VERSION)  = V2 ? ESCAN_REQ_VERSION_V2 : ESCAN_REQ_VERSION;
+    *(USHORT UNALIGNED *)(Esc + ESCAN_ACTION)  = WL_SCAN_ACTION_START;
+    *(USHORT UNALIGNED *)(Esc + ESCAN_SYNC_ID) = 0x1234;
+    if (V2) {
+        *(USHORT UNALIGNED *)(P + SCANP2_VERSION) = SCAN_PARAMS_VERSION_V2;
+        *(USHORT UNALIGNED *)(P + SCANP2_LENGTH)  = SCANP2_FIXED_SIZE;
+        RtlFillMemory(P + SCANP2_BSSID, 6, 0xFF);
+        P[SCANP2_BSS_TYPE] = DOT11_BSSTYPE_ANY;
+        *(ULONG UNALIGNED *)(P + SCANP2_SCAN_TYPE)   = SCANTYPE_ACTIVE;
+        *(LONG UNALIGNED *)(P + SCANP2_NPROBES)      = -1;
+        *(LONG UNALIGNED *)(P + SCANP2_ACTIVE_TIME)  = -1;
+        *(LONG UNALIGNED *)(P + SCANP2_PASSIVE_TIME) = -1;
+        *(LONG UNALIGNED *)(P + SCANP2_HOME_TIME)    = -1;
+        return ESCAN_PARAMS_V2_SIZE;
+    }
+    RtlFillMemory(P + SCANP_BSSID, 6, 0xFF);
+    P[SCANP_BSS_TYPE]  = DOT11_BSSTYPE_ANY;
+    P[SCANP_SCAN_TYPE] = SCANTYPE_ACTIVE;
+    *(LONG UNALIGNED *)(P + SCANP_NPROBES)      = -1;
+    *(LONG UNALIGNED *)(P + SCANP_ACTIVE_TIME)  = -1;
+    *(LONG UNALIGNED *)(P + SCANP_PASSIVE_TIME) = -1;
+    *(LONG UNALIGNED *)(P + SCANP_HOME_TIME)    = -1;
+    return ESCAN_PARAMS_V1_SIZE;
+}
+
 _Use_decl_annotations_
 VOID
 WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
@@ -617,6 +650,7 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
         UCHAR         Esc[ESCAN_PARAMS_V2_SIZE];
         ULONG         EscLen;
         BOOLEAN       V2;
+        ULONG         Major;
         LARGE_INTEGER Delay;
 
         ReportLine(R, "---- milestone 4: events + escan ----\r\n");
@@ -638,42 +672,33 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
             Ioctl(S, WLC_UP, &One, sizeof(One), 0, "UP") != MSG_OK) {
             goto ScanEnd;
         }
-        /* escan (fmac cfg80211.c brcmf_run_escan / brcmf_escan_prep): all channels, broadcast, active. v2 when
-           the "scan_ver" int get succeeds (fmac feature.c:342 BRCMF_FEAT_SCAN_V2), else v1. */
+        /* escan params version, dhd rule for this firmware (wl_cfg80211.c:18501-18511): v2 only when
+           "wlc_ver" major >= 14 (wl_cfg80211.h:833) AND "scan_ver" answers; fmac uses scan_ver alone
+           (feature.c:342). Run m4-1: v2 on scan_ver alone -> escan BCME_EPERM (-26). If the chosen version is
+           refused, the other one is tried once so one run answers it. */
+        Major = 0;
+        if (IoctlVar(S, FALSE, "wlc_ver", NULL, 0, WLC_VER_SIZE) == MSG_OK && S->RespLen >= WLC_VER_SIZE) {
+            Major = *(USHORT UNALIGNED *)(S->Resp + WLC_VER_MAJOR);
+            ReportLine(R, "[scan] wlc_ver: epi %u.%u.%u.%u wlc %u.%u\r\n", *(USHORT UNALIGNED *)(S->Resp + 4),
+                       *(USHORT UNALIGNED *)(S->Resp + 6), *(USHORT UNALIGNED *)(S->Resp + 8),
+                       *(USHORT UNALIGNED *)(S->Resp + 10), Major, *(USHORT UNALIGNED *)(S->Resp + WLC_VER_MAJOR + 2));
+        }
         V2 = (IoctlVar(S, FALSE, "scan_ver", NULL, 0, sizeof(ULONG)) == MSG_OK);
-        ReportLine(R, "[scan] scan_ver %s -> escan params v%u\r\n", V2 ? "answered" : "failed", V2 ? 2 : 1);
-        RtlZeroMemory(Esc, sizeof(Esc));
-        *(ULONG UNALIGNED *)(Esc + ESCAN_VERSION)  = V2 ? ESCAN_REQ_VERSION_V2 : ESCAN_REQ_VERSION;
-        *(USHORT UNALIGNED *)(Esc + ESCAN_ACTION)  = WL_SCAN_ACTION_START;
-        *(USHORT UNALIGNED *)(Esc + ESCAN_SYNC_ID) = 0x1234;
-        if (V2) {
-            PUCHAR P = Esc + ESCAN_PARAMS;
-
-            *(USHORT UNALIGNED *)(P + SCANP2_VERSION) = SCAN_PARAMS_VERSION_V2;
-            *(USHORT UNALIGNED *)(P + SCANP2_LENGTH)  = SCANP2_FIXED_SIZE;
-            RtlFillMemory(P + SCANP2_BSSID, 6, 0xFF);
-            P[SCANP2_BSS_TYPE] = DOT11_BSSTYPE_ANY;
-            *(ULONG UNALIGNED *)(P + SCANP2_SCAN_TYPE)   = SCANTYPE_ACTIVE;
-            *(LONG UNALIGNED *)(P + SCANP2_NPROBES)      = -1;
-            *(LONG UNALIGNED *)(P + SCANP2_ACTIVE_TIME)  = -1;
-            *(LONG UNALIGNED *)(P + SCANP2_PASSIVE_TIME) = -1;
-            *(LONG UNALIGNED *)(P + SCANP2_HOME_TIME)    = -1;
-            EscLen = ESCAN_PARAMS_V2_SIZE;
-        } else {
-            PUCHAR P = Esc + ESCAN_PARAMS;
-
-            RtlFillMemory(P + SCANP_BSSID, 6, 0xFF);
-            P[SCANP_BSS_TYPE]  = DOT11_BSSTYPE_ANY;
-            P[SCANP_SCAN_TYPE] = SCANTYPE_ACTIVE;
-            *(LONG UNALIGNED *)(P + SCANP_NPROBES)      = -1;
-            *(LONG UNALIGNED *)(P + SCANP_ACTIVE_TIME)  = -1;
-            *(LONG UNALIGNED *)(P + SCANP_PASSIVE_TIME) = -1;
-            *(LONG UNALIGNED *)(P + SCANP_HOME_TIME)    = -1;
-            EscLen = ESCAN_PARAMS_V1_SIZE;
-        }
+        ReportLine(R, "[scan] scan_ver %s, wlc major %lu (dhd min %u) -> escan params v%u\r\n",
+                   V2 ? "answered" : "failed", Major, MIN_ESCAN_PARAM_V2_FW_MAJOR,
+                   (V2 && Major >= MIN_ESCAN_PARAM_V2_FW_MAJOR) ? 2 : 1);
+        V2 = V2 && (Major >= MIN_ESCAN_PARAM_V2_FW_MAJOR);
+        EscLen = EscanBuild(Esc, V2);
         if (IoctlVar(S, TRUE, "escan", Esc, EscLen, 0) != MSG_OK) {
-            goto ScanEnd;
+            ReportLine(R, "[scan] escan v%u refused (status %ld) - trying v%u\r\n", V2 ? 2 : 1, S->RespStatus, V2 ? 1 : 2);
+            V2 = !V2;
+            EscLen = EscanBuild(Esc, V2);
+            if (IoctlVar(S, TRUE, "escan", Esc, EscLen, 0) != MSG_OK) {
+                ReportLine(R, "[scan] escan v%u refused too (status %ld)\r\n", V2 ? 2 : 1, S->RespStatus);
+                goto ScanEnd;
+            }
         }
+        ReportLine(R, "[scan] escan v%u accepted\r\n", V2 ? 2 : 1);
         for (Ms = 0; Ms < SCAN_TIMEOUT_MS && !S->ScanDone; Ms += 10) {
             (VOID)D2hCtrlPoll(S);
             Delay.QuadPart = -10000LL * 10;

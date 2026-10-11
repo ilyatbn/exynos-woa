@@ -432,6 +432,9 @@
 #define SCANP2_HOME_TIME            64
 #define SCANP2_FIXED_SIZE           72             /* fmac fwil_types.h:51 BRCMF_SCAN_PARAMS_V2_FIXED_SIZE */
 #define ESCAN_PARAMS_V2_SIZE        (ESCAN_PARAMS + SCANP2_FIXED_SIZE)
+#define MIN_ESCAN_PARAM_V2_FW_MAJOR 14             /* dhd wl_cfg80211.h:833 */
+#define WLC_VER_SIZE                16             /* wl_wlc_version_t, dhd wlioctl.h:14092-14104 (8 x u16) */
+#define WLC_VER_MAJOR               12             /* wlc_ver_major u16 (version, length, 4 x epi, major, minor) */
 #define DOT11_BSSTYPE_ANY           2              /* fmac fwil_types.h:72 */
 #define SCANTYPE_ACTIVE             0              /* fmac fwil_types.h:62 */
 /* escan result (fmac fwil_types.h:470) and wl_bss_info v109 (dhd wlioctl.h:384-424) */

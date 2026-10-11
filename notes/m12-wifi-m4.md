@@ -87,3 +87,12 @@ BSS (BSSID, SSID, channel, RSSI) the firmware reports. Proves the radio receives
     ScanEnd stays inside the block.
   - Found: EscanResult `Off + BLen > Len` wraps for a malformed BLen near 4 GB (reads stay bounded by the loop
     guard, but the check is wrong). Fixed in its own commit: `BLen > Len - Off`.
+- Run m4-1 (02:37, 1.0.4.0): 8 event bufs posted (rxoffset 0); event_msgs GET (byte 8 = 0x21, ESCAN bit already
+  set) + SET OK; UP OK; **WL_EVENT path works** (event type 54 status 0 datalen 5 parsed + buffer reposted);
+  scan_ver answered -> v2 escan (86 B) -> IOCTL CMPLT status **-26 = BCME_EPERM** (bcmutils.h:385). SCAN 1.
+  Teardown clean (ARM halted, BME off). Battery 64 %.
+- Analysis: nvram ccode=GB regrev=0 (not a missing country). dhd (Samsung's driver for this fw) uses v2 only when
+  wlc_ver major >= 14 (wl_cfg80211.h:833 MIN_ESCAN_PARAM_V2_FW_MAJOR) AND scan_ver answers
+  (wl_cfg80211.c:18501-18511); fmac uses scan_ver alone. Hypothesis: this fw's wlc major < 14 -> expects v1.
+- 1.0.4.1: GET wlc_ver (wl_wlc_version_t, 16 B, major @12), dhd rule, and on refusal one retry with the other
+  version. Build s10e-artifacts\wifi-m4b, sys FA95DCDE….

@@ -4,7 +4,7 @@ rem Called from collect.cmd as SYSTEM. Everything goes on the Public desktop (vi
 rem Plain .cmd launchers only: the first version made .lnk files through powershell WScript.Shell and that step
 rem never finished on one core (interactive session after run 13).
 set PD=C:\Users\Public\Desktop
-if exist "%PD%\Reboot to TWRP.cmd" exit /b 0
+if exist "%PD%\Rotate next.cmd" if exist "%PD%\Reboot to TWRP.cmd" exit /b 0
 if not exist C:\S10eTmp\req mkdir C:\S10eTmp\req
 icacls C:\S10eTmp\req /grant *S-1-5-32-545:(OI)(CI)M > nul 2>&1
 
@@ -16,6 +16,9 @@ rem Request files are picked up by the S10eAgent service (LocalSystem) within 2 
 > "%PD%\On-Screen Keyboard.cmd" echo @start "" C:\Windows\System32\osk.exe
 > "%PD%\Command Prompt.cmd" echo @start "" C:\Windows\System32\cmd.exe
 > "%PD%\Device Manager.cmd" echo @start "" C:\Windows\System32\devmgmt.msc
+> "%PD%\Rotate landscape.cmd" echo @C:\Windows\System32\s10erotate.exe 90
+> "%PD%\Rotate portrait.cmd" echo @C:\Windows\System32\s10erotate.exe 0
+> "%PD%\Rotate next.cmd" echo @C:\Windows\System32\s10erotate.exe cycle
 rem Written last: its presence means the set is complete (the idempotency check above).
 > "%PD%\Reboot to TWRP.cmd" echo @echo x^> C:\S10eTmp\req\recovery.req
 >> "%PD%\Reboot to TWRP.cmd" echo @echo Rebooting to TWRP...

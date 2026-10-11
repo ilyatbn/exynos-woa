@@ -17,3 +17,7 @@ Shipped = GOP framebuffer + inbox BasicDisplay + WARP (CPU rendering). => speed 
 ## Progress log
 - Boot #59 (built): Beyond0LteTouchPowerDxe also does a READ-ONLY FREQ_GET for idx 0/2/3/4 on ACPM channel 5
   (live DT acpm_dvfs = 5) and logs "TouchPower: DVFS <name> (idx n) = <kHz>". FVMAIN_COMPACT auto-sized.
+- s10erotate.exe (drivers/S10eDiag/S10eRotate.c): ChangeDisplaySettingsExW orientation 0/90/180/270/cycle/query,
+  logs to %TEMP%\s10erotate.log; desktop launchers "Rotate landscape/portrait/next". Whether BasicDisplay allows
+  rotation is unverified - the exit code says (DISP_CHANGE_BADMODE = -2 if not).
+- extra-perf.cmd: winsat disk seq/ran read, mem, cpu compression -> out\last\perf.

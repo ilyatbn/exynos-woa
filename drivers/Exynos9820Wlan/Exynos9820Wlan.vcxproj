@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Exynos9820Wlan milestone-1 probe: plain KMDF, no WPP, no NDIS. Shape copied from
+     drivers/Exynos9820Hsi2c/Exynos9820Hsi2c.vcxproj (the project that builds on this box with
+     drivers/Exynos9820Hsi2c/build-package.ps1), ARM64 only. -->
+<Project DefaultTargets="Build" ToolsVersion="12.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|ARM64">
+      <Configuration>Debug</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64">
+      <Configuration>Release</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{5B2E8D41-7C3A-4F6E-9A12-4375D11A9825}</ProjectGuid>
+    <RootNamespace>Exynos9820Wlan</RootNamespace>
+    <KMDF_VERSION_MAJOR>1</KMDF_VERSION_MAJOR>
+    <Configuration Condition="'$(Configuration)' == ''">Release</Configuration>
+    <Platform Condition="'$(Platform)' == ''">ARM64</Platform>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration" Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
+    <TargetVersion>Windows10</TargetVersion>
+    <UseDebugLibraries>False</UseDebugLibraries>
+    <DriverTargetPlatform>Windows Driver</DriverTargetPlatform>
+    <DriverType>KMDF</DriverType>
+    <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
+    <ConfigurationType>Driver</ConfigurationType>
+  </PropertyGroup>
+  <PropertyGroup Label="Configuration" Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
+    <TargetVersion>Windows10</TargetVersion>
+    <UseDebugLibraries>True</UseDebugLibraries>
+    <DriverTargetPlatform>Windows Driver</DriverTargetPlatform>
+    <DriverType>KMDF</DriverType>
+    <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
+    <ConfigurationType>Driver</ConfigurationType>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <OutDir>$(IntDir)</OutDir>
+    <TargetName>Exynos9820Wlan</TargetName>
+    <!-- stampinf stamps the LOCAL date; without this Inf2Cat compares it to UTC and rejects it as
+         postdated (22.9.7) whenever local time is past midnight but UTC is not. -->
+    <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <WarningLevel>Level4</WarningLevel>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>%(AdditionalDependencies);$(DDK_LIB_PATH)\ntstrsafe.lib</AdditionalDependencies>
+    </Link>
+    <DriverSign>
+      <FileDigestAlgorithm>sha256</FileDigestAlgorithm>
+    </DriverSign>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="WlanProbe.c" />
+    <ClInclude Include="Exynos9820Wlan.h" />
+    <ResourceCompile Include="resource.rc" />
+    <Inf Include="Exynos9820Wlan.inx">
+      <Architecture>$(InfArch)</Architecture>
+      <SpecifyArchitecture>true</SpecifyArchitecture>
+      <CopyOutput>.\$(IntDir)\Exynos9820Wlan.inf</CopyOutput>
+    </Inf>
+    <FilesToPackage Include="$(TargetPath)" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

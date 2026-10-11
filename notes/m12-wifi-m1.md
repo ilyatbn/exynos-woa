@@ -88,3 +88,39 @@ files (`git checkout origin/drivers -- <paths>`), never `git merge`. Plan:
 - Accepted risks (recorded, not bugs): ClocksOn writes ACPM/HWACG-owned gates directly (open item
   P4); a PCIe completion error on the CFG/BAR reads could raise an SError rather than return ~0 -
   covered by the 0x68 guard (the boot after skips WLAN), not prevented.
+
+## Review of commit cb15de2 (3/5)
+
+- grep: SAMS9825 is used only by Dsdt.asl WLAN and the Exynos9820Wlan package (no _HID collision;
+  SAMS9821 = UFN0, SAMS9820 = I2C0). GSIV 285 appears once in the ACPI tables (no other claimant).
+  0x8FE0F00C / 0x4E414C57 identical in Dsdt.asl and Beyond0LtePcieDxe.c. Field width DWordAcc 32 =
+  the UINT32 word the DXE writes. Nothing to fix.
+
+## Windows driver decision + build (task 4)
+
+- Decision: KMDF probe (Class=System), not the drivers-branch NDIS miniport. Reasons: milestone 1
+  asks only "binds + reads chip ID"; an NDIS miniport adds INF keyword requirements
+  (*IfType/*MediaType/*PhysicalMediaType/Characteristics), NDIS registration and OID handling - all
+  failure modes unrelated to the question, and the skeleton was never compiled. The NDIS sources
+  (WlanDriver.c, the Class=Net .inf) are NOT ported; they stay on origin/drivers (5746999, cb6a90f)
+  for milestone 2+.
+- The probe writes nothing to the chip (no BAR sizing, no COMMAND write, interrupt not connected),
+  checks _CRS against the DSDT contract, reads VID/DID/COMMAND/class/subsystem/BAR0..5 via the CFG0
+  window and chipid at BAR0+0x3000 only when BAR0 is a >=16 KB memory BAR inside the MEM window with MEM
+  decode on. Sinks: C:\Windows\System32\LogFiles\Exynos9820Wlan.txt (NOT Windows\Temp - corrupt index on
+  this unit, m12-touch run 6), Services\Exynos9820Wlan\Parameters (Report + DWORDs), DbgPrintEx.
+- Build 1: C4013 ZwFlushBuffersFile (ntifs.h only) -> dropped, FILE_WRITE_THROUGH instead.
+  Build 2: Inf2Cat 22.9.7 "DriverVer postdated" - stampinf uses the LOCAL date (10/12, 00:3x) and the
+  msbuild Inf2Cat step compares against UTC (still 10/11) -> Inf2CatUseLocalTime=true in the vcxproj
+  (build-package.ps1 already passes /uselocaltime to its own Inf2Cat).
+- Build 3 (build-package.ps1 -Out C:\Users\ilya\code\s10e-artifacts\wifi-m1\Exynos9820Wlan): exit 0,
+  /W4 /WX clean, KMDF 1.15, PE machine 0xAA64, infverif /w /v = VALID, signtool verify /pa /c: .sys
+  "signed in catalog", signer WDKTestCert ilya,134359747320405644 (host root-trust failure expected, as
+  for the touch packages). SHA256: Exynos9820Wlan.sys E1BE2850586F8A6F..., .inf 8A72830486C188EE...,
+  exynos9820wlan.cat BF7B22BF42FD8DF4...
+- s10e-artifacts\wifi-m1\ also holds wdktestcert.cer (copy of touch-t2's), extra-wlan.cmd and the FD of
+  this build (BEYOND0LTE_UEFI-m12m1.fd, sha256 4b8abc3f...0d815) - the shared edk2 Build dir may be
+  overwritten by the device session.
+- drivers/S10eDiag/esp/extra-wlan.cmd: peeks 0x8FE0F00C, installs the package with pnputil (TMP =
+  C:\S10eTmp), collects pnputil /enum-devices ACPI\SAMS9825, sc query, the Parameters key, the report
+  file and setupapi.dev.log into out\last\wlan\.

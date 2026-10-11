@@ -62,6 +62,18 @@ Peek(unsigned long long Address, unsigned long Length)
         printf(" %08lx", Buffer[Index]);
     }
     printf("\n");
+    {
+        // The first words also go to the PRAM mark ring: a later read that aborts loses FAT writes.
+        char Line[S10EDIAG_MARK_LINE];
+        int Used = _snprintf_s(Line, sizeof(Line), _TRUNCATE, "peek %llx =", Address);
+
+        for (Index = 0; Index < Returned / 4 && Index < 4 && Used > 0; Index++) {
+            Used += _snprintf_s(Line + Used, sizeof(Line) - Used, _TRUNCATE, " %08lx", Buffer[Index]);
+        }
+        if (Used > 0) {
+            Ioctl(IOCTL_S10EDIAG_MARK, Line, (DWORD)Used, NULL, 0, NULL);
+        }
+    }
     free(Buffer);
     return 0;
 }

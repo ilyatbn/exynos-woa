@@ -31,3 +31,11 @@ USI mode slots (samsung,exynos-usi, each reg = 4 bytes in sysreg 0x10421000): 'i
   usi_5). VERIFIED-by-DT: base 0x10421000 (usi@... reg), offset 0x1C, mode 'i2c'.
   => driver CMU gates are wrong: header uses USI03_I2C_IPCLKPORT_{IPCLK,PCLK} (0x2094/0x2098); the bus needs the
   USI03_USI gates. Next: cal-if offsets for USI03_USI gates/QCH.
+- Run 4 (2026-10-11 ~10:57, S10eDiag mark ring): the agent reached the desktop at 140 s, quick collection ran
+  clean (Get-PnpDevice alone took 105 s), then extra-touch.cmd's FIRST register read - `s10ediag peek 0x10421000
+  0x54` (USI sysreg page) - aborted: mark "t: peek before" at 264317 ms, "BUGCHECK callback" at 264364 ms,
+  =UFSBUGCHECK 0x124 B1=0x11 (SEA). Run 3's identical 0x124 was the same peek (its FAT log never flushed).
+  => non-secure EL1 reads of the PERIC0 USI sysreg abort at Windows time. The HSI2C driver programs exactly
+  that register, so it would abort the same way. Candidates: SYSREG_PERIC0 clock gated (cal-if gate 0x2058,
+  QCH 0x3018), TZPC (D_TZPC_PERIC0), or the hypervisor's stage-2. Run 5 = extra-probe-peric0.cmd: one word per
+  peek, cal-if CMU_PERIC0 gates/QCHs first, GPIO, then the USI03 mode word, then HSI2C; every value is marked.

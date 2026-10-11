@@ -150,6 +150,33 @@ main(int argc, char **argv)
     if (argc >= 2 && strcmp(argv[1], "recovery") == 0) {
         return Ioctl(IOCTL_S10EDIAG_RECOVERY_ON_RESET, NULL, 0, NULL, 0, NULL);
     }
+    if (argc >= 2 && (strcmp(argv[1], "flush") == 0 || strcmp(argv[1], "flushreset") == 0)) {
+        // m14 run 20: the clean restart does not reach TWRP (sboot boots UEFI, which continues into Windows).
+        // Flush every lettered volume's cache to disk, then (flushreset) the proven hard reset to recovery.
+        wchar_t Root[] = L"\\\\.\\A:";
+        DWORD Drives = GetLogicalDrives();
+        int Letter;
+
+        for (Letter = 0; Letter < 26; Letter++) {
+            HANDLE Volume;
+
+            if ((Drives & (1UL << Letter)) == 0) {
+                continue;
+            }
+            Root[4] = (wchar_t)(L'A' + Letter);
+            Volume = CreateFileW(Root, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                                 OPEN_EXISTING, 0, NULL);
+            if (Volume != INVALID_HANDLE_VALUE) {
+                printf("flush %c: %s\n", 'A' + Letter, FlushFileBuffers(Volume) ? "ok" : "failed");
+                CloseHandle(Volume);
+            }
+        }
+        if (strcmp(argv[1], "flushreset") == 0) {
+            Sleep(2000);
+            return Ioctl(IOCTL_S10EDIAG_HARD_RESET, NULL, 0, NULL, 0, NULL);
+        }
+        return 0;
+    }
     if (argc >= 2 && strcmp(argv[1], "hardreset") == 0) {
         return Ioctl(IOCTL_S10EDIAG_HARD_RESET, NULL, 0, NULL, 0, NULL);
     }

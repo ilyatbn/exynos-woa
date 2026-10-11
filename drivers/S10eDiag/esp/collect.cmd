@@ -69,8 +69,8 @@ if exist %ESP%\S10EDIAG\stay.flg (
 
 echo --- back to TWRP
 s10ediag mark c: restart to TWRP
-s10ediag recovery
-s10ediag fallback 300
+rem m14 run 18-20: a clean "shutdown /r" restarts fine but sboot boots UEFI again (endless loop), so return the
+rem proven way: flush every volume's cache, then S10eDiag's hard reset to recovery.
 s10ediag info
-shutdown /r /t 5 /f /d p:4:1
+s10ediag flushreset
 exit /b 0

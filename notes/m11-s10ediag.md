@@ -95,3 +95,7 @@ within it ... after that start with getting touch working. then ... at least 1 m
   82 s dead man's switch reset it; the next boot took the boot pair to TWRP. PRAM had bit-decay (power cycles).
   TODO: desktop.cmd without powershell (or run it detached with a timeout); find the post-key-reset UEFI stall
   (between BootLogDxe init and ReadyToBoot: TouchPowerDxe ACPM? connect-all?).
+- Run 20 (boot #54, 0x81 marker): still looped (not back in 8 min). Unattended return and the "Reboot to TWRP"
+  request now use `s10ediag flushreset` (FlushFileBuffers on every lettered volume, 2 s, then the proven hard
+  reset to recovery). collect.cmd no longer calls shutdown /r. Why sboot ignores INFORM3 on the clean path stays
+  open (m14).

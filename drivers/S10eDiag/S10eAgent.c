@@ -325,9 +325,8 @@ Worker(LPVOID Parameter)
         if (GetFileAttributesW(L"C:\\S10eTmp\\req\\recovery.req") != INVALID_FILE_ATTRIBUTES) {
             DeleteFileW(L"C:\\S10eTmp\\req\\recovery.req");
             LogLine("request: reboot to TWRP");
-            RunAndWait(L"C:\\Windows\\System32\\s10ediag.exe recovery", 30000, INVALID_HANDLE_VALUE);
-            RunAndWait(L"C:\\Windows\\System32\\s10ediag.exe fallback 300", 30000, INVALID_HANDLE_VALUE);
-            RunAndWait(L"C:\\Windows\\System32\\shutdown.exe /r /t 0 /f /d p:4:1", 30000, INVALID_HANDLE_VALUE);
+            // m14 runs 18-20: a clean restart loops back into Windows; flush + hard reset is the proven way.
+            RunAndWait(L"C:\\Windows\\System32\\s10ediag.exe flushreset", 60000, INVALID_HANDLE_VALUE);
         }
         if (GetFileAttributesW(L"C:\\S10eTmp\\req\\collect.req") != INVALID_FILE_ATTRIBUTES) {
             DeleteFileW(L"C:\\S10eTmp\\req\\collect.req");

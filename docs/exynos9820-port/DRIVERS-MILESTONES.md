@@ -51,7 +51,7 @@ ACPI/Windows half remains.
 | D4 | WiFi: USB adapter path chosen + validated (vendor bcmdhd stays closed) | **doing** | research + choice **done** (`notes/d4-usb-wifi.md`): no USB WiFi driver exists for ARM64 — decision is PicoPiFi (Pico W, driverless RNDIS) as the WiFi option, dock ethernet (M13) stays primary; device validation rides on D1/D3 |
 | D5 | GPU/display: framebuffer deliverable decided; Mali WDDM reopened as D5b | **doing** | research + verdict **done** (`notes/d5-gpu-display.md` + addendum): shipped-code deliverable is GOP + in-box BasicDisplay; acceleration reopened after the S9 WDDM report — kbase r10p0 source is already in the 9820 kernel, feasibility inventory (D5b) is next; fb handoff validation still **needs-boot** |
 | D6 | External display (DP alt mode over the combo PHY) — stretch | **doing** | research + hub ID + decision **done** (`notes/d6-external-display.md`): user's UGREEN HDMI = DP alt mode (no DisplayLink chip) -> dark under Windows until a display-only WDDM exists (D5b rung 1); DisplayLink adapter is the buy-it-now alternative; DeX-on-Android validation recorded |
-| D8a | Audio milestone 1: read the CS47L93 / CS35L40 IDs from our UEFI | **doing** | task list below (`notes/d8-audio-m1.md`) |
+| D8a | Audio milestone 1: read the CS47L93 / CS35L40 IDs from our UEFI; milestone 2: codec tone on the jack | **doing** | m1/m1b device-validated (boot #92); m2 task list below (`notes/d8-audio-m1.md` §6) |
 
 ## Task list
 
@@ -149,7 +149,19 @@ Bar: the same UEFILOG lines as milestone 1, now with `CS47L92/93 ID OK` and both
 | AudioProbeDxe: amp reset release when the pin is not driven high (vendor low -> 1 ms -> high -> 2 ms) | **done (code + build)** | build exit 0; pins restored to handoff afterwards (amps back in reset) |
 | TouchPowerDxe: LDO18M on (flag `BEYOND0LTE_AUDIO_DCVDD`, vsel 0x28 check, 5 ms ramp), signal the codec-power event group | **done (code + build)** | **PMIC write** (0x57 enable 0xC0/0xC0, refused unless vsel 0x28); build exit 0 |
 | AudioProbeDxe: codec reset asserted at entry, codec probe deferred to the event group, BOOT_DONE poll | **done (code + build)** | build exit 0, FD sha256 `645c8328…`; codec reset restored to handoff afterwards |
-| Device test: UEFILOG shows codec + amp IDs | todo | **needs-boot** — procedure in `notes/d8-audio-m1.md` §5.4 |
+| Device test: UEFILOG shows codec + amp IDs | **done (device-validated, boot #92)** | `notes/d8-audio-m1.md` "RESULT milestone 1b": codec 6371 HW_REV 1, both amps 35A40 |
+
+### D8 audio — milestone 2: codec tone on the 3.5 mm jack (`notes/d8-audio-m1.md` §6)
+
+Bar: UEFILOG proves FLL1 lock, SYSCLK on, tone -> OUT2 mixers, HP2 enable done, no short; the user hears a
+~1 kHz tone for ~2 s in wired headphones at boot (flag `BEYOND0LTE_AUDIO_TONE`, off once validated).
+
+| Task | State | Notes |
+|------|-------|-------|
+| Research: jack output (OUT1 vs OUT2), SYSCLK source without AP clocks, FLLHJ values, HP enable sequence, patch | **done** | §6.1: HEADPHONE <- HPOUT2L/R (stock dtbo routing); FLL1 <- MCLK2 32 kHz (N 375, FB_DIV 4), fallback MCLK1 26 MHz; cs47l92 patch verbatim |
+| AudioProbeDxe: codec SPI write (16-bit + 32-bit regmap) and 32-bit read helpers | todo | |
+| AudioProbeDxe: tone sequence (patch, 32k clk, FLL1, SYSCLK, tone1 -> OUT2 -> HPOUT2 2 s, teardown), flag `BEYOND0LTE_AUDIO_TONE` | todo | |
+| Device test: UEFILOG lock/enable lines + tone heard | todo | **needs-boot** + the user's ears |
 
 ## Working rules for this file
 

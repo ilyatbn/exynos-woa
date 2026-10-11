@@ -174,3 +174,5 @@ hang (notes/m14-smp.md: "Needs kernel-level debugging (KDNET/USB) - parked"), ea
 - Fix A (UEFI, Dwc3CoreInit device branch): clear GUSB2PHYCFG SUSPHY|ENBLSLPM (GUSB3PIPECTL.SUSPHY kept - SS
   held down), then rehearse CSFTRST with a 100 ms timeout and log GCTL / GUSB2PHYCFG before->after / PIPECTL /
   DSTS; EFI_TIMEOUT (=> no 'USBD') if it sticks. Build exit 0.
+- Fix B (DBG2 FIX2): WriteCount 2: {BAR0, phase 1 (after kd's CSFTRST), 0xC200 AND 0xFFFFFEBF} clears SUSPHY|
+  ENBLSLPM inside Windows too, then the phase-2 DCFG HS write. Compiled table decoded = as intended.

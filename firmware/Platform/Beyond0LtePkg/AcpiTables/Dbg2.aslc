@@ -29,11 +29,12 @@
 // 32 58 49 46 = 0x46495832 ('FIX2'). 'USBC' does not occur in the DLL (trailer probably unread).
 #define DBG2_OEM_SIGNATURE_FIX2          0x46495832
 #define DBG2_OEM_SIGNATURE_USBC          0x55534243
-#define DBG2_OEM_PHASE_CONFIG_DONE       2
+#define DBG2_OEM_PHASE_AFTER_RESET       1   // kd_8003_5143: right after its DCTL.CSFTRST (notes/m17-kd-dll-re.md)
+#define DBG2_OEM_PHASE_CONFIG_DONE       2   // just before RUN_STOP
 
 #define DBG2_UFN_BAR_COUNT               2
 #define DBG2_UFN_NAMESPACE               "\\_SB.UFN0"
-#define DBG2_UFN_OEM_WRITES              1
+#define DBG2_UFN_OEM_WRITES              2
 
 #pragma pack(1)
 typedef struct {
@@ -109,6 +110,10 @@ STATIC BEYOND0LTE_DBG2  Dbg2 = {
       DBG2_OEM_SIGNATURE_FIX2,
       DBG2_UFN_OEM_WRITES,
       {
+        // GUSB2PHYCFG (0xC200): clear SUSPHY (bit 6) + ENBLSLPM (bit 8) after the module's own core soft reset -
+        // it never touches the PHY config and then polls DEPCMD.CMDACT with no timeout; a suspended UTMI PHY
+        // (its clock gated) keeps that from ever completing. UEFI clears them too, before handoff.
+        { 0, DBG2_OEM_PHASE_AFTER_RESET, 0, 0xC200, 0xFFFFFEBF, 0x0 },
         // DCFG (0xC700) DEVSPD = 0 -> high speed. The SS PIPE3/PMA side is held down by Beyond0LteUsbHostDxe,
         // so the core must not try SuperSpeed. Same write as the Qualcomm table. No VBUS write is needed:
         // our PHY init already forces VBUSVALID/BVALID (Qualcomm's second write does that in its glue block).

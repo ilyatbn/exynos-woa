@@ -105,3 +105,14 @@ Found:
 - DWC31 ≥1.70a GUCTL3 USB20_RETRY_DISABLE: bit not in our notes → not written, logged as UNVERIFIED.
 - Build green. (Python heredoc mangled `\n` + em-dashes again; repaired byte-wise with a scratchpad
   script; verified by re-reading.)
+
+### Task 4 — HSI2C45 diagnostics (run 2 instrument)
+- Hsi2cDump: CTL/FIFO_CTL/TRAIL/INT_EN/INT_STAT/ERR(0x2C)/FIFO_STAT/CONF/AUTO_CONF/TIMEOUT/TRANS_STATUS/
+  FS1-3/ADDR/USI_CON/USI_OPT at handoff, after init, on the first transfer timeouts (max 6 dumps).
+- INT_EN now TRANSFER_DONE | ABORT(8) | NO_ACK(9) | NODEV(10) | TIMEOUT(11); INT_STAT acked (0xFFF)
+  before each kick. Bits from drivers/Exynos9820Hsi2c/exynos9820hsi2c.h (device-validated on the touch bus).
+- SW reset now an explicit pulse (set, clear) like exynos5_i2c_reset and our Windows driver.
+- HSI2C_TIMEOUT_MS 1000 → 50 (software poll; a PMIC transfer is < 1 ms).
+- PmicBusProbe: reg 0 of 0x66 (DT max77705@66), 0x25 CCIC, 0x69 charger, 0x36 FG; CC attach poll only
+  if the CCIC answered (a dead bus would have cost ~30 x timeout).
+- Build green.

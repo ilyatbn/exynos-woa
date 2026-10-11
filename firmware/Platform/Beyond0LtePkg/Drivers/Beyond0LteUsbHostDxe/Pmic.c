@@ -21,23 +21,54 @@
 
 #define I2C  EXYNOS_PMIC_HSI2C_BASE
 
-#define HSI2C_TIMEOUT_MS  1000
+// A 1-3 byte PMIC transfer takes well under 1 ms at FS; 50 ms keeps a dead bus from costing a second per
+// register (run 1: one 1000 ms timeout; the CC attach poll would have made it ~33 s).
+#define HSI2C_TIMEOUT_MS  50
+
+// Error interrupt bits - from our device-validated Windows HSI2C driver (drivers/Exynos9820Hsi2c/
+// exynos9820hsi2c.h EHI2C_INTERRUPT_*, same exynos5-hsi2c IP, touch bus works with it). Run 1 enabled
+// only TRANSFER_DONE, so a NACK and a dead block looked the same (INT_STAT=0).
+#define HSI2C_INT_TRANSFER_ABORT  BIT8
+#define HSI2C_INT_NO_ACK          BIT9
+#define HSI2C_INT_TIMEOUT         BIT11
+#define HSI2C_INT_ERRORS          (HSI2C_INT_TRANSFER_ABORT | HSI2C_INT_NO_ACK | HSI2C_INT_NODEV | HSI2C_INT_TIMEOUT)
+#define HSI2C_INT_ALL             0x00000FFFu
+#define HSI2C_ERROR_STATUS        0x2C
 
 STATIC BOOLEAN  mBusReady = FALSE;
+STATIC UINTN    mDumps    = 0;
 
+VOID
+Hsi2cDump (IN CONST CHAR8 *Label)
+{
+  if (mDumps++ >= 6) {
+    return;
+  }
+  DEBUG ((DEBUG_WARN, "Hsi2c45 %a: CTL %x FIFO_CTL %x TRAIL %x INT_EN %x INT_STAT %x ERR %x FIFO_STAT %x\n",
+          Label, MmioRead32 (I2C + HSI2C_CTL), MmioRead32 (I2C + HSI2C_FIFO_CTL), MmioRead32 (I2C + HSI2C_TRAIL_CTL),
+          MmioRead32 (I2C + HSI2C_INT_EN), MmioRead32 (I2C + HSI2C_INT_STAT), MmioRead32 (I2C + HSI2C_ERROR_STATUS),
+          MmioRead32 (I2C + HSI2C_FIFO_STAT)));
+  DEBUG ((DEBUG_WARN, "Hsi2c45 %a: CONF %x AUTO_CONF %x TIMEOUT %x TRANS_STATUS %x FS1 %x FS2 %x FS3 %x ADDR %x USI_CON %x USI_OPT %x\n",
+          Label, MmioRead32 (I2C + HSI2C_CONF), MmioRead32 (I2C + HSI2C_AUTO_CONF), MmioRead32 (I2C + HSI2C_TIMEOUT),
+          MmioRead32 (I2C + HSI2C_TRANS_STATUS), MmioRead32 (I2C + HSI2C_TIMING_FS1), MmioRead32 (I2C + HSI2C_TIMING_FS2),
+          MmioRead32 (I2C + HSI2C_TIMING_FS3), MmioRead32 (I2C + HSI2C_ADDR), MmioRead32 (I2C + HSI2C_USI_CON),
+          MmioRead32 (I2C + HSI2C_USI_OPTION)));
+}
+
+// Returns the INT_STAT seen once any Wanted bit is set, 0 on timeout.
 STATIC
 UINT32
 Hsi2cPollIntStat (IN UINT32 Wanted, OUT UINT32 *Seen)
 {
   UINTN  ElapsedUs;
 
-  for (ElapsedUs = 0; ElapsedUs < HSI2C_TIMEOUT_MS * 1000; ElapsedUs += 1000) {
+  for (ElapsedUs = 0; ElapsedUs < HSI2C_TIMEOUT_MS * 1000; ElapsedUs += 100) {
     *Seen = MmioRead32 (I2C + HSI2C_INT_STAT);
-    if ((*Seen & Wanted) == Wanted) {
+    if ((*Seen & Wanted) != 0) {
       return *Seen;
     }
 
-    gBS->Stall (1000);
+    gBS->Stall (100);
   }
 
   return 0;
@@ -123,7 +154,8 @@ Hsi2cXfer (IN UINT8 SlaveAddr, IN BOOLEAN Read, IN OUT UINT8 *Data, IN UINTN Len
     }
   }
 
-  MmioWrite32 (I2C + HSI2C_INT_EN, HSI2C_INT_TRANSFER_DONE);
+  MmioWrite32 (I2C + HSI2C_INT_STAT, HSI2C_INT_ALL);   // ack stale bits (Windows driver does the same)
+  MmioWrite32 (I2C + HSI2C_INT_EN, HSI2C_INT_TRANSFER_DONE | HSI2C_INT_ERRORS);
 
   // Kick.
   MmioWrite32 (I2C + HSI2C_AUTO_CONF, AutoConf | HSI2C_AUTO_CONF_MASTER_RUN);
@@ -143,14 +175,18 @@ Hsi2cXfer (IN UINT8 SlaveAddr, IN BOOLEAN Read, IN OUT UINT8 *Data, IN UINTN Len
   }
 
   // Wait for TRANSFER_DONE and (for writes) the FIFO to drain.
-  if (Hsi2cPollIntStat (HSI2C_INT_TRANSFER_DONE, &IntStat) == 0) {
+  if (Hsi2cPollIntStat (HSI2C_INT_TRANSFER_DONE | HSI2C_INT_ERRORS, &IntStat) == 0) {
     DEBUG ((DEBUG_ERROR, "%a: timeout addr=%x reg/first=%x INT_STAT=%x\n",
             __func__, SlaveAddr, Data[0], IntStat));
+    Hsi2cDump ("xfer timeout");
     return EFI_TIMEOUT;
   }
 
-  if ((IntStat & HSI2C_INT_NODEV) != 0) {
-    return EFI_NOT_FOUND;
+  if ((IntStat & HSI2C_INT_ERRORS) != 0) {
+    DEBUG ((DEBUG_ERROR, "%a: addr=%x reg/first=%x INT_STAT=%x ERR=%x TRANS_STATUS=%x\n", __func__, SlaveAddr,
+            Data[0], IntStat, MmioRead32 (I2C + HSI2C_ERROR_STATUS), MmioRead32 (I2C + HSI2C_TRANS_STATUS)));
+    MmioWrite32 (I2C + HSI2C_INT_STAT, IntStat);
+    return ((IntStat & (HSI2C_INT_NODEV | HSI2C_INT_NO_ACK)) != 0) ? EFI_NOT_FOUND : EFI_DEVICE_ERROR;
   }
 
   // Ack the interrupt (write back).
@@ -183,13 +219,15 @@ Hsi2cXfer (IN UINT8 SlaveAddr, IN BOOLEAN Read, IN OUT UINT8 *Data, IN UINTN Len
 EFI_STATUS
 PmicBusInit (VOID)
 {
+  Hsi2cDump ("at handoff");
+
   // USI_CON: release the USI block reset (kernel writes 0; USI_RESET=(0<<0)).
   MmioWrite32 (I2C + HSI2C_USI_CON, 0);
 
-  // SW reset pulse. [K exynos5_i2c_reset] — SW_RST self-clears; the read is
-  // the confirmation, the value is not used.
+  // SW reset pulse. [K exynos5_i2c_reset] sets then CLEARS SW_RST explicitly (so does our Windows driver);
+  // the CTL = MASTER write below also clears it, this just matches the pulse.
   MmioWrite32 (I2C + HSI2C_CTL, HSI2C_CTL_SW_RST);
-  (VOID)MmioRead32 (I2C + HSI2C_CTL);
+  MmioWrite32 (I2C + HSI2C_CTL, 0);
 
   // Timing: the block is live from the bootloader; compare against the
   // kernel-computed FS values for this ipclk and only write if different
@@ -211,7 +249,32 @@ PmicBusInit (VOID)
   MmioWrite32 (I2C + HSI2C_CONF, MmioRead32 (I2C + HSI2C_CONF) | HSI2C_CONF_AUTO_MODE);
 
   mBusReady = TRUE;
+  Hsi2cDump ("after init");
   return EFI_SUCCESS;
+}
+
+// M16 run 2: which MAX77705 clients answer at all (register 0x00 of each; reads only). Returns TRUE when
+// the CCIC (0x25) answered, i.e. the CC-attach poll is worth running.
+BOOLEAN
+PmicBusProbe (VOID)
+{
+  // PMIC top 0x66 (live DT child max77705@66), CCIC, charger, fuel gauge.
+  STATIC CONST UINT8  Clients[] = { 0x66, MAX77705_CCIC_ADDR, MAX77705_CHG_ADDR, MAX77705_FG_ADDR };
+  EFI_STATUS          Status;
+  UINT8               Value;
+  UINTN               Index;
+  BOOLEAN             CcicOk;
+
+  CcicOk = FALSE;
+  for (Index = 0; Index < ARRAY_SIZE (Clients); Index++) {
+    Value  = 0;
+    Status = Max77705RegRead (Clients[Index], 0x00, &Value);
+    DEBUG ((DEBUG_WARN, "PmicBusProbe: client %x reg 0 -> %r value %x\n", Clients[Index], Status, Value));
+    if ((Clients[Index] == MAX77705_CCIC_ADDR) && !EFI_ERROR (Status)) {
+      CcicOk = TRUE;
+    }
+  }
+  return CcicOk;
 }
 
 EFI_STATUS

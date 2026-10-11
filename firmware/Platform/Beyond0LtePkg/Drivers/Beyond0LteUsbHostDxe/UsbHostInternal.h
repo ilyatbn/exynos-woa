@@ -34,6 +34,8 @@ EFI_STATUS Dwc3HostInit (OUT UINT32 *Revision);
 // Pmic.c — polled HSI2C master on the MAX77705 bus + host-role VBUS.
 //
 EFI_STATUS PmicBusInit (VOID);
+BOOLEAN PmicBusProbe (VOID);
+VOID Hsi2cDump (IN CONST CHAR8 *Label);
 EFI_STATUS Hsi2cXfer (IN UINT8 SlaveAddr, IN BOOLEAN Read, IN OUT UINT8 *Data, IN UINTN Length, IN BOOLEAN Stop);
 EFI_STATUS Max77705RegWrite (IN UINT8 ClientAddr, IN UINT8 Reg, IN UINT8 Value);
 EFI_STATUS Max77705RegRead (IN UINT8 ClientAddr, IN UINT8 Reg, OUT UINT8 *Value);

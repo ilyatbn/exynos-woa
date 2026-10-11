@@ -95,11 +95,13 @@ UsbHostBringUp (
   UINT32                          Revision;
   UINT8                           CcStatus;
   BOOLEAN                         VbusOn;
+  BOOLEAN                         CcicOk;
   EFI_HANDLE                      DeviceHandle;
 
   Revision  = 0;
   CcStatus  = 0;
   VbusOn    = FALSE;
+  CcicOk    = FALSE;
 
   // 1. PMIC bus first: if the I2C block is not alive we can still bring up
   //    the controller, but VBUS will stay off — log it and continue.
@@ -108,6 +110,7 @@ UsbHostBringUp (
     DEBUG ((DEBUG_ERROR, "%a: HSI2C45 init %r — VBUS will stay OFF\n",
             __func__, Status));
   } else {
+    CcicOk = PmicBusProbe ();   // M16 run 2: which MAX77705 clients answer
     // Battery PoC read (notes/battery-driver.md): proves the gauge path and
     // gives a boot-time SOC we can cross-check against Android. Report-only;
     // a failure here must never affect host bring-up.
@@ -135,7 +138,11 @@ UsbHostBringUp (
   //    the dangerous case (feeding 5 V into another host's port) cannot
   //    happen because the CCIC's DRP would have detected a host and settled
   //    to SINK, not SOURCE.
-  if (!EFI_ERROR (Max77705WaitSourceAttach (CC_ATTACH_TIMEOUT_MS, &CcStatus))) {
+  //    The poll is skipped when the CCIC did not answer the probe (a dead bus
+  //    would only add 30 timeouts to the boot).
+  if (!CcicOk) {
+    DEBUG ((DEBUG_ERROR, "%a: CCIC 0x25 not answering - no CC poll, VBUS stays OFF\n", __func__));
+  } else if (!EFI_ERROR (Max77705WaitSourceAttach (CC_ATTACH_TIMEOUT_MS, &CcStatus))) {
     Status = Max77705VbusOn ();
     if (!EFI_ERROR (Status)) {
       VbusOn = TRUE;

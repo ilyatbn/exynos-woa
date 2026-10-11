@@ -11,6 +11,11 @@
  *  3. runs <ESP>\S10EDIAG\collect.cmd (cmd.exe, ESP=X:, OUT=X:\S10EDIAG\out, output -> out\collect.log).
  * What to collect and whether to go back to TWRP is entirely the script's business, so it can be
  * changed from TWRP (vfat) without touching NTFS or rebuilding anything.
+ *
+ * Hardware buttons (user request 2026-10-11, notes/d8-buttons-agent.md): a second thread polls the four key
+ * GPIOs through S10eDiag every 25 ms (ALIVE GPIO 0x15850000: gpa0 DAT +0x04 = VOLUP b3 / VOLDN b4 / BIXBY b6,
+ * gpa2 DAT +0x44 = POWER b4, all active-low - Exynos9820.h D8 constants), tells short from long presses and runs
+ * the action C:\ProgramData\S10e\buttons.ini maps it to, in the console user's session.
  */
 
 #include <windows.h>
@@ -18,6 +23,8 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <winioctl.h>
+#include <wtsapi32.h>
+#include <userenv.h>
 #include "S10eDiagIoctl.h"
 
 #define AGENT_NAME      L"S10eAgent"
@@ -359,6 +366,189 @@ Worker(LPVOID Parameter)
     }
 }
 
+
+//
+// Hardware buttons. Polling (not GpioClx interrupts): no new kernel driver, no conflict with the touch controller's
+// ALIVE EINT (GSIV 45, notes/drivers-branch-port-plan.md), and every press is visible here so all actions are
+// configurable. 25 ms period, 2-sample debounce, long press fires as soon as the threshold is reached.
+//
+#define KEYS_ALIVE_GPA0_DAT   0x15850004ULL   // EXYNOS_ALIVE_GPIO_BASE + GPA0_OFF + DAT(+4), VERIFIED (D8 constants)
+#define KEYS_ALIVE_GPA2_DAT   0x15850044ULL   // + GPA2_OFF 0x040 + DAT
+#define KEYS_CONFIG           L"C:\\ProgramData\\S10e\\buttons.ini"
+#define KEYS_PERIOD_MS        25
+
+typedef struct {
+    const wchar_t *Name;        // ini key prefix
+    int Bank;                   // 0 = gpa0, 2 = gpa2
+    unsigned long Bit;
+    const wchar_t *DefShort;
+    const wchar_t *DefLong;
+    int Down;                   // debounced state
+    int Raw;                    // last raw sample
+    ULONGLONG Since;            // debounced press time
+    int LongFired;
+} KEY;
+
+static KEY gKeys[] = {
+    { L"power",   2, 1UL << 4, L"screen",  L"powermenu", 0, 0, 0, 0 },
+    { L"volup",   0, 1UL << 3, L"none",    L"none",      0, 0, 0, 0 },
+    { L"voldown", 0, 1UL << 4, L"none",    L"none",      0, 0, 0, 0 },
+    { L"bixby",   0, 1UL << 6, L"taskmgr", L"none",      0, 0, 0, 0 },
+};
+
+static BOOL
+KeysRead32(HANDLE Diag, unsigned long long Address, unsigned long *Value)
+{
+    S10EDIAG_READ_IN In = { Address, 4, S10EDIAG_READ_MMIO };
+    DWORD Returned = 0;
+
+    return DeviceIoControl(Diag, IOCTL_S10EDIAG_READ_PHYS, &In, sizeof(In), Value, sizeof(*Value), &Returned, NULL) &&
+           (Returned == sizeof(*Value));
+}
+
+static void
+KeysWriteDefaultConfig(void)
+{
+    HANDLE File;
+    static const char Text[] =
+        "; S10e hardware buttons - S10eAgent re-reads this file on every press (no restart needed).\r\n"
+        "; Actions: none | screen | powermenu | wake | taskmgr | reboot | recovery | shutdown | run:<command line>\r\n"
+        ";   screen = toggle display, powermenu = Reboot/Recovery/Shut down/Cancel popup, recovery = reboot to TWRP.\r\n"
+        "; run: commands start in your session, e.g. run:C:\\Windows\\System32\\osk.exe\r\n"
+        "[buttons]\r\n"
+        "long_press_ms=700\r\n"
+        "power.short=screen\r\npower.long=powermenu\r\n"
+        "volup.short=none\r\nvolup.long=none\r\n"
+        "voldown.short=none\r\nvoldown.long=none\r\n"
+        "bixby.short=taskmgr\r\nbixby.long=none\r\n";
+    DWORD Written;
+
+    CreateDirectoryW(L"C:\\ProgramData\\S10e", NULL);
+    File = CreateFileW(KEYS_CONFIG, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (File != INVALID_HANDLE_VALUE) {
+        WriteFile(File, Text, (DWORD)(sizeof(Text) - 1), &Written, NULL);
+        CloseHandle(File);
+        LogLine("keys: wrote default %ls", KEYS_CONFIG);
+    }
+}
+
+// Start CommandLine in the active console session as its user (the agent is LocalSystem in session 0).
+static void
+KeysRunInSession(const wchar_t *CommandLine)
+{
+    HANDLE Token = NULL;
+    void *Environment = NULL;
+    STARTUPINFOW Startup = { sizeof(Startup) };
+    PROCESS_INFORMATION Process;
+    wchar_t Buffer[512];
+    DWORD Session = WTSGetActiveConsoleSessionId();
+
+    if ((Session == 0xFFFFFFFF) || !WTSQueryUserToken(Session, &Token)) {
+        LogLine("keys: no console user (session %lu, error %lu) for '%ls'", Session, GetLastError(), CommandLine);
+        return;
+    }
+    CreateEnvironmentBlock(&Environment, Token, FALSE);
+    wcscpy_s(Buffer, ARRAYSIZE(Buffer), CommandLine);
+    Startup.lpDesktop = L"winsta0\\default";
+    if (CreateProcessAsUserW(Token, NULL, Buffer, NULL, NULL, FALSE, CREATE_UNICODE_ENVIRONMENT, Environment, NULL,
+                             &Startup, &Process)) {
+        CloseHandle(Process.hThread);
+        CloseHandle(Process.hProcess);
+    } else {
+        LogLine("keys: CreateProcessAsUser '%ls' failed %lu", CommandLine, GetLastError());
+    }
+    if (Environment != NULL) {
+        DestroyEnvironmentBlock(Environment);
+    }
+    CloseHandle(Token);
+}
+
+static void
+KeysAction(const KEY *Key, BOOL Long)
+{
+    wchar_t Name[64];
+    wchar_t Action[400];
+
+    swprintf_s(Name, ARRAYSIZE(Name), L"%s.%s", Key->Name, Long ? L"long" : L"short");
+    GetPrivateProfileStringW(L"buttons", Name, Long ? Key->DefLong : Key->DefShort, Action, ARRAYSIZE(Action),
+                             KEYS_CONFIG);
+    LogLine("keys: %ls -> %ls", Name, Action);
+    if ((_wcsicmp(Action, L"screen") == 0) || (_wcsicmp(Action, L"powermenu") == 0) || (_wcsicmp(Action, L"wake") == 0)) {
+        wchar_t Command[96];
+
+        swprintf_s(Command, ARRAYSIZE(Command), L"C:\\Windows\\System32\\s10ekeys.exe %s", Action);
+        KeysRunInSession(Command);
+    } else if (_wcsicmp(Action, L"taskmgr") == 0) {
+        KeysRunInSession(L"C:\\Windows\\System32\\Taskmgr.exe");
+    } else if (_wcsicmp(Action, L"reboot") == 0) {
+        RunAndWait(L"C:\\Windows\\System32\\shutdown.exe /r /t 0", 10000, INVALID_HANDLE_VALUE);
+    } else if (_wcsicmp(Action, L"shutdown") == 0) {
+        RunAndWait(L"C:\\Windows\\System32\\shutdown.exe /s /t 0", 10000, INVALID_HANDLE_VALUE);
+    } else if (_wcsicmp(Action, L"recovery") == 0) {
+        RunAndWait(L"C:\\Windows\\System32\\s10ediag.exe flushreset", 60000, INVALID_HANDLE_VALUE);
+    } else if (_wcsnicmp(Action, L"run:", 4) == 0) {
+        KeysRunInSession(Action + 4);
+    }
+}
+
+static DWORD WINAPI
+KeysThread(LPVOID Parameter)
+{
+    HANDLE Diag;
+    unsigned long Dat[3] = { 0, 0, 0 };
+    UINT LongMs;
+    size_t Index;
+
+    UNREFERENCED_PARAMETER(Parameter);
+    KeysWriteDefaultConfig();
+    Diag = CreateFileW(S10EDIAG_USER_PATH, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    if (Diag == INVALID_HANDLE_VALUE) {
+        LogLine("keys: S10eDiag not available (%lu) - buttons disabled", GetLastError());
+        return 1;
+    }
+    if (!KeysRead32(Diag, KEYS_ALIVE_GPA0_DAT, &Dat[0]) || !KeysRead32(Diag, KEYS_ALIVE_GPA2_DAT, &Dat[2])) {
+        LogLine("keys: GPIO read failed (%lu) - buttons disabled", GetLastError());
+        CloseHandle(Diag);
+        return 1;
+    }
+    LogLine("keys: polling, gpa0 DAT %08lx gpa2 DAT %08lx (keys are active-low)", Dat[0], Dat[2]);
+    for (Index = 0; Index < ARRAYSIZE(gKeys); Index++) {
+        gKeys[Index].Raw = ((Dat[gKeys[Index].Bank] & gKeys[Index].Bit) == 0);
+        gKeys[Index].Down = gKeys[Index].Raw;     // a key held at service start is not a press
+        gKeys[Index].LongFired = gKeys[Index].Down;
+    }
+
+    while (WaitForSingleObject(gStopEvent, KEYS_PERIOD_MS) == WAIT_TIMEOUT) {
+        ULONGLONG Now = GetTickCount64();
+
+        if (!KeysRead32(Diag, KEYS_ALIVE_GPA0_DAT, &Dat[0]) || !KeysRead32(Diag, KEYS_ALIVE_GPA2_DAT, &Dat[2])) {
+            continue;
+        }
+        LongMs = GetPrivateProfileIntW(L"buttons", L"long_press_ms", 700, KEYS_CONFIG);
+        for (Index = 0; Index < ARRAYSIZE(gKeys); Index++) {
+            KEY *Key = &gKeys[Index];
+            int Raw = ((Dat[Key->Bank] & Key->Bit) == 0);
+
+            if ((Raw == Key->Raw) && (Raw != Key->Down)) {   // two equal samples in a row = debounced edge
+                Key->Down = Raw;
+                if (Raw) {
+                    Key->Since = Now;
+                    Key->LongFired = 0;
+                } else if (!Key->LongFired) {
+                    KeysAction(Key, FALSE);
+                }
+            }
+            Key->Raw = Raw;
+            if (Key->Down && !Key->LongFired && ((Now - Key->Since) >= LongMs)) {
+                Key->LongFired = 1;
+                KeysAction(Key, TRUE);
+            }
+        }
+    }
+    CloseHandle(Diag);
+    return 0;
+}
+
 static DWORD WINAPI
 Control(DWORD Code, DWORD EventType, LPVOID EventData, LPVOID Context)
 {
@@ -394,6 +584,7 @@ ServiceMain(DWORD Argc, LPWSTR *Argv)
     gStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN;
     SetServiceStatus(gStatusHandle, &gStatus);
 
+    CloseHandle(CreateThread(NULL, 0, KeysThread, NULL, 0, NULL));   // buttons run independently of the ESP work
     Thread = CreateThread(NULL, 0, Worker, NULL, 0, NULL);
     if (Thread != NULL) {
         HANDLE Waits[2] = { Thread, gStopEvent };

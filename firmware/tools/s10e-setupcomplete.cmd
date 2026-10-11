@@ -26,7 +26,7 @@ reg add "HKLM\SYSTEM\CurrentControlSet\Control\CrashControl" /v CrashDumpEnabled
 
 rem S10eDiag driver + agent + tools (s10e-hive-diag.ps1).
 copy /y "%P%\s10ediag\S10eDiag.sys" C:\Windows\System32\drivers\ >> "%LOG%" 2>&1
-for %%F in (s10ediag.exe S10eAgent.exe s10erotate.exe s10eperf.exe s10etouchlog.exe s10ereboot.exe s10escale.exe) do copy /y "%P%\s10ediag\%%F" C:\Windows\System32\ >> "%LOG%" 2>&1
+for %%F in (s10ediag.exe S10eAgent.exe s10erotate.exe s10eperf.exe s10etouchlog.exe s10ereboot.exe s10escale.exe s10ekeys.exe) do copy /y "%P%\s10ediag\%%F" C:\Windows\System32\ >> "%LOG%" 2>&1
 sc create S10eDiag type= kernel start= system error= ignore binPath= System32\drivers\S10eDiag.sys DisplayName= "S10e diagnostics" >> "%LOG%" 2>&1
 sc create S10eAgent type= own start= auto error= ignore binPath= "%%SystemRoot%%\System32\S10eAgent.exe" obj= LocalSystem DisplayName= "S10e diagnostics agent" >> "%LOG%" 2>&1
 rem Android partitions must not get drive letters (agent run 1); the agent letters the ESP itself.

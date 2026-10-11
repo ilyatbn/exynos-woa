@@ -323,5 +323,119 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
             })
             Method (_STA, 0, NotSerialized) { Return (0x0F) }
         }
+
+        // D8: ALIVE GPIO controller (Exynos9820Gpio driver, GpioClx provider).
+        // Window VERIFIED: pinctrl@15850000 +0x1000 (live DTB; Exynos9820.h).
+        // The 34 Interrupt entries are the wakeup-EINT lines EINT0..EINT33 in
+        // pin order (GpioClx maps the Nth entry to pin N; pattern from the
+        // official gpio/samples ASL). VERIFIED: INTREQ__ALIVE_EINTn = 5+n
+        // (vendor dt-bindings irq header), GSIV = SPI + 32 — so GSIVs 37..70
+        // (notes/d8-audio.md §3). Banks: gpa0..gpa3 8 pins, gpa4 2 pins.
+        // Level/ActiveHigh/Shared follows the sample convention; the driver
+        // re-programs EINT_CON per pin anyway (ActiveBoth is emulated by
+        // GpioClx: learn.microsoft.com "Other ACPI Namespace Objects").
+        // NOTE: TSP0 above also claims this window for the touch EINT —
+        // Windows maps both; the two drivers touch disjoint registers.
+        Device (GPIO)
+        {
+            Name (_HID, "SAMS9821")   // vendor _HID for the Exynos9820 ALIVE pinctrl
+            Name (_UID, Zero)
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, 0x15850000, 0x00001000)  // VERIFIED pinctrl@15850000
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Shared, , , )
+                {
+                    37, 38, 39, 40, 41, 42, 43, 44,   // gpa0-0..7 = EINT0..7  = SPI 5..12
+                    45, 46, 47, 48, 49, 50, 51, 52,   // gpa1-0..7 = EINT8..15 = SPI 13..20 (45 = touch EINT, cf. TSP0)
+                    53, 54, 55, 56, 57, 58, 59, 60,   // gpa2-0..7 = EINT16..23 = SPI 21..28 (55 = CS47L93 codec irq, 57 = power key)
+                    61, 62, 63, 64, 65, 66, 67, 68,   // gpa3-0..7 = EINT24..31 = SPI 29..36
+                    69, 70                            // gpa4-0..1 = EINT32..33 = SPI 37..38
+                }
+            })
+            Method (_STA, 0, NotSerialized) { Return (0x0F) }
+        }
+
+        // D8: the four hardware buttons as a generic ACPI button device.
+        // Format VERIFIED from learn.microsoft.com "ACPI Button Device"
+        // (desktop-edition sample, fetched 2026-10-11); inbox Hidinterrupt.sys
+        // binds ACPI0011 and synthesizes a HID device from the _DSD usages —
+        // no custom HID driver needed. Pins VERIFIED from the shipped overlay
+        // (ov00.dts gpio_keys): VOLUP gpa0-3, VOLDN gpa0-4, BIXBY gpa0-6,
+        // POWER gpa2-4; pin numbers are GpioClx-linear (bank*8+pin).
+        // Wake: POWER + BIXBY are SharedAndWake (the DT's gpio-key,wakeup
+        // flags); the volume keys are not wake sources on Android, mirrored.
+        // Bixby maps to AC Search (0x0C/0x221) — Windows has no Bixby usage.
+        Device (BTNS)
+        {
+            Name (_HID, "ACPI0011")   // generic button device (inbox Hidinterrupt.sys)
+            Name (_UID, Zero)
+            Name (_DEP, Package (1)
+            {
+                \_SB.GPIO
+            })
+            Name (_CRS, ResourceTemplate ()
+            {
+                GpioInt (Edge, ActiveBoth, SharedAndWake, PullUp, 0x0000,
+                    "\\_SB.GPIO", 0x00, ResourceConsumer, , )
+                { 20 }   // index 0: POWER  (gpa2-4)
+                GpioInt (Edge, ActiveBoth, Shared, PullUp, 0x0000,
+                    "\\_SB.GPIO", 0x00, ResourceConsumer, , )
+                { 3 }    // index 1: VOLUME UP (gpa0-3)
+                GpioInt (Edge, ActiveBoth, Shared, PullUp, 0x0000,
+                    "\\_SB.GPIO", 0x00, ResourceConsumer, , )
+                { 4 }    // index 2: VOLUME DOWN (gpa0-4)
+                GpioInt (Edge, ActiveBoth, SharedAndWake, PullUp, 0x0000,
+                    "\\_SB.GPIO", 0x00, ResourceConsumer, , )
+                { 6 }    // index 3: BIXBY (gpa0-6)
+            })
+            Name (_DSD, Package ()
+            {
+                ToUUID ("FA6BD625-9CE8-470D-A2C7-B3CA36C4282E"),
+                Package (5)
+                {
+                    Package (5)
+                    {
+                        0,      // Collection
+                        1,      // collection unique ID
+                        0,      // top-level
+                        0x01,   // Generic Desktop page
+                        0x0D    // Portable Device Control
+                    },
+                    Package (5)
+                    {
+                        1,      // Control
+                        0,      // _CRS interrupt index: POWER
+                        1,      // parent collection
+                        0x01,   // Generic Desktop page
+                        0x81    // System Power Down
+                    },
+                    Package (5)
+                    {
+                        1,      // Control
+                        1,      // _CRS interrupt index: VOLUME UP
+                        1,
+                        0x0C,   // Consumer page
+                        0xE9    // Volume Increment
+                    },
+                    Package (5)
+                    {
+                        1,      // Control
+                        2,      // _CRS interrupt index: VOLUME DOWN
+                        1,
+                        0x0C,   // Consumer page
+                        0xEA    // Volume Decrement
+                    },
+                    Package (5)
+                    {
+                        1,      // Control
+                        3,      // _CRS interrupt index: BIXBY
+                        1,
+                        0x0C,   // Consumer page
+                        0x221   // AC Search
+                    }
+                }
+            })
+            Method (_STA, 0, NotSerialized) { Return (0x0F) }
+        }
     }
 }

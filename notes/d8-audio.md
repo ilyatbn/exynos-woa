@@ -272,3 +272,17 @@ Native in-box path, no custom HID code:
   dtsi (key pins/flags), abox-gic regs (local DTB 5312-5314), vendor pinctrl
   (bank/EINT layout §3), dt-bindings irq header (GSIVs §3), ACPI0011 docs
   (_DSD format §5). §3/§4/§5 added. Touch-port bug found (§4) — own commit.
+- 2026-10-11: touch fix committed (`1226d60`). Constants committed
+  (`f22718a`, HEADER_SYNTAX_OK). DSDT: `Device (GPIO)` (_HID SAMS9821,
+  Memory32Fixed 0x15850000+0x1000, 34 Interrupt entries GSIV 37..70 in pin
+  order) + `Device (BTNS)` (ACPI0011, 4 GpioInt Edge/ActiveBoth — power
+  pin 20 SharedAndWake, volup 3, voldn 4, bixby 6; _DSD button UUID
+  FA6BD625-…; _DEP \_SB.GPIO). **Build evidence** (Linux verification build,
+  recipe regenerated from `notes/d1-build-env.md`): build exit 0,
+  `BEYOND0LTE_UEFI.fd` 7 340 032 B sha256 `0a0779a8…`, FVMAIN_COMPACT
+  auto-grew to 421 888 B (3 960 B free); `Dsdt.aml` 1 979 B contains
+  `ACPI0011`+`SAMS9821`, iASL-disassembles clean (34 ints 0x25..0x46, pins
+  0x14/3/4/6, ToUUID + 5 descriptor packages all correct), DSDT bytes found
+  at 1 089 476 in `FVMAIN.Fv` (FD itself is LZMA — same verification pattern
+  as `notes/m8-dsdt-mat.md`). Windows-side behavior (Hidinterrupt.sys
+  binding, GpioClx ActiveBoth emulation) UNVERIFIED until device test.

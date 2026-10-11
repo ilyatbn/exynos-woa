@@ -258,3 +258,5 @@ m16-usb.md, 3000 from the brief). Rebuilt: `S10eBattery.sys` hash prefix 322CA95
 ## Status
 Build-verified (firmware DEBUG exit 0; driver /W4 /WX, infverif VALID, test-signed). **Not
 device-validated** — MILESTONES row stays `doing`; the device test procedure above is the next step.
+- 2026-10-12 device session: merged to main (9c92c88); boot #89 (dd4a193c…) flashed = #88 + DSDT BAT0; ESP
+  drivers\S10eBattery staged + extra-battery.cmd as extra.cmd; s10ereboot.exe with confirmation deployed.

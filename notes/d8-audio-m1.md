@@ -355,3 +355,6 @@ stage end to end - the same pieces the Windows driver needs.
   `0xBA27EF78`) - correct. FOUND: DRIVERS-MILESTONES pointed the device
   test at §4 (it is §3), and the M2-groundwork row was not moved in the
   same commit - both fixed in the follow-up commit.
+- RESULT (boot #88): amps @40/@41 NACK (Not Found) on hsi2c38; reset pins gph1-1/2 fn 0 lvl 0 at handoff (held?).
+  Codec: ID 0 HW_REV 0 before and after releasing gpg1-0; LDO18M (DCVDD 1.2 V) enable[7:6] = 0 -> codec unpowered,
+  as predicted; LDO17M (1.8 V) on. Next (milestone 1b): LDO18M on via ACPM, amp resets high, retry IDs.

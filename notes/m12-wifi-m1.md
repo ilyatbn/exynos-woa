@@ -226,3 +226,6 @@ sha256 4b8abc3f...0d815), `Exynos9820Wlan\` (sys/inf/cat), `wdktestcert.cer`, `e
   the build; commits 1/5 and 2/5 were not built individually - only the combined state).
 - Not done here (by instruction): no adb, no pack, no flash, no push.
 - 2026-10-12: boot #88 FLASHED (readback 7e7e1219…); ESP staged extra-wlan.cmd as extra.cmd + drivers\Exynos9820Wlan package + wdktestcert.cer; rebooted to Windows.
+- RESULT (boot #88): UEFI "[PCIe] link up on try 1 ... GEN1", endpoint 14E4:4475, BAR0 64-bit 0x10000 @0x14000000,
+  BAR2 64-bit 0x400000 @0x14400000, chipid 0x10054375 (id 0x4375 rev 5); Windows probe (ACPI\SAMS9825, mem0
+  0x14FFE000+0x2000, mem1 0x14000000+0xFF0000): "RESULT 0: BCM4375 alive". Milestone 1 DEVICE-VALIDATED.

@@ -16,6 +16,14 @@ A task is not `[x]` until its verification actually ran.
 - [ ] **T08** — Make the installer app able to drive the S10e (stages are `NotImplemented` on purpose) → `tasks/T08-installer-s10e-path.md`
 - [ ] **T09** — Append a valid DTB to the boot payload so sboot's load_kernel passes the DT check (the real first-boot blocker) → `tasks/T09-boot-payload-dtb.md`
 
+## WiFi (M12/D4b — reopened 2026-10-11: the chip is a BCM4375 on PCIe0)
+
+- [ ] **W01** — rung R1: `[PCIe] R1: endpoint 14e4:xxxx` on serial at boot → `tasks/W01-wifi-r1-linkup.md`  *(needs-boot)*
+- [ ] **W02** — live reads: PCI device ID, firmware blob names, SPI 253 → `tasks/W02-wifi-live-reads.md`  *(needs-phone)*
+- done (code, unvalidated): research `notes/m12-wifi-chip.md` · design
+  `docs/exynos9820-port/M12-WIFI-DESIGN.md` · `Beyond0LtePcieDxe` (in the FD) ·
+  DSDT `Device (WLAN)` (in the FD) · `drivers/Exynos9820Wlan/` skeleton (needs-windows build)
+
 ## Parked — off the boot path
 
 - [ ] **P01** — heimdall auto-restore/reflash path for a fully broken device → `tasks/P01-heimdall-restore.md`

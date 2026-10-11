@@ -8,7 +8,7 @@ No branch has been pushed. All work so far is local commits.
 
 **If you are the *next* session, jump to [`/progress.md`](../../progress.md) first**
 — it is the live task list by ID, one file per task in `tasks/`, with a done
-indicator per task. The newest restart point in this file is **§20** (§18/§19 are history); §16 and §17
+indicator per task. The newest restart point in this file is **§24** (§20–§23 are history); §16 and §17
 are history (the work they describe is committed and verified, do not redo it).
 Do not re-install VS or the WDK.
 
@@ -1061,3 +1061,47 @@ POWER gpa2-4, BIXBY gpa0-6), external pull-ups, pressed=low, 10 ms debounce.
 UNVERIFIED items are named in `notes/d8-audio-design.md` (clock gates,
 SPUS/SPUM, GpioClx pseudo-bank acceptance, GIC type for the 34 Shared
 entries). Nothing destructive was run on the phone; no partition written.
+
+---
+
+## 24. Restart point — M12/D4b WiFi reopened (2026-10-11, driver stream)
+
+**The old "vendor WiFi is a dead end" verdict was wrong about the bus.** The
+S10e's WLAN is a **Broadcom BCM4375 as a PCIe endpoint** on root port
+`pcie_0@0x13ED0000` (Gen1 x1, INTx, GSIV 285) — `CONFIG_BCMDHD_PCIE=y` in the
+shipping defconfig, `ep-device-type = <EP_BCM_WIFI>` in the board DT. Full
+evidence, the controller register map, the exact kernel bring-up sequence,
+clock-gate offsets, PHY tables, firmware/licensing state:
+**`notes/m12-wifi-chip.md`** (read that first).
+
+Committed this session (all reviewed, each its own commit):
+
+| What | Where | State |
+|---|---|---|
+| Research W1–W8 + P1 closed | `notes/m12-wifi-chip.md` | done |
+| Constants (7 PCIe windows, GSIV 285, CMU_FSYS1 gates, PMU 0x71C, GPIO blocks, chip constants) | `Exynos9820.h` + `PlatformMemoryMapLib` (7 new entries) | done, built |
+| Design: **ACPI-described device, not PCI-enumerated**; 11-step UEFI bring-up; 5-layer NDIS port; risk ladder R1–R5 | `docs/exynos9820-port/M12-WIFI-DESIGN.md` | done |
+| UEFI PCIe host driver (power-on, PHY tables verbatim, I/A microprogram, link training, iATU, EP BAR0, R1 print) | `firmware/Platform/Beyond0LtePkg/Drivers/Beyond0LtePcieDxe/` | in the FD (FFS `…5549`), **not booted** |
+| DSDT `Device (WLAN)` `_HID "SAMS9825"` + CFG/MEM windows + GSIV 285 | `AcpiTables/Dsdt.asl` | in the built `Dsdt.aml`, **not enumerated** |
+| Windows NDIS miniport skeleton (binds `ACPI\SAMS9825`, R3 handshakes: VID/DID + chipid==0x4375; sends honestly NOT_ACCEPTED) | `drivers/Exynos9820Wlan/` | **not built — needs-windows** |
+
+**The exact next order of work:**
+
+1. **needs-windows**: `msbuild drivers\Exynos9820Wlan\Exynos9820Wlan.vcxproj
+   /p:Configuration=Release /p:Platform=ARM64` — first compile arbitrates the
+   NDIS call shapes flagged in the notes review section.
+2. **needs-phone** (the phone was NOT attached this session — `adb devices`
+   empty): the W02 reads (PCI `device` id, `/vendor/firmware` blob names,
+   `/proc/interrupts` pcie line) — closes P2/P3 cheaply.
+3. **needs-boot**: W01 — flash the usual pipeline; the `[PCIe] R1:` serial
+   line is the whole rung. Failure triage is written in `tasks/W01-wifi-r1-linkup.md`.
+4. Only after R1: UEFI firmware-download PoC (R2), then the Windows R4 layers
+   (fw download → shared area → common ring → msgbuf), then WDI (R5).
+
+**Open items P1–P7** are in the design doc §6; P1 is closed, P2/P3 are
+needs-phone, P4/P5 close at R1/R4 by observation.
+
+**Unchanged hazards:** everything in §5/§20–§23 stays open. Nothing
+destructive was run; the phone was not touched (it was not connected). The
+PCIe module writes only registers Android's own driver programs, and pcie_1
+(the modem doorbell) stays untouched/disabled.

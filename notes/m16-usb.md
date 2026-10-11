@@ -136,3 +136,14 @@ Found:
   DWC_usb31 GSNPSID 33313130 VER_NUMBER …`, then either `CC source attach … VBUS boost on` or the reason.
 - Open for later: charger register protection (kernel unlocks CHG_CNFG_06 CHGPROT before CNFG writes) -
   read CNFG_02 back after the OTG_ILIM write once the bus answers.
+
+### Run 2 result (boot #67): synchronous exception during UEFI (user saw the dump before the Windows logo)
+- No UEFILOG (crash before the ESP filesystem exists; UEFILOG.TXT still boot 121).
+- Cause found by reading the newly reached path (run 1 stopped at the identity check, run 2 passed it):
+  `Dwc3RootHubPowerOff` computed `PortScBase = MmioRead32 (DWC3) + 0x400` - a 32-bit read of
+  CAPLENGTH|HCIVERSION<<16 (HCIVERSION typ. 0x0110) → PORTSC at ~0x10C00000+0x01100420, unmapped →
+  synchronous abort. The comment said "byte read". Not yet confirmed by a dump; the fix is right anyway.
+
+### Task 6 — PORTSC base fix
+- `(MmioRead32 (DWC3) & 0xFF) + 0x400` (32-bit read + mask like Linux HC_LENGTH, no byte access to
+  device registers) and a bound check: every PORTSC inside the 0x8000 xHCI window, else skip + log.

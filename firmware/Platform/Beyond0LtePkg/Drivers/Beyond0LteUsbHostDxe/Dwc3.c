@@ -81,7 +81,18 @@ Dwc3RootHubPowerOff (VOID)
   }
 
   // PORTSC(n) = CAPLENGTH (byte read at 0x0) + 0x400 + 0x10*n  [Xilinx host.c]
-  PortScBase = MmioRead32 (DWC3) + XHCI_PORTSC_BASE;
+  // Run 2 crash (notes/m16-usb.md): this was a 32-bit read, which adds HCIVERSION (bits 31:16) into the
+  // offset and sends the PORTSC accesses ~17 MiB past the xHCI window -> synchronous abort. CAPLENGTH is
+  // the low byte only, and every PORTSC must stay inside the 0x8000 xHCI window.
+  PortScBase = (MmioRead32 (DWC3) & 0xFF) + XHCI_PORTSC_BASE;   // 32-bit read + mask, like Linux HC_LENGTH()
+  if ((PortScBase + PortCount * 0x10) > 0x8000) {
+    DEBUG ((DEBUG_ERROR, "%a: CAPLENGTH %x MAXPORTS %u outside the xHCI window - skipping\n",
+            __func__, PortScBase - XHCI_PORTSC_BASE, PortCount));
+    return;
+  }
+
+  DEBUG ((DEBUG_INFO, "%a: CAPLENGTH %x, %u root ports powered off\n", __func__,
+          PortScBase - XHCI_PORTSC_BASE, PortCount));
   for (Index = 0; Index < PortCount; Index++) {
     Register  = MmioRead32 (DWC3 + PortScBase + (Index * 0x10));
     Register &= ~PORTSC_POWER;

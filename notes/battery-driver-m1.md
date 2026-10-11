@@ -168,3 +168,53 @@ Accepted (no change): "LION" chemistry string is cosmetic (Windows convention fo
 hash prefix 322CA9517A3B9DA3 identical before/after (/Brepro) — proof the change is comment-only.
 Review of 0e1dd7a (F1): failure path unmaps `Map[i]` with `Expected[i].Size` — index-consistent with
 the by-base placement; a duplicate base hits `Map[k] != NULL` -> refuse. ✔
+
+### 2026-10-12 — task 3: `drivers/S10eDiag/esp/extra-battery.cmd`
+Modeled on `extra-touch.cmd` (fresh `C:\S10eTmp`, copy to NTFS, hashes, test cert, pnputil). Adds:
+**powercfg BATACTIONCRIT/BATACTIONLOW = 0 (do nothing) on AC and DC before the install** — a bogus
+low reading must not hibernate/shut down the phone mid-test (`powercfg-battery-before.txt` keeps the
+previous values to restore); `s10ediag peek` of USI_CMGP3 mode / gpm12 / gpm13 / HSI2C45 CTL before
+and after (single words, the extra-touch rule); 70 s settle (3 polls); `pnputil /enum-devices`
+(`ACPI\SAMS9826`, class Battery), `sc query`, the driver's `Device Parameters` snapshot (twice,
+60 s apart), `Win32_Battery`, `root\wmi` BatteryStatus/StaticData/Temperature,
+`powercfg /batteryreport` (html + xml), System + Kernel-PnP evtx, setupapi.dev.log.
+
+## Device test procedure (for the session that owns the phone)
+
+Prerequisites: firmware built from this branch (DSDT `BAT0`); the package
+`C:\Users\ilya\code\s10e-artifacts\battery-m1\S10eBattery\` (sys/inf/cat) — or rebuild with
+`drivers\S10eBattery\build-package.ps1 -Out <dir>`.
+1. Flash the firmware as usual (HANDOFF flow; only `boot`). Boot Windows once; nothing binds
+   `ACPI\SAMS9826` yet -> an "Unknown device" in pnputil is expected and harmless.
+2. Stage on the ESP: `\S10EDIAG\drivers\S10eBattery\{S10eBattery.sys,S10eBattery.inf,s10ebattery.cat}`
+   (+ `\S10EDIAG\drivers\wdktestcert.cer`, already there for touch), and
+   `drivers\S10eDiag\esp\extra-battery.cmd` -> `\S10EDIAG\extra.cmd`.
+3. Boot Windows; S10eAgent runs collect.cmd -> extra.cmd. Results in `%OUT%\last\battery\`.
+4. Pass criteria, in order:
+   - `pnputil-battery.txt`: added + installed; `dev-battery.txt`: Started, driver S10eBattery, no problem code.
+   - `battery-params.txt`: `PollOk` > 0, `PollFail` 0, `SocTenths` within ~1-2 % of Android's own number
+     (UEFI read 88.2 % vs Android, notes/battery-driver.md), `VcellMv` ~3500-4400,
+     `FullCapMah` ~3000 (UEFILOG B42: 3000), `ChgDetails` != 0xFFFFFFFF.
+   - `ChgDetails` low byte bits 6:5 == 3 iff a charger is plugged; `PowerState` 1 (ON_LINE) /
+     5 (ON_LINE|CHARGING) plugged, 2 (DISCHARGING) on battery.
+   - `wmi-batterystatus.txt` RemainingCapacity / `win32-battery.txt` EstimatedChargeRemaining == SOC.
+   - Tray shows the battery icon with that percentage; plug/unplug flips the icon within ~20 s.
+   - `usi-cmgp3-mode-after` = 4, gpm12/gpm13 low nibble = 2 (driver holds the bus in D0).
+5. Failure triage: Code 10 + `PollFail` > 0 -> `LastStatus` (0xC00000B5 timeout, 0xC000000E no ACK
+   (STATUS_NO_SUCH_DEVICE), 0xC000009C data error incl. the plausibility gate, 0x80000011 master
+   busy, 0xC0000013 gauge says battery absent; values from ntstatus.h) and the raw values in
+   `battery-params.txt`; no `Device Parameters` at all -> PrepareHardware refused (resources) or the
+   driver never loaded (setupapi.dev.log). A bugcheck on install -> read the PRAM mark ring
+   (`b: ...` marks) and AGENTS.md §9; then remove with `pnputil /delete-driver oemNN.inf /uninstall`.
+6. After validation: restore the battery actions from `powercfg-battery-before.txt` if desired,
+   and close the UNVERIFIED items below.
+
+## Open / UNVERIFIED
+- `MAX77705_FG_RESISTOR_UNVERIFIED = 2` (mA/mAh scale; not %): read the S10e DT battery node
+  (`fuelgauge,fg_resistor`) from TWRP `/proc/device-tree` (names readable; value via root dump).
+- `S10E_BATT_NOMINAL_MV_UNVERIFIED = 3850` (mWh scale only): battery label EB-BG970ABU or DT.
+- Gauge TEMPERATURE validity (Samsung uses a board thermistor for its own UI) — compare Windows'
+  BatteryTemperature with Android's battery temp.
+- Whether Windows derives AC from BATTERY_POWER_ON_LINE without an ACPI0003 device (inference).
+- Clocks: HSI2C45 gates are ACPM-owned; assumed still running under Windows (UEFI found them running
+  after sboot; nothing in Windows gates them). If not, the first MMIO read could fault -> step 5.

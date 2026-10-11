@@ -60,3 +60,7 @@ Shipped = GOP framebuffer + inbox BasicDisplay + WARP (CPU rendering). => speed 
 - Run 26 (15:25): the w34 swap FAILED silently - /tmp/win missing in TWRP (tmpfs cleared), ntfs mount failed,
   adb push landed in TWRP's tmpfs. Run 26 = w33 again (a repeat measurement). Swap procedure must mkdir the
   mount point and refuse to push unless the rw mount is confirmed.
+- Run 27 (w34 cached read copy-back, 15:28, back 198 s): boots/runs normally (reads correct). PER_READ_US DEVICE
+  124, COPYBACK 39 (w33 126); PERF_COPY_PCT_OF_DEVICE 44 (112); random 4K 2924 IOPS, seq read 23.1 MB/s, seq
+  write 25.0 MB/s; desktop at 78 s. => copies no longer dominate; DEVICE time does: ~2.8 ms per 64 KiB read ->
+  suspect the UFS link power mode (gear/lanes) left slow by sboot/UEFI. Next: read PA_PWRMODE / gear / lanes.

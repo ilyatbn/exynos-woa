@@ -149,3 +149,17 @@ hang (notes/m14-smp.md: "Needs kernel-level debugging (KDNET/USB) - parked"), ea
   disabling the firewall (MS doc), an inbound rule "KDNET S10e (UDP 50005 in)" (UDP 50005, any profile) - the
   target sends UDP to the host's debugger port over the EEM adapter. Connect:
   WinDbgX.exe -k net:port=50005,key=1.2.3.4
+
+## First live test (2026-10-11 ~20:20) - debug on => boot hangs at the Windows logo (spinner), forever
+- Boot #72 first boot (no debug yet) reached the desktop. UEFILOG: `Dwc3CoreInit: DEVICE role, DCTL F00000 ->
+  F00000, DSTS D3030C`, `KD device bring-up Success, UFN0 visible`.
+- Agent extra-kd output: target kdnet.exe lists `busparams=0, Device-mode USB controller with vendor ID: 5143
+  (Default)` -> our DBG2 entry is recognized. BCD: debug Yes, NET, busparams 0, 169.254.255.255:50005, key 1.2.3.4.
+  UFN0 (debug still off that boot): code 28 "no compatible drivers" (expected; would read "reserved" with KD on).
+- Next boots (debug on, phone cabled to this PC - adb uses the same cable/port): logo + spinner forever, twice
+  (hard reboot between). Host PnP: NO KDNET/EEM device ever enumerated -> kd_8003_5143 init/first transmit
+  hangs before the USB device ever connects.
+- Recovery: ESP BCD pulled, elevated `bcdedit /store ... /set {default} debug off` (UAC; the shell itself is not
+  elevated), pushed back (sha 00ff354d… readback = host); ESP extra.cmd + WINRUN.FLG removed. Copies:
+  s10e-artifacts\bcd\BCD.m17-debugon / BCD.m17-debugoff.
+- Next: RE of kd_8003_5143.dll init path (subagent -> notes/m17-kd-dll-re.md).

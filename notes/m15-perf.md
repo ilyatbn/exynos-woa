@@ -101,3 +101,11 @@ Shipped = GOP framebuffer + inbox BasicDisplay + WARP (CPU rendering). => speed 
   (was 1.22), memcpy 4314 MB/s (was 3330-3535). Disk UNCHANGED (seq read 25.3, raw 64 KiB 4.0 ms, 4 KiB 555 us)
   => INT is not the storage limiter. Open: UFS core/UniPro clocks (FSYS0), FMP descriptor path, controller
   config. CPU: ~+40 % LITTLE, ~+47 % MID vs this morning. MIF not touched (TWRP runs it at 2093000).
+- TWRP (Linux, same phone, same sboot) dd from by-name/userdata after drop_caches: bs=1M 617.8 MB/s, bs=64K
+  407.8 MB/s => ~30x what our UEFI-configured controller + Windows miniport deliver (~20 MB/s). Hardware, clocks
+  (Linux never rescales UFS clocks: DT freq-table-hz = 0) and link (HS-G3 x2 Rate B) are not the cause; our
+  controller/PHY/vendor configuration is. Live DT ufs@0x13D60000: dma-coherent, ufs-io-coherency (sysreg
+  0x13C10700 bits/mask 0x00C00000), ufs-pm-qos-int 400000, pmd-attr gear 3 lane 2, clocks 0x135/0x138
+  (GATE_UFS_EMBD / UFS_EMBD), evt-ver 1, hw-rev 6, brd-for-cal 0x10. bActiveICCLevel not the difference (Linux
+  falls back to level 0 without regulator current limits in the DT).
+  Root-cause diff Linux ufs-exynos vs Beyond0LteUfsHcDxe/Exynos9820Ufs delegated (notes/m15-ufs-throughput.md).

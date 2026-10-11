@@ -3,7 +3,16 @@ rem S10eAgent extra step (copy to ESP \S10EDIAG\extra.cmd): install the touch st
 rem what PnP did with it. notes/m12-touch.md. Called from collect.cmd with ESP / OUT / L set.
 rem Register reads are SINGLE WORDS at cal-if / DT addresses only: a page read of 0x10421000 aborted (run 4),
 rem the same words read one by one did not (run 5).
-set D=%ESP%\S10EDIAG\drivers
+rem Run 6: pnputil straight from the ESP failed with "The file or directory is corrupted and unreadable" for both
+rem packages. Copy them to NTFS first and record hashes of what Windows actually read.
+rem Run 6 setupapi.dev.log: the real error is 0x570 creating C:\Windows\TEMP\{guid} - that directory index
+rem is corrupt (Ntfs 55 events after the forced resets). Use a fresh temp dir for everything here.
+set TMP=C:\S10eTmp
+set TEMP=C:\S10eTmp
+if not exist "%TMP%" mkdir "%TMP%"
+set D=%TMP%\s10e-drivers
+if exist "%D%" rd /s /q "%D%"
+xcopy /e /i /y "%ESP%\S10EDIAG\drivers" "%D%" > "%L%\touch-xcopy.txt" 2>&1
 set T=%L%\touch
 mkdir "%T%"
 
@@ -13,6 +22,7 @@ s10ediag peek 0x1042101C > "%T%\usi03-mode-before.txt" 2>&1
 s10ediag peek 0x10430020 > "%T%\gpp1-con-before.txt" 2>&1
 
 echo --- trust the test certificate, install both packages
+for /r "%D%" %%F in (*) do certutil -hashfile "%%F" SHA256 >> "%T%\hashes.txt" 2>&1
 s10ediag mark t: certutil
 certutil -addstore -f Root "%D%\wdktestcert.cer" > "%T%\cert.txt" 2>&1
 certutil -addstore -f TrustedPublisher "%D%\wdktestcert.cer" >> "%T%\cert.txt" 2>&1
@@ -43,4 +53,7 @@ s10ediag peek 0x104B0000 > "%T%\hsi2c-ctl-after.txt" 2>&1
 s10ediag mark t: export logs
 wevtutil epl System "%T%\System.evtx"
 wevtutil epl Microsoft-Windows-Kernel-PnP/Configuration "%T%\KernelPnP.evtx"
+copy /y "%SystemRoot%\INF\setupapi.dev.log" "%T%\setupapi.dev.log" > nul 2>&1
+s10ediag mark t: chkdsk spotfix scheduled
+echo y| chkdsk C: /spotfix > "%T%\chkdsk.txt" 2>&1
 s10ediag mark t: done

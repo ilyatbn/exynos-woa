@@ -45,3 +45,9 @@ USI mode slots (samsung,exynos-usi, each reg = 4 bytes in sysreg 0x10421000): 'i
   Windows time. GPIO gpp1 CON 0x10430020 = 0 (pins input), USI03 mode 0x1042101C = 0 (not yet i2c), HSI2C
   0x104B0000 CTL = 0. /proc/iomem (TWRP): only usi@...04/0C/14/1C/24/2C exist in the 0x10421000 page => run 4's
   abort was reading an UNIMPLEMENTED word (0x10421000), not a clock/TZPC problem. Driver touches only +0x1C: safe.
+- Run 6 (11:23, first FULLY unattended cycle: desktop 202 s, crash-reset to TWRP, back in 411 s): certutil added
+  the WDK test cert to Root + TrustedPublisher; pnputil /add-driver FAILED for both packages ("file or directory
+  is corrupted"). setupapi.dev.log (read from NTFS in TWRP): "Failed to create temporary directory
+  'C:\Windows\TEMP\{guid}'. Error = 0x570" - C:\Windows\TEMP's index is corrupt (Ntfs 55 after the forced
+  resets/ntfsfix). Package files on the ESP hash-match the PC. mshidkmdf and SpbCx services exist (stopped).
+  Run 7: TMP/TEMP = C:\S10eTmp for xcopy + pnputil, hashes logged, setupapi.dev.log saved, chkdsk C: /spotfix.

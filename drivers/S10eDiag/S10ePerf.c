@@ -151,6 +151,44 @@ Disk(const char *Dir)
     VirtualFree(Buffer, 0, MEM_RELEASE);
 }
 
+//
+// Raw volume read (read-only): \\.\C: in 4 KiB / 64 KiB / 1 MiB unbuffered requests from offset 0 - bypasses NTFS layout and
+// fragmentation, so it shows what the storage stack itself delivers (m15 run 28: file reads ~23 MB/s).
+//
+static void
+RawRead(const char *Volume)
+{
+    const DWORD Chunk = 1u << 20;
+    BYTE *Buffer = (BYTE *)VirtualAlloc(NULL, Chunk, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    HANDLE File = CreateFileA(Volume, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
+                              FILE_FLAG_NO_BUFFERING, NULL);
+    DWORD Done, I, Size;
+    double T0, T1;
+
+    if (Buffer == NULL || File == INVALID_HANDLE_VALUE) {
+        printf("raw: open %s failed %lu\n", Volume, GetLastError());
+        return;
+    }
+    for (Size = 4096; Size <= Chunk; Size *= 16) {
+        DWORD Count = (Size == Chunk) ? 256 : 2048;
+        LARGE_INTEGER Zero;
+
+        Zero.QuadPart = 0;
+        SetFilePointerEx(File, Zero, NULL, FILE_BEGIN);
+        T0 = Now();
+        for (I = 0; I < Count; I++) {
+            if (!ReadFile(File, Buffer, Size, &Done, NULL) || Done != Size) {
+                break;
+            }
+        }
+        T1 = Now();
+        printf("raw: %s %6lu-byte reads: %.1f MB/s, %.0f us per request\n", Volume, Size,
+               (double)I * Size / (T1 - T0) / 1e6, (T1 - T0) * 1e6 / (I ? I : 1));
+    }
+    CloseHandle(File);
+    VirtualFree(Buffer, 0, MEM_RELEASE);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -167,6 +205,8 @@ main(int argc, char **argv)
             Cpu();
         } else if (strcmp(argv[I], "mem") == 0) {
             Mem();
+        } else if (strcmp(argv[I], "raw") == 0 && I + 1 < argc) {
+            RawRead(argv[++I]);
         } else if (strcmp(argv[I], "disk") == 0 && I + 1 < argc) {
             Disk(argv[++I]);
         }

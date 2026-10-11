@@ -8,6 +8,8 @@ s10ediag mark f: s10eperf cpu mem
 s10eperf cpu mem > "%P%\cpu-mem.txt" 2>&1
 s10ediag mark f: s10eperf disk
 s10eperf disk C:\S10eTmp > "%P%\disk.txt" 2>&1
+s10ediag mark f: s10eperf raw
+s10eperf raw \\.\C: > "%P%\raw.txt" 2>&1
 
 rem Exynos9820Ufs perf counters (UFS_PERF_INSTRUMENTATION=1 in w32): device vs bounce-copy time split.
 s10ediag mark f: ufsdiag

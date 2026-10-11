@@ -64,3 +64,10 @@ Shipped = GOP framebuffer + inbox BasicDisplay + WARP (CPU rendering). => speed 
   124, COPYBACK 39 (w33 126); PERF_COPY_PCT_OF_DEVICE 44 (112); random 4K 2924 IOPS, seq read 23.1 MB/s, seq
   write 25.0 MB/s; desktop at 78 s. => copies no longer dominate; DEVICE time does: ~2.8 ms per 64 KiB read ->
   suspect the UFS link power mode (gear/lanes) left slow by sboot/UEFI. Next: read PA_PWRMODE / gear / lanes.
+- Run 28 (boot #60): UEFILOG "UfsHc: link after PMC: PWRMode 0x11 UPMS 1 HCS 0x10F RxGear 3 TxGear 3 RxLanes 2
+  TxLanes 2 HSSeries 2" = HS-G3 x2 Rate B - the link is at full speed (not the bottleneck). AHIT already 0 (UEFI).
+  Disk: seq read 22.8 MB/s, write 25.8, random 2829 IOPS. Counter math: DEVICE total 23.7 s / ~238k commands =
+  ~100 us each, yet the 1 MiB file reads take ~2.7 ms per 64 KiB -> most time is outside device+copy. Completion
+  is synchronous in StartIo; poll timing accurate (11.5 us per 10 us stall). Suspect the benchmark file is
+  fragmented (NTFS issuing small requests; boot-wide average read is 8 KB) -> s10eperf raw \.\C: (read-only,
+  4 KiB / 64 KiB / 1 MiB requests from offset 0) in run 29.

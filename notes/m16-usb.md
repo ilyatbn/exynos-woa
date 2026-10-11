@@ -386,3 +386,8 @@ Found:
 - Host-path differences to adopt anyway (Linux host values): UTMI DP/DM pulldowns forced ON and the device-mode
   VBUSVALID/BVALID force OFF in host mode (ours: UTMI 0x30, HSP 0x10003300).
 - Run 12 setup: boot #83 flashed (sha 855c1140…), dock test pending.
+- Run 12 (boot #83, dock): UEFILOG - CCCTRL1 1D -> 1F accepted, CTRLREG3 64 (LockErrorEn 0), SYSMsg 31, CC_STATUS1 0;
+  PHY host deltas applied (UTMI 30 -> 0C, HSP 10003300 -> 10000300); CC_STATUS0 still 48 (CCStat 0, CCVcnStat 1);
+  fallback boost on; UEFI port 0 again: one connect change then "device disconnected". No change from #81/#82.
+- Staged extra-usbports.cmd as ESP extra.cmd: Windows-side PORTSC/USBSTS/IMAN samples x6 (10 s apart) with the user
+  replugging the dock - CCS set without enumeration => interrupt path; CCS 0 => electrical.

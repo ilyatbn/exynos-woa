@@ -235,3 +235,8 @@ Prerequisites: firmware built from this branch (DSDT `BAT0`); the package
   comparison exists. Criteria rewritten (FULLCAP range, compare against a fresh UEFILOG).
 - **F4**: `S10eBattery.h` fg_resistor comment cites "UEFILOG FULLCAP_REP 3000" as support — must
   cite both recorded values (2460 committed, 3000 from the brief).
+
+### 2026-10-12 — F4 fixed
+`S10eBattery.h` fg_resistor comment cites both recorded FULLCAP_REP reads (2460 committed in
+m16-usb.md, 3000 from the brief). Rebuilt: `S10eBattery.sys` hash prefix 322CA9517A3B9DA3 unchanged
+(comment only). Review of 787c3d7 (F3): notes-only, criteria now match committed evidence. ✔

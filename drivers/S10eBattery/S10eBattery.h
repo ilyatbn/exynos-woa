@@ -104,8 +104,9 @@
 #define MAX77705_FG_DESIGNCAP     0x18    /* [K] DESIGNCAP_REG */
 #define MAX77705_FG_FULLCAP_REP   0x35    /* [K] */
 /* Sense-resistor factor: vendor "standard value is 2 which means 5mOhm". UNVERIFIED for beyond0lte (DT battery
-   node not read). Scales mAh/mA only, never the percentage. Indirect support: UEFILOG FULLCAP_REP 3000 at this
-   factor is a plausible mAh for a 3100 mAh-class cell (notes/battery-driver-m1.md). */
+   node not read). Scales mAh/mA only, never the percentage. Indirect support only: UEFI FULLCAP_REP reads of
+   2460 (notes/m16-usb.md) and 3000 (task brief, log not committed) at this factor are plausible mAh for a
+   3100 mAh-class cell; half or double would not be (notes/battery-driver-m1.md). */
 #define MAX77705_FG_RESISTOR_UNVERIFIED     2
 
 #define MAX77705_CHG_ADDR         0x69    /* [K] 0xD2 >> 1 */

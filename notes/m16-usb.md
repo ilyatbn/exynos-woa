@@ -116,3 +116,15 @@ Found:
 - PmicBusProbe: reg 0 of 0x66 (DT max77705@66), 0x25 CCIC, 0x69 charger, 0x36 FG; CC attach poll only
   if the CCIC answered (a dead bus would have cost ~30 x timeout).
 - Build green.
+
+### Review of db8cee8 → task 5 (follow-up)
+- Found: after an error the controller was not reset (our Windows driver resets after every error,
+  controller.cpp:1014) → one NACK could wedge the remaining probes with MASTER_BUSY.
+- Found (more important): PmicBusInit did SW_RST, then rewrote only ONE byte-field each of FS1/FS2/FS3
+  from UNVERIFIED `HSI2C_TIMING_FS*_BOOT` values. Linux re-runs exynos5_hsi2c_clock_setup after every
+  exynos5_i2c_reset and our Windows driver re-runs ControllerSetBusTiming → SW_RST evidently clears the
+  timing registers → run 1 likely ran with mostly-zero timing = the INT_STAT=0 timeout. Unproven until
+  run 2's "at handoff"/"after init" dumps show it.
+- Fix: snapshot FS1/FS2/FS3/SLA(0x6C)/CONF/TIMEOUT at handoff (bootloader = working reference), Hsi2cReset()
+  = SW_RST pulse + restore + kernel init writes + INT ack; used at init and after timeout/error/busy.
+  The `_BOOT` constants stay in UsbHw.h but are no longer used.

@@ -35,8 +35,33 @@
 #define HSI2C_INT_ALL             0x00000FFFu
 #define HSI2C_ERROR_STATUS        0x2C
 
+#define HSI2C_TIMING_SLA          0x6C   // drivers/Exynos9820Hsi2c/exynos9820hsi2c.h EHI2C_TIMING_SLA
+
 STATIC BOOLEAN  mBusReady = FALSE;
 STATIC UINTN    mDumps    = 0;
+STATIC UINT32   mTiming[4];          // FS1, FS2, FS3, SLA as the bootloader left them
+STATIC UINT32   mConf;
+STATIC UINT32   mTimeout;
+
+// SW reset pulse [K exynos5_i2c_reset: set, clear], then the bootloader's timing/CONF/TIMEOUT restored and
+// the kernel's init writes [K exynos5_i2c_init]. Also used after a failed transfer, as our Windows driver
+// does (controller.cpp ControllerReset after an error), so one NACK does not wedge the following probes.
+STATIC
+VOID
+Hsi2cReset (VOID)
+{
+  MmioWrite32 (I2C + HSI2C_CTL, HSI2C_CTL_SW_RST);
+  MmioWrite32 (I2C + HSI2C_CTL, 0);
+  MmioWrite32 (I2C + HSI2C_TIMING_FS1, mTiming[0]);
+  MmioWrite32 (I2C + HSI2C_TIMING_FS2, mTiming[1]);
+  MmioWrite32 (I2C + HSI2C_TIMING_FS3, mTiming[2]);
+  MmioWrite32 (I2C + HSI2C_TIMING_SLA, mTiming[3]);
+  MmioWrite32 (I2C + HSI2C_TIMEOUT, mTimeout & ~BIT31);   // kernel clears the HW timeout enable
+  MmioWrite32 (I2C + HSI2C_CTL, HSI2C_CTL_MASTER);
+  MmioWrite32 (I2C + HSI2C_TRAIL_CTL, 0xFFFFFF);
+  MmioWrite32 (I2C + HSI2C_CONF, mConf | HSI2C_CONF_AUTO_MODE);
+  MmioWrite32 (I2C + HSI2C_INT_STAT, 0x00000FFFu);
+}
 
 VOID
 Hsi2cDump (IN CONST CHAR8 *Label)
@@ -150,6 +175,9 @@ Hsi2cXfer (IN UINT8 SlaveAddr, IN BOOLEAN Read, IN OUT UINT8 *Data, IN UINTN Len
     }
 
     if ((MmioRead32 (I2C + HSI2C_TRANS_STATUS) & HSI2C_MASTER_BUSY) != 0) {
+      DEBUG ((DEBUG_ERROR, "%a: master busy before addr=%x, resetting\n", __func__, SlaveAddr));
+      Hsi2cDump ("master busy");
+      Hsi2cReset ();
       return EFI_DEVICE_ERROR;
     }
   }
@@ -179,13 +207,14 @@ Hsi2cXfer (IN UINT8 SlaveAddr, IN BOOLEAN Read, IN OUT UINT8 *Data, IN UINTN Len
     DEBUG ((DEBUG_ERROR, "%a: timeout addr=%x reg/first=%x INT_STAT=%x\n",
             __func__, SlaveAddr, Data[0], IntStat));
     Hsi2cDump ("xfer timeout");
+    Hsi2cReset ();
     return EFI_TIMEOUT;
   }
 
   if ((IntStat & HSI2C_INT_ERRORS) != 0) {
     DEBUG ((DEBUG_ERROR, "%a: addr=%x reg/first=%x INT_STAT=%x ERR=%x TRANS_STATUS=%x\n", __func__, SlaveAddr,
             Data[0], IntStat, MmioRead32 (I2C + HSI2C_ERROR_STATUS), MmioRead32 (I2C + HSI2C_TRANS_STATUS)));
-    MmioWrite32 (I2C + HSI2C_INT_STAT, IntStat);
+    Hsi2cReset ();
     return ((IntStat & (HSI2C_INT_NODEV | HSI2C_INT_NO_ACK)) != 0) ? EFI_NOT_FOUND : EFI_DEVICE_ERROR;
   }
 
@@ -221,33 +250,22 @@ PmicBusInit (VOID)
 {
   Hsi2cDump ("at handoff");
 
+  // The bootloader leaves the bus working (it talks to the MAX77705 itself), so its timing is the
+  // reference. Run 1 rewrote one byte-field of FS1/FS2/FS3 from UNVERIFIED kernel-computed values after the
+  // SW reset; if the reset clears the register file (Linux re-runs exynos5_hsi2c_clock_setup after every
+  // exynos5_i2c_reset, our Windows driver re-runs ControllerSetBusTiming), the rest stayed zero - the
+  // likely reason the transfer never completed (INT_STAT=0). Snapshot once, restore after every reset.
+  mTiming[0] = MmioRead32 (I2C + HSI2C_TIMING_FS1);
+  mTiming[1] = MmioRead32 (I2C + HSI2C_TIMING_FS2);
+  mTiming[2] = MmioRead32 (I2C + HSI2C_TIMING_FS3);
+  mTiming[3] = MmioRead32 (I2C + HSI2C_TIMING_SLA);
+  mConf      = MmioRead32 (I2C + HSI2C_CONF);
+  mTimeout   = MmioRead32 (I2C + HSI2C_TIMEOUT);
+
   // USI_CON: release the USI block reset (kernel writes 0; USI_RESET=(0<<0)).
   MmioWrite32 (I2C + HSI2C_USI_CON, 0);
 
-  // SW reset pulse. [K exynos5_i2c_reset] sets then CLEARS SW_RST explicitly (so does our Windows driver);
-  // the CTL = MASTER write below also clears it, this just matches the pulse.
-  MmioWrite32 (I2C + HSI2C_CTL, HSI2C_CTL_SW_RST);
-  MmioWrite32 (I2C + HSI2C_CTL, 0);
-
-  // Timing: the block is live from the bootloader; compare against the
-  // kernel-computed FS values for this ipclk and only write if different
-  // (UsbHw.h note: values UNVERIFIED on our silicon, reads are the fact).
-  if ((MmioRead32 (I2C + HSI2C_TIMING_FS1) & 0x00FF0000) != (HSI2C_TIMING_FS1_BOOT & 0x00FF0000)) {
-    UINT32  T;
-
-    T  = MmioRead32 (I2C + HSI2C_TIMING_FS1) & ~0x00FF0000;
-    MmioWrite32 (I2C + HSI2C_TIMING_FS1, T | (HSI2C_TIMING_FS1_BOOT & 0x00FF0000));
-    T  = MmioRead32 (I2C + HSI2C_TIMING_FS2) & ~0xFF;
-    MmioWrite32 (I2C + HSI2C_TIMING_FS2, T | (HSI2C_TIMING_FS2_BOOT & 0xFF));
-    T  = MmioRead32 (I2C + HSI2C_TIMING_FS3) & ~0x00FF0000;
-    MmioWrite32 (I2C + HSI2C_TIMING_FS3, T | (HSI2C_TIMING_FS3_BOOT & 0x00FF0000));
-  }
-
-  // Master mode, trailing count, AUTO_MODE. [K exynos5_i2c_init]
-  MmioWrite32 (I2C + HSI2C_CTL, HSI2C_CTL_MASTER);
-  MmioWrite32 (I2C + HSI2C_TRAIL_CTL, 0xFFFFFF);
-  MmioWrite32 (I2C + HSI2C_CONF, MmioRead32 (I2C + HSI2C_CONF) | HSI2C_CONF_AUTO_MODE);
-
+  Hsi2cReset ();
   mBusReady = TRUE;
   Hsi2cDump ("after init");
   return EFI_SUCCESS;

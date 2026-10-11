@@ -15,3 +15,10 @@ Open problems:
    to retry. Needed for 5 Gbps and the dock's HDMI (DP alt mode + CCIC PD/VDM).
 4. Charging through a PD dock: needs runtime PD (PR_SWAP / DR_SWAP); do NOT plug a charger into the dock until then.
 Refs: notes/m16-usb.md (runs 9-16), notes/m16-ss-phy.md, notes/m16-ccic-init.md, notes/m17-muic-switch.md.
+
+## 2026-10-12: OTG boost stays on for the whole Windows session (battery finding)
+Booted without a source attached, the UEFI host path leaves MAX77705 CNFG_00 in mode 0xE (boost, charger engine
+off). Nothing in Windows switches it back, so a charger plugged in later (a) does not charge and (b) meets a
+VBUS the phone is already driving. Linux handles this in max77705_charger.c on CCIC/MUIC attach (OTG off,
+mode 0x4 + 1 ms, then CHG+BUCK). Needs the CC attach state in Windows (CCIC interrupt or a poll) before any
+mode write. S10eBattery 1.0.0.3 only reports the state honestly (off line while boosting).

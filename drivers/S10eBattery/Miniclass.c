@@ -74,6 +74,13 @@ static VOID BuildStatus(_Inout_ PS10E_BATT_FDO Fdo, _In_ PS10E_BATT_READING R)
         ChgDtls = MAX77705_CHG_DTLS(R->ChgDetails01);
         Charging = OnLine && (ChgDtls <= 2);
     }
+    /* OTG boost on (UEFI host-mode fallback when no source attached, Beyond0LteUsbHostDxe Pmic.c): the phone
+       drives VBUS itself, so a valid CHGIN says nothing about an external supply and nothing charges. */
+    if (R->Cnfg00Read && ((R->ChgCnfg00 & MAX77705_MODE_MASK) == MAX77705_MODE_OTG_ON ||
+                          (R->ChgCnfg00 & MAX77705_MODE_MASK) == MAX77705_MODE_CHG_OTG_ON)) {
+        OnLine   = FALSE;
+        Charging = FALSE;
+    }
 
     RateMw = (LONG)(((LONGLONG)R->AvgCurrentMa * (LONGLONG)R->VcellMv) / 1000);
 

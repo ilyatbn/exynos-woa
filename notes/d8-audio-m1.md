@@ -188,3 +188,23 @@ Exynos9820.h already cites for CMU blocks).
   .efi 18 944 B; BEYOND0LTE_UEFI.fd 7 340 032 B sha256
   67f009ab27c5c1d7045653ec28673c52a2a168e8db2dbf05648b3590396f43c3;
   FVMAIN_COMPACT 99% (1 944 B free, auto-sized), FVMAIN 32%.
+- Review b23cd6d (memory map) + a833302 (AudioProbeDxe), adversarial:
+  * HSI2C register/bit values in AudioProbeHw.h diffed mechanically against
+    UsbHw.h (28 names, script loop): all equal (ERROR_STATUS 0x2C is local
+    to Pmic.c, same value).
+  * Madera SPI frame re-derived from regmap semantics: pad_bits sit between
+    reg and value; read_flag_mask ORs into the first reg byte; the kernel's
+    write-then-read inside one CS window == our 8-byte full-duplex frame
+    with the value in RX bytes 6..7. OK.
+  * UEFILOG capacity: ring is 1 MiB (Beyond0LteBootLog.h:16), largest
+    recorded UEFILOG is 75 KB (uefilog-boot33.txt) -> the probe's lines
+    cannot be pushed out before ReadyToBoot.
+  * FOUND (fixed in the follow-up commit): comment claimed a "64-deep"
+    HSI2C FIFO - not verified anywhere (Pmic.c says 16); reworded to the
+    real bound (Length <= 16). FOUND: RX-FIFO-empty timeout in I2cXfer
+    returned without I2cReset/dump, unlike every other error path - a
+    half-finished read could leave the block mid-transfer for the second
+    amp; now dumps + resets. Build exit 0, FD sha256 6c303f10...
+  * Accepted risks (recorded, not bugs): the PERIC1 GPIO block's own clock
+    gate is not checked before its SFRs are read (only the bus PCLK gates
+    are); a hang there is caught by the 0x69 guard on the next boot.

@@ -208,7 +208,7 @@ I2cXfer (IN UINT8 Slave, IN BOOLEAN Read, IN OUT UINT8 *Data, IN UINTN Length, I
 
   if (!Read) {
     for (Index = 0; Index < Length; Index++) {
-      MmioWrite8 (I2C + HSI2C_TX_DATA, Data[Index]);   // <= 16 bytes: always fits the 64-deep FIFO
+      MmioWrite8 (I2C + HSI2C_TX_DATA, Data[Index]);   // Length <= 16 (checked above) = Pmic.c's FIFO bound
     }
   }
 
@@ -246,6 +246,8 @@ I2cXfer (IN UINT8 Slave, IN BOOLEAN Read, IN OUT UINT8 *Data, IN UINTN Length, I
         }
 
         if (Us >= HSI2C_TIMEOUT_US) {
+          I2cDump ("rx fifo empty");
+          I2cReset ();   // like every other error path, so a half-read cannot wedge the next probe
           return EFI_TIMEOUT;
         }
 

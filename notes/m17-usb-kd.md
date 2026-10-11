@@ -112,3 +112,8 @@ hang (notes/m14-smp.md: "Needs kernel-level debugging (KDNET/USB) - parked"), ea
   UEFI event buffer / xHCI PORTSC. No PMIC/I2C traffic, no NDD/XhciDxe. Status word [2] = 'USBD' (0x44425355)
   on success (DSDT UFN0 in T2). Dwc3HostInit renamed Dwc3CoreInit(Device, &Rev). Build DEBUG exit 0
   (b-kd1-build.log). Device-side HSP tune left at the HOST column (DT device column UNVERIFIED/unused).
+- T1 review (d4dac3f): host path identical except the rename (Dwc3CoreInit(FALSE)); KD path never calls
+  PmicBusInit so skipping PmicBusRelease is right; 'USBD' word unused until T2 (expected). Deviations from the
+  kernel's gadget path, recorded as first suspects if enumeration fails: GFLADJ not programmed in device mode;
+  GUSB2PHYCFG.SUSPHY / GUSB3PIPECTL.SUSPHY left set (Linux keeps them unless dis_u2_susphy_quirk; kd module's
+  handling unknown); GUCTL USBHSTINAUTORETRYEN (host-only bit) set, harmless. No follow-up code task.

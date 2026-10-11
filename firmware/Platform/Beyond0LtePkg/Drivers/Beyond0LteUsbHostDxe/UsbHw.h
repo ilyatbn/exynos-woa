@@ -321,6 +321,7 @@
 #define   MAX77705_MODE_CHG_OTG_ON          0xF     // [K] same + charger engine
 #define   MAX77705_MODE_MASK                0xF
 #define   MAX77705_OTG_ILIM_500MA           0x0     // [K]
+#define   MAX77705_OTG_ILIM_900MA           0x1     // [K] charger.c:924-927 default; TWRP CNFG_02 = 0x4A with a dock (bits 7:6 = 01)
 // CCIC block (client 0x25) [K max77705-private.h:160-176, ccic/max77705.h]:
 #define MAX77705_CC_STATUS0       0x0A    // CCStat[2:0]: 0 none, 1 SINK, 2 SOURCE
 #define   MAX77705_CCSTAT_SOURCE            2       // [K]

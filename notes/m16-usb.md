@@ -401,3 +401,11 @@ Found:
   hub likely browns out / resets during attach. A powered dock would make the phone a sink -> needs PD DR_SWAP,
   which we do not do. Next: plain OTG keyboard test; dock under Android/DeX; optionally OTG_ILIM 900 mA.
 - Staged extra.cmd removed from the ESP.
+
+### Run 13 - USB HOST WORKS IN WINDOWS (boot #83, user, 2026-10-11 ~22:30)
+- USB-C-to-A dongle: keyboard + mouse work in Windows; USB flash drive: 1st attempt "unknown device" error, 2nd
+  attempt enumerated and readable (hot-plug works); USB-C/A NVMe enclosure: nothing (same as the dock).
+- So the whole chain works: COM switch -> USB-AP, fallback VBUS boost, host PHY, XHC0 + usbxhci + usbhub3 + HID/MSC.
+  Pattern (low-power OK, marginal flash drive, high-power USB3 devices never connect) matches the 500 mA OTG limit.
+- boot #84 (sha 7da802da…): OTG_ILIM 900 mA (Linux value). Next: flash drive/NVMe/dock on #84; if NVMe/dock still
+  fail, try 1.2/1.5 A and the USB3 (SS) PHY, which we still hold down.

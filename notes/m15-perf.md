@@ -48,3 +48,10 @@ Shipped = GOP framebuffer + inbox BasicDisplay + WARP (CPU rendering). => speed 
   (8-byte bounce copies), new UFS_ZERO_BOUNCE_BEFORE_READ 0 (skip the 165 us pre-read zero). Swapped into
   DriverStore\FileRepository\exynos9820ufs.inf_arm64_4efdc4525d11d997 (only copy; ImagePath points there) after
   fsck.ntfs (dirty from the hard-reset return). Rollback = w32 (e378cee0...). Run 25 measures.
+- __sys / _ReadStatusReg encodings VERIFIED by dumpbin on a test object (%TEMP%\dctest): SYSINSTR(op1,Cn,Cm,op2)
+  = (op1<<11)|(Cn<<7)|(Cm<<3)|op2 -> (3,7,14,1) "dc CIVAC", (3,7,10,1) "dc CVAC", (0,7,6,1) "dc IVAC";
+  ARM64_SYSREG(3,3,0,0,1) -> "mrs CTR_EL0".
+- Driver w34 (Exynos9820Ufs-w34.sys, sha256 8ea93ce8...): UFS_CACHED_BOUNCE_READ 1 - a cacheable MmMapIoSpaceEx
+  view of the bounce (firmware-reserved pool only), read copy-back = DSB, DC CIVAC over the range (line from
+  CTR_EL0), DSB, RtlCopyMemory; writes/commands keep the Device-memory view. dumpbin of the .sys shows
+  "dc CIVAC,x8" and "mrs x8,CTR_EL0". Early mark "=CACHED BOUNCE line=" records line size + mapping success.

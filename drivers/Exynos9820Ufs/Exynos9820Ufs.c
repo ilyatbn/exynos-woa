@@ -5116,6 +5116,27 @@ UfsAllocateWorkspace(
     }
 
     UfsZeroUncached(Adapter->Workspace, UFS_WORKSPACE_SIZE);
+
+#if UFS_CACHED_BOUNCE_READ
+    //
+    // m15 w34: cacheable view of the bounce for the read copy-back (see Exynos9820UfsDiag.h). Only for the
+    // firmware-reserved pool: that memory is not in Windows' PFN database, so a second mapping with other
+    // attributes does not alias any page Windows itself maps. PASSIVE_LEVEL here (HwFindAdapter).
+    //
+    Adapter->BounceCached = NULL;
+    if (Adapter->WorkspaceFirmwareReserved) {
+        PHYSICAL_ADDRESS Physical;
+        ULONGLONG Ctr = _ReadStatusReg(ARM64_SYSREG(3, 3, 0, 0, 1));   // CTR_EL0
+
+        Adapter->DcacheLineSize = 4UL << ((Ctr >> 16) & 0xFUL);          // DminLine = log2(words)
+        Physical.QuadPart = Adapter->BouncePhysical.QuadPart;
+        if ((Adapter->DcacheLineSize >= 16UL) && (Adapter->DcacheLineSize <= 256UL)) {
+            Adapter->BounceCached = (PUCHAR)MmMapIoSpaceEx(Physical, UFS_BOUNCE_SIZE, PAGE_READWRITE);
+        }
+        UfsEarlyMark("=CACHED BOUNCE line=", ((ULONGLONG)Adapter->DcacheLineSize << 32) |
+                                             (Adapter->BounceCached != NULL ? 1ULL : 0ULL));
+    }
+#endif
     return TRUE;
 }
 
@@ -7151,6 +7172,23 @@ UfsFinishScsiCommand(
             ULONGLONG Start = UfsPerfTick();
 #endif
 
+#if UFS_CACHED_BOUNCE_READ
+            if (Adapter->BounceCached != NULL) {
+                //
+                // DMA is complete (doorbell retired). Drop every cached line of the range - clean lines only,
+                // the CPU never writes this view - so the copy reads what the device wrote.
+                //
+                ULONG_PTR Line = (ULONG_PTR)Adapter->BounceCached & ~((ULONG_PTR)Adapter->DcacheLineSize - 1);
+                ULONG_PTR End = (ULONG_PTR)Adapter->BounceCached + ActualLength;
+
+                __dsb(_ARM64_BARRIER_SY);
+                for (; Line < End; Line += Adapter->DcacheLineSize) {
+                    __sys(UFS_SYSINSTR(3, 7, 14, 1), (__int64)Line);   // DC CIVAC (verified encoding)
+                }
+                __dsb(_ARM64_BARRIER_SY);
+                RtlCopyMemory(Srb->DataBuffer, Adapter->BounceCached, ActualLength);
+            } else
+#endif
             UfsCopyFromUncached(
                 Srb->DataBuffer,
                 Adapter->Bounce,

@@ -1636,6 +1636,8 @@ typedef struct _UFS_ADAPTER_EXTENSION {
     STOR_PHYSICAL_ADDRESS UcdPhysical;
     PUCHAR Bounce;
     STOR_PHYSICAL_ADDRESS BouncePhysical;
+    PUCHAR BounceCached;      /* m15 w34: cacheable view of the bounce pages, READ copy-back only (or NULL) */
+    ULONG DcacheLineSize;     /* from CTR_EL0.DminLine */
     ULONG Capabilities;
     ULONG InitialHostStatus;
     ULONG InitialInterruptStatus;

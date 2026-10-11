@@ -53,6 +53,21 @@
  * It only matters if the device returns fewer bytes than requested WITHOUT reporting a residual; residuals are
  * checked and counted (FAIL_BY_CAUSE RESID, 0 so far). 0 = skip it.
  */
+/*
+ * m15 w34: read copy-back through a CACHEABLE second view of the bounce pages (MmMapIoSpaceEx PAGE_READWRITE)
+ * instead of the Device-memory view. Coherence by hand: the CPU never writes through this view, so its lines
+ * are never dirty; after each read's DMA completes the transferred range gets DC CIVAC (= invalidate for clean
+ * lines, line size from CTR_EL0) between DSBs, then a normal cached copy. Writes and command buffers keep the
+ * Device-memory view, so a maintenance mistake can only return a stale READ, never write stale data to disk.
+ * Encodings of DC CIVAC / CTR_EL0 for MSVC __sys/_ReadStatusReg verified by disassembly (notes/m15-perf.md).
+ */
+/* SYS #op1, Cn, Cm, #op2 operand for MSVC __sys(); (3,7,14,1) = DC CIVAC - verified by dumpbin. */
+#define UFS_SYSINSTR(op1, crn, crm, op2)  (((op1) << 11) | ((crn) << 7) | ((crm) << 3) | (op2))
+
+#ifndef UFS_CACHED_BOUNCE_READ
+#define UFS_CACHED_BOUNCE_READ                     1
+#endif
+
 #ifndef UFS_ZERO_BOUNCE_BEFORE_READ
 #define UFS_ZERO_BOUNCE_BEFORE_READ                0
 #endif

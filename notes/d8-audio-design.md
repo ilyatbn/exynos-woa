@@ -53,6 +53,30 @@ HSI2C Windows driver, currently bound to hsi2c_10 only).
   "volume" requirement is satisfied by the class stack once an endpoint
   exists; the physical keys are already done via BTNS/Hidinterrupt).
 
+## 1a. The 3.5 mm jack = the minimal rung-1 target (added 2026-10-11)
+
+Facts in `notes/d8-audio.md` §7. The jack hangs off the CS47L93 itself
+(HPOUT2L/R, impedance HPDET + MICDET + moisture on the codec IRQ GSIV 55),
+so the jack chain skips the entire amp subsystem:
+
+```
+render:  RDMA -> [SPUS/SPUM] -> UAIF0 -> AIF1 -> DAC2 -> HPOUT2 -> jack
+capture: jack mic -> IN1BL -> ADC -> AIF1 -> UAIF0 -> WDMA
+```
+
+Order of attack inside rung 1 (decision): (1) codec bring-up over the
+spi_2 driver (reset gpg1-0, BOOT_DONE poll, FLL 26 MHz->98.304 MHz, AIF1
+I2S) — testable with line-out loopback measurements before any ABOX DMA;
+(2) jack state -> `KSJACK_DESCRIPTION2.DeviceState` + `IPortEvents`
+(connector `eConnTypeMiniPhoneJack`), reading HPDET/MICDET status on the
+codec IRQ (GpioInt via Exynos9820Gpio, pin 18 = gpa2-2); (3) the shared
+SPUS/SPUM direct-routing experiment (UAIF0 this time, not UAIF1); (4)
+WaveRT pins; (5) amps last (they only gate the speaker endpoint, the jack
+endpoint works without them — Windows simply shows speakers disconnected).
+
+Moisture detection (`cirrus,moisture-pin/imp`) is codec-native and can be
+surfaced later as an extra pin state; not required for audio I/O.
+
 ## 2. Bring-up sequence (transliterated from the vendor driver, DSP bypassed)
 
 Order below is FACT-derived from `notes/d8-audio-linux.md` Q2/Q4/Q5 line

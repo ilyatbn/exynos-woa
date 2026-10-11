@@ -303,3 +303,46 @@ Native in-box path, no custom HID code:
   `f7d535f`), design doc `notes/d8-audio-design.md` (`b943e18`). Restart
   point = HANDOFF §23. Session commits: f10b00a, 1226d60, f22718a,
   a59c6e4, f5e19b9, f7d535f, b943e18.
+
+## 7. The 3.5 mm jack (FACTS, 2026-10-11 follow-up)
+
+Sources: board dtsi `exynos9820-beyond0lte_common.dtsi` (fetched raw),
+`sound/soc/samsung/beyond_madera.c`, `drivers/extcon/extcon-madera.c`
+(3851 lines — the vendor jack-detection driver, all @ lineage-22.2),
+mainline `sound/soc/codecs/madera.c`, SYSVAD sample, portcls DDI index.
+
+- **The jack is the CS47L93's own headphone output** — routing
+  `"HEADPHONE","HPOUT2L"` + `"HEADPHONE","HPOUT2R"` (board dtsi:227-228).
+  No external headphone amp: the codec drives the jack directly.
+  `cirrus,out-mono = <0 0 0 1 0 0>` (dtsi:1928) — per-output mono-bridge
+  flags, exact widget mapping = implementation detail, UNVERIFIED.
+- **Jack detection is codec-native, impedance-based**:
+  `cirrus,accdet` block (dtsi:2001-2041): acc channel `reg=<2>` (JD2),
+  `cirrus,jd-use-jd2`, `cirrus,hs-mic = <1>` (headset mic detect),
+  `cirrus,hpd-pins = <2 5 0 0>`, `cirrus,hpdet-ext-res = <3300>`,
+  micd thresholds (`cirrus,micd-ranges`, software compare, open-circuit
+  declare), 300 ms micd debounce, and **moisture detection**
+  (`cirrus,moisture-pin/imp/debounce` — the hardware behind Samsung's
+  "moisture detected" jack warning).
+- Driver chain (FACT): `extcon-madera.c` programs `MADERA_HP_CTRL_1L/1R`,
+  `MADERA_HP_IMPEDANCE_RANGE/RATE/DONE`, `MADERA_HPD_OUT_SEL` (OUT1L/OUT1R),
+  `MADERA_ACCDET_MODE_{ADC,MIC,HPL,HPM,HPR}` and fires
+  `MADERA_NOTIFY_HPDET` (impedance_x100) / `MADERA_NOTIFY_MICDET` (present)
+  notifiers; `beyond_madera.c:389-446` consumes them (hpdet_cb even picks an
+  HP gain step from an impedance table). Detection events arrive on the
+  **codec IRQ = gpa2-2 = GSIV 55** (already in `Exynos9820.h`).
+- **Windows jack reporting (FACT)**: topology pins carry
+  `KSJACK_DESCRIPTION`/`_2` (`PropertyHandler_...JackDescription2`,
+  SYSVAD `a2dphpspeakertopo.cpp`/`a2dphptopo.cpp:268` — `IsConnected` is
+  "set by run-time code"); connector type `eConnTypeMiniPhoneJack` exists
+  for 3.5 mm; state changes are pushed via `IPortEvents` ("used by miniport
+  drivers to notify clients of hardware events", portcls DDI index — there
+  is NO IPinEvents; correction to my earlier assumption).
+- **Consequence for the ladder (INFERENCE, strong)**: the jack is the
+  MINIMAL rung-1 target — playback chain
+  `RDMA -> [SPUS/SPUM] -> UAIF0 -> CS47L93 AIF1 -> DAC -> HPOUT2 -> jack`
+  needs NO CS35L40 amps, no amp wmfw/calib, no hsi2c_38 instance, no
+  SoundBoosterParam. The single hard blocker (direct RDMA->UAIF routing)
+  is shared with the speaker path; everything amp-side is deferred.
+  Capture via the jack = IN1BL (headset mic) -> ADC -> AIF1 -> UAIF0 ->
+  WDMA, same shape.

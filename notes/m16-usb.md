@@ -157,3 +157,8 @@ Found:
 - The drivers-branch DSDT declared `_CCA 1` while its own comment says the DT node is NOT dma-coherent
   and the UEFI side is NonCoherent. `_CCA 1` = Windows assumes snooping, no cache maintenance → stale
   data. Changed to `_CCA Zero`, as UFS0 (which Windows runs with today).
+
+### Run 3 (boot #68) — flashed 2026-10-11
+- boot68-v2.img sha256 cb25db01…d465 verified on the partition = cceb4ee (tasks 6-8 on top of run 2).
+- If it crashes again: ask the user for a photo of the exception screen (PC + image name); the
+  exception flush cannot reach the ESP this early.

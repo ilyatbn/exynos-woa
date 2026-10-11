@@ -220,3 +220,132 @@ Exynos9820.h already cites for CMU blocks).
   probe runs at DXE dispatch, this log at ReadyToBoot - so the rail value is
   read ~seconds after the codec probe; LDO18M is only ever changed by the
   kernel, so the value is representative of the probe's moment.
+- Review f3fa577 (rails log): offsets 0x56/0x57 re-read from the header
+  (s2mps19-regulator.h:112-113); enable field [7:6] mask is the generic
+  S2MPS19 LDO layout (header :220-221) used for L19/L27 already. No
+  follow-ups.
+
+## 3. Device test procedure (milestone 1)
+
+Image: any boot image packed from this branch's FD (private-workspace build
+`w8a\Build\Beyond0LtePkg\DEBUG_CLANGPDB\FV\BEYOND0LTE_UEFI.fd` under
+`C:\Users\ilya\code`, or - better - rebuild on main after merge with the
+normal `build-uefi.ps1`). Same pack + flash flow as every boot (HANDOFF
+§25/§26; only by-name/boot is written). This session did NOT pack or flash.
+
+1. Boot once to Windows (or just past BDS). The probe runs during DXE
+   dispatch, well under 1 s, and never fails the boot.
+2. From TWRP pull `UEFILOG.TXT` from the ESP (as every boot) and
+   `grep -E 'AudioProbe|TouchPower: L1[78]CTRL'`.
+3. Expected lines, in order (<> = what we learn):
+   ```
+   AudioProbe: start (release resets 1)
+   AudioProbe: CMU_PERIC1 USI_I2C mux <> div <> | USI17_I2C gate IPCLK <> PCLK <> QCH <>
+   AudioProbe: amp bus at handoff: usi_17_i2c mode <> (never written), gph0 CON <>, gph1 CON <> DAT <> (reset R gph1-1 fn <> lvl <>, L gph1-2 fn <> lvl <>)
+   AudioProbe: hsi2c38 at handoff: CTL ... USI_CON <>
+   AudioProbe: hsi2c38 after init: CTL 8 ... CONF 80000000 ... FS1 F00000 FS3 210000 ... USI_CON 0
+   AudioProbe: amp R/bot @40 DEVID 35A40 REVID <> OTPID <> IRQ1_STATUS4 <> (OTP_BOOT_DONE 1) -> CS35L40 ID OK
+   AudioProbe: amp L/rcv @41 DEVID 35A40 ... -> CS35L40 ID OK
+   AudioProbe: amps R OK, L OK; bus released: gph0 CON <handoff> gph1 CON <handoff> DAT <handoff> USI_CON <handoff>
+   AudioProbe: CMU_PERIC0 USI01 mux <> div <> gate IPCLK <> PCLK <> QCH <> (SCLK = ipclk/4, rate UNVERIFIED)
+   AudioProbe: codec bus at handoff: usi_1 mode <>, gpp0 CON <>, gpg1 CON <> DAT <> (reset gpg1-0 fn <> lvl <>), codec IRQ gpa2-2 lvl <>
+   AudioProbe: spi2 at handoff: ... / spi2 after init: ...
+   AudioProbe: codec ID 6371 HW_REV <> IRQ1_RAW_STATUS1 <> (BOOT_DONE <>) -> CS47L92/93 ID OK
+   AudioProbe: codec OK; bus released: usi_1 mode <handoff> ...
+   AudioProbe: done
+   ...
+   TouchPower: L17CTRL codec 1.8V (0x56) = 0x?? enable[7:6] = 3 ...
+   TouchPower: L18CTRL codec DCVDD 1.2V (0x57) = 0x?? enable[7:6] = <0 or 3> ...
+   ```
+   (DEBUG %x prints upper-case hex without 0x.) If a chip first fails and
+   its reset line was low, a "held in reset ... releasing it" line and a
+   second ID line follow.
+4. Milestone 1 is **done** when at least one CS35L40 DEVID and the CS47L93
+   ID read their expected values on the device. Paste the raw lines here.
+5. Reading failures:
+   - amp `DEVID read Not Found` before and after the reset release -> no
+     ACK: check the `after init` dump (USI_CON 0, CTL 8) and the CMU_PERIC1
+     gate/QCH words; next lever = the never-written usi_17_i2c mode (value
+     is logged) - a mode write (I2C = 4) is the follow-up experiment, not
+     done blind here.
+   - `xfer timeout` -> the block is not clocked (IPCLK gate / QCH): CMU
+     territory, stop and read cal-if before touching anything.
+   - codec `no answer (...)` with L18CTRL enable 0 -> DCVDD off: the fix is
+     the kernel's own enable through ACPM (TouchPowerDxe EnsureLdoOn on
+     0x57, check vsel first), a separate flag-gated task.
+   - codec ID neither 0x0000/0xFFFF nor 0x6371 -> bits move but garbled:
+     SCLK too fast (CMU USI01 mux/div in the log) or frame off by a byte
+     (compare with the value shifted by 8).
+   - boot hangs in the probe (no UEFILOG, progress word ends at 0x69) -> the
+     next boot skips it by itself; read `/proc/debug_history` from TWRP
+     (AGENTS.md §9) and the WINPRAM progress word.
+6. Safety: no PMIC write, no CMU write, no ABOX access. The only outputs
+   driven are the three reset lines, low -> high for the ID read, then
+   back. The amps cannot play anything (no I2S clock, no firmware, never
+   enabled).
+
+## 4. Milestone 2 - smallest path to an audible sound (design, not built)
+
+### 4.1 Cheapest audible test: the codec's own tone generator (NO ABOX, NO Windows driver)
+The CS47L93 can make sound from SPI register writes alone: tone generator
+1 -> OUT2 mixers -> HPOUT2 -> 3.5 mm jack (the jack is codec-native,
+d8-audio.md §7). Already pinned (lineage-22.2):
+- MADERA_TONE_GENERATOR_1 = 0x20, TONE1_ENA = bit0 (registers.h:25,2341)
+- OUT2LMIX_INPUT_1_SOURCE = 0x690, OUT2RMIX_INPUT_1_SOURCE = 0x698
+  (registers.h:467,475); mixer source "Tone Generator 1" = 0x04
+  (madera.c:1422-1424 texts / 1574-1576 values)
+- OUTPUT_ENABLES_1 = 0x400, OUT2L_ENA = 0x0008 (registers.h:262,4293);
+  DAC_DIGITAL_VOLUME_2L = 0x419, OUT2L_MUTE = 0x0100 (:275,4452)
+- CLOCK_32K_1 0x100, SYSTEM_CLOCK_1 0x101, SAMPLE_RATE_1 0x102,
+  FLL1_CONTROL_1 0x171 (:50-52,72)
+Still to pin before any code (each its own research task):
+ a. A SYSCLK source with no AP clock work. The DT uses FLL1 <- MCLK1 = AP
+    "xclkout" OSC_AUD 26 MHz (needs the AP CLKOUT mux = AP work). Option:
+    FLL1 <- MCLK2 (the board's 32 kHz, DT outclk source MCLK2) - which
+    clock is on MCLK2 is UNVERIFIED; read the cs47l92 FLL ref limits.
+ b. The HPOUT2 power-up sequence the DAPM runs (charge pump, HP_CTRL,
+    EDRE, output enable order: madera_hp_ev / madera_out_ev + the cs47l92
+    patch table) - transliterate like the SPI master was.
+ c. DCVDD: LDO18M must be on (§3 step 3 tells). Enabling = one ACPM
+    FUNC_UPDATE (the touch-rail path), flag-gated.
+ d. Hand-off: after the beep the codec goes back into reset before
+    ExitBootServices (same restore rule as the probe).
+Deliverable: flag-gated `BEYOND0LTE_AUDIO_BEEP` (default 0) in
+Beyond0LteAudioProbeDxe: ~1 s tone in wired headphones at boot, then codec
+back in reset. Proves codec power, SPI writes, clocking and the HP output
+stage end to end - the same pieces the Windows driver needs.
+
+### 4.2 Windows: minimal driver architecture (from notes/d8-audio-windows.md Q1)
+- Framework: **portcls WaveRT miniport** (SimpleAudioSample skeleton, KMDF
+  service, Class=MEDIA, Include=ks.inf,wdmaudio.inf, AddInterface
+  KSCATEGORY_*). ACX stays the rung-2 target. A custom non-KS driver is not
+  an option: only KS filters become Windows audio endpoints.
+- Enumeration: DSDT `Device (AUD0)`, _HID from the reserved range
+  (SAMS9823, drivers-branch-port-plan.md), `_CRS` = ABOX ifr
+  0x18C50000+0x10000 (UAIF/RDMA), ABOX sysreg 0x18C10000+0x10000, spi_2
+  0x10470000+0x1000 + PERIC0 USI page, PERIC0 GPIO (codec reset) - or GpioIo
+  through the Exynos9820Gpio provider once it ships - and the codec IRQ
+  (gpa2-2, GSIV 55) for jack detect. One driver owns the codec over a
+  private SPI master (the UEFI probe's code); an SPB SPI controller driver
+  is NOT needed for M2.
+- Endpoints for M2: one render endpoint (headphones, KSJACK
+  eConnTypeMiniPhoneJack, IsConnected from HPDET); capture and speakers
+  later.
+- Hard blocker (unchanged): moving PCM from a Windows buffer to UAIF0
+  without the Calliope DSP (RDMA -> SPUS/SPUM -> UAIF0 direct route,
+  d8-audio-design.md §2.4). Until it closes a Windows endpoint can exist
+  but only the tone generator makes sound.
+
+### 4.3 Exact milestone-2 task list (each = one commit)
+1. Research: FLL1 reference choice (MCLK2 wiring, 32 kHz ref limits) +
+   HPOUT2 enable sequence from cs47l92.c/madera.c DAPM events -> notes.
+2. Firmware: ACPM enable of LDO18M behind `BEYOND0LTE_AUDIO_DCVDD` (0) -
+   only if M1's L18CTRL read shows it off.
+3. Firmware: `BEYOND0LTE_AUDIO_BEEP` (0): reset release, BOOT_DONE poll,
+   FLL1, SYSCLK, tone1 -> OUT2 -> HPOUT2 for 1 s, then reset.
+4. Device test: headphones in, listen at boot (needs the user).
+5. Research: SPUS/SPUM direct route (mine calliope2.dt / SFR diff on
+   Android with root reads) - the rung-1 gate.
+6. Windows: AUD0 DSDT + portcls skeleton with a loopback-only WaveRT pin
+   (no hardware) to prove endpoint creation on ARM64.
+7. Windows: real RDMA -> UAIF0 -> AIF1 streaming (after 5).

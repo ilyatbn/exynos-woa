@@ -1,0 +1,52 @@
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
+Provider=%ProviderName%
+DriverVer=10/11/2026,1.0.0.0
+CatalogFile=Exynos9820Gpio.cat
+PnpLockdown=1
+
+[DestinationDirs]
+DefaultDestDir=13
+
+[SourceDisksNames]
+1=%DiskName%,,,""
+
+[SourceDisksFiles]
+Exynos9820Gpio.sys=1
+
+[Manufacturer]
+%ManufacturerName%=Models,NT$ARCH$.10.0...16299
+
+[Models.NT$ARCH$.10.0...16299]
+%DeviceDescription%=Device_Install,ACPI\SAMS9821
+
+[Device_Install.NT]
+CopyFiles=Driver_CopyFiles
+
+[Driver_CopyFiles]
+Exynos9820Gpio.sys
+
+[Device_Install.NT.Services]
+AddService=Exynos9820Gpio,0x00000002,Service_Install
+
+[Service_Install]
+DisplayName=%ServiceDescription%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%13%\Exynos9820Gpio.sys
+
+[Device_Install.NT.Wdf]
+KmdfService=Exynos9820Gpio,Wdf_Install
+
+[Wdf_Install]
+KmdfLibraryVersion=$KMDFVERSION$
+
+[Strings]
+ProviderName="Exynos9820 WOA Project"
+ManufacturerName="Samsung Electronics"
+DiskName="Exynos9820 GPIO Controller Installation Disk"
+DeviceDescription="Samsung Exynos 9820 ALIVE GPIO Controller (GpioClx provider)"
+ServiceDescription="Samsung Exynos 9820 ALIVE GPIO Controller Driver"

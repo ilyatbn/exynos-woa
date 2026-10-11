@@ -286,3 +286,16 @@ Native in-box path, no custom HID code:
   at 1 089 476 in `FVMAIN.Fv` (FD itself is LZMA — same verification pattern
   as `notes/m8-dsdt-mat.md`). Windows-side behavior (Hidinterrupt.sys
   binding, GpioClx ActiveBoth emulation) UNVERIFIED until device test.
+- 2026-10-11: **GpioClx bank-model correction** (docs,
+  learn.microsoft.com bringup/general-purpose-i-o--gpio-): "_CRS interrupt
+  entries map to BANKS in list order" — but Exynos EINTs are per-PIN.
+  Resolution: the driver presents 34 banks of 1 pin
+  (NumberOfPinsPerBank=1, allowed by the DDI remarks), so bank B == pin B
+  == EINT B == B-th _CRS entry; physical word = B/8, bit = B%8; a
+  driver-global WDFSPINLOCK guards every RMW (GpioClx's per-bank lock
+  does not cover shared physical words). DSDT's 34-entry list is correct
+  under this model. Driver: drivers/Exynos9820Gpio/ (.c/.h/.inx/.vcxproj/
+  README) — EmulateActiveBoth + EmulateDebouncing set; NOT built (no WDK
+  here), NOT device-validated. Follow-up: DSDT GpioInt DebounceTimeout is
+  0 while the driver asks GpioClx to debounce — set 10 ms (10000 x 100us)
+  to match the Android DT.

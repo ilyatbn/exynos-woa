@@ -38,6 +38,10 @@ static ULONG gFallbackSeconds;
 static KTIMER gFallbackTimer;
 static KDPC gFallbackDpc;
 static BOOLEAN gShutdownRegistered;
+static volatile UCHAR *gMarks;          // PRAM mark ring (S10EDIAG_MARK_PHYSICAL), non-cached
+static KSPIN_LOCK gMarkLock;
+static KBUGCHECK_CALLBACK_RECORD gBugcheckRecord;
+static BOOLEAN gBugcheckRegistered;
 
 // SYSTEM + Administrators only.
 static const WCHAR gSddl[] = L"D:P(A;;GA;;;SY)(A;;GA;;;BA)";
@@ -51,6 +55,87 @@ S10eWritePmu(ULONG Offset, ULONG Value)
         WRITE_REGISTER_ULONG((volatile ULONG *)(gPmu + Offset), Value);
         KeMemoryBarrier();
     }
+}
+
+//
+// One line into the PRAM mark ring. Callable at any IRQL (stores only, no allocation); the bugcheck
+// callback calls it without the lock.
+//
+static VOID
+S10eMarkRaw(const CHAR *Text, ULONG Length)
+{
+    static const CHAR Digits[] = "0123456789";
+    ULONGLONG Ms = KeQueryInterruptTime() / 10000ULL;
+    volatile UCHAR *Line;
+    ULONG Next;
+    ULONG Index;
+    ULONG Out = 0;
+    CHAR Number[10];
+
+    if (gMarks == NULL) {
+        return;
+    }
+    Next = *(volatile ULONG *)(gMarks + 8);
+    if ((Next == 0) || (Next >= S10EDIAG_MARK_SIZE / S10EDIAG_MARK_LINE)) {
+        Next = 1;
+    }
+    Line = gMarks + (Next * S10EDIAG_MARK_LINE);
+    for (Index = 0; Index < 10; Index++) {
+        Number[9 - Index] = Digits[Ms % 10];
+        Ms /= 10;
+    }
+    for (Index = 0; Index < 10; Index++) {
+        Line[Out++] = (UCHAR)Number[Index];
+    }
+    Line[Out++] = ' ';
+    for (Index = 0; (Index < Length) && (Out < S10EDIAG_MARK_LINE - 1); Index++) {
+        CHAR C = Text[Index];
+        Line[Out++] = (UCHAR)(((C >= 0x20) && (C < 0x7F)) ? C : '.');
+    }
+    while (Out < S10EDIAG_MARK_LINE - 1) {
+        Line[Out++] = ' ';
+    }
+    Line[Out] = '\n';
+    *(volatile ULONG *)(gMarks + 8) = Next + 1;
+    KeMemoryBarrier();
+}
+
+static VOID
+S10eMark(const CHAR *Text, ULONG Length)
+{
+    KIRQL Irql;
+
+    KeAcquireSpinLock(&gMarkLock, &Irql);
+    S10eMarkRaw(Text, Length);
+    KeReleaseSpinLock(&gMarkLock, Irql);
+}
+
+static VOID
+S10eMarkHex(const CHAR *Prefix, ULONGLONG Value)
+{
+    static const CHAR Hex[] = "0123456789ABCDEF";
+    CHAR Line[48];
+    ULONG Out = 0;
+    ULONG Index;
+
+    for (Index = 0; (Prefix[Index] != '\0') && (Out < 24); Index++) {
+        Line[Out++] = Prefix[Index];
+    }
+    Line[Out++] = ' ';
+    for (Index = 0; Index < 16; Index++) {
+        Line[Out++] = Hex[(Value >> ((15 - Index) * 4)) & 0xF];
+    }
+    S10eMarkRaw(Line, Out);
+}
+
+static VOID
+S10eBugcheckCallback(PVOID Buffer, ULONG Length)
+{
+    UNREFERENCED_PARAMETER(Buffer);
+    UNREFERENCED_PARAMETER(Length);
+    // Only "we crashed, at this uptime": the stop code and parameters are recorded by Exynos9820Ufs's own
+    // callback (=UFSBUGCHECK at WINPRAM +0x28D). No lock - the system is already stopped.
+    S10eMarkRaw("BUGCHECK callback", 17);
 }
 
 static VOID
@@ -193,6 +278,15 @@ S10eIoctl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
         Status = STATUS_SUCCESS;
         break;
 
+    case IOCTL_S10EDIAG_MARK:
+        if (InLength == 0) {
+            Status = STATUS_BUFFER_TOO_SMALL;
+            break;
+        }
+        S10eMark((const CHAR *)Buffer, InLength);
+        Status = STATUS_SUCCESS;
+        break;
+
     case IOCTL_S10EDIAG_INFO:
         if (OutLength < sizeof(S10EDIAG_INFO)) {
             Status = STATUS_BUFFER_TOO_SMALL;
@@ -227,6 +321,7 @@ S10eShutdown(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
     UNREFERENCED_PARAMETER(DeviceObject);
 
+    S10eMark("shutdown notification", 21);
     // Last-chance notification: nothing in Windows writes INFORM3 after this point.
     if (gRecoveryArmed != 0) {
         S10eWritePmu(S10E_PMU_INFORM3, S10E_REBOOT_RECOVERY);
@@ -255,6 +350,12 @@ S10eUnload(PDRIVER_OBJECT DriverObject)
 
     UNREFERENCED_PARAMETER(DriverObject);
     KeCancelTimer(&gFallbackTimer);
+    if (gBugcheckRegistered) {
+        KeDeregisterBugCheckCallback(&gBugcheckRecord);
+    }
+    if (gMarks != NULL) {
+        MmUnmapIoSpace((PVOID)gMarks, S10EDIAG_MARK_SIZE);
+    }
     if (gShutdownRegistered) {
         IoUnregisterShutdownNotification(gDevice);
     }
@@ -283,6 +384,24 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     Physical.QuadPart = (LONGLONG)S10E_PMU_PHYSICAL_BASE;
     gPmu = (volatile UCHAR *)MmMapIoSpaceEx(Physical, S10E_PMU_WINDOW, PAGE_READWRITE | PAGE_NOCACHE);
 
+    // PRAM mark ring: the firmware zeroes the dumped 64 KiB after saving it, so a fresh boot starts empty.
+    KeInitializeSpinLock(&gMarkLock);
+    Physical.QuadPart = (LONGLONG)S10EDIAG_MARK_PHYSICAL;
+    gMarks = (volatile UCHAR *)MmMapIoSpaceEx(Physical, S10EDIAG_MARK_SIZE, PAGE_READWRITE | PAGE_NOCACHE);
+    if (gMarks != NULL) {
+        static const CHAR Magic[8] = { 'S', '1', '0', 'E', 'M', 'A', 'R', 'K' };
+        ULONG Index;
+
+        for (Index = 0; Index < 8; Index++) {
+            gMarks[Index] = (UCHAR)Magic[Index];
+        }
+        S10eMark("S10eDiag loaded", 15);
+        S10eMarkHex("INFORM3", (gPmu != NULL) ? READ_REGISTER_ULONG((volatile ULONG *)(gPmu + S10E_PMU_INFORM3)) : 0);
+    }
+    KeInitializeCallbackRecord(&gBugcheckRecord);
+    gBugcheckRegistered = KeRegisterBugCheckCallback(&gBugcheckRecord, S10eBugcheckCallback, NULL, 0,
+                                                     (PUCHAR)"S10eDiag");
+
     RtlInitUnicodeString(&Name, S10EDIAG_DEVICE_NAME);
     RtlInitUnicodeString(&Sddl, gSddl);
     Status = IoCreateDeviceSecure(DriverObject, 0, &Name, FILE_DEVICE_UNKNOWN, FILE_DEVICE_SECURE_OPEN,
@@ -309,6 +428,14 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     return STATUS_SUCCESS;
 
 Fail:
+    if (gBugcheckRegistered) {
+        KeDeregisterBugCheckCallback(&gBugcheckRecord);
+        gBugcheckRegistered = FALSE;
+    }
+    if (gMarks != NULL) {
+        MmUnmapIoSpace((PVOID)gMarks, S10EDIAG_MARK_SIZE);
+        gMarks = NULL;
+    }
     if (gPmu != NULL) {
         MmUnmapIoSpace((PVOID)gPmu, S10E_PMU_WINDOW);
         gPmu = NULL;

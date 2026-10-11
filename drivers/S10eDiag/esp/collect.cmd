@@ -8,6 +8,7 @@ rem   %ESP%\S10EDIAG\stay.flg  present -> collect only, Windows keeps running (i
 rem   otherwise: clean restart into TWRP (5 min hard-reset fallback). \WINRUN.FLG is LEFT on the ESP: if the
 rem   restart crashes, the bugcheck reset goes through the firmware boot pair (PRAM dump, then TWRP).
 rem   Delete it from TWRP before the next run.
+rem Every step is announced with `s10ediag mark` first: the PRAM mark ring survives a crash (WINPRAM.BIN +0xA000).
 setlocal
 set L=%OUT%\last
 if exist "%L%" rd /s /q "%L%"
@@ -16,17 +17,23 @@ echo === collect start %DATE% %TIME%
 s10ediag info
 
 echo --- quick
+s10ediag mark c: pnputil problem
 pnputil /enum-devices /problem > "%L%\pnp-problem.txt" 2>&1
+s10ediag mark c: Get-PnpDevice
 powershell -NoProfile -Command "Get-PnpDevice | Sort-Object Status,Class | Format-Table -AutoSize Status,Problem,Class,FriendlyName,InstanceId | Out-String -Width 400" > "%L%\pnp.txt" 2>&1
+s10ediag mark c: sc query
 sc query S10eDiag > "%L%\sc.txt" 2>&1
 sc query S10eAgent >> "%L%\sc.txt" 2>&1
+s10ediag mark c: powercfg
 powercfg /a > "%L%\powercfg-a.txt" 2>&1
+s10ediag mark c: wevtutil
 wevtutil epl System "%L%\System.evtx"
 wevtutil epl Application "%L%\Application.evtx"
 wevtutil epl Microsoft-Windows-Kernel-PnP/Configuration "%L%\KernelPnP.evtx"
 
 if exist %ESP%\S10EDIAG\full.flg (
   echo --- full
+  s10ediag mark c: full inventory
   systeminfo > "%L%\systeminfo.txt" 2>&1
   tasklist /v > "%L%\tasks.txt" 2>&1
   driverquery /v /fo csv > "%L%\drivers.csv" 2>&1
@@ -39,16 +46,19 @@ if exist %ESP%\S10EDIAG\full.flg (
 
 if exist %ESP%\S10EDIAG\extra.cmd (
   echo --- extra
+  s10ediag mark c: extra.cmd
   call %ESP%\S10EDIAG\extra.cmd
 )
 
 echo === collect done %DATE% %TIME%
+s10ediag mark c: done
 if exist %ESP%\S10EDIAG\stay.flg (
   echo stay.flg present - leaving Windows running
   exit /b 0
 )
 
 echo --- back to TWRP
+s10ediag mark c: restart to TWRP
 s10ediag recovery
 s10ediag fallback 300
 s10ediag info

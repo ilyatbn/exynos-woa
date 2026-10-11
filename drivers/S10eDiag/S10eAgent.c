@@ -17,6 +17,8 @@
 #include <tlhelp32.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <winioctl.h>
+#include "S10eDiagIoctl.h"
 
 #define AGENT_NAME      L"S10eAgent"
 #define MARKER          L"S10EDIAG\\collect.cmd"
@@ -29,6 +31,7 @@ static SERVICE_STATUS gStatus;
 static HANDLE gStopEvent;
 static HANDLE gLog[2] = { INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE };
 static wchar_t gEsp[4];   // "X:"
+static HANDLE gDiag = INVALID_HANDLE_VALUE;   // S10eDiag: every log line also goes to the PRAM mark ring
 
 static void
 LogLine(const char *Format, ...)
@@ -52,6 +55,13 @@ LogLine(const char *Format, ...)
             WriteFile(gLog[Index], Line, (DWORD)Used, &Written, NULL);
             FlushFileBuffers(gLog[Index]);
         }
+    }
+    if (gDiag == INVALID_HANDLE_VALUE) {
+        gDiag = CreateFileW(S10EDIAG_USER_PATH, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    }
+    if (gDiag != INVALID_HANDLE_VALUE && Used > 18) {
+        // Skip the 16-char "[%10llu ms] " prefix (the ring stamps its own uptime) and the CR LF.
+        DeviceIoControl(gDiag, IOCTL_S10EDIAG_MARK, Line + 16, (DWORD)(Used - 18), NULL, 0, &Written, NULL);
     }
 }
 

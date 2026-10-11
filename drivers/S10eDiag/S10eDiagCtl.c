@@ -8,6 +8,7 @@
  *   s10ediag recovery                   next reset (clean `shutdown /r`) goes to TWRP
  *   s10ediag hardreset                  INFORM3 = recovery + SWRESET now
  *   s10ediag fallback <seconds>         hard reset to TWRP after <seconds> (0 = cancel)
+ *   s10ediag mark <text...>             one line in the PRAM mark ring (survives resets)
  */
 
 #include <windows.h>
@@ -115,6 +116,24 @@ main(int argc, char **argv)
     if (argc >= 4 && strcmp(argv[1], "poke") == 0) {
         S10EDIAG_WRITE32_IN In = { _strtoui64(argv[2], NULL, 0), strtoul(argv[3], NULL, 0), 0 };
         return Ioctl(IOCTL_S10EDIAG_WRITE32, &In, sizeof(In), NULL, 0, NULL);
+    }
+    if (argc >= 3 && strcmp(argv[1], "mark") == 0) {
+        char Text[S10EDIAG_MARK_LINE];
+        size_t Used = 0;
+        int Arg;
+
+        for (Arg = 2; Arg < argc && Used < sizeof(Text) - 1; Arg++) {
+            size_t Length = strlen(argv[Arg]);
+            if (Used != 0) {
+                Text[Used++] = ' ';
+            }
+            if (Length > sizeof(Text) - 1 - Used) {
+                Length = sizeof(Text) - 1 - Used;
+            }
+            memcpy(Text + Used, argv[Arg], Length);
+            Used += Length;
+        }
+        return Ioctl(IOCTL_S10EDIAG_MARK, Text, (DWORD)Used, NULL, 0, NULL);
     }
     if (argc >= 2 && strcmp(argv[1], "recovery") == 0) {
         return Ioctl(IOCTL_S10EDIAG_RECOVERY_ON_RESET, NULL, 0, NULL, 0, NULL);

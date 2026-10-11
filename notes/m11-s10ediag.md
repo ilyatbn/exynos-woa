@@ -59,3 +59,12 @@ within it ... after that start with getting touch working. then ... at least 1 m
   Changes (commit after this): collect.cmd keeps WINRUN.FLG (crash -> boot pair -> PRAM dump -> TWRP), quick
   profile by default (full.flg for the slow inventory); agent: explorer up 30 s, 5 s poll (user request); install
   removes CsEnabled/PlatformAoAcOverride, deletes WINRUN.FLG, can stage extra.cmd + drivers.
+- Run 3 (boot #46 = DSDT I2C0 sysreg window 0x10421000; agent 30 s explorer; power keys reverted; touch staged):
+  back in TWRP after 345 s total. agent.log: ESP S: 92 s, explorer appeared 146 s, "up 30 s" 179 s, collect.cmd
+  started; collect.log stops at "--- quick" (touch extra never ran). WINRUN.FLG consumed + WINPRAM.BIN rewritten =>
+  a crash went through the boot pair. WINPRAM +0x28D: =UFSBUGCHECK BC=0x124 (WHEA_UNCORRECTABLE_ERROR)
+  B1=0x11 (WHEA error source type SEA = synchronous external abort) B2=ffffb4839d9a3038 (record ptr). Early-mark
+  ring full of =FAIL 1<<38 (UFS_DIAG_FAILURE_TRANSFER_LENGTH) from early boot (ring is 63 slots, no late marks).
+  The same quick commands passed in run 2 => the step that aborted is unknown. Added: S10eDiag PRAM mark ring at
+  WINPRAM +0xA000 (16 KiB, 64-byte lines, uptime-stamped), `s10ediag mark`, agent mirrors every log line into it,
+  collect.cmd / extra-touch.cmd mark each step, driver marks load / shutdown notification / bugcheck callback.

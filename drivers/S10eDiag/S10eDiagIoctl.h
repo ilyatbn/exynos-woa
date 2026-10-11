@@ -23,6 +23,16 @@
 #define IOCTL_S10EDIAG_FALLBACK         CTL_CODE(S10EDIAG_TYPE, 0x804, METHOD_BUFFERED, FILE_ANY_ACCESS)
 // out: S10EDIAG_INFO
 #define IOCTL_S10EDIAG_INFO             CTL_CODE(S10EDIAG_TYPE, 0x805, METHOD_BUFFERED, FILE_ANY_ACCESS)
+// in: ASCII text (no terminator needed): one line in the PRAM mark ring (survives a reset; the firmware's boot
+// pair saves 0x8FE00000+64 KiB as \WINPRAM.BIN, the ring is at +0xA000)
+#define IOCTL_S10EDIAG_MARK             CTL_CODE(S10EDIAG_TYPE, 0x806, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+// Mark ring: firmware-reserved WINPRAM (BEYOND0LTE_WINPRAM_BASE) + 0xA000, 16 KiB, unused by Exynos9820Ufs
+// (it uses +0x0..0x3F60, +0x8000..0x8FFF, +0xF000). Header line 0: "S10EMARK" + next index; then 255 lines
+// of 64 bytes: "<uptime ms, 10 digits> <text>".
+#define S10EDIAG_MARK_PHYSICAL  0x8FE0A000ULL
+#define S10EDIAG_MARK_SIZE      0x4000u
+#define S10EDIAG_MARK_LINE      64u
 
 #define S10EDIAG_READ_MMIO   0u   // map non-cached, 32-bit reads (registers)
 #define S10EDIAG_READ_RAM    1u   // MmCopyMemory(MM_COPY_MEMORY_PHYSICAL) (system RAM)
@@ -48,4 +58,4 @@ typedef struct _S10EDIAG_INFO {
     unsigned long long UptimeMs;
 } S10EDIAG_INFO;
 
-#define S10EDIAG_VERSION  1u
+#define S10EDIAG_VERSION  2u

@@ -29,9 +29,10 @@ STATIC
 VOID
 Dwc3EventBufferSetup (VOID)
 {
-  EFI_STATUS  Status;
-  VOID        *Buffer;
-  UINTN       BufferSize;
+  EFI_STATUS            Status;
+  VOID                  *Buffer;
+  UINTN                 BufferSize;
+  EFI_PHYSICAL_ADDRESS  Address;
 
   // [K dwc3_alloc_event_buffers + dwc3_event_buffers_setup] — the kernel
   // skips this only when GHWPARAMS0 says HOST-only; our core is DRD, so the
@@ -42,19 +43,24 @@ Dwc3EventBufferSetup (VOID)
     return;   // GHWPARAMS0_MODE_HOST — kernel skips
   }
 
+  // EfiReservedMemoryType, not BootServicesData: the controller keeps this address after
+  // ExitBootServices, and Windows would otherwise reuse the page under its DMA. Below 4 GiB because the
+  // high banks are published RAM now (AllocateAnyPages could hand out an address GEVNTADRHI = 0 would
+  // truncate); HI is still written from the real address.
   BufferSize = DWC3_EVENT_BUFFERS_SIZE;
-  Status     = gBS->AllocatePages (AllocateAnyPages, EfiBootServicesData,
-                                   EFI_SIZE_TO_PAGES (BufferSize),
-                                   (EFI_PHYSICAL_ADDRESS *)&Buffer);
+  Address    = 0xFFFFFFFFULL;
+  Status     = gBS->AllocatePages (AllocateMaxAddress, EfiReservedMemoryType,
+                                   EFI_SIZE_TO_PAGES (BufferSize), &Address);
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_WARN, "%a: event buffer alloc %r — continuing without\n",
             __func__, Status));
     return;
   }
 
+  Buffer = (VOID *)(UINTN)Address;
   ZeroMem (Buffer, BufferSize);
-  MmioWrite32 (DWC3 + DWC3_GEVNTADRLO (0), (UINT32)(UINTN)Buffer);
-  MmioWrite32 (DWC3 + DWC3_GEVNTADRHI (0), 0);
+  MmioWrite32 (DWC3 + DWC3_GEVNTADRLO (0), (UINT32)Address);
+  MmioWrite32 (DWC3 + DWC3_GEVNTADRHI (0), (UINT32)(Address >> 32));
   MmioWrite32 (DWC3 + DWC3_GEVNTSIZ (0), GEVNTSIZ_SIZE (BufferSize));
   MmioWrite32 (DWC3 + DWC3_GEVNTCOUNT (0), 0);
 }

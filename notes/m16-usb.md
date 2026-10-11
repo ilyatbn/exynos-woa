@@ -147,3 +147,8 @@ Found:
 ### Task 6 — PORTSC base fix
 - `(MmioRead32 (DWC3) & 0xFF) + 0x400` (32-bit read + mask like Linux HC_LENGTH, no byte access to
   device registers) and a bound check: every PORTSC inside the 0x8000 xHCI window, else skip + log.
+
+### Task 7 — DWC3 event buffer (found while hunting the run 2 crash)
+- Was `AllocateAnyPages(EfiBootServicesData)` + `GEVNTADRHI = 0`: (a) with the high banks published the
+  allocator may return >4 GiB → truncated DMA address; (b) BootServicesData is reclaimed by Windows while
+  the core still points at it. Now `AllocateMaxAddress 0xFFFFFFFF`, `EfiReservedMemoryType`, HI written.

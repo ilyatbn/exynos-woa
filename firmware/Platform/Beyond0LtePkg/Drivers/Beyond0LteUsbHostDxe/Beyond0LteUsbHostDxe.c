@@ -35,11 +35,60 @@
 // usage (dock first, then power on).
 #define CC_ATTACH_TIMEOUT_MS  3000
 
+// M16 (notes/m16-usb.md): 0 = skip the whole bring-up (XHC0 then stays hidden from Windows).
+#define BEYOND0LTE_USB_HOST  1
+
+// Boot progress page (0x8FE0F000, WINPRAM, EfiRuntimeServicesData): [0] = the previous boot's last code,
+// [1] = this boot's, [2] = USB status (cleared in SEC, ArmPlatformLib.c). The USB clock gates are
+// ACPM-owned (notes/d1-usb-host.md); if sboot left them off, the first PHY/DWC3 read can hang the bus
+// instead of returning 0/~0. Same self-healing shape as the parking 0x65 / DVFS 0x66 guards: 0x67 while
+// the bring-up is in flight, and a boot whose previous boot ended at 0x67 skips it.
+#define USB_PROGRESS_TRYING  0x67u
+#define USB_STATUS_READY     0x48425355u   // 'USBH' - DSDT XHC0._STA returns 0x0F only on this value
+STATIC volatile UINT32  *CONST  mUsbProgress = (volatile UINT32 *)(UINTN)0x8FE0F000ULL;
+
+STATIC
+EFI_STATUS
+UsbHostBringUp (
+  VOID
+  );
+
 EFI_STATUS
 EFIAPI
 Beyond0LteUsbHostEntry (
   IN EFI_HANDLE        ImageHandle,
   IN EFI_SYSTEM_TABLE  *SystemTable
+  )
+{
+  EFI_STATUS  Status;
+  UINT32      Saved;
+
+  mUsbProgress[2] = 0;
+  if (!BEYOND0LTE_USB_HOST) {
+    DEBUG ((DEBUG_WARN, "UsbHost: disabled (BEYOND0LTE_USB_HOST 0)\n"));
+    return EFI_UNSUPPORTED;
+  }
+  if (mUsbProgress[0] == USB_PROGRESS_TRYING) {
+    DEBUG ((DEBUG_ERROR, "UsbHost: previous boot hung in USB bring-up (progress 0x67) - skipping it\n"));
+    return EFI_UNSUPPORTED;
+  }
+
+  Saved           = mUsbProgress[1];
+  mUsbProgress[1] = USB_PROGRESS_TRYING;
+  Status          = UsbHostBringUp ();
+  mUsbProgress[1] = Saved;
+  if (!EFI_ERROR (Status)) {
+    mUsbProgress[2] = USB_STATUS_READY;
+  }
+  DEBUG ((DEBUG_INFO, "UsbHost: bring-up %r, XHC0 %a to Windows\n", Status,
+          EFI_ERROR (Status) ? "hidden" : "visible"));
+  return Status;
+}
+
+STATIC
+EFI_STATUS
+UsbHostBringUp (
+  VOID
   )
 {
   EFI_STATUS                      Status;

@@ -97,6 +97,7 @@ ArmPlatformInitialize (
   Beyond0LteInstallDiagVectors ();
 #endif
   ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[1] = 0x60;   // W28 boot progress: SEC entered (shim 0x5x before)
+  ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[2] = 0;      // M16 USB status word: Beyond0LteUsbHostDxe sets it, DSDT XHC0._STA reads it
 #if BEYOND0LTE_EARLY_WATCHDOG
   //
   // W25 dead man's switch (unattended bring-up). Boot #36 stalled on the logo after a watchdog

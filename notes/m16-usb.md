@@ -35,3 +35,24 @@ Usage rules carried from `notes/d1-usb-host.md` (safety review):
   DWC3/PHY MMIO read can hang the bus rather than return 0/0xFFFFFFFF (the driver's only check). A hang in
   DXE with the watchdog would loop the phone through the same hang → needs a progress-code guard (0x67)
   and a `BEYOND0LTE_USB_HOST` flag before any device run.
+
+### 2026-10-11 — review of d5c4370 (import) → task 2
+Checked: shared-file hunks (`git show d5c4370 -- Dsdt.asl dsc fdf PlatformMemoryMapLib.c`); MMIO table is
+sized from `MMIO_REGION_COUNT` (the extra HSI2C45 entry fits).
+Found:
+1. **XHC0 `_STA` returned 0x0F unconditionally**: Windows would load USBXHCI on every boot even when UEFI
+   skipped/failed the bring-up → a working Windows could hang on gated USB clocks. Fixed in task 2.
+2. DSDT comment cited `Exynos9820.h:522`; the GSIV define is at :460. Fixed in task 2 (cites the name).
+
+### Task 2 — guard + flag + gated XHC0
+- `BEYOND0LTE_USB_HOST` (Beyond0LteUsbHostDxe.c, default 1).
+- Progress 0x67 while PHY/DWC3/PMIC bring-up runs; previous boot ended at 0x67 → skip (one-shot, the
+  following boot retries).
+- Status word `[2]` of the progress page (0x8FE0F008): SEC clears it (ArmPlatformLib.c next to the 0x60
+  write), the driver writes 'USBH' 0x48425355 only after RegisterNonDiscoverableMmioDevice succeeds.
+- DSDT XHC0: `OperationRegion (USBS, SystemMemory, 0x8FE0F008, 4)`; `_STA` = 0x0F iff USBH matches.
+  Same page S10eDiag already maps from Windows (EfiRuntimeServicesData), so the AML read is a known-safe map.
+- Verified: build green; compiled Dsdt.aml carries `USBS` and the compare `55 53 42 48`; the .efi has the
+  skip string.
+- Not covered: a hang later in XhciDxe (BDS connect) is not under 0x67. If PHY/DWC3 reads pass, the
+  clocks are on, and XhciDxe's own loops have timeouts.

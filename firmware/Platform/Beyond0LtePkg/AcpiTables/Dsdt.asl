@@ -317,10 +317,19 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
                 Memory32Fixed (ReadWrite, 0x10C00000, 0x00008000)  // VERIFIED usb@10C00000, xHCI regs 0..0x7FFF
                 Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)
                 {
-                    273  // VERIFIED 9820: dwc3 child SPI 0xf1 = 241, +32 = GSIV 273 (Exynos9820.h:522)
+                    273  // VERIFIED 9820: dwc3 child SPI 0xf1 = 241, +32 = GSIV 273 (EXYNOS_USBDRD_GSIV, Exynos9820.h)
                 }
             })
-            Method (_STA, 0, NotSerialized) { Return (0x0F) }
+            // M16: present only when Beyond0LteUsbHostDxe brought the PHY/DWC3 up this boot (it writes
+            // 'USBH' to the progress page word [2], 0x8FE0F008; SEC clears it). Otherwise USBXHCI would
+            // touch a block whose ACPM-owned clocks may be off (notes/m16-usb.md).
+            OperationRegion (USBS, SystemMemory, 0x8FE0F008, 4)
+            Field (USBS, DWordAcc, NoLock, Preserve) { USBH, 32 }
+            Method (_STA, 0, NotSerialized)
+            {
+                If (LEqual (USBH, 0x48425355)) { Return (0x0F) }
+                Return (Zero)
+            }
         }
     }
 }

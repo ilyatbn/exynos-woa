@@ -1,0 +1,54 @@
+;  Exynos9820Wlan.inf — installs the S10e BCM4375 WLAN miniport.
+;  Binds the ACPI-described device published by our DSDT (Device WLAN,
+;  _HID SAMS9825) — NOT a PCI bind: the controller state is latched by
+;  Beyond0LtePcieDxe (docs/exynos9820-port/M12-WIFI-DESIGN.md section 2).
+;  Test-sign posture: same as the rest of the driver set (M7) — this ships
+;  inside the donation image; the recipient installs no drivers.
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=Net
+ClassGuid={4d36e972-e325-11ce-bfc1-08002be10318}
+Provider=%ProviderName%
+DriverVer=10/11/2026,1.0.0.0
+CatalogFile=Exynos9820Wlan.cat
+PnpLockdown=1
+
+[Manufacturer]
+%ManufacturerName%=Standard,NTARM64
+
+[Standard.NTARM64]
+%DeviceDesc%=Wlan_Install, ACPI\SAMS9825
+
+[ControlFlags]
+ExcludeFromSelect=*
+
+[Wlan_Install.NT]
+CopyFiles=Wlan_CopyFiles
+
+[Wlan_CopyFiles]
+Exynos9820Wlan.sys
+
+[Wlan_Install.NT.Services]
+AddService=Exynos9820Wlan,%SPSVCINST_ASSOCSERVICE%,Wlan_Service_Inst
+
+[Wlan_Service_Inst]
+DisplayName=%ServiceDesc%
+ServiceType=%SERVICE_KERNEL_DRIVER%
+StartType=%SERVICE_DEMAND_START%
+ErrorControl=%SERVICE_ERROR_NORMAL%
+ServiceBinary=%12%\Exynos9820Wlan.sys
+
+[DestinationDirs]
+DefaultDestDir=12
+Wlan_CopyFiles=12
+
+[Strings]
+ProviderName="Galaxy S10e Windows Project"
+ManufacturerName="Samsung Electronics (port)"
+DeviceDesc="Samsung Exynos9820 BCM4375 Wireless Network Adapter (WIP)"
+ServiceDesc="Exynos9820 BCM4375 WLAN Miniport"
+SPSVCINST_ASSOCSERVICE=0x00000002
+SERVICE_KERNEL_DRIVER=1
+SERVICE_DEMAND_START=3
+SERVICE_ERROR_NORMAL=1

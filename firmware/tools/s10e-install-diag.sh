@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Install S10eDiag (driver + agent + CLI) into the Windows image on the S10e, from TWRP.
-# Usage: s10e-install-diag.sh <build dir with S10eDiag.sys s10ediag.exe S10eAgent.exe>
+# Usage: s10e-install-diag.sh <build dir with S10eDiag.sys s10ediag.exe S10eAgent.exe> [extra.cmd] [drivers dir]
+#   extra.cmd   -> ESP \S10EDIAG\extra.cmd (removed when not given)
+#   drivers dir -> copied to ESP \S10EDIAG\drivers (for pnputil inside Windows)
 # notes/m11-s10ediag.md. Needs an elevated shell (reg load) and the phone in TWRP.
 set -euo pipefail
 export MSYS_NO_PATHCONV=1
@@ -32,5 +34,17 @@ $A shell "cd /tmp/win/Windows/System32 && sha256sum config/SYSTEM drivers/S10eDi
 $A shell 'mount -t vfat /dev/block/by-name/cache /tmp/esp && mkdir -p /tmp/esp/S10EDIAG'
 sed 's/\r*$/\r/' "$REPO/drivers/S10eDiag/esp/collect.cmd" > "$W/collect.cmd"
 $A push "$(cygpath -m "$W/collect.cmd")" /tmp/esp/S10EDIAG/collect.cmd >/dev/null
-$A shell 'ls -la /tmp/esp/S10EDIAG; sync; umount /tmp/esp'
+if [ -n "${2:-}" ]; then
+  sed 's/*$//' "$2" > "$W/extra.cmd"
+  $A push "$(cygpath -m "$W/extra.cmd")" /tmp/esp/S10EDIAG/extra.cmd >/dev/null
+else
+  $A shell 'rm -f /tmp/esp/S10EDIAG/extra.cmd'
+fi
+if [ -n "${3:-}" ]; then
+  $A shell 'rm -rf /tmp/esp/S10EDIAG/drivers'
+  $A push "$(cygpath -m "$3")" /tmp/esp/S10EDIAG/drivers >/dev/null
+fi
+# A run that ended in TWRP leaves the boot-pair flag; without this the next boot bounces straight back.
+$A shell 'rm -f /tmp/esp/WINRUN.FLG'
+$A shell 'ls -laR /tmp/esp/S10EDIAG | head -30; sync; umount /tmp/esp'
 echo "installed; hive work dir $W"

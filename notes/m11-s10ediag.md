@@ -47,3 +47,15 @@ within it ... after that start with getting touch working. then ... at least 1 m
   Fix (next commits): hive - delete MountedDevices \DosDevices\D:..Z:, mountmgr NoAutoMount=1; agent - find the
   volume holding \S10EDIAG itself, mount it at a free letter, pass it as %ESP%; mirror agent.log to
   C:\Windows\Temp\S10eAgent.log from the first line.
+- Run 2 (fixed agent, 2026-10-11 ~10:12): WORKED end to end until the restart. agent.log: ESP S: at attempt 0
+  (89 s uptime), LogonUI until ~136 s, explorer at 151 s (desktop 2.5 min after boot), collect.cmd 151 -> 263 s,
+  recovery armed (INFORM3 0x12345674), service control 5 (shutdown) at 293 s. Then the user saw a bugcheck
+  "internal power error" (0xA0) during the restart; the UFS driver's bugcheck reset (INFORM3 normal) + the script
+  having deleted WINRUN.FLG => Windows booted again; user forced TWRP. A bounce through UEFI (WINRUN.FLG of the
+  second boot) dumped PRAM, but it held the second boot's marks only (no =BUGCHECK record).
+  powercfg /a: NO sleep state at all (S0 Low Power Idle "firmware does not support" once CsEnabled=0) - the W37
+  keys CsEnabled=0 / PlatformAoAcOverride=0 are the prime suspect for 0xA0 (Setup's restarts worked before them).
+  pnp-problem: ACPI\SAMS9820\a code 28 (no driver - expected), CPUs 1-7 code 10 (numproc 1).
+  Changes (commit after this): collect.cmd keeps WINRUN.FLG (crash -> boot pair -> PRAM dump -> TWRP), quick
+  profile by default (full.flg for the slow inventory); agent: explorer up 30 s, 5 s poll (user request); install
+  removes CsEnabled/PlatformAoAcOverride, deletes WINRUN.FLG, can stage extra.cmd + drivers.

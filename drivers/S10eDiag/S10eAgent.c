@@ -6,7 +6,7 @@
  *     letter (keeps an existing one, else the first free of S..Z, D..R; `mountvol S: /S` as the last
  *     resort). Run 1 showed why a fixed S: is not enough: Windows had lettered every Android partition;
  *  2. logs boot progress to <ESP>\S10EDIAG\out\agent.log (and, from the first line, to
- *     C:\Windows\Temp\S10eAgent.log) every 15 s until explorer.exe runs (= desktop) or
+ *     C:\Windows\Temp\S10eAgent.log) until explorer.exe has run for 30 s (= desktop) or
  *     S10EDIAG\wait.txt seconds pass;
  *  3. runs <ESP>\S10EDIAG\collect.cmd (cmd.exe, ESP=X:, OUT=X:\S10EDIAG\out, output -> out\collect.log).
  * What to collect and whether to go back to TWRP is entirely the script's business, so it can be
@@ -204,6 +204,8 @@ Worker(LPVOID Parameter)
     DWORD WaitSeconds;
     DWORD Exit;
     ULONGLONG Start;
+    ULONGLONG ExplorerSince = 0;
+    ULONGLONG LastLog = 0;
     HANDLE Output;
     wchar_t Path[MAX_PATH];
     wchar_t Command[MAX_PATH];
@@ -245,22 +247,33 @@ Worker(LPVOID Parameter)
     LogLine("ESP %ls (attempt %lu)", gEsp, Attempt);
 
     // 2. Wait for the desktop, logging what the logon is doing.
+    // User: explorer.exe up for 30 s is the "desktop is up" signal; poll every 5 s, log every 15 s.
     WaitSeconds = ReadWaitSeconds();
     Start = GetTickCount64();
     for (;;) {
         BOOL LogonUi = ProcessRunning(L"LogonUI.exe");
         BOOL Explorer = ProcessRunning(L"explorer.exe");
+        ULONGLONG Now = GetTickCount64();
 
-        LogLine("waiting: LogonUI=%d explorer=%d", LogonUi, Explorer);
-        if (Explorer) {
-            LogLine("desktop: explorer.exe is running");
+        if (!Explorer) {
+            ExplorerSince = 0;
+        } else if (ExplorerSince == 0) {
+            ExplorerSince = Now;
+            LogLine("explorer.exe appeared");
+        }
+        if (Now - LastLog >= 15000) {
+            LogLine("waiting: LogonUI=%d explorer=%d", LogonUi, Explorer);
+            LastLog = Now;
+        }
+        if (Explorer && Now - ExplorerSince >= 30000) {
+            LogLine("desktop: explorer.exe up for 30 s");
             break;
         }
         if (GetTickCount64() - Start > (ULONGLONG)WaitSeconds * 1000ULL) {
             LogLine("no explorer.exe after %lu s - running the script anyway", WaitSeconds);
             break;
         }
-        if (WaitForSingleObject(gStopEvent, 15000) == WAIT_OBJECT_0) {
+        if (WaitForSingleObject(gStopEvent, 5000) == WAIT_OBJECT_0) {
             LogLine("service stop while waiting");
             return 0;
         }

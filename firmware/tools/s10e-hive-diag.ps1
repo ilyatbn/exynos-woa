@@ -35,6 +35,13 @@ try {
   $mm = "$cs\Services\mountmgr"
   New-ItemProperty -Path $mm -Name NoAutoMount -PropertyType DWord -Value 1 -Force | Out-Null
   "mountmgr NoAutoMount = $((Get-ItemProperty $mm).NoAutoMount)"
+
+  # m11 run 2: shutdown /r bugchecked 0xA0 INTERNAL_POWER_ERROR after W37 turned Modern Standby off
+  # (powercfg /a: no sleep state left at all). Undo those two keys; the display/sleep timeout policies stay.
+  $pw = "$cs\Control\Power"
+  foreach ($n in 'CsEnabled', 'PlatformAoAcOverride') {
+    if ($null -ne (Get-ItemProperty $pw).$n) { Remove-ItemProperty -Path $pw -Name $n; "removed Power\$n" }
+  }
 }
 finally {
   [gc]::Collect(); Start-Sleep -Milliseconds 500

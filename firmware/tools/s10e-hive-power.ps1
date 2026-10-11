@@ -30,8 +30,10 @@ try {
   # Modern Standby off, hibernation + fast startup off.
   $p = "$cs\Control\Power"
   "before: CsEnabled=$((Get-ItemProperty $p -ErrorAction SilentlyContinue).CsEnabled) PlatformAoAcOverride=$((Get-ItemProperty $p -ErrorAction SilentlyContinue).PlatformAoAcOverride) HibernateEnabled=$((Get-ItemProperty $p -ErrorAction SilentlyContinue).HibernateEnabled)"
-  New-ItemProperty -Path $p -Name PlatformAoAcOverride -PropertyType DWord -Value 0 -Force | Out-Null
-  New-ItemProperty -Path $p -Name CsEnabled -PropertyType DWord -Value 0 -Force | Out-Null
+  # m11: NOT set any more - with Modern Standby off this platform had no sleep state at all and the next
+  # restart bugchecked 0xA0 INTERNAL_POWER_ERROR. (removed: PlatformAoAcOverride)
+  # m11: NOT set any more - with Modern Standby off this platform had no sleep state at all and the next
+  # restart bugchecked 0xA0 INTERNAL_POWER_ERROR. (removed: CsEnabled)
   New-ItemProperty -Path $p -Name HibernateEnabled -PropertyType DWord -Value 0 -Force | Out-Null
   $sm = "$cs\Control\Session Manager\Power"
   New-Item -Path $sm -Force | Out-Null

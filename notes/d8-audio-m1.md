@@ -585,3 +585,247 @@ controller registers all back at their handoff values.
   5000 us (IRQ1_RAW_STATUS1 0x80). Reset back to handoff level. Milestone 1b DEVICE-VALIDATED.
 - Next (milestone 2): codec tone generator -> OUT2 -> 3.5 mm jack (SPI only, notes section 4) - needs a codec SYSCLK
   source decision (MCLK from the AP or the codec FLL on a 32 kHz ref).
+
+## 6. Milestone 2 - codec tone generator -> 3.5 mm jack (SPI only)
+
+Goal: ~1 kHz tone on the headphone jack for ~2 s at boot, flag `BEYOND0LTE_AUDIO_TONE` (1 for the test
+build, 0 once validated), every step proven by a register read-back in UEFILOG (the test runs unattended;
+the user listens later). Rules as §0: no adb, no flash, no pack; the main session runs the test.
+
+### 6.0 Progress log
+- 2026-10-12: worktree `agent-a5da5ac72292bcd28` fast-forwarded to main e3f72a2. Read §1-§5 + RESULT 1b.
+  Local kernel copies from earlier sessions: scratchpad b82d8ce8.../k (madera-core.c, madera-spi.c,
+  madera registers.h, sound/soc/codecs/madera.c/.h). Missing: cs47l92.c, cs47l92-tables.c - fetch next.
+- Fetched 2026-10-12 (LineageOS android_kernel_samsung_exynos9820 @ lineage-22.2, raw) into scratchpad
+  `m2src/`: sound/soc/codecs/cs47l92.c [L92], drivers/mfd/cs47l92-tables.c [L92T], sound/soc/codecs/madera.c
+  [MC], madera.h [MH], include/linux/mfd/madera/registers.h [MR], sound/soc/samsung/beyond_madera.c [BM],
+  drivers/extcon/extcon-madera.c [EXT]. Board DT = the stock dtbo decompile [DTBO] (scratchpad dt/out_0_0.dts).
+  madera-core.c = scratchpad k/drivers_mfd_madera-core.c [CORE].
+
+### 6.1 Facts (citations)
+
+**Jack = HPOUT2 (OUT2), not OUT1.** [DTBO:1481] `samsung,routing` decoded (NUL-split string pairs):
+`HEADPHONE <- HPOUT2L`, `HEADPHONE <- HPOUT2R`, `RECEIVER <- Left AMP SPK`, `SPEAKER <- Right AMP SPK`,
+`HEADSETMIC -> IN1BL`. Accessory-detect node `acc@1 reg = <2>` (output 2). [L92:939-944] OUT2L/OUT2R widgets =
+`madera_hp_ev` on OUTPUT_ENABLES_1 bits 3/2; [L92:1694-1695] HPOUT2L/R <- OUT2L/R.
+
+**Vendor clocking (what Android does)** [DTBO:1469-1480] + [BM]:
+- `cirrus,sysclk = <1 4 98304000>` = SYSCLK_1, src FLL1 (MADERA_CLK_SRC_FLL1 = 4 [MH:57]), 98.304 MHz.
+- `cirrus,fll1-refclk = <1 0 26000000>` = FLL1, ref src MCLK1 (MADERA_FLL_SRC_MCLK1 = 0 [MH:31]), 26 MHz.
+- clock-names "xclkout": [BM:350] `clk_enable(xclkout)` right before set_sysclk + set_pll(FLL1, MCLK1, 26 MHz)
+  [BM:352-364] on BIAS_OFF->STANDBY; `clk_disable` at BIAS_OFF [BM:379]. => MCLK1 = an AP clock-out of the
+  26 MHz OSC (fixed-rate `oscclk` 26 MHz [DTBO:1328]) that only runs while audio is active. Using it = AP
+  CMU/PMU clock-out work (avoid).
+- `cirrus,outclk = <9 1 0>` = OUTCLK src ASYNCCLK (MADERA_OUTCLK_ASYNCCLK = 1 [MH:69]). Not needed: OUT_CLK_SRC
+  reset default 0 = SYSCLK ([L92T:263] OUTPUT_RATE_1 = 0x0040, [MH:68]).
+
+**MCLK2 = the codec's 32 kHz input.** [CORE:917-921] every madera probe does "Init 32k clock sourced from
+MCLK2": CLOCK_32K_1 (0x100) |= CLK_32K_ENA (0x40) | MADERA_32KZ_MCLK2 (1) [CORE:41, MR:2477-2481]. What drives
+MCLK2 on this board and whether it runs at handoff is **UNVERIFIED** - no DT property names it. The FLL lock bit
+is the proof. The real rate (32768 vs 32000 Hz) is also UNVERIFIED; with the integer config below a 32000 Hz
+ref would lock at 48.0 MHz -> tone 2.3 % low - harmless.
+
+**Decision: FLL1 <- MCLK2 (32 kHz) first; fallback FLL1 <- MCLK1 (26 MHz) only if MCLK2 does not lock** (the
+fallback writes nothing on the AP side - it only finds out whether sboot left the clock-out running). No AP
+CMU/PMU/ABOX write in either case.
+
+**CS47L92/93 FLL = "FLLHJ"** ([L92:1741-1751] madera_fllhj_set_refclk; base = FLL1_CONTROL_1 - 1 = 0x170
+[L92:2148]). Offsets [MC:105-127]: CONTROL_1 +1 (0x171) .. _6 +6 (0x176), GAIN +8 (0x178), CONTROL_10 +0xA
+(0x17A), CONTROL_11 +0xB (0x17B), DIGITAL_TEST_1 +0xD (0x17D) [MR:72-87]. set_refclk halves fout ("sysclk rate,
+which is 2x the calculated fll out") [MC:4971-4976] -> fout 49 152 000. madera_fllhj_apply [MC:4737-4881],
+constants [MC:85-101]:
+- MCLK2 32768 Hz: refdiv 0, fref < LOW_THRESH 192000 -> lockdet_thr 2, gains LOW 0x23F0; 49152000 % 32768 = 0
+  -> integer: fbdiv 4, hp 0, N 1..1023; gcd(49152000, 131072) = 131072 -> num 375, lambda 1 ->
+  **N 375 (0x177), THETA 0, LAMBDA 1, FB_DIV 4**, fast_clk 0.
+- MCLK1 26 MHz (fallback): refdiv 1 (13 MHz <= MAX_THRESH 13 MHz), fref >= MID_THRESH -> lockdet 8, gains
+  HIGH 0x21F0, fbdiv 1; fractional -> fast_clk 3, fout x6 = 294 912 000, hp 3, N 4..255 (numbers in 6.2).
+Enable madera_fllhj_enable [MC:4883-4942]: CONTROL_1 HOLD(bit2)=1; apply (CONTROL_2 = N - plain write, clears
+CTRL_UPD; _3 THETA; _4 LAMBDA; _5 FB_DIV[9:0]; _6 REFCLK_DIV[7:6]; GAIN = gains; _10 HP[15:14] + PHASEDET_ENA
+bit12; _11 LOCKDET_THR[4:1]; DIGITAL_TEST_1 SYNC_EFS_ENA bit8 + CLK_VCO_FAST_SRC[1:0] = fast_clk); CONTROL_1
+REFCLK_SRC[15:12] = src [MR:2640-2641]; CONTROL_1 ENA(bit0)=1; CONTROL_11 LOCKDET(bit0)=1; CONTROL_2
+CTRL_UPD(bit15)=1; CONTROL_1 HOLD=0; wait lock. Bits [MR:2643-2733].
+Lock = IRQ1_RAW_STATUS_2 (0x1881) FLL1_LOCK_STS1 bit8 [MR:1506, 7946]; madera_wait_for_fll polls ~300 ms max
+[MC:4187-4218]. Disable madera_fllhj_disable [MC:4695-4735]: CONTROL_11 LOCKDET=0, CONTROL_1 HOLD=1, ENA=0, wait
+lock clear, CONTROL_2 CTRL_UPD=0. Reset defaults [L92T:161-172]: 0x171 0x7004, 0x172 0x0004, 0x175 0x0001,
+0x176 0x8000, 0x178 0x21F0, 0x17A 0, 0x17B 0x0011, 0x17D 0x33E8.
+
+**SYSCLK**: SYSTEM_CLOCK_1 0x101: FRAC bit15, FREQ[10:8], ENA bit6, SRC[3:0] [MR:51, 2486-2497]; set_sysclk
+[MC:2995-3073]: 98.304 MHz = MADERA_SYSCLK_98MHZ 4 [MC:71, 2889-2891], no FRAC. Reset default 0x0404 [L92T:145] =
+FREQ 4, SRC 4 (FLL1) -> only ENA has to be set. SYSCLK_ENA = DAPM "SYSCLK" supply [L92:744-746]; POST_PMU
+madera_sysclk_ev = madera_spin_sysclk: 4 dummy reads of reg 0 + 300 us [MC:174-209].
+**Sample rate**: SAMPLE_RATE_1 0x102 [4:0] [MR:52, 2502], reset 0x0011 [L92T:146] = 8 kHz (madera_sr_vals[17]
+[MC:3216-3241]) -> set 0x03 (48 kHz). OUTPUT_RATE_1 OUT_RATE[15:11] default 0 = SAMPLE_RATE_1 [MC:3249-3252].
+**Hardware patch** applied by madera-core right after the ID check [CORE:903-910] = cs47l92_patch
+[L92T:22-118]: 38 x 16-bit writes + 28 x 32-bit writes (0x3030..0x31D8, output write-sequencer entries) through
+the 32-bit regmap (reg 32, pad 16, val 32, BE, stride 2 [L92T:2391-2405]). Applied the same way first (values
+copied verbatim).
+
+**Tone -> OUT2**: TONE_GENERATOR_1 0x20: TONE_RATE[15:11] (0 = SAMPLE_RATE_1), TONE1_OVD bit4, TONE1_ENA bit0
+[MR:25, 2323-2343]; default 0 [L92T:122]. "Tone Generator 1" PGA needs SYSCLK [L92:980, 1492]. Mixer source
+"Tone Generator 1" = 0x04 (§4.1). OUT2LMIX_INPUT_1_SOURCE/VOLUME 0x690/0x691, OUT2RMIX 0x698/0x699 [MR:467-476];
+volume [7:1] [MH:74-75], madera_mixer_tlv -32 dB + 1 dB/step [MC:1741] -> 0x40 = 0 dB (reset 0x0080).
+DAC_DIGITAL_VOLUME_2L/2R 0x419/0x41D: VU bit9, MUTE bit8, VOL[7:0] [MR:4447-4457]; madera_digital_tlv -64 dB +
+0.5 dB/step [MC:1732] -> 0x80 = 0 dB; reset 0x0180 = muted [L92T:273,277].
+OUTPUT_ENABLES_1 0x400: OUT2L_ENA bit3, OUT2R_ENA bit2, EP_SEL bit15 [MR:4258, 4293, 4297]. madera_hp_ev
+[MC:2737-2778] POST_PMU sets the bit, then madera_out_ev sleeps 6 ms per CS47L92/93 output (12 ms L+R)
+[MC:2646-2687]; PRE_PMD clears it, POST_PMD sleeps 1 ms per output [MC:2695-2727].
+HP status: IRQ1_RAW_STATUS_12 0x188B HP2L/R_SC_STS1 bits 2/3; _13 0x188C HP2L/R_ENABLE_DONE_STS1 bits 2/3;
+_14 0x188D HP2L/R_DISABLE_DONE_STS1 bits 2/3 [MR:1516-1518, 8069-8170]; readable [L92T:2198-2208].
+HP clamp (CS47L92/93): HEADPHONE_DETECT_0 0x299 HPD_OVD_ENA_SEL bit15 [EXT:859-918, MR:182, 3524]; reset 0 = no
+clamp [L92T:207] -> read only. Charge pump / HP offset: the driver writes nothing beyond the patch's
+write-sequencer entries - the codec's sequencer runs them on OUTnx_ENA. DRE/EDRE default on (0x3F), noise gate
+off (0x458 = 0) [L92T:292-296] - left as is.
+**Tone frequency**: nothing in the tree states it; "1 kHz at 48 kHz" is recalled Cirrus datasheet behaviour ->
+**UNVERIFIED** (harmless: any audible tone proves the path).
+**Level**: mixer -20 dB (0x2C -> reg 0x58) + DAC -12 dB (0x68) = **-32 dBFS** square wave (tone is a full-scale
+square wave per the same recollection - UNVERIFIED, which is why the level is ~12 dB below the asked -20 dBFS).
+Mixer volume control = SOC_SINGLE_RANGE_TLV(min 0x20, max 0x50) [MH:194-197] -> field 0x20 = -32 dB, 0x40 = 0 dB.
+Mixer source value "Tone Generator 1" = 0x04 [MC:1422-1424 texts, 1574-1576 values].
+
+### 6.2 Design (milestone 2)
+- Where: inside `CodecProbe` (the deferred ReadyToBoot path, guard 0x69 already set by OnCodecPower), after the
+  ID read + BOOT_DONE succeeded **on a codec we took out of reset ourselves** (= fresh hard reset, all registers at
+  their defaults). Then the bus is released and the reset line restored as in 1b (codec back in hard reset ->
+  every register we wrote is wiped). Flag `BEYOND0LTE_AUDIO_TONE` (1 for the test build).
+- Sequence (kernel order: madera-core probe -> machine-driver init/bias -> DAPM power-up -> DAPM power-down):
+  1. cs47l92_patch: 38 x 16-bit + 28 x 32-bit writes, verbatim (incl. the odd 0x30D1 - regmap_register_patch
+     -> _regmap_multi_reg_write -> _regmap_write does not check the stride); log the read-back mismatch count.
+  2. CLOCK_32K_1 0x100: mask 0x43 <- 0x41 (ENA + MCLK2).
+  3. SAMPLE_RATE_1 0x102 <- 0x0003 (48 kHz); SYSTEM_CLOCK_1 0x101 mask 0x870F <- 0x0404 (98 MHz, FLL1; = default).
+  4. FLL1 <- MCLK2 (src 1): HOLD; CONTROL_2 = 0x0177; _3 THETA 0; _4 LAMBDA 1; _5 FB_DIV 4; _6 REFCLK_DIV 0;
+     GAIN 0x23F0; _10 HP 0 | PHASEDET_ENA; _11 LOCKDET_THR 2; DIGITAL_TEST_1 &= ~0x103; REFCLK_SRC 1; ENA; LOCKDET;
+     CTRL_UPD; HOLD off; poll FLL1_LOCK_STS1 every 1 ms up to 300 ms.
+     No lock -> fllhj_disable, then FLL1 <- MCLK1 (src 0, 26 MHz): N 22 (0x16), THETA 1114 (0x45A), LAMBDA 1625
+     (0x659), FB_DIV 1, REFCLK_DIV 1, GAIN 0x21F0, HP 3, LOCKDET_THR 8, DIGITAL_TEST_1 fast_clk 3 (check:
+     13 MHz x (22 + 1114/1625) = 294.912 MHz = 6 x 49.152 MHz). Still no lock -> disable FLL, abort (no tone).
+  5. SYSTEM_CLOCK_1 |= SYSCLK_ENA; madera_spin_sysclk (4 reads of reg 0 + 300 us).
+  6. OUT2L/R mixer input 1 = 0x04 (tone 1), volume reg 0x58 (-20 dB); DAC_DIGITAL_VOLUME_2L/2R = VU | 0x68
+     (-12 dB, unmuted); TONE_GENERATOR_1 = TONE1_ENA (rate 0 = SAMPLE_RATE_1, OVD 0).
+  7. OUTPUT_ENABLES_1 |= OUT2L_ENA | OUT2R_ENA (0x000C); 12 ms (madera_out_ev 6 ms x 2); read back
+     OUTPUT_ENABLES_1, RAW_OUTPUT_STATUS_1 0x406, IRQ1_RAW_STATUS_12/13 (SC / ENABLE_DONE), HEADPHONE_DETECT_0,
+     FLL lock. HP2 short-circuit bit set -> outputs off at once (skip the hold).
+  8. Hold ~2 s (Stall in 100 ms steps), FLL lock + OUTPUT_ENABLES_1 re-read at the middle.
+  9. Teardown (DAPM PRE_PMD/POST_PMD order): OUTPUT_ENABLES_1 &= ~0x000C, 2 ms, read IRQ1_RAW_STATUS_14
+     (DISABLE_DONE); DAC volumes back to VU | MUTE | 0x80 (default + VU); tone off; mixer sources 0; SYSCLK_ENA
+     off; fllhj_disable; read back everything. Then the 1b release path puts the codec back into hard reset.
+- Safety: no AP CMU/PMU/ABOX write; only SPI writes to a codec that ends in hard reset; level -32 dBFS; the amps
+  (speaker/receiver) are never enabled (OUT2 feeds only the jack); if no headphones are plugged the output just
+  drives the open jack.
+
+### 6.3 Progress log (cont.) + commit reviews (AGENTS.md §4)
+- Review 0b4e1b9 (research notes): re-grepped every cite. [DTBO:1481] routing, [MC:1422-1424/1574-1576] mixer
+  texts/values, [MH:194-197] range TLV, [CORE:41, 905, 917] 32k MCLK2 + patch_fn, [L92:2148] FLL1 base - OK.
+  FOUND: two registers.h ranges were off (HP SC/ENABLE/DISABLE status cited 8083-8106, real headers at
+  8069/8103/8137; DAC volume 4446-4456 -> 4447-4457) - fixed in the follow-up commit. FLLHJ numbers re-derived
+  by a python transliteration of madera_fllhj_apply (scratchpad one-liner): MCLK2 -> N 375 THETA 0 LAMBDA 1
+  FB 4 gains 0x23F0 thr 2; MCLK1 -> refdiv 1 N 22 THETA 0x45A LAMBDA 0x659 FB 1 gains 0x21F0 thr 8 hp 3 fast 3.
+- Build env (this session): scratchpad `build-m2.ps1` = build-private.ps1 with PACKAGES_PATH 2nd entry = this
+  worktree's firmware and WORKSPACE `C:\Users\ilya\code\w8c` (Conf copied from w8b), run via Start-Process with
+  redirected streams. Baseline build of a9e61b4: exit 0, FVMAIN_COMPACT 3 728 B free, FVMAIN 33%.
+- Task "codec write helpers": CodecFrameAddr (addr + read flag + 2 pad bytes), CodecWrite (8-byte frame),
+  CodecUpdate (read-modify-write, no write on a failed read), CodecWrite32 / CodecRead32 (10-byte frames, value
+  in bytes 6..9); CodecRead made non-STATIC; prototypes in new AudioCodec.h (added to the .inf). Build exit 0,
+  FVMAIN_COMPACT 3 720 B free (helpers unused yet).
+- Review 7204296 (helpers): SPI_FIFO_DEPTH 64 >= the 10-byte frames; write frame has bit 7 of byte 0 clear
+  (regmap-spi write_flag_mask 0); one CS window per register = regmap-spi's own framing; CodecUpdate never
+  writes after a failed read. No follow-ups.
+- Task "tone sequence": new `AudioTone.c` (CodecTonePlay, §6.2 steps 1-9 transliterated; every Set() logs
+  "[reg] mask <- value : read X ok|MISMATCH"; LogStatus() dumps FLL lock, SYSCLK, OUT_EN1, RAW_OUT_STS1, TONE1,
+  HP2 SC/EN_DONE/DIS_DONE, HPD0), flag `BEYOND0LTE_AUDIO_TONE` (1) + prototype in AudioCodec.h, AudioTone.c in
+  the .inf. Call site: CodecProbe, inside the "codec in reset - releasing it" branch, only if
+  `CodecWaitBoot()` (now returns BOOLEAN) and the ID matched. Build exit 0: AudioProbeDxe.efi 26 112 B (was
+  ~20 KB), FD 7 340 032 B sha256 4f3f0c9b7789d2a7abae33ff9604f8cc715f8b72898090f32c23d981748192c1,
+  FVMAIN_COMPACT 1 232 B free (99%, auto-sized), FVMAIN 33%. `grep -a` on the .efi finds the AudioTone strings.
+- Review f6ce147 (tone sequence), adversarial:
+  * Patch tables diffed by script (scratchpad m2check.py: regex-extract both tables from cs47l92-tables.c and
+    AudioTone.c): 16-bit 38 == 38 entries identical, 32-bit 28 == 28 identical.
+  * 48 register/field constants in AudioTone.c compared by script with registers.h: 0 mismatches; composites
+    OUT2_ENA_BOTH 0xC, DT1 mask 0x103, SYSCLK set mask 0x870F, HP2 SC 0xC, HPD_OVD 0x8000 recomputed - equal.
+  * Every register the sequence reads is in the cs47l92 16-bit readable list (FLL1 0x171-0x17D incl.
+    CS47L92_FLL1_CONTROL_7..10 [L92T:1188-1199]), so CodecUpdate's read-modify-write on 0x17A/0x17D does not
+    merge garbage into the bits it keeps.
+  * FOUND: the notes said 37 x 16-bit patch writes - it is 38 (0x120 is written twice). Fixed in the follow-up.
+  * FOUND: DAC volume writes verified the VU bit; cs47l92 probe "latches" VU once [L92:2024-2033, 2156-2159],
+    whether VU reads back is unknown -> possible false MISMATCH in an unattended log. Follow-up: SetEx() with a
+    no-verify mask (VU) for the four DAC writes.
+  * FOUND: the final log line asserted "~1 kHz" - the pitch is UNVERIFIED (6.1). Reworded in the follow-up.
+  * Checked, no change: tone only runs inside the "released from reset" branch (RELEASE_RESETS 0 -> never);
+    hang anywhere inside is covered by the 0x69 guard set in OnCodecPower; total stall <= 2 s hold + 12 + 2 ms
+    + 2 x 300 ms FLL waits + 300 ms disable wait, at TPL_NOTIFY (Stall is legal there).
+
+- Follow-up to f6ce147 (SetEx no-verify VU, pitch wording, 38 patch writes): build exit 0, AudioProbeDxe.efi
+  26 624 B, FD sha256 68fd92c3a42a95912649e57b51d62716d6e4384c6ba60c081f176fb0176ad0f1, FVMAIN_COMPACT 1 112 B free.
+- Review 04b69b9 (follow-ups): SetEx's Check mask = Mask & ~NoVerify, only the four DAC writes pass DAC_VU;
+  `grep -n "~1 kHz"` in AudioTone.c now only hits the UNVERIFIED wording; build exit 0. No follow-ups.
+
+### 6.4 Device test procedure (milestone 2) - for the main session (unattended) and the user (ear test)
+
+Image: build on main after merging this branch (normal `build-uefi.ps1 -Platform Beyond0LtePkg`), pack + flash
+as every boot (only by-name/boot). This session did NOT pack or flash. Private-workspace FD of 04b69b9:
+`C:\Users\ilya\code\w8c\Build\Beyond0LtePkg\DEBUG_CLANGPDB\FV\BEYOND0LTE_UEFI.fd`, sha256 68fd92c3...
+
+**Writes in this image beyond 1b:** SPI writes to the CS47L93 only (patch, clocks, FLL1, mixers, volumes,
+output enables), all undone + codec put back into hard reset before the handoff. No PMIC, CMU, PMU or ABOX write.
+The amps are untouched by m2 (their 1b ID probe is unchanged). Disable: `BEYOND0LTE_AUDIO_TONE 0` in
+`Drivers/Beyond0LteAudioProbeDxe/AudioCodec.h` (back to 1b behaviour).
+
+Unattended run: boot once to Windows (or past BDS), pull `UEFILOG.TXT` from TWRP, `grep -E 'AudioTone|AudioProbe'`.
+Expected lines (DEBUG %x = upper-case hex, no 0x; `<>` = learned on the device), after the 1b lines up to
+`AudioProbe: codec BOOT_DONE after 5000 us (IRQ1_RAW_STATUS1 80)`:
+```
+AudioTone: start - tone1 -> OUT2 mixers -> HPOUT2 (3.5 mm jack) for 2000 ms at -32 dBFS (mixer -20 dB, DAC -12 dB)
+AudioTone: status at reset: FLL1 lock 0 (RAW2 <>) SYSCLK1 404 OUT_EN1 0 RAW_OUT_STS1 <> TONE1 0 HP2 SC 0 EN_DONE 0 DIS_DONE <> (bits 3:2 = R:L) HPD0 0
+[AudioTone: patch16 [reg] <- val read <> (Success)   - only for writes that did not read back exactly; a few are tolerated]
+AudioTone: cs47l92 patch applied: 16-bit <~38>/38 read back exact, 32-bit <~28>/28
+AudioTone: CLOCK_32K_1 ena + MCLK2 [100] mask 43 <- 41 : read 41 ok
+AudioTone: SAMPLE_RATE_1 48k [102] mask 1F <- 3 : read 3 ok
+AudioTone: SYSTEM_CLOCK_1 98M FLL1 [101] mask 870F <- 404 : read 404 ok
+AudioTone: FLL1 <- MCLK2 (32 kHz) programmed: CTRL1 1001 CTRL2 <8177 or 177> THETA 0 LAMBDA 1 CTRL5 4 CTRL6 8000 GAIN 23F0 CTRL10 1000 CTRL11 5 DT1 32E8 (want N 177 TH 0 LA 1 FB 4 REFDIV 0 GAIN 23F0 HP 0 THR 2 FAST 0)
+AudioTone: FLL1 <- MCLK2 (32 kHz) LOCKED after <ms> ms (IRQ1_RAW_STATUS_2 <bit8 set>)          <- KEY LINE 1
+AudioTone: SYSCLK_ENA [101] mask 40 <- 40 : read 444 ok
+AudioTone: OUT2LMIX in1 = tone1 [690] mask FF <- 4 : read 4 ok           (and OUT2RMIX [698])
+AudioTone: OUT2LMIX in1 vol -20dB [691] mask FE <- 58 : read 58 ok      (and [699])
+AudioTone: DAC2L -12dB unmute [419] mask 3FF <- 268 : read <68 or 268> ok (and DAC2R [41D])
+AudioTone: TONE1_ENA (rate = SAMPLE_RATE_1) [20] mask FFFF <- 1 : read 1 ok
+AudioTone: OUT2L+OUT2R ENA [400] mask C <- C : read C ok
+AudioTone: status outputs on (+12 ms): FLL1 lock 1 (RAW2 <>) SYSCLK1 444 OUT_EN1 C RAW_OUT_STS1 <> TONE1 1 HP2 SC 0 EN_DONE C DIS_DONE <> ... HPD0 0   <- KEY LINE 2
+AudioTone: status mid-tone: FLL1 lock 1 ... OUT_EN1 C ... TONE1 1 HP2 SC 0 EN_DONE C ...                                                        <- KEY LINE 3
+AudioTone: OUT2L+OUT2R off [400] mask C <- 0 : read 0 ok
+AudioTone: status outputs off (+2 ms): ... OUT_EN1 0 ... DIS_DONE C ...
+AudioTone: TONE1 off / DAC2L/2R mute (default) / OUT2xMIX in1 none / vol 0dB (default) / SYSCLK off : ... ok
+AudioTone: FLL1 disabled after <ms> ms: CTRL1 1004 CTRL2 177 CTRL11 4 RAW2 <bit8 clear>
+AudioTone: status after teardown: FLL1 lock 0 ... SYSCLK1 404 OUT_EN1 0 ... TONE1 0 ...
+AudioTone: done - tone PLAYED (listen: ~2 s, both ears; pitch UNVERIFIED, expected ~1 kHz); codec goes back into hard reset next
+AudioProbe: codec OK; bus released: ... (reset back to its handoff level)
+```
+**Milestone 2 is proven in the log** when KEY LINES 1-3 appear (FLL lock, OUT_EN1 C with EN_DONE C and SC 0,
+still so at mid-tone) and the final line says PLAYED. The ear test confirms the analogue end.
+
+Reading other outcomes:
+- `FLL1 <- MCLK2 (32 kHz) NO LOCK after 301 ms` -> MCLK2 has no clock (or not ~32 kHz); then the MCLK1 attempt:
+  `FLL1 <- MCLK1 (26 MHz) LOCKED` = sboot left the AP 26 MHz clock-out running (tone still plays); `NO LOCK` on
+  both + `locked on neither ... abort` -> nothing was enabled; next step = find what drives MCLK2 (PMIC 32k buffer
+  enable? read-only research first) or the AP CLKOUT (xclkout clock 0x385) - a flagged AP write, separate task.
+- `cs47l92 patch applied: 16-bit 0/38 ... 32-bit 0/28` + abort -> SPI writes do not stick (reads worked in 1b):
+  check the write framing (bit 7 of byte 0 clear) against a read of a known RW register.
+- `HP2 SC` non-zero or `HP2 short-circuit status set` -> outputs were switched off at once; record, do not retry
+  louder.
+- `HP clamp set` -> HPD_OVD_ENA_SEL was set at reset (not expected, default 0): record the value.
+- EN_DONE 0 with OUT_EN1 C -> the HP enable sequence did not finish (charge pump / CPVDD?): record RAW_OUT_STS1.
+- Hang (progress word ends 0x69, no UEFILOG) -> next boot skips the whole audio probe by itself; read
+  `/proc/debug_history` from TWRP (AGENTS.md §9).
+
+**Ear test (the user, later):** plug wired headphones / earbuds into the S10e's 3.5 mm jack **before** power-on,
+keep them in your ears at a normal distance, boot this image. The tone comes at ReadyToBoot - after the
+UEFI boot UI, just before the Windows Boot Manager takes over (TouchPower's LDO18M step runs there). Expect a
+steady beep for ~2 s in both ears at a moderate level (-32 dBFS, a square wave if the recalled datasheet is
+right, so it may sound buzzy rather than pure). Report: heard / not heard, both ears or one, rough pitch,
+anything else (click at start/end). If nothing is heard but the log shows KEY LINES 1-3, the digital path is
+proven and the problem is analogue (jack detect / HP stage) - say so in the result.
+
+- Review dfe7169 (procedure): every expected line compared against its DEBUG format string in AudioTone.c
+  (status / programmed / LOCKED / Set "[reg] mask <- : read" / patch summary / done); predicted register values
+  re-derived from the reset defaults [L92T:145,161-172] through the exact update order in FllEnable/FllDisable
+  (CTRL1 7004 -> 1001 running -> 1004 disabled; CTRL11 11 -> 5 -> 4; DT1 33E8 -> 32E8; SYSCLK1 404 -> 444).
+  "NO LOCK after 301 ms" matches the 0..300 inclusive loop. No follow-ups. Branch state: 7 commits on e3f72a2,
+  not pushed, nothing packed or flashed.

@@ -25,6 +25,10 @@
   defers the codec probe to the codec-power event group that TouchPowerDxe signals after the rail step
   (if TouchPowerDxe never signals, the codec simply stays in reset and no codec lines are logged).
 
+  Milestone 2 (BEYOND0LTE_AUDIO_TONE, AudioTone.c): right after a fresh codec answered, its own tone
+  generator plays ~2 s on HPOUT2 (3.5 mm jack), clocked by the codec FLL1 from its MCLK2 32 kHz input
+  (fallback MCLK1 if sboot left that AP clock-out running) - SPI writes only, all read back into UEFILOG.
+
   What is NOT touched here: PMIC rails, CMU (clocks are read for the log, never written), the ABOX.
 
   Guard: boot progress word 0x8FE0F000[1] = 0x69 while the probe runs; a boot whose previous boot
@@ -42,6 +46,7 @@
 #include <Platform/Exynos9820.h>
 
 #include "AudioProbeHw.h"
+#include "AudioCodec.h"           // codec register access, shared with the m2 tone code
 #include "Beyond0LteAudioPower.h"   // BEYOND0LTE_AUDIO_DCVDD, codec-power event group (D8a m1b)
 
 // 0 = the driver does nothing (one log line).
@@ -546,7 +551,7 @@ SpiXfer (IN CONST UINT8 *Tx, OUT UINT8 *Rx, IN UINTN Length)
 
 // Madera 16-bit register read: [0x80 | addr31..24, addr23..16, addr15..8, addr7..0, pad, pad] then two
 // value bytes, big-endian (cs47l92_16bit_spi_regmap: reg_bits 32, pad_bits 16, val_bits 16).
-STATIC
+// Not STATIC: AudioTone.c uses it through AudioCodec.h.
 EFI_STATUS
 CodecRead (IN UINT32 Reg, OUT UINT16 *Value)
 {
@@ -566,6 +571,98 @@ CodecRead (IN UINT32 Reg, OUT UINT16 *Value)
   Tx[3]  = (UINT8)Reg;
   Status = SpiXfer (Tx, Rx, 8);
   *Value = (UINT16)(((UINT16)Rx[6] << 8) | Rx[7]);
+  return Status;
+}
+
+// ---------------------------------------------------------------------------------------------------
+// D8a milestone 2: codec register writes (AudioCodec.h). Same framing as CodecRead with the read flag
+// clear (regmap-spi: read_flag_mask 0x80, write_flag_mask 0), and the 32-bit regmap that madera uses
+// for 0x3000+ (cs47l92-tables.c:2391-2405 cs47l92_32bit_spi_regmap: reg 32, pad 16, val 32, BE).
+// ---------------------------------------------------------------------------------------------------
+
+STATIC
+VOID
+CodecFrameAddr (OUT UINT8 *Tx, IN UINT32 Reg, IN BOOLEAN Read)
+{
+  Tx[0] = (UINT8)((Read ? CS47L93_SPI_READ : 0) | ((Reg >> 24) & 0x7F));
+  Tx[1] = (UINT8)(Reg >> 16);
+  Tx[2] = (UINT8)(Reg >> 8);
+  Tx[3] = (UINT8)Reg;
+  Tx[4] = 0;   // pad_bits 16
+  Tx[5] = 0;
+}
+
+EFI_STATUS
+CodecWrite (
+  IN UINT32  Reg,
+  IN UINT16  Value
+  )
+{
+  UINT8  Tx[8];
+  UINT8  Rx[8];
+
+  CodecFrameAddr (Tx, Reg, FALSE);
+  Tx[6] = (UINT8)(Value >> 8);
+  Tx[7] = (UINT8)Value;
+  return SpiXfer (Tx, Rx, 8);
+}
+
+// Read-modify-write of a 16-bit register (regmap_update_bits). The write is skipped if the read fails.
+EFI_STATUS
+CodecUpdate (
+  IN UINT32  Reg,
+  IN UINT16  Mask,
+  IN UINT16  Value
+  )
+{
+  EFI_STATUS  Status;
+  UINT16      Old;
+
+  Old    = 0;
+  Status = CodecRead (Reg, &Old);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  return CodecWrite (Reg, (UINT16)((Old & ~Mask) | (Value & Mask)));
+}
+
+EFI_STATUS
+CodecWrite32 (
+  IN UINT32  Reg,
+  IN UINT32  Value
+  )
+{
+  UINT8  Tx[10];
+  UINT8  Rx[10];
+
+  CodecFrameAddr (Tx, Reg, FALSE);
+  Tx[6] = (UINT8)(Value >> 24);
+  Tx[7] = (UINT8)(Value >> 16);
+  Tx[8] = (UINT8)(Value >> 8);
+  Tx[9] = (UINT8)Value;
+  return SpiXfer (Tx, Rx, 10);
+}
+
+EFI_STATUS
+CodecRead32 (
+  IN  UINT32  Reg,
+  OUT UINT32  *Value
+  )
+{
+  EFI_STATUS  Status;
+  UINT8       Tx[10];
+  UINT8       Rx[10];
+  UINTN       Index;
+
+  for (Index = 0; Index < 10; Index++) {
+    Tx[Index] = 0;
+    Rx[Index] = 0;
+  }
+
+  CodecFrameAddr (Tx, Reg, TRUE);
+  Status = SpiXfer (Tx, Rx, 10);
+  *Value = ((UINT32)Rx[6] << 24) | ((UINT32)Rx[7] << 16) | ((UINT32)Rx[8] << 8) | Rx[9];
   return Status;
 }
 
@@ -601,7 +698,7 @@ CodecIdentify (VOID)
 #define CODEC_BOOT_POLL_MAX_US    25000u
 
 STATIC
-VOID
+BOOLEAN
 CodecWaitBoot (VOID)
 {
   UINT16      Raw1;
@@ -613,12 +710,12 @@ CodecWaitBoot (VOID)
     Status = CodecRead (CS47L93_REG_IRQ1_RAW_STATUS1, &Raw1);
     if (!EFI_ERROR (Status) && ((Raw1 & CS47L93_BOOT_DONE) != 0)) {
       DEBUG ((DEBUG_WARN, "AudioProbe: codec BOOT_DONE after %u us (IRQ1_RAW_STATUS1 %x)\n", Us, Raw1));
-      return;
+      return TRUE;
     }
 
     if (EFI_ERROR (Status) || (Us >= CODEC_BOOT_POLL_MAX_US)) {
       DEBUG ((DEBUG_WARN, "AudioProbe: codec BOOT_DONE not set after %u us (IRQ1_RAW_STATUS1 %x, %r)\n", Us, Raw1, Status));
-      return;
+      return FALSE;
     }
 
     gBS->Stall (CODEC_BOOT_POLL_STEP_US);
@@ -696,7 +793,11 @@ CodecProbe (
     Released = TRUE;
     gBS->Stall (2000);   // madera_disable_hard_reset: usleep_range(1000, 2000) after the release
     Ok = CodecIdentify ();
-    CodecWaitBoot ();    // madera-core.c:806 madera_wait_for_boot after the ID check
+    // madera-core.c:806 madera_wait_for_boot after the ID check. The m2 tone only runs on a codec we took out
+    // of hard reset ourselves (every register at its default) that answered both checks.
+    if (CodecWaitBoot () && Ok && BEYOND0LTE_AUDIO_TONE) {
+      (VOID)CodecTonePlay ();   // AudioTone.c; leaves outputs/tone/SYSCLK/FLL1 off, the reset below wipes the rest
+    }
   }
 
   // Release: controller back to its handoff registers, USI reset/mode, pins and reset line as found.
@@ -776,8 +877,8 @@ Beyond0LteAudioProbeEntry (
     return EFI_SUCCESS;
   }
 
-  DEBUG ((DEBUG_WARN, "AudioProbe: start (release resets %u, codec DCVDD flow %u)\n", BEYOND0LTE_AUDIO_PROBE_RELEASE_RESETS,
-          BEYOND0LTE_AUDIO_DCVDD));
+  DEBUG ((DEBUG_WARN, "AudioProbe: start (release resets %u, codec DCVDD flow %u, m2 tone %u)\n",
+          BEYOND0LTE_AUDIO_PROBE_RELEASE_RESETS, BEYOND0LTE_AUDIO_DCVDD, BEYOND0LTE_AUDIO_TONE));
   Saved        = mProgress[1];
   mProgress[1] = AUDIO_PROGRESS_TRYING;
   AmpProbe ();

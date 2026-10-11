@@ -35,32 +35,58 @@
 #define HSI2C_INT_ALL             0x00000FFFu
 #define HSI2C_ERROR_STATUS        0x2C
 
-#define HSI2C_TIMING_SLA          0x6C   // drivers/Exynos9820Hsi2c/exynos9820hsi2c.h EHI2C_TIMING_SLA
 
 STATIC BOOLEAN  mBusReady = FALSE;
 STATIC UINTN    mDumps    = 0;
-STATIC UINT32   mTiming[4];          // FS1, FS2, FS3, SLA as the bootloader left them
-STATIC UINT32   mConf;
-STATIC UINT32   mTimeout;
 
-// SW reset pulse [K exynos5_i2c_reset: set, clear], then the bootloader's timing/CONF/TIMEOUT restored and
-// the kernel's init writes [K exynos5_i2c_init]. Also used after a failed transfer, as our Windows driver
-// does (controller.cpp ControllerReset after an error), so one NACK does not wedge the following probes.
+// Mirrors our device-validated Windows driver's ControllerReset (drivers/Exynos9820Hsi2c/controller.cpp):
+// SW_RST set/clear, USI reset released, FS timing, MASTER, trailing count, TIMEOUT 0, AUTO_MODE, FIFO/AUTO/
+// ADDR cleared, all interrupts acked. Timing: the HSI2C_TIMING_FS*_BOOT values equal what the Windows
+// driver's ControllerSetBusTiming computes for 400 kHz from the 200 MHz default-clk (divider 0x21, high
+// mask 0xE0, start mask 0xF0) - the formula that runs the touch bus. Run 4 (notes/m16-usb.md) showed the
+// bootloader leaves this block unconfigured (all zero), so there is nothing of its to preserve.
+// Also used after a failed transfer, as the Windows driver does, so one NACK cannot wedge later probes.
 STATIC
 VOID
 Hsi2cReset (VOID)
 {
-  MmioWrite32 (I2C + HSI2C_CTL, HSI2C_CTL_SW_RST);
-  MmioWrite32 (I2C + HSI2C_CTL, 0);
-  MmioWrite32 (I2C + HSI2C_TIMING_FS1, mTiming[0]);
-  MmioWrite32 (I2C + HSI2C_TIMING_FS2, mTiming[1]);
-  MmioWrite32 (I2C + HSI2C_TIMING_FS3, mTiming[2]);
-  MmioWrite32 (I2C + HSI2C_TIMING_SLA, mTiming[3]);
-  MmioWrite32 (I2C + HSI2C_TIMEOUT, mTimeout & ~BIT31);   // kernel clears the HW timeout enable
+  MmioWrite32 (I2C + HSI2C_CTL, MmioRead32 (I2C + HSI2C_CTL) | HSI2C_CTL_SW_RST);
+  MmioWrite32 (I2C + HSI2C_CTL, MmioRead32 (I2C + HSI2C_CTL) & ~HSI2C_CTL_SW_RST);
+  MmioWrite32 (I2C + HSI2C_USI_CON, 0);
+  MmioWrite32 (I2C + HSI2C_TIMING_FS1, HSI2C_TIMING_FS1_BOOT);
+  MmioWrite32 (I2C + HSI2C_TIMING_FS2, HSI2C_TIMING_FS2_BOOT);
+  MmioWrite32 (I2C + HSI2C_TIMING_FS3, HSI2C_TIMING_FS3_BOOT);
   MmioWrite32 (I2C + HSI2C_CTL, HSI2C_CTL_MASTER);
   MmioWrite32 (I2C + HSI2C_TRAIL_CTL, 0xFFFFFF);
-  MmioWrite32 (I2C + HSI2C_CONF, mConf | HSI2C_CONF_AUTO_MODE);
-  MmioWrite32 (I2C + HSI2C_INT_STAT, 0x00000FFFu);
+  MmioWrite32 (I2C + HSI2C_TIMEOUT, 0);
+  MmioWrite32 (I2C + HSI2C_CONF, HSI2C_CONF_AUTO_MODE);
+  MmioWrite32 (I2C + HSI2C_FIFO_CTL, 0);
+  MmioWrite32 (I2C + HSI2C_AUTO_CONF, 0);
+  MmioWrite32 (I2C + HSI2C_ADDR, 0);
+  MmioWrite32 (I2C + HSI2C_INT_STAT, HSI2C_INT_ALL);
+}
+
+// The bus outside the I2C block: USI_CMGP3 mode = I2C and the two pins muxed to the I2C function. Same
+// three things the Windows driver does for USI03 (sysreg mode, GPP1 CON), with the CMGP addresses from
+// <Platform/Exynos9820.h>. Pull/drive are left as found (the DT values could not be read on device).
+STATIC
+VOID
+Hsi2cBusSetup (VOID)
+{
+  volatile UINT32  *Mode = (volatile UINT32 *)(UINTN)EXYNOS_CMGP_USI03_MODE;
+  UINTN            Gpio  = (UINTN)EXYNOS_CMGP_GPIO_BASE;
+  UINT32           Scl, Sda;
+
+  Scl = MmioRead32 (Gpio + EXYNOS_CMGP_GPM12_CON_OFFSET);
+  Sda = MmioRead32 (Gpio + EXYNOS_CMGP_GPM13_CON_OFFSET);
+  DEBUG ((DEBUG_WARN, "Hsi2c45 bus at handoff: USI_CMGP3 mode %x, gpm12 CON %x, gpm13 CON %x\n", *Mode, Scl, Sda));
+
+  *Mode = EXYNOS_USI_V2_MODE_I2C;
+  MmioWrite32 (Gpio + EXYNOS_CMGP_GPM12_CON_OFFSET, (Scl & ~0xFu) | EXYNOS_GPIO_FUNC_HSI2C45);
+  MmioWrite32 (Gpio + EXYNOS_CMGP_GPM13_CON_OFFSET, (Sda & ~0xFu) | EXYNOS_GPIO_FUNC_HSI2C45);
+
+  DEBUG ((DEBUG_WARN, "Hsi2c45 bus set: USI_CMGP3 mode %x, gpm12 CON %x, gpm13 CON %x\n", *Mode,
+          MmioRead32 (Gpio + EXYNOS_CMGP_GPM12_CON_OFFSET), MmioRead32 (Gpio + EXYNOS_CMGP_GPM13_CON_OFFSET)));
 }
 
 VOID
@@ -250,21 +276,9 @@ PmicBusInit (VOID)
 {
   Hsi2cDump ("at handoff");
 
-  // The bootloader leaves the bus working (it talks to the MAX77705 itself), so its timing is the
-  // reference. Run 1 rewrote one byte-field of FS1/FS2/FS3 from UNVERIFIED kernel-computed values after the
-  // SW reset; if the reset clears the register file (Linux re-runs exynos5_hsi2c_clock_setup after every
-  // exynos5_i2c_reset, our Windows driver re-runs ControllerSetBusTiming), the rest stayed zero - the
-  // likely reason the transfer never completed (INT_STAT=0). Snapshot once, restore after every reset.
-  mTiming[0] = MmioRead32 (I2C + HSI2C_TIMING_FS1);
-  mTiming[1] = MmioRead32 (I2C + HSI2C_TIMING_FS2);
-  mTiming[2] = MmioRead32 (I2C + HSI2C_TIMING_FS3);
-  mTiming[3] = MmioRead32 (I2C + HSI2C_TIMING_SLA);
-  mConf      = MmioRead32 (I2C + HSI2C_CONF);
-  mTimeout   = MmioRead32 (I2C + HSI2C_TIMEOUT);
-
-  // USI_CON: release the USI block reset (kernel writes 0; USI_RESET=(0<<0)).
-  MmioWrite32 (I2C + HSI2C_USI_CON, 0);
-
+  // Run 4: USI held in reset, every I2C register 0, CTL writes did not stick - the USI was never put in
+  // I2C mode. Mode + pin mux first, then the block reset/init (Windows driver order).
+  Hsi2cBusSetup ();
   Hsi2cReset ();
   mBusReady = TRUE;
   Hsi2cDump ("after init");

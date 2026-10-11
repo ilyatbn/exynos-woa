@@ -122,3 +122,4 @@ USI mode slots (samsung,exynos-usi, each reg = 4 bytes in sysreg 0x10421000): 'i
   itself while a contact is down. HoldRepeatCount counts repeats.
 - Installed from TWRP into BOTH DriverStore copies (…40e80cfbb0f9f994, …b05675c579e4165b; old sys sha
   50b836df…/207066747c…), new sys 63ad6ab5…. Not yet validated on device.
+- 2026-10-11 run m16-4: **user confirms right-click (press-and-hold) works** with driver 6.0.5058.5.

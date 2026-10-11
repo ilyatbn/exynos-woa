@@ -477,6 +477,30 @@
 #define EXYNOS_PMIC_HSI2C_BASE    0x0000000015D60000ULL   // VERIFIED (hsi2c_45, DT + live device node)
 #define EXYNOS_PMIC_HSI2C_SIZE    0x0000000000001000ULL   // VERIFIED (DT reg size)
 
+// USI_CMGP3 mode register (hsi2c_45 is the USI_CMGP3 USI block). VERIFIED from the live DT (TWRP,
+// 2026-10-11): __symbols__/usi_03_cmgp -> /usi@15C22030, compatible "samsung,exynos-usi-v2",
+// usi_v2_mode "i2c", reg <0x15C22030 0x4>. M16 run 4: at UEFI handoff the USI was held in reset
+// (USI_CON 1) and every I2C register read 0 - the bootloader never configured this bus.
+// I2C mode value 0x4: same exynos-usi-v2 encoding our Windows HSI2C driver writes to usi@1042101C
+// (drivers/Exynos9820Hsi2c/exynos9820hsi2c.h EXYNOS_SYSREG_USI_MODE_I2C), validated on the touch bus.
+#define EXYNOS_CMGP_SYSREG_USI_PAGE      0x0000000015C22000ULL   // VERIFIED (page holding usi@15C22000..15C22034)
+#define EXYNOS_CMGP_SYSREG_USI_PAGE_SIZE 0x0000000000001000ULL
+#define EXYNOS_CMGP_USI03_MODE           0x0000000015C22030ULL   // VERIFIED (usi_03_cmgp)
+#define EXYNOS_USI_V2_MODE_I2C           0x00000004u             // VERIFIED on usi@1042101C (touch bus)
+
+// CMGP pin controller (hsi2c_45 pins gpm12-0 = SCL, gpm13-0 = SDA). VERIFIED:
+//   live DT alias pinctrl2 -> /pinctrl@15C30000, reg <0x15C30000 0x1000>, 32 gpm banks;
+//   hsi2c45-bus: samsung,pins "gpm12-0" "gpm13-0", samsung,pin-function <2> (I2C);
+//   Samsung 9820 kernel (LineageOS lineage-18.1) drivers/pinctrl/samsung/pinctrl-exynos-arm64.c
+//   exynos9820_pin_banks2 ("CMGP data"): gpm12 at 0x180, gpm13 at 0x1A0, exynos9810_bank_type_alive
+//   (CON +0x0 4-bit field per pin, DAT +0x4, PUD +0x8, DRV +0xC). NOTE the 9810 table has them at
+//   0x140/0x160 - not interchangeable.
+#define EXYNOS_CMGP_GPIO_BASE            0x0000000015C30000ULL   // VERIFIED
+#define EXYNOS_CMGP_GPIO_SIZE            0x0000000000001000ULL   // VERIFIED
+#define EXYNOS_CMGP_GPM12_CON_OFFSET     0x180u                  // VERIFIED (kernel bank table)
+#define EXYNOS_CMGP_GPM13_CON_OFFSET     0x1A0u                  // VERIFIED (kernel bank table)
+#define EXYNOS_GPIO_FUNC_HSI2C45         0x2u                    // VERIFIED (DT samsung,pin-function)
+
 //
 // ---------------------------------------------------------------------------
 // Touch: the HSI2C bus the panel IC hangs off, and the panel itself.

@@ -179,3 +179,29 @@ Found:
   the guard skipped it after run 2's exception (progress survived the TWRP boot in between). The next boot
   (#68 still flashed) retries with tasks 6-8. Also: the installer had to fsck the NTFS (dirty after reset);
   TWRP auto-mounts userdata ro at /data, which blocks a second mount - umount /data first.
+
+### Run 4 (boot #68 retried USB; UEFILOG boot 124) — user: right-click works, Reboot-to-TWRP.exe works, dock dark
+- **xHCI is up in UEFI**: `DWC_usb31 GSNPSID 33313130 VER_NUMBER 3137302A` (1.70a), `CAPLENGTH 20, 2 root
+  ports`, XhciDxe `HcSParams1 0x2000240` (2 ports), HCCParams 0x228FFED (AC64), Usb2Sup/Usb3Sup present, no
+  DbC (DebugCapSupOffset 0xFFFFFFFF - no xHCI debug capability for KD over USB), CMD/EVENT rings created,
+  `UsbRootHubInit: max speed 3, 2 ports`, `UsbBusStart`. Windows saw 'USBH' (0x8FE0F008 = 48425355).
+- GUCTL3 USB20_RETRY_DISABLE quirk applies (>= 1.70a) and is NOT written (UNVERIFIED bit) - follow-up.
+- **HSI2C45 dead because unconfigured**: at handoff every I2C register 0, USI_CON 1 (USI in reset),
+  USI_OPT 1; after init CTL writes do not stick (MASTER not latched), USI_CON accepted 0. All 4 clients
+  time out. My run-2 snapshot/restore had restored those zeros. The bootloader never set this bus up
+  (the DT carries bit-bang fallback pins gpio_scl gpm12 / gpio_sda gpm13).
+- Live DT: `usi_03_cmgp` -> /usi@15C22030 (exynos-usi-v2, mode "i2c"), alias pinctrl2 -> /pinctrl@15C30000;
+  hsi2c45-bus pins gpm12-0/gpm13-0 function 2 (pud/drv unreadable with TWRP busybox).
+- Kernel table fetched (LineageOS android_kernel_samsung_exynos9820 lineage-18.1, pinctrl-exynos-arm64.c,
+  scratchpad copy): exynos9820_pin_banks2 "CMGP data": gpm12 0x180, gpm13 0x1A0, alive bank type
+  CON+0/DAT+4/PUD+8/DRV+C (4-bit fields). The 9810 table has 0x140/0x160.
+- The `HSI2C_TIMING_FS*_BOOT` values equal the Windows driver's ControllerSetBusTiming result for
+  400 kHz @ 200 MHz (divider 0x21, masks 0xE0/0xF0) - so they are the validated formula's output.
+
+### Task 10 — HSI2C45 bus setup (run 5 instrument + fix)
+- Exynos9820.h: EXYNOS_CMGP_USI03_MODE 0x15C22030, EXYNOS_USI_V2_MODE_I2C 4, EXYNOS_CMGP_GPIO_BASE
+  0x15C30000 (+0x1000), GPM12/13 CON 0x180/0x1A0, function 2 - all with their sources. Memory map: both pages.
+- Hsi2cBusSetup: log mode + pin CONs, set mode 4, pins function 2 (pull/drive untouched), log again.
+- Hsi2cReset mirrors the Windows ControllerReset exactly (incl. FS timing constants, TIMEOUT 0, FIFO/AUTO/
+  ADDR 0); snapshot/restore removed.
+- Still possible: the USI_CMGP3 clock gate is off (ACPM-owned) - run 5's dumps will show whether CTL latches.

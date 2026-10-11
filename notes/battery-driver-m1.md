@@ -100,3 +100,43 @@ register error). The Windows driver converts milli-degC -> tenths of Kelvin.
   `Dsdt.aml` 1639 -> 1725 B (contains `SAMS9826`). FVMAIN_COMPACT free: baseline (HEAD DSDT,
   same workspace) 1224 B, with BAT0 1152 / 1168 B (two runs; the known ±24 B drift, m8-build.md).
   **FVMAIN_COMPACT is 99 % full (~1.1 KiB left)** — a risk for any further firmware additions.
+
+### 2026-10-12 — commit ba1d486 review (task 1, harsh critic)
+- DSDT `_CRS` vs `Exynos9820.h:477-499`: rg of both — all three bases/sizes match. ✔
+- `EXYNOS_CMGP_SYSREG_USI_PAGE_SIZE` is **not** tagged VERIFIED in the header (it is the page
+  granule, the DT extent is 4 B at +0x30). The DSDT comment does not claim VERIFIED; the driver
+  header draft did -> corrected before the driver commit (comment now says "one page").
+- 9810 tree untouched: `git diff HEAD~1 --stat -- firmware/Platform/Star2LtePkg firmware/Silicon/Exynos9810Pkg` empty. ✔
+- The DSDT comment "Windows takes the AC state from BATTERY_POWER_ON_LINE: no ACPI0003" is an
+  **inference** (the simbatt sample reports AC exactly this way; Windows has no AC device here).
+  Device check: `powercfg /batteryreport` / tray icon shows "plugged in" with a charger attached.
+- Nothing found that needs a follow-up commit.
+
+### 2026-10-12 — task 2: driver `drivers/S10eBattery` — build
+Files: `S10eBattery.h` (constants, context), `Hsi2c.c` (Pmic.c port), `Max77705.c` (read-only
+reading, vendor conversions verbatim + plausibility gate), `Miniclass.c` (battc callbacks, poll,
+diagnostics), `Driver.c` (simbatt WDF plumbing + resources/power/poll), `S10eBattery.inf`,
+`S10eBattery.vcxproj`, `build-package.ps1` (copy of the Hsi2c flow).
+
+Pre-commit self-review changes:
+- **Plausibility gate** added (`S10E_PLAUSIBLE_VCELL_{MIN,MAX}_MV` 2500/5000, plus "FULLCAP and
+  DESIGNCAP both 0"): the known failure mode of this bus is reads returning 0. A zero SOC reaching
+  Windows would fire the **critical battery action (hibernate/shutdown)**. A rejected reading keeps
+  the last good one (or no battery at all before the first good one). These are physical
+  plausibility limits, deliberately loose, not device constants.
+- Diagnostics: the registry snapshot records the *attempted* reading on failure (raw values of a
+  rejected read are what a device test needs).
+
+Diagnostics written by the driver (`HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SAMS9826\0\Device Parameters`,
+on the first good poll, on every reported change, on the first 3 failures and every 32nd):
+`PollOk PollFail LastStatus FgStatus SocTenths VcellMv AvgCurrentMa TempMilliC RemCapMah FullCapMah
+DesignCapMah ChgDetails (DTLS_00 | DTLS_01<<8, 0xFFFFFFFF = charger not read) PowerState
+HandoffUsiMode HandoffGpm12 HandoffGpm13 HandoffUsiCon`.
+
+Build: `build-package.ps1 -Out C:\Users\ilya\code\s10e-artifacts\battery-m1\S10eBattery`
+-> msbuild exit 0 with **/W4 /WX** (0 warnings), ARM64 (`dumpbin /headers`: AA64), imports
+BATTC.SYS (BatteryClassInitializeDevice/Ioctl/StatusNotify/SystemControl/QueryWmiDataBlock/Unload),
+WMILIB.SYS, WDFLDR.SYS (KMDF 1.15), HAL, ntoskrnl `MmMapIoSpaceEx`. Inf2Cat (10_RS3/NI/GE_ARM64)
+clean; .sys and .cat signed with the WDK test cert (signer "WDKTestCert ilya,134359747320405644";
+host `signtool verify /pa` fails only on root trust, as for the existing packages).
+`infverif /w /v S10eBattery.inf` -> **INF is VALID**.

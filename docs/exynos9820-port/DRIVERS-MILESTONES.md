@@ -51,6 +51,7 @@ ACPI/Windows half remains.
 | D4 | WiFi: USB adapter path chosen + validated (vendor bcmdhd stays closed) | **doing** | research + choice **done** (`notes/d4-usb-wifi.md`): no USB WiFi driver exists for ARM64 — decision is PicoPiFi (Pico W, driverless RNDIS) as the WiFi option, dock ethernet (M13) stays primary; device validation rides on D1/D3 |
 | D5 | GPU/display: framebuffer deliverable decided; Mali WDDM reopened as D5b | **doing** | research + verdict **done** (`notes/d5-gpu-display.md` + addendum): shipped-code deliverable is GOP + in-box BasicDisplay; acceleration reopened after the S9 WDDM report — kbase r10p0 source is already in the 9820 kernel, feasibility inventory (D5b) is next; fb handoff validation still **needs-boot** |
 | D6 | External display (DP alt mode over the combo PHY) — stretch | **doing** | research + hub ID + decision **done** (`notes/d6-external-display.md`): user's UGREEN HDMI = DP alt mode (no DisplayLink chip) -> dark under Windows until a display-only WDDM exists (D5b rung 1); DisplayLink adapter is the buy-it-now alternative; DeX-on-Android validation recorded |
+| D8a | Audio milestone 1: read the CS47L93 / CS35L40 IDs from our UEFI | **doing** | task list below (`notes/d8-audio-m1.md`) |
 
 ## Task list
 
@@ -120,6 +121,23 @@ ACPI/Windows half remains.
 | Close the shipped OPP+voltage ladder values | **todo — one safe read** | pstore `console-ramoops` from TWRP (kernel prints `CPUFREQ of domain…` at boot) or 143 KB `by-name/ACPM` dump; both read-only, F10 |
 | Design doc: Windows CPU driver (KMDF, polling-mode ACPM IPC, fvmap read at init, thermal clamp from DT trips) | **todo** | one uniform protocol covers all three core types — the M4/prometheus/ananke differences are hidden inside the ACPM; PPTT performance ranks from F5 (272/531/785 DMIPS) |
 | Implement + device-validate | **todo** | bar: Windows can set/get each cluster's frequency; nothing is Ready until observed |
+
+### D8 audio — milestone 1: talk to the audio chips (`notes/d8-audio-m1.md`)
+
+Bar: our UEFI reads the CS47L93 codec ID (spi_2, expect 0x6371) and both CS35L40 amp DEVIDs
+(hsi2c_38 @0x40/0x41, expect 0x35A40/0x35B40) and logs them to UEFILOG. Not done until the
+UEFILOG of a real boot shows the reads.
+
+| Task | State | Notes |
+|------|-------|-------|
+| Pin bus/pin/reset/ID facts for codec + amps from the vendor sources | **done** | `notes/d8-audio-m1.md` §1 (file:line cites, lineage-22.2 + cal-if) |
+| Port the origin/drivers D8 constants (f22718a: ALIVE banks/EINT, key GSIVs, ABOX windows) to `Exynos9820.h` | todo | cherry-pick, header only |
+| Add the audio-bus constants (spi_2, hsi2c_38, USI mode regs, PERIC0/1 pin banks, reset pins, CMU diag offsets) to `Exynos9820.h` | todo | all from §1, VERIFIED tags with cites |
+| Map the new MMIO windows in `PlatformMemoryMapLib` (SPI2, PERIC0/1 USI pages, PERIC1 GPIO, HSI2C38, CMU_PERIC1) | todo | device memory only |
+| `Beyond0LteAudioProbeDxe`: polled SPI + HSI2C ID reads, save/restore of every touched register, progress guard 0x69, flag `BEYOND0LTE_AUDIO_PROBE` | todo | build must exit 0 |
+| Log the codec rails (S2MPS19 LDO17M/LDO18M CTRL) in `Beyond0LteTouchPowerDxe`'s read pass | todo | DCVDD = LDO18M is not boot-on in the vendor DT |
+| Device test: UEFILOG shows codec/amp IDs | todo | **needs-boot** — procedure in `notes/d8-audio-m1.md` §4 |
+| Milestone 2 groundwork: smallest audible path (codec + 3.5 mm jack) — exact task list | todo | design only |
 
 ## Working rules for this file
 

@@ -107,3 +107,11 @@ No device access in this task; build-verified only (Guided, not Ready).
   CPU_ON, but Windows matches a running core's MPIDR_EL1 to its GICC entry -> a mismatch may break the secondary
   start. If run 15 fails there: MADT (and DSDT _MAT, and the park mask MPIDR compare) -> 0x100/0x200/0x300, after
   reading the live DT /cpus/cpu@*/reg in TWRP (and the boot core's own MPIDR_EL1 = 0x81000000).
+- Run 15 (boot #49, numproc removed, 13:14, back in 228 s): Windows NumberOfLogicalProcessors = 4 (wmic cpu + cs),
+  TotalPhysicalMemory 5 631 082 496. Desktop "explorer up 30 s" at 98 s (was ~200 s on 1 core), collect.cmd 9 s
+  (was ~100 s). => 4 A55s WORK via the parking protocol; the MPIDR 1/2/3 vs MPIDR_EL1 0x100/0x200/0x300 difference
+  did not matter (Windows wakes each core through its GICC's ParkedAddress mailbox).
+  Restart events: each previous boot still shows Kernel-Power 41 + EventLog 6008 (unclean) next to the 1074 restart
+  request - whether the PSCI-less restart itself is clean (no 0xA0) is not yet read from the PRAM ring. TODO.
+  Next: mid cores (A75, GICC 4/5) with a self-healing guard (a hang in CPU_ON before ReadyToBoot would loop every
+  82 s with no WINRUN.FLG), then the big cores (S9: CPU_ON of a big core hung the SoC).

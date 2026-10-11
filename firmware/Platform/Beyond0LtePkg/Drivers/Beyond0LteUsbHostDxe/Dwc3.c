@@ -97,14 +97,26 @@ Dwc3HostInit (OUT UINT32 *Revision)
   BOOLEAN AdjSofAccuracy;
 
   // 0. Identity. [K dwc3_core_is_valid] — 0x5533 = DWC_usb3 (full GSNPSID is
-  //    the revision encoding), 0x3331 = DWC_usb31 (not expected here).
-  Rev = MmioRead32 (DWC3 + DWC3_GSNPSID);
-  if ((Rev & GSNPSID_ID_MASK) != GSNPSID_ID_DWC3) {
-    DEBUG ((DEBUG_ERROR, "%a: GSNPSID = %x — not DWC_usb3\n", __func__, Rev));
+  //    the revision encoding); 0x3331 = DWC_usb31: the revision is VER_NUMBER
+  //    with DWC3_REVISION_IS_DWC31 OR-ed in, so every ">= usb3 rev" branch below
+  //    is taken and every "<= old usb3 rev" workaround skipped, exactly as the
+  //    4.14 kernel compares. Run 1 (notes/m16-usb.md): GSNPSID 0x33313130 = DWC_usb31.
+  Reg = MmioRead32 (DWC3 + DWC3_GSNPSID);
+  if ((Reg & GSNPSID_ID_MASK) == GSNPSID_ID_DWC3) {
+    Rev = Reg;
+    DEBUG ((DEBUG_INFO, "%a: DWC_usb3 revision %x\n", __func__, Rev));
+  } else if ((Reg & GSNPSID_ID_MASK) == GSNPSID_ID_DWC31) {
+    Rev = MmioRead32 (DWC3 + DWC3_VER_NUMBER) | DWC3_REVISION_IS_DWC31;
+    DEBUG ((DEBUG_INFO, "%a: DWC_usb31 GSNPSID %x VER_NUMBER %x\n", __func__, Reg, Rev & ~DWC3_REVISION_IS_DWC31));
+    if (Rev >= DWC31_REV_170A) {
+      // [K] GUCTL3 USB20_RETRY_DISABLE applies here; its bit is not in our
+      // notes, so it is NOT written (UNVERIFIED) - record it if this fires.
+      DEBUG ((DEBUG_WARN, "%a: DWC_usb31 >= 1.70a: GUCTL3 USB20_RETRY_DISABLE quirk NOT applied (UNVERIFIED bit)\n", __func__));
+    }
+  } else {
+    DEBUG ((DEBUG_ERROR, "%a: GSNPSID = %x — not DWC_usb3/usb31\n", __func__, Reg));
     return EFI_DEVICE_ERROR;
   }
-
-  DEBUG ((DEBUG_INFO, "%a: DWC_usb3 revision %x\n", __func__, Rev));
 
   // adj-sof-accuracy is DT = 1 but the kernel zeroes it below 2.50a
   // [K core.c:1082-1084].

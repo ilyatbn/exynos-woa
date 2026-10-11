@@ -78,3 +78,30 @@ Found:
 - Gotcha: Git Bash rewrites `/tmp/x` adb args into a Windows temp path → `MSYS_NO_PATHCONV=1`.
   TWRP busybox `stat` has no `-c`; use the fixed count 4457.
 - Installer review: its `sed 's/^M*$/^M/'` lines hold literal CR bytes (od -c) — correct, not the old bug.
+
+### Run 1 results (boot #66, UEFILOG boot 121; artifacts s10e-artifacts\run-m16-1)
+- No hang. `UsbPhyInit: USBCON CTRL_VER = 30000` (PHY block alive, clocks on).
+- `Dwc3HostInit: GSNPSID = 33313130 — not DWC_usb3` → bring-up stopped → XHC0 hidden (USB status word
+  read from Windows `008fe0f008: 00000000`) → guard worked as designed; Windows booted normally.
+  **0x3331xxxx = DWC_usb31** (the block is USB31DRD). The imported code rejected it although
+  notes/d1-usb-host.md Q2 step 1 already records the kernel rule (revision from VER_NUMBER 0xC1A0).
+- `Hsi2cXfer: timeout addr=36 reg/first=0 INT_STAT=0` / `FuelGaugeReport: gauge 0x36 not answering` →
+  the HSI2C45 path is the next blocker: VBUS needs the same bus (CCIC 0x25, charger 0x69).
+  INT_STAT=0 for a full second: either the block is unclocked/not in I2C mode, or a NACK that we cannot
+  see — Hsi2cXfer enables ONLY TRANSFER_DONE in INT_EN (our working Windows HSI2C driver enables the
+  error set and acks INT_STAT before each transfer).
+- Live DT (TWRP): hsi2c@15D60000 status okay, `samsung,usi-i2c-v2`, `samsung,check-transdone-int`,
+  `samsung,scl-clk-stretching`, single child `max77705@66` (FG/CHG/CCIC are dummy clients 0x36/0x69/0x25).
+  No `usi@` mode node for the CMGP USIs among /proc/device-tree top-level names (only usi@1042xxxx PERIC0).
+- Windows side: `pnputil` USB/keyboard/mouse empty (expected, XHC0 hidden); Net shows only KDNIC.
+- Touch log: `C:\S10eTmp\req\touchlog.txt` absent → s10etouchlog never ran (user held on desktop/taskbar).
+- "Reboot to TWRP" icon: Explorer error "Windows cannot access the specified device, path or file";
+  agent log shows no request → the .cmd never executed. Launcher bytes verified correct (CRLF, path).
+  Open; asked the user whether other icons (Task Manager, Touch log) open.
+
+### Task 3 — accept DWC_usb31 (kernel encoding)
+- GSNPSID[31:16]==0x3331 → Rev = VER_NUMBER(0xC1A0) | 0x80000000 (DWC3_REVISION_IS_DWC31), as 4.14
+  compares: all ">= usb3 rev" branches taken, all "<= 2.10a" workarounds skipped.
+- DWC31 ≥1.70a GUCTL3 USB20_RETRY_DISABLE: bit not in our notes → not written, logged as UNVERIFIED.
+- Build green. (Python heredoc mangled `\n` + em-dashes again; repaired byte-wise with a scratchpad
+  script; verified by re-reading.)

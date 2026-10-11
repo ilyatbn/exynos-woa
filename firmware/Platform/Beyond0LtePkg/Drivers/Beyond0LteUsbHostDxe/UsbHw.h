@@ -154,6 +154,9 @@
 #define   GSNPSID_ID_MASK                   0xFFFF0000          // [K]
 #define   GSNPSID_ID_DWC3                   0x55330000          // [K] "U3"
 #define   GSNPSID_ID_DWC31                  0x33310000          // [K] "13" (DWC_usb31)
+#define DWC3_VER_NUMBER           0xC1A0  // [K core.c dwc3_core_is_valid] DWC_usb31 revision, ASCII e.g. "110*"
+#define   DWC3_REVISION_IS_DWC31            0x80000000u         // [K core.h] OR-ed in: every usb3 >= check passes
+#define   DWC31_REV_170A                    (0x3137302Au | DWC3_REVISION_IS_DWC31)  // [K core.h] USB31 1.70a
 // Revision encodings [K core.h:1049-1056] — the kernel compares the FULL
 // GSNPSID value against these; the 9820's revision is UNVERIFIED until read
 // on device, so every quirk branch in the driver is gated on the read value.

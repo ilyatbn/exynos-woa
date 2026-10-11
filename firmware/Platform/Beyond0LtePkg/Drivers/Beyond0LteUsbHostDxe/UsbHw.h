@@ -214,6 +214,7 @@
 #define DWC3_DCFG                 0xC700  // [K core.h DWC3_DCFG]
 #define DWC3_DCTL                 0xC704  // [K core.h DWC3_DCTL]
 #define   DCTL_RUN_STOP                     BIT31   // [K core.h DWC3_DCTL_RUN_STOP]
+#define   DCTL_CSFTRST                      BIT30   // [K core.h DWC3_DCTL_CSFTRST]
 #define DWC3_DSTS                 0xC70C  // [K core.h DWC3_DSTS]
 #define DWC3_GFLADJ               0xC630  // [K]
 #define   GFLADJ_REFCLK_240MHZ_DECR(n)      ((n) << 24)         // [K]

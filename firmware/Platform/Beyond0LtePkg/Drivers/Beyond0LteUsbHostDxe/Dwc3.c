@@ -248,12 +248,38 @@ Dwc3CoreInit (IN BOOLEAN Device, OUT UINT32 *Revision)
     // side from here - it programs DCFG/DCTL, its own event buffer and endpoints. Leave the core
     // attached-but-stopped (download mode is device mode and may have left RUN_STOP set), with no UEFI
     // event buffer or xHCI root-port writes behind it.
+    UINTN   Waited;
+
     Reg = MmioRead32 (DWC3 + DWC3_DCTL);
     MmioWrite32 (DWC3 + DWC3_DCTL, Reg & ~DCTL_RUN_STOP);
     DEBUG ((DEBUG_INFO, "%a: DEVICE role, DCTL %x -> %x, DSTS %x\n", __func__, Reg,
             MmioRead32 (DWC3 + DWC3_DCTL), MmioRead32 (DWC3 + DWC3_DSTS)));
+
+    // M17 first live test: with debug on Windows hung at the logo and the host never saw a device. The kd module
+    // (notes/m17-kd-dll-re.md) waits on DCTL.CSFTRST and on DEPCMD.CMDACT with NO timeout, and never touches the
+    // PHY config; step 5 above left GUSB2PHYCFG SUSPHY + ENBLSLPM set, which lets the idle UTMI PHY stop its clock
+    // so neither ever completes (Linux clears SUSPHY around soft reset / endpoint commands for this reason).
+    // Clear both here; GUSB3PIPECTL.SUSPHY stays set - the SS PHY is held down on purpose.
+    Reg = MmioRead32 (DWC3 + DWC3_GUSB2PHYCFG (0));
+    MmioWrite32 (DWC3 + DWC3_GUSB2PHYCFG (0), Reg & ~(GUSB2PHYCFG_SUSPHY | GUSB2PHYCFG_ENBLSLPM));
+
+    // Rehearse the module's own first wait, WITH a timeout: if CSFTRST does not self-clear here it would hang
+    // Windows. The result is logged (UEFILOG) - one boot tells which state the kd module will inherit.
+    MmioWrite32 (DWC3 + DWC3_DCTL, MmioRead32 (DWC3 + DWC3_DCTL) | DCTL_CSFTRST);
+    for (Waited = 0; Waited < 100000; Waited += 10) {
+      if ((MmioRead32 (DWC3 + DWC3_DCTL) & DCTL_CSFTRST) == 0) {
+        break;
+      }
+
+      gBS->Stall (10);
+    }
+
+    DEBUG ((DEBUG_INFO, "%a: CSFTRST %a after %u us; GCTL %x GUSB2PHYCFG %x -> %x GUSB3PIPECTL %x DSTS %x\n",
+            __func__, (Waited < 100000) ? "cleared" : "STUCK (kd would hang)", Waited,
+            MmioRead32 (DWC3 + DWC3_GCTL), Reg, MmioRead32 (DWC3 + DWC3_GUSB2PHYCFG (0)),
+            MmioRead32 (DWC3 + DWC3_GUSB3PIPECTL (0)), MmioRead32 (DWC3 + DWC3_DSTS)));
     *Revision = Rev;
-    return EFI_SUCCESS;
+    return (Waited < 100000) ? EFI_SUCCESS : EFI_TIMEOUT;
   }
 
   // 7. Frame length adjustment. [K dwc3_frame_length_adjustment]

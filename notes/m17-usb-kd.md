@@ -171,3 +171,6 @@ hang (notes/m14-smp.md: "Needs kernel-level debugging (KDNET/USB) - parked"), ea
   RUN_STOP, 3 on ConnectDone. Leading suspect: our handoff leaves GUSB2PHYCFG SUSPHY (b6) + ENBLSLPM (b8) set ->
   suspended UTMI PHY clock -> CSFTRST or the first EP command never completes (Linux clears SUSPHY around EP
   commands / soft reset for exactly this).
+- Fix A (UEFI, Dwc3CoreInit device branch): clear GUSB2PHYCFG SUSPHY|ENBLSLPM (GUSB3PIPECTL.SUSPHY kept - SS
+  held down), then rehearse CSFTRST with a 100 ms timeout and log GCTL / GUSB2PHYCFG before->after / PIPECTL /
+  DSTS; EFI_TIMEOUT (=> no 'USBD') if it sticks. Build exit 0.

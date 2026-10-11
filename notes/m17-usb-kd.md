@@ -117,3 +117,7 @@ hang (notes/m14-smp.md: "Needs kernel-level debugging (KDNET/USB) - parked"), ea
   kernel's gadget path, recorded as first suspects if enumeration fails: GFLADJ not programmed in device mode;
   GUSB2PHYCFG.SUSPHY / GUSB3PIPECTL.SUSPHY left set (Linux keeps them unless dis_u2_susphy_quirk; kd module's
   handling unknown); GUCTL USBHSTINAUTORETRYEN (host-only bit) set, harmless. No follow-up code task.
+- T2 (DSDT): Device(UFN0) _HID SAMS9821 (project-local, no driver), _CCA 0, Memory32Fixed 0x10C00000/0x10000
+  (EXYNOS_USBDRD_BASE/_SIZE - whole block incl. device regs 0xC700+), no interrupt (polled KD), _STA 0x0F only
+  on 'USBD' at 0x8FE0F008. Build exit 0; Dsdt.aml contains UFN0/SAMS9821. Review: 'USBH'/'USBD' are exclusive
+  (one word), so XHC0 and UFN0 never both present; overlapping _CRS therefore never double-claimed. OK.

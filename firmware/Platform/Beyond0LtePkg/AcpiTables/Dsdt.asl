@@ -332,5 +332,29 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
                 Return (Zero)
             }
         }
+
+        // M17 (notes/m17-usb-kd.md): the same DWC3 as a USB FUNCTION for Windows kernel debugging. Dbg2.aslc's
+        // KDNET entry (0x8003/0x5143, inbox kd_8003_5143.dll) names "\_SB.UFN0"; Windows then reserves this
+        // device for the kernel debugger and loads no driver on it. Present only when Beyond0LteUsbHostDxe left
+        // the core in DEVICE role this boot ('USBD' in word [2]; host mode writes 'USBH' instead, so XHC0 and
+        // UFN0 are never present together). No interrupt: the KD transport is polled. The window covers the
+        // whole block (globals + device registers at 0xC100..0xCFFF), unlike XHC0's xHCI-only 0x8000.
+        Device (UFN0)
+        {
+            Name (_HID, "SAMS9821")  // project-local ID: no Windows driver binds; the debugger owns the block
+            Name (_UID, Zero)
+            Name (_CCA, Zero)        // not dma-coherent, same as XHC0
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, 0x10C00000, 0x00010000)  // EXYNOS_USBDRD_BASE / _SIZE (Exynos9820.h)
+            })
+            OperationRegion (USBS, SystemMemory, 0x8FE0F008, 4)
+            Field (USBS, DWordAcc, NoLock, Preserve) { USBD, 32 }
+            Method (_STA, 0, NotSerialized)
+            {
+                If (LEqual (USBD, 0x44425355)) { Return (0x0F) }
+                Return (Zero)
+            }
+        }
     }
 }

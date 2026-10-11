@@ -391,3 +391,13 @@ Found:
   fallback boost on; UEFI port 0 again: one connect change then "device disconnected". No change from #81/#82.
 - Staged extra-usbports.cmd as ESP extra.cmd: Windows-side PORTSC/USBSTS/IMAN samples x6 (10 s apart) with the user
   replugging the dock - CCS set without enumeration => interrupt path; CCS 0 => electrical.
+- Run 12 Windows-side samples (s10e-artifacts\run-m16-12\usbports): XHC0 Started (usbxhci), root hub Started;
+  USBCMD 2005 (RUN, INTE); PORTSC1 (USB2) 0x2A0 = PP 1, PLS 5 RxDetect, CCS 0; PORTSC2 (USB3) 0x0E0002A0 CCS 0;
+  USBSTS 0 then 0x18 (EINT|PCD) at the last sample; IMAN 2 (IE). The user replugged the dock during the minute:
+  CCS never seen set. => NOT an interrupt-delivery problem; the port never holds a connection - same as UEFI
+  (one connect blip) and Linux in TWRP (portcon 0).
+- Working hypothesis (UNVERIFIED): the dock is a bus-powered DisplayLink USB3 dock (DL-DK001 seen on the user's PC:
+  VIA VL822 hubs, DisplayLink, RTL8156 2.5GbE, card reader) - far above our 500 mA OTG limit (Linux: 900 mA); the
+  hub likely browns out / resets during attach. A powered dock would make the phone a sink -> needs PD DR_SWAP,
+  which we do not do. Next: plain OTG keyboard test; dock under Android/DeX; optionally OTG_ILIM 900 mA.
+- Staged extra.cmd removed from the ESP.

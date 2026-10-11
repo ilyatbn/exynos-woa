@@ -1,0 +1,134 @@
+/*
+ * s10ediag.exe - command line for S10eDiag.sys. notes/m11-s10ediag.md.
+ *
+ *   s10ediag info
+ *   s10ediag peek <phys> [bytes]        MMIO, 32-bit reads, hex dump
+ *   s10ediag dumpram <phys> <bytes> <file>
+ *   s10ediag poke <phys> <value>
+ *   s10ediag recovery                   next reset (clean `shutdown /r`) goes to TWRP
+ *   s10ediag hardreset                  INFORM3 = recovery + SWRESET now
+ *   s10ediag fallback <seconds>         hard reset to TWRP after <seconds> (0 = cancel)
+ */
+
+#include <windows.h>
+#include <winioctl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include "S10eDiagIoctl.h"
+
+static HANDLE
+OpenDiag(void)
+{
+    HANDLE Handle = CreateFileW(S10EDIAG_USER_PATH, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+
+    if (Handle == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "open %ls failed: %lu\n", S10EDIAG_USER_PATH, GetLastError());
+        exit(2);
+    }
+    return Handle;
+}
+
+static int
+Ioctl(DWORD Code, void *In, DWORD InLength, void *Out, DWORD OutLength, DWORD *Returned)
+{
+    DWORD Dummy = 0;
+    HANDLE Handle = OpenDiag();
+    BOOL Ok = DeviceIoControl(Handle, Code, In, InLength, Out, OutLength, Returned ? Returned : &Dummy, NULL);
+
+    if (!Ok) {
+        fprintf(stderr, "ioctl 0x%08lx failed: %lu\n", Code, GetLastError());
+    }
+    CloseHandle(Handle);
+    return Ok ? 0 : 1;
+}
+
+static int
+Peek(unsigned long long Address, unsigned long Length)
+{
+    S10EDIAG_READ_IN In = { Address, Length, S10EDIAG_READ_MMIO };
+    unsigned long *Buffer = (unsigned long *)calloc(1, Length < sizeof(In) ? sizeof(In) : Length);
+    DWORD Returned = 0;
+    unsigned long Index;
+
+    memcpy(Buffer, &In, sizeof(In));
+    if (Ioctl(IOCTL_S10EDIAG_READ_PHYS, Buffer, sizeof(In), Buffer, Length, &Returned) != 0) {
+        return 1;
+    }
+    for (Index = 0; Index < Returned / 4; Index++) {
+        if ((Index % 4) == 0) {
+            printf("%s%010llx:", Index ? "\n" : "", Address + Index * 4ULL);
+        }
+        printf(" %08lx", Buffer[Index]);
+    }
+    printf("\n");
+    free(Buffer);
+    return 0;
+}
+
+static int
+DumpRam(unsigned long long Address, unsigned long Length, const char *Path)
+{
+    FILE *File = fopen(Path, "wb");
+    unsigned char *Buffer = (unsigned char *)malloc(S10EDIAG_READ_MAX);
+    unsigned long Done = 0;
+
+    if ((File == NULL) || (Buffer == NULL)) {
+        fprintf(stderr, "cannot open %s\n", Path);
+        return 1;
+    }
+    while (Done < Length) {
+        unsigned long Chunk = (Length - Done > S10EDIAG_READ_MAX) ? S10EDIAG_READ_MAX : Length - Done;
+        S10EDIAG_READ_IN In = { Address + Done, Chunk, S10EDIAG_READ_RAM };
+        DWORD Returned = 0;
+
+        memcpy(Buffer, &In, sizeof(In));
+        if (Ioctl(IOCTL_S10EDIAG_READ_PHYS, Buffer, sizeof(In), Buffer, Chunk, &Returned) != 0) {
+            break;
+        }
+        fwrite(Buffer, 1, Returned, File);
+        Done += Chunk;
+    }
+    fclose(File);
+    free(Buffer);
+    printf("%lu bytes -> %s\n", Done, Path);
+    return Done == Length ? 0 : 1;
+}
+
+int
+main(int argc, char **argv)
+{
+    if (argc >= 2 && strcmp(argv[1], "info") == 0) {
+        S10EDIAG_INFO Info = { 0 };
+        if (Ioctl(IOCTL_S10EDIAG_INFO, NULL, 0, &Info, sizeof(Info), NULL) != 0) {
+            return 1;
+        }
+        printf("version %lu recovery_armed %lu fallback_s %lu inform3 0x%08lx uptime_ms %llu\n",
+               Info.Version, Info.RecoveryArmed, Info.FallbackSeconds, Info.Inform3, Info.UptimeMs);
+        return 0;
+    }
+    if (argc >= 3 && strcmp(argv[1], "peek") == 0) {
+        return Peek(_strtoui64(argv[2], NULL, 0), argc >= 4 ? strtoul(argv[3], NULL, 0) : 4);
+    }
+    if (argc >= 5 && strcmp(argv[1], "dumpram") == 0) {
+        return DumpRam(_strtoui64(argv[2], NULL, 0), strtoul(argv[3], NULL, 0), argv[4]);
+    }
+    if (argc >= 4 && strcmp(argv[1], "poke") == 0) {
+        S10EDIAG_WRITE32_IN In = { _strtoui64(argv[2], NULL, 0), strtoul(argv[3], NULL, 0), 0 };
+        return Ioctl(IOCTL_S10EDIAG_WRITE32, &In, sizeof(In), NULL, 0, NULL);
+    }
+    if (argc >= 2 && strcmp(argv[1], "recovery") == 0) {
+        return Ioctl(IOCTL_S10EDIAG_RECOVERY_ON_RESET, NULL, 0, NULL, 0, NULL);
+    }
+    if (argc >= 2 && strcmp(argv[1], "hardreset") == 0) {
+        return Ioctl(IOCTL_S10EDIAG_HARD_RESET, NULL, 0, NULL, 0, NULL);
+    }
+    if (argc >= 3 && strcmp(argv[1], "fallback") == 0) {
+        ULONG Seconds = strtoul(argv[2], NULL, 0);
+        return Ioctl(IOCTL_S10EDIAG_FALLBACK, &Seconds, sizeof(Seconds), NULL, 0, NULL);
+    }
+
+    fprintf(stderr,
+            "usage: s10ediag info | peek <phys> [bytes] | dumpram <phys> <bytes> <file> | poke <phys> <value>\n"
+            "                | recovery | hardreset | fallback <seconds>\n");
+    return 1;
+}

@@ -364,3 +364,9 @@ Found:
   -> under Linux the CCIC resolves SOURCE; after Linux's shutdown reset it does not under our firmware.
 - boot #81 (sha d027b63c…): fallback - CCPinStat != 0 and BC_STATUS.VBUSDet = 0 => VBUS boost (a PC/charger always
   drives VBUS, so this never back-feeds). Proper CCIC init: subagent -> notes/m16-ccic-init.md.
+- Run 11 (boot #81 fallback boost): user - keyboard lit up BEFORE the Windows logo (VBUS from our boost works);
+  Windows result pending.
+- CCIC init research (notes/m16-ccic-init.md): the kernel's probe sends opcode 0x54 [00] (auto-VBUS off) then
+  CCCTRL1_W 0x0C [0x1F] (DRP SrcSnk|SnkSrc|DetEn + Dbg|Aud per beyond0 dts) - never sent by our firmware, the likely
+  reason CCStat stays 0 after Linux's shutdown reset. Next firmware task: send it (+ CTRLREG3 LockErrorEn clear),
+  then the CC poll should see SOURCE and the fallback becomes a safety net.

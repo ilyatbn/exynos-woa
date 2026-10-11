@@ -1,0 +1,34 @@
+## @file
+#  D8a audio milestone 1: reads the CS47L93 codec silicon ID over spi_2 and both CS35L40 amp DEVIDs
+#  over hsi2c_38, logs them to UEFILOG, and hands every touched register back as sboot left it
+#  (notes/d8-audio-m1.md). Guarded by boot progress code 0x69. Not validated on an S10e yet.
+#
+#  FILE_GUID 11111111-2222-3333-4444-555555555554 is this module's BUILD IDENTITY, not a hardware
+#  read (...553 is kept free for the PCIe WLAN DXE, notes/drivers-branch-port-plan.md).
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = Beyond0LteAudioProbeDxe
+  FILE_GUID                      = 11111111-2222-3333-4444-555555555554
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 0.1
+  ENTRY_POINT                    = Beyond0LteAudioProbeEntry
+
+[Sources]
+  Beyond0LteAudioProbeDxe.c
+  AudioProbeHw.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  Silicon/Exynos9820Pkg/Exynos9820Pkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  BaseLib
+  DebugLib
+  IoLib
+
+[Depex]
+  gEfiCpuArchProtocolGuid

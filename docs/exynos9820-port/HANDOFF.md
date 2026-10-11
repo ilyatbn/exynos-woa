@@ -1115,3 +1115,16 @@ boot #72 (s10e-artifacts\boot72-v2.img, sha 2d9609eb…) = T1-T3, NOT flashed.
 once (agent applies BCD, writes ESP S10EDIAG\out\last\kd\kdnet-list.txt). (3) Phone on the PC's USB 3 Type-A
 port, host firewall off, `windbg -k net:port=50005,key=1.2.3.4`, reboot the phone. Suspects if no link:
 notes/m17-usb-kd.md T1/T3 reviews (SUSPHY, GFLADJ, DBG2 revision, OEM controller type 5 vs 3/4).
+
+## 27. Restart point (2026-10-12, worktree branch `worktree-agent-af7371b6f9c487478`): D8a audio milestone 1 built, not flashed
+
+**State.** Branch is main 302c285 + the D8a commits (notes/d8-audio-m1.md has the log and reviews).
+New `Beyond0LteAudioProbeDxe` (flags `BEYOND0LTE_AUDIO_PROBE` 1, `..._RELEASE_RESETS` 1, guard 0x69) reads
+the CS47L93 ID over spi_2 and both CS35L40 DEVIDs over hsi2c_38 into UEFILOG and restores every register;
+TouchPowerDxe additionally logs S2MPS19 L17CTRL/L18CTRL (codec rails, read only). Platform build exit 0 in
+a private workspace (the worktree has no edk2 checkout; main's Build dir was deliberately not used).
+Nothing packed or flashed; no adb used.
+**Next order.** (1) Merge to main, rebuild with `build-uefi.ps1`, pack + flash as usual. (2) Run notes
+§3: grep UEFILOG for `AudioProbe` / `L1[78]CTRL`; paste the lines into the notes and move the device-test
+row. (3) If the codec is silent with L18CTRL off -> milestone 2 task 2 (ACPM DCVDD enable, flag 0). Then
+notes §4.3 (tone-generator beep to the 3.5 mm jack).

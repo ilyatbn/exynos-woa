@@ -133,6 +133,8 @@
 //
 #define S2MPS19_SPEEDY_CHANNEL     0u      // s2mps19_core.c:55
 #define S2MPS19_I2C_ADDR_PMIC      0x01u   // s2mps19_core.c:41
+#define S2MPS19_PMIC_REG_L17CTRL   0x56u   // s2mps19-regulator.h:112  LDO17M vdd_pmic_codec_1p8 (D8a, read only)
+#define S2MPS19_PMIC_REG_L18CTRL   0x57u   // s2mps19-regulator.h:113  LDO18M vdd_codec_1p2 = codec DCVDD (D8a, read only)
 #define S2MPS19_PMIC_REG_L19CTRL   0x58u   // s2mps19-regulator.h:114  LDO19M tsp_io
 #define S2MPS19_PMIC_REG_L27CTRL   0x60u   // s2mps19-regulator.h:122  LDO27M tsp_avdd
 #define S2MPS19_ENABLE_SHIFT       6u      // s2mps19-regulator.h:220
@@ -729,6 +731,27 @@ OnReadyToBoot (
   }
 
   DEBUG ((DEBUG_ERROR, "TouchPower: done%a\n", mIpcBroken ? " (ACPM IPC failed)" : ""));
+
+  //
+  // D8a (notes/d8-audio-m1.md): READ-ONLY - the CS47L93 codec rails. LDO17M "vdd_pmic_codec_1p8" (AVDD/
+  // DBVDD1/CPVDD1, always-on + boot-on) and LDO18M "vdd_codec_1p2" (CPVDD2/DCVDD, NOT boot-on) in the
+  // beyond0lte board dtsi:1614-1630; offsets s2mps19-regulator.h:112-113. Tells whether the audio probe's
+  // codec ID read could have worked (DCVDD off = no answer). Never written here.
+  //
+  {
+    STATIC CONST UINT8   CodecReg[]  = { S2MPS19_PMIC_REG_L17CTRL, S2MPS19_PMIC_REG_L18CTRL };
+    STATIC CONST CHAR8   *CodecName[] = { "L17CTRL codec 1.8V", "L18CTRL codec DCVDD 1.2V" };
+    UINTN                L;
+    UINT8                Value;
+
+    for (L = 0; (L < ARRAY_SIZE (CodecReg)) && !mIpcBroken; L++) {
+      Value = 0;
+      if (!EFI_ERROR (PmicRead (&Ch, CodecReg[L], &Value))) {
+        DEBUG ((DEBUG_ERROR, "TouchPower: %a (0x%02x) = 0x%02x  enable[7:6] = %u  vsel[5:0] = 0x%02x (read only)\n",
+                CodecName[L], CodecReg[L], Value, (Value & S2MPS19_ENABLE_MASK) >> S2MPS19_ENABLE_SHIFT, Value & 0x3F));
+      }
+    }
+  }
 
   //
   // m15 (user: "everything is still kinda slow"): what clocks does Windows inherit? READ-ONLY FREQ_GET on the

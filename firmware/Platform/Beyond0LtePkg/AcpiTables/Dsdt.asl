@@ -324,6 +324,37 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
             Method (_STA, 0, NotSerialized) { Return (0x0F) }
         }
 
+        // M12/D4b: the BCM4375 WLAN endpoint behind PCIe root port 0.
+        // NOT a PCI bind (design M12-WIFI-DESIGN.md section 2): the UEFI
+        // module Beyond0LtePcieDxe trains the link, programs the iATU
+        // windows, assigns the EP BAR0 and latches it; this device hands
+        // the Windows miniport exactly the two translated windows.
+        // VERIFIED windows (vendor DT pcie0@13ED0000, Exynos9820.h):
+        //   CFG0 iATU window 0x14FFE000 +0x2000 (bus1 dev0 func0 config)
+        //   MEM iATU window 0x14000000 +0xFF0000 (1:1; EP BAR0 lands here)
+        // VERIFIED IRQ: INTREQ__PCIE_WIFI0 = 253 -> GSIV 285, level-high
+        // (interrupt-map 0x4). The ELBI/DBI/PHY/IA windows are deliberately
+        // NOT here: the role-latch contract (same as XHC0) keeps the
+        // controller itself out of the OS path.
+        // _CRS ORDER IS A BINDING CONTRACT: Exynos9820Wlan maps descriptor
+        // 0 = CFG, 1 = MEM (WLAN_RES_CFG_WINDOW/WLAN_RES_MEM_WINDOW).
+        Device (WLAN)
+        {
+            Name (_HID, "SAMS9825")   // vendor _HID for the BCM4375 WLAN device
+            Name (_UID, Zero)
+            Name (_CCA, 1)            // board DT sets use-cache-coherency=true
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, 0x14FFE000, 0x00002000)  // CFG0 window
+                Memory32Fixed (ReadWrite, 0x14000000, 0x00FF0000)  // MEM window (EP BAR0)
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)
+                {
+                    285  // VERIFIED: INTREQ__PCIE_WIFI0 253 + 32 (Exynos9820.h)
+                }
+            })
+            Method (_STA, 0, NotSerialized) { Return (0x0F) }
+        }
+
         // D8: ALIVE GPIO controller (Exynos9820Gpio driver, GpioClx provider).
         // Window VERIFIED: pinctrl@15850000 +0x1000 (live DTB; Exynos9820.h).
         // The 34 Interrupt entries are the wakeup-EINT lines EINT0..EINT33 in

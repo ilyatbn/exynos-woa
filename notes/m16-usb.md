@@ -71,3 +71,10 @@ Found:
 - Run plan: dock unpowered, plugged in before power-on, a USB keyboard + mouse on it. Collect UEFILOG.TXT
   ("UsbHost:", "Beyond0LteUsbHostEntry", XHCI lines, fuel-gauge report) and, from Windows, pnputil
   /enum-devices for ACPI\PNP0D10 + USB\ devices.
+
+### Run 1 (boot #66) — flashed 2026-10-11
+- TWRP: boot66-v2.img dd'd to by-name/boot, first 4457x4096 B sha256 c0a99c03… = image. S10eDiag from
+  `s10e-artifacts\s10ediag-m16` (adds s10etouchlog.exe), extra.cmd = extra-usb.cmd, stay.flg kept.
+- Gotcha: Git Bash rewrites `/tmp/x` adb args into a Windows temp path → `MSYS_NO_PATHCONV=1`.
+  TWRP busybox `stat` has no `-c`; use the fixed count 4457.
+- Installer review: its `sed 's/^M*$/^M/'` lines hold literal CR bytes (od -c) — correct, not the old bug.

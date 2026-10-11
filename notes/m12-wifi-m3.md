@@ -193,3 +193,14 @@ Path: BCM4375 PCIe master -> Exynos PCIe0 RC (DesignWare) inbound -> SysMMU_PCIE
 - Next order of work: WlanMsg.c per "Protocol facts" + "DMA decision" above (dhd_prot_init order; lifetime rule 7),
   DMA enabler (WdfDmaProfilePacket, 0x23000 B common buffer) in EvtDeviceAdd, registry reads for
   Msgbuf/HostCap/DoorbellDar, DriverVer 1.0.3.0, report header string fix ("milestone-1 probe"), device test.
+
+## Review of commit 72ce05c (task 2a plumbing)
+
+- Checked: ConsoleDump with *FromIdx == 0xFFFFFFFF prints the same last-N bytes as before (M2 unchanged);
+  WlanProbe passes FwUp = NULL so the callback block is dead until WlanMsg.c exists; region offsets in
+  Exynos9820Wlan.h do not overlap (each end <= next start, total 0x23000); message field offsets recomputed from
+  the bcmmsgbuf.h structs (ioctl_req 40 B with host addr at +24; buf post addr at +16; ioctl_cmplt resp_len +12,
+  trans_id +14, cmd +16, marker +20).
+- FOUND: WlanDl.h documents Msgbuf "default 1" and HostCap "WLAN_HOSTCAP_AUTO (default)", but WlanReadConfig
+  zero-fills the struct, so both were 0. Fixed in the follow-up commit (defaults set; still not read from the
+  registry - that belongs with WlanMsg.c). Rebuilt: exit 0, /W4 /WX clean.

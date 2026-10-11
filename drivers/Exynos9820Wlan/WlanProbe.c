@@ -156,6 +156,8 @@ WlanReadConfig(_In_ WDFDRIVER Driver, _Out_ PWLAN_DL_CONFIG DlCfg)
     RtlZeroMemory(DlCfg, sizeof(*DlCfg));
     DlCfg->Download = 1;
     DlCfg->OtpProbe = 1;
+    DlCfg->Msgbuf   = 1;                    /* defaults documented in WlanDl.h; not read from the registry yet */
+    DlCfg->HostCap  = WLAN_HOSTCAP_AUTO;
     if (!NT_SUCCESS(WdfDriverOpenParametersRegistryKey(Driver, KEY_READ, WDF_NO_OBJECT_ATTRIBUTES, &Key))) {
         return;
     }

@@ -123,7 +123,9 @@
 #ifndef BEYOND0LTE_DVFS_SET
 #define BEYOND0LTE_DVFS_SET    1    // m15: 0 = read-only (FREQ_GET only)
 #endif
-#define BEYOND0LTE_DVFS_LITTLE_KHZ  1456000u   // exact LITTLE ladder step (DT domain@0, 9th of 13)
+#define BEYOND0LTE_DVFS_LITTLE_KHZ  1456000u   // exact LITTLE step (cpu0 scaling_available_frequencies, max 1950000)
+#define BEYOND0LTE_DVFS_MID_KHZ     1794000u   // exact MID step (cpu4 scaling_available_frequencies, max 2314000)
+#define BEYOND0LTE_DVFS_INT_KHZ     400000u    // exact INT step (devfreq_int available_frequencies, max 534000)
 
 //
 // S2MPS19 addressing through ACPM: speedy channel 0 (s2mps19_core.c:55, stock dtbo acpm-speedy-channel 0),
@@ -752,19 +754,32 @@ OnReadyToBoot (
     if (((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[0] == 0x66u) {
       DEBUG ((DEBUG_ERROR, "TouchPower: previous boot hung in DVFS FREQ_REQ (progress 0x66) - skipping it\n"));
     } else {
+      //
+      // m15: exact ladder steps read from the TWRP kernel's sysfs (same SoC tables): cpu0 scaling_available
+      // 1950000..442000 (13), cpu4 2314000..507000 (17), devfreq_int 100000/200000/267000/400000/534000.
+      // Domain idx = cal_id & 0xFFFF (shipped DT: dm_cpu_cl0 0xb040002, cl1 0xb040003, devfreq_int 0xb040001).
+      // ~75-78 % of each CPU cap (no Windows thermal management yet); INT one step below max (UFS/FSYS bus).
+      //
+      STATIC CONST UINT32  ReqIdx[] = { 2, 3, 1 };
+      STATIC CONST UINT32  ReqKhz[] = { BEYOND0LTE_DVFS_LITTLE_KHZ, BEYOND0LTE_DVFS_MID_KHZ, BEYOND0LTE_DVFS_INT_KHZ };
       UINT32  Req[4];
       UINT32  Saved;
+      UINTN   R;
 
       Saved = ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[1];
       ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[1] = 0x66u;
       __asm__ __volatile__ ("dsb sy" ::: "memory");
-      Req[0] = 2;
-      Req[1] = BEYOND0LTE_DVFS_LITTLE_KHZ;
-      Req[2] = ACPM_DVFS_FREQ_REQ;
-      Req[3] = 0;
-      if (!EFI_ERROR (AcpmSend (&Ch, Req))) {
-        DEBUG ((DEBUG_ERROR, "TouchPower: DVFS FREQ_REQ LITTLE %u kHz -> reply %08x %08x %08x %08x\n",
-                BEYOND0LTE_DVFS_LITTLE_KHZ, Req[0], Req[1], Req[2], Req[3]));
+      for (R = 0; (R < ARRAY_SIZE (ReqIdx)) && !mIpcBroken; R++) {
+        Req[0] = ReqIdx[R];
+        Req[1] = ReqKhz[R];
+        Req[2] = ACPM_DVFS_FREQ_REQ;
+        Req[3] = 0;
+        if (!EFI_ERROR (AcpmSend (&Ch, Req))) {
+          DEBUG ((DEBUG_ERROR, "TouchPower: DVFS FREQ_REQ idx %u = %u kHz -> reply %08x %08x %08x %08x\n",
+                  ReqIdx[R], ReqKhz[R], Req[0], Req[1], Req[2], Req[3]));
+        }
+
+        gBS->Stall (2000);
       }
 
       gBS->Stall (10000);   // let the new operating point settle before anything else runs on it

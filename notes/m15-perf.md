@@ -89,3 +89,11 @@ Shipped = GOP framebuffer + inbox BasicDisplay + WARP (CPU rendering). => speed 
   but 0 kHz for MIF/INT/LITTLE/MID/BIG (nothing has requested a rate yet - Linux cpufreq goes straight to
   FREQ_REQ). Boot #62: FREQ_REQ LITTLE (idx 2) = 1 456 000 kHz (exact DT ladder step), behind a progress-0x66
   self-healing guard (a boot after a hang there skips it), 10 ms settle, then FREQ_GET readback.
+- Run 31 (boot #62): FREQ_REQ LITTLE 1456000 -> reply echoes 0x163780; Windows s10eperf: cpu0-3 ~1.45 GHz (was
+  ~1.05), cpu4-5 1.22 GHz unchanged; collect started at 66 s (was 78). => ACPM DVFS from UEFI WORKS and persists
+  into Windows. FREQ_GET still returns 0 (not the current rate on this firmware).
+  Exact ladders (TWRP kernel sysfs, same SoC tables): cpu0 1950000 1846000 1742000 1586000 1456000 1300000
+  1157000 1053000 949000 806000 650000 546000 442000; cpu4 2314000 2210000 2106000 2002000 1898000 1794000
+  1690000 1586000 1508000 1404000 1222000 1066000 962000 845000 754000 650000 507000 (1.22 GHz measured = 1222000
+  step); devfreq_mif 421000..2093000 (cur 2093000 in TWRP), devfreq_int 100000 200000 267000 400000 534000.
+  Boot #63: LITTLE 1456000, MID 1794000, INT 400000 (MIF untouched).

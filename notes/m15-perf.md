@@ -109,3 +109,5 @@ Shipped = GOP framebuffer + inbox BasicDisplay + WARP (CPU rendering). => speed 
   (GATE_UFS_EMBD / UFS_EMBD), evt-ver 1, hw-rev 6, brd-for-cal 0x10. bActiveICCLevel not the difference (Linux
   falls back to level 0 without regulator current limits in the DT).
   Root-cause diff Linux ufs-exynos vs Beyond0LteUfsHcDxe/Exynos9820Ufs delegated (notes/m15-ufs-throughput.md).
+- USER CONFIRMED (2026-10-11 ~16:25): "rotation worked fine" - s10erotate (ChangeDisplaySettingsExW orientation)
+  works on BasicDisplay; auto-rotation later needs only a sensor source.

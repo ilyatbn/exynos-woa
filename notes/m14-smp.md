@@ -159,3 +159,11 @@ No device access in this task; build-verified only (Guided, not Ready).
   the next; per-core arrival ms logged on the CPU_ON line.
 - Boot #58 (serialized CPU_ON + clean shim, 14:32, stay.flg): USER CONFIRMED "its booted ... i see 6 processors",
   most of the RAM; feels slow ("maybe because of no gpu"). => serialization fixed the HAL failure.
+- drivers-branch notes/psci-parking.md (user's research) confirms the DT/PSCI numbering (A55 0x0-0x3, A75 0x4-0x5,
+  M4 0x100-0x101) and leaves "does Windows implement parking v1 with PSCI cleared" open - runs 15/16 answered it
+  (yes). Combined with our stub log: real MPIDR_EL1 A55/A75 0x81000100..0x81000500 (MT=1, core in Aff1), M4
+  0x80000100/0x80000101 => A55#1's real affinity 0x100 == the M4#0 MADT entry. Theory for the run-17 hang: Windows
+  matched A55#1 to the M4's GICC. Boot #64: BEYOND0LTE_SMP_REAL_MPIDR 1 - every parked core's MADT MPIDR = its
+  reported MPIDR_EL1 & 0xFF00FFFFFF (boot core from ArmReadMpidr), later duplicates disabled (expect M4#0 out ->
+  7 cores); park mask 0xFE again. CPU_ON still uses the DT numbering. RISK: DSDT _MAT still carries the DT
+  numbers (MADT/_MAT mismatch) - flag off restores boot #63 behaviour.

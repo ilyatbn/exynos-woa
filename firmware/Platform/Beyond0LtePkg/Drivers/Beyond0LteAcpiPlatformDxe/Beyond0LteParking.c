@@ -57,6 +57,10 @@
 #define PARK_MAX_GICC       8u      // Madt.aslc BEYOND0LTE_NUM_CORES
 #define PARK_WAIT_STEP_US   1000u
 #define PARK_WAIT_STEPS     2000u   // up to 2 s for all marks: boot #55 (fast logging, no FB text) saw the cores arrive ~100 ms after CPU_ON - 100 ms was only enough while slow panel text padded the gap (the 9810 waited 30 ms)
+#define PARK_MPIDR_AFF_MASK   0xFF00FFFFFFULL   // Aff3 + Aff2..Aff0 (MT/U bits excluded) - ACPI MADT MPIDR field
+#ifndef BEYOND0LTE_SMP_REAL_MPIDR
+#define BEYOND0LTE_SMP_REAL_MPIDR  1
+#endif
 #define PARK_PROGRESS_TRYING  0x65u  // boot progress code: CPU_ON of a core outside the safe mask in flight
 
 // Boot progress word page (Beyond0LteBootLog / bootshim: [0] previous boot's last code, [1] this boot's).
@@ -286,6 +290,50 @@ Beyond0LteParkSecondaries (
               (UINT32)Index, Gicc[Index]->MPIDR, Page[Index], (UINT64)OnStatus[Index], Mark));
     }
   }
+
+#if BEYOND0LTE_SMP_REAL_MPIDR
+  //
+  // m14 run 17 + drivers-branch notes/psci-parking.md: the MADT carries Samsung's DT/PSCI numbering (A55 0x0-0x3,
+  // A75 0x4-0x5, M4 0x100-0x101), which is what EL3's CPU_ON takes - but the cores REPORT different MPIDR_EL1
+  // values (stub +0xFF0): A55/A75 0x81000100..0x81000500 (MT=1, core in Aff1), M4 0x80000100/0x80000101. So A55
+  // core 1's real affinity 0x100 equals the M4 core 0 MADT entry: with the big cores offered, Windows can match
+  // A55#1 to the M4's processor (run 17 hang). Publish the REAL affinity (MPIDR_EL1 & 0xFF00FFFFFF) for every
+  // parked core and the boot core, then disable any later entry whose affinity duplicates an earlier one.
+  // CPU_ON above already used the DT numbering; nothing after this point issues PSCI with these values.
+  //
+  for (Index = 0; Index < GiccCount; Index++) {
+    if (GET_MPIDR_AFFINITY_BITS (Gicc[Index]->MPIDR) == BootMpidr) {
+      Gicc[Index]->MPIDR = ArmReadMpidr () & PARK_MPIDR_AFF_MASK;
+    } else if (Gicc[Index]->ParkingProtocolVersion == PARK_VERSION) {
+      Gicc[Index]->MPIDR = ParkRd64 (Page[Index] + PARK_MPIDR_OFF) & PARK_MPIDR_AFF_MASK;
+    }
+  }
+
+  for (Index = 0; Index < GiccCount; Index++) {
+    UINTN  Earlier;
+
+    if ((Gicc[Index]->Flags & EFI_ACPI_6_3_GIC_ENABLED) == 0) {
+      continue;
+    }
+
+    for (Earlier = 0; Earlier < Index; Earlier++) {
+      if (((Gicc[Earlier]->Flags & EFI_ACPI_6_3_GIC_ENABLED) != 0) && (Gicc[Earlier]->MPIDR == Gicc[Index]->MPIDR)) {
+        Gicc[Index]->Flags                 &= ~(UINT32)EFI_ACPI_6_3_GIC_ENABLED;
+        Gicc[Index]->ParkingProtocolVersion = 0;
+        Gicc[Index]->ParkedAddress          = 0;
+        Parked--;
+        DEBUG ((DEBUG_ERROR, "PARK: gicc%u real mpidr %lx collides with gicc%u - disabled\n",
+                (UINT32)Index, Gicc[Index]->MPIDR, (UINT32)Earlier));
+        break;
+      }
+    }
+  }
+
+  for (Index = 0; Index < GiccCount; Index++) {
+    DEBUG ((DEBUG_ERROR, "PARK: MADT gicc%u mpidr=%lx flags=%x ppv=%u\n", (UINT32)Index, Gicc[Index]->MPIDR,
+            Gicc[Index]->Flags, Gicc[Index]->ParkingProtocolVersion));
+  }
+#endif
 
   DEBUG ((DEBUG_ERROR, "PARK: %u core(s) parked; FADT PSCI=%u\n",
           (UINT32)Parked, (UINT32)BEYOND0LTE_FADT_PSCI));

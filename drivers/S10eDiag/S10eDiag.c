@@ -40,6 +40,7 @@ static KTIMER gFallbackTimer;
 static KDPC gFallbackDpc;
 static BOOLEAN gShutdownRegistered;
 static volatile UCHAR *gMarks;          // PRAM mark ring (S10EDIAG_MARK_PHYSICAL), non-cached
+static volatile ULONG *gProgress;       // firmware boot progress word page (WINPRAM + 0xF000), non-cached
 static KSPIN_LOCK gMarkLock;
 static KBUGCHECK_CALLBACK_RECORD gBugcheckRecord;
 static BOOLEAN gBugcheckRegistered;
@@ -165,6 +166,15 @@ S10eBugcheckCallback(PVOID Buffer, ULONG Length)
 static VOID
 S10eHardResetToRecovery(VOID)
 {
+    //
+    // m12 run 8: a run that ended here after Windows' shutdown SRB had stored progress 0x80 made the next
+    // firmware boot "continue into Windows" instead of dumping PRAM and going to TWRP. 0x81 = "S10eDiag
+    // reset to recovery" (any value but 0x80 takes the dump path in Beyond0LteBootLogDxe OnReadyToBoot).
+    //
+    if (gProgress != NULL) {
+        gProgress[1] = 0x81;
+        KeMemoryBarrier();
+    }
     S10eWritePmu(S10E_PMU_INFORM3, S10E_REBOOT_RECOVERY);
     S10eWritePmu(S10E_PMU_RSTSTAT, 0);
     S10eWritePmu(S10E_PMU_SWRESET, S10E_PMU_SWRESET_VALUE);
@@ -380,6 +390,9 @@ S10eUnload(PDRIVER_OBJECT DriverObject)
     if (gMarks != NULL) {
         MmUnmapIoSpace((PVOID)gMarks, S10EDIAG_MARK_SIZE);
     }
+    if (gProgress != NULL) {
+        MmUnmapIoSpace((PVOID)gProgress, PAGE_SIZE);
+    }
     if (gShutdownRegistered) {
         IoUnregisterShutdownNotification(gDevice);
     }
@@ -410,6 +423,8 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 
     // PRAM mark ring: the firmware zeroes the dumped 64 KiB after saving it, so a fresh boot starts empty.
     KeInitializeSpinLock(&gMarkLock);
+    Physical.QuadPart = (LONGLONG)S10EDIAG_PROGRESS_PHYSICAL;
+    gProgress = (volatile ULONG *)MmMapIoSpaceEx(Physical, PAGE_SIZE, PAGE_READWRITE | PAGE_NOCACHE);
     Physical.QuadPart = (LONGLONG)S10EDIAG_MARK_PHYSICAL;
     gMarks = (volatile UCHAR *)MmMapIoSpaceEx(Physical, S10EDIAG_MARK_SIZE, PAGE_READWRITE | PAGE_NOCACHE);
     if (gMarks != NULL) {
@@ -460,6 +475,10 @@ Fail:
     if (gMarks != NULL) {
         MmUnmapIoSpace((PVOID)gMarks, S10EDIAG_MARK_SIZE);
         gMarks = NULL;
+    }
+    if (gProgress != NULL) {
+        MmUnmapIoSpace((PVOID)gProgress, PAGE_SIZE);
+        gProgress = NULL;
     }
     if (gPmu != NULL) {
         MmUnmapIoSpace((PVOID)gPmu, S10E_PMU_WINDOW);

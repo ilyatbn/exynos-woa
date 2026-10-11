@@ -34,6 +34,9 @@
 #define S10EDIAG_MARK_SIZE      0x4000u
 #define S10EDIAG_MARK_LINE      64u
 
+// Firmware boot progress word page (Beyond0LteBootLog: [0] = previous boot's last code, [1] = this boot's).
+#define S10EDIAG_PROGRESS_PHYSICAL  0x8FE0F000ULL
+
 #define S10EDIAG_READ_MMIO   0u   // map non-cached, 32-bit reads (registers)
 #define S10EDIAG_READ_RAM    1u   // MmCopyMemory(MM_COPY_MEMORY_PHYSICAL) (system RAM)
 #define S10EDIAG_READ_MAX    0x10000u

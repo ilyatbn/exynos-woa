@@ -163,3 +163,11 @@ hang (notes/m14-smp.md: "Needs kernel-level debugging (KDNET/USB) - parked"), ea
   elevated), pushed back (sha 00ff354d… readback = host); ESP extra.cmd + WINRUN.FLG removed. Copies:
   s10e-artifacts\bcd\BCD.m17-debugon / BCD.m17-debugoff.
 - Next: RE of kd_8003_5143.dll init path (subagent -> notes/m17-kd-dll-re.md).
+- kd_8003_5143.dll RE (subagent, public PDB via symchk; full log notes/m17-kd-dll-re.md): OEM type 5 = buffered
+  KdUsbFn + Synopsys backend (correct; 1/other/no OemData silently -> ChipIdea). CORRECTION of the T3 breadcrumb:
+  the cmp #3/#4 next to the FIX2 literal are IsLinkDown/IsLinkUp link-state compares, not controller types.
+  Core reset (0x4630): CSFTRST then wait with NO timeout; EP command helper loops on CMDACT with NO timeout. No
+  GSNPSID check, no access outside 0xC000-0xCFFF, no PHY init. FIX2 phases: 1 after its CSFTRST, 2 before
+  RUN_STOP, 3 on ConnectDone. Leading suspect: our handoff leaves GUSB2PHYCFG SUSPHY (b6) + ENBLSLPM (b8) set ->
+  suspended UTMI PHY clock -> CSFTRST or the first EP command never completes (Linux clears SUSPHY around EP
+  commands / soft reset for exactly this).

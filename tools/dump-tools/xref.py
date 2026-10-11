@@ -10,7 +10,8 @@ and forward to the matching RET.
 Usage:
   python3 xref.py kernel --va 0xffffff8012345678            # all xrefs
   python3 xref.py kernel --string 'ipc_timeout' --func      # xref + disasm
-  python3 xref.py kernel --pair 0x15900000 --func           # MMIO base VAs
+(MMIO bases come from the DT, not from xrefs: the code only ever uses
+offsets off an ioremap'd pointer.)
 """
 
 from __future__ import annotations
@@ -115,8 +116,6 @@ def main():
     ap.add_argument("kernel")
     ap.add_argument("--string")
     ap.add_argument("--va", type=lambda x: int(x, 0))
-    ap.add_argument("--pair", type=lambda x: int(x, 0),
-                    help="device VA base; xrefs to base..base+0x1000")
     ap.add_argument("--text-lo", type=lambda x: int(x, 0), default=0)
     ap.add_argument("--text-hi", type=lambda x: int(x, 0), default=0x2C00000)
     ap.add_argument("--func", action="store_true")
@@ -132,12 +131,8 @@ def main():
             print(f"string {a.string!r} at file {fo:#x} VA {fo + VA_BASE:#x}")
     if a.va:
         targets.add(a.va)
-    if a.pair:
-        # MMIO is ioremapped — the kernel materialises the PHYSICAL addr in
-        # the ioremap call; match the raw device address range.
-        targets.update(range(a.pair, a.pair + 0x1000, 4))
     if not targets:
-        raise SystemExit("give --string, --va or --pair")
+        raise SystemExit("give --string or --va")
 
     md = Cs(CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN)
     md.detail = False

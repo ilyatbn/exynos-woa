@@ -25,6 +25,13 @@ wWinMain(HINSTANCE Instance, HINSTANCE Prev, PWSTR Cmd, int Show)
     (void)Cmd;
     (void)Show;
 
+    // 2026-10-12: an unintended tap (touch double-click bug, parkinglot/touch-double-tap.md) sent the phone to TWRP
+    // mid-session. Ask first.
+    if (MessageBoxW(NULL, L"Reboot to TWRP now?", L"Reboot to TWRP",
+                    MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2 | MB_TOPMOST) != IDYES) {
+        return 0;
+    }
+
     CreateDirectoryW(L"C:\\S10eTmp", NULL);
     CreateDirectoryW(REQ_DIR, NULL);
     File = CreateFileW(REQ_FILE, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);

@@ -452,7 +452,16 @@ ExynosPmuReset (
     }
 
     if (EfiGoneVirtual () && mProgressVirtualReady) {
-      mProgress[1] = 0x80;   // W31: the OS asked for this reset
+      //
+      // W31: 0x80 = the OS asked for this reset (the next boot continues into Windows).
+      // m14 run 19: when the OS armed a recovery reboot (INFORM3 = recovery, S10eDiag), sboot still booted
+      // this UEFI (INFORM3/RSTSTAT on this path are not enough), so store 0x81 instead: with \WINRUN.FLG
+      // present the next boot's BootLogDxe saves the PRAM and runs its own RebootToRecovery - proven to
+      // reach TWRP.
+      //
+      mProgress[1] = (mInform3VirtualReady &&
+                      (MmioRead32 ((UINTN)mInform3) == (EXYNOS_REBOOT_REASON_BASE | EXYNOS_REBOOT_MODE_RECOVERY)))
+                     ? 0x81 : 0x80;
       // W32: the OS maps runtime data write-back; push the line to RAM before the reset drops it.
       __asm__ __volatile__ ("dc civac, %0" :: "r" ((UINTN)&mProgress[1]) : "memory");
       ArmDataSynchronizationBarrier ();

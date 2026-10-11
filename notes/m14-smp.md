@@ -143,3 +143,7 @@ No device access in this task; build-verified only (Guided, not Ready).
   reboot / BootLogDxe RebootToRecovery / S10eDiag's hard reset (all of which do reach TWRP): ResetSystemLib when
   INFORM3 is already recovery; S10eDiag at RECOVERY_ON_RESET and in the last-chance shutdown notification.
   UNVERIFIED that RSTSTAT is what sboot keys on - run 19 decides.
+- Run 19 (boot #53, RSTSTAT also cleared): still loops (user: "looks the same already restarted twice") - INFORM3 +
+  RSTSTAT on the clean ResetSystem path do not make sboot boot recovery. Boot #54: ResetSystemLib stores progress
+  0x81 (not 0x80) when INFORM3 is recovery -> the next UEFI boot (WINRUN.FLG present) takes the boot pair's
+  dump + RebootToRecovery, which is proven. Why sboot ignores INFORM3 after this path: open (sboot disassembly).

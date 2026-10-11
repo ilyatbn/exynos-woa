@@ -375,3 +375,13 @@ Found:
 - boot #82 (sha see git log / s10e-artifacts): Max77705CcicInit after the switch: clear UIC..VDM ints, log SYSMsg +
   CC_STATUS1, CCCTRL1 before, opcode 0x54 [00], CCCTRL1_W 0x0C [1F], read back, CTRLREG3 LockErrorEn clear.
   Not flashed yet.
+- TWRP host-mode capture (hostlog-dock.txt; two earlier attempts panicked the TWRP kernel - KPON - because the poll
+  read dwc3 debugfs `mode`, a register read, while the controller was suspended on unplug; final logger polled
+  sec/switch attached_dev=OTG and read registers 8 s later). Linux host-mode PHY: UTMICTRL 0x0C (FORCE_DP/DM
+  PULLDOWN, no forced VBUSVALID/BVALID), HSPCTRL 0x10000300 (VBUSVLDEXT* clear), HSPPARACON C12F3537, LINKCTRL
+  43FF0, CLKRST 1084, LTSTATE_HIS 000F4545; DWC3 GCTL 30C11004, GUSB2PHYCFG 00102540, GUCTL1 01001988.
+- BUT Linux did NOT enumerate the dock either: /sys/bus/usb/devices = usb1, usb2, 1-0:1.0, 2-0:1.0 only;
+  last_kmsg: xHCI up at 57.2 s, "xhci_bus_suspend ... portcon: 0" at 59.9 s, no "new ... USB device" line.
+  -> in TWRP the dock is only POWERED; there is no working Linux reference for this dock on this phone.
+- Host-path differences to adopt anyway (Linux host values): UTMI DP/DM pulldowns forced ON and the device-mode
+  VBUSVALID/BVALID force OFF in host mode (ours: UTMI 0x30, HSP 0x10003300).

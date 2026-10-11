@@ -576,3 +576,12 @@ Reading failures:
 State handed to Windows: LDO18M **on** (left on deliberately - the codec is held in reset, the madera
 pre-release state); amp and codec reset pins, gph0/gpp0 pin functions, USI modes, hsi2c38/spi2
 controller registers all back at their handoff values.
+
+## RESULT milestone 1b (boot #92, unattended, 2026-10-12 ~01:40) - ALL THREE CHIPS ANSWER
+- Amps: at handoff gph1-1/2 fn 0 (input) lvl 0 -> NACK; after release (output low, 1 ms, high): gph1 CON 110 DAT 6,
+  @40 DEVID 35A40 REVID A0 OTPID 3 OTP_BOOT_DONE 1 -> CS35L40 ID OK; @41 same -> OK. Bus + resets restored after.
+- LDO18M: 0x28 (off) -> 0xE8 (enable 3, vsel 0x28 = 1.2 V) Success, 5000 us ramp; group signalled at ReadyToBoot.
+- Codec: first read ID 0 (reset held), release gpg1-0 -> ID 6371 HW_REV 1 -> CS47L92/93 ID OK; BOOT_DONE after
+  5000 us (IRQ1_RAW_STATUS1 0x80). Reset back to handoff level. Milestone 1b DEVICE-VALIDATED.
+- Next (milestone 2): codec tone generator -> OUT2 -> 3.5 mm jack (SPI only, notes section 4) - needs a codec SYSCLK
+  source decision (MCLK from the AP or the codec FLL on a 32 kHz ref).

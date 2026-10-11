@@ -107,7 +107,7 @@ Dwc3RootHubPowerOff (VOID)
 }
 
 EFI_STATUS
-Dwc3HostInit (OUT UINT32 *Revision)
+Dwc3CoreInit (IN BOOLEAN Device, OUT UINT32 *Revision)
 {
   UINT32  Rev;
   UINT32  Reg;
@@ -240,8 +240,21 @@ Dwc3HostInit (OUT UINT32 *Revision)
     Reg &= ~GCTL_SOFITPSYNC;
   }
 
-  Reg = (Reg & ~(3 << 12)) | GCTL_PRTCAPDIR (GCTL_PRTCAP_HOST);
+  Reg = (Reg & ~(3 << 12)) | GCTL_PRTCAPDIR (Device ? GCTL_PRTCAP_DEVICE : GCTL_PRTCAP_HOST);
   MmioWrite32 (DWC3 + DWC3_GCTL, Reg);
+
+  if (Device) {
+    // M17 (notes/m17-usb-kd.md): Windows' kd_8003_5143 (Synopsys USB-function KDNET) owns the device
+    // side from here - it programs DCFG/DCTL, its own event buffer and endpoints. Leave the core
+    // attached-but-stopped (download mode is device mode and may have left RUN_STOP set), with no UEFI
+    // event buffer or xHCI root-port writes behind it.
+    Reg = MmioRead32 (DWC3 + DWC3_DCTL);
+    MmioWrite32 (DWC3 + DWC3_DCTL, Reg & ~DCTL_RUN_STOP);
+    DEBUG ((DEBUG_INFO, "%a: DEVICE role, DCTL %x -> %x, DSTS %x\n", __func__, Reg,
+            MmioRead32 (DWC3 + DWC3_DCTL), MmioRead32 (DWC3 + DWC3_DSTS)));
+    *Revision = Rev;
+    return EFI_SUCCESS;
+  }
 
   // 7. Frame length adjustment. [K dwc3_frame_length_adjustment]
   Reg  = MmioRead32 (DWC3 + DWC3_GFLADJ);

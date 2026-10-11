@@ -106,3 +106,9 @@ hang (notes/m14-smp.md: "Needs kernel-level debugging (KDNET/USB) - parked"), ea
 - T3 ACPI: Dbg2.aslc - one Net entry 0x8003/0x5143, BAR = DWC3, OemData FIX2 (DCFG HS), into AcpiTables.inf.
 - T4 Windows: bcdedit /dbgsettings net hostip:169.254.255.255 port:50005 key + busparams 0 + /debug on.
 - T5 host: WinDbg -k net:port=50005,key=...; link test (USB 3 Type-A port + C-to-A cable).
+- T1 (firmware): BEYOND0LTE_USB_KD_DEVICE 1 in Beyond0LteUsbHostDxe.c -> UsbKdDeviceBringUp: UsbPhyInit (which
+  already sets UTMI FORCE_BVALID|VBUSVALID + HSP VBUSVLDEXTSEL|EXT unconditionally, kernel-faithful) +
+  Dwc3CoreInit(TRUE): same globals as host, GCTL PRTCAP=DEVICE, DCTL RUN_STOP cleared, returns before GFLADJ /
+  UEFI event buffer / xHCI PORTSC. No PMIC/I2C traffic, no NDD/XhciDxe. Status word [2] = 'USBD' (0x44425355)
+  on success (DSDT UFN0 in T2). Dwc3HostInit renamed Dwc3CoreInit(Device, &Rev). Build DEBUG exit 0
+  (b-kd1-build.log). Device-side HSP tune left at the HOST column (DT device column UNVERIFIED/unused).

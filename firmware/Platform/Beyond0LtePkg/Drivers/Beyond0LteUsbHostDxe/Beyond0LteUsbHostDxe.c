@@ -43,6 +43,12 @@
 // run-4 image itself - this isolates Windows' early-boot USBXHCI start on our controller.
 #define BEYOND0LTE_USB_EXPOSE_TO_WINDOWS  0
 
+// M17 (notes/m17-usb-kd.md): 1 = bring the port up as a USB DEVICE for Windows kernel debugging (KDNET over
+// USB EEM, inbox kd_8003_5143.dll via ACPI DBG2) instead of as a host. PHY + DWC3 in device role, no PMIC
+// traffic (a PC host's Rp settles the CCIC to SINK by itself, no VBUS boost), no UEFI xHCI, XHC0 hidden;
+// status word 'USBD' makes the DSDT's UFN0 (the DBG2 namespace device) present.
+#define BEYOND0LTE_USB_KD_DEVICE  1
+
 // Boot progress page (0x8FE0F000, WINPRAM, EfiRuntimeServicesData): [0] = the previous boot's last code,
 // [1] = this boot's, [2] = USB status (cleared in SEC, ArmPlatformLib.c). The USB clock gates are
 // ACPM-owned (notes/d1-usb-host.md); if sboot left them off, the first PHY/DWC3 read can hang the bus
@@ -50,6 +56,7 @@
 // the bring-up is in flight, and a boot whose previous boot ended at 0x67 skips it.
 #define USB_PROGRESS_TRYING  0x67u
 #define USB_STATUS_READY     0x48425355u   // 'USBH' - DSDT XHC0._STA returns 0x0F only on this value
+#define USB_STATUS_KD_DEVICE 0x44425355u   // 'USBD' - DSDT UFN0._STA returns 0x0F only on this value
 STATIC volatile UINT32  *CONST  mUsbProgress = (volatile UINT32 *)(UINTN)0x8FE0F000ULL;
 
 STATIC
@@ -57,6 +64,32 @@ EFI_STATUS
 UsbHostBringUp (
   VOID
   );
+
+STATIC
+EFI_STATUS
+UsbKdDeviceBringUp (
+  VOID
+  )
+{
+  EFI_STATUS  Status;
+  UINT32      Revision;
+
+  Status = UsbPhyInit ();   // includes the UTMI/HSP VBUS-valid override the device side needs
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "%a: PHY init %r\n", __func__, Status));
+    return Status;
+  }
+
+  Revision = 0;
+  Status   = Dwc3CoreInit (TRUE, &Revision);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "%a: DWC3 init %r\n", __func__, Status));
+    return Status;
+  }
+
+  DEBUG ((DEBUG_INFO, "%a: DWC3 rev %x in DEVICE role, left for the Windows KD transport\n", __func__, Revision));
+  return EFI_SUCCESS;
+}
 
 EFI_STATUS
 EFIAPI
@@ -80,6 +113,18 @@ Beyond0LteUsbHostEntry (
 
   Saved           = mUsbProgress[1];
   mUsbProgress[1] = USB_PROGRESS_TRYING;
+  if (BEYOND0LTE_USB_KD_DEVICE) {
+    Status          = UsbKdDeviceBringUp ();
+    mUsbProgress[1] = Saved;
+    if (!EFI_ERROR (Status)) {
+      mUsbProgress[2] = USB_STATUS_KD_DEVICE;
+    }
+
+    DEBUG ((DEBUG_INFO, "UsbHost: KD device bring-up %r, UFN0 %a to Windows, XHC0 hidden\n", Status,
+            EFI_ERROR (Status) ? "hidden" : "visible"));
+    return Status;
+  }
+
   Status          = UsbHostBringUp ();
   PmicBusRelease ();   // every exit path: the bus goes back to the bootloader's state (run 5: 0x14C otherwise)
   mUsbProgress[1] = Saved;
@@ -132,7 +177,7 @@ UsbHostBringUp (
   }
 
   // 3. DWC3 core -> HOST.
-  Status = Dwc3HostInit (&Revision);
+  Status = Dwc3CoreInit (FALSE, &Revision);
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "%a: DWC3 init %r — USB host disabled\n",
             __func__, Status));

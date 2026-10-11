@@ -210,6 +210,11 @@
 #define   GEVNTSIZ_INTMASK                  BIT31   // [K core.h:312]
 #define   GEVNTCOUNT_MASK                   0xFFFC  // [K core.h:72]
 #define DWC3_EVENT_BUFFERS_SIZE   4096    // [K core.h:53]
+// Device-mode registers (M17 KD device mode; the 9810 gadget UsbDebugHid.c uses the same generic offsets).
+#define DWC3_DCFG                 0xC700  // [K core.h DWC3_DCFG]
+#define DWC3_DCTL                 0xC704  // [K core.h DWC3_DCTL]
+#define   DCTL_RUN_STOP                     BIT31   // [K core.h DWC3_DCTL_RUN_STOP]
+#define DWC3_DSTS                 0xC70C  // [K core.h DWC3_DSTS]
 #define DWC3_GFLADJ               0xC630  // [K]
 #define   GFLADJ_REFCLK_240MHZ_DECR(n)      ((n) << 24)         // [K]
 #define   GFLADJ_REFCLK_LPM_SEL             BIT23   // [K]

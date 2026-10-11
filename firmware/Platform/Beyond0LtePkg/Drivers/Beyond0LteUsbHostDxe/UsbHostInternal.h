@@ -25,10 +25,11 @@
 EFI_STATUS UsbPhyInit (VOID);
 
 //
-// Dwc3.c — DWC3 core, HOST path of dwc3_core_init. Revision-gated quirk
-// branches follow the kernel exactly; Revision carries the full GSNPSID.
+// Dwc3.c — DWC3 core init (dwc3_core_init). Revision-gated quirk branches
+// follow the kernel exactly; Revision carries the full GSNPSID. Device = TRUE
+// stops after the role switch (M17: Windows' KD transport owns device mode).
 //
-EFI_STATUS Dwc3HostInit (OUT UINT32 *Revision);
+EFI_STATUS Dwc3CoreInit (IN BOOLEAN Device, OUT UINT32 *Revision);
 
 //
 // Pmic.c — polled HSI2C master on the MAX77705 bus + host-role VBUS.

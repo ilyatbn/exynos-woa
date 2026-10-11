@@ -39,6 +39,15 @@
 #define BEYOND0LTE_AUTO_RECOVERY  1   // W21: after the dump + flush, reboot into TWRP
 #define BEYOND0LTE_WINDOWS_PAIR   1   // W23: the boot after a Windows run saves \WINPRAM.BIN and goes to TWRP
 #define BEYOND0LTE_HANDOFF_WATCHDOG  1   // W24: arm WDT cl0 (82 s) at ExitBootServices - bring-up only
+//
+// W37 (user: "disable the reboot watchdog (add a flag)"): 1 = the 82 s watchdog stays armed into Windows
+// (unattended loop: a hang or the driver's feed cap returns the phone to TWRP); 0 = ReadyToBoot still
+// re-arms it (bootmgr/winload hangs are still rescued) but ExitBootServices STOPS it, so a running Windows
+// is never reset by it. The driver's WTCNT reloads do not re-enable a stopped timer (WTCON EN = 0).
+//
+#ifndef BEYOND0LTE_WINDOWS_WATCHDOG
+#define BEYOND0LTE_WINDOWS_WATCHDOG  0
+#endif
 
 STATIC
 VOID
@@ -663,6 +672,12 @@ OnExitBootServices (
   MmioWrite32 ((UINTN)EXYNOS_PMU_BASE + EXYNOS_PMU_INFORM3_OFFSET, EXYNOS_REBOOT_REASON_BASE);
   MmioWrite32 (Wdt + EXYNOS_WDT_WTCON_OFFSET, 0);
   MmioWrite32 (Wdt + EXYNOS_WDT_WTCLRINT_OFFSET, 1);
+ #if !BEYOND0LTE_WINDOWS_WATCHDOG
+  if (Event != NULL) {
+    __asm__ __volatile__ ("dsb sy" ::: "memory");   // W37: stopped (WTCON = 0) for the life of Windows
+    return;
+  }
+ #endif
   MmioWrite32 (
     (UINTN)EXYNOS_PMU_BASE + (EXYNOS_PMU_WDT_NONCPU_INT_EN_OFFSET | EXYNOS_PMU_ATOMIC_SET_ALIAS),
     EXYNOS_PMU_WDT_NONCPU_INT_EN_BIT

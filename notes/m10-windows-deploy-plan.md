@@ -525,3 +525,24 @@ it back to TWRP. Evidence pulled read-only from USERDATA (mount.ntfs -o ro) to %
 Known limits of this state (not device-validated beyond the above): 1 CPU (numproc=1, no PSCI SMP), ~1.5 GB RAM,
 bring-up watchdog cap (driver feeds only while writes happen, 45-min cap) resets Windows to TWRP by design, no display
 confirmation by a human yet (screen not observed), no input/USB/touch drivers.
+
+## W37 - user's own boot: Welcome screen then blank; watchdog flag; display/standby policies (2026-10-11)
+User booted Windows by hand: "never got past the welcome login. screen went blank". Logs (%TEMP%\c45u, read-only):
+- System.evtx record 316 = that boot (the clock restarts at 01:19:23 every boot - no RTC): Wininit, logon 7001 at
+  01:21:15 (2 min after kernel), UsrClass.dat load, last record 01:21:30 (evtx flushes lazily; forced reset after).
+  No bugcheck, no Minidump, no LiveKernelReports. ESP still holds the post-c44 UEFILOG ("after-windows" flush) and
+  no \WINRUN.FLG - the user's boot did not leave its ReadyToBoot flush/flag on the ESP. OPEN, not explained yet.
+- Previous run (records 208-315) shows the blank-screen mechanism: Kernel-Power 566/506 (display off + ENTERING
+  MODERN STANDBY, reason 12 = idle timeout) at 01:25:05, 01:34:17, 01:52:22, 507 exits after. The lock/logon screen
+  turns the display off after 60 s (VIDEOCONLOCK) and this phone has no wake source (no power button/touch driver)
+  => black screen. Likely what the user saw (UNVERIFIED until a boot with the fix).
+Fixes (separate tasks):
+1. Firmware flag BEYOND0LTE_WINDOWS_WATCHDOG (BootLogDxe, default 0): ReadyToBoot still re-arms 82 s (bootmgr/winload
+   hangs rescued), ExitBootServices stops WTCON instead of arming it. Driver WTCNT reloads do not re-enable it.
+   Built as boot #45 (s10e-artifacts\boot45-v2.img).
+2. Offline hive edit (PC reg load, scratchpad hive-power.ps1; originals %TEMP%\c45hive\orig, SHA256 SYSTEM 1b6cc984...,
+   SOFTWARE 2b36c347...): HKLM\SOFTWARE\Policies\Microsoft\Power\PowerSettings VIDEOIDLE/VIDEOCONLOCK/STANDBYIDLE/
+   HIBERNATEIDLE AC+DC = 0; Personalization NoLockScreen=1; ControlSet001\Control\Power PlatformAoAcOverride=0,
+   CsEnabled=0, HibernateEnabled=0; Session Manager\Power HiberbootEnabled=0. CrashDumpEnabled already 3.
+SMP: NOT a simple fix - EL3 is PSCI 0.1 and the 9810 needed a firmware CPU parking protocol (PBML:8253-8577, A55s
+only; CPU_ON of a big core hung its SoC). Separate task, after the display is confirmed.

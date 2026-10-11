@@ -21,7 +21,7 @@ solutions for the Galaxy S10e (`beyond0lte`, SM-G970F).
 | Mu-Silicium `UsbfnDwc3Dxe` exists but USB Host Mode is ❌ on every Exynos target — nobody finished it | `notes/dock-desktop.md` §3 |
 | Our 9810 `UsbDebugHid.c` is a full DWC3 register vocabulary but programs **peripheral** mode, and is compiled off | `notes/dock-desktop.md` §9 |
 | EDK2 USB stack (`UsbBusDxe`, `UsbKbDxe`, `UsbMassStorageDxe`) is **commented out** in both platform FDFs | `Star2LtePkg.fdf:167-169`, `Beyond0LtePkg.fdf:259-261` |
-| Phone WLAN is Broadcom `bcmdhd` with no Windows driver and no DT device node — vendor-WiFi on Windows is a **dead end**; USB WiFi adapter is the fallback | M12 in `MILESTONES.md`, `notes/dock-desktop.md` §6 |
+| Phone WLAN is Broadcom **BCM4375 on PCIe** (`pcie_0@13ED0000`, Gen1 x1, INTx) — the old "no DT device node = dead end" reading was about the platform glue only and is **corrected 2026-10-11**; still no Windows driver exists for it, so it is a driver project (D4b), not a bind | `notes/m12-wifi-chip.md`, M12 in `MILESTONES.md` |
 | **Safety:** powered hub + host mode "can irreversibly damage your device"; the user's hub is **non-powered**, which is the safe configuration | `MILESTONES.md` rule 7, woa-mh2lm5g materials.md |
 | One USB-C connector: host mode and charging compete for the same port | `notes/dock-desktop.md` §8 |
 
@@ -48,7 +48,8 @@ ACPI/Windows half remains.
 | D1 | DWC3 **host mode** in UEFI (the gate for everything else) | **doing** | research, code, wiring and a clean Linux verification build **done** (`BEYOND0LTE_UEFI.fd` sha `83a9986e…` carries the whole chain); device validation waits on the boot stream — and on the open unknowns in `notes/d1-usb-host.md` (clock state at DXE entry, GSNPSID rev, CC attach timing) |
 | D2 | USB hub (non-powered) + keyboard/mouse in UEFI (`ConIn`) | todo | D1 |
 | D3 | USB host under **Windows**: ACPI xHCI device, inbox `USBXHCI.sys` | **doing** | D1, boot stream — DSDT `XHC0` device + role-latch decision **done** (built into the FD, `PNP0D10` verified in FVMAIN); device test waits on Windows |
-| D4 | WiFi: USB adapter path chosen + validated (vendor bcmdhd stays closed) | **doing** | research + choice **done** (`notes/d4-usb-wifi.md`): no USB WiFi driver exists for ARM64 — decision is PicoPiFi (Pico W, driverless RNDIS) as the WiFi option, dock ethernet (M13) stays primary; device validation rides on D1/D3 |
+| D4 | WiFi: USB adapter path chosen + validated (external path) | **doing** | research + choice **done** (`notes/d4-usb-wifi.md`): no USB WiFi driver exists for ARM64 — decision is PicoPiFi (Pico W, driverless RNDIS) as the WiFi option, dock ethernet (M13) stays primary; device validation rides on D1/D3 |
+| D4b | WiFi: the phone's own **BCM4375 on PCIe** — reopened by user directive 2026-10-11 | **doing** | research **done** (`notes/m12-wifi-chip.md`): chip/bus/IRQ/clocks/bring-up sequence all pinned from the vendor kernel; design/code tasks below; device rungs (link-up, firmware-up) ride on the boot stream |
 | D5 | GPU/display: framebuffer deliverable decided; Mali WDDM reopened as D5b | **doing** | research + verdict **done** (`notes/d5-gpu-display.md` + addendum): shipped-code deliverable is GOP + in-box BasicDisplay; acceleration reopened after the S9 WDDM report — kbase r10p0 source is already in the 9820 kernel, feasibility inventory (D5b) is next; fb handoff validation still **needs-boot** |
 | D6 | External display (DP alt mode over the combo PHY) — stretch | **doing** | research + hub ID + decision **done** (`notes/d6-external-display.md`): user's UGREEN HDMI = DP alt mode (no DisplayLink chip) -> dark under Windows until a display-only WDDM exists (D5b rung 1); DisplayLink adapter is the buy-it-now alternative; DeX-on-Android validation recorded |
 | D8 | Audio (speaker/mic/volume) + hardware buttons | **doing** | research + constants + DSDT + **buttons driver code** all done: ABOX/CS47L93/CS35L40 chain identified and designed (`notes/d8-audio-design.md`); buttons = `Exynos9820Gpio` (GpioClx, code not built) + ACPI0011 in FD (inbox Hidinterrupt.sys). Device validation of both waits on Windows booting; audio rung 1 gated on the SPUS/SPUM experiment |
@@ -93,6 +94,17 @@ ACPI/Windows half remains.
 | Keep vendor bcmdhd closed (M12 verdict) — do not spend tasks on it | **done — decision** | no Windows driver, no DT node; reopening only on new evidence |
 | Research: USB WiFi adapters with **inbox or ARM64** Windows drivers (which chips does Windows ARM64 support without vendor drivers?) | **done** | `notes/d4-usb-wifi.md` (342 lines): **none exist.** Inbox = zero USB WLAN on any arch for ARM64 (Microsoft's own FOD table); Microsoft Update Catalog chip-by-chip scan = Realtek USB WiFi (1030.x bundle + Wi-Fi 6 5001.x), AR9271, Ralink, MTK all x86/x64-only; positive ARM64 controls (Realtek GbE, ASIX) prove it is vendor choice, not a WU limitation — and that same control is primary-source support for the M13 LAN-first plan |
 | Pick the adapter for the donation build and record it | **done — decision** | **No retail USB WiFi dongle.** WiFi option = **Raspberry Pi Pico W + PicoPiFi** (~$7, WiFi→RNDIS bridge: driverless inbox USB ethernet class, community-confirmed on WoA, ~40-60 mA so it fits the non-powered hub budget next to keyboard/mouse; 2.4 GHz only — stated limitation). Primary network path stays the dock's USB ethernet (M13). A community ARM64 WLAN miniport would need test-signing — disqualified for a donation build by rule |
+
+### D4b — WiFi: the phone's own BCM4375 (reopened)
+
+| Task | State | Notes |
+|------|-------|-------|
+| Research: identify chip + bus + controller map + bring-up + clocks + firmware + prior art | **done** | `notes/m12-wifi-chip.md` W1-W8: BCM4375 on `pcie_0@13ED0000` (ELBI/PHY/PCS/DBI/IA/config/MEM windows VERIFIED from vendor DT), GSIV 285, Gen1 x1 INTx, RAM base 0x170000, full power-on/link-up sequence from `pcie-exynos-host-v0.c`, CMU_FSYS1 gate offsets from cal-if, no linux-firmware blob (device blobs only), no Windows driver on any arch |
+| Constants: PCIe0 windows, GSIV, CMU_FSYS1 gates, PMU PHY control, WLAN GPIOs into `Exynos9820.h` | **doing** | see task below |
+| Design doc: two-halves architecture + risk ladder | todo | |
+| Firmware half: `Beyond0LtePcieDxe` — power-on + link-up + ECAM publish + PCI enumeration in UEFI | todo | the D1 pattern; verifiable at boot (print VID/DID) |
+| Windows half: `drivers/Exynos9820Wlan/` NDIS miniport skeleton — PCI bind, BAR0 backplane window, chip identity, firmware download, common ring | todo | port of bcmdhd/brcmfmac PCIe protocol; license posture recorded in design doc |
+| Device rungs: R1 link-up, R2 firmware-up (UEFI), R3 Windows enumeration, R4 scan | todo | **needs-boot** — each rung is a device observation, nothing Ready before it |
 
 ### D5 — GPU / display
 

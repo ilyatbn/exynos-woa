@@ -385,3 +385,4 @@ Found:
   -> in TWRP the dock is only POWERED; there is no working Linux reference for this dock on this phone.
 - Host-path differences to adopt anyway (Linux host values): UTMI DP/DM pulldowns forced ON and the device-mode
   VBUSVALID/BVALID force OFF in host mode (ours: UTMI 0x30, HSP 0x10003300).
+- Run 12 setup: boot #83 flashed (sha 855c1140…), dock test pending.

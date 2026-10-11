@@ -478,6 +478,85 @@
 #define EXYNOS_ALIVE_GPIO_SIZE    0x0000000000001000ULL   // VERIFIED
 
 //
+// ALIVE GPIO bank + EINT register map (D8: hardware buttons, audio IRQs).
+//
+// VERIFIED from the vendor pinctrl driver (LineageOS exynos9820 kernel,
+// drivers/pinctrl/samsung/pinctrl-exynos-arm64.c exynos9820_pin_banks0 +
+// pinctrl-exynos.h offsets), cross-checked against the shipped DTB — see
+// notes/d8-audio.md §3. Bank type exynos9810_bank_type_alive: per bank
+// CON @+0x00 (4 bits/pin), DAT @+0x04, PUD @+0x08 (4 bits/pin), PDN @+0x0C.
+// The 9820 has NO leading etc1 bank (the 9810 did) — gpa banks start at 0.
+//
+#define EXYNOS_ALIVE_GPA0_OFF     0x000                   // VERIFIED (exynos9820_pin_banks0)
+#define EXYNOS_ALIVE_GPA1_OFF     0x020                   // VERIFIED
+#define EXYNOS_ALIVE_GPA2_OFF     0x040                   // VERIFIED
+#define EXYNOS_ALIVE_GPA3_OFF     0x060                   // VERIFIED
+#define EXYNOS_ALIVE_GPA4_OFF     0x080                   // VERIFIED (2 pins)
+#define EXYNOS_GPIO_BANK_DAT      0x004                   // VERIFIED (bank_type reg_offset[1])
+#define EXYNOS_GPIO_BANK_PUD      0x008                   // VERIFIED (bank_type reg_offset[2])
+
+// Wakeup-EINT block (the shipped pinctrl node's child is compatible
+// "samsung,exynos7-wakeup-eint" -> exynos7_wkup_irq_chip offsets).
+// EINT_CON: one 32-bit word per bank at 0x700 + 4*bank, 4-bit field per pin
+// (trigger encoding LOW=0 HIGH=1 FALLING=2 RISING=3 BOTH=4).
+// FLTCON: 0x800 + 8*bank, 8-bit field per pin, FLTCON0 covers pins 0-3 and
+// FLTCON1 (+4) pins 4-7; EN=(1<<7) SEL=(1<<6) WIDTH=0x3F (the vendor sets
+// EN|SEL width 0 for the gpa banks — same value the validated 9810 touch
+// driver writes). MASK: 0x900 + 4*bank, 1 bit/pin (1 = masked). PENDING:
+// 0xA00 + 4*bank, 1 bit/pin, write-1-clears.
+//
+#define EXYNOS_EINT_CON_BASE      0x700                   // VERIFIED (EXYNOS7_WKUP_ECON_OFFSET)
+#define EXYNOS_EINT_FLTCON_BASE   0x800                   // VERIFIED (EXYNOS_GPIO_EFLTCON_OFFSET)
+#define EXYNOS_EINT_MASK_BASE     0x900                   // VERIFIED (EXYNOS7_WKUP_EMASK_OFFSET)
+#define EXYNOS_EINT_PENDING_BASE  0xA00                   // VERIFIED (EXYNOS7_WKUP_EPEND_OFFSET)
+
+// Hardware keys (shipped overlay ov00.dts gpio_keys + vendor input dtsi):
+// all four are EINT-function GPIOs with external pull-up (pressed = low),
+// debounce 10 ms; POWER and BIXBY are the only wakeup sources. SPI numbers
+// VERIFIED from include/dt-bindings/interrupt-controller/exynos9820.h
+// (INTREQ__ALIVE_EINTn = 5 + n); GSIV = SPI + 32 (repo rule).
+//
+#define EXYNOS_KEY_VOLUP_PIN      3                      // VERIFIED (gpa0-3)
+#define EXYNOS_KEY_VOLDN_PIN      4                      // VERIFIED (gpa0-4)
+#define EXYNOS_KEY_BIXBY_PIN      6                      // VERIFIED (gpa0-6, "KEY_WINK")
+#define EXYNOS_KEY_POWER_PIN      4                      // VERIFIED (gpa2-4)
+#define EXYNOS_KEY_VOLUP_GSIV     40                     // VERIFIED (SPI 8 + 32)
+#define EXYNOS_KEY_VOLDN_GSIV     41                     // VERIFIED (SPI 9 + 32)
+#define EXYNOS_KEY_BIXBY_GSIV     43                     // VERIFIED (SPI 11 + 32)
+#define EXYNOS_KEY_POWER_GSIV     57                     // VERIFIED (SPI 25 + 32)
+#define EXYNOS_CODEC_IRQ_GSIV     55                     // VERIFIED (gpa2-2 = SPI 23 + 32; CS47L93 irq line, D8-audio)
+
+//
+// ---------------------------------------------------------------------------
+// ABOX — the Exynos 9820 audio subsystem (DSP + I2S + DMA), D8 audio.
+//
+// VERIFIED from the shipped base DTB (dumps/hhxj6/base.dts:5312-5343):
+// abox@18c50000 reg = ifr 0x18C50000+0x10000, sysreg 0x18C10000+0x10000,
+// sram 0x18D00000+0x59000, timer 0x18CE0000+0x10000; its GIC child
+// abox-gic@18cf0000 = gicd 0x18CF1000+0x1000, gicc 0x18CF2000+0x1004;
+// DMA goes through sysmmu@18E00000. Two CA32 ("Calliope") DSP cores —
+// audio PCM is graph-driven inside that firmware; there is NO
+// firmware-free mode in the vendor driver (notes/d8-audio-linux.md Q2).
+// Recorded now for the D8 rung-1/2 ladder; nothing here is initialised by
+// the firmware today.
+// ---------------------------------------------------------------------------
+//
+#define EXYNOS_ABOX_IFR_BASE      0x0000000018C50000ULL   // VERIFIED (abox@18c50000 reg[0])
+#define EXYNOS_ABOX_IFR_SIZE      0x0000000000010000ULL   // VERIFIED
+#define EXYNOS_ABOX_SYSREG_BASE   0x0000000018C10000ULL   // VERIFIED (reg[1] "sysreg")
+#define EXYNOS_ABOX_SYSREG_SIZE   0x0000000000010000ULL   // VERIFIED
+#define EXYNOS_ABOX_SRAM_BASE     0x0000000018D00000ULL   // VERIFIED (reg[2] "sram")
+#define EXYNOS_ABOX_SRAM_SIZE     0x0000000000059000ULL   // VERIFIED
+#define EXYNOS_ABOX_TIMER_BASE    0x0000000018CE0000ULL   // VERIFIED (reg[3] "timer")
+#define EXYNOS_ABOX_TIMER_SIZE    0x0000000000010000ULL   // VERIFIED
+#define EXYNOS_ABOX_GICD_BASE     0x0000000018CF1000ULL   // VERIFIED (abox-gic child)
+#define EXYNOS_ABOX_GICD_SIZE     0x0000000000001000ULL   // VERIFIED
+#define EXYNOS_ABOX_GICC_BASE     0x0000000018CF2000ULL   // VERIFIED
+#define EXYNOS_ABOX_GICC_SIZE     0x0000000000001004ULL   // VERIFIED
+#define EXYNOS_ABOX_SYSMMU_BASE   0x0000000018E00000ULL   // VERIFIED (sysmmu@18E00000, iommus phandle)
+#define EXYNOS_ABOX_SYSMMU_SIZE   0x0000000000009000ULL   // VERIFIED (sysmmu@18E00000 reg = +0x9000, base.dts:2692)
+
+//
 // ---------------------------------------------------------------------------
 // Display: DECON (display controller) + DSIM (MIPI DSI master)  [MOVES, and splits]
 //

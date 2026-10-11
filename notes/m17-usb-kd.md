@@ -145,3 +145,7 @@ hang (notes/m14-smp.md: "Needs kernel-level debugging (KDNET/USB) - parked"), ea
 - 2026-10-11 ~19:58: boot #72 FLASHED (readback 2d9609eb… = image); s10e-stage-kd.sh staged extra-kd.cmd +
   kd\ (kdnet.exe, kdnet-dev-ext.dll, VerifiedNICList.xml) on the ESP. Next boot: agent sets BCD debug; KD live
   from the boot after that.
+- T5 host prep: WinDbg installed (winget Microsoft.WinDbg 1.2610.1001.0, WinDbgX.exe in WindowsApps). Instead of
+  disabling the firewall (MS doc), an inbound rule "KDNET S10e (UDP 50005 in)" (UDP 50005, any profile) - the
+  target sends UDP to the host's debugger port over the EEM adapter. Connect:
+  WinDbgX.exe -k net:port=50005,key=1.2.3.4

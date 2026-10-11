@@ -31,3 +31,7 @@ User: "the hard job of adding at least 1 more core and as much ram as possible".
   (likely TZ-protected, was inside Windows' bank0 RAM), el2_earlymem size fixed, high-bank resource HOBs. Table
   capacity MMIO+12 -> +16 (10 DRAM pieces + FB + terminator filled +12 exactly). Expect ~5.3 GB for Windows.
   camera/camera_contig/mm_debug stay RAM (non-secure Android carve-outs) - revisit if Windows faults there.
+- Run 13 (boot #48, 12:45, back 453 s, clean): Windows TotalVisibleMemorySize 5 499 168 KB (5.24 GiB),
+  TotalPhysicalMemory 5 631 148 032 B, FreePhysicalMemory 3 523 268 KB after logon; desktop + collect + TWRP return
+  normal (agent collect at 204 s). => DONE: ~1.5 GB -> 5.24 GB. Remaining unpublished: the carve-outs (camera,
+  modem, debug_snapshot, uH, rdx) - by design.

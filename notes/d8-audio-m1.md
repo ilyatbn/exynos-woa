@@ -832,3 +832,8 @@ proven and the problem is analogue (jack detect / HP stage) - say so in the resu
 
 - 2026-10-12 02:12: audio M2 merged to main (c20e6c0), built into boot #93 (FVMAIN_COMPACT 1152 B free),
   flashed; unattended run - result from UEFILOG `AudioTone|AudioProbe` after the cycle.
+- Boot #93 RESULT (UEFILOG): cs47l92 patch 36/38 16-bit exact (2 rows read 0, logged Success) + 28/28 32-bit;
+  FLL1 <- MCLK2 32 kHz **LOCKED after 3 ms**; SYSCLK 0x444; OUT2 mixers = tone1 -20 dB, DAC2 -12 dB; outputs on:
+  OUT_EN1 C, RAW_OUT_STS1 C, TONE1 1, HP2 SC 0 at +12 ms and mid-tone; teardown clean; codec back to reset.
+  **HP2 EN_DONE stayed 0** (expected C per §6.4) -> digital path proven, analog HP stage NOT proven by the log;
+  the ear test (user, wired headphones) decides. Audio M2 stays `Guided` until heard.

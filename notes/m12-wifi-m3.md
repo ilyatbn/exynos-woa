@@ -224,3 +224,14 @@ Path: BCM4375 PCIe master -> Exynos PCIe0 RC (DesignWare) inbound -> SysMMU_PCIE
   watchdog 1) flashed, readback OK; Exynos9820Wlan.sys 1.0.3.0 (7f4ed72f…) copied over the DriverStore copy
   in exynos9820wlan.inf_arm64_1828e8231b692d7b (NTFS needed fsck.ntfs first: unclean after the forced reset).
   Battery 63 %. Unattended cycle started.
+- Run m3-1 RESULT (02:15, back in TWRP after 150 s, collect ran; Windows clock ~3 min behind):
+  shared flags2 0x40801001, ring_info 0x002B80BC (ringmem 0x002B8108, max sub 43 cpl 5, flowrings 40);
+  common buffer at logical 0xEFF66000; host_cap 0x00801407 read back; fw consumed all 8 resp-buffer posts
+  (r 8); GET_VAR cur_etheraddr -> ACK 0, CMPLT 0 len 32 pktid 0x1007 -> **A8:DB:03:06:3C:EF**; GET_VAR ver ->
+  CMPLT 0 len 200 pktid 0x1006 -> `wl0: Jul 19 2022 10:52:21 version 18.41.117 (B1 Network/rsdb) FWID
+  01-1b4772fd`; `MSG 0`; stop: ARM halted, EP COMMAND 0x00100002 (BME off). No firmware console output
+  during the exchange. Windows: no PnP problem other than the parked CPUs 6/7. **Milestone 3 done.**
+  Firmware uses response buffers LIFO (0x1007 then 0x1006).
+- Next (M4): event buffers (WL_EVENT), rx-post ring, flowring create, and interrupts (INTx/MSI) instead of
+  polling; then an NDIS miniport shell. The firmware must stay halted between exchanges until a resident
+  DMA lifetime exists.

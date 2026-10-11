@@ -59,7 +59,7 @@
 #define PARK_WAIT_STEPS     2000u   // up to 2 s for all marks: boot #55 (fast logging, no FB text) saw the cores arrive ~100 ms after CPU_ON - 100 ms was only enough while slow panel text padded the gap (the 9810 waited 30 ms)
 #define PARK_MPIDR_AFF_MASK   0xFF00FFFFFFULL   // Aff3 + Aff2..Aff0 (MT/U bits excluded) - ACPI MADT MPIDR field
 #ifndef BEYOND0LTE_SMP_REAL_MPIDR
-#define BEYOND0LTE_SMP_REAL_MPIDR  1
+#define BEYOND0LTE_SMP_REAL_MPIDR  0   // m14 run 34: did not fix the M4 hang; untested with the 6-core set - off = the proven boot #63 tables
 #endif
 #define PARK_PROGRESS_TRYING  0x65u  // boot progress code: CPU_ON of a core outside the safe mask in flight
 

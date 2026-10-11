@@ -63,7 +63,7 @@
 #define BEYOND0LTE_SMP_SAFE_MASK  0x3Eu   // m14 run 16: GICC 1-5 (A55 + A75) proven
 #endif
 #ifndef BEYOND0LTE_SMP_PARK_MASK
-#define BEYOND0LTE_SMP_PARK_MASK  0xFEu   // m14: M4s offered again with BEYOND0LTE_SMP_REAL_MPIDR (run 17 hang = MPIDR collision theory)
+#define BEYOND0LTE_SMP_PARK_MASK  0x3Eu   // m14 runs 17+34: offering any M4 (even M4#1 at its real, non-colliding MPIDR) kills Windows before drivers load - excluded
 #endif
 
 #ifndef BEYOND0LTE_FADT_PSCI

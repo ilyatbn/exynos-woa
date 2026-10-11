@@ -167,3 +167,9 @@ No device access in this task; build-verified only (Guided, not Ready).
   reported MPIDR_EL1 & 0xFF00FFFFFF (boot core from ArmReadMpidr), later duplicates disabled (expect M4#0 out ->
   7 cores); park mask 0xFE again. CPU_ON still uses the DT numbering. RISK: DSDT _MAT still carries the DT
   numbers (MADT/_MAT mismatch) - flag off restores boot #63 behaviour.
+- Run 34 (boot #64, REAL_MPIDR + mask 0xFE, 16:23, back 126 s): MADT patched as designed (gicc0 0, gicc1-5
+  0x100..0x500, gicc6 disabled as colliding with gicc1, gicc7 0x101 enabled). Windows died BEFORE S10eDiag loaded
+  (PRAM ring held only run 33's lines, no bugcheck record), UEFI saw progress 0x72 -> boot pair. => not the MPIDR
+  collision: offering even one M4 (real, unique MPIDR) kills Windows early - the M4 running Windows' processor
+  start/init path (CPU feature / system-register difference on Samsung's custom core, or EL2/EL3 reaction).
+  Needs kernel-level debugging (KDNET/USB) - parked. Defaults restored: mask 0x3E, REAL_MPIDR 0 (= boot #63).

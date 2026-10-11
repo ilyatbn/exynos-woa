@@ -719,4 +719,11 @@ Mixer source value "Tone Generator 1" = 0x04 [MC:1422-1424 texts, 1574-1576 valu
   8069/8103/8137; DAC volume 4446-4456 -> 4447-4457) - fixed in the follow-up commit. FLLHJ numbers re-derived
   by a python transliteration of madera_fllhj_apply (scratchpad one-liner): MCLK2 -> N 375 THETA 0 LAMBDA 1
   FB 4 gains 0x23F0 thr 2; MCLK1 -> refdiv 1 N 22 THETA 0x45A LAMBDA 0x659 FB 1 gains 0x21F0 thr 8 hp 3 fast 3.
+- Build env (this session): scratchpad `build-m2.ps1` = build-private.ps1 with PACKAGES_PATH 2nd entry = this
+  worktree's firmware and WORKSPACE `C:\Users\ilya\code\w8c` (Conf copied from w8b), run via Start-Process with
+  redirected streams. Baseline build of a9e61b4: exit 0, FVMAIN_COMPACT 3 728 B free, FVMAIN 33%.
+- Task "codec write helpers": CodecFrameAddr (addr + read flag + 2 pad bytes), CodecWrite (8-byte frame),
+  CodecUpdate (read-modify-write, no write on a failed read), CodecWrite32 / CodecRead32 (10-byte frames, value
+  in bytes 6..9); CodecRead made non-STATIC; prototypes in new AudioCodec.h (added to the .inf). Build exit 0,
+  FVMAIN_COMPACT 3 720 B free (helpers unused yet).
 

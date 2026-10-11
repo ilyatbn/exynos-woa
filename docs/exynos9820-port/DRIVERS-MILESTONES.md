@@ -159,7 +159,7 @@ Bar: UEFILOG proves FLL1 lock, SYSCLK on, tone -> OUT2 mixers, HP2 enable done, 
 | Task | State | Notes |
 |------|-------|-------|
 | Research: jack output (OUT1 vs OUT2), SYSCLK source without AP clocks, FLLHJ values, HP enable sequence, patch | **done** | §6.1: HEADPHONE <- HPOUT2L/R (stock dtbo routing); FLL1 <- MCLK2 32 kHz (N 375, FB_DIV 4), fallback MCLK1 26 MHz; cs47l92 patch verbatim |
-| AudioProbeDxe: codec SPI write (16-bit + 32-bit regmap) and 32-bit read helpers | todo | |
+| AudioProbeDxe: codec SPI write (16-bit + 32-bit regmap) and 32-bit read helpers | **done (code + build)** | `AudioCodec.h`: CodecWrite / CodecUpdate / CodecRead32 / CodecWrite32; build exit 0 (private workspace w8c) |
 | AudioProbeDxe: tone sequence (patch, 32k clk, FLL1, SYSCLK, tone1 -> OUT2 -> HPOUT2 2 s, teardown), flag `BEYOND0LTE_AUDIO_TONE` | todo | |
 | Device test: UEFILOG lock/enable lines + tone heard | todo | **needs-boot** + the user's ears |
 

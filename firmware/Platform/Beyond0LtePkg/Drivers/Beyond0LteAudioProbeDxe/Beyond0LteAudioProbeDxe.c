@@ -42,6 +42,7 @@
 #include <Platform/Exynos9820.h>
 
 #include "AudioProbeHw.h"
+#include "AudioCodec.h"           // codec register access, shared with the m2 tone code
 #include "Beyond0LteAudioPower.h"   // BEYOND0LTE_AUDIO_DCVDD, codec-power event group (D8a m1b)
 
 // 0 = the driver does nothing (one log line).
@@ -546,7 +547,7 @@ SpiXfer (IN CONST UINT8 *Tx, OUT UINT8 *Rx, IN UINTN Length)
 
 // Madera 16-bit register read: [0x80 | addr31..24, addr23..16, addr15..8, addr7..0, pad, pad] then two
 // value bytes, big-endian (cs47l92_16bit_spi_regmap: reg_bits 32, pad_bits 16, val_bits 16).
-STATIC
+// Not STATIC: AudioTone.c uses it through AudioCodec.h.
 EFI_STATUS
 CodecRead (IN UINT32 Reg, OUT UINT16 *Value)
 {
@@ -566,6 +567,98 @@ CodecRead (IN UINT32 Reg, OUT UINT16 *Value)
   Tx[3]  = (UINT8)Reg;
   Status = SpiXfer (Tx, Rx, 8);
   *Value = (UINT16)(((UINT16)Rx[6] << 8) | Rx[7]);
+  return Status;
+}
+
+// ---------------------------------------------------------------------------------------------------
+// D8a milestone 2: codec register writes (AudioCodec.h). Same framing as CodecRead with the read flag
+// clear (regmap-spi: read_flag_mask 0x80, write_flag_mask 0), and the 32-bit regmap that madera uses
+// for 0x3000+ (cs47l92-tables.c:2391-2405 cs47l92_32bit_spi_regmap: reg 32, pad 16, val 32, BE).
+// ---------------------------------------------------------------------------------------------------
+
+STATIC
+VOID
+CodecFrameAddr (OUT UINT8 *Tx, IN UINT32 Reg, IN BOOLEAN Read)
+{
+  Tx[0] = (UINT8)((Read ? CS47L93_SPI_READ : 0) | ((Reg >> 24) & 0x7F));
+  Tx[1] = (UINT8)(Reg >> 16);
+  Tx[2] = (UINT8)(Reg >> 8);
+  Tx[3] = (UINT8)Reg;
+  Tx[4] = 0;   // pad_bits 16
+  Tx[5] = 0;
+}
+
+EFI_STATUS
+CodecWrite (
+  IN UINT32  Reg,
+  IN UINT16  Value
+  )
+{
+  UINT8  Tx[8];
+  UINT8  Rx[8];
+
+  CodecFrameAddr (Tx, Reg, FALSE);
+  Tx[6] = (UINT8)(Value >> 8);
+  Tx[7] = (UINT8)Value;
+  return SpiXfer (Tx, Rx, 8);
+}
+
+// Read-modify-write of a 16-bit register (regmap_update_bits). The write is skipped if the read fails.
+EFI_STATUS
+CodecUpdate (
+  IN UINT32  Reg,
+  IN UINT16  Mask,
+  IN UINT16  Value
+  )
+{
+  EFI_STATUS  Status;
+  UINT16      Old;
+
+  Old    = 0;
+  Status = CodecRead (Reg, &Old);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  return CodecWrite (Reg, (UINT16)((Old & ~Mask) | (Value & Mask)));
+}
+
+EFI_STATUS
+CodecWrite32 (
+  IN UINT32  Reg,
+  IN UINT32  Value
+  )
+{
+  UINT8  Tx[10];
+  UINT8  Rx[10];
+
+  CodecFrameAddr (Tx, Reg, FALSE);
+  Tx[6] = (UINT8)(Value >> 24);
+  Tx[7] = (UINT8)(Value >> 16);
+  Tx[8] = (UINT8)(Value >> 8);
+  Tx[9] = (UINT8)Value;
+  return SpiXfer (Tx, Rx, 10);
+}
+
+EFI_STATUS
+CodecRead32 (
+  IN  UINT32  Reg,
+  OUT UINT32  *Value
+  )
+{
+  EFI_STATUS  Status;
+  UINT8       Tx[10];
+  UINT8       Rx[10];
+  UINTN       Index;
+
+  for (Index = 0; Index < 10; Index++) {
+    Tx[Index] = 0;
+    Rx[Index] = 0;
+  }
+
+  CodecFrameAddr (Tx, Reg, TRUE);
+  Status = SpiXfer (Tx, Rx, 10);
+  *Value = ((UINT32)Rx[6] << 24) | ((UINT32)Rx[7] << 16) | ((UINT32)Rx[8] << 8) | Rx[9];
   return Status;
 }
 

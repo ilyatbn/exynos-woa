@@ -712,7 +712,7 @@ order:
 | processor | MPIDR | DT identity | `/proc/cpuinfo` implementer/part |
 |---|---|---|---|
 | 0–3 | `0x000`–`0x005`… i.e. 0x0, 0x1, 0x2, 0x3 | `ananke` | 0x41 / 0xd05 (Cortex-A55 class) |
-| 4–5 | 0x4, 0x5 | `prometheus` | 0x41 / 0xd0a |
+| 4–5 | 0x4, 0x5 | `prometheus` | 0x41 / 0xd0a (live read) — **open conflict 2026-10-11**: Samsung's own 9820 page says 2×custom + 2×**Cortex-A75** + 4×A55 (semiconductor.samsung.com), the shipped Android 12 kernel's MIDR constants carry 0xd05/0xd09 only, and the codename map (M4="cheetah", M3="meerkat", prometheus=A75 by elimination) agrees; but 0xd0a = A76's part number and "variant 0x2" fits A76 r2p2 exactly, so the live transcription can't be dismissed outright. Weight of evidence: the read likely mistyped 0 for a. Closing read: re-dump `/proc/cpuinfo` |
 | 6–7 | **0x100, 0x101** | `cheetah` | 0x53 (Samsung) / 0x003 |
 
 *(fact)* **Two MPIDR clusters, sized 6 + 2** — Aff1 = 0 for the six ARM cores and

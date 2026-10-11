@@ -410,3 +410,8 @@ Found:
 - boot #84 (sha 7da802da…): OTG_ILIM 900 mA (Linux value). Next: flash drive/NVMe/dock on #84; if NVMe/dock still
   fail, try 1.2/1.5 A and the USB3 (SS) PHY, which we still hold down.
 - Run 14 setup: boot #84 flashed (7da802da…). TWRP device-mode (PC cable, adb active) captured 10ae0000.usbdp regdump/regmap -> twrp-usb-regs-20261011\usbdp-device-*.txt (link_state U2; TRSV_0241/0641 0x71, 0311/0711 0x06, 030B/070B 0x0C, 02BD/06BD 0x1B) as the SS-PHY tune reference.
+- Run 14 (boot #84, OTG 900 mA, user ~22:50): Lexar 64 GB USB-A stick same as before (works, sometimes 2nd try);
+  MOVESPEED USB 3.2 NVMe stick (A+C plugs) still nothing. 900 mA changed nothing -> power is NOT the blocker for
+  the SS devices; next = SuperSpeed PHY bring-up (research -> notes/m16-ss-phy.md). Dock facts from the drivers
+  branch (notes/d6-external-display.md:453-472): UGREEN = Genesys GL352 USB3 hub + ASIX AX88179B, HDMI = DP alt mode
+  (needs SS lanes + CCIC PD/VDM) - not DisplayLink.

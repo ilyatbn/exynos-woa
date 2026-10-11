@@ -11,7 +11,9 @@ Task: create `AcpiTables.inf`, `Fadt.aslc`, `Gtdt.aslc`, `Pptt.aslc` in
 - **Topology (VERIFIED, from the already-ported `Madt.aslc` + `notes/dock-desktop.md` §16):**
   8 cores, **two MPIDR clusters sized 6 + 2** — `cpu@0000`..`cpu@0005` (Aff1=0) and
   `cpu@0100`,`cpu@0101` (Aff1=1). Inside them are **three efficiency classes**:
-  ananke/LITTLE (UID 0–3, A55, part 0xd05), prometheus/MID (UID 4–5, part 0xd0a),
+  ananke/LITTLE (UID 0–3, A55, part 0xd05), prometheus/MID (UID 4–5, part 0xd0a
+  per the live read — kernel-constant conflict on 0xd0a vs 0xd09 flagged
+  2026-10-11, see `notes/psci-parking.md`),
   cheetah/BIG (UID 6–7, Samsung implementer 0x53 part 0x003). `PcdClusterCount = 2`
   (`Exynos9820Pkg.dec:57`). The MADT's MPIDR column is 0x000..0x005 then 0x100,0x101.
 - **GIC (VERIFIED, identical to 9810):** GICD/GICC/GICH/GICV = 10101000/10102000/10104000/10106000,

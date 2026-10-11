@@ -113,6 +113,12 @@
 #define USBCON_HSP_TEST           0x5C
 #define   HSP_TEST_SIDDQ                    BIT24   // [M] 1 = power down HS PHY
 #define   HSP_TEST_LINESTATE_MASK           (0x3 << 20)         // [M] J/N state, our only VBUS proxy
+// M17: fields/values read from the RUNNING Linux device-mode PHY in TWRP (debugfs 10b00000.phy/regmap, same cable,
+// 2026-10-11, s10e-artifacts\twrp-usb-regs-20261011). [T] = that read.
+#define   HSP_RETENABLE_EN                  BIT28   // [T] HSPCTRL RETENABLE_EN = 1
+#define USBCON_HSREWA_CTRL        0x108   // [T] HS remote-wakeup (REWA) control
+#define   HSREWA_DIG_BYPASS_CON_EN          BIT28   // [T] = 1: link UTMI signals bypass the REWA block to the PHY
+#define USBCON_HSP_TUNE_DEVICE    0xC16F3337u  // [T] HSPPARACON as Linux programs it in device mode
 
 // Host-side HS PHY tuning: the HOST column of the board DT's hs_tune_param
 // (exynos9820-beyond0lte_common.dtsi:33-65, notes/d1-usb-host.md Q1). The

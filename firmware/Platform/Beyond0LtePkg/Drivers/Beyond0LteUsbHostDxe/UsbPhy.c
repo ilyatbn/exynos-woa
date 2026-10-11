@@ -211,3 +211,30 @@ UsbPhyInit (VOID)
 
   return EFI_SUCCESS;
 }
+
+STATIC
+VOID
+UsbPhyDump (IN CONST CHAR8 *Label)
+{
+  DEBUG ((DEBUG_INFO, "UsbPhy %a: LINKCTRL %x LINKPORT %x CLKRST %x UTMI %x HSP %x TUNE %x TEST %x REWA_CTRL %x\n", Label,
+          MmioRead32 (PHY0 + USBCON_LINK_CTRL), MmioRead32 (PHY0 + USBCON_LINK_PORT), MmioRead32 (PHY0 + USBCON_CLKRST),
+          MmioRead32 (PHY0 + USBCON_UTMI), MmioRead32 (PHY0 + USBCON_HSP), MmioRead32 (PHY0 + USBCON_HSP_TUNE),
+          MmioRead32 (PHY0 + USBCON_HSP_TEST), MmioRead32 (PHY0 + USBCON_HSREWA_CTRL)));
+}
+
+//
+// M17 (notes/m17-usb-kd.md): UEFI device mode attached internally but the host never saw the pull-up. Linux, in
+// device mode on the same cable, has these PHY-wrapper bits that UsbPhyInit never writes. Applied in the KD
+// device path only (host mode unchanged until this is proven); the before/after dump goes to UEFILOG.
+//
+VOID
+UsbPhyDeviceModeDeltas (VOID)
+{
+  UsbPhyDump ("before");
+  MmioWrite32 (PHY0 + USBCON_HSREWA_CTRL, MmioRead32 (PHY0 + USBCON_HSREWA_CTRL) | HSREWA_DIG_BYPASS_CON_EN);
+  MmioWrite32 (PHY0 + USBCON_HSP, MmioRead32 (PHY0 + USBCON_HSP) | HSP_RETENABLE_EN);
+  MmioWrite32 (PHY0 + USBCON_HSP_TUNE, USBCON_HSP_TUNE_DEVICE);
+  MmioWrite32 (PHY0 + USBCON_CLKRST, MmioRead32 (PHY0 + USBCON_CLKRST) | CLKRST_LINK_PCLK_SEL);
+  gBS->Stall (3000);   // [K g2_link_pclk_sel: mdelay(3) after LINK_PCLK_SEL]
+  UsbPhyDump ("after ");
+}

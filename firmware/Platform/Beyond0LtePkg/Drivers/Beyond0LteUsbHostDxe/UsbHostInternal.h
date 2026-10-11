@@ -23,6 +23,7 @@
 // deliberately held powered-down, see notes/d1-usb-host.md Q2 end).
 //
 EFI_STATUS UsbPhyInit (VOID);
+VOID UsbPhyDeviceModeDeltas (VOID);   // M17: Linux device-mode PHY values (TWRP debugfs read)
 
 //
 // Dwc3.c — DWC3 core init (dwc3_core_init). Revision-gated quirk branches

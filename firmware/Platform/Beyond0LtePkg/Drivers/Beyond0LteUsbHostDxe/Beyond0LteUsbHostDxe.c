@@ -80,6 +80,8 @@ UsbKdDeviceBringUp (
     return Status;
   }
 
+  UsbPhyDeviceModeDeltas ();   // M17: Linux device-mode PHY bits (REWA bypass, RETENABLE, device tune, LINK_PCLK_SEL)
+
   Revision = 0;
   Status   = Dwc3CoreInit (TRUE, &Revision);
   if (EFI_ERROR (Status)) {

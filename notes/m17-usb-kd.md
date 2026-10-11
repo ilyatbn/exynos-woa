@@ -221,3 +221,6 @@ hang (notes/m14-smp.md: "Needs kernel-level debugging (KDNET/USB) - parked"), ea
   HSPPARACON 0x58 = 0xC16F3337 (device-column tune)              -- ours host column (SQRX 5, TXRES 1)
   LINKCTRL 0x04 = 0x00043FF0 (FORCE_PIPE_EN bit16 = 0, DIS_BUSPEND_QACT 1) -- ours sets FORCE_PIPE_EN
   LINKPORT 0x08 = 0x0001107C; UTMICTRL 0x50 = 0x30; HSPTEST 0x5C = 0x00040000; SECPMACTL 0x48 = 0x100.
+- boot #75 (sha 8d5329a5…): KD device path applies the TWRP-read PHY bits after UsbPhyInit (HSREWA_CTRL
+  DIG_BYPASS_CON_EN, HSPCTRL RETENABLE_EN, HSPPARACON = 0xC16F3337, CLKRST LINK_PCLK_SEL + 3 ms), with PHY dumps
+  before/after in UEFILOG; attach probe still on. Host mode unchanged.

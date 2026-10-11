@@ -711,8 +711,12 @@ CodecProbe (
   MmioWrite32 (SPI + SPI_USI_CON, Saved[7]);
   *Mode = SavedMode;
   MmioWrite32 (GPIO0 + EXYNOS_GPIO_GPP0_OFF, Gpp0Con);
-  MmioWrite32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF + EXYNOS_GPIO_BANK_DAT, Gpg1HandoffDat);
-  MmioWrite32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF, Gpg1HandoffCon);
+  // Reset pin only (DAT bit, then CON nibble): in the deferred flow the handoff values are seconds old,
+  // and the other gpg1 pins are not ours to rewrite.
+  MmioAndThenOr32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF + EXYNOS_GPIO_BANK_DAT, ~(1u << EXYNOS_CODEC_RESET_PIN),
+                   Gpg1HandoffDat & (1u << EXYNOS_CODEC_RESET_PIN));
+  MmioAndThenOr32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF, ~(0xFu << (EXYNOS_CODEC_RESET_PIN * 4)),
+                   Gpg1HandoffCon & (0xFu << (EXYNOS_CODEC_RESET_PIN * 4)));
   DEBUG ((DEBUG_WARN, "AudioProbe: codec %a; bus released: usi_1 mode %x gpp0 CON %x gpg1 CON %x DAT %x USI_CON %x%a\n",
           Ok ? "OK" : "no answer", *Mode, MmioRead32 (GPIO0 + EXYNOS_GPIO_GPP0_OFF), MmioRead32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF),
           MmioRead32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF + EXYNOS_GPIO_BANK_DAT), MmioRead32 (SPI + SPI_USI_CON),
@@ -791,8 +795,7 @@ Beyond0LteAudioProbeEntry (
               mGpg1HandoffCon, MmioRead32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF), mGpg1HandoffDat,
               MmioRead32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF + EXYNOS_GPIO_BANK_DAT)));
     } else {
-      MmioWrite32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF + EXYNOS_GPIO_BANK_DAT, mGpg1HandoffDat);
-      MmioWrite32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF, mGpg1HandoffCon);
+      // CodecProbe below restores the reset pin to the handoff values at its end.
       DEBUG ((DEBUG_ERROR, "AudioProbe: codec-power event create failed (%r) - probing the codec now\n", Status));
     }
   }

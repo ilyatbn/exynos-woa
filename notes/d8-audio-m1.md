@@ -500,3 +500,11 @@ amps NACK). Rules as §0 (no adb, no flash; the main session runs the device tes
   signals, the codec stays held in reset (= its boot #88 handoff state) and no codec lines appear.
   Build exit 0: AudioProbeDxe.efi 20 480 B, FD 7 340 032 B sha256 645c8328a0c7889f...,
   FVMAIN_COMPACT 3 728 B free (auto-size grew one block), FVMAIN 33%.
+- Review (deferred codec probe): checked the guard path (a hang in OnCodecPower leaves [1] = 0x69 ->
+  next boot's [0] = 0x69 -> the whole probe incl. the reset assert is skipped), Stall at TPL_NOTIFY
+  (allowed), event closed in its own notify (allowed for a signal event), RELEASE_RESETS 0 keeps the
+  old non-deferred flow. FOUND: the end-of-probe restore wrote the *whole* gpg1 CON/DAT back from values
+  saved seconds earlier at DXE entry - would clobber any other gpg1 pin changed in between (none today:
+  grep finds no other gpg1 user, but the hazard is real). Follow-up: restore only the reset pin's CON
+  nibble + DAT bit; the event-create-failure branch no longer restores twice. Build exit 0, FD sha256
+  5aece1ce38616270..., sizes unchanged.

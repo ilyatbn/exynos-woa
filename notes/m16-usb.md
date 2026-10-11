@@ -230,3 +230,16 @@ Found:
   ExitBootServices without ResetSystem; boot manager went to WinRE. Firmware deltas vs run 4: HSI2C45
   setup + CC poll + 2 new MMIO map entries (CMGP_USI 0x15C22000, CMGP_GPIO 0x15C30000, appended out of
   address order after HSI2C45). Repro first: re-boot the same image (boot #69) once.
+
+### Run 5 repro + diagnosis setup
+- User: Automatic Repair repeats with boot #69, also WITHOUT the dock → not dock-related.
+- ESP `\EFI\Microsoft\Boot\BOOTSTAT.DAT` unchanged since 10-10, BCD last written in run 4 → nothing
+  remembered; BCD already has `bootstatuspolicy IgnoreAllFailures` → this is winload's automatic failover
+  on a real error in every boot (progress 0x72 = WinRE's own ExitBootServices).
+- Ruled out by reading: the two new MMIO table entries feed only UEFI page tables (not the EFI memory
+  map Windows gets); no MAX77705 write ran (only VbusOn writes, never reached).
+- Remaining firmware deltas vs run 4: HSI2C45/USI_CMGP3/gpm12-13 configured; reads of PMIC/CCIC/FG;
+  ~3 s CC poll; INT_EN left with DONE|errors on the I2C block.
+- BCD edited offline (`bcdedit /store`): {default} recoveryenabled No + bootlog Yes, so boot manager
+  shows the winload error code instead of WinRE. Original kept: s10e-artifacts\bcd\BCD.orig-20261011
+  (sha 52093777…6ec5); edited BCD.work sha 2a81716b…2e8b on the ESP. Revert = push the .orig back.

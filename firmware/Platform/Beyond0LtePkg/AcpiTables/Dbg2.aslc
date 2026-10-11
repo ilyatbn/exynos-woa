@@ -1,0 +1,125 @@
+/** @file
+  DBG2 — Microsoft Debug Port Table 2 for Exynos 9820 / Galaxy S10e (M17, notes/m17-usb-kd.md).
+
+  One debug device: the DWC3 (DWC_usb31) in USB DEVICE role as a KDNET transport ("KDNET over USB EEM").
+  Windows maps PortType/PortSubtype to the extension module kd_<type>_<subtype>.dll; 0x8003/0x5143 is the
+  inbox kd_8003_5143.dll ("Qualcomm Network Kernel Debug Extensibility Module", ARM64, verified in our image's
+  ESP), which carries a Synopsys USB-function backend (UsbFnMpSynopsys*). The subtype is only the DLL name
+  key - it must stay 0x5143 even though the controller is not Qualcomm's.
+
+  Layout copied from a public Windows-on-Qualcomm table that uses the same DLL (SDM845, oneplus-sdm845-acpi
+  Common/dbg2.aslc): table + device revision 1, two base-address entries both on the DWC3 base, OEM data
+  "V3" = controller type USBFN_SYNOPSYS (5), signature 'FIX2', up to 8 phased register writes, then a
+  {core, 'USBC'} trailer.
+
+  Prerequisites done by firmware (the module does no PHY/clock work): Beyond0LteUsbHostDxe with
+  BEYOND0LTE_USB_KD_DEVICE leaves the USB2 PHY up with VBUS-valid forced and the core in device role, and
+  makes \_SB.UFN0 present. Selected with bcdedit /dbgsettings net ... busparams 0 (this entry's index).
+**/
+
+#include "Beyond0LteAcpiHeader.h"
+#include <IndustryStandard/Acpi63.h>
+#include <IndustryStandard/DebugPort2Table.h>
+#include <Platform/Exynos9820.h>
+
+#define DBG2_REVISION_QCOM_LAYOUT        1        // table + device-info revision used by the SDM845 table
+#define DBG2_PORT_SUBTYPE_NET_KD_8003_5143  0x5143
+#define DBG2_OEM_PORT_USBFN_SYNOPSYS     0x0005
+// MSVC multi-character constants as the module compiled them: kd_8003_5143.dll's literal pool holds
+// 32 58 49 46 = 0x46495832 ('FIX2'). 'USBC' does not occur in the DLL (trailer probably unread).
+#define DBG2_OEM_SIGNATURE_FIX2          0x46495832
+#define DBG2_OEM_SIGNATURE_USBC          0x55534243
+#define DBG2_OEM_PHASE_CONFIG_DONE       2
+
+#define DBG2_UFN_BAR_COUNT               2
+#define DBG2_UFN_NAMESPACE               "\\_SB.UFN0"
+#define DBG2_UFN_OEM_WRITES              1
+
+#pragma pack(1)
+typedef struct {
+  UINT8     BaseAddressRegister;
+  UINT8     Phase;
+  UINT16    Reserved;
+  UINT32    Offset;
+  UINT32    AndValue;
+  UINT32    OrValue;
+} DBG2_OEM_WRITE;
+
+typedef struct {
+  UINT16            PortType;      // controller type, not the DBG2 port type
+  UINT16            Reserved;
+  UINT32            Signature;
+  UINT32            WriteCount;
+  DBG2_OEM_WRITE    Data[8];
+  UINT8             UsbCore;
+  UINT8             Reserved1;
+  UINT16            Reserved2;
+  UINT32            CoreSignature;
+} DBG2_UFN_OEM_DATA;
+
+typedef struct {
+  EFI_ACPI_DBG2_DEBUG_DEVICE_INFORMATION_STRUCT    Header;
+  EFI_ACPI_6_3_GENERIC_ADDRESS_STRUCTURE           BaseAddressRegister[DBG2_UFN_BAR_COUNT];
+  UINT32                                           AddressSize[DBG2_UFN_BAR_COUNT];
+  CHAR8                                            NameSpaceString[sizeof (DBG2_UFN_NAMESPACE)];
+  DBG2_UFN_OEM_DATA                                OemData;
+} DBG2_UFN_DEVICE;
+
+typedef struct {
+  EFI_ACPI_DEBUG_PORT_2_DESCRIPTION_TABLE    Table;
+  DBG2_UFN_DEVICE                            Ufn;
+} BEYOND0LTE_DBG2;
+#pragma pack()
+
+#define DBG2_UFN_BAR(Base) \
+  { EFI_ACPI_6_3_SYSTEM_MEMORY, 32, 0, EFI_ACPI_6_3_DWORD, (Base) }
+
+STATIC BEYOND0LTE_DBG2  Dbg2 = {
+  {
+    ACPI_HEADER (
+      EFI_ACPI_6_3_DEBUG_PORT_2_TABLE_SIGNATURE,
+      BEYOND0LTE_DBG2,
+      DBG2_REVISION_QCOM_LAYOUT
+      ),
+    OFFSET_OF (BEYOND0LTE_DBG2, Ufn),     // OffsetDbgDeviceInfo
+    1                                     // NumberDbgDeviceInfo
+  },
+  {
+    {
+      DBG2_REVISION_QCOM_LAYOUT,                                    // Revision
+      sizeof (DBG2_UFN_DEVICE),                                     // Length
+      DBG2_UFN_BAR_COUNT,                                           // NumberofGenericAddressRegisters
+      sizeof (DBG2_UFN_NAMESPACE),                                  // NameSpaceStringLength
+      OFFSET_OF (DBG2_UFN_DEVICE, NameSpaceString),                 // NameSpaceStringOffset
+      sizeof (DBG2_UFN_OEM_DATA),                                   // OemDataLength
+      OFFSET_OF (DBG2_UFN_DEVICE, OemData),                         // OemDataOffset
+      EFI_ACPI_DBG2_PORT_TYPE_NET,                                  // PortType 0x8003
+      DBG2_PORT_SUBTYPE_NET_KD_8003_5143,                           // PortSubtype -> kd_8003_5143.dll
+      { 0, 0 },                                                     // Reserved
+      OFFSET_OF (DBG2_UFN_DEVICE, BaseAddressRegister),             // BaseAddressRegisterOffset
+      OFFSET_OF (DBG2_UFN_DEVICE, AddressSize)                      // AddressSizeOffset
+    },
+    // Both entries on the DWC3 base like the Qualcomm table (its second entry is 0x1000 long).
+    { DBG2_UFN_BAR (EXYNOS_USBDRD_BASE), DBG2_UFN_BAR (EXYNOS_USBDRD_BASE) },
+    { EXYNOS_USBDRD_SIZE, 0x1000 },
+    DBG2_UFN_NAMESPACE,
+    {
+      DBG2_OEM_PORT_USBFN_SYNOPSYS,
+      0,
+      DBG2_OEM_SIGNATURE_FIX2,
+      DBG2_UFN_OEM_WRITES,
+      {
+        // DCFG (0xC700) DEVSPD = 0 -> high speed. The SS PIPE3/PMA side is held down by Beyond0LteUsbHostDxe,
+        // so the core must not try SuperSpeed. Same write as the Qualcomm table. No VBUS write is needed:
+        // our PHY init already forces VBUSVALID/BVALID (Qualcomm's second write does that in its glue block).
+        { 0, DBG2_OEM_PHASE_CONFIG_DONE, 0, 0xC700, 0xFFFFFFF8, 0x0 },
+      },
+      0,                              // UsbCore: primary
+      0,
+      0,
+      DBG2_OEM_SIGNATURE_USBC
+    }
+  }
+};
+
+VOID *CONST  ReferenceAcpiTable = &Dbg2;

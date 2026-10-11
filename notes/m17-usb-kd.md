@@ -121,3 +121,12 @@ hang (notes/m14-smp.md: "Needs kernel-level debugging (KDNET/USB) - parked"), ea
   (EXYNOS_USBDRD_BASE/_SIZE - whole block incl. device regs 0xC700+), no interrupt (polled KD), _STA 0x0F only
   on 'USBD' at 0x8FE0F008. Build exit 0; Dsdt.aml contains UFN0/SAMS9821. Review: 'USBH'/'USBD' are exclusive
   (one word), so XHC0 and UFN0 never both present; overlapping _CRS therefore never double-claimed. OK.
+- T3 (DBG2): AcpiTables/Dbg2.aslc, listed in AcpiTables.inf. Build exit 0; compiled Dbg2.acpi decoded (256 B):
+  rev 1, 1 device @44: rev 1 len 212, type 0x8003 sub 0x5143, BAR x2 = 0x10C00000 (sizes 0x10000/0x1000),
+  ns "\_SB.UFN0", OEM: type 5 (USBFN_SYNOPSYS), 'FIX2' = 0x46495832 (= kd_8003_5143.dll literal pool bytes
+  32 58 49 46 - verified), 1 write {BAR0, phase 2, 0xC700 AND 0xFFFFFFF8} (DCFG HS), trailer 'USBC'.
+  Beyond0LteAcpiPlatformDxe installs every table in the section (only GTDT/MADT special-cased) -> DBG2 ships.
+  Review: 'USBC' absent from the DLL -> trailer likely ignored (kept for layout parity). Revision 1 (Qualcomm
+  layout) vs spec 0 - Windows' reader unverified either way; first suspect if kd ignores the entry.
+  RE breadcrumb: right after the FIX2 literal the DLL does cmp w0,#4 / cmp w0,#3 - controller-type values 3/4
+  may be what this build accepts (Qualcomm table says 5). Second suspect.

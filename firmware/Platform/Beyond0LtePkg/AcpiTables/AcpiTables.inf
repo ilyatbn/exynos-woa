@@ -22,7 +22,7 @@
   Madt.aslc                      # GIC: GICC per core, GICD (GICv2; node is cortex-a15/a9-gic, NOT arm,gic-400)
   Pptt.aslc                      # Processor topology: package / 3 efficiency-class clusters / 8 cores
   Gtdt.aslc                      # ARMv8 architected generic timer (counter freq UNVERIFIED on this SoC)
-  # TODO: Dbg2.aslc   (debug port — only once a Windows-recognized transport exists)
+  Dbg2.aslc                      # M17: KDNET over USB (DWC3 device role) via inbox kd_8003_5143.dll
   # TODO: Spcr.aslc   (serial console redirect)
 
 [Packages]

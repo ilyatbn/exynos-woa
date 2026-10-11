@@ -452,3 +452,101 @@ Max77705WaitSourceAttach (IN UINTN TimeoutMs, OUT UINT8 *CcStatus)
 
   return EFI_TIMEOUT;
 }
+
+//
+// M17 (notes/m17-muic-switch.md): one USBC firmware opcode - [OPCODE_WRITE, opcode, data...], then OPCODE_WRITE_END
+// = 0, wait for APCmdResI, read the response from OPCODE_READ ([0] must echo the opcode). The kernel waits for the
+// interrupt; we poll UIC_INT (read-to-clear) and fall back to the elapsed time if the bit never latches while masked.
+//
+STATIC
+EFI_STATUS
+Max77705Opcode (IN UINT8 Opcode, IN CONST UINT8 *Data, IN UINTN DataLength, OUT UINT8 *Response, IN UINTN ResponseLength)
+{
+  EFI_STATUS  Status;
+  UINT8       Buf[16];
+  UINT8       Int;
+  UINTN       Ms;
+  UINTN       Index;
+
+  if ((DataLength > sizeof (Buf) - 2) || (ResponseLength == 0) || (ResponseLength > 16)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  (VOID)Max77705RegRead (MAX77705_CCIC_ADDR, MAX77705_UIC_INT, &Int);   // drop a stale response flag
+  Buf[0] = MAX77705_OPCODE_WRITE;
+  Buf[1] = Opcode;
+  for (Index = 0; Index < DataLength; Index++) {
+    Buf[2 + Index] = Data[Index];
+  }
+
+  Status = Hsi2cXfer (MAX77705_CCIC_ADDR, FALSE, Buf, 2 + DataLength, TRUE);
+  if (!EFI_ERROR (Status)) {
+    Status = Max77705RegWrite (MAX77705_CCIC_ADDR, MAX77705_OPCODE_WRITE_END, 0);
+  }
+
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Int = 0;
+  for (Ms = 0; Ms < 100; Ms++) {
+    gBS->Stall (1000);
+    if (!EFI_ERROR (Max77705RegRead (MAX77705_CCIC_ADDR, MAX77705_UIC_INT, &Int)) && (Int & MAX77705_UIC_INT_APCMDRES)) {
+      break;
+    }
+  }
+
+  Buf[0] = MAX77705_OPCODE_READ;
+  Status = Hsi2cXfer (MAX77705_CCIC_ADDR, FALSE, Buf, 1, FALSE);
+  if (!EFI_ERROR (Status)) {
+    Status = Hsi2cXfer (MAX77705_CCIC_ADDR, TRUE, Response, ResponseLength, TRUE);
+  }
+
+  DEBUG ((DEBUG_INFO, "Max77705Opcode %x: response after %u ms (UIC_INT %x) echo %x data %x, %r\n", Opcode, Ms, Int,
+          Response[0], (ResponseLength > 1) ? Response[1] : 0, Status));
+  if (!EFI_ERROR (Status) && (Response[0] != Opcode)) {
+    Status = EFI_DEVICE_ERROR;
+  }
+
+  return Status;
+}
+
+EFI_STATUS
+Max77705UsbSwitchToAp (VOID)
+{
+  EFI_STATUS  Status;
+  UINT8       Rev;
+  UINT8       Bc;
+  UINT8       St1;
+  UINT8       St2;
+  UINT8       Value;
+  UINT8       Resp[2];
+
+  Rev = Bc = St1 = St2 = 0;
+  Resp[0] = Resp[1] = 0;
+  (VOID)Max77705RegRead (MAX77705_CCIC_ADDR, MAX77705_USBC_FW_REV, &Rev);
+  (VOID)Max77705RegRead (MAX77705_CCIC_ADDR, MAX77705_BC_STATUS, &Bc);
+  (VOID)Max77705RegRead (MAX77705_CCIC_ADDR, MAX77705_USBC_STATUS1, &St1);
+  (VOID)Max77705RegRead (MAX77705_CCIC_ADDR, MAX77705_USBC_STATUS2, &St2);
+  DEBUG ((DEBUG_INFO, "%a: USBC fw %x BC_STATUS %x (VBUSDet %u ChgTyp %u DCDTmo %u) STATUS1 %x STATUS2 %x\n", __func__,
+          Rev, Bc, (Bc >> 7) & 1, Bc & 3, (Bc >> 2) & 1, St1, St2));
+
+  Status = Max77705Opcode (MAX77705_OPC_CTRL1_R, NULL, 0, Resp, 2);
+  DEBUG ((DEBUG_INFO, "%a: CONTROL1 before = %x (%a)\n", __func__, Resp[1],
+          (Resp[1] == MAX77705_COM_USB_AP) ? "USB-AP" : (Resp[1] == MAX77705_COM_OPEN) ? "OPEN" : "other"));
+
+  Value  = MAX77705_COM_USB_AP;
+  Status = Max77705Opcode (MAX77705_OPC_CTRL1_W, &Value, 1, Resp, 2);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "%a: CTRL1_W %r\n", __func__, Status));
+    return Status;
+  }
+
+  Status = Max77705Opcode (MAX77705_OPC_CTRL1_R, NULL, 0, Resp, 2);
+  DEBUG ((DEBUG_INFO, "%a: CONTROL1 after = %x, %r\n", __func__, Resp[1], Status));
+  if (!EFI_ERROR (Status) && (Resp[1] != MAX77705_COM_USB_AP)) {
+    Status = EFI_DEVICE_ERROR;
+  }
+
+  return Status;
+}

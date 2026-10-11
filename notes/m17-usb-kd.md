@@ -231,3 +231,11 @@ hang (notes/m14-smp.md: "Needs kernel-level debugging (KDNET/USB) - parked"), ea
   (100 ms) -> dead link clock (SS PHY held down) -> kd module hang. Reverted (boot #76, sha 3e992f62…), device
   tune kept; probe now also logs PHY LINESTATE per change + a per-state ms histogram.
 - Remaining suspect: the MAX77705 USB-C D+/D- switch (research -> notes/m17-muic-switch.md).
+- boot #76: desktop again (user, ~21:20) - LINK_PCLK_SEL revert confirmed.
+- MAX77705 research (notes/m17-muic-switch.md): Linux's max77705_usbc_shutdown -> com_to_open() sets the COM
+  switch OPEN (CONTROL1 0x3F) + resets the CCIC on EVERY reboot; only the next Linux boot's muic init_detect writes
+  COM_USB 0x09 again. Switch reachable only via the USBC opcode mailbox (0x25: OPCODE_WRITE 0x21, WRITE_END 0x41,
+  READ 0x51; CTRL1_R 0x05 / CTRL1_W 0x06). Our firmware never wrote it -> open D+/D- explains the idle bus
+  (and likely M16's dark dock).
+- boot #77 (sha 582d4b46…): KD path = PmicBusInit -> Max77705UsbSwitchToAp (log FW rev, BC_STATUS, STATUS1/2,
+  CONTROL1 before, write 0x09, read back) -> PmicBusRelease -> PHY -> DWC3 -> attach probe (+linestate).

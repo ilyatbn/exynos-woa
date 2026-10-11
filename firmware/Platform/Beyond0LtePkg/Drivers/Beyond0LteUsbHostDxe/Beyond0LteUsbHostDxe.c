@@ -74,6 +74,15 @@ UsbKdDeviceBringUp (
   EFI_STATUS  Status;
   UINT32      Revision;
 
+  // M17: route the USB-C D+/D- to the AP first - Linux opens the MAX77705 COM switch on every reboot
+  // (notes/m17-muic-switch.md); without this the controller attaches internally but the host never sees it.
+  // A failure here is logged, not fatal; the bus goes back to the bootloader's state either way.
+  if (!EFI_ERROR (PmicBusInit ())) {
+    (VOID)Max77705UsbSwitchToAp ();
+  }
+
+  PmicBusRelease ();
+
   Status = UsbPhyInit ();   // includes the UTMI/HSP VBUS-valid override the device side needs
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "%a: PHY init %r\n", __func__, Status));

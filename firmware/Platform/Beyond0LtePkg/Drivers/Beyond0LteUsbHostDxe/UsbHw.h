@@ -325,6 +325,23 @@
 #define MAX77705_CC_STATUS0       0x0A    // CCStat[2:0]: 0 none, 1 SINK, 2 SOURCE
 #define   MAX77705_CCSTAT_SOURCE            2       // [K]
 #define MAX77705_CC_INT_M         0x0F    // init mask 0x20 (VCONNSCI masked) [K]
+// M17 USB-C D+/D- (COM) switch - only reachable through the USBC firmware opcode mailbox (notes/m17-muic-switch.md):
+// Linux's max77705_usbc_shutdown -> com_to_open() opens it on EVERY reboot (CONTROL1 0x3F) and only its next boot's
+// muic init_detect closes it again, so after an Android/TWRP reboot nothing connects the AP's USB PHY to the port.
+#define MAX77705_USBC_HW_REV      0x00    // [K max77705.h]
+#define MAX77705_USBC_FW_REV      0x01    // [K]
+#define MAX77705_UIC_INT          0x02    // [K] bit7 APCmdResI = opcode response ready (read clears)
+#define   MAX77705_UIC_INT_APCMDRES         BIT7
+#define MAX77705_USBC_STATUS1     0x06    // [K]
+#define MAX77705_USBC_STATUS2     0x07    // [K]
+#define MAX77705_BC_STATUS        0x08    // [K] [7] VBUSDet, [2] DCDTmo, [1:0] ChgTyp 0 none 1 SDP 2 CDP 3 DCP
+#define MAX77705_OPCODE_WRITE     0x21    // [K] mailbox: opcode + data
+#define MAX77705_OPCODE_WRITE_END 0x41    // [K] write 0 to execute
+#define MAX77705_OPCODE_READ      0x51    // [K] response: [0] = opcode echo, then data
+#define   MAX77705_OPC_CTRL1_R              0x05    // [K OPCODE_CTRL1_R]
+#define   MAX77705_OPC_CTRL1_W              0x06    // [K OPCODE_CTRL1_W]
+#define   MAX77705_COM_USB_AP               0x09    // [K COM_USB: D+ COMP2SW 001 | D- COMN1SW 001, NoBCComp 0]
+#define   MAX77705_COM_OPEN                 0x3F    // [K COM_OPEN]
 // Fuel gauge block (client 0x36) [K max77705-private.h enum
 // max77705_fuelgauge_reg, max77705_fuelgauge.c conversions]. Maxim
 // ModelGauge m5-class, 16-bit little-endian words (bulk_read(reg,2),

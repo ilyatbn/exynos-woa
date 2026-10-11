@@ -44,6 +44,7 @@ EFI_STATUS Max77705RegWrite (IN UINT8 ClientAddr, IN UINT8 Reg, IN UINT8 Value);
 EFI_STATUS Max77705RegRead (IN UINT8 ClientAddr, IN UINT8 Reg, OUT UINT8 *Value);
 EFI_STATUS Max77705VbusOn (VOID);
 EFI_STATUS Max77705WaitSourceAttach (IN UINTN TimeoutMs, OUT UINT8 *CcStatus);
+EFI_STATUS Max77705UsbSwitchToAp (VOID);   // M17: COM switch -> USB-AP via the opcode mailbox, logged
 
 //
 // FuelGauge.c — read-only MAX77705 fuel-gauge report (battery % PoC,

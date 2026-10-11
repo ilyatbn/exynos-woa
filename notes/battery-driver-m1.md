@@ -240,3 +240,21 @@ Prerequisites: firmware built from this branch (DSDT `BAT0`); the package
 `S10eBattery.h` fg_resistor comment cites both recorded FULLCAP_REP reads (2460 committed in
 m16-usb.md, 3000 from the brief). Rebuilt: `S10eBattery.sys` hash prefix 322CA9517A3B9DA3 unchanged
 (comment only). Review of 787c3d7 (F3): notes-only, criteria now match committed evidence. ✔
+
+### 2026-10-12 — cleanup + rebuild recipe
+- Removed the 34 junctions in this worktree's `firmware/edk2/` (and `C:\Users\ilya\code\b9w`) with
+  `cmd /c rmdir` (never follows the link; main's `firmware/edk2/MdePkg` checked intact afterwards) so
+  no later recursive delete of the worktree can reach main's edk2. Kept: `Build/`, `Conf/`, `Wrap/`.
+- To rebuild the firmware from a worktree: (1) junction every top-level dir of main's
+  `firmware/edk2` except `Build`/`Conf`/`.git` into `<wt>/firmware/edk2/`, copy `Conf/` and delete
+  `Conf/.cache`; (2) `New-Item -ItemType Junction C:\Users\ilya\code\b9w -Target <wt>\firmware`;
+  (3) in PowerShell: `$env:PATH = 'C:\Users\ilya\code\b9w\edk2\Wrap;C:\Program Files\Git\usr\bin;' + $env:PATH`
+  then `powershell -File C:\Users\ilya\code\b9w\tools\build-uefi.ps1 -Platform Beyond0LtePkg -Target DEBUG`.
+  From main's own checkout none of this is needed (its Build/ already holds the .S objects).
+- Driver package (final): `C:\Users\ilya\code\s10e-artifacts\battery-m1\S10eBattery\`
+  `S10eBattery.sys` 322CA9517A3B9DA3…, `S10eBattery.inf` A51F68BDD4BC18CF…, `s10ebattery.cat`
+  AC6392D21796D295… (SHA256 prefixes).
+
+## Status
+Build-verified (firmware DEBUG exit 0; driver /W4 /WX, infverif VALID, test-signed). **Not
+device-validated** — MILESTONES row stays `doing`; the device test procedure above is the next step.

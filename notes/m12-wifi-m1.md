@@ -44,3 +44,26 @@ files (`git checkout origin/drivers -- <paths>`), never `git merge`. Plan:
   the device print closes it).
 - Overlap check of the 7 new map windows against every existing 0x13xxxxxx/0x14xxxxxx window
   (UFS 0x13D5..0x13D7, UFS_IOCOH page 0x13C10000): none.
+- PcieDxe fixes applied: Stall(100*1000) (100 ms); FILE_GUID ...5553 (repo grep: unused before;
+  Guid.xref of the build lists `...5553 Beyond0LtePcieDxe`); `#define BEYOND0LTE_PCIE_WLAN 1`;
+  0x68 guard in the UsbHostDxe shape ([0]==0x68 -> skip; [1]=0x68 while running, restored after);
+  word [3] zeroed at DXE entry AND in SEC (ArmPlatformLib.c next to the [2] clear) - SEC clear is
+  needed because WINPRAM survives a warm reset: a build without the DXE (or a skipped boot) would
+  otherwise expose a stale 'WLAN'. 'WLAN' = 0x4E414C57 written only after link-up + VID 0x14E4.
+- Behaviour additions (each logged): one canary read of CMU_FSYS1+0x2000 before any write, gate/QCH
+  readback after ClocksOn, first ELBI read logged after WLAN_EN settle, per-try "[PCIe] link try n/3",
+  failure line with RDLH + PM_DSTATE, link-up line with try/poll count. EP: all BARs sized with the
+  standard all-ones probe (decode off), placed naturally aligned in the MEM window (0x14000000+0xFF0000),
+  BAR that does not fit -> logged, left 0. COMMAND = MEM only (drivers branch also set BME; no DMA is
+  needed before firmware download, so BME is left to the Windows side in milestone 2). Chipid read at
+  BAR0+0x3000 (bcmdhd pcie_core.h:55-60, 16 KB BAR0 layout) when BAR0 >= 16 KB.
+- Build blocker found + worked around (no repo change): firmware/edk2 is gitignored and absent in a
+  worktree. A junction worktree/firmware/edk2 -> main's edk2 makes GNU make (GnuWin32 3.81) fail
+  `CreateProcess(NULL, Trim ...)` (e=2): make's PATH search does not find Trim.bat through a junction
+  (reproduced with a 1-line Makefile: via junction path fails, via the real path works). Fix used: a
+  scratch copy of build-uefi.ps1 with $ws = worktree firmware and $edk2 = main firmware\edk2 (no
+  junction); also dropped the empty and `Calibre2"` PATH entries. Build output goes to main's
+  firmware/edk2/Build (shared, as instructed).
+- BUILD (DEBUG, CLANGPDB, PcieDxe + memory map + SEC clear + DSDT WLAN all in the tree): exit 0,
+  `- Done -`, FVMAIN_COMPACT 759104/761856 used, 2752 B free (was ~3136 B before this work);
+  BEYOND0LTE_UEFI.fd sha256 4b8abc3f402d5913...0d815. Dsdt.aml contains SAMS9825 + WLST region.

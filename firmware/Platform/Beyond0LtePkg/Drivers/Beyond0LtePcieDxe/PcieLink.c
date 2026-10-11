@@ -325,14 +325,15 @@ EstablishLink (
   UINT32   V;
 
   for (Try = 0; Try < PCIE_LINK_MAX_TRIES; Try++) {
+    DEBUG ((DEBUG_INFO, "[PCIe] link try %d/%d\n", Try + 1, PCIE_LINK_MAX_TRIES));
     PhyCheckRxElecidle (ELECIDLE_IGNORE);           // v0.c:1227
 
-    ElbiWrite (0, PCIE_ELBI_SOFT_CORE_RESET);       // v0.c:1231
+    ElbiWrite (0, PCIE_ELBI_SOFT_CORE_RESET);       // v0.c:1231 (kernel udelay(20); 200 us here)
     gBS->Stall (200);
     ElbiWrite (1, PCIE_ELBI_SOFT_CORE_RESET);
 
-    PerstSet (TRUE);                                // v0.c:1235, 18-20ms
-    gBS->Stall (200000);
+    PerstSet (TRUE);                                // v0.c:1235 (kernel 18-20 ms; budget in PcieHw.h)
+    gBS->Stall (PCIE_PERST_SETTLE_US);
 
     V = ElbiRead (PCIE_ELBI_APP_REQ_EXIT_L1_MODE);  // v0.c:1240-1243
     ElbiWrite (V | 0x1u | PCIE_ELBI_L1_REQ_NAK_MASTER,
@@ -363,12 +364,13 @@ EstablishLink (
       }
 
       Poll++;
-      gBS->Stall (100);
+      gBS->Stall (PCIE_LINK_POLL_STEP_US);
     }
 
     if (Poll < PCIE_LINK_POLL_ITER) {
       V = DbiRead (PCIE_DBI_LINK_CTRL_STAT);        // v0.c:1331-1333
-      DEBUG ((DEBUG_INFO, "[PCIe] link up, speed GEN%x\n", (V >> 16) & 0xF));
+      DEBUG ((DEBUG_INFO, "[PCIe] link up on try %d after %d polls, RDLH=0x%x, speed GEN%x\n",
+        Try + 1, Poll, ElbiRead (PCIE_ELBI_RDLH_LINKUP), (V >> 16) & 0xF));
 
       ElbiWrite (ElbiRead (PCIE_ELBI_IRQ_PULSE),    // W1C stale pulses, v0.c:1336-1337
         PCIE_ELBI_IRQ_PULSE);
@@ -380,13 +382,99 @@ EstablishLink (
       return EFI_SUCCESS;
     }
 
-    DEBUG ((DEBUG_WARN, "[PCIe] link try %x failed, RDLH=%x\n", Try,
-      ElbiRead (PCIE_ELBI_RDLH_LINKUP)));
+    DEBUG ((DEBUG_WARN, "[PCIe] link try %d failed, RDLH=0x%x PM_DSTATE=0x%x\n", Try + 1,
+      ElbiRead (PCIE_ELBI_RDLH_LINKUP), ElbiRead (PCIE_ELBI_PM_DSTATE)));
 
-    // teardown for retry (v0.c:1300-1307)
+    // teardown for retry (v0.c:1300-1307; the kernel also gates the PHY clock
+    // off here - we keep it on, the next try re-runs the whole PHY sequence)
     PerstSet (FALSE);
     ElbiWrite (0, PCIE_ELBI_APP_LTSSM_ENABLE);
   }
 
   return EFI_DEVICE_ERROR;                          // link never came up
+}
+
+VOID
+EpAssignBars (
+  VOID
+  )
+// Standard PCI BAR sizing (PCI Local Bus 3.0 §6.2.5.1: write all ones, read
+// back the size mask, restore) with decode disabled, then every memory BAR is
+// placed naturally aligned, bottom-up, inside the MEM iATU window
+// (EXYNOS_PCIE0_MEM_BASE/SIZE, 1:1 CPU == PCI address). A BAR that does not
+// fit, an I/O BAR, or a >4 GB BAR is left unassigned and logged. No size is
+// assumed: the chip reports its own.
+{
+  UINT64   Cursor;
+  UINT64   Limit;
+  UINT32   Index;
+  UINT32   Off;
+  UINT32   Orig;
+  UINT32   Mask;
+  UINT32   Upper;
+  UINT32   Size;
+  BOOLEAN  Is64;
+
+  Cursor = EXYNOS_PCIE0_MEM_BASE;
+  Limit  = EXYNOS_PCIE0_MEM_BASE + EXYNOS_PCIE0_MEM_SIZE;
+
+  EpCfgWrite (0, EP_CFG_COMMAND);                   // decode off while probing
+
+  for (Index = 0; Index < EP_CFG_BAR_COUNT; Index++) {
+    mPcie.BarAddr[Index] = 0;
+    mPcie.BarSize[Index] = 0;
+  }
+
+  for (Index = 0; Index < EP_CFG_BAR_COUNT; Index++) {
+    Off  = EP_CFG_BASE_ADDRESS_0 + 4 * Index;
+    Orig = EpCfgRead (Off);
+    EpCfgWrite (0xFFFFFFFFu, Off);
+    Mask = EpCfgRead (Off);
+    EpCfgWrite (Orig, Off);
+
+    if ((Mask == 0) || (Mask == 0xFFFFFFFFu)) {
+      continue;                                     // unimplemented BAR (or a dead read)
+    }
+
+    if ((Mask & EP_CFG_BAR_IO) != 0) {
+      DEBUG ((DEBUG_WARN, "[PCIe] EP BAR%d: I/O BAR (mask 0x%x) - not assigned\n", Index, Mask));
+      continue;
+    }
+
+    Is64  = (BOOLEAN)((Mask & EP_CFG_BAR_TYPE_MASK) == EP_CFG_BAR_TYPE_64);
+    Upper = 0xFFFFFFFFu;
+    if (Is64 && (Index + 1 < EP_CFG_BAR_COUNT)) {
+      Orig  = EpCfgRead (Off + 4);
+      EpCfgWrite (0xFFFFFFFFu, Off + 4);
+      Upper = EpCfgRead (Off + 4);
+      EpCfgWrite (Orig, Off + 4);
+    }
+
+    Size = ~(Mask & EP_CFG_BAR_MEM_MASK) + 1;
+    if ((Upper != 0xFFFFFFFFu) || (Size == 0)) {
+      DEBUG ((DEBUG_WARN, "[PCIe] EP BAR%d: >4 GB (mask 0x%x upper 0x%x) - not assigned\n",
+        Index, Mask, Upper));
+    } else {
+      Cursor = (Cursor + Size - 1) & ~((UINT64)Size - 1);
+      if (Cursor + Size > Limit) {
+        DEBUG ((DEBUG_WARN, "[PCIe] EP BAR%d: %a-bit size 0x%x does not fit the MEM window - not assigned\n",
+          Index, Is64 ? "64" : "32", Size));
+      } else {
+        EpCfgWrite ((UINT32)Cursor, Off);
+        if (Is64) {
+          EpCfgWrite (0, Off + 4);
+        }
+
+        mPcie.BarAddr[Index] = (UINT32)Cursor;
+        mPcie.BarSize[Index] = Size;
+        DEBUG ((DEBUG_INFO, "[PCIe] EP BAR%d: %a-bit size 0x%x -> 0x%x (readback 0x%x)\n",
+          Index, Is64 ? "64" : "32", Size, (UINT32)Cursor, EpCfgRead (Off)));
+        Cursor += Size;
+      }
+    }
+
+    if (Is64) {
+      Index++;                                      // the upper half is not a BAR of its own
+    }
+  }
 }

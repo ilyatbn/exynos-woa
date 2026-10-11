@@ -23,6 +23,8 @@ typedef struct {
   volatile UINT32  *GpioPeric0; // 0x10430000
   volatile UINT32  *GpioFsys1;  // 0x13C40000
   volatile UINT32  *SysRegFsys1; // 0x13C10000
+  UINT32           BarAddr[6];   // EP BARs as assigned by EpAssignBars (0 = unassigned)
+  UINT32           BarSize[6];   // EP BAR sizes from the standard all-ones sizing probe
 } PCIE_CTX;
 
 extern PCIE_CTX  mPcie;
@@ -53,6 +55,7 @@ VOID   SetupRc (VOID);                          // dw_pcie_setup + exynos_pcie_s
 EFI_STATUS  ProgramAtu (VOID);                  // region1 CFG0 (bus1 dev0), region0 MEM
 UINT32 EpCfgRead (IN UINT32  Where);
 VOID   EpCfgWrite (IN UINT32  Val, IN UINT32  Where);
+VOID   EpAssignBars (VOID);                     // size + place every memory BAR in the MEM window
 EFI_STATUS  EstablishLink (VOID);               // the full establish_link transliteration
 
 #endif // _BEYOND0LTE_PCIE_INTERNAL_H

@@ -171,13 +171,38 @@
 //
 // Endpoint config-space offsets used at bring-up (pci_regs.h names).
 //
+#define EP_CFG_VENDOR_DEVICE           0x000
 #define EP_CFG_COMMAND                 0x004
-#define EP_CFG_BASE_ADDRESS_0          0x010
+#define EP_CFG_BASE_ADDRESS_0          0x010  // BARn at 0x10 + 4*n, n = 0..5 (PCI 3.0 type-0 header)
+#define EP_CFG_BAR_COUNT               6
+#define EP_CFG_BAR_IO                  (0x1u << 0)   // PCI 3.0 6.2.5.1: bit0 1 = I/O BAR
+#define EP_CFG_BAR_TYPE_MASK           (0x3u << 1)   // bits 2:1 memory type
+#define EP_CFG_BAR_TYPE_64             (0x2u << 1)   // 10b = 64-bit (occupies BARn + BARn+1)
+#define EP_CFG_BAR_MEM_MASK            0xFFFFFFF0u   // bits 3:0 are flags on a memory BAR
 #define EP_CFG_INTERRUPT_LINE          0x03C
 #define EP_CFG_COMMAND_MEM_EN          (0x1u << 1)
-#define EP_CFG_COMMAND_BUS_MASTER_EN (0x1u << 2)
+#define EP_CFG_COMMAND_BUS_MASTER_EN   (0x1u << 2)   // NOT set by the UEFI half (no DMA before firmware)
 
-#define PCIE_LINK_MAX_TRIES            10     // establish_link retry_cnt (v0.c:1296)
-#define PCIE_LINK_POLL_ITER            2000   // MAX_TIMEOUT (v0.h:16)
+//
+// Broadcom PCIe BAR0 layout (VERIFIED, bcmdhd include/pcie_core.h:55-60, the
+// same facts drivers/Exynos9820Wlan/Exynos9820Wlan.h carries): BAR0 is a 16 KB
+// window, ChipCommon core registers at +0x3000; ChipCommon's first register is
+// chipid (sbchipc.h:177-178): bits 15:0 chip id, bits 19:16 revision.
+//
+#define PCIE_BCM_BAR0_MIN_SIZE         0x4000u
+#define PCIE_BCM_BAR0_CCCORE_OFF       0x3000u
+#define PCIE_BCM_CC_CHIPID             0x0000u
+
+//
+// Link-training budget. The kernel waits 18-20 ms after PERST# high and polls
+// LTSSM 2000 x 10 us = 20 ms, up to 10 tries (v0.c:1240/1292/1300, lineage-23.2, re-read 2026-10-12). We wait
+// 10x longer per step (200 ms + 2000 x 100 us) because this is an untested
+// first bring-up, but only 3 tries: worst case ~3 x (0.2 + 0.2 + ~0.005) s
+// ~= 1.2 s added to a boot whose link never trains. Each try is logged.
+//
+#define PCIE_LINK_MAX_TRIES            3
+#define PCIE_LINK_POLL_ITER            2000   // x PCIE_LINK_POLL_STEP_US
+#define PCIE_LINK_POLL_STEP_US         100
+#define PCIE_PERST_SETTLE_US           200000
 
 #endif // _BEYOND0LTE_PCIE_HW_H

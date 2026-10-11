@@ -453,6 +453,13 @@
 #define EXYNOS_TOUCH_I2C_ADDR     0x48                    // VERIFIED (touchscreen@48)
 #define EXYNOS_TOUCH_HSI2C_GSIV   420                     // VERIFIED (SPI 388 + 32)
 #define EXYNOS_HSI2C_SOURCE_CLOCK_HZ 200000000u           // VERIFIED (default-clk)
+//
+// The touch bus is USI03's USI block: hsi2c@104B0000 clocks = 509 DOUT_CLK_PERIC0_USI03_USI and
+// 493 GATE_USI03_USI (dt-bindings/clock/exynos9820.h). Its mode register is usi@1042101C
+// (label usi_3, usi_v2_mode "i2c") in the PERIC0 USI sysreg page. notes/m12-touch.md.
+//
+#define EXYNOS_PERIC0_USI_SYSREG_BASE   0x0000000010421000ULL   // VERIFIED (usi@10421000..usi@10421050 reg)
+#define EXYNOS_USI03_MODE_OFFSET        0x1Cu                   // VERIFIED (usi@1042101C, label usi_3)
 
 //
 // The panel blob on THIS model is tsp_sec/y761_beyond0_phole.bin — a y761,

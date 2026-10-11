@@ -27,11 +27,10 @@
       GIC windows identical to the 9810.
 
   DELIBERATELY UNCHANGED, and it is NOT correct on this SoC:
-    * the SYSREG_PERIC0 (0x10411000) window under I2C0. The 9820 DT has no node
-      there; its USI sysreg block is `usi@10421000` with `usi3` at 0x10421010,
-      which is the candidate, but the 9810's +0x1C slot does not translate, so
-      it stays at the 9810 value and the driver header keeps the pair in
-      agreement.
+    (M12: the SYSREG window under I2C0 moved from the 9810's 0x10411000 to the
+      9820's PERIC0 USI sysreg page 0x10421000 - live DT usi@1042101C, label usi_3,
+      is USI03's mode register, the driver's +0x1C; Exynos9820.h
+      EXYNOS_PERIC0_USI_SYSREG_BASE. notes/m12-touch.md.)
     The CMU window IS now correct: `SFR_BLOCK(CMU_PERIC0, 0x10400000, 0x8000)`
     in Samsung's cal-if table (drivers/soc/samsung/cal-if/exynos9820/cmucal-sfr.c)
     confirms the 9810 base and gives the full 0x8000 extent, which is what the
@@ -255,7 +254,7 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
             {
                 Memory32Fixed (ReadWrite, 0x104B0000, 0x00001000)
                 Memory32Fixed (ReadWrite, 0x10400000, 0x00008000)  // cal-if SFR_BLOCK(CMU_PERIC0) size 0x8000
-                Memory32Fixed (ReadWrite, 0x10411000, 0x00001000)
+                Memory32Fixed (ReadWrite, 0x10421000, 0x00001000)  // USI sysreg page (usi@1042101C = USI03 mode)
                 Memory32Fixed (ReadWrite, 0x10430000, 0x00001000)
                 Interrupt (ResourceConsumer, Edge, ActiveHigh, Exclusive)
                 {

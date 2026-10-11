@@ -29,20 +29,25 @@
 // block layout, so they do not carry over:
 //
 //   CLK_CON_GAT_CLK_BLK_PERIC0_UID_RSTNSYNC_CLK_PERIC0_OSCCLK_IPCLKPORT_CLK  0x2008
-//   CLK_CON_GAT_CLK_BLK_PERIC0_UID_RSTNSYNC_CLK_PERIC0_USI_I2C_IPCLKPORT_CLK 0x2054
-//   CLK_CON_GAT_GOUT_BLK_PERIC0_UID_USI03_I2C_IPCLKPORT_IPCLK                0x2094
-//   CLK_CON_GAT_GOUT_BLK_PERIC0_UID_USI03_I2C_IPCLKPORT_PCLK                 0x2098
-//   QCH_CON_USI03_I2C_QCH                                                    0x3038 (identical to 9810)
+//   CLK_CON_GAT_GOUT_BLK_PERIC0_UID_RSTNSYNC_CLK_PERIC0_USI03_USI_IPCLKPORT_CLK 0x2038
+//   CLK_CON_GAT_GOUT_BLK_PERIC0_UID_USI03_USI_IPCLKPORT_IPCLK                0x209c
+//   CLK_CON_GAT_GOUT_BLK_PERIC0_UID_USI03_USI_IPCLKPORT_PCLK                 0x20a0
+//   QCH_CON_USI03_USI_QCH                                                    0x303c
+//
+// M12 (notes/m12-touch.md): the bus is USI03's USI block, NOT the USI03_I2C companion - the live DT's
+// hsi2c@104B0000 clocks are 509 = DOUT_CLK_PERIC0_USI03_USI and 493 = GATE_USI03_USI
+// (include/dt-bindings/clock/exynos9820.h). The earlier USI03_I2C picks (0x2054/0x2094/0x2098/0x3038)
+// were the companion I2C's gates.
 //
 // The bit fields agree with the driver's masks: SFR_ACCESS(..._MANUAL, 20, 1)
 // and SFR_ACCESS(..._CG_VAL, 21, 1) match EXYNOS_CMU_GATE_MANUAL (1<<20) and
 // EXYNOS_CMU_GATE_VALUE (1<<21).
 //
-// STILL UNVERIFIED: the SYSREG window. The 9820 DT has no node at 0x10411000;
-// its USI sysreg block is `usi@10421000` with `usi3` at 0x10421010, which is
-// the candidate (base 0x10421000, USI03 register at +0x10) — but the 9810's
-// +0x1C slot does not translate, so it stays at the 9810 value and the DSDT
-// keeps the pair in agreement.
+// SYSREG (M12, live DT read from TWRP): the USI03 mode register is
+// `usi@1042101C` (label usi_3, usi_v2_mode "i2c") - base 0x10421000, offset 0x1C
+// (the 9810's offset, new base). The DSDT window moves with it. (The earlier
+// "usi3 at 0x10421010" candidate came from the alias numbering, which is not
+// the USI index: aliases/usi6 = usi@1042101C.)
 // ---------------------------------------------------------------------------
 //
 #define EXYNOS_HSI2C10_PHYSICAL_BASE          0x00000000104B0000ULL   // VERIFIED
@@ -50,8 +55,8 @@
 
 #define EXYNOS_PERIC0_CMU_PHYSICAL_BASE       0x0000000010400000ULL   // cal-if SFR_BLOCK
 #define EXYNOS_PERIC0_CMU_REGISTER_LENGTH     0x00008000UL            // cal-if SFR_BLOCK size
-#define EXYNOS_PERIC0_SYSREG_PHYSICAL_BASE    0x0000000010411000ULL   // UNVERIFIED (9810 value; 0x10421000 is the candidate)
-#define EXYNOS_PERIC0_SYSREG_REGISTER_LENGTH  0x00001000UL            // UNVERIFIED (9810 value)
+#define EXYNOS_PERIC0_SYSREG_PHYSICAL_BASE    0x0000000010421000ULL   // VERIFIED (live DT usi@1042101C, label usi_3)
+#define EXYNOS_PERIC0_SYSREG_REGISTER_LENGTH  0x00001000UL            // page holding usi@10421000..usi@10421050
 #define EXYNOS_PERIC0_GPIO_PHYSICAL_BASE      0x0000000010430000ULL   // VERIFIED
 #define EXYNOS_PERIC0_GPIO_REGISTER_LENGTH    0x00001000UL            // VERIFIED
 
@@ -62,10 +67,10 @@
 #define EXYNOS_HSI2C_REQUEST_TIMEOUT_MS       1000UL
 
 #define EXYNOS_CMU_GATE_USI03_SOURCE          0x2008UL                // cal-if: RSTNSYNC_CLK_PERIC0_OSCCLK_IPCLKPORT_CLK (chain-inferred role)
-#define EXYNOS_CMU_GATE_USI03_RESET_SYNC      0x2054UL                // cal-if: RSTNSYNC_CLK_PERIC0_USI_I2C_IPCLKPORT_CLK
-#define EXYNOS_CMU_GATE_USI03_IPCLK           0x2094UL                // cal-if: USI03_I2C_IPCLKPORT_IPCLK
-#define EXYNOS_CMU_GATE_USI03_PCLK            0x2098UL                // cal-if: USI03_I2C_IPCLKPORT_PCLK
-#define EXYNOS_CMU_QCH_USI03                  0x3038UL                // cal-if: QCH_CON_USI03_I2C_QCH (same as 9810)
+#define EXYNOS_CMU_GATE_USI03_RESET_SYNC      0x2038UL                // cal-if: RSTNSYNC_CLK_PERIC0_USI03_USI_IPCLKPORT_CLK
+#define EXYNOS_CMU_GATE_USI03_IPCLK           0x209CUL                // cal-if: USI03_USI_IPCLKPORT_IPCLK
+#define EXYNOS_CMU_GATE_USI03_PCLK            0x20A0UL                // cal-if: USI03_USI_IPCLKPORT_PCLK
+#define EXYNOS_CMU_QCH_USI03                  0x303CUL                // cal-if: QCH_CON_USI03_USI_QCH
 #define EXYNOS_CMU_GATE_MANUAL                (1UL << 20)
 #define EXYNOS_CMU_GATE_VALUE                 (1UL << 21)
 #define EXYNOS_CMU_QCH_ENABLE                 (1UL << 0)
@@ -73,7 +78,7 @@
 #define EXYNOS_CMU_QCH_REQUIRED               \
     (EXYNOS_CMU_QCH_ENABLE | EXYNOS_CMU_QCH_CLOCK_REQUEST)
 
-#define EXYNOS_SYSREG_USI03_CONFIGURATION     0x001CUL
+#define EXYNOS_SYSREG_USI03_CONFIGURATION     0x001CUL                // VERIFIED (usi@1042101C - 0x10421000)
 #define EXYNOS_SYSREG_USI_MODE_I2C            0x00000004UL
 
 #define EXYNOS_GPIO_GPP1_CONFIGURATION        0x0020UL

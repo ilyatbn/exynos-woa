@@ -37,7 +37,7 @@
 // callee-saved register zeroed across a plain call (MmHapAddToFreeList), deterministically -
 // the bank0-only boot tells whether the new ranges (uH stage-2?) are the cause.
 //
-#define BEYOND0LTE_PUBLISH_BANK12      0
+#define BEYOND0LTE_PUBLISH_BANK12      1   // W33: back on, and now actually published as RAM (resource HOBs below)
 
 #define MMAP_DRAM   ARM_MEMORY_REGION_ATTRIBUTE_WRITE_BACK
 #define MMAP_DEV    ARM_MEMORY_REGION_ATTRIBUTE_DEVICE
@@ -409,6 +409,34 @@ ArmPlatformGetVirtualMemoryMap (
       // W19: the RAM boot log (Beyond0LteBootLog.h) - mapped as bank0 RAM, kept out of every allocator.
       BuildMemoryAllocationHob (BEYOND0LTE_BOOTLOG_BASE, BEYOND0LTE_BOOTLOG_SIZE, EfiReservedMemoryType);
       // W23: the Windows UFS driver's PRAM ring - reserved so Windows never allocates it as RAM.
+      //
+      // W33: give UEFI and Windows the bank1/bank2 RAM. W2 only MAPPED these ranges; MemoryInitPeiLib
+      // publishes a single resource HOB for PcdSystemMemory (bank0), so they never reached the
+      // memory map (W18) and Windows Setup ran on ~0.9 GB. Every write-back DRAM entry of the table
+      // above that lies in 0xC0000000..4 GiB (already carved around seclog, the framebuffer, the
+      // modem block and modem_if..4 GiB) becomes system memory. UFS DMA stays in bank0 (W2).
+      //
+#if BEYOND0LTE_PUBLISH_BANK12
+      {
+        UINTN  T;
+
+        for (T = 0; T < Index; T++) {
+          if ((Table[T].Attributes == MMAP_DRAM) && (Table[T].PhysicalBase >= 0xC0000000ULL) &&
+              (Table[T].PhysicalBase + Table[T].Length <= 0x100000000ULL))
+          {
+            BuildResourceDescriptorHob (
+              EFI_RESOURCE_SYSTEM_MEMORY,
+              EFI_RESOURCE_ATTRIBUTE_PRESENT | EFI_RESOURCE_ATTRIBUTE_INITIALIZED |
+              EFI_RESOURCE_ATTRIBUTE_WRITE_COMBINEABLE | EFI_RESOURCE_ATTRIBUTE_WRITE_THROUGH_CACHEABLE |
+              EFI_RESOURCE_ATTRIBUTE_WRITE_BACK_CACHEABLE | EFI_RESOURCE_ATTRIBUTE_TESTED,
+              Table[T].PhysicalBase,
+              Table[T].Length
+              );
+          }
+        }
+      }
+#endif
+
       // W31: runtime data (still never handed to the OS as RAM) so the runtime ResetSystem can
       // reach the boot progress word at 0x8FE0F000 after SetVirtualAddressMap.
       BuildMemoryAllocationHob (BEYOND0LTE_WINPRAM_BASE, BEYOND0LTE_WINPRAM_SIZE, EfiRuntimeServicesData);

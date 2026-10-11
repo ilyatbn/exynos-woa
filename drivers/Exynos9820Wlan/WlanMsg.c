@@ -175,7 +175,7 @@ EscanResult(_Inout_ PMSG_STATE S, _In_reads_bytes_(Len) const UCHAR *D, _In_ ULO
         ULONG        SsidLen = B[BSS_SSID_LEN];
         CHAR         Ssid[33];
 
-        if (BLen < BSS_INFO_MIN_LEN || Off + BLen > Len) {
+        if (BLen < BSS_INFO_MIN_LEN || BLen > Len - Off) {
             ReportLine(S->R, "[scan] bss_info length %lu at %lu of %lu - stop parsing this event\r\n", BLen, Off, Len);
             return;
         }

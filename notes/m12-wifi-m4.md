@@ -80,3 +80,10 @@ BSS (BSSID, SSID, channel, RSSI) the firmware reports. Proves the radio receives
     final line `SCAN n: ...`.
 - Registry Parameters\Scan (default 1). MSG_DMA_SIZE 0x23000 -> 0x27000 (event buffers @0x23000).
   DriverVer 1.0.4.0. Build s10e-artifacts\wifi-m4, sys A9E67C40D5DF74AF.
+- Review of f707b27:
+  - Checked: event-buffer carve-out ends exactly at MSG_DMA_SIZE (0x23000 + 8 x 0x800 = 0x27000), so the DMA
+    enabler MaximumLength follows automatically.
+  - Checked: D2H XOR covers the 24 B item; EventPacket bounds `Len < 72` before any field read; the goto
+    ScanEnd stays inside the block.
+  - Found: EscanResult `Off + BLen > Len` wraps for a malformed BLen near 4 GB (reads stay bounded by the loop
+    guard, but the check is wrong). Fixed in its own commit: `BLen > Len - Off`.

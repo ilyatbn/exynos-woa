@@ -822,3 +822,10 @@ steady beep for ~2 s in both ears at a moderate level (-32 dBFS, a square wave i
 right, so it may sound buzzy rather than pure). Report: heard / not heard, both ears or one, rough pitch,
 anything else (click at start/end). If nothing is heard but the log shows KEY LINES 1-3, the digital path is
 proven and the problem is analogue (jack detect / HP stage) - say so in the result.
+
+- Review dfe7169 (procedure): every expected line compared against its DEBUG format string in AudioTone.c
+  (status / programmed / LOCKED / Set "[reg] mask <- : read" / patch summary / done); predicted register values
+  re-derived from the reset defaults [L92T:145,161-172] through the exact update order in FllEnable/FllDisable
+  (CTRL1 7004 -> 1001 running -> 1004 disabled; CTRL11 11 -> 5 -> 4; DT1 33E8 -> 32E8; SYSCLK1 404 -> 444).
+  "NO LOCK after 301 ms" matches the 0..300 inclusive loop. No follow-ups. Branch state: 7 commits on e3f72a2,
+  not pushed, nothing packed or flashed.

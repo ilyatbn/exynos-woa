@@ -46,7 +46,7 @@
 // is never reset by it. The driver's WTCNT reloads do not re-enable a stopped timer (WTCON EN = 0).
 //
 #ifndef BEYOND0LTE_WINDOWS_WATCHDOG
-#define BEYOND0LTE_WINDOWS_WATCHDOG  0
+#define BEYOND0LTE_WINDOWS_WATCHDOG  1   // 2026-10-12 unattended session (user away): hang -> 82 s -> TWRP. Set back to 0 for interactive use.
 #endif
 
 STATIC

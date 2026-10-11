@@ -49,6 +49,10 @@
 // status word 'USBD' makes the DSDT's UFN0 (the DBG2 namespace device) present.
 #define BEYOND0LTE_USB_KD_DEVICE  0   // 1 = KD image (boot #78), 0 = host/dock image; BCD debug must match
 
+// M16: 1 = bring the USB3 SuperSpeed PHY up in host mode (kernel pipe3_init trace, notes/m16-ss-phy.md); on a lock
+// timeout it tears down and stays USB2-only.
+#define BEYOND0LTE_USB_SS  1
+
 // Boot progress page (0x8FE0F000, WINPRAM, EfiRuntimeServicesData): [0] = the previous boot's last code,
 // [1] = this boot's, [2] = USB status (cleared in SEC, ArmPlatformLib.c). The USB clock gates are
 // ACPM-owned (notes/d1-usb-host.md); if sboot left them off, the first PHY/DWC3 read can hang the bus
@@ -158,12 +162,14 @@ UsbHostBringUp (
   UINT8                           CcStatus;
   BOOLEAN                         VbusOn;
   BOOLEAN                         CcicOk;
+  BOOLEAN                         SsUp;
   EFI_HANDLE                      DeviceHandle;
 
   Revision  = 0;
   CcStatus  = 0;
   VbusOn    = FALSE;
   CcicOk    = FALSE;
+  SsUp      = FALSE;
 
   // 1. PMIC bus first: if the I2C block is not alive we can still bring up
   //    the controller, but VBUS will stay off — log it and continue.
@@ -195,12 +201,27 @@ UsbHostBringUp (
 
   UsbPhyHostModeDeltas ();
 
+  // M16: SuperSpeed (USB3 devices / the dock's SS hub + DP alt-mode lanes never attached on USB2-only).
+  if (BEYOND0LTE_USB_SS && !EFI_ERROR (UsbPhySsInit ())) {
+    SsUp = TRUE;
+  }
+
   // 3. DWC3 core -> HOST.
   Status = Dwc3CoreInit (FALSE, &Revision);
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "%a: DWC3 init %r — USB host disabled\n",
             __func__, Status));
     return Status;
+  }
+
+  if (SsUp) {
+    // [K core.c dwc3_core_config, DWC_usb31 > 1.20a]: LLUCTL 0xD024 |= PENDING_HP_TIMER 0xB<<16 | EN_US_HP_TIMER b15 |
+    // FORCE_GEN1 b10 (Linux runs Gen1 5 Gbps on this core); LSKIPFREQ 0xD020 |= 9<<20 | 5<<24 | b27.
+    MmioWrite32 (EXYNOS_USBDRD_BASE + 0xD024, MmioRead32 (EXYNOS_USBDRD_BASE + 0xD024) | (0xBu << 16) | BIT15 | BIT10);
+    MmioWrite32 (EXYNOS_USBDRD_BASE + 0xD020, MmioRead32 (EXYNOS_USBDRD_BASE + 0xD020) | (9u << 20) | (5u << 24) | BIT27);
+    DEBUG ((DEBUG_INFO, "%a: SS link: LLUCTL %x LSKIPFREQ %x GUSB3PIPECTL %x\n", __func__,
+            MmioRead32 (EXYNOS_USBDRD_BASE + 0xD024), MmioRead32 (EXYNOS_USBDRD_BASE + 0xD020),
+            MmioRead32 (EXYNOS_USBDRD_BASE + 0xC2C0)));
   }
 
   // 4. VBUS: only with a source-role attach on the CC lines. Turning the

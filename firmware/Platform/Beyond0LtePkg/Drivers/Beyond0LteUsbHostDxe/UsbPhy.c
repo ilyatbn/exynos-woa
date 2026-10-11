@@ -255,3 +255,157 @@ UsbPhyHostModeDeltas (VOID)
   MmioWrite32 (PHY0 + USBCON_HSP, MmioRead32 (PHY0 + USBCON_HSP) & ~(HSP_VBUSVLDEXTSEL | HSP_VBUSVLDEXT));
   UsbPhyDump ("host after ");
 }
+
+//
+// M16 SuperSpeed (notes/m16-ss-phy.md): the kernel's pipe3_init order (phy-exynos-usbdrd.c:1194-1239) -
+// PMU 0x704 de-isolate -> g2_pma_ready (USBCON 0x48 / LINK_CTRL) -> usbdp_g2_enable (combo PMA + PCS table,
+// lane mux by orientation) -> g2_pma_sw_rst_release -> LC PLL lock -> run_lane -> CDR lock -> LINK_PCLK_SEL.
+// LINK_PCLK_SEL hands the link's pipe clock to the PMA, so it is set ONLY after both locks (boot #75 set it with
+// the PMA down and the link died). Any timeout tears the SS side back down (g2_disable order) and leaves USB2.
+//
+#include "UsbSsPhyTable.h"
+
+#define USB_SS_PMU_ISO           0x704     // [K] pmu_offset_dp, bit0 = de-isolated
+#define USB_SS_PMA_LCPLL         0x0350    // [K gen2.c:392] CMN_A0350 bit7 ANA_LCPLL_LOCK_DONE
+#define USB_SS_PMA_CDR_PORT0     0x0B84    // [K gen2.c:47] LN0 RX CDR lock, bit0
+#define USB_SS_PMA_CDR_PORT1     0x1B84    // [K] LN2 RX CDR lock, bit0
+#define USB_SS_LOCK_POLL_US      100000    // [K] 100 outer x 1000 x 1 us
+// Orientation: Linux reads GPIO gpg0-4 ("PHY_CON") as used_phy_port (usbdrd.c:1157-1192). gpg0 = 5th bank of
+// pinctrl@10430000 -> DAT at +0x84 by the Samsung 0x20 bank stride. UNVERIFIED address (notes/m16-ss-phy.md §4):
+// only read and logged; a CDR timeout on that port retries the other one.
+#define USB_SS_GPG0_DAT_UNVERIFIED  0x10430084ULL
+#define USB_SS_GPG0_PHY_CON_BIT     BIT4
+
+STATIC
+VOID
+UsbSsApply (IN CONST USB_SS_PHY_WRITE *Table, IN UINTN Count)
+{
+  UINTN   Index;
+  UINTN   Address;
+
+  for (Index = 0; Index < Count; Index++) {
+    Address = (UINTN)((Table[Index].Block == 0) ? EXYNOS_USB_COMBO_PHY_BASE : EXYNOS_USB_PCS_BASE) + Table[Index].Offset;
+    if (Table[Index].Keep == 0) {
+      MmioWrite32 (Address, Table[Index].Value);
+    } else {
+      MmioWrite32 (Address, (MmioRead32 (Address) & Table[Index].Keep) | Table[Index].Value);
+    }
+  }
+}
+
+STATIC
+BOOLEAN
+UsbSsPollBit (IN UINTN Address, IN UINT32 Bit, OUT UINTN *WaitedUs)
+{
+  UINTN  Us;
+
+  for (Us = 0; Us < USB_SS_LOCK_POLL_US; Us += 10) {
+    if ((MmioRead32 (Address) & Bit) != 0) {
+      *WaitedUs = Us;
+      return TRUE;
+    }
+
+    gBS->Stall (10);
+  }
+
+  *WaitedUs = Us;
+  return FALSE;
+}
+
+STATIC
+VOID
+UsbSsTeardown (VOID)
+{
+  // g2_disable (usb3p1.c:258-283): PCLK_SEL off FIRST, then hold the PMA in reset/low power; then the USB2-only
+  // PIPE3 override we used before (link sees an idle, absent SS PHY).
+  MmioWrite32 (PHY0 + USBCON_CLKRST, MmioRead32 (PHY0 + USBCON_CLKRST) & ~CLKRST_LINK_PCLK_SEL);
+  MmioWrite32 (PHY0 + USBCON_COMBO_PMA_CTRL, MmioRead32 (PHY0 + USBCON_COMBO_PMA_CTRL) |
+               PMA_LOW_PWRN | PMA_TRSV_SW_RST | PMA_CMN_SW_RST | PMA_INIT_SW_RST | PMA_APB_SW_RST);
+  gBS->Stall (1);
+  MmioWrite32 (PHY0 + USBCON_COMBO_PMA_CTRL, MmioRead32 (PHY0 + USBCON_COMBO_PMA_CTRL) &
+               ~(PMA_TRSV_SW_RST | PMA_CMN_SW_RST | PMA_INIT_SW_RST | PMA_APB_SW_RST));
+  MmioWrite32 (PHY0 + USBCON_LINK_CTRL, MmioRead32 (PHY0 + USBCON_LINK_CTRL) | LINKCTRL_PIPE3_FORCE_EN);
+}
+
+STATIC
+BOOLEAN
+UsbSsTryPort (IN UINTN Port)
+{
+  UINT32  Reg;
+  UINTN   Waited;
+  BOOLEAN Locked;
+
+  // g2_pma_ready (usb3p1.c:221-256).
+  gBS->Stall (100);
+  Reg  = MmioRead32 (PHY0 + USBCON_COMBO_PMA_CTRL);
+  Reg &= ~((3u << 12) | (3u << 10));
+  Reg |= PMA_REF_FREQ_SET (1) | PMA_LOW_PWRN | PMA_TRSV_SW_RST | PMA_CMN_SW_RST | PMA_INIT_SW_RST | PMA_APB_SW_RST;
+  MmioWrite32 (PHY0 + USBCON_COMBO_PMA_CTRL, Reg);
+  gBS->Stall (1);
+  MmioWrite32 (PHY0 + USBCON_COMBO_PMA_CTRL, MmioRead32 (PHY0 + USBCON_COMBO_PMA_CTRL) & ~PMA_LOW_PWRN);
+  gBS->Stall (1);
+  MmioWrite32 (PHY0 + USBCON_LINK_CTRL, MmioRead32 (PHY0 + USBCON_LINK_CTRL) & ~LINKCTRL_PIPE3_FORCE_EN);
+  gBS->Stall (1);
+  MmioWrite32 (PHY0 + USBCON_COMBO_PMA_CTRL, MmioRead32 (PHY0 + USBCON_COMBO_PMA_CTRL) & ~PMA_APB_SW_RST);
+
+  // First PMA access = one read (bus-hang canary; the 0x67 progress guard covers a hang).
+  DEBUG ((DEBUG_INFO, "UsbSs: port %u PMA_CTRL %x, PMA+0x350 %x\n", Port, MmioRead32 (PHY0 + USBCON_COMBO_PMA_CTRL),
+          MmioRead32 ((UINTN)EXYNOS_USB_COMBO_PHY_BASE + USB_SS_PMA_LCPLL)));
+
+  // usbdp_g2_enable.
+  UsbSsApply (mUsbSsPhyEnable, ARRAY_SIZE (mUsbSsPhyEnable));
+  if (Port == 0) {
+    UsbSsApply (mUsbSsPhyLaneMuxPort0, ARRAY_SIZE (mUsbSsPhyLaneMuxPort0));
+  } else {
+    UsbSsApply (mUsbSsPhyLaneMuxPort1, ARRAY_SIZE (mUsbSsPhyLaneMuxPort1));
+  }
+
+  // g2_pma_sw_rst_release (usb3p1.c:304-324).
+  MmioWrite32 (PHY0 + USBCON_COMBO_PMA_CTRL, MmioRead32 (PHY0 + USBCON_COMBO_PMA_CTRL) & ~PMA_INIT_SW_RST);
+  gBS->Stall (1);
+  MmioWrite32 (PHY0 + USBCON_COMBO_PMA_CTRL, MmioRead32 (PHY0 + USBCON_COMBO_PMA_CTRL) &
+               ~(PMA_TRSV_SW_RST | PMA_CMN_SW_RST));
+  gBS->Stall (1000);
+
+  Locked = UsbSsPollBit ((UINTN)EXYNOS_USB_COMBO_PHY_BASE + USB_SS_PMA_LCPLL, BIT7, &Waited);
+  DEBUG ((DEBUG_INFO, "UsbSs: port %u LC PLL %a after %u us (0x350 = %x)\n", Port, Locked ? "LOCKED" : "TIMEOUT",
+          Waited, MmioRead32 ((UINTN)EXYNOS_USB_COMBO_PHY_BASE + USB_SS_PMA_LCPLL)));
+  if (!Locked) {
+    return FALSE;
+  }
+
+  UsbSsApply (mUsbSsPhyRunLane, ARRAY_SIZE (mUsbSsPhyRunLane));
+  Locked = UsbSsPollBit ((UINTN)EXYNOS_USB_COMBO_PHY_BASE + ((Port == 0) ? USB_SS_PMA_CDR_PORT0 : USB_SS_PMA_CDR_PORT1),
+                         BIT0, &Waited);
+  DEBUG ((DEBUG_INFO, "UsbSs: port %u CDR %a after %u us\n", Port, Locked ? "LOCKED" : "TIMEOUT", Waited));
+  return Locked;
+}
+
+EFI_STATUS
+UsbPhySsInit (VOID)
+{
+  UINT32  Gpio;
+  UINTN   Port;
+  UINTN   Try;
+
+  MmioWrite32 (EXYNOS_PMU_BASE + USB_SS_PMU_ISO, MmioRead32 (EXYNOS_PMU_BASE + USB_SS_PMU_ISO) | BIT0);
+  Gpio = MmioRead32 (USB_SS_GPG0_DAT_UNVERIFIED);
+  Port = ((Gpio & USB_SS_GPG0_PHY_CON_BIT) != 0) ? 1 : 0;
+  DEBUG ((DEBUG_INFO, "UsbSs: PMU 0x704 = %x, gpg0 DAT(UNVERIFIED) = %x -> used_phy_port %u\n",
+          MmioRead32 (EXYNOS_PMU_BASE + USB_SS_PMU_ISO), Gpio, Port));
+
+  for (Try = 0; Try < 2; Try++, Port ^= 1) {
+    if (UsbSsTryPort (Port)) {
+      MmioWrite32 (PHY0 + USBCON_CLKRST, MmioRead32 (PHY0 + USBCON_CLKRST) | CLKRST_LINK_PCLK_SEL);
+      gBS->Stall (3000);   // [K g2_link_pclk_sel: mdelay(3)]
+      UsbPhyDump ("SS up");
+      return EFI_SUCCESS;
+    }
+
+    UsbSsTeardown ();
+  }
+
+  DEBUG ((DEBUG_WARN, "UsbSs: no lock on either port - staying USB2-only\n"));
+  UsbPhyDump ("SS down");
+  return EFI_NOT_READY;
+}

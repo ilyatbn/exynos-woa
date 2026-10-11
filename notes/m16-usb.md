@@ -415,3 +415,13 @@ Found:
   the SS devices; next = SuperSpeed PHY bring-up (research -> notes/m16-ss-phy.md). Dock facts from the drivers
   branch (notes/d6-external-display.md:453-472): UGREEN = Genesys GL352 USB3 hub + ASIX AX88179B, HDMI = DP alt mode
   (needs SS lanes + CCIC PD/VDM) - not DisplayLink.
+
+### SuperSpeed bring-up (boot #85, 2026-10-11 ~23:10)
+- Research: notes/m16-ss-phy.md (kernel phy-exynos-usbdp-gen2.c compiled on the host with stubbed MMIO -> exact
+  write trace). UsbSsPhyTable.h is GENERATED from that trace (enable 113 writes, lane-mux tails for port 0/1, run_lane).
+- UsbPhySsInit (host path, BEYOND0LTE_USB_SS 1): PMU 0x704 de-isolate; gpg0-4 orientation read at 0x10430084 bit4
+  (UNVERIFIED address, logged only); per port try: g2_pma_ready -> PMA read canary -> table -> sw_rst_release ->
+  LC PLL lock (0x350 b7, 100 ms) -> run_lane -> CDR lock (0xB84/0x1B84 b0, 100 ms); on both locks LINK_PCLK_SEL +
+  3 ms; on timeout g2_disable-order teardown and the other port; both fail -> USB2-only as before.
+  DWC3 after core init when SS is up: LLUCTL |= 0xB<<16|b15|b10 (FORCE_GEN1), LSKIPFREQ |= 9<<20|5<<24|b27.
+- Risk: a hang on the first PMA/PCS or GPIO read -> the existing 0x67 progress guard skips USB on the next boot.

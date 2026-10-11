@@ -25,6 +25,7 @@
 EFI_STATUS UsbPhyInit (VOID);
 VOID UsbPhyDeviceModeDeltas (VOID);   // M17: Linux device-mode PHY values (TWRP debugfs read)
 VOID UsbPhyHostModeDeltas (VOID);     // M16: Linux host-mode PHY values (TWRP capture): pull-downs on, no VBUS force
+EFI_STATUS UsbPhySsInit (VOID);         // M16: SuperSpeed PHY (kernel pipe3_init trace); EFI_NOT_READY = USB2-only
 
 //
 // Dwc3.c — DWC3 core init (dwc3_core_init). Revision-gated quirk branches

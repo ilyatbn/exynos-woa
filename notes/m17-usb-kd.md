@@ -199,3 +199,6 @@ hang (notes/m14-smp.md: "Needs kernel-level debugging (KDNET/USB) - parked"), ea
 - boot #74 (sha db56d6c5…): BEYOND0LTE_USB_KD_ATTACH_PROBE 1 - UEFI runs the device side 8 s (HS, our event
   buffer, RUN_STOP) logging DSTS link-state changes, then stops. Host watch for a failed enumeration in that window.
 - s10escale deployed (System32 + Public Desktop "Display scale.exe", sha da443209… = build).
+- Test 3 (boot #74, 20:55): own WinDbgX listening ("Waiting to reconnect..."); host PnP watcher 200 s from
+  `adb reboot`: NO new USB device at all (no failed enumeration either) through UEFI's 8 s probe window and the
+  Windows KD boot. Need the UEFILOG DSTS trace (TWRP).

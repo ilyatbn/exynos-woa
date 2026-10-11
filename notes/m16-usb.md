@@ -216,3 +216,17 @@ Found:
   (2) a second instance of our Windows HSI2C SPB driver for hsi2c_45 (ACPI device, CMGP sysreg/pinctrl)
   + a KMDF battery miniclass driver (MAX77705 FG 0x36: SOC/VCELL/current) behind ACPI PNP0C0A-style
   device → the Windows battery icon. notes/battery-driver.md has the register map.
+
+### Run 5 results (boot #69; boots 125 = Windows → "Preparing Automatic Repair", 126 = after-windows → TWRP)
+- **HSI2C45 alive**: after Hsi2cBusSetup (USI_CMGP3 mode 0→4, gpm12/13 CON 1→2 i.e. GPIO→I2C) the block
+  latches (CTL 8, CONF 80000000, FS1/2/3 F00000/E0/210000, TRANS_STATUS 80001). All four clients ACK.
+- **Fuel gauge reads**: `[FG] SOC 99.2% VCELL 4176mV AVG_I -377mA ... FULLCAP_REP 2460` - plausible.
+  TEMP prints 376.9C → formula bug in the PoC (follow-up).
+- Single-byte reads all return 0 (PMIC 0x66 reg 0, CCIC 0x25 reg 0, CHG, FG reg 0) and CC_STATUS0 = 0 for
+  3 s → no VBUS, dock dark. Same Hsi2cXfer path as the working FG word reads, so possibly genuine zeros;
+  unproven. Next instrument: dump CCIC 0x00-0x1F (HW_REV/FW_REV must be non-zero).
+- **Windows failed before starting**: nothing on C: modified during boot 125 (bootstat.dat + all recent
+  files are run 4's, 14:25 UTC); no SrtTrail, no dump; PRAM marks are run 4's. progress 0x72 → died after
+  ExitBootServices without ResetSystem; boot manager went to WinRE. Firmware deltas vs run 4: HSI2C45
+  setup + CC poll + 2 new MMIO map entries (CMGP_USI 0x15C22000, CMGP_GPIO 0x15C30000, appended out of
+  address order after HSI2C45). Repro first: re-boot the same image (boot #69) once.

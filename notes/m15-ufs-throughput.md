@@ -125,3 +125,13 @@ C. PMA (needs HCI_CLKSTOP_CTRL 0x13D611B0 bit3 MPHY_APBCLK_STOP CLEAR during the
    0x13D64410 =0x01, 0x13D64414 =0x11, 0x13D6464C =0x06, 0x13D64548/54C/550 =0x2D/0xB7/0x00, 0x13D64460 =0x18,
    0x13D64558/568 =0x00; COMN 0x13D64000 =0xC6, 0x13D64004 =0x0C (ours writes 0x00 last), 0x13D64018 =0xE0,
    0x13D6409C/0A0 =0x11, 0x13D6410C =0x00. Linux dump regs: 0x13D64114/118/11C, 0x13D64714, 0x13D647B0..7BC.
+
+## Read A/B results (run 33, 2026-10-11 16:20, boot #63 + w34)
+- UECPA 0x13D60038, UECDL 0x3C, UECN 0x40, UECT 0x44, UECDME 0x48 = 0 before AND after the raw-read burst
+  (4 KiB 602 us, 64 KiB 5.0 ms, 1 MiB 53 ms); IS 0x20 = 0x1 (UTRCS) both times => NO link-layer errors/retries.
+  Suspects 1/2 (PHY tables, UniPro debug writes) are unlikely to be the throughput cause.
+- 0x13D57B00 = 0, 0x13D57B04 = 0x00050000, 0x13D57B20 = 0, 0x13D57C00 = 0x2 (not the 9810 0x2E820183),
+  UniPro clock period 0x13D50044 = 0x60 and HCI 1US_TO_CNT 0x13D6110C = 0xA6 (166 MHz; 16000/166 ~ 96 = 0x60 -
+  consistent with Linux's formula), IO coherency 0x13C10700 = 0x311 (9810 bits 8/9 set, 9820 bits 22/23 clear).
+- Still open: DMA side - PRDT length encoding (suspect 3), a SYSMMU in front of FSYS0 (iomem /sysmmu@13C20000),
+  DMA engine state mid-transfer (0x13D611C0..F8).

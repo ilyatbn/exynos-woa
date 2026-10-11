@@ -21,3 +21,9 @@ Shipped = GOP framebuffer + inbox BasicDisplay + WARP (CPU rendering). => speed 
   logs to %TEMP%\s10erotate.log; desktop launchers "Rotate landscape/portrait/next". Whether BasicDisplay allows
   rotation is unverified - the exit code says (DISP_CHANGE_BADMODE = -2 if not).
 - extra-perf.cmd: winsat disk seq/ran read, mem, cpu compression -> out\last\perf.
+- Run 21 (boot #59, 15:00, back 198 s, collect + flushreset return clean): serialized parking "mark after 1 ms"
+  for all 5 cores. DVFS read did NOT run: ACPM ch id 5 has type 2 (TYPE_BUFFER), ap_poll 0, q_len 1 - the client
+  refuses non-queue channels ("layout implausible"). With q_len 1 the kernel's own queue-full test
+  (tmp_index != rear) can never pass, so ch5 must be driven through a path I have not traced - left to the
+  user's CPU-research branch (drivers: notes/cpu-driver-9820.md) instead of guessing. winsat -> banner only as
+  SYSTEM. Next: s10eperf.exe (own cpu/mem/disk numbers), run 22.

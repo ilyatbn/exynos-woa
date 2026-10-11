@@ -30,7 +30,12 @@
 #include "Beyond0LteCheckpoint.h"
 #include "../Beyond0LteFbSerialPortLib/Beyond0LteBootLog.h"
 
-#define BEYOND0LTE_PUBLISH_HIGH_BANKS  0
+//
+// m13: 1 = the 64-bit bank 0x880000000..0x980000000 (TWRP /proc/iomem System RAM) is RAM for UEFI and
+// Windows, carved at sec_rdx_bootdev and el2_earlymem (live reserved-memory regs). Run 11 proved EL1 read/write
+// there from Windows; UFS DMA stays in bank0 in both UEFI (AllocateMaxAddress) and Windows (bounce pool).
+//
+#define BEYOND0LTE_PUBLISH_HIGH_BANKS  1
 
 //
 // W2's bank1/bank2 RAM. 0 = A/B test (m10 W16): winload faults in its heap code with a
@@ -106,6 +111,7 @@ STATIC CONST MONITOR_RESERVATION  mMonitorReservations[] = {
   { EXYNOS_RS_MAGIC_BASE,     EXYNOS_RS_MAGIC_SIZE     },  // sec_debug_magic
   { EXYNOS_RS_KASLR_BASE,     EXYNOS_RS_KASLR_SIZE     },  // kaslr
   { EXYNOS_RS_EL2_CODE_BASE,  EXYNOS_RS_EL2_CODE_SIZE  },  // el2_code
+  { EXYNOS_RS_SECURE_CAMERA_BASE, EXYNOS_RS_SECURE_CAMERA_SIZE },  // secure_camera (m13: likely TZ-protected)
   //
   // Bank1/bank2 carve-outs (W2, notes/m10-windows-deploy-plan.md): with those banks published as
   // RAM, these stay out of it. seclog (live read), the boot framebuffer (mapped as DEVICE below,
@@ -118,6 +124,7 @@ STATIC CONST MONITOR_RESERVATION  mMonitorReservations[] = {
   { EXYNOS_RSVD_MODEM_SPARE_BASE,
       (EXYNOS_RSVD_S5100_MSI_BASE + EXYNOS_RSVD_S5100_MSI_SIZE - EXYNOS_RSVD_MODEM_SPARE_BASE) },  // modem block
   { EXYNOS_RSVD_MODEM_IF_BASE, 0x0000000100000000ULL - EXYNOS_RSVD_MODEM_IF_BASE },  // modem_if .. 4 GiB
+  { EXYNOS_RS_RDX_BOOTDEV_BASE, EXYNOS_RS_RDX_BOOTDEV_SIZE },  // sec_rdx_bootdev (m13)
   { EXYNOS_RS_EL2_EARLY_BASE, EXYNOS_RS_EL2_EARLY_SIZE },  // el2_earlymem
 };
 
@@ -195,8 +202,9 @@ ArmPlatformGetVirtualMemoryMap (
   UINTN  Index;
   UINTN  Region;
 
-  // bank0/3/4 gaps (up to 6) + framebuffer slot + the MMIO windows + terminator
-  STATIC ARM_MEMORY_REGION_DESCRIPTOR  Table[MMIO_REGION_COUNT + 12];
+  // DRAM pieces (m13: bank0 4 + bank1 3 + bank2 1 + bank3 1 + bank4 1 = 10) + framebuffer slot + the MMIO
+  // windows + terminator = MMIO + 12 exactly; +16 leaves room for one more carve-out per bank
+  STATIC ARM_MEMORY_REGION_DESCRIPTOR  Table[MMIO_REGION_COUNT + 16];
 
   BEYOND0LTE_CHECKPOINT (1540);   // MemoryPeim, MMU still off (B39)
   ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[1] = 0x61;   // W31 progress: about to build tables + enable MMU
@@ -430,6 +438,30 @@ ArmPlatformGetVirtualMemoryMap (
         for (T = 0; T < Index; T++) {
           if ((Table[T].Attributes == MMAP_DRAM) && (Table[T].PhysicalBase >= 0xC0000000ULL) &&
               (Table[T].PhysicalBase + Table[T].Length <= 0x100000000ULL))
+          {
+            BuildResourceDescriptorHob (
+              EFI_RESOURCE_SYSTEM_MEMORY,
+              EFI_RESOURCE_ATTRIBUTE_PRESENT | EFI_RESOURCE_ATTRIBUTE_INITIALIZED |
+              EFI_RESOURCE_ATTRIBUTE_WRITE_COMBINEABLE | EFI_RESOURCE_ATTRIBUTE_WRITE_THROUGH_CACHEABLE |
+              EFI_RESOURCE_ATTRIBUTE_WRITE_BACK_CACHEABLE | EFI_RESOURCE_ATTRIBUTE_TESTED,
+              Table[T].PhysicalBase,
+              Table[T].Length
+              );
+          }
+        }
+      }
+#endif
+#if BEYOND0LTE_PUBLISH_HIGH_BANKS
+      //
+      // m13: the same for the 64-bit bank (the table entries are already carved at sec_rdx_bootdev and
+      // el2_earlymem by the bank loop).
+      //
+      {
+        UINTN  T;
+
+        for (T = 0; T < Index; T++) {
+          if ((Table[T].Attributes == MMAP_DRAM) && (Table[T].PhysicalBase >= EXYNOS_DRAM_BANK3_BASE) &&
+              (Table[T].PhysicalBase + Table[T].Length <= EXYNOS_DRAM_BANK4_BASE + EXYNOS_DRAM_BANK4_SIZE))
           {
             BuildResourceDescriptorHob (
               EFI_RESOURCE_SYSTEM_MEMORY,

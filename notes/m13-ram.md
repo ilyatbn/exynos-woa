@@ -22,3 +22,12 @@ User: "the hard job of adding at least 1 more core and as much ram as possible".
   0x8C0000000=0, 0x900000000=4b45908a, 0x940000000=58444e49, 0x97FFFF000=abafaf8f, 0x88AD00000=a8004980;
   write 0x5A5AA5A5 + readback OK at 0x8C0000000 and 0x940000000 (restored to 0); 0x880000000=0c1d0201.
   => the 64-bit bank is EL1-accessible under Samsung's EL2. Boot #16's reset (m8 B62) was not the bank itself.
+- Live reserved-memory regs (TWRP root, 2026-10-11): sec_rdx_bootdev 0x880000000+0xAD00000, el2_earlymem
+  0x97E000000+0x2000000 (Exynos9820.h said 0x200000 - 16x short; fixed), secure_camera 0x96000000+0x2200000,
+  camera 0x99000000+0xE400000, camera_contig 0x98200000+0xE00000, el2_code 0x87000000+0x200000, kaslr, sec_debug_magic,
+  seclog 0xC0000000+0x80000, modem_spare 0xD0000000+0x1600000, modem_if 0xF0000000+0xB900000, cp_ram_logging
+  0xFB900000+0x2000000, mm_debug 0x91200000+0x1000.
+- Boot #48 (built, not flashed yet): BEYOND0LTE_PUBLISH_HIGH_BANKS 1, carve-outs + sec_rdx_bootdev + secure_camera
+  (likely TZ-protected, was inside Windows' bank0 RAM), el2_earlymem size fixed, high-bank resource HOBs. Table
+  capacity MMIO+12 -> +16 (10 DRAM pieces + FB + terminator filled +12 exactly). Expect ~5.3 GB for Windows.
+  camera/camera_contig/mm_debug stay RAM (non-secure Android carve-outs) - revisit if Windows faults there.

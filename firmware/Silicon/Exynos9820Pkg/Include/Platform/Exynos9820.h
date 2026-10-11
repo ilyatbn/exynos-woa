@@ -146,7 +146,14 @@
 #define EXYNOS_RS_EL2_CODE_BASE   0x0000000087000000ULL   // VERIFIED (el2_code, owner el2,uh)
 #define EXYNOS_RS_EL2_CODE_SIZE   0x0000000000200000ULL   // VERIFIED
 #define EXYNOS_RS_EL2_EARLY_BASE  0x000000097E000000ULL   // VERIFIED (el2_earlymem, owner el2,uh)
-#define EXYNOS_RS_EL2_EARLY_SIZE  0x0000000000200000ULL   // VERIFIED
+#define EXYNOS_RS_EL2_EARLY_SIZE  0x0000000002000000ULL   // VERIFIED 2026-10-11 live reserved-memory/el2_earlymem reg (was 0x200000 here - 16x short)
+//
+// m13 (notes/m13-ram.md), live /proc/device-tree/reserved-memory/*/reg read as root in TWRP 2026-10-11:
+//
+#define EXYNOS_RS_RDX_BOOTDEV_BASE    0x0000000880000000ULL   // VERIFIED (sec_rdx_bootdev)
+#define EXYNOS_RS_RDX_BOOTDEV_SIZE    0x000000000AD00000ULL   // VERIFIED
+#define EXYNOS_RS_SECURE_CAMERA_BASE  0x0000000096000000ULL   // VERIFIED (secure_camera)
+#define EXYNOS_RS_SECURE_CAMERA_SIZE  0x0000000002200000ULL   // VERIFIED
 
 //
 // Reserved inside bank0 — published so the memory map can subtract them rather

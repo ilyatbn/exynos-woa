@@ -441,3 +441,7 @@ Found:
 - Follow-up (own commit): make the "de-isolate + clean teardown" state explicit in the USB2-only path, so it does
   not depend on a failed SS attempt (and skip the 2x100 ms PLL polls once SS is known not to lock).
 - boot #86: OTG_ILIM 1.2 A (CNFG_02 bits 7:6 = 10) - test dock + mouse + lit mechanical keyboard.
+- Run 16 (boot #86, OTG 1.2 A): dock + mouse + lit mechanical keyboard both work (user). Power budget confirmed.
+- PD charger into the dock while docked: NOT yet - the boost stays on for the whole session and nothing at runtime
+  watches CC / answers a PR_SWAP, so a dock that starts sourcing could put two supplies on VBUS. Needs a runtime
+  CCIC/PD component (Windows UCSI-like service or driver) first.

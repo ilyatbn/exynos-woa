@@ -152,3 +152,8 @@ Found:
 - Was `AllocateAnyPages(EfiBootServicesData)` + `GEVNTADRHI = 0`: (a) with the high banks published the
   allocator may return >4 GiB → truncated DMA address; (b) BootServicesData is reclaimed by Windows while
   the core still points at it. Now `AllocateMaxAddress 0xFFFFFFFF`, `EfiReservedMemoryType`, HI written.
+
+### Task 8 — XHC0 `_CCA 0` (import review finding, deferred until now)
+- The drivers-branch DSDT declared `_CCA 1` while its own comment says the DT node is NOT dma-coherent
+  and the UEFI side is NonCoherent. `_CCA 1` = Windows assumes snooping, no cache maintenance → stale
+  data. Changed to `_CCA Zero`, as UFS0 (which Windows runs with today).

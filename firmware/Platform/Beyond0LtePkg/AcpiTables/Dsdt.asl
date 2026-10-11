@@ -303,15 +303,16 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
         // NOT in _CRS: USBXHCI must never re-touch it (contract recorded in
         // notes/d1-usb-host.md Q6). Shape follows the Marvell Armada70x0 EDK2
         // DSDT (Memory32Fixed 0x8000 = DWC3_XHCI_REGS_END 0x7fff + 1).
-        // _CCA 1: standard WoA declaration (Windows' WDF DMA helpers do the
-        // cache maintenance; the vendor DT does NOT mark this node
-        // dma-coherent, and the UEFI side uses DmaTypeNonCoherent for the same
-        // reason). UNVERIFIED on device until Windows enumerates it.
+        // _CCA 0 (M16 review): the vendor DT does NOT mark usb@10C00000
+        // dma-coherent and the UEFI side uses DmaTypeNonCoherent. _CCA 1 would
+        // tell Windows the device snoops the CPU caches, so it would skip the
+        // cache maintenance and transfers would see stale data. Same
+        // declaration as UFS0 above, which Windows already runs with.
         Device (XHC0)
         {
             Name (_HID, "PNP0D10")   // xHCI-compliant USB controller with standard debug (Microsoft SoC _CID table)
             Name (_UID, Zero)
-            Name (_CCA, 1)
+            Name (_CCA, Zero)
             Name (_CRS, ResourceTemplate ()
             {
                 Memory32Fixed (ReadWrite, 0x10C00000, 0x00008000)  // VERIFIED usb@10C00000, xHCI regs 0..0x7FFF

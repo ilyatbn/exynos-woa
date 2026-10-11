@@ -64,9 +64,9 @@ include/aidmp.h:49-115: ER_TAG 0xE, ER_VALID 1, ER_CI 0, ER_MP 2, ER_ADD 4, ER_E
 (scan limit), CIA_CID 0x000FFF00>>8, CIA_MFG 0xFFF00000>>20, CIB_REV 0xFF000000>>24, CIB_NSW 0x00F80000>>19,
 CIB_NMW 0x0007C000>>14, CIB_NSP 0x3E00>>9, CIB_NMP 0x1F0>>4, AD_ADDR_MASK 0xFFFFF000, AD_SP 0xF00>>8,
 AD_ST 0xC0 (SLAVE 0, BRIDGE 0x40, SWRAP 0x80, MWRAP 0xC0), AD_SZ 0x30 (SZD 0x30), AD_AG32 0x8, SD_SZ_MASK
-0xFFFFF000, SD_SG32 0x8. Skip rule (aiutils.c:263-275): nsp == 0, or MFGID_ARM 0x43B && cid DEF_AI_COMP 0xFFF.
+0xFFFFF000, SD_SG32 0x8. Skip rule (aiutils.c:234-245): nsp == 0, or MFGID_ARM 0x43B && cid DEF_AI_COMP 0xFFF.
 nmw+nsw == 0 components kept only for PMU 0x827 / GCI 0x840 / SR 0x841 / HUB 0x84B / OOBR 0x85C / CCB 0x50B
-(aiutils.c:277-292). Wrapper = first master wrapper, else first slave wrapper (aiutils.c:352-400).
+(aiutils.c:247-263). Wrapper = first master wrapper, else first slave wrapper (aiutils.c:345-405).
 Core ids (dhd hndsoc.h): CC 0x800 (:148), SOCRAM 0x80E (:162), D11 0x812 (:166), PMU 0x827 (:187),
 PCIE2 0x83C (:205), ARMCR4 0x83E (:207), GCI 0x840 (:208), ARMCA7 0x847 (:212), SYSMEM 0x849 (:213).
 
@@ -74,7 +74,7 @@ AI wrapper (dhd aidmp.h:309-314): ioctrl 0x408, resetctrl 0x800 (AIRC_RESET 1, :
 ioctrl bits (dhd hndsoc.h:264-265, siutils.h:211): CLOCK_EN 0x1, FGC 0x2, CPUHALT 0x20.
 core reset = dhd `_ai_core_reset` (aiutils.c:1157-1222): wait resetstatus==0 (300 us) -> resetctrl=1 -> 10 us ->
 ioctrl = bits|resetbits|FGC|CLK -> loop(<=10){resetctrl=0} -> ioctrl = bits|CLK. `ai_core_reset` repeats it for
-the 2nd/3rd wrapper first (aiutils.c:1225-1242). Halt = core_reset(CPUHALT, CPUHALT) (dhd_pcie.c:6766); run =
+the 2nd/3rd wrapper first (aiutils.c:1224-1243). Halt = core_reset(CPUHALT, CPUHALT) (dhd_pcie.c:6766); run =
 core_reset(0, 0) (dhd_pcie.c:6888). Same shape as fmac cr4_set_passive/active (chip.c:1322-1350).
 
 CR4 TCM size = dhd `si_tcm_size` (siutils.c:2873-2934) == fmac `brcmf_chip_tcm_ramsize` (chip.c:680-708):
@@ -121,3 +121,11 @@ murata 1rh_es43 -> nvram `_1rh_es43_b1`; {0x51,0x33}/{0x53,0x33} -> semco e43_cs
 (dhd_pcie.c:2335-2356). Driver does the same read; the two writes are only done when the EROM shows the GCI
 core at 0x18010000 and the PMU core at 0x18012000 (so the addresses mean what dhd assumes). Unknown vid / no
 file -> registry `NvramFile`, default `nvram.txt_1rh_es43_b1`.
+
+## Review of commit 8e209e1 (1/5, notes + MILESTONES line)
+
+- Re-checked every cited line by `sed -n <line>p` on the fetched trees. FOUND: three aiutils.c ranges were
+  ~30 lines off (skip rule, nmw+nsw rule, wrapper rule, ai_core_reset) - written from memory of a long `sed`
+  dump instead of grep. FIXED in the follow-up commit (234-245, 247-263, 345-405, 1224-1243). All dhd_pcie.c,
+  pcicfg.h, aidmp.h, hndsoc.h, siutils.h, sbchipc.h, dhd_custom_cis.c, Makefile and fmac refs matched.
+- MILESTONES: one new line, status `doing`, no other line touched (show --stat: 2 files).

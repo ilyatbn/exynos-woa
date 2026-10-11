@@ -23,6 +23,9 @@ typedef struct _WLAN_DL_CONFIG {
     ULONG   OtpProbe;                   /* 0 = never write the OTP/PMU registers; default 1 */
     WCHAR   NvramFile[WLAN_NAME_MAX];   /* empty = choose from OTP, else WLAN_NVRAM_DEFAULT */
     WCHAR   FirmwareFile[WLAN_NAME_MAX];/* empty = WLAN_FW_DEFAULT */
+    ULONG   Msgbuf;                     /* 0 = stop after milestone 2 (fw left running, no DMA); default 1 */
+    ULONG   HostCap;                    /* WLAN_HOSTCAP_AUTO (default), WLAN_HOSTCAP_DONT_WRITE, or a literal */
+    ULONG   DoorbellDar;                /* 1 = ring the DAR doorbells 0xA20/0xA24 instead of 0x140/0x144 */
 } WLAN_DL_CONFIG, *PWLAN_DL_CONFIG;
 
 /* What the download did; also kept in the device context for EvtDeviceReleaseHardware. */
@@ -43,8 +46,35 @@ typedef struct _WLAN_DL_RESULT {
     WCHAR   NvramUsed[WLAN_NAME_MAX];
 } WLAN_DL_RESULT, *PWLAN_DL_RESULT;
 
+/* Milestone 3 hand-over: WlanDlRun builds this once the firmware is up (DL 0) and calls the
+   WLAN_FW_UP_FN it was given, before it unmaps anything. Valid only during that call. */
+typedef struct _WLAN_BUS {
+    PVOID           Chip;               /* WlanDl.c private (BAR0 window state, EROM) */
+    volatile UCHAR *Cfg;                /* EP config space (CFG0 window) */
+    volatile UCHAR *Tcm;                /* BAR2: offset == backplane address */
+    ULONG           RamBase;
+    ULONG           RamEnd;
+    ULONG           SharedAddr;
+    ULONG           SharedFlags;
+    ULONG           ConsoleAddr;
+    ULONG           ConsoleIdx;         /* console write index at the last dump (0xFFFFFFFF = none) */
+    ULONG           PcieCoreBase;
+    ULONG           PcieRev;
+    ULONG           Cr4Wrap[3];
+    ULONG           Command;            /* EP COMMAND as the probe read it */
+    BOOLEAN         ArmHalted;          /* set by WlanBusArmHalt */
+} WLAN_BUS, *PWLAN_BUS;
+
+typedef VOID WLAN_FW_UP_FN(_Inout_ PWLAN_REPORT R, _Inout_ PWLAN_BUS Bus, _Inout_opt_ PVOID Ctx);
+
+ULONG WlanBusBpRd(_Inout_ PWLAN_BUS Bus, _In_ ULONG Addr);              /* backplane via the BAR0 window */
+VOID  WlanBusBpWr(_Inout_ PWLAN_BUS Bus, _In_ ULONG Addr, _In_ ULONG Val);
+VOID  WlanBusArmHalt(_Inout_ PWLAN_BUS Bus);                            /* CR4 core reset, CPUHALT */
+VOID  WlanBusConsoleDump(_Inout_ PWLAN_REPORT R, _Inout_ PWLAN_BUS Bus);  /* new console bytes since last */
+
 _IRQL_requires_(PASSIVE_LEVEL)
 VOID WlanDlRun(_Inout_ PWLAN_REPORT R, _In_ volatile UCHAR *Cfg, _In_ ULONG Bar0Lo, _In_ ULONG Bar2Lo,
-               _In_ ULONG Command, _In_ const WLAN_DL_CONFIG *Config, _Out_ PWLAN_DL_RESULT Out);
+               _In_ ULONG Command, _In_ const WLAN_DL_CONFIG *Config, _Out_ PWLAN_DL_RESULT Out,
+               _In_opt_ WLAN_FW_UP_FN *FwUp, _Inout_opt_ PVOID FwUpCtx);
 
 #endif /* _WLAN_DL_H */

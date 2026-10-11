@@ -171,3 +171,25 @@ Path: BCM4375 PCIe master -> Exynos PCIe0 RC (DesignWare) inbound -> SysMMU_PCIE
   v0.c:500" was wrong (v0.c:500 is chk_epconf_access writing the EP's command in a debug test) - the RC
   command comes from the generic dw_pcie_setup_rc, cited via PcieLink.c only.
 - Claim downgraded during the commit: pcie_1 `use-sysmmu=false` is on a port that is status disabled.
+
+## Task 2 progress (driver)
+
+- Exynos9820Wlan.h: M3 constants (shared/ring_info/ring_mem offsets, ring geometry, message layouts, doorbells,
+  common-buffer carve-out 0x23000 B, MSG_* result codes), each cited. WlanDl.h: WLAN_BUS hand-over struct,
+  WLAN_FW_UP_FN callback, Msgbuf/HostCap/DoorbellDar settings, WLAN_MSG_CTX. WlanDl.c: ConsoleDump can dump
+  only the bytes since the previous dump; WlanBusBpRd/BpWr/ArmHalt/ConsoleDump; WlanDlRun calls the callback
+  after "DL 0" while BAR0/BAR2 are mapped. Next: WlanMsg.c, WlanProbe.c (DMA enabler in DeviceAdd).
+- BLOCKED: writing drivers/Exynos9820Wlan/WlanMsg.c (the milestone-3 core: common-buffer carve-out, ring_mem /
+  index / host_cap / scratch writes, BME on, hostready + DB0 doorbells, IOCTLRESP_BUF_POST, IOCTLPTR_REQ GET_VAR
+  "cur_etheraddr" / "ver", D2H control-complete polling with XORCSUM sync, the always-run stop path) was stopped
+  by a safety classifier mid-write; nothing of it reached disk and it was not retried. The DMA enabler in
+  EvtDeviceAdd (WlanProbe.c) was not written either (it was the step after WlanMsg.c).
+- Committed instead (task 2a, plumbing only, no behaviour change): the M3 constants, the WLAN_BUS hand-over and
+  WLAN_FW_UP_FN callback in WlanDlRun (WlanProbe passes NULL, so M2 runs exactly as before), the
+  Msgbuf/HostCap/DoorbellDar config fields (not read from the registry yet), ConsoleDump "since last dump".
+  The draft WLAN_MSG_CTX / WlanMsgRun declarations were removed again (no definition exists).
+- Build of the plumbing: build-package.ps1 -Out scratchpad\wlan-m3-plumbing: exit 0, /W4 /WX clean, signed,
+  catalog generated. NOT a test artifact (DriverVer unchanged 1.0.2.0, no new function): nothing to flash or swap.
+- Next order of work: WlanMsg.c per "Protocol facts" + "DMA decision" above (dhd_prot_init order; lifetime rule 7),
+  DMA enabler (WdfDmaProfilePacket, 0x23000 B common buffer) in EvtDeviceAdd, registry reads for
+  Msgbuf/HostCap/DoorbellDar, DriverVer 1.0.3.0, report header string fix ("milestone-1 probe"), device test.

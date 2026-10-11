@@ -13,9 +13,10 @@
          below it, reset instruction -> backplane 0; every write read back
       8. ARM out of reset (halt cleared), poll the last RAM word for the pcie_shared pointer (5 s)
       9. read pcie_shared + the firmware console; on timeout / bad pointer the ARM is halted again
+     10. firmware up: hand the mapped chip to the milestone-3 callback (WlanMsg.c), if one was given
 
-    Never set: PCI bus master enable, interrupts, rings. The firmware cannot DMA, and with no host
-    handshake it stays idle after init.
+    This file never sets PCI bus master enable, interrupts or rings. WlanMsg.c (milestone 3) does, inside
+    the callback, and clears bus mastering + halts the ARM again before it returns.
 */
 
 #include <ntddk.h>
@@ -581,8 +582,10 @@ RandomFill(_Out_writes_bytes_(Len) PUCHAR Buf, _In_ ULONG Len)
     }
 }
 
+/* Dump the firmware console ring. *FromIdx == 0xFFFFFFFF: the last CONS_DUMP_MAX bytes; else only what the
+   firmware wrote since that index (capped at CONS_DUMP_MAX). *FromIdx is set to the current index. */
 static VOID
-ConsoleDump(_Inout_ PBCM_CHIP C, _In_ ULONG RamBase, _In_ ULONG RamEnd, _In_ ULONG ConsAddr)
+ConsoleDump(_Inout_ PBCM_CHIP C, _In_ ULONG RamBase, _In_ ULONG RamEnd, _In_ ULONG ConsAddr, _Inout_ PULONG FromIdx)
 {
     ULONG Buf, Size, Idx, Start, I, N;
     CHAR  Line[132];
@@ -599,7 +602,15 @@ ConsoleDump(_Inout_ PBCM_CHIP C, _In_ ULONG RamBase, _In_ ULONG RamEnd, _In_ ULO
     if (Buf < RamBase || Size == 0 || Size > 0x10000 || Buf + Size > RamEnd || Idx >= Size) {
         return;
     }
-    N     = (Size < CONS_DUMP_MAX) ? Size : CONS_DUMP_MAX;
+    if (*FromIdx < Size) {
+        N = (Idx + Size - *FromIdx) % Size;   /* bytes written since the last dump (a full wrap reads as 0) */
+        if (N > CONS_DUMP_MAX) {
+            N = CONS_DUMP_MAX;
+        }
+    } else {
+        N = (Size < CONS_DUMP_MAX) ? Size : CONS_DUMP_MAX;
+    }
+    *FromIdx = Idx;
     Start = (Idx + Size - N) % Size;   /* the last N bytes of the ring, oldest first */
     ReportLine(C->R, "[dl] ---- firmware console (last %lu bytes) ----\r\n", N);
     for (I = 0; I < N; I++) {
@@ -626,10 +637,44 @@ ConsoleDump(_Inout_ PBCM_CHIP C, _In_ ULONG RamBase, _In_ ULONG RamEnd, _In_ ULO
     ReportLine(C->R, "[dl] ---- end console ----\r\n");
 }
 
+/* ---------------------------------------------------------------- milestone-3 bus interface */
+
+_Use_decl_annotations_
+ULONG
+WlanBusBpRd(PWLAN_BUS Bus, ULONG Addr)
+{
+    return BpRd((PBCM_CHIP)Bus->Chip, Addr);
+}
+
+_Use_decl_annotations_
+VOID
+WlanBusBpWr(PWLAN_BUS Bus, ULONG Addr, ULONG Val)
+{
+    BpWr((PBCM_CHIP)Bus->Chip, Addr, Val);
+}
+
+_Use_decl_annotations_
+VOID
+WlanBusArmHalt(PWLAN_BUS Bus)
+{
+    CoreReset((PBCM_CHIP)Bus->Chip, Bus->Cr4Wrap, SICF_CPUHALT, SICF_CPUHALT);
+    Bus->ArmHalted = TRUE;
+}
+
+_Use_decl_annotations_
+VOID
+WlanBusConsoleDump(PWLAN_REPORT R, PWLAN_BUS Bus)
+{
+    PBCM_CHIP C = (PBCM_CHIP)Bus->Chip;
+
+    C->R = R;
+    ConsoleDump(C, Bus->RamBase, Bus->RamEnd, Bus->ConsoleAddr, &Bus->ConsoleIdx);
+}
+
 _Use_decl_annotations_
 VOID
 WlanDlRun(PWLAN_REPORT R, volatile UCHAR *Cfg, ULONG Bar0Lo, ULONG Bar2Lo, ULONG Command,
-          const WLAN_DL_CONFIG *Config, PWLAN_DL_RESULT Out)
+          const WLAN_DL_CONFIG *Config, PWLAN_DL_RESULT Out, WLAN_FW_UP_FN *FwUp, PVOID FwUpCtx)
 {
     BCM_CHIP        *C = NULL;
     PHYSICAL_ADDRESS Pa;
@@ -640,6 +685,8 @@ WlanDlRun(PWLAN_REPORT R, volatile UCHAR *Cfg, ULONG Bar0Lo, ULONG Bar2Lo, ULONG
     PCWSTR           NvName, FwName;
     UCHAR            Seed[BCM_ENTROPY_HOST_NBYTES];
     NTSTATUS         Status;
+    ULONG            ConsIdx = 0xFFFFFFFFUL;
+    WLAN_BUS         Bus;
 
     RtlZeroMemory(Out, sizeof(*Out));
     Out->DlResult = DL_BACKPLANE;
@@ -837,7 +884,7 @@ WlanDlRun(PWLAN_REPORT R, volatile UCHAR *Cfg, ULONG Bar0Lo, ULONG Bar2Lo, ULONG
                (Out->SharedFlags & PCIE_SHARED_TRAP) ? ", TRAP" : "", (Out->SharedFlags & PCIE_SHARED_ASSERT) ? ", ASSERT" : "",
                Out->ConsoleAddr, TcmRd32(C, Shared + SH_TRAP_ADDR), TcmRd32(C, Shared + SH_ASSERT_LINE),
                TcmRd32(C, Shared + SH_FWID));
-    ConsoleDump(C, RamBase, RamEnd, Out->ConsoleAddr);
+    ConsoleDump(C, RamBase, RamEnd, Out->ConsoleAddr, &ConsIdx);
     if ((Out->SharedFlags & PCIE_SHARED_VERSION_MASK) < PCIE_SHARED_MIN_VERSION ||
         (Out->SharedFlags & PCIE_SHARED_VERSION_MASK) > PCIE_SHARED_MAX_VERSION ||
         (Out->SharedFlags & (PCIE_SHARED_TRAP | PCIE_SHARED_ASSERT)) != 0) {
@@ -847,6 +894,31 @@ WlanDlRun(PWLAN_REPORT R, volatile UCHAR *Cfg, ULONG Bar0Lo, ULONG Bar2Lo, ULONG
     }
     Out->DlResult = DL_OK;
     ReportLine(R, "DL 0: BCM4375 firmware is running (pcie_shared v%lu)\r\n", Out->SharedFlags & PCIE_SHARED_VERSION_MASK);
+    ReportWriteFile(R);
+
+    /* Milestone 3 (WlanMsg.c) runs while BAR0/BAR2 are still mapped; it leaves BME off and, unless
+       Parameters\Msgbuf = 0, the ARM halted. */
+    if (FwUp != NULL) {
+        RtlZeroMemory(&Bus, sizeof(Bus));
+        Bus.Chip         = C;
+        Bus.Cfg          = Cfg;
+        Bus.Tcm          = C->Tcm;
+        Bus.RamBase      = RamBase;
+        Bus.RamEnd       = RamEnd;
+        Bus.SharedAddr   = Shared;
+        Bus.SharedFlags  = Out->SharedFlags;
+        Bus.ConsoleAddr  = Out->ConsoleAddr;
+        Bus.ConsoleIdx   = ConsIdx;
+        Bus.PcieCoreBase = Pcie->Base;
+        Bus.PcieRev      = Pcie->Rev;
+        Bus.Command      = Command;
+        RtlCopyMemory(Bus.Cr4Wrap, Cr4->Wrap, sizeof(Bus.Cr4Wrap));
+        FwUp(R, &Bus, FwUpCtx);
+        C->R = R;
+        if (Bus.ArmHalted) {
+            Out->ArmReleased = FALSE;
+        }
+    }
     goto Done;
 
 Halt:

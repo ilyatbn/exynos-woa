@@ -56,7 +56,7 @@
 
 #define PARK_MAX_GICC       8u      // Madt.aslc BEYOND0LTE_NUM_CORES
 #define PARK_WAIT_STEP_US   1000u
-#define PARK_WAIT_STEPS     100u    // up to 100 ms for all marks (the 9810 waited 30 ms)
+#define PARK_WAIT_STEPS     2000u   // up to 2 s for all marks: boot #55 (fast logging, no FB text) saw the cores arrive ~100 ms after CPU_ON - 100 ms was only enough while slow panel text padded the gap (the 9810 waited 30 ms)
 #define PARK_PROGRESS_TRYING  0x65u  // boot progress code: CPU_ON of a core outside the safe mask in flight
 
 // Boot progress word page (Beyond0LteBootLog / bootshim: [0] previous boot's last code, [1] this boot's).

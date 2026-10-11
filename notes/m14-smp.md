@@ -147,3 +147,8 @@ No device access in this task; build-verified only (Guided, not Ready).
   RSTSTAT on the clean ResetSystem path do not make sboot boot recovery. Boot #54: ResetSystemLib stores progress
   0x81 (not 0x80) when INFORM3 is recovery -> the next UEFI boot (WINRUN.FLG present) takes the boot pair's
   dump + RebootToRecovery, which is proven. Why sboot ignores INFORM3 after this path: open (sboot disassembly).
+- Boot #55 (FB console off, 14:25, stay.flg): user saw "hal initialization failed" (0x5C). UEFILOG: CPU_ON gicc1-5
+  all -> 0, but only gicc5's mark seen, at 100 ms (the wait limit); gicc1-4 "disabled (on=0 mark=0)" while
+  actually running into the stub => MADT said disabled, cores alive -> HAL_INITIALIZATION_FAILED. Cause: a core
+  needs ~100 ms from CPU_ON to the stub (EL3/uH bring-up); the old text console's slow DEBUG rendering between
+  CPU_ON and the wait padded that. Fix: PARK_WAIT_STEPS 100 -> 2000 (2 s max). Boot #56.

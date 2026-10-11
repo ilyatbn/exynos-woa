@@ -130,3 +130,15 @@ hang (notes/m14-smp.md: "Needs kernel-level debugging (KDNET/USB) - parked"), ea
   layout) vs spec 0 - Windows' reader unverified either way; first suspect if kd ignores the entry.
   RE breadcrumb: right after the FIX2 literal the DLL does cmp w0,#4 / cmp w0,#3 - controller-type values 3/4
   may be what this build accepts (Qualcomm table says 5). Second suspect.
+- MS doc (setting-up-kernel-mode-debugging-over-usb-eem-arm-kdnet, fetched 2026-10-11): ARM uses DBG2,
+  busparams = the DBG2 array index ("typically 0 or 1"; entry 0 is normally the serial port) -> ours is 0 (one
+  entry). hostip 169.254.255.255 for every EEM link, port 50000-50039; host: USB 3 Type-A + C-to-A cable,
+  firewall off, host shows "Windows KDNET USB-EEM network adapter"; windbg -k net:port=..,key=.. ; target
+  device shows "reserved for use by the Windows kernel debugger". Host has WinDbg x64 + ARM64 kdnet.exe
+  (Windows Kits 10 Debuggers).
+- boot #72 = T1-T3 firmware (pack-uefi-beyond0lte.ps1 output; 18 255 872 B like #45+), s10e-artifacts\
+  boot72-v2.img sha 2d9609eb…; 56 pages differ from #71 (176eaf5b…, matches its notes). NOT flashed yet
+  (Windows Setup running on #71).
+- T4: drivers/S10eDiag/esp/extra-kd.cmd (kdnet.exe list -> bcdedit /dbgsettings net hostip:169.254.255.255
+  port:50005 key:1.2.3.4, busparams 0, dhcp No, /debug on, UFN0 pnputil dump) + extra-kd-off.cmd; staged by
+  firmware/tools/s10e-stage-kd.sh [off] from TWRP (ESP \S10EDIAG\extra.cmd + \S10EDIAG\kd\ kdnet set).

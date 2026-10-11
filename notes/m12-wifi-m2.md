@@ -129,3 +129,13 @@ file -> registry `NvramFile`, default `nvram.txt_1rh_es43_b1`.
   dump instead of grep. FIXED in the follow-up commit (234-245, 247-263, 345-405, 1224-1243). All dhd_pcie.c,
   pcicfg.h, aidmp.h, hndsoc.h, siutils.h, sbchipc.h, dhd_custom_cis.c, Makefile and fmac refs matched.
 - MILESTONES: one new line, status `doing`, no other line touched (show --stat: 2 files).
+
+## Task 3 progress (driver)
+
+- Expected nvram processing (python port of fmac brcmf_fw_nvram_strip, scratchpad nvstrip.py; the driver
+  must log the same numbers): 1rh_es43_b1 -> 8720 B padded + 4 B token = 8724 B, token 0xF77B0884;
+  CS01_semco_b1 -> 8844 B + 4 = 8848 B, token 0xF75C08A3. No multi-device keys, both files carry boardrev
+  (so no boardrev=0xff added), no CR, last line newline-terminated (fmac drops an unterminated last value).
+- BAR sizes used by the driver come from the device-validated UEFI print of boot #88 (m1 notes): BAR0 64-bit
+  0x10000 @0x14000000, BAR2 64-bit 0x400000 @0x14400000. The driver does not re-size BARs (no BAR writes);
+  it checks BAR2 is 64-bit, upper dword 0, 4 MB aligned and fits the MEM window.

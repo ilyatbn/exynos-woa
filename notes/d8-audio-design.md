@@ -93,6 +93,13 @@ proven on the device.
 
 ## 3. New dependencies this drags in
 
+- hsi2c_38 facts pre-verified for the amp-bus task (2026-10-11):
+  `hsi2c_38 = hsi2c@109A0000 +0x1000`, compatible "samsung,exynos5-hsi2c",
+  `default-clk = 200 MHz`, irq `INTREQ__USI17_I2C` = SPI 428 = **GSIV 460**
+  (vendor exynos9820.dts:3278-3288 + dt-bindings header). Clocks
+  `DOUT_CLK_PERIC1_USI_I2C`/`GATE_USI17_I2C` — the CMU_PERIC1 gate/QCH
+  offsets are **UNVERIFIED** (same class as P03); do not write the DSDT
+  device until they are pinned from cal-if.
 - **Exynos SPI master driver** for spi_2 (USI v2 block, `usi_v2_mode =
   "spi"`) — new small KMDF driver, no prior art in repo. Alternative:
   madera also supports I2C (`madera-i2c.c` exists, disabled in Samsung's

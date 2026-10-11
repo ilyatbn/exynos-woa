@@ -152,8 +152,9 @@ NTSTATUS S10eBattDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     return Status;
 }
 
-/* The three _CRS windows must be exactly the VERIFIED HSI2C45 / CMGP USI page / CMGP GPIO page, in that order.
-   Anything else means the DSDT and this driver disagree: refuse rather than poke an unknown block. */
+/* The memory resources must be exactly the three VERIFIED windows HSI2C45 / CMGP USI page / CMGP GPIO page, each
+   once (matched by base, so a reordered resource list still works). Anything else means the DSDT and this driver
+   disagree: refuse rather than poke an unknown block. */
 _Use_decl_annotations_
 NTSTATUS S10eBattPrepareHardware(WDFDEVICE Device, WDFCMRESLIST ResourcesRaw, WDFCMRESLIST ResourcesTranslated)
 {
@@ -167,7 +168,7 @@ NTSTATUS S10eBattPrepareHardware(WDFDEVICE Device, WDFCMRESLIST ResourcesRaw, WD
     volatile UCHAR                 *Map[3] = { NULL, NULL, NULL };
     ULONG                           Count;
     ULONG                           i;
-    ULONG                           Mem = 0;
+    ULONG                           k;
 
     UNREFERENCED_PARAMETER(ResourcesRaw);
     PAGED_CODE();
@@ -179,25 +180,30 @@ NTSTATUS S10eBattPrepareHardware(WDFDEVICE Device, WDFCMRESLIST ResourcesRaw, WD
             continue;
         }
 
-        if ((Mem >= ARRAYSIZE(Expected)) ||
-            ((ULONGLONG)Desc->u.Memory.Start.QuadPart != Expected[Mem].Base) ||
-            (Desc->u.Memory.Length != Expected[Mem].Size)) {
-            S10eBattPrint(DPFLTR_ERROR_LEVEL, "unexpected memory resource %u: %I64x+%x\n", Mem,
+        for (k = 0; k < ARRAYSIZE(Expected); k++) {
+            if ((ULONGLONG)Desc->u.Memory.Start.QuadPart == Expected[k].Base) {
+                break;
+            }
+        }
+
+        if ((k == ARRAYSIZE(Expected)) || (Map[k] != NULL) || (Desc->u.Memory.Length != Expected[k].Size)) {
+            S10eBattPrint(DPFLTR_ERROR_LEVEL, "unexpected memory resource %I64x+%x\n",
                           Desc->u.Memory.Start.QuadPart, Desc->u.Memory.Length);
             goto Fail;
         }
 
-        Map[Mem] = (volatile UCHAR *)MmMapIoSpaceEx(Desc->u.Memory.Start, Desc->u.Memory.Length,
-                                                    PAGE_READWRITE | PAGE_NOCACHE);
-        if (Map[Mem] == NULL) {
+        Map[k] = (volatile UCHAR *)MmMapIoSpaceEx(Desc->u.Memory.Start, Desc->u.Memory.Length,
+                                                  PAGE_READWRITE | PAGE_NOCACHE);
+        if (Map[k] == NULL) {
             goto Fail;
         }
-        Mem++;
     }
 
-    if (Mem != ARRAYSIZE(Expected)) {
-        S10eBattPrint(DPFLTR_ERROR_LEVEL, "expected 3 memory resources, got %u\n", Mem);
-        goto Fail;
+    for (k = 0; k < ARRAYSIZE(Expected); k++) {
+        if (Map[k] == NULL) {
+            S10eBattPrint(DPFLTR_ERROR_LEVEL, "memory resource %I64x missing\n", Expected[k].Base);
+            goto Fail;
+        }
     }
 
     Fdo->I2c      = Map[0];

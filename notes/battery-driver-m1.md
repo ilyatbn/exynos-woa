@@ -140,3 +140,25 @@ WMILIB.SYS, WDFLDR.SYS (KMDF 1.15), HAL, ntoskrnl `MmMapIoSpaceEx`. Inf2Cat (10_
 clean; .sys and .cat signed with the WDK test cert (signer "WDKTestCert ilya,134359747320405644";
 host `signtool verify /pa` fails only on root trust, as for the existing packages).
 `infverif /w /v S10eBattery.inf` -> **INF is VALID**.
+
+### 2026-10-12 — commit b53bc52 review (task 2, harsh critic)
+Checked mechanically:
+- MMIO write sequence of `Hsi2c.c` vs `Pmic.c` (grep of every MmioWrite / I2cWr / pin write, in
+  order): reset, setup, xfer and release sequences identical (file order differs only). ✔
+- Register constants: scratch helper `cmpdefs.py` over `UsbHw.h` vs `S10eBattery.h`: 43/43 shared
+  names equal; `Pmic.c` error bits 6/6 equal. Charger `0xB3`, `0x60>>5`, `0x0F`, `DESIGNCAP 0x18`
+  equal to the vendor headers fetched today. ✔
+- Read-only: the only write transfer is the 1-byte register pointer inside `S10eMax77705ReadN`
+  (rg `S10eHsi2cXfer(` -> 2 call sites, both there). ✔
+- Every guessed value is named `*_UNVERIFIED` (fg_resistor, nominal mV). ✔
+Found -> follow-up tasks (own commits):
+- **F1** `PrepareHardware` required the `_CRS` windows *in order*; a reordered translated list would
+  have failed start (Code 10). Fix: match by base, each exactly once, all three required.
+- **F2** `Hsi2c.c` header says "same register sequence" but the `Hsi2cDump` diagnostic reads of
+  Pmic.c are not ported (reads only, no behaviour change) — the comment must say so.
+Accepted (no change): "LION" chemistry string is cosmetic (Windows convention for Li-ion);
+`FullChargedCapacity` is frozen per tag (until reboot / driver restart) so Windows % stays == SOCREP.
+
+### 2026-10-12 — F1 fixed
+`Driver.c:S10eBattPrepareHardware` matches memory descriptors by base against the 3 expected windows
+(size must match, duplicates and missing windows refuse start). Rebuilt: exit 0, /W4 /WX clean.

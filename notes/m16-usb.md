@@ -409,3 +409,4 @@ Found:
   Pattern (low-power OK, marginal flash drive, high-power USB3 devices never connect) matches the 500 mA OTG limit.
 - boot #84 (sha 7da802da…): OTG_ILIM 900 mA (Linux value). Next: flash drive/NVMe/dock on #84; if NVMe/dock still
   fail, try 1.2/1.5 A and the USB3 (SS) PHY, which we still hold down.
+- Run 14 setup: boot #84 flashed (7da802da…). TWRP device-mode (PC cable, adb active) captured 10ae0000.usbdp regdump/regmap -> twrp-usb-regs-20261011\usbdp-device-*.txt (link_state U2; TRSV_0241/0641 0x71, 0311/0711 0x06, 030B/070B 0x0C, 02BD/06BD 0x1B) as the SS-PHY tune reference.

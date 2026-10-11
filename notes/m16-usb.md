@@ -326,3 +326,14 @@ Found:
 - Provisioned: UFS w34 on device sha 8ea93ce8… = host. First run's umount hit "busy" (set -e stopped before the
   ESP step; finished by hand) → retry loop added. ESP S10EDIAG: collect/desktop.cmd fresh, no extra.cmd, no
   WINRUN.FLG, stay.flg kept (interactive). BOOT = boot #71 (XHC0 hidden).
+
+### Fresh install result (user, 2026-10-11 ~19:50)
+- Windows installed + booted. SetupComplete log: every step OK (bcdedit numproc delete, power keys, services,
+  cert, Exynos9820Hsi2c = oem2 on ACPI\SAMS9820\a, S6SY761TouchBeyond0 = oem3 on ACPI\SCSY0761\0).
+- 1 CPU on the first boot = numproc removal applies from the next boot. pnp-problem: only CPU 6/7 (M4,
+  not parked) code 10 = same as before. S10eDiag + S10eAgent RUNNING.
+- The TWRP bounces: the user's "Reboot to TWRP" click on boot 1 (agent service did not exist yet ->
+  s10ereboot's "error" after 10 s) left C:\S10eTmp\req\recovery.req; the agent acted on it after the desktop
+  on later boots (agent.log "request: reboot to TWRP" 5 s after collect; the delete was lost once in the
+  flushreset). Fix: S10eAgent discards request files present at its start (stale). Built (s10ediag-m17),
+  S10eAgent.exe deployed (sha 80652877… = host). WINRUN.FLG removed by the stage script.

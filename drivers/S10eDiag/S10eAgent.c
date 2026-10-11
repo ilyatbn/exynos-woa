@@ -226,6 +226,16 @@ Worker(LPVOID Parameter)
     gLog[0] = CreateFileW(LOCAL_LOG, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     LogLine("S10eAgent start");
 
+    // 0. Requests are only valid for the session they were made in. Fresh install 2026-10-11: the user
+    // clicked "Reboot to TWRP" on the first boot, before this service existed; the file survived and every
+    // later boot went to TWRP right after the desktop came up (the delete before flushreset was lost once).
+    if (DeleteFileW(L"C:\\S10eTmp\\req\\recovery.req")) {
+        LogLine("stale request discarded: recovery.req");
+    }
+    if (DeleteFileW(L"C:\\S10eTmp\\req\\collect.req")) {
+        LogLine("stale request discarded: collect.req");
+    }
+
     // 1. The ESP (volumes can arrive late on one core: retry for ~5 min).
     for (Attempt = 0; Attempt < 30; Attempt++) {
         if (FindEsp()) {

@@ -142,3 +142,6 @@ hang (notes/m14-smp.md: "Needs kernel-level debugging (KDNET/USB) - parked"), ea
 - T4: drivers/S10eDiag/esp/extra-kd.cmd (kdnet.exe list -> bcdedit /dbgsettings net hostip:169.254.255.255
   port:50005 key:1.2.3.4, busparams 0, dhcp No, /debug on, UFN0 pnputil dump) + extra-kd-off.cmd; staged by
   firmware/tools/s10e-stage-kd.sh [off] from TWRP (ESP \S10EDIAG\extra.cmd + \S10EDIAG\kd\ kdnet set).
+- 2026-10-11 ~19:58: boot #72 FLASHED (readback 2d9609eb… = image); s10e-stage-kd.sh staged extra-kd.cmd +
+  kd\ (kdnet.exe, kdnet-dev-ext.dll, VerifiedNICList.xml) on the ESP. Next boot: agent sets BCD debug; KD live
+  from the boot after that.

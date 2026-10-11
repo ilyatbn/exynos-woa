@@ -306,6 +306,12 @@
 
 [LibraryClasses.common.DXE_RUNTIME_DRIVER]
   HobLib|MdePkg/Library/DxeHobLib/DxeHobLib.inf
+  #
+  # m14 run 16: with PSCI hidden from Windows its restart goes through EFI ResetSystem, and a DEBUG print from
+  # the runtime code went through Beyond0LteFbSerialPortLib to the PHYSICAL boot-log ring 0x8FF00000 after
+  # SetVirtualAddressMap -> bugcheck 0x1E C0000005 at 0x8FF00000. Runtime drivers print nothing.
+  #
+  DebugLib|MdePkg/Library/BaseDebugLibNull/BaseDebugLibNull.inf
   VariablePolicyLib|MdeModulePkg/Library/VariablePolicyLib/VariablePolicyLibRuntimeDxe.inf
 
 ################################################################################

@@ -115,3 +115,14 @@ No device access in this task; build-verified only (Guided, not Ready).
   request - whether the PSCI-less restart itself is clean (no 0xA0) is not yet read from the PRAM ring. TODO.
   Next: mid cores (A75, GICC 4/5) with a self-healing guard (a hang in CPU_ON before ReadyToBoot would loop every
   82 s with no WINRUN.FLG), then the big cores (S9: CPU_ON of a big core hung the SoC).
+- Run 16 (boot #50, mask 0x3E, 13:20, back 218 s): all 5 secondaries parked (gicc4/5 = A75, MPIDR_EL1
+  0x81000400/0x81000500), Windows NumberOfLogicalProcessors = 6. Mid cores WORK.
+  UEFILOG progress prev=0x81 = run 15 ended through S10eDiag's recovery reset (bugcheck or fallback), so the
+  PSCI-less restart is still not clean - read the mark ring next.
+- Run 16 restart decoded (firmware bounce, S10eDiag ring): shutdown notification -> BUGCHECK 0x1E
+  KMODE_EXCEPTION_NOT_HANDLED P1 C0000005 P2 FFFFF803E17838F8 P4 0x8FF00000 = the PHYSICAL boot-log ring. With
+  PSCI hidden, Windows restarts via EFI ResetSystem; a DEBUG print in the runtime path wrote through
+  Beyond0LteFbSerialPortLib to 0x8FF00000 after SetVirtualAddressMap. Fix (boot #51): DXE_RUNTIME_DRIVER DebugLib ->
+  BaseDebugLibNull. Also Beyond0LteResetSystemLib now keeps INFORM3 if it is already recovery (0x12345674), else
+  "Reboot to TWRP" would restart into Windows through this path.
+- Boot #51 also: SAFE mask 0x3E (GICC 1-5 proven), PARK mask 0xFE (+ M4 big cores GICC 6-7) behind the 0x65 guard.

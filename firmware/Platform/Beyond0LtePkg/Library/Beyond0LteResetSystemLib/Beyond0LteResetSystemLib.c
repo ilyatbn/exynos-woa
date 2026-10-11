@@ -433,8 +433,13 @@ ExynosPmuReset (
     // Samsung's own sequence (kernel sec_reboot + exynos_reboot): reboot reason "normal"
     // (INFORM3 = 0x12345670, so sboot boots BOOT = this UEFI again), then SWRESET = 2.
     //
+    // m14: with PSCI hidden, Windows' restart comes through here. A reboot reason the OS already chose
+    // (S10eDiag "recovery" = INFORM3 0x12345674) must survive, or "Reboot to TWRP" boots Windows again.
+    //
     if (!EfiGoneVirtual () || mInform3VirtualReady) {
-      MmioWrite32 ((UINTN)mInform3, EXYNOS_REBOOT_REASON_BASE);
+      if (MmioRead32 ((UINTN)mInform3) != (EXYNOS_REBOOT_REASON_BASE | EXYNOS_REBOOT_MODE_RECOVERY)) {
+        MmioWrite32 ((UINTN)mInform3, EXYNOS_REBOOT_REASON_BASE);
+      }
       ArmDataSynchronizationBarrier ();
     }
 

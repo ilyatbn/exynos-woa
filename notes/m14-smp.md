@@ -102,3 +102,8 @@ No device access in this task; build-verified only (Guided, not Ready).
   restart -> TWRP. => parking + PSCI-less FADT boot is OK on device.
 - Run 15 prep: BCD numproc removed on the device (PC bcdedit /store on the pulled ESP BCD, '{default}' quoted);
   backup %TEMP%\c60\bcd\BCD.orig. extra-cpu.cmd: CPU counts + System events 41/6008/1074/1001.
+- REVIEW FLAG (run 14 log): the parked cores report MPIDR_EL1 0x81000100 / 0x81000200 / 0x81000300 (MT bit 24 set,
+  core number in Aff1), while the MADT GICC MPIDRs are 0x1/0x2/0x3 (Madt.aslc). Samsung EL3 accepted 1/2/3 for
+  CPU_ON, but Windows matches a running core's MPIDR_EL1 to its GICC entry -> a mismatch may break the secondary
+  start. If run 15 fails there: MADT (and DSDT _MAT, and the park mask MPIDR compare) -> 0x100/0x200/0x300, after
+  reading the live DT /cpus/cpu@*/reg in TWRP (and the boot core's own MPIDR_EL1 = 0x81000000).

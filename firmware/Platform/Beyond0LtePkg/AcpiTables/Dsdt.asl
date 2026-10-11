@@ -364,7 +364,11 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
         // POWER gpa2-4; pin numbers are GpioClx-linear (bank*8+pin).
         // Wake: POWER + BIXBY are SharedAndWake (the DT's gpio-key,wakeup
         // flags); the volume keys are not wake sources on Android, mirrored.
-        // Bixby maps to AC Search (0x0C/0x221) — Windows has no Bixby usage.
+        // DebounceTimeout 0x2710 = 10 000 x 100us = 10 ms, matching the
+        // DT's debounce-interval = <10>; the driver sets EmulateDebouncing
+        // so GpioClx applies it in software (the HW FLTCON filter is much
+        // shorter). Bixby maps to AC Search (0x0C/0x221) — Windows has no
+        // Bixby usage.
         Device (BTNS)
         {
             Name (_HID, "ACPI0011")   // generic button device (inbox Hidinterrupt.sys)
@@ -375,16 +379,16 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
             })
             Name (_CRS, ResourceTemplate ()
             {
-                GpioInt (Edge, ActiveBoth, SharedAndWake, PullUp, 0x0000,
+                GpioInt (Edge, ActiveBoth, SharedAndWake, PullUp, 0x2710,
                     "\\_SB.GPIO", 0x00, ResourceConsumer, , )
                 { 20 }   // index 0: POWER  (gpa2-4)
-                GpioInt (Edge, ActiveBoth, Shared, PullUp, 0x0000,
+                GpioInt (Edge, ActiveBoth, Shared, PullUp, 0x2710,
                     "\\_SB.GPIO", 0x00, ResourceConsumer, , )
                 { 3 }    // index 1: VOLUME UP (gpa0-3)
-                GpioInt (Edge, ActiveBoth, Shared, PullUp, 0x0000,
+                GpioInt (Edge, ActiveBoth, Shared, PullUp, 0x2710,
                     "\\_SB.GPIO", 0x00, ResourceConsumer, , )
                 { 4 }    // index 2: VOLUME DOWN (gpa0-4)
-                GpioInt (Edge, ActiveBoth, SharedAndWake, PullUp, 0x0000,
+                GpioInt (Edge, ActiveBoth, SharedAndWake, PullUp, 0x2710,
                     "\\_SB.GPIO", 0x00, ResourceConsumer, , )
                 { 6 }    // index 3: BIXBY (gpa0-6)
             })

@@ -126,3 +126,11 @@ No device access in this task; build-verified only (Guided, not Ready).
   BaseDebugLibNull. Also Beyond0LteResetSystemLib now keeps INFORM3 if it is already recovery (0x12345674), else
   "Reboot to TWRP" would restart into Windows through this path.
 - Boot #51 also: SAFE mask 0x3E (GICC 1-5 proven), PARK mask 0xFE (+ M4 big cores GICC 6-7) behind the 0x65 guard.
+- Run 17 (boot #51, mask 0xFE, 13:28, back 233 s): UEFI parked ALL 7 secondaries incl. the M4s (gicc6/7
+  MPIDR_EL1 0x80000100 / 0x80000101 - MT bit clear on the M4, Aff1=1 cluster, Aff0 0/1). => CPU_ON of a 9820 big
+  core does NOT hang (unlike the 9810). But Windows never reached the agent: S10eDiag loaded at 73 s, then no
+  more marks, no bugcheck (no =BUGCHECK, no S10eDiag BC lines); next UEFI boot saw progress prev=0x72 (Windows
+  running, no 0x80/0x81) and took the boot pair. => offering the big cores hangs Windows' boot, and something
+  reset the SoC without a crash record. Open questions: Windows' processor-start of the M4 (different MPIDR
+  format MT=0 vs the A55/A75 MT=1; MADT efficiency class 0; GICR/PMU/ID differences), EL3/uH reaction.
+  Default back to mask 0x3E (6 cores). Boot #52 = 6 cores + the run-16 restart fix (not yet exercised).

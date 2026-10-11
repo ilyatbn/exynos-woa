@@ -57,6 +57,10 @@
 #define PARK_MAX_GICC       8u      // Madt.aslc BEYOND0LTE_NUM_CORES
 #define PARK_WAIT_STEP_US   1000u
 #define PARK_WAIT_STEPS     100u    // up to 100 ms for all marks (the 9810 waited 30 ms)
+#define PARK_PROGRESS_TRYING  0x65u  // boot progress code: CPU_ON of a core outside the safe mask in flight
+
+// Boot progress word page (Beyond0LteBootLog / bootshim: [0] previous boot's last code, [1] this boot's).
+STATIC volatile UINT32  *CONST  mParkProgress = (volatile UINT32 *)(UINTN)0x8FE0F000ULL;
 
 extern UINT8  Beyond0LteParkStub[];
 extern UINT8  Beyond0LteParkStubEnd[];
@@ -102,6 +106,8 @@ Beyond0LteParkSecondaries (
   EFI_STATUS                  Status;
   ARM_SMC_ARGS                Smc;
   UINT8                       *Bytes;
+  UINT32                      Mask;
+  UINT32                      SavedProgress;
 
   StubSize  = (UINTN)(Beyond0LteParkStubEnd - Beyond0LteParkStub);
   BootMpidr = GET_MPIDR_AFFINITY_BITS (ArmReadMpidr ());
@@ -115,6 +121,18 @@ Beyond0LteParkSecondaries (
   //
   // Collect the GICC entries in table order; bit n of the mask = n-th GICC.
   //
+  //
+  // m14 self-healing guard: a CPU_ON that hangs the SoC happens before ReadyToBoot, so no \WINRUN.FLG exists
+  // and the SEC dead man's switch (82 s) would reboot into the same hang forever. Before starting any core
+  // outside BEYOND0LTE_SMP_SAFE_MASK (proven on device) this boot stores progress 0x65; the shim copies it to
+  // [0] on the next boot, which then parks only the safe cores.
+  //
+  Mask = BEYOND0LTE_SMP_PARK_MASK;
+  if (mParkProgress[0] == PARK_PROGRESS_TRYING) {
+    Mask &= BEYOND0LTE_SMP_SAFE_MASK;
+    DEBUG ((DEBUG_ERROR, "PARK: previous boot hung starting a core (progress 0x65) - safe mask %x\n", Mask));
+  }
+
   Bytes     = (UINT8 *)Madt;
   GiccCount = 0;
   ParkCount = 0;
@@ -133,7 +151,7 @@ Beyond0LteParkSecondaries (
       Gicc[GiccCount]     = (EFI_ACPI_6_3_GIC_STRUCTURE *)(Bytes + Offset);
       Page[GiccCount]     = 0;
       OnStatus[GiccCount] = MAX_UINTN;
-      if (((BEYOND0LTE_SMP_PARK_MASK >> GiccCount) & 1u) &&
+      if (((Mask >> GiccCount) & 1u) &&
           ((Gicc[GiccCount]->Flags & EFI_ACPI_6_3_GIC_ENABLED) != 0) &&
           (GET_MPIDR_AFFINITY_BITS (Gicc[GiccCount]->MPIDR) != BootMpidr))
       {
@@ -170,7 +188,7 @@ Beyond0LteParkSecondaries (
   //
   Slot = 0;
   for (Index = 0; (Index < GiccCount) && (Pages != 0); Index++) {
-    if (!(((BEYOND0LTE_SMP_PARK_MASK >> Index) & 1u) &&
+    if (!(((Mask >> Index) & 1u) &&
           ((Gicc[Index]->Flags & EFI_ACPI_6_3_GIC_ENABLED) != 0) &&
           (GET_MPIDR_AFFINITY_BITS (Gicc[Index]->MPIDR) != BootMpidr)))
     {
@@ -190,9 +208,15 @@ Beyond0LteParkSecondaries (
     InvalidateInstructionCacheRange ((VOID *)(UINTN)Pages, ParkCount * EFI_PAGE_SIZE);
   }
 
+  SavedProgress = mParkProgress[1];
   for (Index = 0; Index < GiccCount; Index++) {
     if (Page[Index] == 0) {
       continue;
+    }
+
+    if (((BEYOND0LTE_SMP_SAFE_MASK >> Index) & 1u) == 0) {
+      mParkProgress[1] = PARK_PROGRESS_TRYING;   // uncached handoff window (PlatformMemoryMapLib)
+      ArmDataSynchronizationBarrier ();
     }
 
     ZeroMem (&Smc, sizeof (Smc));
@@ -232,6 +256,9 @@ Beyond0LteParkSecondaries (
     //
     MicroSecondDelay (PARK_WAIT_STEP_US);
   }
+
+  mParkProgress[1] = SavedProgress;   // every started core reported in or timed out - no SoC hang here
+  ArmDataSynchronizationBarrier ();
 
   //
   // Patch the MADT: parked -> version 1 + mailbox; any other enabled secondary

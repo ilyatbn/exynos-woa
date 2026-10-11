@@ -57,8 +57,13 @@
 #define BEYOND0LTE_SMP_PARKING  1
 #endif
 
+// m14 run 15: GICC 1-3 (A55) proven on device. Cores outside BEYOND0LTE_SMP_SAFE_MASK are started behind the
+// progress-0x65 guard (Beyond0LteParking.c): a boot after a hang there parks only the safe cores.
+#ifndef BEYOND0LTE_SMP_SAFE_MASK
+#define BEYOND0LTE_SMP_SAFE_MASK  0x0Eu
+#endif
 #ifndef BEYOND0LTE_SMP_PARK_MASK
-#define BEYOND0LTE_SMP_PARK_MASK  0x0Eu
+#define BEYOND0LTE_SMP_PARK_MASK  0x3Eu   // m14: + GICC 4-5 (A75 mid cores)
 #endif
 
 #ifndef BEYOND0LTE_FADT_PSCI

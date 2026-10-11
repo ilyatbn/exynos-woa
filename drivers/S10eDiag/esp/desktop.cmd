@@ -25,4 +25,6 @@ rem m16: the .cmd version failed to launch ("Windows cannot access the specified
 rem while every other .cmd worked - replaced by s10ereboot.exe copied onto the desktop itself.
 del /f /q "%PD%\Reboot to TWRP.cmd" > nul 2>&1
 copy /y C:\Windows\System32\s10ereboot.exe "%PD%\Reboot to TWRP.exe" > nul
+rem Display scale slider 100-300 %% (s10escale.exe, custom scaling via LogPixels; applies after sign-out).
+if exist C:\Windows\System32\s10escale.exe copy /y C:\Windows\System32\s10escale.exe "%PD%\Display scale.exe" > nul
 dir "%PD%" > "%L%\desktop.txt" 2>&1

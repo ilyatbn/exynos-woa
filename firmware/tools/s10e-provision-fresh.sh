@@ -19,7 +19,7 @@ $A shell "mount.ntfs /dev/block/by-name/userdata $W >/dev/null 2>&1; mount | gre
 
 $A push "$(m "$UFS")" "$U" >/dev/null
 $A shell "mkdir -p $W/S10eProv/s10ediag $W/S10eProv/drivers/Exynos9820Hsi2c $W/S10eProv/drivers/S6SY761TouchBeyond0 $W/Windows/Setup/Scripts"
-for f in S10eDiag.sys s10ediag.exe S10eAgent.exe s10erotate.exe s10eperf.exe s10etouchlog.exe s10ereboot.exe; do
+for f in S10eDiag.sys s10ediag.exe S10eAgent.exe s10erotate.exe s10eperf.exe s10etouchlog.exe s10ereboot.exe s10escale.exe; do
   $A push "$(m "$DIAG/$f")" "$W/S10eProv/s10ediag/$f" >/dev/null
 done
 for f in "$HSI2C"/*; do $A push "$(m "$f")" "$W/S10eProv/drivers/Exynos9820Hsi2c/" >/dev/null; done

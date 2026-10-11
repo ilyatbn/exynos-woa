@@ -157,3 +157,5 @@ No device access in this task; build-verified only (Guided, not Ready).
   rendering between them any more) - only the last one reaches the stub (EL3/uH keep a single pending entry?).
   UNVERIFIED. Fix (boot #58 = + clean shim): one core at a time - CPU_ON, wait for its own mark (<= 2 s), then
   the next; per-core arrival ms logged on the CPU_ON line.
+- Boot #58 (serialized CPU_ON + clean shim, 14:32, stay.flg): USER CONFIRMED "its booted ... i see 6 processors",
+  most of the RAM; feels slow ("maybe because of no gpu"). => serialization fixed the HAL failure.

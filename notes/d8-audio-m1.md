@@ -712,7 +712,7 @@ Mixer source value "Tone Generator 1" = 0x04 [MC:1422-1424 texts, 1574-1576 valu
   (speaker/receiver) are never enabled (OUT2 feeds only the jack); if no headphones are plugged the output just
   drives the open jack.
 
-### 6.3 Commit reviews (AGENTS.md §4)
+### 6.3 Progress log (cont.) + commit reviews (AGENTS.md §4)
 - Review 0b4e1b9 (research notes): re-grepped every cite. [DTBO:1481] routing, [MC:1422-1424/1574-1576] mixer
   texts/values, [MH:194-197] range TLV, [CORE:41, 905, 917] 32k MCLK2 + patch_fn, [L92:2148] FLL1 base - OK.
   FOUND: two registers.h ranges were off (HP SC/ENABLE/DISABLE status cited 8083-8106, real headers at
@@ -755,3 +755,70 @@ Mixer source value "Tone Generator 1" = 0x04 [MC:1422-1424 texts, 1574-1576 valu
 
 - Follow-up to f6ce147 (SetEx no-verify VU, pitch wording, 38 patch writes): build exit 0, AudioProbeDxe.efi
   26 624 B, FD sha256 68fd92c3a42a95912649e57b51d62716d6e4384c6ba60c081f176fb0176ad0f1, FVMAIN_COMPACT 1 112 B free.
+- Review 04b69b9 (follow-ups): SetEx's Check mask = Mask & ~NoVerify, only the four DAC writes pass DAC_VU;
+  `grep -n "~1 kHz"` in AudioTone.c now only hits the UNVERIFIED wording; build exit 0. No follow-ups.
+
+### 6.4 Device test procedure (milestone 2) - for the main session (unattended) and the user (ear test)
+
+Image: build on main after merging this branch (normal `build-uefi.ps1 -Platform Beyond0LtePkg`), pack + flash
+as every boot (only by-name/boot). This session did NOT pack or flash. Private-workspace FD of 04b69b9:
+`C:\Users\ilya\code\w8c\Build\Beyond0LtePkg\DEBUG_CLANGPDB\FV\BEYOND0LTE_UEFI.fd`, sha256 68fd92c3...
+
+**Writes in this image beyond 1b:** SPI writes to the CS47L93 only (patch, clocks, FLL1, mixers, volumes,
+output enables), all undone + codec put back into hard reset before the handoff. No PMIC, CMU, PMU or ABOX write.
+The amps are untouched by m2 (their 1b ID probe is unchanged). Disable: `BEYOND0LTE_AUDIO_TONE 0` in
+`Drivers/Beyond0LteAudioProbeDxe/AudioCodec.h` (back to 1b behaviour).
+
+Unattended run: boot once to Windows (or past BDS), pull `UEFILOG.TXT` from TWRP, `grep -E 'AudioTone|AudioProbe'`.
+Expected lines (DEBUG %x = upper-case hex, no 0x; `<>` = learned on the device), after the 1b lines up to
+`AudioProbe: codec BOOT_DONE after 5000 us (IRQ1_RAW_STATUS1 80)`:
+```
+AudioTone: start - tone1 -> OUT2 mixers -> HPOUT2 (3.5 mm jack) for 2000 ms at -32 dBFS (mixer -20 dB, DAC -12 dB)
+AudioTone: status at reset: FLL1 lock 0 (RAW2 <>) SYSCLK1 404 OUT_EN1 0 RAW_OUT_STS1 <> TONE1 0 HP2 SC 0 EN_DONE 0 DIS_DONE <> (bits 3:2 = R:L) HPD0 0
+[AudioTone: patch16 [reg] <- val read <> (Success)   - only for writes that did not read back exactly; a few are tolerated]
+AudioTone: cs47l92 patch applied: 16-bit <~38>/38 read back exact, 32-bit <~28>/28
+AudioTone: CLOCK_32K_1 ena + MCLK2 [100] mask 43 <- 41 : read 41 ok
+AudioTone: SAMPLE_RATE_1 48k [102] mask 1F <- 3 : read 3 ok
+AudioTone: SYSTEM_CLOCK_1 98M FLL1 [101] mask 870F <- 404 : read 404 ok
+AudioTone: FLL1 <- MCLK2 (32 kHz) programmed: CTRL1 1001 CTRL2 <8177 or 177> THETA 0 LAMBDA 1 CTRL5 4 CTRL6 8000 GAIN 23F0 CTRL10 1000 CTRL11 5 DT1 32E8 (want N 177 TH 0 LA 1 FB 4 REFDIV 0 GAIN 23F0 HP 0 THR 2 FAST 0)
+AudioTone: FLL1 <- MCLK2 (32 kHz) LOCKED after <ms> ms (IRQ1_RAW_STATUS_2 <bit8 set>)          <- KEY LINE 1
+AudioTone: SYSCLK_ENA [101] mask 40 <- 40 : read 444 ok
+AudioTone: OUT2LMIX in1 = tone1 [690] mask FF <- 4 : read 4 ok           (and OUT2RMIX [698])
+AudioTone: OUT2LMIX in1 vol -20dB [691] mask FE <- 58 : read 58 ok      (and [699])
+AudioTone: DAC2L -12dB unmute [419] mask 3FF <- 268 : read <68 or 268> ok (and DAC2R [41D])
+AudioTone: TONE1_ENA (rate = SAMPLE_RATE_1) [20] mask FFFF <- 1 : read 1 ok
+AudioTone: OUT2L+OUT2R ENA [400] mask C <- C : read C ok
+AudioTone: status outputs on (+12 ms): FLL1 lock 1 (RAW2 <>) SYSCLK1 444 OUT_EN1 C RAW_OUT_STS1 <> TONE1 1 HP2 SC 0 EN_DONE C DIS_DONE <> ... HPD0 0   <- KEY LINE 2
+AudioTone: status mid-tone: FLL1 lock 1 ... OUT_EN1 C ... TONE1 1 HP2 SC 0 EN_DONE C ...                                                        <- KEY LINE 3
+AudioTone: OUT2L+OUT2R off [400] mask C <- 0 : read 0 ok
+AudioTone: status outputs off (+2 ms): ... OUT_EN1 0 ... DIS_DONE C ...
+AudioTone: TONE1 off / DAC2L/2R mute (default) / OUT2xMIX in1 none / vol 0dB (default) / SYSCLK off : ... ok
+AudioTone: FLL1 disabled after <ms> ms: CTRL1 1004 CTRL2 177 CTRL11 4 RAW2 <bit8 clear>
+AudioTone: status after teardown: FLL1 lock 0 ... SYSCLK1 404 OUT_EN1 0 ... TONE1 0 ...
+AudioTone: done - tone PLAYED (listen: ~2 s, both ears; pitch UNVERIFIED, expected ~1 kHz); codec goes back into hard reset next
+AudioProbe: codec OK; bus released: ... (reset back to its handoff level)
+```
+**Milestone 2 is proven in the log** when KEY LINES 1-3 appear (FLL lock, OUT_EN1 C with EN_DONE C and SC 0,
+still so at mid-tone) and the final line says PLAYED. The ear test confirms the analogue end.
+
+Reading other outcomes:
+- `FLL1 <- MCLK2 (32 kHz) NO LOCK after 301 ms` -> MCLK2 has no clock (or not ~32 kHz); then the MCLK1 attempt:
+  `FLL1 <- MCLK1 (26 MHz) LOCKED` = sboot left the AP 26 MHz clock-out running (tone still plays); `NO LOCK` on
+  both + `locked on neither ... abort` -> nothing was enabled; next step = find what drives MCLK2 (PMIC 32k buffer
+  enable? read-only research first) or the AP CLKOUT (xclkout clock 0x385) - a flagged AP write, separate task.
+- `cs47l92 patch applied: 16-bit 0/38 ... 32-bit 0/28` + abort -> SPI writes do not stick (reads worked in 1b):
+  check the write framing (bit 7 of byte 0 clear) against a read of a known RW register.
+- `HP2 SC` non-zero or `HP2 short-circuit status set` -> outputs were switched off at once; record, do not retry
+  louder.
+- `HP clamp set` -> HPD_OVD_ENA_SEL was set at reset (not expected, default 0): record the value.
+- EN_DONE 0 with OUT_EN1 C -> the HP enable sequence did not finish (charge pump / CPVDD?): record RAW_OUT_STS1.
+- Hang (progress word ends 0x69, no UEFILOG) -> next boot skips the whole audio probe by itself; read
+  `/proc/debug_history` from TWRP (AGENTS.md §9).
+
+**Ear test (the user, later):** plug wired headphones / earbuds into the S10e's 3.5 mm jack **before** power-on,
+keep them in your ears at a normal distance, boot this image. The tone comes at ReadyToBoot - after the
+UEFI boot UI, just before the Windows Boot Manager takes over (TouchPower's LDO18M step runs there). Expect a
+steady beep for ~2 s in both ears at a moderate level (-32 dBFS, a square wave if the recalled datasheet is
+right, so it may sound buzzy rather than pure). Report: heard / not heard, both ears or one, rough pitch,
+anything else (click at start/end). If nothing is heard but the log shows KEY LINES 1-3, the digital path is
+proven and the problem is analogue (jack detect / HP stage) - say so in the result.

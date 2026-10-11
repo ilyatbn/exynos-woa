@@ -1,7 +1,7 @@
 @echo off
 rem S10eAgent script (ESP: \S10EDIAG\collect.cmd). Runs as SYSTEM once explorer.exe is up.
-rem OUT = S:\S10EDIAG\out. Every run overwrites %OUT%\last. notes/m11-s10ediag.md.
-rem   S:\S10EDIAG\stay.flg present -> collect only, Windows keeps running (interactive use)
+rem ESP = the ESP drive letter (set by S10eAgent), OUT = %ESP%\S10EDIAG\out. Every run overwrites %OUT%\last. notes/m11-s10ediag.md.
+rem   %ESP%\S10EDIAG\stay.flg present -> collect only, Windows keeps running (interactive use)
 rem   absent                       -> collect, then clean restart into TWRP (5 min hard-reset fallback)
 setlocal
 set L=%OUT%\last
@@ -33,17 +33,17 @@ wevtutil epl Microsoft-Windows-Kernel-Boot/Operational "%L%\KernelBoot.evtx"
 wevtutil epl Microsoft-Windows-Diagnostics-Performance/Operational "%L%\DiagPerf.evtx"
 wevtutil qe System /c:300 /rd:true /f:text > "%L%\System-last300.txt" 2>&1
 
-echo --- extra (S:\S10EDIAG\extra.cmd, optional)
-if exist S:\S10EDIAG\extra.cmd call S:\S10EDIAG\extra.cmd
+echo --- extra (%ESP%\S10EDIAG\extra.cmd, optional)
+if exist %ESP%\S10EDIAG\extra.cmd call %ESP%\S10EDIAG\extra.cmd
 
 echo === collect done %DATE% %TIME%
-if exist S:\S10EDIAG\stay.flg (
+if exist %ESP%\S10EDIAG\stay.flg (
   echo stay.flg present - leaving Windows running
   exit /b 0
 )
 
 echo --- back to TWRP
-del /f /q S:\WINRUN.FLG 2>nul
+del /f /q %ESP%\WINRUN.FLG 2>nul
 s10ediag recovery
 s10ediag fallback 300
 s10ediag info

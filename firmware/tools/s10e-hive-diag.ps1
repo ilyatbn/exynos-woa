@@ -25,6 +25,16 @@ try {
   New-ItemProperty -Path $k -Name ObjectName -PropertyType String -Value 'LocalSystem' -Force | Out-Null
   New-ItemProperty -Path $k -Name DisplayName -PropertyType String -Value 'S10e diagnostics agent' -Force | Out-Null
   Get-ItemProperty "$cs\Services\S10eDiag", "$cs\Services\S10eAgent" | Format-List PSChildName, Type, Start, ImagePath
+
+  # Agent run 1 (notes/m11-s10ediag.md): Windows had given D:..Z: to the Android partitions. Drop those
+  # letters (C: stays) and stop mountmgr from lettering new volumes; the agent letters the ESP itself.
+  $md = 'HKLM:\S10ESYS\MountedDevices'
+  $props = (Get-ItemProperty $md).PSObject.Properties | Where-Object { $_.Name -match '^\\DosDevices\\[D-Z]:$' }
+  foreach ($p in $props) { Remove-ItemProperty -Path $md -Name $p.Name }
+  "removed $(@($props).Count) drive letters"
+  $mm = "$cs\Services\mountmgr"
+  New-ItemProperty -Path $mm -Name NoAutoMount -PropertyType DWord -Value 1 -Force | Out-Null
+  "mountmgr NoAutoMount = $((Get-ItemProperty $mm).NoAutoMount)"
 }
 finally {
   [gc]::Collect(); Start-Sleep -Milliseconds 500

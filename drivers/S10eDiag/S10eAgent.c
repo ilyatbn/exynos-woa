@@ -2,10 +2,13 @@
  * S10eAgent.exe - LocalSystem service that turns every Windows boot on the S10e into a scripted,
  * self-reporting run. notes/m11-s10ediag.md.
  *
- *  1. mounts the ESP (CACHE, typed as ESP - W30) as S: with `mountvol S: /S`;
- *  2. if S:\S10EDIAG\ exists: logs boot progress to S:\S10EDIAG\out\agent.log every 15 s (uptime,
- *     LogonUI / explorer present) until explorer.exe runs (= desktop) or S10EDIAG\wait.txt seconds pass;
- *  3. runs S:\S10EDIAG\collect.cmd (cmd.exe, OUT=S:\S10EDIAG\out, stdout+stderr -> out\collect.log).
+ *  1. finds the volume that holds \S10EDIAG\collect.cmd (the ESP = CACHE, W30) and gives it a drive
+ *     letter (keeps an existing one, else the first free of S..Z, D..R; `mountvol S: /S` as the last
+ *     resort). Run 1 showed why a fixed S: is not enough: Windows had lettered every Android partition;
+ *  2. logs boot progress to <ESP>\S10EDIAG\out\agent.log (and, from the first line, to
+ *     C:\Windows\Temp\S10eAgent.log) every 15 s until explorer.exe runs (= desktop) or
+ *     S10EDIAG\wait.txt seconds pass;
+ *  3. runs <ESP>\S10EDIAG\collect.cmd (cmd.exe, ESP=X:, OUT=X:\S10EDIAG\out, output -> out\collect.log).
  * What to collect and whether to go back to TWRP is entirely the script's business, so it can be
  * changed from TWRP (vfat) without touching NTFS or rebuilding anything.
  */
@@ -16,19 +19,16 @@
 #include <stdarg.h>
 
 #define AGENT_NAME      L"S10eAgent"
-#define ESP_ROOT        L"S:\\"
-#define DIAG_DIR        L"S:\\S10EDIAG"
-#define OUT_DIR         L"S:\\S10EDIAG\\out"
-#define LOG_PATH        L"S:\\S10EDIAG\\out\\agent.log"
-#define SCRIPT_PATH     L"S:\\S10EDIAG\\collect.cmd"
-#define WAIT_PATH       L"S:\\S10EDIAG\\wait.txt"
+#define MARKER          L"S10EDIAG\\collect.cmd"
+#define LOCAL_LOG       L"C:\\Windows\\Temp\\S10eAgent.log"
 #define DEFAULT_WAIT_S  1800UL
 #define SCRIPT_LIMIT_MS (60UL * 60UL * 1000UL)
 
 static SERVICE_STATUS_HANDLE gStatusHandle;
 static SERVICE_STATUS gStatus;
 static HANDLE gStopEvent;
-static HANDLE gLog = INVALID_HANDLE_VALUE;
+static HANDLE gLog[2] = { INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE };
+static wchar_t gEsp[4];   // "X:"
 
 static void
 LogLine(const char *Format, ...)
@@ -36,11 +36,9 @@ LogLine(const char *Format, ...)
     char Line[1024];
     int Used;
     DWORD Written;
+    DWORD Index;
     va_list Args;
 
-    if (gLog == INVALID_HANDLE_VALUE) {
-        return;
-    }
     Used = _snprintf_s(Line, sizeof(Line), _TRUNCATE, "[%10llu ms] ", GetTickCount64());
     va_start(Args, Format);
     Used += _vsnprintf_s(Line + Used, sizeof(Line) - Used, _TRUNCATE, Format, Args);
@@ -49,8 +47,12 @@ LogLine(const char *Format, ...)
         Line[Used++] = '\r';
         Line[Used++] = '\n';
     }
-    WriteFile(gLog, Line, (DWORD)Used, &Written, NULL);
-    FlushFileBuffers(gLog);
+    for (Index = 0; Index < 2; Index++) {
+        if (gLog[Index] != INVALID_HANDLE_VALUE) {
+            WriteFile(gLog[Index], Line, (DWORD)Used, &Written, NULL);
+            FlushFileBuffers(gLog[Index]);
+        }
+    }
 }
 
 static DWORD
@@ -103,13 +105,90 @@ ProcessRunning(const wchar_t *Name)
     return Found;
 }
 
+static BOOL
+LetterHasMarker(wchar_t Letter)
+{
+    wchar_t Path[32];
+
+    swprintf_s(Path, ARRAYSIZE(Path), L"%c:\\%s", Letter, MARKER);
+    return GetFileAttributesW(Path) != INVALID_FILE_ATTRIBUTES;
+}
+
+//
+// Find the volume holding \S10EDIAG\collect.cmd and make sure it has a drive letter. TRUE + gEsp on success.
+//
+static BOOL
+FindEsp(void)
+{
+    static const wchar_t Order[] = L"STUVWXYZDEFGHIJKLMNOPQR";
+    wchar_t Volume[MAX_PATH];
+    wchar_t Path[MAX_PATH + 32];
+    wchar_t Names[512];
+    DWORD Length;
+    HANDLE Find;
+    BOOL Found = FALSE;
+    DWORD Drives;
+    DWORD Index;
+
+    Find = FindFirstVolumeW(Volume, ARRAYSIZE(Volume));
+    if (Find == INVALID_HANDLE_VALUE) {
+        LogLine("FindFirstVolume failed %lu", GetLastError());
+        return FALSE;
+    }
+    do {
+        swprintf_s(Path, ARRAYSIZE(Path), L"%s%s", Volume, MARKER);   // Volume ends in '\'
+        if (GetFileAttributesW(Path) != INVALID_FILE_ATTRIBUTES) {
+            Found = TRUE;
+            break;
+        }
+    } while (FindNextVolumeW(Find, Volume, ARRAYSIZE(Volume)));
+    FindVolumeClose(Find);
+
+    if (!Found) {
+        LogLine("no volume holds \\%ls (via volume GUID paths)", MARKER);
+        return FALSE;
+    }
+    LogLine("marker volume %ls", Volume);
+
+    // Existing letter?
+    if (GetVolumePathNamesForVolumeNameW(Volume, Names, ARRAYSIZE(Names), &Length) && Names[0] != L'\0' &&
+        Names[1] == L':') {
+        gEsp[0] = Names[0];
+        gEsp[1] = L':';
+        gEsp[2] = L'\0';
+        LogLine("already mounted at %ls", gEsp);
+        return TRUE;
+    }
+
+    Drives = GetLogicalDrives();
+    for (Index = 0; Order[Index] != L'\0'; Index++) {
+        wchar_t Root[4] = { Order[Index], L':', L'\\', L'\0' };
+
+        if ((Drives & (1UL << (Order[Index] - L'A'))) != 0) {
+            continue;
+        }
+        if (SetVolumeMountPointW(Root, Volume)) {
+            gEsp[0] = Order[Index];
+            gEsp[1] = L':';
+            gEsp[2] = L'\0';
+            LogLine("mounted at %ls", gEsp);
+            return TRUE;
+        }
+        LogLine("SetVolumeMountPoint %ls failed %lu", Root, GetLastError());
+    }
+    return FALSE;
+}
+
 static DWORD
 ReadWaitSeconds(void)
 {
     char Text[32] = { 0 };
+    wchar_t Path[64];
     DWORD Read = 0;
-    HANDLE File = CreateFileW(WAIT_PATH, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    HANDLE File;
 
+    swprintf_s(Path, ARRAYSIZE(Path), L"%s\\S10EDIAG\\wait.txt", gEsp);
+    File = CreateFileW(Path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
     if (File == INVALID_HANDLE_VALUE) {
         return DEFAULT_WAIT_S;
     }
@@ -126,28 +205,44 @@ Worker(LPVOID Parameter)
     DWORD Exit;
     ULONGLONG Start;
     HANDLE Output;
+    wchar_t Path[MAX_PATH];
+    wchar_t Command[MAX_PATH];
     SECURITY_ATTRIBUTES Inherit = { sizeof(Inherit), NULL, TRUE };
 
     UNREFERENCED_PARAMETER(Parameter);
 
-    // 1. ESP as S: (mountvol needs the volume to have arrived; retry for ~2 min).
-    for (Attempt = 0; Attempt < 24; Attempt++) {
-        if (GetFileAttributesW(ESP_ROOT) != INVALID_FILE_ATTRIBUTES) {
+    gLog[0] = CreateFileW(LOCAL_LOG, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    LogLine("S10eAgent start");
+
+    // 1. The ESP (volumes can arrive late on one core: retry for ~5 min).
+    for (Attempt = 0; Attempt < 30; Attempt++) {
+        if (FindEsp()) {
             break;
         }
-        RunAndWait(L"C:\\Windows\\System32\\mountvol.exe S: /S", 30000, INVALID_HANDLE_VALUE);
-        if (GetFileAttributesW(ESP_ROOT) != INVALID_FILE_ATTRIBUTES ||
-            WaitForSingleObject(gStopEvent, 5000) == WAIT_OBJECT_0) {
-            break;
+        if (Attempt == 10) {
+            LogLine("trying mountvol S: /S");
+            RunAndWait(L"C:\\Windows\\System32\\mountvol.exe S: /S", 30000, INVALID_HANDLE_VALUE);
+            if (LetterHasMarker(L'S')) {
+                wcscpy_s(gEsp, ARRAYSIZE(gEsp), L"S:");
+                break;
+            }
+        }
+        if (WaitForSingleObject(gStopEvent, 10000) == WAIT_OBJECT_0) {
+            return 0;
         }
     }
-    if (GetFileAttributesW(DIAG_DIR) == INVALID_FILE_ATTRIBUTES) {
-        return 0;   // no S10EDIAG directory on the ESP (or no ESP): nothing to do this boot
+    if (gEsp[0] == L'\0') {
+        LogLine("no ESP with \\S10EDIAG - nothing to do this boot");
+        return 0;
     }
 
-    CreateDirectoryW(OUT_DIR, NULL);
-    gLog = CreateFileW(LOG_PATH, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    LogLine("S10eAgent start (ESP mounted after %lu attempts)", Attempt);
+    swprintf_s(Path, ARRAYSIZE(Path), L"%s\\S10EDIAG\\out", gEsp);
+    CreateDirectoryW(Path, NULL);
+    SetEnvironmentVariableW(L"OUT", Path);
+    SetEnvironmentVariableW(L"ESP", gEsp);
+    swprintf_s(Path, ARRAYSIZE(Path), L"%s\\S10EDIAG\\out\\agent.log", gEsp);
+    gLog[1] = CreateFileW(Path, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    LogLine("ESP %ls (attempt %lu)", gEsp, Attempt);
 
     // 2. Wait for the desktop, logging what the logon is doing.
     WaitSeconds = ReadWaitSeconds();
@@ -172,15 +267,12 @@ Worker(LPVOID Parameter)
     }
 
     // 3. The script.
-    if (GetFileAttributesW(SCRIPT_PATH) == INVALID_FILE_ATTRIBUTES) {
-        LogLine("no collect.cmd - done");
-        return 0;
-    }
-    SetEnvironmentVariableW(L"OUT", OUT_DIR);
-    Output = CreateFileW(L"S:\\S10EDIAG\\out\\collect.log", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                         &Inherit, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    LogLine("running collect.cmd");
-    Exit = RunAndWait(L"C:\\Windows\\System32\\cmd.exe /d /c S:\\S10EDIAG\\collect.cmd", SCRIPT_LIMIT_MS, Output);
+    swprintf_s(Path, ARRAYSIZE(Path), L"%s\\S10EDIAG\\out\\collect.log", gEsp);
+    Output = CreateFileW(Path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &Inherit, CREATE_ALWAYS,
+                         FILE_ATTRIBUTE_NORMAL, NULL);
+    swprintf_s(Command, ARRAYSIZE(Command), L"C:\\Windows\\System32\\cmd.exe /d /c %s\\S10EDIAG\\collect.cmd", gEsp);
+    LogLine("running %ls", Command);
+    Exit = RunAndWait(Command, SCRIPT_LIMIT_MS, Output);
     if (Output != INVALID_HANDLE_VALUE) {
         FlushFileBuffers(Output);
         CloseHandle(Output);
@@ -209,6 +301,7 @@ static void WINAPI
 ServiceMain(DWORD Argc, LPWSTR *Argv)
 {
     HANDLE Thread;
+    DWORD Index;
 
     UNREFERENCED_PARAMETER(Argc);
     UNREFERENCED_PARAMETER(Argv);
@@ -231,8 +324,10 @@ ServiceMain(DWORD Argc, LPWSTR *Argv)
     }
     // Stay running until stopped so `sc query` shows the agent was alive this boot.
     WaitForSingleObject(gStopEvent, INFINITE);
-    if (gLog != INVALID_HANDLE_VALUE) {
-        CloseHandle(gLog);
+    for (Index = 0; Index < 2; Index++) {
+        if (gLog[Index] != INVALID_HANDLE_VALUE) {
+            CloseHandle(gLog[Index]);
+        }
     }
     gStatus.dwCurrentState = SERVICE_STOPPED;
     SetServiceStatus(gStatusHandle, &gStatus);

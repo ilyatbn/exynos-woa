@@ -36,3 +36,14 @@ within it ... after that start with getting touch working. then ... at least 1 m
   144792 B, signed with the WDK test cert 5DD5DEE1... (signtool verify on the PC: untrusted root = expected).
 - collect.cmd: wevtutil epl names written out one by one (a %%~nG loop would name three logs "Operational").
   Agent logs are CREATE_ALWAYS (user: logs overwritten, not appended); %OUT%\last is wiped each run.
+- First agent run (boot #45 image + S10eDiag installed, hashes matched): Windows reached the desktop (user: "desktop
+  is running and looks fine" - screen stayed on: the W37 power policy works), user forced TWRP at ~10 min. ESP had
+  NO S10EDIAG\out. Prefetch has MOUNTVOL.EXE-6DDF7EDE.pf at ~6 min (agent started and ran mountvol); evtx useless
+  (lazy flush; NOTE the Windows clock restarts at 06:33:33 every boot - no RTC - so evtx times repeat across boots).
+  ROOT CAUSE: SYSTEM\MountedDevices has \DosDevices\C: .. Z: - Windows auto-assigned letters to the Android
+  partitions, S: is taken, `mountvol S: /S` fails, the agent retried for ~14 min. (Setup\SystemPartition =
+  \Device\HarddiskVolume28 = CACHE, so /S itself would work with a free letter.)
+  Also: System.evtx has Ntfs 55/130 (index corruption found + self-healed) after the forced resets + ntfsfix.
+  Fix (next commits): hive - delete MountedDevices \DosDevices\D:..Z:, mountmgr NoAutoMount=1; agent - find the
+  volume holding \S10EDIAG itself, mount it at a free letter, pass it as %ESP%; mirror agent.log to
+  C:\Windows\Temp\S10eAgent.log from the first line.

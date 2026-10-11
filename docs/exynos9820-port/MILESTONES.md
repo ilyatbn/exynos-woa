@@ -95,6 +95,7 @@ errors.
 | M13 | LAN through the dock | todo | M10 |
 | M14 | Stay powered and cool while docked | todo | M8 |
 | M15 | The assembled donation build (repeatable, serviceable) | todo | M9–M14 |
+| M16 | GPU acceleration: Mali-G76 (Bifrost) on Windows via **Panfrost** — WDDM kernel driver + Mesa user-mode driver | todo | M8 — `notes/gpu-panfrost.md`; supersedes the 2026-10-10 "not feasible" verdict |
 
 ## Task list
 
@@ -341,6 +342,26 @@ tree does not contain.
 | Task | State | Notes |
 |------|-------|-------|
 | Build an automated restore/reflash path with **heimdall** for when the device breaks completely | **parking lot** | heimdall v2.1.0 (Grimler's fork) is the CLI equivalent of Odin: `detect` → `print-pit` (both read-only) → `flash --RECOVERY <file> --no-reboot`. Not installed on this machine. Two hazards already recorded in `notes/heimdall-flashing.md`: it has **no partition-size check** (PR #555 — silently overwrites neighbours; our 18 255 872 B into a 55 279 616 B slot is a 3× margin but must be checked against `print-pit`, whose `blockSizeOrOffset` field is ambiguous), and it is **untested on an S10e** (works on a 2021 device per issue #547, fails on an A14 5G per #548). The rollback file already exists locally: `ref-recovery.img` is a byte-exact snapshot of the recovery slot |
+
+### M16 — GPU acceleration (Mali-G76 via Panfrost)
+
+Opened 2026-10-11 on two inputs: the user's find of the **Panfrost** project
+(`https://gitlab.freedesktop.org/panfrost` — Mesa's open Mali driver, kernel DRM driver, reverse-engineered
+ISA/hardware docs), and ntdev's report of GPU-accelerated DWM on Exynos (unreleased, unverified). The old
+verdict (`notes/d5-gpu-display.md`) said no Mali WDDM exists; that is still true, but it is a driver to
+**write/port**, not a dead end. Architecture to verify: a WDDM kernel-mode driver (DXGK) ported from the
+Panfrost/kbase kernel side (job submission, GPU MMU, power) + a user-mode driver built from Mesa's Panfrost
+gallium driver behind Mesa's Windows D3D UMD frontend.
+
+| Task | State | Notes |
+|------|-------|-------|
+| Inventory the Panfrost repos: what supports Mali-G76 / Bifrost v7 (Mesa gallium, kernel `drm/panfrost`, docs, test tools) | todo | `notes/gpu-panfrost.md`; verify G76 support status, not assume it |
+| Device facts for `mali@18500000`: IRQs, clocks, G3D power domain, regulator, GPU_ID | todo | DT reads from TWRP are safe; reading GPU registers needs the G3D domain powered (ACPM) — hazard, plan first |
+| G3D power + clock bring-up path (ACPM, like the M15 CPU/INT DVFS work) | todo | Windows driver cannot touch the GPU until this exists |
+| Mesa on Windows ARM64: does Mesa's D3D UMD frontend + Panfrost build for Windows ARM64? | todo | build-only investigation |
+| WDDM KMD skeleton for an MMIO GPU (ACPI device, DXGK callbacks, no display) | todo | BasicDisplay keeps driving the panel |
+| First job: a Panfrost-compiled compute or clear job submitted from the KMD, result checked | todo | the "it works" gate |
+| DWM acceleration (the user-visible goal) | todo | Guided only after device validation |
 
 ## What is blocked on the user right now
 

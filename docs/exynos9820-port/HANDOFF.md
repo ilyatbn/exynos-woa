@@ -1057,3 +1057,13 @@ Windows boots. (4) More RAM (bank1/2 never reached the UEFI map - W18), then num
   45 min cap); bugcheck -> SWRESET; clean shutdown -> progress 0x80 -> next boot continues into Windows.
 - Open: the 'second boot after our own reset hangs in SEC MMU bring-up' (progress 0x60/0x61) is intermittent;
   Beyond0LteSecArmLib (MMU-on TLB flush) is prepared but not wired into PeilessSec.
+
+### §24 update 2 (2026-10-11): WINDOWS DESKTOP REACHED
+- Boot #44 + driver w32 (fresh image, attempt c44): Setup finished, the unattend user S10e auto-logged on and Explorer
+  ran ~25 min (ExplorerStartupLog.etl / iconcache / jump lists, Winlogon + User Profile events). Evidence: notes W36.
+- Fixed since the last update: second-boot hang = stale TPIDRRO_EL0 read by PeilessSec (shim zeroes it, W34);
+  bank1/bank2 published as RAM (~1.5 GB, W33); firmware-reserved UFS DMA pool 0xA7400000 'DMP1' (W35).
+- Current: BOOT = boot #44; driver w32. Windows still resets to TWRP after the bring-up watchdog cap (by design).
+- Next order: (1) relax the watchdog cap / stop arming the dead man's switch once Windows is the target, so the
+  desktop stays up; (2) display/input confirmation on the device; (3) SMP via PSCI 0.1 (numproc > 1, W8);
+  (4) strip bring-up diagnostics (shim bands, early marks).

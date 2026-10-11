@@ -512,3 +512,16 @@ bank0 DMA window (0xA7400000..0xBAB00000, UFS_DMA_WINDOW_ENFORCE build). The dri
 pool (UfsMapFirmwareReservedWorkspace: PRAM +0x3F54 'DMP1', +0x3F58 base, +0x3F5C magic^base^0x24000^'DPOK').
 Boot #44: PlatformMemoryMapLib reserves 0xA7400000+256 KiB (EfiReservedMemoryType); BootLogDxe writes the record at
 ReadyToBoot every boot.
+
+## W36 - WINDOWS DESKTOP REACHED on the S10e (boot #44 + Exynos9820Ufs w32) (2026-10-11)
+Attempt c44 (fresh image, boot #44 = W35 DMA pool, driver w32): ran ~80 min before the 45-min feed cap / watchdog sent
+it back to TWRP. Evidence pulled read-only from USERDATA (mount.ntfs -o ro) to %TEMP%\c44x:
+- System.evtx: kernel boots 00:19 and 01:19 (NUMPROC=1 TESTSIGNING), planned restarts (1074) from setup, 6009/6005
+  at 01:20, computer name DESKTOP-DJGQE0P.
+- Application.evtx: User Profile Service 1531 + Winlogon events 01:26-01:34 (autologon of the unattend user S10e).
+- Users\S10e: NTUSER.DAT 01:20; AppData\Local\Microsoft\Windows\Explorer\ExplorerStartupLog.etl + iconcache_*.db
+  written 01:38-01:49; Recent\AutomaticDestinations/CustomDestinations created 01:48; Desktop\desktop.ini 01:42.
+  => Explorer (the shell/desktop) ran for >= ~25 min on the device.
+Known limits of this state (not device-validated beyond the above): 1 CPU (numproc=1, no PSCI SMP), ~1.5 GB RAM,
+bring-up watchdog cap (driver feeds only while writes happen, 45-min cap) resets Windows to TWRP by design, no display
+confirmation by a human yet (screen not observed), no input/USB/touch drivers.

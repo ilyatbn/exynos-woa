@@ -546,3 +546,14 @@ Fixes (separate tasks):
    CsEnabled=0, HibernateEnabled=0; Session Manager\Power HiberbootEnabled=0. CrashDumpEnabled already 3.
 SMP: NOT a simple fix - EL3 is PSCI 0.1 and the 9810 needed a firmware CPU parking protocol (PBML:8253-8577, A55s
 only; CPU_ON of a big core hung its SoC). Separate task, after the display is confirmed.
+W37 applied (2026-10-11 ~09:45): TWRP had auto-mounted userdata read-only at /data (umount /data first). ntfs-3g
+then refused rw: "unclean file system ... Metadata kept in Windows cache" (forced reset of the user's session; NTFS
+journal not clean). fsck.ntfs -n clean ($MFT/$MFTMirr OK); fsck.ntfs (ntfsfix, journal reset, volume left dirty =>
+Windows chkdsk at next boot) -> rw mount OK. Hives + LOG1/LOG2 pushed; on-device SHA256 SYSTEM a61774c4...,
+SOFTWARE 2a19467f... = the edited files. Script kept as firmware/tools/s10e-hive-power.ps1.
+Boot #45 flashed (dd to by-name/boot), readback SHA256 15ecdb10... = boot45-v2.img.
+Commit review of the flag: driver UfsWdtArm/UfsWdtTakeFirmwareBridgeOwnership are under UFS_AUTOMATIC_RECOVERY_RESET /
+UFS_FIRMWARE_WDT_BRIDGE / UFS_CONTINUOUS_HARDWARE_WATCHDOG, all 0 in Exynos9820Ufs.h:677-684 => nothing in Windows
+re-enables WTCON; the w32 feed only reloads WTCNT. OK.
+Touch: drivers/Exynos9820Hsi2c + S6SY761TouchBeyond0 (+ DSDT I2C0/TSP0) exist as ports but are NOT in the image
+(DriverStore has only exynos9820ufs). Power button: no driver (would need a GPIO/PMIC key path). Next tasks.

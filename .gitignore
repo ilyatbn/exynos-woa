@@ -56,3 +56,4 @@ TestResults/
 # Private scrub patches (contain the removed text); see tools/release/import_sources.py
 /.release-patches/
 dumps/
+.venv/

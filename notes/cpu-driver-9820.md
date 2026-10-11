@@ -201,17 +201,131 @@ FACT: `boot.img` kernel field = raw ARM64 Image, 44 380 172 B,
 (memory) = 0x327b000`. This closes the `notes/m8-uefi-image.md` §2c
 question: the drop address is DRAM base + 0x80000 = **0x80080000**, the
 comment's 0x80100000 is wrong.
-FACT: kallsyms present (`acpm_ipc_send_data_sync` found as a symbol) →
-symbolize + disassemble the ACPM IPC path with capstone next.
+FACT: VA base of the shipped Image = **0xffffff8008000000** (VA_BITS=39,
+PAGE_OFFSET 0xffffff8000000000 + text_offset): a u64 run at file 0x11c3370
+carries VA = file + 0xffffff8008000000 exactly.
+
+**CORRECTION (harsh review of my own earlier claim):** kallsyms is NOT
+present. `acpm_ipc_send_data_sync` appears exactly once, inside the
+.rodata string pool (bare NUL-terminated, no length prefix, mixed with
+format strings) — it is a `__func__`-style print tag, not a symbol. The
+kallsyms extractor found only an 894-entry false-positive run. Symbolizing
+the shipped kernel must therefore go through **string xrefs** (ADRP+ADD
+scan) + capstone, not a symbol table.
+
+## F8. ACPM firmware location (PIT read, this session)
+
+FACT (`BEYOND0LTE_EUR_OPEN.pit`, parsed with the validated layout from
+`notes/pit-geometry.md`): dedicated partitions —
+`ACPM` LBA 129 len 35 (×4096 = 143 360 B, flash file `acpm.bin`),
+`ECT` LBA 109 len 20 (`ect.bin` — the skew/channel table behind
+`ect-name = "dvfs_cpucl2"`), `DTB` LBA 23168 (`dt.img` — confirms the
+base DTB is its own partition), `DTBO` LBA 25216.
+FACT: this G970FXXUHHXJ6 BL tar ships `sboot/param/up_param/cm/keystorage/
+uh/vbmeta` — **no `acpm.bin`** (Samsung ships it only when changed; the
+phone's ACPM partition holds the image from an earlier package). `cm.bin`
+= "CryptoManagerV50" (TEE), NOT the ACPM — checked, no ladder constants.
+
+*(inference)* the Windows driver does not need the cal table offline: the
+kernel enumerates each domain's ladder from the ACPM at init (the
+`CPUFREQ of domain%d : L%2d %7d kHz` prints), so the driver can issue the
+same query at load time. The protocol is the fact to extract — next,
+string-xref disassembly of the shipped kernel.
+
+## F9. The ACPM DVFS protocol — complete, end-to-end (the driver spec)
+
+Cross-referenced: shipped DT (F2) + shipped kernel strings (F7) + the
+matching-generation LineageOS 9820 source (same `dm_cpu_cl0/1/2` names,
+same `exynos_acme` prints — the source and the dump agree on every string
+we can check in both). Source files saved in `dumps/hhxj6/src/`.
+
+**Call chain (Android):** cpufreq `exynos-acme.c` → `cal_dfs_set_rate
+(cal_id, kHz)` → `IS_ACPM_VCLK` (cal_id type nibble `0x0B`, subtype `0x04`:
+`ACPM_VCLK_TYPE = 0x0B040000`, `GET_IDX = id & 0xFFFF`) →
+`exynos_acpm_set_rate(idx, kHz)` → `acpm_ipc_send_data_lazy(ch5)`.
+CPU cluster fvmap indices: **cl0 (LITTLE) = 2, cl1 (MID) = 3, cl2 (BIG) = 4**
+(cal_ids 0xb040002/3/4 from the shipped DT).
+
+**MMIO windows (shipped DT `acpm_ipc` node):**
+- mailbox/intr block: `0x15900000 + 0x1000`. Registers (from `acpm_ipc.h`):
+  `INTGR0 0x08, INTCR0 0x0C, INTMR0 0x10, INTSR0 0x14, INTMSR0 0x18,
+  INTGR1 0x1C, INTCR1 0x20, INTMR1 0x24, INTSR1 0x28, INTMSR1 0x2C,
+  SR0..SR3 0x80..0x8C`.
+- ACPM SRAM window: `0x2039000 + 0x30000`; framework block at offset
+  `initdata-base` (shipped DT value = **0x7000** big-endian cell — the
+  LineageOS dts confirms `<0x7000>`; my emitter first misread the cells as
+  the string `"p"`, fixed in `fdt.py`); `dump-base 0x203c000 +0x2d000`.
+- `acpm` node: `0x15830000 + 0x1000` ("timer_apm"), `fvmap_offset = 0xa400`.
+
+**Channel setup (from `channel_init()`):** the `acpm_framework` struct at
+SRAM+0x7000 gives `ipc_ap_max` and `ipc_channels` (SRAM offset of an
+`ipc_channel[]` array: `{id, field, owner, type, channel_info ch, ap_poll}`).
+AP-side TX ring = the channel's `rx_base/rx_front/rx_rear` (ACPM's receive
+side); AP-side RX ring = `tx_base/tx_front/tx_rear`. Ring entry size
+`q_elem_size` (16 B for cmd[4]), depth `q_len`; front/rear are u32 MMIO
+cells inside SRAM, indices mod `q_len`.
+
+**Message (u32[4]):** `cmd[0] = domain idx` (+ protocol bits: `SEQ_NUM`
+6 bits at **bit 16**, `ID` 3 bits at 26, `OWN` 31, `RSP` 30, `INDIRECTION`
+29 — the AP driver only stamps `++seq (1..63) << 16` into cmd[0]);
+`cmd[1] = kHz`; `cmd[2] = opcode`: **FREQ_REQ 0, FREQ_GET 1, MARGIN_REQ 2,
+COLDTEMP_REQ 3** (+ `DATA_INIT`/`SET_INIT_FREQ 3`); `cmd[3] = 0`.
+
+**Send (from `__acpm_ipc_send_data`):** wait until `tx_front+1 != tx_rear`
+(ring not full) → write 16 B entry at `tx_base + size*front` → `front =
+(front+1) % len`, write it → doorbell `INTGR0 = (1 << ch) << 16`.
+**Response:** ACPM writes the rx ring and raises `INTSR1` bit ch
+(interrupt 0 = polling-capable; `INTMR1` bit set = polling mode — the
+kernel supports pure polling, which is what a Windows driver should use).
+Match response by seq bits (`(word >> 16) & 0x3f`), dequeue, clear
+`INTCR1 = 1 << ch`. `FREQ_GET` returns the current kHz in `cmd[1]`.
+Timeouts: 15 ms poll (`IPC_TIMEOUT`), 5 retries; a hard failure triggers
+`s3c2410wdt_set_emergency_reset` — the ACPM is load-bearing; a Windows
+driver must never leave a request unanswered/mis-paired.
+
+**OPP ladder source (`fvmap.c`):** the rate/volt table is **plain memory
+in ACPM SRAM**, right after the DVFS plugin image (`fvmap_offset 0xa400`
+from the plugin's `base_addr`). Layout (`fvmap.h`): `fvmap_header[idx]`
+(24 B: dvfs_type, num_of_lv, num_of_members, num_of_pll/mux/div,
+gearratio u16, init_lv, num_of_gate, block_addr[3] u16, o_members,
+o_ratevolt, o_tables — offsets relative to the fvmap base) →
+`rate_volt[num_of_lv] = {u32 rate kHz, u32 volt uV}` → `dvfs_table`
+(u8 params per level×member: PLL/mux/div register values) → `pll_header`
+(`addr` in ACPM view, CMU base 0x90000000: `member_addr = plls->addr -
+0x90000000`). Voltage step: `STEP_UV 6250` (S2MP200-correct 6.25 mV).
+
+**Consequence for the Windows driver (design, *(inference)* from the above):**
+1. Map `0x15900000+0x1000` and `0x2039000+0x30000`.
+2. Walk framework@SRAM+0x7000 → channels → ch5 rings; set ch5 to polling.
+3. Read the fvmap (SRAM + plugin base + 0xa400) for idx 2/3/4 → the exact
+   per-SKU OPP+voltage ladder — no offline acpm.bin needed.
+4. Frequency set = one 16 B message + doorbell + poll `INTSR1`; get =
+   FREQ_GET. Thermal caps = clamp the ladder (the DT trip points, F6);
+   MIF coordination = dm constraint tables (F3) or just pin MIF high.
+5. Do NOT touch CMU/PMIC directly for CPU DVFS — the ACPM owns that
+   sequencing (that is what makes "all core types" one uniform protocol:
+   idx 2/3/4 covers ananke/prometheus/cheetah identically).
+
+## F10. What the dump cannot give offline, and the read that closes it
+
+FACT: `acpm.bin` is NOT in this G970FXXUHHXJ6 package (PIT has the ACPM
+partition, LBA 129 ×4096 len 35, but the BL tar omits the file — Samsung
+ships it only when changed). The live OPP table therefore lives only in
+the phone's ACPM SRAM/partition.
+
+Closing reads (pick one, both safe/reads-only):
+- **pstore**: the stock kernel prints the whole ladder at boot
+  (`CPUFREQ of domain%d : L%2d %7d kHz`, `fvmap` `lv : [...] volt = ... uV`
+  prints). From TWRP root on Windows: `cat /sys/fs/pstore/console-ramoops*`
+  (or `lpkmsg`), grep `CPUFREQ of domain`.
+- or dump the ACPM partition (LBA 129..164 on its LUN) from TWRP root —
+  143 KB, parse the fvmap layout above.
 
 ## Next reads (order)
 
-1. kallsyms extraction from `dumps/hhxj6/kernel` → symbol map.
-2. Disassemble `acpm_ipc_send_data_sync` + `exynos_acme` target path →
-   mailbox register offsets, message header format, DVFS command opcodes,
-   cal-table fetch command → the protocol the Windows driver implements.
-3. Locate the ACPM firmware image (candidates: `cm.bin` in BL tar,
-   vendor.img `/vendor/firmware`) → its cal tables = the OPP+voltage
-   ground truth per SKU.
-4. Cross-check against LineageOS 9820 kernel source (raw.githubusercontent
-   reachable) for the same drivers' C code.
+1. pstore/ACPM-partition read from the phone (Windows adb, TWRP root) →
+   the shipped OPP+voltage ladder per cluster (closes F10).
+2. Optional disassembly confirmation of the mailbox constants in the
+   shipped Image (xref.py is ready; string anchors found).
+3. Draft the Windows driver design doc (KMDF, polling-mode IPC, PPTT
+   performance values from F5) as the next task.

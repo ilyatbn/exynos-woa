@@ -180,7 +180,9 @@ def _is_string_data(v: bytes) -> bool:
     if not v.endswith(b"\0"):
         return False
     body = v[:-1]
-    return all(0x20 <= b < 0x7F or b in (0x09, 0x0A) or b == 0 for b in body)
+    if b"\0" in body:  # embedded NULs mean it's cells, not a string
+        return False
+    return all(0x20 <= b < 0x7F or b in (0x09, 0x0A) for b in body)
 
 
 def _quote(s: str) -> str:

@@ -286,3 +286,25 @@ Found:
 - Next reads (TWRP, NTFS ro): WinSxS\pending.xml, CBS.log tail, servicing\Packages newest, timestamps of
   ntoskrnl.exe / hal.dll / winload.efi / ci.dll vs run-4 time (~14:25 UTC).
 - adb dropped mid-check; user rebooting the phone into TWRP.
+
+### Session 2026-10-11 (after host reboot) — Windows Update hypothesis checked in TWRP: FALSE
+- ntoskrnl/hal/winload.efi/ci.dll all dated 2023-12-04 (stock 22621.2506), no WinSxS\pending.xml,
+  CBS.log last written 06:38 UTC, COMPONENTS 01:21, SoftwareDistribution\Download empty → no update staged.
+- DumpStack.log.tmp, pagefile.sys, swapfile.sys = 14:25:11 (run 4's boot); nothing since → every later
+  boot dies before smss opens the pagefile. hiberfil.sys header zero (not hibernated, no fast-startup image).
+- Only hive written in run 4's session: SYSTEM (+LOG1/2) at 14:36:46-47. DRIVERS/SOFTWARE 11:00.
+  → the persistent change is in the SYSTEM hive (driver/service/device config) or in firmware variables.
+- Full list of files modified since 14:12 (find -mmin, TWRP): run 4's Windows session = 14:25:04..14:28:18
+  (agent log 14:26:32, touchlog 14:26:37, waasmedic 14:28). NO DriverStore/INF/setupapi writes from Windows
+  itself. Then the TWRP installer: 14:34:07 S10eDiag.sys, S10eAgent.exe, s10e*.exe, Reboot to TWRP.exe;
+  14:36:47 SYSTEM hive (offline edit); 14:36:56 S6SY761TouchBeyond0.sys (both DriverStore copies).
+  → The persistent post-run-4 change is the installer's driver/hive update, not usbxhci, not Windows Update.
+- adb push keeps the SOURCE mtime, so the 14:34-14:36 times are host build/edit times, not device writes.
+  Device SYSTEM hash (073a9a70…) differs from the installer's output (A0cW/SYSTEM 3878f08d…) → the hive
+  was written again after the install (by a later failing boot or a later install).
+- WINPRAM.BIN (15:29): mark ring empty, progress words 0x31/0x71 → not even S10eDiag (system start) or the
+  UFS driver wrote a mark: death precedes our drivers.
+- Registry diff (pre-run-4 / post-run-4 / now, regipy offline) started and ABANDONED at user's call:
+  "sometimes things just break" → reinstall a fresh Windows and continue with drivers; revisit 0x14C only
+  if it returns. Host hive work dirs kept in %TEMP%\s10ediag-hive.* (i2lM = hive run 4 booted, A0cW
+  SYSTEM.orig = run 4's result) if it does.

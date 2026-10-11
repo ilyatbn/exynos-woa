@@ -147,7 +147,7 @@ Bar: the same UEFILOG lines as milestone 1, now with `CS47L92/93 ID OK` and both
 |------|-------|-------|
 | Pin LDO18M voltage/enable, madera power-up order, CS35L40 reset/supplies from the vendor sources + stock dtbo | **done** | §5.1: vsel 0x28 = 1.200 V (group 3: 700 mV + n x 12.5 mV), enable 0xC0/0xC0, 5 ms ramp; amps: no supply props (fixed rails), NACK = reset never released (probe rule bug) |
 | AudioProbeDxe: amp reset release when the pin is not driven high (vendor low -> 1 ms -> high -> 2 ms) | **done (code + build)** | build exit 0; pins restored to handoff afterwards (amps back in reset) |
-| TouchPowerDxe: LDO18M on (flag `BEYOND0LTE_AUDIO_DCVDD`, vsel 0x28 check, 5 ms ramp), signal the codec-power event group | todo | **PMIC write** |
+| TouchPowerDxe: LDO18M on (flag `BEYOND0LTE_AUDIO_DCVDD`, vsel 0x28 check, 5 ms ramp), signal the codec-power event group | **done (code + build)** | **PMIC write** (0x57 enable 0xC0/0xC0, refused unless vsel 0x28); build exit 0 |
 | AudioProbeDxe: codec reset asserted at entry, codec probe deferred to the event group, BOOT_DONE poll | todo | |
 | Device test: UEFILOG shows codec + amp IDs | todo | **needs-boot** — procedure in `notes/d8-audio-m1.md` §5.4 |
 

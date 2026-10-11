@@ -471,3 +471,10 @@ amps NACK). Rules as §0 (no adb, no flash; the main session runs the device tes
   lines "gph1 PUD", "amp ... in reset (gph1-N fn F lvl L) - output low, 1 ms, high", "amp resets
   released: gph1 CON DAT". Codec call site uses the same rule (behaviour unchanged for boot #88, where
   gpg1-0 was output-low). Build exit 0 (FVMAIN_COMPACT 99%, 544 B free).
+- Task "LDO18M on" (TouchPowerDxe + new shared header `Beyond0LteAudioProbeDxe/Beyond0LteAudioPower.h`:
+  flag `BEYOND0LTE_AUDIO_DCVDD` (default 1), event group GUID fd6b0be6-c838-4907-ace9-e459868c6826).
+  The read-only L17/L18 loop became `CodecRails`: L17 read; L18 read -> already on: no write; flag or
+  TOUCH_POWER_WRITE 0: no write; vsel != 0x28: REFUSE; else PmicUpdate(0x57, 0xC0, 0xC0), 5000 us,
+  read back (logs "VSEL CHANGED!" if the APM moved the voltage bits). Then `SignalCodecPower` - also on
+  the "no ACPM channel" early return and when the IPC broke. Nothing listens yet (next task). **This is
+  the PMIC write of milestone 1b.** Build exit 0, FVMAIN_COMPACT 176 B free (auto-sized FV).

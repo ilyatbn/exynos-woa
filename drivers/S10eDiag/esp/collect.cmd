@@ -19,8 +19,7 @@ s10ediag info
 echo --- quick
 s10ediag mark c: pnputil problem
 pnputil /enum-devices /problem > "%L%\pnp-problem.txt" 2>&1
-s10ediag mark c: Get-PnpDevice
-powershell -NoProfile -Command "Get-PnpDevice | Sort-Object Status,Class | Format-Table -AutoSize Status,Problem,Class,FriendlyName,InstanceId | Out-String -Width 400" > "%L%\pnp.txt" 2>&1
+rem Get-PnpDevice dropped: 105 s on one core (run 4); pnputil /problem covers it
 s10ediag mark c: sc query
 sc query S10eDiag > "%L%\sc.txt" 2>&1
 sc query S10eAgent >> "%L%\sc.txt" 2>&1

@@ -75,3 +75,11 @@ within it ... after that start with getting touch working. then ... at least 1 m
   recovery + SWRESET => sboot boots TWRP directly. The PRAM stays in RAM; read it with a firmware bounce (adb
   reboot with WINRUN.FLG present). Agent also arms the S10eDiag fallback (20 min hard reset to TWRP) unless
   stay.flg exists. My wait loop assumed crashes always return - it now must not be trusted alone.
+- Run 5 restart crash decoded (WINPRAM-RESTART.BIN = the firmware's "Windows asked for this restart" dump, because
+  the UFS driver's SHUTDOWN SRB had already stored progress 0x80 => boot pair CONTINUED into Windows - that is why
+  the phone looped back instead of TWRP): =UFSBUGCHECK BC=0xA0 B1=0xBEEF B2=0x8004 B3=0x84000009 B4=0xFFFFFFFF.
+  0x84000009 = PSCI SYSTEM_RESET, 0xFFFFFFFF = PSCI NOT_SUPPORTED: Windows resets through PSCI and Samsung's EL3
+  (PSCI 0.1, W8) does not implement SYSTEM_RESET -> INTERNAL_POWER_ERROR. Run 2's 0xA0 was this too (not the W37
+  power keys). Unattended loop: S10eDiag's callback now resets to recovery on it. Real fix (with SMP): stop
+  advertising PSCI to Windows (FADT ARM boot flags) or handle SYSTEM_RESET - TODO, separate task.
+  Mark ring confirmed: shutdown notification at 286510 ms, BUGCHECK callback at 286526 ms.

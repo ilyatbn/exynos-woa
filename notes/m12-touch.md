@@ -39,3 +39,9 @@ USI mode slots (samsung,exynos-usi, each reg = 4 bytes in sysreg 0x10421000): 'i
   that register, so it would abort the same way. Candidates: SYSREG_PERIC0 clock gated (cal-if gate 0x2058,
   QCH 0x3018), TZPC (D_TZPC_PERIC0), or the hypervisor's stage-2. Run 5 = extra-probe-peric0.cmd: one word per
   peek, cal-if CMU_PERIC0 gates/QCHs first, GPIO, then the USI03 mode word, then HSI2C; every value is marked.
+- Run 5 probe (2026-10-11 ~11:05, all single-word reads SURVIVED): CMU_PERIC0 gates 0x2004/0x2014/0x2018/
+  0x201c/0x2038/0x2058/0x209c/0x20a0/0x2104 = 0x00200000 (CG_VAL=1, MANUAL=0); QCH 0x3004..0x3010, 0x3018 (SYSREG),
+  0x303c (USI03_USI) = 0x003f0002 (ENABLE=0, CLOCK_REQ=1 -> no HW gating) => USI03 + sysreg clocks are ON at
+  Windows time. GPIO gpp1 CON 0x10430020 = 0 (pins input), USI03 mode 0x1042101C = 0 (not yet i2c), HSI2C
+  0x104B0000 CTL = 0. /proc/iomem (TWRP): only usi@...04/0C/14/1C/24/2C exist in the 0x10421000 page => run 4's
+  abort was reading an UNIMPLEMENTED word (0x10421000), not a clock/TZPC problem. Driver touches only +0x1C: safe.

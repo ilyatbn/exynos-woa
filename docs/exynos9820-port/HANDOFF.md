@@ -1060,7 +1060,7 @@ Windows boots. (4) More RAM (bank1/2 never reached the UEFI map - W18), then num
 
 ### §24 update 2 (2026-10-11): WINDOWS DESKTOP REACHED
 - Boot #44 + driver w32 (fresh image, attempt c44): Setup finished, the unattend user S10e auto-logged on and Explorer
-  ran ~25 min (ExplorerStartupLog.etl / iconcache / jump lists, Winlogon + User Profile events). Evidence: notes W36.
+  was active >= ~11 min (ExplorerStartupLog.etl / iconcache / jump lists, Winlogon + User Profile events). Evidence: notes W36.
 - Fixed since the last update: second-boot hang = stale TPIDRRO_EL0 read by PeilessSec (shim zeroes it, W34);
   bank1/bank2 published as RAM (~1.5 GB, W33); firmware-reserved UFS DMA pool 0xA7400000 'DMP1' (W35).
 - Current: BOOT = boot #44; driver w32. Windows still resets to TWRP after the bring-up watchdog cap (by design).

@@ -521,7 +521,7 @@ it back to TWRP. Evidence pulled read-only from USERDATA (mount.ntfs -o ro) to %
 - Application.evtx: User Profile Service 1531 + Winlogon events 01:26-01:34 (autologon of the unattend user S10e).
 - Users\S10e: NTUSER.DAT 01:20; AppData\Local\Microsoft\Windows\Explorer\ExplorerStartupLog.etl + iconcache_*.db
   written 01:38-01:49; Recent\AutomaticDestinations/CustomDestinations created 01:48; Desktop\desktop.ini 01:42.
-  => Explorer (the shell/desktop) ran for >= ~25 min on the device.
+  => Explorer (the shell/desktop) was active on the device; file times show activity 01:38-01:49 (>= ~11 min).
 Known limits of this state (not device-validated beyond the above): 1 CPU (numproc=1, no PSCI SMP), ~1.5 GB RAM,
 bring-up watchdog cap (driver feeds only while writes happen, 45-min cap) resets Windows to TWRP by design, no display
 confirmation by a human yet (screen not observed), no input/USB/touch drivers.

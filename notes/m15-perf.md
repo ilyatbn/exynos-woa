@@ -38,3 +38,13 @@ Shipped = GOP framebuffer + inbox BasicDisplay + WARP (CPU rendering). => speed 
   PRAM ring held run 22's lines with bit-decay. fsck.ntfs -n afterwards: $MFT/$MFTMirr OK, ro mount OK.
   Re-run unchanged (run 24) to see whether it repeats; suspects if it does: NTFS state after many flushreset
   returns + installer ntfsfix journal resets; an early UFS driver failure.
+- Run 24 (re-run, 15:15, back 244 s): booted fine (0xED did not repeat). UfsDiag.exe perf counters (w32):
+  READS 149444 (1.5 GB), WRITES 43657 (343 MB); PER_READ_US DEVICE 131, ZERO 165, COPYBACK 286 => the uncached
+  bounce copies cost 3.7x the device time (PERF_COPY_PCT_OF_DEVICE=372). Bounce = MmNonCached = Device memory
+  here (each access a bus transaction). MAX_TRANSFER 64 KiB, QD1, polling (17 s of 10 us polls over 193k cmds).
+  Write verify is compiled out in the full-Windows build (counter only) - no double writes.
+  disk: seq write 16.5 MB/s, seq read 11.2, random 4K 1422 IOPS.
+- Driver w33 (s10e-artifacts\ufs-w23\Exynos9820Ufs-w33.sys, sha256 d709738e...): UFS_WIDE_UNCACHED_ACCESS 1
+  (8-byte bounce copies), new UFS_ZERO_BOUNCE_BEFORE_READ 0 (skip the 165 us pre-read zero). Swapped into
+  DriverStore\FileRepository\exynos9820ufs.inf_arm64_4efdc4525d11d997 (only copy; ImagePath points there) after
+  fsck.ntfs (dirty from the hard-reset return). Rollback = w32 (e378cee0...). Run 25 measures.

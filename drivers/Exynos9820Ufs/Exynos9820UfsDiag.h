@@ -44,7 +44,17 @@
  * the measurement UFS_PERF_INSTRUMENTATION produces.
  */
 #ifndef UFS_WIDE_UNCACHED_ACCESS
-#define UFS_WIDE_UNCACHED_ACCESS                   0
+#define UFS_WIDE_UNCACHED_ACCESS                   1   /* m15 run 24 measurement: per read DEVICE 131 us,
+                                                          ZERO 165 us, COPYBACK 286 us - the copies dominate */
+#endif
+
+/*
+ * m15: pre-zeroing the bounce before every read cost 165 us per read (run 24, more than the device itself).
+ * It only matters if the device returns fewer bytes than requested WITHOUT reporting a residual; residuals are
+ * checked and counted (FAIL_BY_CAUSE RESID, 0 so far). 0 = skip it.
+ */
+#ifndef UFS_ZERO_BOUNCE_BEFORE_READ
+#define UFS_ZERO_BOUNCE_BEFORE_READ                0
 #endif
 
 /*

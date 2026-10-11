@@ -6211,12 +6211,14 @@ UfsBuildCommand(
         UfsCopyToUncached(Adapter->Bounce, Srb->DataBuffer, DataLength);
 #endif
     } else if (Direction == UfsCommandDataIn) {
+#if UFS_ZERO_BOUNCE_BEFORE_READ
 #if UFS_PERF_INSTRUMENTATION
         ULONGLONG Start = UfsPerfTick();
         UfsZeroUncached(Adapter->Bounce, DataLength);
         Adapter->PerfZeroTicks += UfsPerfTick() - Start;
 #else
         UfsZeroUncached(Adapter->Bounce, DataLength);
+#endif
 #endif
     }
 

@@ -111,6 +111,15 @@ ACPI/Windows half remains.
 | Research: DP alt mode on the 9820 combo PHY (SMV/HPD, what DeX does at `displayport@130B0000`) | **done** | `notes/d6-external-display.md` P1-P7: full kernel chain pinned (`displayport_drv.c` in dpu20, max77705 `max77705_alternate.c` PD state machine, three board GPIOs incl. gpg0-4 PHY_CON, `LANE_MUX_SEL_DP=0xc`, PMU 0x15860704 gates the PHY, RBR/HBR/HBR2 only); DECON_T confirmed `0x19050000` `out_type=2`(DP) with SPIs 195-197 + SYSMMUs; **no UEFI prior art exists** (edk2-exynos has none); DisplayLink driver 12.3 (Sep 2026) = WHQL + Win11 ARM64 |
 | Decide: DP alt mode vs DisplayLink dock (DisplayLink is the funded fallback) | **done — decision** | For THIS hub: HDMI is DP-alt, which under Windows needs our own display-only WDDM (D5b rung 1 + DP/PHY/CCIC halves) — **not funded now**. If an external display is wanted before that, a DisplayLink adapter/dock (~$50-150) works with the WHQL ARM64 driver on top of D1 alone. Zero-risk hardware validation first: DeX on Android with this hub + monitor |
 
+### D7 — CPU driver (all three core types)
+
+| Task | State | Notes |
+|------|-------|-------|
+| Research the DVFS/clock/power mechanism from the Android 12 ODIN dump | **done** | `notes/cpu-driver-9820.md` F1–F11. The 9820 does NOT DVFS via CMU MMIO: CPU clusters are driven by the **ACPM coprocessor** — IPC mailbox `0x15900000` (doorbell `INTGR0=(1<<ch)<<16`), rings in ACPM SRAM `0x2039000+0x30000` (framework @+0x7000), 4×u32 message `{idx|seq<<16, kHz, FREQ_REQ=0/FREQ_GET=1, 0}` on **channel 5**, idx 2/3/4 = LITTLE/MID/BIG. OPP+voltage ladders are plain memory (fvmap, `fvmap_offset 0xa400`). Protocol verified in the shipped kernel binary (F11). IRQ SPI 40 (GSIV 72) |
+| Close the shipped OPP+voltage ladder values | **todo — one safe read** | pstore `console-ramoops` from TWRP (kernel prints `CPUFREQ of domain…` at boot) or 143 KB `by-name/ACPM` dump; both read-only, F10 |
+| Design doc: Windows CPU driver (KMDF, polling-mode ACPM IPC, fvmap read at init, thermal clamp from DT trips) | **todo** | one uniform protocol covers all three core types — the M4/prometheus/ananke differences are hidden inside the ACPM; PPTT performance ranks from F5 (272/531/785 DMIPS) |
+| Implement + device-validate | **todo** | bar: Windows can set/get each cluster's frequency; nothing is Ready until observed |
+
 ## Working rules for this file
 
 - Same ground rules as `MILESTONES.md`: one commit per task, `todo → doing → done`

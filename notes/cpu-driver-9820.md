@@ -322,11 +322,38 @@ Closing reads (pick one, both safe/reads-only, from TWRP root on Windows):
   — 143 KB, parse the fvmap layout above. (PIT device-type field is 8 for
   ACPM/ECT/DTB/DTBO/VENDOR; the by-name symlink removes any LUN arithmetic.)
 
+## F11. Protocol VERIFIED in the shipped kernel binary (string-xref disassembly)
+
+`xref.py` anchored on the `.rodata` string `"[%s] ipc_timeout!!!\n"`
+(file 0x17d0d25) → ADRP+ADD xref at file 0x5ab7e0 → the enclosing function
+is the shipped `__acpm_ipc_send_data`. Its disassembly confirms F9 point
+for point, from the dump itself:
+
+- channel struct stride `#0xe8` (232 B) — `umaddl x28, w0, w8, x27`;
+- seq: `cmp w9, #0x40` + `csinc` = wrap at 64→1; `ubfiz w8, w8, #0x10, #6`
+  = **seq inserted at bits 21:16**; `orr` into `cmd[0]`, `str` back ✓;
+- `str wzr, [x8, #4/#8/#0xc]` = `cmd[1..3] = 0` after the ring copy ✓;
+- ring-full spin with `yield`, deadline `0xe4e1c0` ns = **15 ms**
+  (`IPC_TIMEOUT`) ✓;
+- `bl memcpy_align_4` (0x5aaaa0) for the 16 B ring entry ✓;
+- doorbell: `dsb st` → `str w23, [x8]` (front++) → `mov w10, #0x10000;
+  lsl w8, w10, w8` = **(1<<ch)<<16** → `ldr x9, [x9, #0x20]` (acpm_ipc
+  global → `intr`) → `add x9, x9, #8` = **INTGR0 at intr+0x08** → `str w8,
+  [x9]` ✓ — exactly `apm_interrupt_gen()`;
+- indirection test `tbnz w8, #0x1d` = bit 29 ✓.
+
+FACT: VA base of the shipped Image re-confirmed: every ADRP target decodes
+as file+0xffffff8008000000 (e.g. rodata page 0xffffff80097d0000).
+
+So the Windows driver spec (F9) is no longer source-inferred: the exact
+build running on this phone implements it.
+
 ## Next reads (order)
 
 1. pstore/ACPM-partition read from the phone (Windows adb, TWRP root) →
    the shipped OPP+voltage ladder per cluster (closes F10).
-2. Optional disassembly confirmation of the mailbox constants in the
-   shipped Image (xref.py is ready; string anchors found).
+2. ~~Optional disassembly confirmation~~ — **done, F11**: the shipped
+   kernel implements the F9 protocol exactly.
 3. Draft the Windows driver design doc (KMDF, polling-mode IPC, PPTT
-   performance values from F5) as the next task.
+   performance values from F5) as the next task — tracked as D7 in
+   `DRIVERS-MILESTONES.md`.

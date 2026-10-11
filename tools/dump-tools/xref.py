@@ -16,19 +16,23 @@ Usage:
 from __future__ import annotations
 
 import argparse
-from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM64_LITTLE
+from capstone import Cs, CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN
 
 VA_BASE = 0xFFFFFF8008000000  # file offset 0 == this VA (F7 in notes)
 
 
 def find_string_offsets(blob: bytes, needle: str) -> list[int]:
-    pat = needle.encode() + b"\0"
+    """Offsets of the START of the NUL-terminated string containing needle."""
+    pat = needle.encode()
     out, i = [], 0
     while True:
         j = blob.find(pat, i)
         if j < 0:
             return out
-        out.append(j)
+        z = blob.find(b"\0", j)
+        start = blob.rfind(b"\0", 0, j) + 1
+        if z >= 0 and start < j:
+            out.append(start)
         i = j + 1
 
 
@@ -38,14 +42,18 @@ def adrp_add_xrefs(md: Cs, blob: bytes, text_lo: int, text_hi: int,
     target VA. Decodes linearly in 4-byte steps over .text."""
     code = blob[text_lo:text_hi]
     hits = []
+    md.skipdata = True  # kernel text has padding/veneers; never stop early
     # first pass: record pending ADRP results per register
     pending: dict[int, tuple[int, int]] = {}  # rd -> (adrp_off, page_va)
     for off, size, mnemonic, ops in md.disasm_lite(code, text_lo + VA_BASE):
         fo = off - VA_BASE
         if mnemonic == "adrp":
             parts = ops.split(", ")
-            rd = int(parts[0][1:])
-            page = int(parts[1], 16)
+            try:
+                rd = int(parts[0][1:])
+                page = int(parts[1].lstrip("#"), 16)
+            except (ValueError, IndexError):
+                continue
             pending[rd] = (fo, page)
         elif mnemonic in ("add", "ldr") and "#" in ops:
             parts = ops.split(", ")
@@ -72,7 +80,7 @@ def adrp_add_xrefs(md: Cs, blob: bytes, text_lo: int, text_hi: int,
 
 
 def function_bounds(blob: bytes, fo: int, text_lo: int, text_hi: int) -> tuple[int, int]:
-    md = Cs(CS_ARCH_ARM64, CS_MODE_ARM64_LITTLE)
+    md = Cs(CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN)
     md.skipdata = True
     # walk back for a RET, then forward for the function start
     start = text_lo
@@ -86,7 +94,7 @@ def function_bounds(blob: bytes, fo: int, text_lo: int, text_hi: int) -> tuple[i
 
 
 def _fwd_start(blob: bytes, p: int, text_hi: int) -> int:
-    md = Cs(CS_ARCH_ARM64, CS_MODE_ARM64_LITTLE)
+    md = Cs(CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN)
     md.skipdata = True
     for i in md.disasm(blob[p:min(p + 0x400, text_hi)], p + VA_BASE):
         if i.mnemonic == "stp" and i.op_str.startswith("x29, x30"):
@@ -95,7 +103,7 @@ def _fwd_start(blob: bytes, p: int, text_hi: int) -> int:
 
 
 def disasm_range(blob: bytes, fo: int, n: int) -> None:
-    md = Cs(CS_ARCH_ARM64, CS_MODE_ARM64_LITTLE)
+    md = Cs(CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN)
     md.skipdata = True
     for i in md.disasm(blob[fo:fo + n], fo + VA_BASE):
         print(f"  {i.address - VA_BASE:#09x} {i.address:#x}  "
@@ -112,7 +120,7 @@ def main():
     ap.add_argument("--text-lo", type=lambda x: int(x, 0), default=0)
     ap.add_argument("--text-hi", type=lambda x: int(x, 0), default=0x2C00000)
     ap.add_argument("--func", action="store_true")
-    ap.add_argument("--back", type=int, default=0x80,
+    ap.add_argument("--back", type=lambda x: int(x, 0), default=0x80,
                     help="bytes of function before the xref to dump")
     a = ap.parse_args()
     blob = open(a.kernel, "rb").read()
@@ -131,7 +139,7 @@ def main():
     if not targets:
         raise SystemExit("give --string, --va or --pair")
 
-    md = Cs(CS_ARCH_ARM64, CS_MODE_ARM64_LITTLE)
+    md = Cs(CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN)
     md.detail = False
     hits = adrp_add_xrefs(md, blob, a.text_lo, a.text_hi, targets)
     for fo, va in hits:

@@ -79,3 +79,10 @@ USI mode slots (samsung,exynos-usi, each reg = 4 bytes in sysreg 0x10421000): 'i
   <0x02039000 0x30000> (APM SRAM), initdata-base 0x7000, interrupts SPI 0x28, dump-base 0x0203c000; acpm (timer_apm
   0x15830000, ipc channel 4), acpm_dvfs ch 5, acpm_tmu ch 9. Archive: s10e-artifacts\dt-acpm-20261011.tar.
   Next: ACPM IPC client (UEFI, before ExitBootServices) that reads L19CTRL/L27CTRL and enables them.
+- Run 12 (boot #47 = Beyond0LteTouchPowerDxe, 12:16, back 421 s): UEFILOG: ACPM initdata ok (build_info
+  '8b92f40 yulgon ... Jun 04 2019', 14 channels, ap_max 11), PMIC ch id 2 found (q_len 5, elem 16). L19CTRL (tsp_io)
+  = 0x2C (enable 0 = OFF), after update = 0xEC (enable 3); L27CTRL (tsp_avdd) = 0x30 (OFF) -> 0xF0. Replies in
+  20-30 us, vsel unchanged. => CONFIRMED: the touch rails were off under Windows.
+  Windows: ACPI\SCSY0761\0 Started (TouchStartStage 0x1d, status 0, D0 0), HSI2C TransferCount 2 / IsrCount 2 /
+  LastRequestStatus 0, line_scl=1; HID\SCSY0761\... "HID-compliant touch screen" (input.inf) Started.
+  Not yet verified by a finger on the glass.

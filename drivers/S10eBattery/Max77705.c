@@ -147,5 +147,19 @@ NTSTATUS S10eMax77705Read(_Inout_ PS10E_BATT_FDO Fdo, _Out_ PS10E_BATT_READING R
         Reading->ChargerRead  = TRUE;
     }
 
+    /* Kick the charger watchdog every poll (20 s; the WDT is tens of seconds) - the one write this driver does.
+       Read-modify-write of WDTCLR only; a failure leaves the reading intact. */
+    if (NT_SUCCESS(S10eMax77705ReadN(Fdo, MAX77705_CHG_ADDR, MAX77705_CHG_CNFG_00, Chg, sizeof(Chg)))) {
+        Reading->ChgCnfg00 = Chg[0];
+    }
+    if (NT_SUCCESS(S10eMax77705ReadN(Fdo, MAX77705_CHG_ADDR, MAX77705_CHG_CNFG_06, Chg, sizeof(Chg)))) {
+        UCHAR Write[2];
+
+        Reading->ChgCnfg06 = Chg[0];
+        Write[0] = MAX77705_CHG_CNFG_06;
+        Write[1] = (UCHAR)((Chg[0] & ~MAX77705_CHG_CNFG_06_WDTCLR_MASK) | MAX77705_CHG_CNFG_06_WDTCLR);
+        Reading->WdtKicked = NT_SUCCESS(S10eHsi2cXfer(Fdo, MAX77705_CHG_ADDR, FALSE, Write, sizeof(Write), TRUE));
+    }
+
     return STATUS_SUCCESS;
 }

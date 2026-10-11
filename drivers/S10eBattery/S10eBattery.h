@@ -110,6 +110,13 @@
 #define MAX77705_FG_RESISTOR_UNVERIFIED     2
 
 #define MAX77705_CHG_ADDR         0x69    /* [K] 0xD2 >> 1 */
+/* Charger watchdog (kernel max77705_charger.c set_wdtmr_kick / get_wdtmr_status, max77705_charger.h:124-245):
+   CNFG_00 bit4 WDTEN; kick = CNFG_06 bits 1:0 <- 01 (WDTCLR); CHG_DTLS 0x0B = watchdog expired -> charging off.
+   Linux kicks it on every health poll; under Windows nobody did, so the phone stopped charging (run batt1). */
+#define MAX77705_CHG_CNFG_00      0xB7
+#define MAX77705_CHG_CNFG_06      0xBD
+#define   MAX77705_CHG_CNFG_06_WDTCLR_MASK  0x03
+#define   MAX77705_CHG_CNFG_06_WDTCLR       0x01
 #define MAX77705_CHG_DETAILS_00   0xB3    /* [K] bits 6:5 CHGIN_DTLS (3 = VBUS valid) */
 #define   MAX77705_CHGIN_DTLS(x)            (((x) & 0x60) >> 5)
 #define   MAX77705_CHGIN_DTLS_VALID         3
@@ -143,6 +150,9 @@ typedef struct _S10E_BATT_READING {
     UCHAR   ChgDetails00;
     UCHAR   ChgDetails01;
     BOOLEAN ChargerRead;     /* charger 0x69 answered this poll */
+    UCHAR   ChgCnfg00;       /* CHG_CNFG_00 0xB7 (mode, bit4 WDTEN) - diagnostics */
+    UCHAR   ChgCnfg06;       /* CHG_CNFG_06 0xBD before the watchdog kick - diagnostics */
+    BOOLEAN WdtKicked;       /* the charger watchdog kick write succeeded this poll */
 } S10E_BATT_READING, *PS10E_BATT_READING;
 
 typedef struct _S10E_BATT_GLOBAL {

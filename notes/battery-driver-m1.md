@@ -260,3 +260,10 @@ Build-verified (firmware DEBUG exit 0; driver /W4 /WX, infverif VALID, test-sign
 device-validated** — MILESTONES row stays `doing`; the device test procedure above is the next step.
 - 2026-10-12 device session: merged to main (9c92c88); boot #89 (dd4a193c…) flashed = #88 + DSDT BAT0; ESP
   drivers\S10eBattery staged + extra-battery.cmd as extra.cmd; s10ereboot.exe with confirmation deployed.
+- Run batt1 (boot #89, user): battery icon shows but never changes. Diagnostics: 6 polls OK, SOC 53.0 -> 52.9 %,
+  VCELL 3865 mV, AVG_I -182/-100 mA, ChgDetails 0x3BE0 = DETAILS_00 0xE0 (CHGIN_DTLS 3, VBUS valid) +
+  DETAILS_01 0x3B (CHG_DTLS 0xB) -> PowerState 3 (online + discharging). Kernel max77705_chg_get_wdtmr_status:
+  CHG_DTLS 0x0B = charger WATCHDOG EXPIRED -> charging off. Linux kicks CNFG_06 (0xBD) WDTCLR[1:0] = 01 on every
+  health poll; under Windows nobody did -> the phone does NOT charge in Windows, icon stuck at "plugged, not charging".
+- Fix: driver kicks the charger WDT every 20 s poll (RMW of WDTCLR only), logs ChgCnfg00/06 + WdtKicked; UEFI
+  charger-mode loop kicks every 10 s. Package s10e-artifacts\battery-m2 (built + signed).

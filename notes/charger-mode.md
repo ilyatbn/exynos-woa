@@ -16,3 +16,5 @@ Every boot logs "ChargerMode: sboot FDT at ..., bootargs ...", so even a normal 
 - boot #88 (sha 7e7e1219…) = main ff30e87: charger mode + stay.flg boot pair + audio probe DXE (0x69 guard) + WiFi
   PCIe DXE (0x68 guard). Build exit 0. FVMAIN_COMPACT 99 % full (784 B free of 0xBB000) -> FOLLOW-UP before the
   next DXE: grow the compressed FV / FD region (Beyond0LtePkg.fdf).
+- CORRECTION: FVMAIN_COMPACT is auto-sized (NumBlocks = 0) inside the 0x700000 FD region; '99% Full' is padding of
+  its own auto size, not a limit. ~0.75 MB of 7 MB used. No FV growth needed.

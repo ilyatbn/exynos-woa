@@ -212,6 +212,16 @@ ChargerModeCheckAndRun (VOID)
 
     WasPressed = Pressed;
 
+    if (BusOk && ((Elapsed % 10000) == 0)) {
+      UINT8  Cnfg06;
+
+      // Charger watchdog kick (kernel max77705_chg_set_wdtmr_kick: CNFG_06 0xBD WDTCLR[1:0] = 01). Without it the
+      // MAX77705 stops charging when its watchdog expires (CHG_DTLS 0x0B, seen under Windows, run batt1).
+      if (!EFI_ERROR (Max77705RegRead (MAX77705_CHG_ADDR, 0xBD, &Cnfg06))) {
+        (VOID)Max77705RegWrite (MAX77705_CHG_ADDR, 0xBD, (UINT8)((Cnfg06 & ~0x03) | 0x01));
+      }
+    }
+
     if ((Elapsed % 1000) == 0) {
       if (BusOk && !ChargerVbusPresent ()) {
         if (UnpluggedSince == 0) {

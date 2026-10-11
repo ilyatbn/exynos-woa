@@ -124,3 +124,17 @@ files (`git checkout origin/drivers -- <paths>`), never `git merge`. Plan:
 - drivers/S10eDiag/esp/extra-wlan.cmd: peeks 0x8FE0F00C, installs the package with pnputil (TMP =
   C:\S10eTmp), collects pnputil /enum-devices ACPI\SAMS9825, sc query, the Parameters key, the report
   file and setupapi.dev.log into out\last\wlan\.
+
+## Review of commit 07f4bee (4/5)
+
+- Checked: ReportLine's Used arithmetic (Used + (Left - Remaining) == sizeof - Remaining), every
+  format specifier against its argument type, _CRS contract check vs Dsdt.asl values, BAR0 window
+  bounds check, Parameters key exists before WdfDriverOpenParametersRegistryKey (INF AddReg
+  FLG_ADDREG_KEYONLY), package layout extra-wlan.cmd expects == build-package.ps1 output.
+- FOUND: the whole report went to ONE DbgPrintEx - DbgPrint truncates at 512 bytes and the report is
+  ~600-900 bytes, so the debugger copy would lose the BAR/chipid tail. FIXED in the follow-up commit:
+  one DbgPrintEx per report line. Rebuilt: exit 0, infverif VALID, signed in catalog; new SHA256
+  Exynos9820Wlan.sys 54BFB49F21FE8475..., .inf 0D7F558132739B58..., .cat 3D5DE9A1655A66A3...
+  (these supersede the hashes above; s10e-artifacts\wifi-m1\Exynos9820Wlan holds this build).
+- Accepted: Result-1 (_CRS mismatch) is the only path that fails the start (Code 10); all chip-side
+  failures still start the device so the report is written - by design.

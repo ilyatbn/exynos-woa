@@ -59,6 +59,8 @@ ReportLine(_Inout_ PWLAN_REPORT R, _In_z_ _Printf_format_string_ PCSTR Fmt, ...)
     va_start(Args, Fmt);
     if (Left > 1 &&
         NT_SUCCESS(RtlStringCbVPrintfExA(R->Text + R->Used, Left, NULL, &Remaining, 0, Fmt, Args))) {
+        /* one DbgPrint per line: a single DbgPrint of the whole report would be cut at 512 bytes */
+        DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "Exynos9820Wlan: %s", R->Text + R->Used);
         R->Used = sizeof(R->Text) - Remaining;
     }
     va_end(Args);
@@ -285,7 +287,6 @@ Report:
         MmUnmapIoSpace((PVOID)Cfg, WLAN_CFG_WINDOW_SIZE);
     }
 
-    DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "%s", R->Text);
     ReportWriteFile(R);
     ReportWriteRegistry(WdfDeviceGetDriver(Device), R, &P);
     ExFreePoolWithTag(R, 'nlWE');

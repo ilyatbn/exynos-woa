@@ -267,3 +267,7 @@ device-validated** — MILESTONES row stays `doing`; the device test procedure a
   health poll; under Windows nobody did -> the phone does NOT charge in Windows, icon stuck at "plugged, not charging".
 - Fix: driver kicks the charger WDT every 20 s poll (RMW of WDTCLR only), logs ChgCnfg00/06 + WdtKicked; UEFI
   charger-mode loop kicks every 10 s. Package s10e-artifacts\battery-m2 (built + signed).
+- Run batt2 (boot #91 + battery-m2 driver swapped into DriverStore, unattended cycle 262 s): ChgDetails 0x31E0 ->
+  CHG_DTLS 1 (charging), PowerState 5 (online + charging), ChgCnfg00 0x15 (WDTEN + mode 5 CHG+BUCK), ChgCnfg06 0x0C,
+  WdtKicked 1, SOC 53.5 %, AVG_I -13 mA (PC USB ~ load). Charging under Windows FIXED. Diagnostics are saved only
+  on change, so PollOk stayed 1 in a flat 80 s window (expected). Unplug -> icon change: needs the user (cable).

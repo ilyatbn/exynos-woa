@@ -22,3 +22,5 @@ for now; Bixby = Task Manager; everything configurable (an app later; a config f
 - UNVERIFIED on device: DAT polarity/bits (first log line prints both DAT words at idle - expect bits set),
   whether SC_MONITORPOWER blanks this BasicDisplay panel.
 - Deployed (TWRP): boot #87 (4e6dec2e…) + S10eAgent.exe (a16fc8d9…) + s10ekeys.exe (d1a1e80a…) into System32 = build hashes; stale req files cleared. Button test pending.
+- Test 1 (user, boot #87): power short #1 turned the screen OFF; short #2 did NOT turn it back on; power long =
+  power menu works; Bixby does nothing. (Hub: unchanged - only when attached before boot -> parked.)

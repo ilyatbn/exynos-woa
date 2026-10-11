@@ -265,3 +265,13 @@ Found:
 - Decisive test next: boot #68 (the exact run-4 image that reached the desktop, sha cb25db01…d465)
   reflashed. If 0x14C persists → cause is NOT the firmware delta (something changed on the phone after
   run 4: PMIC state from the FG/CCIC reads persisting across resets, NTFS/registry, BCD edit, …).
+
+### Run 7: boot #68 (run-4 image) ALSO bugchecks 0x14C → not the firmware delta
+- Timeline: run 3 (XHC0 hidden by the 0x67 skip) booted; run 4 = FIRST boot with XHC0 visible - Windows
+  installed usbxhci + root hub LIVE after boot and reached the desktop; every boot since (#69, #69, #70,
+  #68) = 0x14C. What changed on the phone: usbxhci is now an INSTALLED driver for ACPI\PNP0D10 and starts
+  early in boot on our controller.
+- Test (boot #71, sha 176eaf5b…efaa): firmware 95c0cf2 + `BEYOND0LTE_USB_EXPOSE_TO_WINDOWS 0` - USB
+  still brought up in UEFI, 'USBH' not written → XHC0 _STA 0 → usbxhci not started. Windows boots ⇒ the
+  early USBXHCI start on our DWC3 is the 0x14C.
+- User OK'd a Windows reflash with a backup of desktop/apps/settings if needed - not needed if this holds.

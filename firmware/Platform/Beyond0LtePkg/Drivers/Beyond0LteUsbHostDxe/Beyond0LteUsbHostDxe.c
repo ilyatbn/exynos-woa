@@ -38,6 +38,11 @@
 // M16 (notes/m16-usb.md): 0 = skip the whole bring-up (XHC0 then stays hidden from Windows).
 #define BEYOND0LTE_USB_HOST  1
 
+// M16 run 7: 0 = bring USB up in UEFI but keep XHC0 hidden from Windows (no 'USBH' word). Every boot
+// after the first one in which Windows installed usbxhci on XHC0 (run 4) bugchecks 0x14C, even on the
+// run-4 image itself - this isolates Windows' early-boot USBXHCI start on our controller.
+#define BEYOND0LTE_USB_EXPOSE_TO_WINDOWS  0
+
 // Boot progress page (0x8FE0F000, WINPRAM, EfiRuntimeServicesData): [0] = the previous boot's last code,
 // [1] = this boot's, [2] = USB status (cleared in SEC, ArmPlatformLib.c). The USB clock gates are
 // ACPM-owned (notes/d1-usb-host.md); if sboot left them off, the first PHY/DWC3 read can hang the bus
@@ -78,11 +83,11 @@ Beyond0LteUsbHostEntry (
   Status          = UsbHostBringUp ();
   PmicBusRelease ();   // every exit path: the bus goes back to the bootloader's state (run 5: 0x14C otherwise)
   mUsbProgress[1] = Saved;
-  if (!EFI_ERROR (Status)) {
+  if (!EFI_ERROR (Status) && BEYOND0LTE_USB_EXPOSE_TO_WINDOWS) {
     mUsbProgress[2] = USB_STATUS_READY;
   }
   DEBUG ((DEBUG_INFO, "UsbHost: bring-up %r, XHC0 %a to Windows\n", Status,
-          EFI_ERROR (Status) ? "hidden" : "visible"));
+          (mUsbProgress[2] == USB_STATUS_READY) ? "visible" : "hidden"));
   return Status;
 }
 

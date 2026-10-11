@@ -445,3 +445,4 @@ Found:
 - PD charger into the dock while docked: NOT yet - the boost stays on for the whole session and nothing at runtime
   watches CC / answers a PR_SWAP, so a dock that starts sourcing could put two supplies on VBUS. Needs a runtime
   CCIC/PD component (Windows UCSI-like service or driver) first.
+- boot #87: USB_SS_LOCK_ATTEMPT 0 = park (sequence once on the detected port, teardown, no 2x100 ms PLL polls). To verify: dock still enumerates.

@@ -276,6 +276,12 @@ UsbPhyHostModeDeltas (VOID)
 #define USB_SS_GPG0_DAT_UNVERIFIED  0x10430084ULL
 #define USB_SS_GPG0_PHY_CON_BIT     BIT4
 
+// Run 15: the LC PLL never locks yet (0x350 stops at 0x3E/0x38 - calibration done, no lock), but running the
+// sequence and then the g2_disable teardown is what made USB3-capable devices fall back to USB2 and enumerate
+// (the isolated / half-reset combo PHY blocked them). 0 = PARK: run the sequence once (detected orientation) and
+// tear down without the 2 x 100 ms lock polls - the state USB2 needs. 1 = try for a real SuperSpeed lock.
+#define USB_SS_LOCK_ATTEMPT  0
+
 STATIC
 VOID
 UsbSsApply (IN CONST USB_SS_PHY_WRITE *Table, IN UINTN Count)
@@ -367,6 +373,12 @@ UsbSsTryPort (IN UINTN Port)
                ~(PMA_TRSV_SW_RST | PMA_CMN_SW_RST));
   gBS->Stall (1000);
 
+  if (!USB_SS_LOCK_ATTEMPT) {
+    DEBUG ((DEBUG_INFO, "UsbSs: port %u sequence run, parking (no lock attempt), 0x350 = %x\n", Port,
+            MmioRead32 ((UINTN)EXYNOS_USB_COMBO_PHY_BASE + USB_SS_PMA_LCPLL)));
+    return FALSE;
+  }
+
   Locked = UsbSsPollBit ((UINTN)EXYNOS_USB_COMBO_PHY_BASE + USB_SS_PMA_LCPLL, BIT7, &Waited);
   DEBUG ((DEBUG_INFO, "UsbSs: port %u LC PLL %a after %u us (0x350 = %x)\n", Port, Locked ? "LOCKED" : "TIMEOUT",
           Waited, MmioRead32 ((UINTN)EXYNOS_USB_COMBO_PHY_BASE + USB_SS_PMA_LCPLL)));
@@ -394,7 +406,7 @@ UsbPhySsInit (VOID)
   DEBUG ((DEBUG_INFO, "UsbSs: PMU 0x704 = %x, gpg0 DAT(UNVERIFIED) = %x -> used_phy_port %u\n",
           MmioRead32 (EXYNOS_PMU_BASE + USB_SS_PMU_ISO), Gpio, Port));
 
-  for (Try = 0; Try < 2; Try++, Port ^= 1) {
+  for (Try = 0; Try < (USB_SS_LOCK_ATTEMPT ? 2u : 1u); Try++, Port ^= 1) {
     if (UsbSsTryPort (Port)) {
       MmioWrite32 (PHY0 + USBCON_CLKRST, MmioRead32 (PHY0 + USBCON_CLKRST) | CLKRST_LINK_PCLK_SEL);
       gBS->Stall (3000);   // [K g2_link_pclk_sel: mdelay(3)]
@@ -405,7 +417,8 @@ UsbPhySsInit (VOID)
     UsbSsTeardown ();
   }
 
-  DEBUG ((DEBUG_WARN, "UsbSs: no lock on either port - staying USB2-only\n"));
+  DEBUG ((USB_SS_LOCK_ATTEMPT ? DEBUG_WARN : DEBUG_INFO, "UsbSs: %a - USB2-only, combo PHY parked\n",
+          USB_SS_LOCK_ATTEMPT ? "no lock on either port" : "SS lock attempt disabled"));
   UsbPhyDump ("SS down");
   return EFI_NOT_READY;
 }

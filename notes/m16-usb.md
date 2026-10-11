@@ -275,3 +275,14 @@ Found:
   still brought up in UEFI, 'USBH' not written → XHC0 _STA 0 → usbxhci not started. Windows boots ⇒ the
   early USBXHCI start on our DWC3 is the 0x14C.
 - User OK'd a Windows reflash with a backup of desktop/apps/settings if needed - not needed if this holds.
+
+### Run 8 (boot #71, XHC0 hidden): 0x14C again → USBXHCI is NOT the cause either
+- No C:\Windows\ntbtlog.txt despite BCD bootlog Yes → the kernel dies before driver loading/logging.
+  LiveKernelReports empty, no MEMORY.DMP.
+- Clue: .NET native images (C:\Windows\assembly\NativeImages_*) regenerated within the run-4 session
+  window → Windows Update/servicing likely ran in run 4. New hypothesis: a cumulative update was staged in
+  run 4 and every boot since runs the updated kernel/boot path (or the boot-time servicing step), which
+  fails on our platform with 0x14C - independent of firmware image and of XHC0.
+- Next reads (TWRP, NTFS ro): WinSxS\pending.xml, CBS.log tail, servicing\Packages newest, timestamps of
+  ntoskrnl.exe / hal.dll / winload.efi / ci.dll vs run-4 time (~14:25 UTC).
+- adb dropped mid-check; user rebooting the phone into TWRP.

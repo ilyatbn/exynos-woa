@@ -155,13 +155,12 @@ WlanOidRequest (
     switch (OidRequest->RequestType) {
     case NdisRequestQueryInformation:
     case NdisRequestQueryStatistics: {
-        PNDIS_OID Oid = (PNDIS_OID)
-            OidRequest->DATA.REQUEST_INFORMATION.Oid;
+        NDIS_OID Oid = OidRequest->DATA.REQUEST_INFORMATION.Oid;
         PVOID Buf = OidRequest->DATA.REQUEST_INFORMATION.InformationBuffer;
         PULONG BufLen =
             &OidRequest->DATA.REQUEST_INFORMATION.InformationBufferLength;
 
-        switch (*Oid) {
+        switch (Oid) {
         case OID_GEN_SUPPORTED_LIST:
             if (*BufLen < sizeof(SupportedOids)) {
                 return NDIS_STATUS_BUFFER_TOO_SMALL;
@@ -208,10 +207,9 @@ WlanOidRequest (
     }
 
     case NdisRequestSetInformation: {
-        PNDIS_OID Oid = (PNDIS_OID)
-            OidRequest->DATA.SET_INFORMATION.Oid;
+        NDIS_OID Oid = OidRequest->DATA.SET_INFORMATION.Oid;
 
-        if (*Oid == OID_GEN_CURRENT_PACKET_FILTER &&
+        if (Oid == OID_GEN_CURRENT_PACKET_FILTER &&
             OidRequest->DATA.SET_INFORMATION.InformationBufferLength
                 >= sizeof(ULONG)) {
             A->PacketFilter = *(PULONG)
@@ -525,10 +523,16 @@ WlanMiniportResume (
     _In_ PNDIS_RESUME_STATE ResumeState
     )
 {
-    UNREFERENCED_PARAMETER(MiniportAdapterContext);
+    PWLAN_ADAPTER A = (PWLAN_ADAPTER)MiniportAdapterContext;
+
     UNREFERENCED_PARAMETER(ResumeState);
-    /* NOT-IMPLEMENTED (R4+): resume re-runs the R3 handshake at minimum. */
-    return NDIS_STATUS_NOT_SUPPORTED;
+
+    /* Resume re-checks the inherited controller state instead of pretending.
+       (R4+ adds ring re-arm after this.) */
+    if (A == NULL || !A->ChipAlive) {
+        return NDIS_STATUS_FAILURE;
+    }
+    return NDIS_STATUS_SUCCESS;
 }
 
 static

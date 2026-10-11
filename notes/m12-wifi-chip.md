@@ -252,6 +252,22 @@ not rewritten to Samsung IDs (kernel does it for its enumeration bookkeeping),
 EP COMMAND = MSE|BME without the test path's INTx mask, PM_CTRL upper half not
 zeroed (kernel zeroes the whole dword; conservative here).
 
+## Review of the Exynos9820Wlan skeleton (commit 5746999)
+
+Checked the NDIS 6.20 shape against the WDK model (DriverEntry ->
+NdisMRegisterMiniportDriver -> MiniportInitializeEx -> NdisMInitializeAdapter
+-> per-adapter Initialize sets REGISTRATION_INFO + GENERAL_INITIALIZATION_
+PARAMETERS -> Halt/Unbind/Shutdown), the BAR0 constants against pcie_core.h/
+sbchipc.h, and the OID paths for buffer-size honesty. Found and fixed
+(follow-up commit): (1) `PNDIS_OID Oid = (PNDIS_OID)...Oid` treated a value
+as a pointer (would not compile clean); (2) driver-level ResumeHandler
+returned NOT_SUPPORTED, which would wedge any pause/resume cycle before R4 —
+now re-checks the handshake state. Recorded, not fixed (needs-windows build
+will arbitrate): exact OPTIONAL-parameter shapes of NdisMGetDeviceProperty /
+NdisMCompleteRequest were written from memory of the netmini sample; the
+first WDK compile is the check. Skeleton honesty checks passed: sends fail
+NOT_ACCEPTED, 802.11 OIDs NOT_SUPPORTED, no fake media connect.
+
 ## Live reads still queued (needs-phone)
 
 - `ls /sys/bus/pci/devices/` + `cat vendor device` → confirm `14e4:4475` (or 4476/4477).

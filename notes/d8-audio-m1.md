@@ -159,3 +159,23 @@ Exynos9820.h already cites for CMU blocks).
   exynos9820.h:442) -> GSIV 460; INTREQ__USI01_USI = 384 (:398) -> GSIV 416
   (not added, SPI is polled). Duplicate-define check empty. Syntax is
   checked by the platform build (task "AudioProbeDxe").
+- Build environment (this worktree): `firmware/edk2` is not checked out in
+  the worktree. Running build-uefi.ps1 through a junction would write into
+  main's `firmware/edk2/Build/Beyond0LtePkg` - the FD the other session
+  flashes - so builds use a private copy of the script (scratchpad
+  `build-private.ps1`): EDK_TOOLS/PACKAGES from main's edk2 (read-only),
+  PACKAGES_PATH second entry = this worktree's firmware, WORKSPACE =
+  `C:\Users\ilya\code\w8a` (Conf copied from main). First try with WORKSPACE
+  under %TEMP% failed in make (`No rule to make target ...object_files.lst`,
+  `GNUmakefile: No such file`): main's longest Build path is 234 chars with a
+  43-char root, the Temp root is ~110 chars -> > 260 (GnuWin32 make has no
+  long-path support). Short root fixes it. Running PowerShell's build with
+  `*>` redirection also fails (NativeCommandError on python's stderr under
+  ErrorActionPreference Stop) - use Start-Process with redirected streams.
+- Task "memory map": six device windows added to mMmioRegions (SPI2_AUDIO
+  0x10470000, PERIC0_USI 0x10421000, HSI2C38 0x109A0000, PERIC1_USI
+  0x10821000, GPIO_PERIC1 0x10830000, CMU_PERIC1 0x10800000+0x8000).
+  Overlap check by hand: none of them falls inside another mapped window
+  (CMU_PERIC0 ends 0x10408000, CMU_PERIC1 ends 0x10808000). Build (private
+  workspace) exit 0, BEYOND0LTE_UEFI.fd 7 340 032 B, FVMAIN_COMPACT 99%
+  (1 192 B free, auto-sized), FVMAIN 32%.

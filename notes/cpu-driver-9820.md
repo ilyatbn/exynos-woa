@@ -313,13 +313,14 @@ partition, LBA 129 ×4096 len 35, but the BL tar omits the file — Samsung
 ships it only when changed). The live OPP table therefore lives only in
 the phone's ACPM SRAM/partition.
 
-Closing reads (pick one, both safe/reads-only):
+Closing reads (pick one, both safe/reads-only, from TWRP root on Windows):
 - **pstore**: the stock kernel prints the whole ladder at boot
   (`CPUFREQ of domain%d : L%2d %7d kHz`, `fvmap` `lv : [...] volt = ... uV`
-  prints). From TWRP root on Windows: `cat /sys/fs/pstore/console-ramoops*`
-  (or `lpkmsg`), grep `CPUFREQ of domain`.
-- or dump the ACPM partition (LBA 129..164 on its LUN) from TWRP root —
-  143 KB, parse the fvmap layout above.
+  prints). `cat /sys/fs/pstore/console-ramoops*` (or `lpkmsg`), grep
+  `CPUFREQ of domain`.
+- or `dd if=/dev/block/platform/13d60000.ufs/by-name/ACPM bs=4096 count=35`
+  — 143 KB, parse the fvmap layout above. (PIT device-type field is 8 for
+  ACPM/ECT/DTB/DTBO/VENDOR; the by-name symlink removes any LUN arithmetic.)
 
 ## Next reads (order)
 

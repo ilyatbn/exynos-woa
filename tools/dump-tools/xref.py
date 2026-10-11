@@ -125,12 +125,9 @@ def main():
     if a.va:
         targets.add(a.va)
     if a.pair:
-        base_va = a.pair - VA_BASE + VA_BASE  # device addrs are physical;
         # MMIO is ioremapped — the kernel materialises the PHYSICAL addr in
-        # the ioremap call, so match the raw value too
+        # the ioremap call; match the raw device address range.
         targets.update(range(a.pair, a.pair + 0x1000, 4))
-        targets.update(range(a.pair, a.pair + 0x1000, 4))
-        del base_va
     if not targets:
         raise SystemExit("give --string, --va or --pair")
 

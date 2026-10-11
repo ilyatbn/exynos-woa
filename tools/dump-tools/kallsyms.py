@@ -1,8 +1,13 @@
 # SPDX-License-Identifier: BSD-2-Clause-Patent
 """kallsyms.py — recover the symbol table from a raw ARM64 Linux 4.14 Image.
 
-The shipped 9820 kernel keeps CONFIG_KALLSYMS on. In 4.14 the generated
-tables sit in one translation unit in source order:
+NEGATIVE RESULT (2026-10-11): the SHIPPED G970FXXUHHXJ6 kernel has NO
+kallsyms — the run this finds is an 894-entry .rodata coincidence, and the
+name decode fails. Kept because the method is correct for kernels that do
+carry the table (LineageOS builds), and to stop a re-attempt. For the
+shipped Image use xref.py (string-anchor ADRP+ADD scan) instead.
+
+In 4.14 the generated tables sit in one translation unit in source order:
 
     kallsyms_addresses[]  (num * u64, strictly increasing)
     kallsyms_num_syms     (u32)

@@ -206,6 +206,29 @@ From `LineageOS/android_kernel_samsung_exynos9820` @ `lineage-23.2`,
   enables them via ACPM at runtime), so our firmware/driver must gate them on via the CMU_FSYS1 MMIO
   writes above. Whether ACPM HWACG objects is UNVERIFIED — first device run answers it.
 
+### 2026-10-11 — P1 closed: the 9820 PCIe PHY ops live in `drivers/pci/dwc/pci-exynos9820_cal.c` (fact)
+
+`exynos_pcie_phy_init()` registers `phy_config/phy_all_pwrdn/phy_all_pwrdn_clear/
+phy_check_rx_elecidle` (lines 396-412). For **ch0 (the WiFi port)** the sequence is
+(lines 31-127, 177-394), with bases phy=0x13EF0000, pcs=0x13EE0000, sysreg=0x13C11044, elbi=0x13ED0000:
+
+- `phy_all_pwrdn_clear`: PCS+0x100 clear bit6; PCS+0x104 clear bit7; PHY+(0x20*4) ← 0xC0;
+  PHY+(0x57*4) ← 0x7E. (ch1 early-return; `exynos_100Mhz_from_socpll_off` is `#ifdef SOCPLL_GATING`
+  = off, "already set in bootloader".)
+- `phy_config` ch0: SYSREG+0x0 |= bit1 (PCS_HIGH_SPEED); SYSREG+0xC =
+  ((v & ~(0xF<<4) & ~(0xF<<2)) | (3<<2)) & ~(1<<1); SYSREG+0xC |= bit12 (lane0 enable);
+  ELBI+0x288 pulse 1→0→1 (10 µs steps, pcs_g_rst); write the **48-word CMN table** to PHY+0x0..0xBC
+  and the **80-word TRSV table** to PHY+0xC0..0x1FC (values verbatim in the file, "26MHz Gen2 Ch0 HS1");
+  optional OTP tune (magic 0x5030) — skipped, driver only applies it if OTP parse succeeds;
+  PCS+0xF8 ← 0x70 (tx latency), PCS+0x100 ← 0x87, PCS+0x104 ← 0x50 (refclk out ctrl),
+  PCS+0xC: clear bit1 set bit4 (L1SS timeout); ELBI+0x290 pulse (PCIE_MAC rst);
+  ELBI+0x28C pulse 1→0→1 with 100 µs tail (PHY PCS&CMN rst); PCS+0xD0 bits[7:6]: 0x3 → 0x2 → 0x0 (CDR rst).
+- `phy_check_rx_elecidle(val)`: PCS+0xEC bit3 ← val.
+- quirks (line 414+): `device_disable_async_suspend` + `set_dma_ops(exynos_pcie_dma_ops)` — the
+  SysMMU DMA layer, our P5 open item.
+
+https://raw.githubusercontent.com/LineageOS/android_kernel_samsung_exynos9820/lineage-23.2/drivers/pci/dwc/pci-exynos9820_cal.c
+
 ## Live reads still queued (needs-phone)
 
 - `ls /sys/bus/pci/devices/` + `cat vendor device` → confirm `14e4:4475` (or 4476/4477).

@@ -4,7 +4,7 @@
  * Mirrors the device-proven edk2-exynos tools/BootShim/BootShim.S flow for exynos9820
  * (https://github.com/sonic011gamer/edk2-exynos): a fake Linux ARM64 Image header, then
  * copy UEFI_SIZE bytes from the appended FD to UEFI_BASE and branch there. Nothing else,
- * except the BEYOND0LTE_SHIM_DIAG block (DECON enable + two white bands, default ON).
+ * except the BEYOND0LTE_SHIM_DIAG block (white bands + bit strips, default OFF since 2026-10-11; the DECON enable is unconditional).
  * The 9810 (star2lte) shim added watchdog/cache/paint/SP steps; with those, boot #4 looped
  * (notes/m8-uefi-image.md B20-B22). Which step faulted is NOT known - they are dropped as
  * suspects, because the proven 9820 flow touches no system register and no MMIO.
@@ -31,7 +31,7 @@
 #define UEFI_SIZE 0x0000000000700000   /* VERIFIED: built BEYOND0LTE_UEFI.fd is exactly 7 340 032 B = 0x700000 */
 #endif
 
-/* ---- Boot #5 diagnostic (BEYOND0LTE_SHIM_DIAG, default ON; -DBEYOND0LTE_SHIM_DIAG=0 for
+/* ---- Boot #5 diagnostic (BEYOND0LTE_SHIM_DIAG, default OFF since 2026-10-11 - see below; -DBEYOND0LTE_SHIM_DIAG=0 for
  * the exact prior-art flow). The only deviation from edk2-exynos BootShim.S. Boot #4 showed
  * nothing on the panel, which proves nothing: the panel only shows CPU stores to the scanout
  * buffer once DECON is told to (SimpleFramebufferDxe.c:155-161), and edk2-exynos's 9820
@@ -66,7 +66,10 @@
 #define BEYOND0LTE_SHIM_TIMEBAR 0
 #endif
 #ifndef BEYOND0LTE_SHIM_DIAG
-#define BEYOND0LTE_SHIM_DIAG 1
+/* 2026-10-11 (user: "get rid of the white lines the shim adds to the samsung logo"): off. The bands/bit
+ * strips predate the RAM boot log + progress words (0x51-0x56); -DBEYOND0LTE_SHIM_DIAG=1 brings them back.
+ * The DECON framebuffer-write enable is no longer part of this switch. */
+#define BEYOND0LTE_SHIM_DIAG 0
 #endif
 
 	/* x = FB_ROW(row), two instructions, no literal pool. */
@@ -204,11 +207,13 @@ _start:
 	isb
 	PROGRESS 0x53                   /* caches cleaned                            */
 
-#if BEYOND0LTE_SHIM_DIAG
+	/* DECON "enable frame buffer writes" - always on: the UEFI progress bar and the OS framebuffer
+	 * depend on CPU stores reaching the panel (only the white bands below are diagnostics). */
 	movz	x9, #0x1903, lsl #16    /* 0x19030000 = decon_f base               */
 	mov	w10, #0x1281             /* prior-art "enable frame buffer writes"  */
 	str	w10, [x9]
 	dsb	sy
+#if BEYOND0LTE_SHIM_DIAG
 	LOADFB	x9, 150
 	movz	w10, #0x78D0
 	movk	w10, #0x2, lsl #16      /* 162000 px = 150 rows x 1080             */

@@ -15,7 +15,7 @@ set SAVED_INCLUDE=%INCLUDE%
 set INCLUDE=%KIT%\Include\%KV%\km;%KIT%\Include\%KV%\shared;%SAVED_INCLUDE%
 cl.exe /c /nologo /W4 /WX /Ox /Os /D _ARM64_ /D ARM64 /D _USE_DECLSPECS_FOR_SAL=1 /D STD_CALL /D _WIN32_WINNT=0x0A00 /D WINVER=0x0A00 /D WINNT=1 /D NTDDI_VERSION=0xA000010 /GF /Gm- /Zp8 /GS /guard:cf /Gy /Zc:wchar_t- /GR- /kernel /FI"%KIT%\Include\%KV%\shared\warning.h" /Fo"%OUT%\S10eDiag.obj" "%SRC%S10eDiag.c"
 if errorlevel 1 exit /b 2
-link.exe /NOLOGO /WX /NODEFAULTLIB /MANIFEST:NO /DEBUG:NONE /SUBSYSTEM:NATIVE,"10.00" /Driver /OPT:REF /OPT:ICF /ENTRY:"GsDriverEntry" /RELEASE /Brepro /MACHINE:ARM64 /guard:cf /kernel /osversion:10.0 /OUT:"%OUT%\S10eDiag.sys" "%OUT%\S10eDiag.obj" "%KIT%\Lib\%KV%\km\arm64\BufferOverflowFastFailK.lib" "%KIT%\Lib\%KV%\km\arm64\ntoskrnl.lib" "%KIT%\Lib\%KV%\km\arm64\hal.lib" "%KIT%\Lib\%KV%\km\arm64\wdmsec.lib" "%KIT%\Lib\%KV%\um\arm64\arm64rt.lib"
+link.exe /NOLOGO /WX /NODEFAULTLIB /MANIFEST:NO /DEBUG:NONE /SUBSYSTEM:NATIVE,"10.00" /Driver /OPT:REF /OPT:ICF /ENTRY:"GsDriverEntry" /RELEASE /Brepro /MACHINE:ARM64 /guard:cf /kernel /osversion:10.0 /OUT:"%OUT%\S10eDiag.sys" "%OUT%\S10eDiag.obj" "%KIT%\Lib\%KV%\km\arm64\BufferOverflowFastFailK.lib" "%KIT%\Lib\%KV%\km\arm64\ntoskrnl.lib" "%KIT%\Lib\%KV%\km\arm64\hal.lib" "%KIT%\Lib\%KV%\km\arm64\wdmsec.lib" "%KIT%\Lib\%KV%\km\arm64\aux_klib.lib" "%KIT%\Lib\%KV%\um\arm64\arm64rt.lib"
 if errorlevel 1 exit /b 3
 
 set INCLUDE=%KIT%\Include\%KV%\um;%KIT%\Include\%KV%\shared;%KIT%\Include\%KV%\ucrt;%SAVED_INCLUDE%

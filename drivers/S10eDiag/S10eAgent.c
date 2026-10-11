@@ -256,6 +256,18 @@ Worker(LPVOID Parameter)
     gLog[1] = CreateFileW(Path, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     LogLine("ESP %ls (attempt %lu)", gEsp, Attempt);
 
+    // Unattended runs: a hang after this point (no bugcheck, no restart) must still end in TWRP. S10eDiag's
+    // timer hard-resets to recovery after 20 min; collect.cmd's restart ends the boot long before that.
+    swprintf_s(Path, ARRAYSIZE(Path), L"%s\\S10EDIAG\\stay.flg", gEsp);
+    if (GetFileAttributesW(Path) == INVALID_FILE_ATTRIBUTES && gDiag != INVALID_HANDLE_VALUE) {
+        ULONG Seconds = 1200;
+        DWORD Returned;
+
+        if (DeviceIoControl(gDiag, IOCTL_S10EDIAG_FALLBACK, &Seconds, sizeof(Seconds), NULL, 0, &Returned, NULL)) {
+            LogLine("fallback armed: hard reset to TWRP in %lu s", Seconds);
+        }
+    }
+
     // 2. Wait for the desktop, logging what the logon is doing.
     // User: explorer.exe up for 30 s is the "desktop is up" signal; poll every 5 s, log every 15 s.
     WaitSeconds = ReadWaitSeconds();

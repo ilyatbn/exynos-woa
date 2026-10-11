@@ -14,6 +14,7 @@
 
 #include <ntddk.h>
 #include <wdmsec.h>
+#include <aux_klib.h>
 #include "S10eDiagIoctl.h"
 
 #define S10E_PMU_PHYSICAL_BASE     0x15860000ULL   // EXYNOS_PMU_BASE
@@ -42,6 +43,7 @@ static volatile UCHAR *gMarks;          // PRAM mark ring (S10EDIAG_MARK_PHYSICA
 static KSPIN_LOCK gMarkLock;
 static KBUGCHECK_CALLBACK_RECORD gBugcheckRecord;
 static BOOLEAN gBugcheckRegistered;
+static BOOLEAN gAuxKlibReady;
 
 // SYSTEM + Administrators only.
 static const WCHAR gSddl[] = L"D:P(A;;GA;;;SY)(A;;GA;;;BA)";
@@ -128,14 +130,36 @@ S10eMarkHex(const CHAR *Prefix, ULONGLONG Value)
     S10eMarkRaw(Line, Out);
 }
 
+static VOID S10eHardResetToRecovery(VOID);
+
 static VOID
 S10eBugcheckCallback(PVOID Buffer, ULONG Length)
 {
+    KBUGCHECK_DATA Data = { 0 };
+
     UNREFERENCED_PARAMETER(Buffer);
     UNREFERENCED_PARAMETER(Length);
-    // Only "we crashed, at this uptime": the stop code and parameters are recorded by Exynos9820Ufs's own
-    // callback (=UFSBUGCHECK at WINPRAM +0x28D). No lock - the system is already stopped.
+
+    // No lock - the system is already stopped.
     S10eMarkRaw("BUGCHECK callback", 17);
+    Data.BugCheckDataSize = sizeof(Data);
+    if (gAuxKlibReady && NT_SUCCESS(AuxKlibGetBugCheckData(&Data))) {
+        S10eMarkHex("BC", Data.BugCheckCode);
+        S10eMarkHex("BC P1", (ULONGLONG)Data.Parameter1);
+        S10eMarkHex("BC P2", (ULONGLONG)Data.Parameter2);
+        S10eMarkHex("BC P3", (ULONGLONG)Data.Parameter3);
+        S10eMarkHex("BC P4", (ULONGLONG)Data.Parameter4);
+    }
+
+    //
+    // m11 run 5 (user: "the phone is rebooting into windows after a crash"): Exynos9820Ufs's callback resets
+    // with INFORM3 = normal and leaves the rest to the firmware boot pair, which did not always route to
+    // TWRP. Callbacks run newest-first and this driver registers after the boot-start UFS driver, so reset
+    // here, with INFORM3 = recovery: sboot then boots TWRP directly. The PRAM (UFS marks + this ring) stays
+    // in RAM; `adb reboot` from TWRP with \WINRUN.FLG present makes the firmware save it as \WINPRAM.BIN.
+    //
+    S10eMarkRaw("reset to recovery", 17);
+    S10eHardResetToRecovery();
 }
 
 static VOID
@@ -398,6 +422,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
         S10eMark("S10eDiag loaded", 15);
         S10eMarkHex("INFORM3", (gPmu != NULL) ? READ_REGISTER_ULONG((volatile ULONG *)(gPmu + S10E_PMU_INFORM3)) : 0);
     }
+    gAuxKlibReady = NT_SUCCESS(AuxKlibInitialize());
     KeInitializeCallbackRecord(&gBugcheckRecord);
     gBugcheckRegistered = KeRegisterBugCheckCallback(&gBugcheckRecord, S10eBugcheckCallback, NULL, 0,
                                                      (PUCHAR)"S10eDiag");

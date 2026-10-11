@@ -68,3 +68,10 @@ within it ... after that start with getting touch working. then ... at least 1 m
   The same quick commands passed in run 2 => the step that aborted is unknown. Added: S10eDiag PRAM mark ring at
   WINPRAM +0xA000 (16 KiB, 64-byte lines, uptime-stamped), `s10ediag mark`, agent mirrors every log line into it,
   collect.cmd / extra-touch.cmd mark each step, driver marks load / shutdown notification / bugcheck callback.
+- Run 5 (PERIC0 probe): user: "the phone is rebooting into windows after a crash. not to twrp" - the crash
+  return depended on Exynos9820Ufs's bugcheck reset (INFORM3 NORMAL) + the firmware boot pair, which did not
+  route to TWRP this time (cause not read yet). Fix: S10eDiag's own bugcheck callback (runs before the UFS one:
+  newest registration first) records BC + P1..P4 via AuxKlibGetBugCheckData into the mark ring, then INFORM3 =
+  recovery + SWRESET => sboot boots TWRP directly. The PRAM stays in RAM; read it with a firmware bounce (adb
+  reboot with WINRUN.FLG present). Agent also arms the S10eDiag fallback (20 min hard reset to TWRP) unless
+  stay.flg exists. My wait loop assumed crashes always return - it now must not be trusted alone.

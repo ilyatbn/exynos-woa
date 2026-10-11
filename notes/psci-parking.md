@@ -177,6 +177,9 @@ EL2 vectors translate SMC PSCI calls into the existing HVC PSCI handler.
   Desktop Windows ARM64 boots fine with PPV=1 on 8992 (Lumia950.fdf ships it),
   so Windows ARM64 supports the parking protocol (fact by device validation in
   the project; inference: Windows implements ACPI parking protocol v1).
+  *(Review note 2026-10-11: these builds also declare PSCI — FADT 0x81 bit0
+  set, §C1/§C6.3 — so this evidence does not isolate parking as the active
+  mechanism; the claim is softened in §C6.3.)*
 
 ## A2. Renegade Project — edk2-porting/edk2-sdm845 (SD 845/850, also sm8250)
 
@@ -1076,11 +1079,18 @@ monitor.
    Windows calls PSCI 1.0 functions when the reported version offers them.
    Close with C5 before trusting any of it.
 3. If PSCI_VERSION turns out unsupported (returns -1): Windows' behaviour
-   is the open question — the **fallback with device precedent on Windows
-   ARM64 is the ACPI parking protocol** (Lumia 950/8992: PPV=1, park
-   mailboxes; Windows onlines cores by writing entry points to the
-   spin-table-style mailbox). Implementing parking in our UEFI (park APs
-   in a reserved region, publish PPV=1 + ParkedAddress) is the proven
-   Plan B; it needs no EL3 cooperation at all.
+   is the open question — the **ACPI parking protocol is the candidate
+   fallback** (Lumia 950/8992: stock WP10 PPV=1 + park mailboxes, and the
+   community's desktop-Windows build still ships PPV=1). CAVEAT from
+   review: those builds ALSO declare PSCI (FADT 0x81 bit0), so which
+   mechanism Windows actually used is NOT isolated by this evidence —
+   "Windows implements parking v1" is plausible (SBBR defines the fields;
+   WP10-era devices predate reliable PSCI) but unproven. Closing reads:
+   (a) Lumia950XLPkg commit/PR discussion around the MpPark variants
+   (winocm's comments in PR #75); (b) our own experiment — a UEFI build
+   with PPV=1 + FADT PSCI bit cleared, boot Windows, watch core count.
+   Implementing parking in our UEFI (park APs in a reserved region,
+   publish PPV=1 + ParkedAddress) needs no EL3 cooperation at all, so it
+   stays Plan B.
 4. System off/reset on our port: keep the vendor path (PMIC/ACPM), not
    PSCI SYSTEM_* — same conclusion Samsung upstream reached for 7420.

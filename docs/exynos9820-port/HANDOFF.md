@@ -1100,3 +1100,18 @@ diagnostics. (4) USB device mode (KDNET over USB EEM) as its own milestone.
 - Tools in Windows: s10ediag (peek/poke/mark/flushreset), S10eAgent (ESP scripts, desktop icons incl. Reboot to
   TWRP / Collect logs / Task Manager / Rotate *), s10erotate, s10eperf.
 - Next: storage controller clocks (FSYS0/UniPro), big cores, rotation test (needs the user), power button.
+
+## 26. Restart point (2026-10-11 evening): fresh Windows reinstalled; M17 USB kernel debugging built, not flashed
+
+**State.** 0x14C investigation dropped (notes/m16-usb.md tail): USERDATA re-transferred from s10e-artifacts\win-w5
+(pristine image) + UFS w34 + SetupComplete.cmd provisioning (firmware/tools/s10e-provision-fresh.sh: numproc
+removed for the 6 parked cores, W37 power keys, S10eDiag services, HSI2C + touch packages; log
+C:\S10eProv\setupcomplete.log). Windows Setup was running on BOOT = boot #71 (XHC0 hidden) at 19:08.
+**M17 (notes/m17-usb-kd.md):** KDNET over USB EEM with the inbox kd_8003_5143.dll. Committed: T1 firmware KD
+device mode (BEYOND0LTE_USB_KD_DEVICE 1), T2 DSDT UFN0, T3 Dbg2.aslc, T4 extra-kd.cmd + s10e-stage-kd.sh.
+boot #72 (s10e-artifacts\boot72-v2.img, sha 2d9609eb…) = T1-T3, NOT flashed.
+**Next order.** (1) Setup finished -> TWRP: read C:\S10eProv\setupcomplete.log, confirm 6 CPUs / touch.
+(2) Flash boot #72 (dd to by-name/boot, readback sha) + `bash firmware/tools/s10e-stage-kd.sh`; boot Windows
+once (agent applies BCD, writes ESP S10EDIAG\out\last\kd\kdnet-list.txt). (3) Phone on the PC's USB 3 Type-A
+port, host firewall off, `windbg -k net:port=50005,key=1.2.3.4`, reboot the phone. Suspects if no link:
+notes/m17-usb-kd.md T1/T3 reviews (SUSPHY, GFLADJ, DBG2 revision, OEM controller type 5 vs 3/4).

@@ -492,3 +492,11 @@ amps NACK). Rules as §0 (no adb, no flash; the main session runs the device tes
   CloseEvent. The CodecRails path is gated by both flags and the vsel check; `PmicUpdate` mask 0xC0 cannot
   touch vsel. FOUND: the SignalCodecPower comment said the codec probe "runs now"; it is only queued and
   runs after the handler (incl. the DVFS block) returns - comment fixed in the follow-up commit.
+- Task "deferred codec probe" (AudioProbeDxe): entry saves gpg1 CON/DAT (handoff), asserts gpg1-0
+  (PinDriveLow) and registers `OnCodecPower` (TPL_NOTIFY, group fd6b0be6-...). Event-create failure ->
+  pin restored and the codec probed at once (old flow). `CodecProbe(HandoffCon, HandoffDat)` restores the
+  reset to the *handoff* values; new `CodecWaitBoot` polls BOOT_DONE 5 ms x 5 after the release (no ack
+  write). OnCodecPower closes its event, runs once, sets/restores progress 0x69. If TouchPowerDxe never
+  signals, the codec stays held in reset (= its boot #88 handoff state) and no codec lines appear.
+  Build exit 0: AudioProbeDxe.efi 20 480 B, FD 7 340 032 B sha256 645c8328a0c7889f...,
+  FVMAIN_COMPACT 3 728 B free (auto-size grew one block), FVMAIN 33%.

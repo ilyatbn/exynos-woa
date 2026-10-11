@@ -65,6 +65,56 @@ Dwc3EventBufferSetup (VOID)
   MmioWrite32 (DWC3 + DWC3_GEVNTCOUNT (0), 0);
 }
 
+// M17 test 2: Windows' KD transport initialized on the target (kdnic present) but the host saw no device at all,
+// not even a failed enumeration. 1 = in the KD device path, run the device side for a few seconds in UEFI
+// (high speed, our event buffer, RUN_STOP) and log every DSTS link-state change: a host bus reset / U0 proves the
+// D+ pull-up and the data path; staying in Rx.Detect/SS.Disabled with no reset says the attach never happens.
+// The host shows an "Unknown USB Device (Device Descriptor Request Failed)" during the window if it attaches
+// (no EP0 is armed). Diagnostic only - set 0 once answered.
+#define BEYOND0LTE_USB_KD_ATTACH_PROBE  1
+#define ATTACH_PROBE_MS                 8000
+
+STATIC
+VOID
+Dwc3DeviceAttachProbe (VOID)
+{
+  UINT32  Dsts;
+  UINT32  Last;
+  UINTN   Ms;
+  UINTN   Changes;
+
+  Dwc3EventBufferSetup ();
+  MmioWrite32 (DWC3 + DWC3_DCFG, (MmioRead32 (DWC3 + DWC3_DCFG) & ~0x7u));  // DEVSPD 0 = high speed
+  MmioWrite32 (DWC3 + DWC3_DCTL, MmioRead32 (DWC3 + DWC3_DCTL) | DCTL_RUN_STOP);
+  Last    = 0xFFFFFFFF;
+  Changes = 0;
+  for (Ms = 0; Ms < ATTACH_PROBE_MS; Ms++) {
+    // DSTS: [2:0] CONNECTSPD, [21:18] USBLNKST (0 = U0/ON, 4 = SS.Disabled, 5 = Rx.Detect, 3 = U3/suspend),
+    // [22] DEVCTRLHLT. SOFFN [16:3] ticks every microframe once a host drives the bus - masked out here.
+    Dsts = MmioRead32 (DWC3 + DWC3_DSTS) & ~(0x3FFFu << 3);
+    if ((Dsts != Last) && (Changes < 24)) {
+      DEBUG ((DEBUG_INFO, "Dwc3AttachProbe: t=%u ms DSTS %x (speed %u linkst %u halted %u) GEVNTCOUNT %x\n", Ms, Dsts,
+              Dsts & 7, (Dsts >> 18) & 0xF, (Dsts >> 22) & 1, MmioRead32 (DWC3 + DWC3_GEVNTCOUNT (0))));
+      Last = Dsts;
+      Changes++;
+    }
+
+    gBS->Stall (1000);
+  }
+
+  MmioWrite32 (DWC3 + DWC3_DCTL, MmioRead32 (DWC3 + DWC3_DCTL) & ~DCTL_RUN_STOP);
+  for (Ms = 0; Ms < 100; Ms++) {
+    if (MmioRead32 (DWC3 + DWC3_DSTS) & BIT22) {
+      break;
+    }
+
+    gBS->Stall (1000);
+  }
+
+  DEBUG ((DEBUG_INFO, "Dwc3AttachProbe: done, %u DSTS changes, SOFFN %x, halted after %u ms\n", Changes,
+          (MmioRead32 (DWC3 + DWC3_DSTS) >> 3) & 0x3FFF, Ms));
+}
+
 STATIC
 VOID
 Dwc3RootHubPowerOff (VOID)
@@ -278,6 +328,10 @@ Dwc3CoreInit (IN BOOLEAN Device, OUT UINT32 *Revision)
             __func__, (Waited < 100000) ? "cleared" : "STUCK (kd would hang)", Waited,
             MmioRead32 (DWC3 + DWC3_GCTL), Reg, MmioRead32 (DWC3 + DWC3_GUSB2PHYCFG (0)),
             MmioRead32 (DWC3 + DWC3_GUSB3PIPECTL (0)), MmioRead32 (DWC3 + DWC3_DSTS)));
+    if (BEYOND0LTE_USB_KD_ATTACH_PROBE && (Waited < 100000)) {
+      Dwc3DeviceAttachProbe ();
+    }
+
     *Revision = Rev;
     return (Waited < 100000) ? EFI_SUCCESS : EFI_TIMEOUT;
   }

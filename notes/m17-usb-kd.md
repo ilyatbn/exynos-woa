@@ -191,3 +191,11 @@ hang (notes/m14-smp.md: "Needs kernel-level debugging (KDNET/USB) - parked"), ea
   nothing in our tree programs it (no COMN1SW/COMP2SW anywhere in notes/code) - Android's muic driver does it;
   (2) RUN_STOP never set / kd gave up after its 3 s + 3 s attach timeouts (notes/m17-kd-dll-re.md); (3) PHY
   not driving (UTMI opmode / termination). Need: UEFILOG of this boot (CSFTRST rehearsal line).
+- UEFILOG of test 2 boot (#73): `CSFTRST cleared after 40 us; GCTL 30C12004 GUSB2PHYCFG 102540 -> 102400
+  GUSB3PIPECTL 1B021103 DSTS 520004` - rehearsal passes, SUSPHY/ENBLSLPM cleared.
+- TWRP sysfs (same cable, adb up): /sys/class/sec/switch usb_sel=PDA, attached_dev=USB, vbus 5 V; ccic
+  max77705 fw 1A.00. The MUIC switch is in the always-on PMIC and the cable stayed attached through the reboot
+  into our firmware -> data switch most likely still AP. Suspect (1) demoted.
+- boot #74 (sha db56d6c5…): BEYOND0LTE_USB_KD_ATTACH_PROBE 1 - UEFI runs the device side 8 s (HS, our event
+  buffer, RUN_STOP) logging DSTS link-state changes, then stops. Host watch for a failed enumeration in that window.
+- s10escale deployed (System32 + Public Desktop "Display scale.exe", sha da443209… = build).

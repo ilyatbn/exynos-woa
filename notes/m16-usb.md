@@ -205,3 +205,14 @@ Found:
 - Hsi2cReset mirrors the Windows ControllerReset exactly (incl. FS timing constants, TIMEOUT 0, FIFO/AUTO/
   ADDR 0); snapshot/restore removed.
 - Still possible: the USI_CMGP3 clock gate is off (ACPM-owned) - run 5's dumps will show whether CTL latches.
+
+### Run 5 (boot #69) — flashed 2026-10-11
+- boot69-v2.img sha256 dbcb40b0…a54a verified = 4423d3f.
+
+### Battery (user: "i was hoping to see the battery indicator in windows")
+- What exists: only the drivers-branch UEFI PoC (FuelGauge.c) that LOGS a fuel-gauge read at boot - no
+  Windows battery driver. Both depend on HSI2C45, which has never worked yet (runs 1-4: gauge 0x36 times out).
+- Plan once run 5 shows the bus alive: (1) gauge values in UEFILOG cross-checked with Android;
+  (2) a second instance of our Windows HSI2C SPB driver for hsi2c_45 (ACPI device, CMGP sysreg/pinctrl)
+  + a KMDF battery miniclass driver (MAX77705 FG 0x36: SOC/VCELL/current) behind ACPI PNP0C0A-style
+  device → the Windows battery icon. notes/battery-driver.md has the register map.

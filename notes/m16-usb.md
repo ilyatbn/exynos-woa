@@ -308,3 +308,10 @@ Found:
   "sometimes things just break" → reinstall a fresh Windows and continue with drivers; revisit 0x14C only
   if it returns. Host hive work dirs kept in %TEMP%\s10ediag-hive.* (i2lM = hive run 4 booted, A0cW
   SYSTEM.orig = run 4's result) if it does.
+
+### Fresh Windows reinstall (user, 2026-10-11 ~19:00 local)
+- Plan: S10eHarness transfer of the pristine s10e-artifacts\win-w5 image (windows.img 119 GB raw, esp\) →
+  USERDATA + CACHE ESP (wipes the broken install); s10e-swap-ufs.sh ufs-w23\Exynos9820Ufs-w34.sys; boot #71
+  stays on BOOT (XHC0 hidden, USB bring-up in UEFI); unattended Setup (specialize + oobe, ~1.5 h on 1 core).
+- Afterwards (as in §24/§25): W37 power hive edit + s10e-install-diag.sh need `reg load` = an ELEVATED shell
+  (this session is not); touch/HSI2C via pnputil inside Windows; BCD numproc.

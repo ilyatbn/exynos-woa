@@ -1067,3 +1067,21 @@ Windows boots. (4) More RAM (bank1/2 never reached the UEFI map - W18), then num
 - Next order: (1) relax the watchdog cap / stop arming the dead man's switch once Windows is the target, so the
   desktop stays up; (2) display/input confirmation on the device; (3) SMP via PSCI 0.1 (numproc > 1, W8);
   (4) strip bring-up diagnostics (shim bands, early marks).
+
+## 25. Restart point - the live one (2026-10-11 afternoon): desktop, touch, 5.2 GB, unattended loop
+
+**State.** BOOT = boot #48 (s10e-artifacts\boot48-v2.img: watchdog flag off at EBS (W37), touch power DXE (ACPM),
+64-bit DRAM bank published). Windows on USERDATA, driver Exynos9820Ufs w32; S10eDiag (driver + agent + CLI) installed
+offline; Exynos9820Hsi2c (oem2) + S6SY761TouchBeyond0 (oem4) installed by pnputil inside Windows.
+**Works on device (user-confirmed):** desktop, touch. Windows sees 5.24 GiB. 1 CPU (BCD numproc=1).
+**Unattended loop (notes/m11-s10ediag.md):** from TWRP: `bash firmware/tools/s10e-install-diag.sh $TEMP/s10ediag
+[extra.cmd] [drivers dir]` (installs driver/agent/hive keys, pushes ESP scripts, clears WINRUN.FLG), `adb reboot`.
+The agent waits for explorer up 30 s, runs ESP \S10EDIAG\collect.cmd (+extra.cmd) and restarts into TWRP; results in
+ESP \S10EDIAG\out\last. Crashes: S10eDiag's bugcheck callback -> INFORM3 recovery -> TWRP; stop code + step marks in
+the PRAM ring (WINPRAM +0xA000, saved as \WINPRAM.BIN by one `adb reboot` bounce while WINRUN.FLG exists).
+stay.flg on the ESP = interactive (no restart); desktop icons "Reboot to TWRP" / "Collect logs" (agent requests).
+**Known:** Windows restart = PSCI SYSTEM_RESET -> bugcheck 0xA0 (Samsung EL3 is PSCI 0.1) - harmless in the loop
+(lands in TWRP), real fix with SMP. Never read a whole page of 0x10421000 (unimplemented words abort; m12).
+**Next order:** (1) SMP via the ACPI parking protocol for the 4 A55 cores + hide PSCI from Windows (notes/m14-smp.md,
+in progress); then remove numproc. (2) Power button (ALIVE key-power under pinctrl@15850000). (3) Strip bring-up
+diagnostics. (4) USB device mode (KDNET over USB EEM) as its own milestone.

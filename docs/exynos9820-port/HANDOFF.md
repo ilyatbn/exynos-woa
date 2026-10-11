@@ -1144,3 +1144,20 @@ stage the ESP, read UEFILOG `[PCIe]` lines, collect `out\last\wlan\`). (2) Recor
 BAR sizes. (3) Pull the firmware blobs per "Firmware blobs for milestone 2". (4) Milestone 2 = firmware download
 (NDIS skeleton still on origin/drivers 5746999/cb6a90f). Build note: a worktree has no firmware/edk2; a junction
 breaks GNU make's Trim lookup - build with $edk2 pointed at main's edk2 (notes/m12-wifi-m1.md).
+
+## 29. Restart point (2026-10-12 night, unattended session - user away, phone in TWRP on the PC cable)
+
+**Phone state.** BOOT = boot #91 (s10e-artifacts\boot91-v2.img, sha dee82084…): host-mode USB (combo PHY parked,
+COM switch, fallback boost 1.2 A), charger mode (FDT lpcharge -> battery bar, WDT kick), stay.flg boot pair,
+audio ID probe (0x69 guard), WiFi PCIe M1 (0x68 guard), BAT0, **BEYOND0LTE_WINDOWS_WATCHDOG 1** (unattended).
+ESP: **no stay.flg** (unattended: every Windows boot collects and returns to TWRP), extra.cmd = extra-battstat.
+Windows: S10eBattery (watchdog-kick build, DriverStore swap), Exynos9820Wlan m1 probe, buttons agent, s10ekeys.
+**Validated today:** buttons (power screen/menu, Bixby taskmgr/rotate), USB host dock/keyboard/mouse/USB3 sticks at
+HS (before boot only - parkinglot), USB KD (boot #78 image + BCD debug), charger mode, battery icon + charging in
+Windows (charger WDT kick), BCM4375 alive in UEFI + Windows.
+**In flight:** WiFi M2 (firmware download in the probe driver) and audio M1b (LDO18M + resets + IDs) on subagent
+worktree branches; merge, build, test unattended.
+**Before handing back to the user:** BEYOND0LTE_WINDOWS_WATCHDOG back to 0, put S10EDIAG\stay.flg back on the ESP,
+remove extra.cmd. Battery floor: < 15 % -> park in TWRP 30 min (memory: unattended-battery-floor).
+**Parking lot:** parkinglot/usb-host-hotplug-and-power.md, parkinglot/touch-double-tap.md. KD auto-role (device
+when VBUS in, host otherwise; DBG2 only in device role) is the next debugging improvement.

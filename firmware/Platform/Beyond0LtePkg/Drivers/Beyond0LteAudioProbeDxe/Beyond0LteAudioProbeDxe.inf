@@ -17,6 +17,7 @@
 
 [Sources]
   Beyond0LteAudioProbeDxe.c
+  AudioTone.c
   AudioProbeHw.h
   AudioCodec.h
 

@@ -726,4 +726,14 @@ Mixer source value "Tone Generator 1" = 0x04 [MC:1422-1424 texts, 1574-1576 valu
   CodecUpdate (read-modify-write, no write on a failed read), CodecWrite32 / CodecRead32 (10-byte frames, value
   in bytes 6..9); CodecRead made non-STATIC; prototypes in new AudioCodec.h (added to the .inf). Build exit 0,
   FVMAIN_COMPACT 3 720 B free (helpers unused yet).
+- Review 7204296 (helpers): SPI_FIFO_DEPTH 64 >= the 10-byte frames; write frame has bit 7 of byte 0 clear
+  (regmap-spi write_flag_mask 0); one CS window per register = regmap-spi's own framing; CodecUpdate never
+  writes after a failed read. No follow-ups.
+- Task "tone sequence": new `AudioTone.c` (CodecTonePlay, §6.2 steps 1-9 transliterated; every Set() logs
+  "[reg] mask <- value : read X ok|MISMATCH"; LogStatus() dumps FLL lock, SYSCLK, OUT_EN1, RAW_OUT_STS1, TONE1,
+  HP2 SC/EN_DONE/DIS_DONE, HPD0), flag `BEYOND0LTE_AUDIO_TONE` (1) + prototype in AudioCodec.h, AudioTone.c in
+  the .inf. Call site: CodecProbe, inside the "codec in reset - releasing it" branch, only if
+  `CodecWaitBoot()` (now returns BOOLEAN) and the ID matched. Build exit 0: AudioProbeDxe.efi 26 112 B (was
+  ~20 KB), FD 7 340 032 B sha256 4f3f0c9b7789d2a7abae33ff9604f8cc715f8b72898090f32c23d981748192c1,
+  FVMAIN_COMPACT 1 232 B free (99%, auto-sized), FVMAIN 33%. `grep -a` on the .efi finds the AudioTone strings.
 

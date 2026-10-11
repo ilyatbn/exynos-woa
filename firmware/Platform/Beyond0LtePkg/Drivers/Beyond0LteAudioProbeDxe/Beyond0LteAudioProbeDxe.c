@@ -25,6 +25,10 @@
   defers the codec probe to the codec-power event group that TouchPowerDxe signals after the rail step
   (if TouchPowerDxe never signals, the codec simply stays in reset and no codec lines are logged).
 
+  Milestone 2 (BEYOND0LTE_AUDIO_TONE, AudioTone.c): right after a fresh codec answered, its own tone
+  generator plays ~2 s on HPOUT2 (3.5 mm jack), clocked by the codec FLL1 from its MCLK2 32 kHz input
+  (fallback MCLK1 if sboot left that AP clock-out running) - SPI writes only, all read back into UEFILOG.
+
   What is NOT touched here: PMIC rails, CMU (clocks are read for the log, never written), the ABOX.
 
   Guard: boot progress word 0x8FE0F000[1] = 0x69 while the probe runs; a boot whose previous boot
@@ -694,7 +698,7 @@ CodecIdentify (VOID)
 #define CODEC_BOOT_POLL_MAX_US    25000u
 
 STATIC
-VOID
+BOOLEAN
 CodecWaitBoot (VOID)
 {
   UINT16      Raw1;
@@ -706,12 +710,12 @@ CodecWaitBoot (VOID)
     Status = CodecRead (CS47L93_REG_IRQ1_RAW_STATUS1, &Raw1);
     if (!EFI_ERROR (Status) && ((Raw1 & CS47L93_BOOT_DONE) != 0)) {
       DEBUG ((DEBUG_WARN, "AudioProbe: codec BOOT_DONE after %u us (IRQ1_RAW_STATUS1 %x)\n", Us, Raw1));
-      return;
+      return TRUE;
     }
 
     if (EFI_ERROR (Status) || (Us >= CODEC_BOOT_POLL_MAX_US)) {
       DEBUG ((DEBUG_WARN, "AudioProbe: codec BOOT_DONE not set after %u us (IRQ1_RAW_STATUS1 %x, %r)\n", Us, Raw1, Status));
-      return;
+      return FALSE;
     }
 
     gBS->Stall (CODEC_BOOT_POLL_STEP_US);
@@ -789,7 +793,11 @@ CodecProbe (
     Released = TRUE;
     gBS->Stall (2000);   // madera_disable_hard_reset: usleep_range(1000, 2000) after the release
     Ok = CodecIdentify ();
-    CodecWaitBoot ();    // madera-core.c:806 madera_wait_for_boot after the ID check
+    // madera-core.c:806 madera_wait_for_boot after the ID check. The m2 tone only runs on a codec we took out
+    // of hard reset ourselves (every register at its default) that answered both checks.
+    if (CodecWaitBoot () && Ok && BEYOND0LTE_AUDIO_TONE) {
+      (VOID)CodecTonePlay ();   // AudioTone.c; leaves outputs/tone/SYSCLK/FLL1 off, the reset below wipes the rest
+    }
   }
 
   // Release: controller back to its handoff registers, USI reset/mode, pins and reset line as found.
@@ -869,8 +877,8 @@ Beyond0LteAudioProbeEntry (
     return EFI_SUCCESS;
   }
 
-  DEBUG ((DEBUG_WARN, "AudioProbe: start (release resets %u, codec DCVDD flow %u)\n", BEYOND0LTE_AUDIO_PROBE_RELEASE_RESETS,
-          BEYOND0LTE_AUDIO_DCVDD));
+  DEBUG ((DEBUG_WARN, "AudioProbe: start (release resets %u, codec DCVDD flow %u, m2 tone %u)\n",
+          BEYOND0LTE_AUDIO_PROBE_RELEASE_RESETS, BEYOND0LTE_AUDIO_DCVDD, BEYOND0LTE_AUDIO_TONE));
   Saved        = mProgress[1];
   mProgress[1] = AUDIO_PROGRESS_TRYING;
   AmpProbe ();

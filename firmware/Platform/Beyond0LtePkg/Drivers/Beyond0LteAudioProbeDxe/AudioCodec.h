@@ -43,4 +43,17 @@ CodecWrite32 (
   IN UINT32  Value
   );
 
+// D8a milestone 2 (AudioTone.c): 1 = after a successful ID read + BOOT_DONE on a codec this driver took out of
+// hard reset, play the codec's tone generator on HPOUT2 (3.5 mm jack) for ~2 s, then tear down. Set to 0
+// once the ear test has validated it (notes/d8-audio-m1.md §6).
+#ifndef BEYOND0LTE_AUDIO_TONE
+#define BEYOND0LTE_AUDIO_TONE  1
+#endif
+
+// Returns TRUE when the outputs were up for the whole hold. Leaves outputs, tone, SYSCLK and FLL1 off.
+BOOLEAN
+CodecTonePlay (
+  VOID
+  );
+
 #endif

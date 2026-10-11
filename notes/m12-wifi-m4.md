@@ -114,3 +114,17 @@ BSS (BSSID, SSID, channel, RSSI) the firmware reports. Proves the radio receives
     :1106-1112);
   - clmload_status logged on failure, clmver logged on success.
   IoctlVar now uses a 2008 B state buffer. Build wifi-m4d, sys 8340DDF7….
+- **Run m4-5 (02:50, 1.0.4.3): SCAN 0 - milestone 4 validated.**
+  - CLM: bcmdhd_clm.blob 29232 B in 1400 B chunks OK; clmver "API: 20.0 Data: 9.9.5_BY0LSI ... Customization:
+    V14_190514(201019) Creation: 2020-10-21".
+  - Setup: event_msgs SET OK, UP OK, wlc_ver 12.1, scan_ver answers, escan v2 accepted on attempt 1. **The CLM
+    blob was the cause of the EPERM.**
+  - Results: 25 escan events + final status 0 after 1690 ms; 8 distinct BSS on 2.4 GHz (ch 1, 6, 9, 10, 11) and
+    5 GHz (ch 36), RSSI -50..-92 dBm, e.g. 60:38:E0:0E:D3:40 "Home-X" ch 9 -51, 00:38:8F:52:12:10 "Yura-EXT" ch 1 -55.
+  - H2D ctrl ring wrapped (w 1 r 63) without trouble (flags 0, full check). Teardown clean (ARM halted, BME off).
+- Review of 8348ec6: chunk header offsets vs brcmf_dload_data_le (flag u16 @0, type u16 @2, len @4, crc @8,
+  data @12) OK; flags BEGIN only on the first chunk (cleared after it), END on the last (29232 = 20 x 1400 +
+  1232); 1412 B stack buffer in ClmLoad (PASSIVE, PrepareHardware) acceptable; IoctlVar RtlMoveMemory with no
+  aliasing. No findings.
+- Next: M5 = firmware resident (device-lifetime DMA + rings, ReleaseHardware teardown, poll thread / interrupt),
+  then a data path (flowrings, rx/tx) and the Windows-side WLAN interface decision (WDI vs NDIS 6 native WiFi).

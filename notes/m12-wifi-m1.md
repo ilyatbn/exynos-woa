@@ -138,3 +138,81 @@ files (`git checkout origin/drivers -- <paths>`), never `git merge`. Plan:
   (these supersede the hashes above; s10e-artifacts\wifi-m1\Exynos9820Wlan holds this build).
 - Accepted: Result-1 (_CRS mismatch) is the only path that fails the start (Code 10); all chip-side
   failures still start the device so the report is written - by design.
+
+## Firmware blobs for milestone 2 (FACT from the stock image, exact device copy = needs-phone)
+
+Read offline (no phone): vendor.img.lz4 from
+`C:\Users\ilya\code\Dumps\AP_G970FXXSGHWC1_..._meta_OS12.tar` (Android 12, G970FXXSGHWC1),
+lz4 -> sparse -> raw, ext4 walked with a throw-away reader (scratchpad, not committed). WLAN files:
+
+| path on `vendor` (sda26) | bytes | what |
+|---|---|---|
+| `/vendor/firmware/bcmdhd_sta.bin_b1` | 1 297 036 | STA firmware for chip rev **B1** (the one milestone 2 downloads) |
+| `/vendor/firmware/bcmdhd_mon.bin_b1` | 1 296 195 | monitor-mode firmware |
+| `/vendor/firmware/bcmdhd_mfg.bin_b1` | 1 124 726 | factory-test firmware (not needed) |
+| `/vendor/firmware/bcmdhd_clm.blob` | 29 232 | CLM (regulatory/country) blob |
+| `/vendor/firmware/nvram.txt_1rh_es43_b1` | 12 811 | nvram, B1, "1rh" module (*inference*: Murata - the BT .hcd files name only murata/semco; UNVERIFIED) |
+| `/vendor/firmware/nvram.txt_CS01_semco_b1` | 12 247 | nvram, B1, SEMCO module |
+| `/vendor/firmware/nvram.txt_{1rh_es11,1rh_es12,1rh_es13}_b0`, `nvram.txt_ES0{0,1,2,3}_semco_b0` | ~10-12 K | B0 (engineering) variants |
+| `/vendor/firmware/bcm4375B{0,1}_{murata,semco,semco_sem}.hcd` | 50-177 K | Bluetooth patchram (BT, not WiFi) |
+| `/vendor/etc/wifi/indoorchannel.info` | 14 979 | Samsung indoor-channel table (userspace) |
+
+- Only `_b1` STA firmware ships -> (inference) production units are rev B1; the chipid report (`rev` field,
+  bits 19:16) confirms it on the device. The defconfig names (`/etc/wifi/bcmdhd_sta.bin`,
+  `nvram_net.txt`) are NOT the on-disk names; (inference) bcmdhd appends the rev/module suffixes at runtime.
+- WHICH nvram (Murata `1rh_es43` vs SEMCO `CS01`) is per unit. On Android the module type comes from
+  `.cid.info` under /data (path from memory of bcmdhd, UNVERIFIED) - but userdata on this phone is now
+  the Windows NTFS volume, so that file is gone. UNVERIFIED for this unit; closes by (a) the chip's OTP/CIS
+  read in milestone 2 (bcmdhd's module-CID check reads it from OTP), or (b) the phone's vendor copy plus
+  any surviving `.cid.info` (not expected).
+- Device session pull (TWRP, read-only mount; nothing destructive):
+  ```
+  adb shell 'mkdir -p /tmp/v; mount -o ro /dev/block/by-name/vendor /tmp/v'
+  adb shell 'ls -la /tmp/v/firmware | grep -iE "bcmdhd|nvram|clm|4375"; sha256sum /tmp/v/firmware/bcmdhd_* /tmp/v/firmware/nvram.txt_*'
+  for f in bcmdhd_sta.bin_b1 bcmdhd_clm.blob nvram.txt_1rh_es43_b1 nvram.txt_CS01_semco_b1; do
+    adb pull /tmp/v/firmware/$f C:\Users\ilya\code\s10e-artifacts\wifi-m2\$f; done
+  adb shell 'umount /tmp/v'
+  ```
+  (the phone's vendor build may differ from GHWC1 - the `ls` line is the authority). Never commit them.
+
+## Device test procedure (milestone 1) - for the device session
+
+Artifacts: `C:\Users\ilya\code\s10e-artifacts\wifi-m1\` = `BEYOND0LTE_UEFI-m12m1.fd` (this build,
+sha256 4b8abc3f...0d815), `Exynos9820Wlan\` (sys/inf/cat), `wdktestcert.cer`, `extra-wlan.cmd`.
+
+1. Image: pack the FD with the usual flow (`firmware/tools/pack-uefi-beyond0lte.ps1`, same reference
+   image + shim as the last good boot) or rebuild from this branch (same content; FD hashes drift by
+   a few bytes across rebuilds, notes/m8-build.md, so compare module lists, not hashes;
+   BEYOND0LTE_PCIE_WLAN 1 is the default here). The image also carries main's current USB host/KD
+   state (302c285) unchanged. Flash `boot` only, as always.
+2. ESP (by-name/cache, vfat) from TWRP: copy `Exynos9820Wlan\` to `\S10EDIAG\drivers\Exynos9820Wlan\`,
+   `wdktestcert.cer` to `\S10EDIAG\drivers\` (already there from the touch runs), and `extra-wlan.cmd`
+   as `\S10EDIAG\extra.cmd` (or `call` it from the existing extra.cmd).
+3. Boot. UEFILOG.TXT lines to look for, in order:
+   - `[PCIe] WLAN bring-up: reading CMU_FSYS1 PCIe PHY_REFCLK gate` - module reached, guard armed.
+     **If the log/screen stops here or right after: the gate read hung** (open item P4). Next boot must
+     print `[PCIe] WLAN: previous boot hung in PCIe bring-up (progress 0x68) - skipping it` and reach
+     Windows; `debug_history` per AGENTS §9 shows the watchdog reset.
+   - `[PCIe] CMU_FSYS1+0x2000 = 0x... (before)` / `[PCIe] clocks on: PHY_REFCLK gate 0x..., QCH_PCIE_PHY 0x...`
+     (bit 21|20 set after = manual clock on took).
+   - `[PCIe] WLAN_EN high + 100 ms; ELBI RDLH 0x...` - first ELBI read survived.
+   - `[PCIe] link try 1/3` ... either `[PCIe] link up on try N after P polls, RDLH=0x.., speed GEN1`
+     or `[PCIe] link try N failed, RDLH=0x.. PM_DSTATE=0x..` x3 + `[PCIe] R1 FAIL: link never came up`.
+     (RDLH low 5 bits = LTSSM state; 0x0D..0x14 = up per the kernel. *Inference*, assuming the
+     DesignWare LTSSM encoding: stuck at 0x00-0x01 = no receiver detected -> WLAN_EN/power or refclk;
+     0x02-0x0C = training fails -> PHY tables/OTP.)
+   - `[PCIe] R1: endpoint 14e4:XXXX (expected 14e4:4475, UNVERIFIED until now)` -> closes P2: record
+     XXXX, then BCM4375_EXPECTED_PCI_ID_UNVERIFIED becomes VERIFIED (Exynos9820.h + Exynos9820Wlan.h).
+   - `[PCIe] EP BAR0: 64-bit size 0x... -> 0x14000000`, `EP BAR2: ...` (sizes = new facts for M2).
+   - `[PCIe] R1: chipcommon chipid 0x...: id 0x4375 rev 1` (expected).
+   - `[PCIe] WLAN: bring-up Success, ACPI WLAN visible to Windows`.
+4. Windows (S10eAgent run with extra-wlan.cmd), then back in TWRP read the ESP `S10EDIAG\out\last\wlan\`:
+   - `wlan-status-word.txt` = 0x4E414C57;
+   - `dev-wlan.txt`: `ACPI\SAMS9825\0`, Status Started, driver oem*.inf Exynos9820Wlan;
+   - `Exynos9820Wlan.txt` (also `C:\Windows\System32\LogFiles\Exynos9820Wlan.txt` on the NTFS volume):
+     `RESULT 0: BCM4375 alive` + VID/DID/BARs/chipid; `params.txt` the same as registry values.
+   - Result codes: 1 _CRS mismatch (Code 10), 2 map failed, 3 config dead, 4 not Broadcom, 5 BAR0
+     unusable, 6 chipid mismatch.
+5. Regression checks on the same boot: touch still works, USB/XHC0 state as before, boot time
+   (+~0.1-1.3 s for WLAN), no new bugcheck. If the link fails, Windows must simply not show SAMS9825.
+6. To disable without a rebuild of anything else: `BEYOND0LTE_PCIE_WLAN 0` in Beyond0LtePcieDxe.c.

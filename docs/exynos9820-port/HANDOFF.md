@@ -1115,3 +1115,19 @@ boot #72 (s10e-artifacts\boot72-v2.img, sha 2d9609eb…) = T1-T3, NOT flashed.
 once (agent applies BCD, writes ESP S10EDIAG\out\last\kd\kdnet-list.txt). (3) Phone on the PC's USB 3 Type-A
 port, host firewall off, `windbg -k net:port=50005,key=1.2.3.4`, reboot the phone. Suspects if no link:
 notes/m17-usb-kd.md T1/T3 reviews (SUSPHY, GFLADJ, DBG2 revision, OEM controller type 5 vs 3/4).
+
+## 27. Restart point (2026-10-12, sub-agent worktree): M12 WiFi milestone 1 code-complete + built, not flashed
+
+**Committed** (branch `worktree-agent-afe491e33df42f9e6`, on top of main 302c285; ported from origin/drivers by
+copying files, no merge): (1/5) Exynos9820.h M12 PCIe0/WLAN constants + 7 PCIe0 memory-map windows; (2/5)
+Beyond0LtePcieDxe with the review fixes (100 ms WLAN_EN, FILE_GUID ...5553, BEYOND0LTE_PCIE_WLAN 1, 0x68 progress
+guard, status word 0x8FE0F00C = 'WLAN' cleared in SEC, 3 logged link tries, BAR sizing, chipid print); (3/5) DSDT
+`Device (WLAN)` SAMS9825 with `_STA` on the status word; (4/5) `drivers/Exynos9820Wlan` KMDF probe (not NDIS) +
+build-package.ps1 + `S10eDiag/esp/extra-wlan.cmd`, review fix (per-line DbgPrint); (5/5) notes/handoff.
+Firmware DEBUG build exit 0 (FVMAIN_COMPACT 2752 B free); driver package built + test-signed.
+**Artifacts:** `C:\Users\ilya\code\s10e-artifacts\wifi-m1\` (FD sha 4b8abc3f...0d815, package, cert, extra-wlan.cmd).
+**Next order.** (1) Device session: follow `notes/m12-wifi-m1.md` "Device test procedure" (pack + flash boot,
+stage the ESP, read UEFILOG `[PCIe]` lines, collect `out\last\wlan\`). (2) Record the endpoint ID (closes P2) and
+BAR sizes. (3) Pull the firmware blobs per "Firmware blobs for milestone 2". (4) Milestone 2 = firmware download
+(NDIS skeleton still on origin/drivers 5746999/cb6a90f). Build note: a worktree has no firmware/edk2; a junction
+breaks GNU make's Trim lookup - build with $edk2 pointed at main's edk2 (notes/m12-wifi-m1.md).

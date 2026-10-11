@@ -1128,3 +1128,19 @@ Nothing packed or flashed; no adb used.
 §3: grep UEFILOG for `AudioProbe` / `L1[78]CTRL`; paste the lines into the notes and move the device-test
 row. (3) If the codec is silent with L18CTRL off -> milestone 2 task 2 (ACPM DCVDD enable, flag 0). Then
 notes §4.3 (tone-generator beep to the 3.5 mm jack).
+
+## 28. Restart point (2026-10-12, sub-agent worktree): M12 WiFi milestone 1 code-complete + built, not flashed
+
+**Committed** (branch `worktree-agent-afe491e33df42f9e6`, on top of main 302c285; ported from origin/drivers by
+copying files, no merge): (1/5) Exynos9820.h M12 PCIe0/WLAN constants + 7 PCIe0 memory-map windows; (2/5)
+Beyond0LtePcieDxe with the review fixes (100 ms WLAN_EN, FILE_GUID ...5553, BEYOND0LTE_PCIE_WLAN 1, 0x68 progress
+guard, status word 0x8FE0F00C = 'WLAN' cleared in SEC, 3 logged link tries, BAR sizing, chipid print); (3/5) DSDT
+`Device (WLAN)` SAMS9825 with `_STA` on the status word; (4/5) `drivers/Exynos9820Wlan` KMDF probe (not NDIS) +
+build-package.ps1 + `S10eDiag/esp/extra-wlan.cmd`, review fix (per-line DbgPrint); (5/5) notes/handoff.
+Firmware DEBUG build exit 0 (FVMAIN_COMPACT 2752 B free); driver package built + test-signed.
+**Artifacts:** `C:\Users\ilya\code\s10e-artifacts\wifi-m1\` (FD sha 4b8abc3f...0d815, package, cert, extra-wlan.cmd).
+**Next order.** (1) Device session: follow `notes/m12-wifi-m1.md` "Device test procedure" (pack + flash boot,
+stage the ESP, read UEFILOG `[PCIe]` lines, collect `out\last\wlan\`). (2) Record the endpoint ID (closes P2) and
+BAR sizes. (3) Pull the firmware blobs per "Firmware blobs for milestone 2". (4) Milestone 2 = firmware download
+(NDIS skeleton still on origin/drivers 5746999/cb6a90f). Build note: a worktree has no firmware/edk2; a junction
+breaks GNU make's Trim lookup - build with $edk2 pointed at main's edk2 (notes/m12-wifi-m1.md).

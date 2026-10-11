@@ -29,3 +29,13 @@ TWRP boots the same reads without policy.
 
 - `ls /sys/bus/pci/devices/*/resource` — the BAR0 address Android assigned
   (cross-check against the DT `ranges` 0x14000000 window).
+
+## Update 2026-10-12 (M12 milestone 1, notes/m12-wifi-m1.md)
+
+- P3 partly closed offline from the stock G970FXXSGHWC1 vendor image: `/vendor/firmware/bcmdhd_sta.bin_b1`,
+  `bcmdhd_clm.blob`, `nvram.txt_1rh_es43_b1` ("1rh", Murata by inference) / `nvram.txt_CS01_semco_b1` (SEMCO) + B0 variants.
+  Still needs-phone: the phone's own vendor listing + hashes, and which module (Murata/SEMCO) this unit has.
+  Exact pull commands: notes/m12-wifi-m1.md "Firmware blobs for milestone 2".
+- P2 now also closes from our own UEFI print (`[PCIe] R1: endpoint 14e4:XXXX`) - no Android needed.
+- With userdata = Windows NTFS and no Android boot, the /sys and /proc reads above are only possible
+  after a rollback to Android; they are no longer required for milestone 1.

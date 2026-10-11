@@ -620,6 +620,14 @@
   MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBusDxe.inf
   MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf
   MdeModulePkg/Bus/Usb/UsbMouseDxe/UsbMouseDxe.inf
+
+  # --- PCIe root port 0 (M12 WiFi milestone 1, notes/m12-wifi-m1.md).
+  #     Beyond0LtePcieDxe trains the link to the BCM4375 WLAN endpoint,
+  #     programs iATU MEM+CFG0, sizes/assigns the EP BARs and prints the
+  #     VID/DID + chip ID. Gated by BEYOND0LTE_PCIE_WLAN and the 0x68 progress
+  #     guard; it registers no PCI root bridge by design (M12-WIFI-DESIGN.md
+  #     section 2). Not validated on device. ---
+  Platform/Beyond0LtePkg/Drivers/Beyond0LtePcieDxe/Beyond0LtePcieDxe.inf
   MdeModulePkg/Bus/Scsi/ScsiBusDxe/ScsiBusDxe.inf
   MdeModulePkg/Bus/Scsi/ScsiDiskDxe/ScsiDiskDxe.inf
   MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf

@@ -4,11 +4,12 @@ Status: open — **needs-boot** (rides the M8 boot stream)
 
 ## What
 
-`Beyond0LtePcieDxe` is in the FD (FFS `…5549`, built 2026-10-11). The first
-device observation for M12/D4b is one serial line:
+`Beyond0LtePcieDxe` is in the main-based FD (FFS `…5553`, CLANGPDB DEBUG build 2026-10-12, M12
+milestone 1 - the full log-line ladder and the Windows half are in `notes/m12-wifi-m1.md` "Device
+test procedure"). The first device observation for M12/D4b is:
 
 ```
-[PCIe] link up, speed GEN1
+[PCIe] link up on try 1 after N polls, RDLH=0x.., speed GEN1
 [PCIe] R1: endpoint 14e4:4475 (expected 14e4:4475, UNVERIFIED until now)
 ```
 

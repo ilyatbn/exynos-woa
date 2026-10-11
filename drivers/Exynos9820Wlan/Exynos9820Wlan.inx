@@ -1,0 +1,63 @@
+; Exynos9820Wlan.inx - M12 WiFi milestone 1: KMDF probe for the S10e BCM4375 (notes/m12-wifi-m1.md).
+; Binds the ACPI-described device our DSDT publishes (Device (WLAN), _HID SAMS9825, present only when
+; Beyond0LtePcieDxe trained the link). Class=System on purpose: this is a read-only probe, not a
+; network adapter - an NDIS (Class=Net) INF would need the *IfType/*MediaType/*PhysicalMediaType/
+; Characteristics keywords and a miniport that registers with NDIS, which is milestone 2+.
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
+Provider=%ProviderName%
+DriverVer=10/12/2026,1.0.0.0
+CatalogFile=Exynos9820Wlan.cat
+PnpLockdown=1
+
+[DestinationDirs]
+DefaultDestDir=13
+
+[SourceDisksNames]
+1=%DiskName%,,,""
+
+[SourceDisksFiles]
+Exynos9820Wlan.sys=1
+
+[Manufacturer]
+%ManufacturerName%=Models,NT$ARCH$.10.0...16299
+
+[Models.NT$ARCH$.10.0...16299]
+%DeviceDescription%=Device_Install,ACPI\SAMS9825
+
+[Device_Install.NT]
+CopyFiles=Driver_CopyFiles
+
+[Driver_CopyFiles]
+Exynos9820Wlan.sys
+
+[Device_Install.NT.Services]
+AddService=Exynos9820Wlan,0x00000002,Service_Install
+
+[Service_Install]
+DisplayName=%ServiceDescription%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%13%\Exynos9820Wlan.sys
+AddReg=Service_AddReg
+
+[Service_AddReg]
+; the probe writes its report under Services\Exynos9820Wlan\Parameters (README.md)
+HKR,Parameters,,0x00000010
+
+[Device_Install.NT.Wdf]
+KmdfService=Exynos9820Wlan,Wdf_Install
+
+[Wdf_Install]
+KmdfLibraryVersion=$KMDFVERSION$
+
+[Strings]
+ProviderName="Exynos9820 WOA Project"
+ManufacturerName="Samsung Electronics"
+DiskName="Exynos9820 WLAN Probe Installation Disk"
+DeviceDescription="Samsung Exynos 9820 BCM4375 WLAN (milestone-1 probe)"
+ServiceDescription="Exynos 9820 BCM4375 WLAN probe driver"

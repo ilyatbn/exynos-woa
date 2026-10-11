@@ -281,6 +281,10 @@ tree does not contain.
 | Decide passive vs powered dock | todo | **safety**: the community warns a powered hub plus host mode "can irreversibly damage your device" |
 | Confirm the port can be host **and** receive power at once | todo | the S10e has **one** USB-C connector — the dock occupies the charging port; Mu-Silicium shows USB Power Delivery ❌ on every Exynos target |
 | Inventory what our firmware already has | **done** | `UsbDebugHid.c` is a complete DWC3 register vocabulary, but it programs **peripheral** mode (`PRTCAP_DEVICE`, EP0 + HID IN) and is compiled **off** by default — §9 |
+| Bring the drivers-branch D1 host stack (Beyond0LteUsbHostDxe + XhciDxe chain, DSDT XHC0, MAX77705 VBUS, fuel-gauge PoC) onto main | **done** | imported from `origin/drivers` 419fc03; FILE_GUID clash with BootLogDxe (…548) moved to …552; CLANGPDB build green — `notes/m16-usb.md` |
+| Self-healing guard + feature flag around the USB bring-up | todo | progress 0x67, same shape as the 0x65/0x66 guards — `notes/m16-usb.md` |
+| First device run: UEFI PHY/DWC3/CC/VBUS log, dock plugged before power-on | todo | `notes/m16-usb.md` |
+| Windows binds inbox USBXHCI to ACPI\PNP0D10; hub + keyboard + mouse enumerate | todo | `notes/m16-usb.md` |
 | Re-point the CMU clock/QCH windows before flipping PRTCAP | **done** | resolved from Samsung's cal-if, not guessed: `CMU_PERIC0 0x10400000+0x8000`, `CMU_FSYS0A 0x10a00000+0x8000`, gate offsets `2094/2098/2054/2008`, QCH `3038` — `notes/s10e-live-reads.md` §7.5. The four 0x1BC…–0x1BF… banks the DT lists are the **media IP** CMUs (MIF..MIF3), which is why the old note read as unresolved |
 
 ### M11 — External display through the dock

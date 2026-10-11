@@ -457,6 +457,25 @@
 #define EXYNOS_USB_COMBO_PHY_SIZE 0x0000000000002800ULL   // VERIFIED
 #define EXYNOS_USB_PCS_BASE       0x0000000010AF0000ULL   // VERIFIED (phy reg #3)
 #define EXYNOS_USB_PCS_SIZE       0x0000000000000800ULL   // VERIFIED
+#define EXYNOS_USBDRD_GSIV        273                     // VERIFIED (SPI 0xf1 = 241 + 32, vendor DT dwc3 child)
+
+//
+// ---------------------------------------------------------------------------
+// HSI2C #45 — the bus carrying the MAX77705 interface PMIC (charger client
+// 0x69, CCIC client 0x25), which is the ONLY source of the 5 V VBUS the USB
+// port supplies in host role (the SoC has no VBUS pad: is_not_vbus_pad=1).
+//
+// VERIFIED twice: the downstream DT node `hsi2c_45: hsi2c@15D60000`
+// (exynos9820.dts:3418, LineageOS android_kernel_samsung_exynos9820) and the
+// live device, where `15d60000` appears under /sys/devices/platform/
+// (notes/s10e-live-reads.md §2) — so the block is registered, clocked and
+// pin-muxed by the bootloader already. Its clock gates are ACPM-owned
+// vclk/QCH entries, NOT CMU MMIO (notes/d1b-usb-vbus-hcd.md Q1) — same
+// "audit and leave alone" strategy as the USB block.
+// ---------------------------------------------------------------------------
+//
+#define EXYNOS_PMIC_HSI2C_BASE    0x0000000015D60000ULL   // VERIFIED (hsi2c_45, DT + live device node)
+#define EXYNOS_PMIC_HSI2C_SIZE    0x0000000000001000ULL   // VERIFIED (DT reg size)
 
 //
 // ---------------------------------------------------------------------------

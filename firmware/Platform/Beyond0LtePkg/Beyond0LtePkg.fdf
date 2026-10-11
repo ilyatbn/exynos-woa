@@ -264,10 +264,17 @@
   INF MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe.inf
   INF FatPkg/EnhancedFatDxe/Fat.inf
   # TODO: USB stack for HID/keyboard + install media:
-  # INF MdeModulePkg/Bus/Pci/XhciDxe/XhciDxe.inf
-  # INF MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBusDxe.inf
-  # INF MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf
-  # INF MdeModulePkg/Bus/Usb/UsbMassStorageDxe/UsbMassStorageDxe.inf
+  # --- USB host (D1): producer chain is Beyond0LteUsbHostDxe -> NDD protocol
+  #     -> NonDiscoverablePciDeviceDxe -> XhciDxe -> UsbBusDxe -> hub port
+  #     logic (inside UsbBusDxe) -> UsbKbDxe (ConIn) / UsbMouseDxe. The
+  #     keyboard must be behind the NON-POWERED hub (safety rule, MILESTONES
+  #     ground rule 7). Not validated on device. ---
+  INF Platform/Beyond0LtePkg/Drivers/Beyond0LteUsbHostDxe/Beyond0LteUsbHostDxe.inf
+  INF MdeModulePkg/Bus/Pci/NonDiscoverablePciDeviceDxe/NonDiscoverablePciDeviceDxe.inf
+  INF MdeModulePkg/Bus/Pci/XhciDxe/XhciDxe.inf
+  INF MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBusDxe.inf
+  INF MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf
+  INF MdeModulePkg/Bus/Usb/UsbMouseDxe/UsbMouseDxe.inf
 
   #
   # --- BDS: finds and launches the Windows Boot Manager ---

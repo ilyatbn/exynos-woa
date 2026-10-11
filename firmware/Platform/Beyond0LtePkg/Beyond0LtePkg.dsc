@@ -189,6 +189,14 @@
 
   # --- Generic services ---
   UefiLib|MdePkg/Library/UefiLib/UefiLib.inf
+  #
+  # D1 USB host: UefiUsbLib is the shared class-driver helper for UsbBusDxe /
+  # UsbKbDxe / UsbMouseDxe; NonDiscoverableDeviceRegistrationLib is what
+  # Beyond0LteUsbHostDxe calls to publish the MMIO xHCI (see
+  # notes/d1b-usb-vbus-hcd.md Q3 — NXP Layerscape shape).
+  #
+  UefiUsbLib|MdePkg/Library/UefiUsbLib/UefiUsbLib.inf
+  NonDiscoverableDeviceRegistrationLib|MdeModulePkg/Library/NonDiscoverableDeviceRegistrationLib/NonDiscoverableDeviceRegistrationLib.inf
   UefiBootServicesTableLib|MdePkg/Library/UefiBootServicesTableLib/UefiBootServicesTableLib.inf
   UefiRuntimeServicesTableLib|MdePkg/Library/UefiRuntimeServicesTableLib/UefiRuntimeServicesTableLib.inf
   DevicePathLib|MdePkg/Library/UefiDevicePathLib/UefiDevicePathLib.inf
@@ -597,6 +605,19 @@
   #     Every path listed here exists in the checkout. ---
   Platform/Beyond0LtePkg/Drivers/Beyond0LteUfsHcDxe/Beyond0LteUfsHcDxe.inf
   MdeModulePkg/Bus/Ufs/UfsPassThruDxe/UfsPassThruDxe.inf
+
+  # --- USB host (D1, DRIVERS-MILESTONES.md). Beyond0LteUsbHostDxe does the
+  #     9820 PHY/DWC3 bring-up and registers the xHCI window as a
+  #     non-discoverable MMIO device; NonDiscoverablePciDeviceDxe synthesizes
+  #     the PciIo; stock XhciDxe + UsbBusDxe (hub enumeration is INSIDE
+  #     UsbBusDxe in current edk2 — there is no UsbHubDxe module) + UsbKbDxe
+  #     + UsbMouseDxe do the rest. Nothing validated on device. ---
+  Platform/Beyond0LtePkg/Drivers/Beyond0LteUsbHostDxe/Beyond0LteUsbHostDxe.inf
+  MdeModulePkg/Bus/Pci/NonDiscoverablePciDeviceDxe/NonDiscoverablePciDeviceDxe.inf
+  MdeModulePkg/Bus/Pci/XhciDxe/XhciDxe.inf
+  MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBusDxe.inf
+  MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf
+  MdeModulePkg/Bus/Usb/UsbMouseDxe/UsbMouseDxe.inf
   MdeModulePkg/Bus/Scsi/ScsiBusDxe/ScsiBusDxe.inf
   MdeModulePkg/Bus/Scsi/ScsiDiskDxe/ScsiDiskDxe.inf
   MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf

@@ -646,6 +646,71 @@
 
 //
 // ---------------------------------------------------------------------------
+// Audio control buses (D8a): CS47L93 codec on spi_2, two CS35L40 amps on hsi2c_38.
+//
+// VERIFIED from the LineageOS lineage-22.2 vendor tree, file:line in notes/d8-audio-m1.md §1:
+// [SOC] arch/arm64/boot/dts/exynos/exynos9820.dts, [BRD] .../samsung/exynos9820-beyond0lte_common.dtsi,
+// [PIN] .../exynos/exynos9820-pinctrl.dtsi, [PCTL] drivers/pinctrl/samsung/pinctrl-exynos-arm64.c
+// (exynos9820_pin_banks5 = PERIC0 = pinctrl@10430000, banks6 = PERIC1 = pinctrl@10830000; the
+// PERIC0 gpp1 entry @0x020 is what the device-validated touch driver uses), [CAL] cal-if 9820
+// cmucal-sfr.c. Pin-bank registers: CON +0x0 (4 bits/pin), DAT +0x4 (EXYNOS_GPIO_BANK_DAT), PUD +0x8.
+// ---------------------------------------------------------------------------
+//
+// spi_2 = "USI_PERIC0_USI01_SPI", compatible samsung,exynos-spi, fifosize 64 [SOC:3503-3522].
+#define EXYNOS_AUDIO_SPI2_BASE          0x0000000010470000ULL   // VERIFIED (spi@10470000, reg size 0x100)
+#define EXYNOS_AUDIO_SPI2_SIZE          0x0000000000001000ULL   // page (DT reg is 0x100; USI_CON @+0xC4 is inside it)
+#define EXYNOS_PERIC0_USI_SYSREG_SIZE   0x0000000000001000ULL   // page holding usi@10421004..usi@10421050
+#define EXYNOS_USI01_MODE_OFFSET        0x0Cu                   // VERIFIED (usi@1042100c, label usi_1, [BRD] usi_v2_mode "spi")
+#define EXYNOS_USI_V2_MODE_SPI          0x00000002u             // VERIFIED (drivers/soc/samsung/usi_v2.c:19 SPI_SW_CONF)
+#define EXYNOS_GPIO_GPP0_OFF            0x000u                  // VERIFIED ([PCTL] banks5 gpp0 @0x000)
+#define EXYNOS_GPIO_GPG1_OFF            0x0A0u                  // VERIFIED ([PCTL] banks5 gpg1 @0x0A0)
+#define EXYNOS_GPIO_FUNC_SPI2           0x2u                    // VERIFIED (spi2_bus gpp0-4/5/6 + spi2_cs_func gpp0-7, function 2)
+#define EXYNOS_SPI2_FIRST_PIN           4                       // VERIFIED (gpp0-4..gpp0-7: [PIN:1298-1303], [BRD:1886-1891])
+#define EXYNOS_SPI2_PIN_COUNT           4
+#define EXYNOS_CODEC_RESET_PIN          0                       // VERIFIED (gpg1-0, reset-gpios <&gpg1 0 0>, function 1 = output)
+#define EXYNOS_CODEC_IRQ_PIN            2                       // VERIFIED (gpa2-2, ALIVE bank EXYNOS_ALIVE_GPA2_OFF)
+#define EXYNOS_CS47L93_SILICON_ID       0x6371u                 // VERIFIED (madera-core.c:39 CS47L92_SILICON_ID, shared by CS47L93)
+
+// hsi2c_38 = "USI17_USI_I2C" (the dedicated I2C half of USI17), 400 kHz on this board [SOC:3277-3295].
+// The vendor kernel never writes a USI mode for this block (usi_17_i2c @0x10821050 stays disabled in
+// [BRD]; only usi_17 @0x1082104C, the USI17_USI half, is set) - the probe reads it, never writes it.
+#define EXYNOS_AUDIO_HSI2C_BASE         0x00000000109A0000ULL   // VERIFIED (hsi2c@109A0000; live node 109a0000, s10e-live-reads.md §2)
+#define EXYNOS_AUDIO_HSI2C_SIZE         0x0000000000001000ULL   // VERIFIED
+#define EXYNOS_AUDIO_HSI2C_GSIV         460                     // VERIFIED (INTREQ__USI17_I2C = SPI 428 + 32)
+#define EXYNOS_PERIC1_USI_SYSREG_BASE   0x0000000010821000ULL   // VERIFIED (page holding usi@1082104C / usi@10821050)
+#define EXYNOS_PERIC1_USI_SYSREG_SIZE   0x0000000000001000ULL
+#define EXYNOS_USI17_I2C_MODE_OFFSET    0x50u                   // VERIFIED (usi@10821050, label usi_17_i2c) - read only
+#define EXYNOS_PERIC1_GPIO_BASE         0x0000000010830000ULL   // VERIFIED (pinctrl@10830000 = pinctrl_6)
+#define EXYNOS_PERIC1_GPIO_SIZE         0x0000000000001000ULL   // VERIFIED
+#define EXYNOS_GPIO_GPH0_OFF            0x0E0u                  // VERIFIED ([PCTL] banks6 gph0 @0x0E0)
+#define EXYNOS_GPIO_GPH1_OFF            0x100u                  // VERIFIED ([PCTL] banks6 gph1 @0x100)
+#define EXYNOS_GPIO_FUNC_HSI2C38        0x3u                    // VERIFIED (hsi2c38_bus gph0-6/gph0-7, function 3)
+#define EXYNOS_HSI2C38_SCL_PIN          6                       // VERIFIED (gph0-6)
+#define EXYNOS_HSI2C38_SDA_PIN          7                       // VERIFIED (gph0-7)
+#define EXYNOS_AMP_R_I2C_ADDR           0x40u                   // VERIFIED (cs35l40_r@40, "cs35l40-bot", reset gph1-1)
+#define EXYNOS_AMP_L_I2C_ADDR           0x41u                   // VERIFIED (cs35l40_l@41, "cs35l40-rcv", reset gph1-2)
+#define EXYNOS_AMP_R_RESET_PIN          1                       // VERIFIED (gph1-1 spk_amp_rst_n, function 1, low = reset)
+#define EXYNOS_AMP_L_RESET_PIN          2                       // VERIFIED (gph1-2 rcv_amp_rst_n, function 1, low = reset)
+#define EXYNOS_CS35L40_CHIP_ID          0x00035A40u             // VERIFIED (cs35l41 registers.h:713, MTLREVID even)
+#define EXYNOS_CS35L40R_CHIP_ID         0x00035B40u             // VERIFIED (registers.h:714, MTLREVID odd)
+#define EXYNOS_GPIO_FUNC_OUTPUT         0x1u                    // VERIFIED (codec_reset / *_amp_rst_n samsung,pin-function = <1>)
+
+// CMU registers read (never written) for the probe's clock diagnostics, [CAL] offsets.
+#define EXYNOS_CMU_PERIC1_BASE          0x0000000010800000ULL   // VERIFIED (cmucal-sfr.c:37 SFR_BLOCK(CMU_PERIC1))
+#define EXYNOS_CMU_PERIC1_SIZE          0x0000000000008000ULL   // VERIFIED
+#define EXYNOS_CMU_PERIC0_USI01_MUX     0x01A0u                 // VERIFIED (PLL_CON0_MUX_CLKCMU_PERIC0_USI01_USI_USER, sel bit 4)
+#define EXYNOS_CMU_PERIC0_USI01_DIV     0x1808u                 // VERIFIED (CLK_CON_DIV_DIV_CLK_PERIC0_USI01_USI, ratio [3:0])
+#define EXYNOS_CMU_PERIC0_USI01_IPCLK   0x207Cu                 // VERIFIED (GOUT USI01_USI IPCLK; CG_VAL bit21 MANUAL bit20)
+#define EXYNOS_CMU_PERIC0_USI01_PCLK    0x2080u                 // VERIFIED (GOUT USI01_USI PCLK)
+#define EXYNOS_CMU_PERIC0_USI01_QCH     0x302Cu                 // VERIFIED (QCH_CON_USI01_USI_QCH, enable bit0)
+#define EXYNOS_CMU_PERIC1_USI_I2C_MUX   0x02E0u                 // VERIFIED (PLL_CON0_MUX_CLKCMU_PERIC1_USI_I2C_USER)
+#define EXYNOS_CMU_PERIC1_USI_I2C_DIV   0x1838u                 // VERIFIED (CLK_CON_DIV_DIV_CLK_PERIC1_USI_I2C)
+#define EXYNOS_CMU_PERIC1_USI17I2C_IPCLK 0x2110u                // VERIFIED (GOUT USI17_I2C IPCLK)
+#define EXYNOS_CMU_PERIC1_USI17I2C_PCLK 0x2114u                 // VERIFIED (GOUT USI17_I2C PCLK)
+#define EXYNOS_CMU_PERIC1_USI17I2C_QCH  0x3074u                 // VERIFIED (QCH_CON_USI17_I2C_QCH)
+
+//
+// ---------------------------------------------------------------------------
 // Display: DECON (display controller) + DSIM (MIPI DSI master)  [MOVES, and splits]
 //
 // VERIFIED node names: decon_f@0x19030000 and decon_t@0x19050000 (the 9810 had

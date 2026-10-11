@@ -132,7 +132,7 @@ UEFILOG of a real boot shows the reads.
 |------|-------|-------|
 | Pin bus/pin/reset/ID facts for codec + amps from the vendor sources | **done** | `notes/d8-audio-m1.md` §1 (file:line cites, lineage-22.2 + cal-if) |
 | Port the origin/drivers D8 constants (f22718a: ALIVE banks/EINT, key GSIVs, ABOX windows) to `Exynos9820.h` | **done** | cherry-picked (header only, applied clean; no duplicate #defines - checked with grep) |
-| Add the audio-bus constants (spi_2, hsi2c_38, USI mode regs, PERIC0/1 pin banks, reset pins, CMU diag offsets) to `Exynos9820.h` | todo | all from §1, VERIFIED tags with cites |
+| Add the audio-bus constants (spi_2, hsi2c_38, USI mode regs, PERIC0/1 pin banks, reset pins, CMU diag offsets) to `Exynos9820.h` | **done** | all from §1, VERIFIED tags with cites; INTREQ__USI17_I2C 428 re-read from the dt-bindings header |
 | Map the new MMIO windows in `PlatformMemoryMapLib` (SPI2, PERIC0/1 USI pages, PERIC1 GPIO, HSI2C38, CMU_PERIC1) | todo | device memory only |
 | `Beyond0LteAudioProbeDxe`: polled SPI + HSI2C ID reads, save/restore of every touched register, progress guard 0x69, flag `BEYOND0LTE_AUDIO_PROBE` | todo | build must exit 0 |
 | Log the codec rails (S2MPS19 LDO17M/LDO18M CTRL) in `Beyond0LteTouchPowerDxe`'s read pass | todo | DCVDD = LDO18M is not boot-on in the vendor DT |

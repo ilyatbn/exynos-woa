@@ -154,3 +154,8 @@ Exynos9820.h already cites for CMU blocks).
   (header-only, +79). Duplicate-#define check: `grep -o '#define NAME' |
   sort | uniq -d` on Exynos9820.h = empty. Amended to carry the milestone
   move + this note + attribution (same commit, per §3).
+- Task "audio constants": added the `Audio control buses (D8a)` block after
+  the ABOX block in Exynos9820.h. Re-read INTREQ__USI17_I2C = 428 (dt-bindings
+  exynos9820.h:442) -> GSIV 460; INTREQ__USI01_USI = 384 (:398) -> GSIV 416
+  (not added, SPI is polled). Duplicate-define check empty. Syntax is
+  checked by the platform build (task "AudioProbeDxe").

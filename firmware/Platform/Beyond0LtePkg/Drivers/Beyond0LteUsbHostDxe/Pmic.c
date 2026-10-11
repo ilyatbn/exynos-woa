@@ -359,21 +359,38 @@ Max77705RegWrite (IN UINT8 ClientAddr, IN UINT8 Reg, IN UINT8 Value)
   return Hsi2cXfer (ClientAddr, FALSE, Buf, 2, TRUE);
 }
 
+STATIC
 EFI_STATUS
-Max77705RegRead (IN UINT8 ClientAddr, IN UINT8 Reg, OUT UINT8 *Value)
+Max77705RegReadN (IN UINT8 ClientAddr, IN UINT8 Reg, OUT UINT8 *Buf, IN UINTN Length)
 {
   EFI_STATUS  Status;
-  UINT8       Buf;
+  UINT8       Pointer;
 
   // Two-phase like the kernel's i2c msg pair: write the register pointer
-  // WITHOUT stop, then read one byte with restart+stop.
-  Buf = Reg;
-  Status = Hsi2cXfer (ClientAddr, FALSE, &Buf, 1, FALSE);
+  // WITHOUT stop, then read with restart+stop.
+  Pointer = Reg;
+  Status  = Hsi2cXfer (ClientAddr, FALSE, &Pointer, 1, FALSE);
   if (EFI_ERROR (Status)) {
     return Status;
   }
 
-  return Hsi2cXfer (ClientAddr, TRUE, &Buf, 1, TRUE);
+  return Hsi2cXfer (ClientAddr, TRUE, Buf, Length, TRUE);
+}
+
+EFI_STATUS
+Max77705RegRead (IN UINT8 ClientAddr, IN UINT8 Reg, OUT UINT8 *Value)
+{
+  EFI_STATUS  Status;
+  UINT8       Buf[2];
+
+  // M16/M17 (run 9 UEFILOG): every 1-byte read returned 0 (USBC FW_REV 0 where Linux reports 1A, CC_STATUS0 0
+  // with a dock attached) while every multi-byte read was right (fuel-gauge words, opcode responses). Read two
+  // bytes (MAX77705 auto-increments) and keep the first. The extra byte is the next register; the only
+  // read-to-clear case is UIC_INT -> CC_INT, which nothing in this driver consumes.
+  Buf[0] = Buf[1] = 0;
+  Status = Max77705RegReadN (ClientAddr, Reg, Buf, 2);
+  *Value = Buf[0];
+  return Status;
 }
 
 EFI_STATUS
@@ -524,6 +541,14 @@ Max77705UsbSwitchToAp (VOID)
 
   Rev = Bc = St1 = St2 = 0;
   Resp[0] = Resp[1] = 0;
+  {
+    UINT8  One;
+
+    One = 0xEE;
+    (VOID)Max77705RegReadN (MAX77705_CCIC_ADDR, MAX77705_USBC_FW_REV, &One, 1);
+    DEBUG ((DEBUG_INFO, "%a: FW_REV 1-byte read = %x (diagnostic of the 1-byte read bug)\n", __func__, One));
+  }
+
   (VOID)Max77705RegRead (MAX77705_CCIC_ADDR, MAX77705_USBC_FW_REV, &Rev);
   (VOID)Max77705RegRead (MAX77705_CCIC_ADDR, MAX77705_BC_STATUS, &Bc);
   (VOID)Max77705RegRead (MAX77705_CCIC_ADDR, MAX77705_USBC_STATUS1, &St1);

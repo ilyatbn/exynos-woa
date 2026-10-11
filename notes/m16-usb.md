@@ -348,3 +348,10 @@ Found:
   would claim the same DWC3).
 - Run 9 setup (21:35): boot #79 flashed (readback cbf70f68… = image), ESP BCD debug No (sha 8cce4f9b…). User boots
   with the dock + keyboard/mouse attached (no adb during the run).
+- Run 9 result (boot #79, dock + keyboard at power-on): no power on the dock. UEFILOG: COM switch was 3F (OPEN) ->
+  09 (USB-AP) - fix works; but CC_STATUS0 = 0 for 3 s -> no VBUS. Every 1-byte MAX77705 read in the log = 0 (USBC
+  FW_REV 0 vs Linux 1A, BC_STATUS/STATUS1/2 0, probe reg0 of all clients 0) while multi-byte reads are right ->
+  the 1-byte read path is broken, the attach poll was blind since M16 run 1. Fix: Max77705RegRead reads 2 bytes,
+  keeps [0]; one diagnostic 1-byte FW_REV read logged. boot #80 (sha f494905f…).
+- TWRP dock capture: logger (/tmp) ran, but after the dock Linux stayed in host mode, adb never came back and
+  /tmp is RAM - lost on reboot. Logger now writes /cache/docklog.txt (ESP) with sync each sample.

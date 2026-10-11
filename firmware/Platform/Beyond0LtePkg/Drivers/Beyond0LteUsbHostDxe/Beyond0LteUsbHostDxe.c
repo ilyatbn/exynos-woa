@@ -193,6 +193,8 @@ UsbHostBringUp (
     return Status;
   }
 
+  UsbPhyHostModeDeltas ();
+
   // 3. DWC3 core -> HOST.
   Status = Dwc3CoreInit (FALSE, &Revision);
   if (EFI_ERROR (Status)) {

@@ -238,3 +238,20 @@ UsbPhyDeviceModeDeltas (VOID)
   // dead clock - boot #75 link never left Disconnected, the core would not halt and Windows' kd module hung.
   UsbPhyDump ("after ");
 }
+
+//
+// M16 (notes/m16-usb.md, TWRP host-mode capture hostlog-dock.txt): Linux in HOST role runs the PHY wrapper with the
+// UTMI D+/D- 15k pull-downs forced on (UTMICTRL 0x0C) and WITHOUT the device-side VBUSVALID/BVALID forcing
+// (UTMICTRL bits 5:4 = 0, HSPCTRL VBUSVLDEXTSEL/EXT = 0). UsbPhyInit sets the device-side values for both roles; a
+// host without its pull-downs leaves the lines floating - UEFI saw one connect change then a disconnect.
+//
+VOID
+UsbPhyHostModeDeltas (VOID)
+{
+  UsbPhyDump ("host before");
+  MmioWrite32 (PHY0 + USBCON_UTMI,
+               (MmioRead32 (PHY0 + USBCON_UTMI) & ~(UTMI_FORCE_VBUSVALID | UTMI_FORCE_BVALID)) |
+               UTMI_DP_PULLDOWN | UTMI_DM_PULLDOWN);
+  MmioWrite32 (PHY0 + USBCON_HSP, MmioRead32 (PHY0 + USBCON_HSP) & ~(HSP_VBUSVLDEXTSEL | HSP_VBUSVLDEXT));
+  UsbPhyDump ("host after ");
+}

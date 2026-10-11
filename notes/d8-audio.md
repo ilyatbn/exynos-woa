@@ -299,3 +299,7 @@ Native in-box path, no custom HID code:
   here), NOT device-validated. Follow-up: DSDT GpioInt DebounceTimeout is
   0 while the driver asks GpioClx to debounce — set 10 ms (10000 x 100us)
   to match the Android DT.
+- 2026-10-11 (session close): driver committed (`f5e19b9` + debounce fix
+  `f7d535f`), design doc `notes/d8-audio-design.md` (`b943e18`). Restart
+  point = HANDOFF §23. Session commits: f10b00a, 1226d60, f22718a,
+  a59c6e4, f5e19b9, f7d535f, b943e18.

@@ -1011,3 +1011,53 @@ kernel binary (F11). One protocol covers all three core types.
    init, thermal clamp from F6 trips; PPTT perf ranks from F5).
 3. Firmware follow-up: PPTT performance-counters from F5 (272/531/785);
    ACPM device + SPI 40 (GSIV 72) into the DSDT when the driver lands.
+
+## 23. Restart point — D8 audio + hardware buttons (2026-10-11, driver stream)
+
+All on `drivers`, identity `ilyatbn` verified. Plan of record: the **D8
+section** of `docs/exynos9820-port/DRIVERS-MILESTONES.md`. Notes:
+`notes/d8-audio.md` (facts + register map + progress log),
+`notes/d8-audio-linux.md`, `notes/d8-audio-windows.md`,
+`notes/d8-audio-design.md`.
+
+**Committed this session (newest first):**
+
+| Commit | What |
+|---|---|
+| `b943e18` | audio design doc (rung-1 portcls over ABOX-direct; go/no-go = SPUS/SPUM experiment) |
+| `f7d535f` | review fix: BTNS GpioInt DebounceTimeout 0 → 10 ms |
+| `f5e19b9` | `drivers/Exynos9820Gpio/` — GpioClx provider, code only (NOT built, NOT booted) |
+| `a59c6e4` | DSDT `GPIO` (SAMS9821, 34 EINT GSIVs) + `BTNS` (ACPI0011 + _DSD); built into FD sha `0a0779a8…`, verified in FVMAIN.Fv |
+| `f22718a` | `Exynos9820.h`: ALIVE bank/EINT map, key GSIVs 40/41/43/57, ABOX windows — all VERIFIED |
+| `1226d60` | **touch-port bug fix**: Beyond0 kept 9810 ALIVE base (0x14050000) + GPA1_CON (0x040 = gpa2 on 9820) — touch probe would have failed on the S10e |
+| `f10b00a` | D8 research: hardware ID from the shipped dump + Linux/Windows stack maps |
+
+**Key closed facts** (sources in the notes): codec = **Cirrus CS47L93 on
+spi_2** (irq gpa2-2/GSIV 55, reset gpg1-0), amps = **2× CS35L40 on
+hsi2c_38** @0x40 (bot/right) / 0x41 (rcv/left), mics = DMIC1/2 into codec
+IN3L/IN4L, ABOX = 2×CA32 "Calliope" DSP (windows 0x18C50000 ifr,
+0x18C10000 sysreg, 0x18D00000 sram, 0x18CE0000 timer, gic 0x18CF1000);
+ALIVE GPIO bank/EINT register map incl. trigger encodings (BOTH=4) and
+FLTCON 0xC0; **no firmware-free playback mode exists in the vendor ABOX
+driver** — the AP never writes DMA BUF_STR; UAIF format/enable ARE
+AP-owned. Buttons: all four are EINT GPIOs (VOLUP gpa0-3, VOLDN gpa0-4,
+POWER gpa2-4, BIXBY gpa0-6), external pull-ups, pressed=low, 10 ms debounce.
+
+**Nothing in flight.** Next, in order:
+1. Windows build pass for `drivers/Exynos9820Gpio` (msbuild ARM64, same
+   toolchain as HSI2C) — first compile evidence; fix diagnostics as
+   separate commits.
+2. Device test (needs Windows booting): BTNS under Hidinterrupt.sys —
+   volume keys change system volume, power button = power action. Close
+   the pseudo-bank-model unknown (README §Status).
+3. If audio is prioritized: the rung-1 go/no-go — mine `calliope2.dt`
+   (on-device /vendor/firmware) and/or SFR-diff an Android playback
+   session for the RDMA→UAIF1 direct route; then spi_2 driver + AUD0
+   DSDT + portcls skeleton (`notes/d8-audio-design.md` §5).
+4. Touch driver: the §4 fix (1226d60) still needs the same Windows build
+   + device validation as the rest of that package.
+
+**Unchanged hazards:** everything in §5/§20-22 stays open; the new
+UNVERIFIED items are named in `notes/d8-audio-design.md` (clock gates,
+SPUS/SPUM, GpioClx pseudo-bank acceptance, GIC type for the 34 Shared
+entries). Nothing destructive was run on the phone; no partition written.

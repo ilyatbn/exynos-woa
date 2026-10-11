@@ -15,13 +15,17 @@
   configured behind Windows' back was once suspected of bugcheck 0x14C (M16 run 5).
 
   Reset lines: the chips only answer out of reset. The probe first reads with the reset line as found;
-  only if that fails AND the line is driven low does it release the reset (pin = output high, the
-  vendor drivers' own sequence and delays), read again, and finally restore the pin, which puts the
-  chip back in reset as sboot left it. Gated by BEYOND0LTE_AUDIO_PROBE_RELEASE_RESETS.
+  only if that fails AND the line is not an output driven high does it release the reset (pin =
+  output high, the vendor drivers' own sequence and delays), read again, and finally restore the pin,
+  which puts the chip back in reset as sboot left it. Gated by BEYOND0LTE_AUDIO_PROBE_RELEASE_RESETS.
 
-  What is NOT touched: PMIC rails (the codec's DCVDD is LDO18M, not boot-on in the vendor DT - if
-  sboot left it off the codec cannot answer, and the log says so), CMU (clocks are read for the log,
-  never written), the ABOX.
+  Codec DCVDD (milestone 1b, BEYOND0LTE_AUDIO_DCVDD, Beyond0LteAudioPower.h): the codec's DCVDD is
+  S2MPS19 LDO18M, which sboot leaves off. This driver never talks to the PMIC; Beyond0LteTouchPowerDxe
+  switches LDO18M on at ReadyToBoot. So the entry point probes the amps, asserts the codec reset and
+  defers the codec probe to the codec-power event group that TouchPowerDxe signals after the rail step
+  (if TouchPowerDxe never signals, the codec simply stays in reset and no codec lines are logged).
+
+  What is NOT touched here: PMIC rails, CMU (clocks are read for the log, never written), the ABOX.
 
   Guard: boot progress word 0x8FE0F000[1] = 0x69 while the probe runs; a boot whose previous boot
   ended at 0x69 skips the probe (same self-healing shape as UsbHostDxe's 0x67).
@@ -38,6 +42,7 @@
 #include <Platform/Exynos9820.h>
 
 #include "AudioProbeHw.h"
+#include "Beyond0LteAudioPower.h"   // BEYOND0LTE_AUDIO_DCVDD, codec-power event group (D8a m1b)
 
 // 0 = the driver does nothing (one log line).
 #ifndef BEYOND0LTE_AUDIO_PROBE
@@ -94,12 +99,23 @@ PinDriveHigh (IN UINTN Gpio, IN UINT32 Bank, IN UINT32 Pin)
   PinSetFunc (Gpio, Bank, Pin, EXYNOS_GPIO_FUNC_OUTPUT);
 }
 
-// TRUE when the pin is an output driven low (= the chip is held in reset).
+// Reset pin into reset: DAT low first, then CON = output (the kernel's GPIOD_OUT_LOW request).
+STATIC
+VOID
+PinDriveLow (IN UINTN Gpio, IN UINT32 Bank, IN UINT32 Pin)
+{
+  MmioAnd32 (Gpio + Bank + EXYNOS_GPIO_BANK_DAT, ~(1u << Pin));
+  PinSetFunc (Gpio, Bank, Pin, EXYNOS_GPIO_FUNC_OUTPUT);
+}
+
+// TRUE unless the pin is an output driven high - the only state in which an active-low RESET is
+// released. Boot #88: the amp resets were fn 0 (input) lvl 0 at handoff, and the old rule
+// ("output AND low") never fired for them (notes/d8-audio-m1.md §5.1).
 STATIC
 BOOLEAN
-PinHeldLow (IN UINTN Gpio, IN UINT32 Bank, IN UINT32 Pin)
+PinNotDrivenHigh (IN UINTN Gpio, IN UINT32 Bank, IN UINT32 Pin)
 {
-  return (PinFunc (Gpio, Bank, Pin) == EXYNOS_GPIO_FUNC_OUTPUT) && (PinLevel (Gpio, Bank, Pin) == 0);
+  return (PinFunc (Gpio, Bank, Pin) != EXYNOS_GPIO_FUNC_OUTPUT) || (PinLevel (Gpio, Bank, Pin) == 0);
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -328,6 +344,7 @@ AmpProbe (VOID)
   UINT32   Gate;
   UINT32   Gph1Con;
   UINT32   Gph1Dat;
+  UINT32   Gph1Pud;
   UINTN    Index;
   BOOLEAN  Ok[2];
   BOOLEAN  Released;
@@ -345,6 +362,9 @@ AmpProbe (VOID)
 
   Gph1Con = MmioRead32 (GPIO1 + EXYNOS_GPIO_GPH1_OFF);
   Gph1Dat = MmioRead32 (GPIO1 + EXYNOS_GPIO_GPH1_OFF + EXYNOS_GPIO_BANK_DAT);
+  Gph1Pud = MmioRead32 (GPIO1 + EXYNOS_GPIO_GPH1_OFF + EXYNOS_GPIO_BANK_PUD);
+  DEBUG ((DEBUG_WARN, "AudioProbe: gph1 PUD %x at handoff (4 bits/pin; reset R %x L %x, 0 = no pull) - read only\n",
+          Gph1Pud, (Gph1Pud >> (EXYNOS_AMP_R_RESET_PIN * 4)) & 0xF, (Gph1Pud >> (EXYNOS_AMP_L_RESET_PIN * 4)) & 0xF));
   mGph0SavedCon   = MmioRead32 (GPIO1 + EXYNOS_GPIO_GPH0_OFF);
   mI2cSavedUsiCon = MmioRead32 (I2C + HSI2C_USI_CON);
   DEBUG ((DEBUG_WARN, "AudioProbe: amp bus at handoff: usi_17_i2c mode %x (never written), gph0 CON %x, gph1 CON %x DAT %x"
@@ -368,17 +388,28 @@ AmpProbe (VOID)
   }
 
   if ((!Ok[0] || !Ok[1]) && BEYOND0LTE_AUDIO_PROBE_RELEASE_RESETS) {
+    // cs35l41-core.c:72-92: gpiod_get(GPIOD_OUT_LOW) = output low (reset asserted), 1 ms, set 1, 2 ms.
     for (Index = 0; Index < ARRAY_SIZE (Amps); Index++) {
-      if (!Ok[Index] && PinHeldLow (GPIO1, EXYNOS_GPIO_GPH1_OFF, Amps[Index].ResetPin)) {
-        DEBUG ((DEBUG_WARN, "AudioProbe: amp %a held in reset (gph1-%u low) - releasing it for the ID read\n",
-                Amps[Index].Name, Amps[Index].ResetPin));
-        PinDriveHigh (GPIO1, EXYNOS_GPIO_GPH1_OFF, Amps[Index].ResetPin);
+      if (!Ok[Index] && PinNotDrivenHigh (GPIO1, EXYNOS_GPIO_GPH1_OFF, Amps[Index].ResetPin)) {
+        DEBUG ((DEBUG_WARN, "AudioProbe: amp %a in reset (gph1-%u fn %x lvl %u) - output low, 1 ms, high for the ID read\n",
+                Amps[Index].Name, Amps[Index].ResetPin, PinFunc (GPIO1, EXYNOS_GPIO_GPH1_OFF, Amps[Index].ResetPin),
+                PinLevel (GPIO1, EXYNOS_GPIO_GPH1_OFF, Amps[Index].ResetPin)));
+        PinDriveLow (GPIO1, EXYNOS_GPIO_GPH1_OFF, Amps[Index].ResetPin);
         Released = TRUE;
       }
     }
 
     if (Released) {
-      gBS->Stall (3000);   // cs35l41-core.c:88-92: 1 ms before, 2 ms after the release
+      gBS->Stall (1000);   // cs35l41-core.c:88 usleep_range(1000, 1100) with the reset asserted
+      for (Index = 0; Index < ARRAY_SIZE (Amps); Index++) {
+        if (!Ok[Index]) {
+          PinDriveHigh (GPIO1, EXYNOS_GPIO_GPH1_OFF, Amps[Index].ResetPin);
+        }
+      }
+
+      DEBUG ((DEBUG_WARN, "AudioProbe: amp resets released: gph1 CON %x DAT %x\n", MmioRead32 (GPIO1 + EXYNOS_GPIO_GPH1_OFF),
+              MmioRead32 (GPIO1 + EXYNOS_GPIO_GPH1_OFF + EXYNOS_GPIO_BANK_DAT)));
+      gBS->Stall (3000);   // cs35l41-core.c:92 usleep_range(2000, 2100) after the release, + 1 ms margin
       for (Index = 0; Index < ARRAY_SIZE (Amps); Index++) {
         if (!Ok[Index]) {
           Ok[Index] = AmpIdentify (Amps[Index].Addr, Amps[Index].Name);
@@ -563,16 +594,50 @@ CodecIdentify (VOID)
   return Id == EXYNOS_CS47L93_SILICON_ID;
 }
 
+// madera_wait_for_boot (madera-core.c:204-235): poll IRQ1_RAW_STATUS_1 BOOT_DONE_STS1, <= 5 ms steps,
+// 25 ms timeout. Read only: the kernel's BOOT_DONE ack (a write to IRQ1_STATUS_1) is skipped - the codec
+// goes back into reset right after, which clears it.
+#define CODEC_BOOT_POLL_STEP_US   5000u
+#define CODEC_BOOT_POLL_MAX_US    25000u
+
 STATIC
 VOID
-CodecProbe (VOID)
+CodecWaitBoot (VOID)
+{
+  UINT16      Raw1;
+  UINT32      Us;
+  EFI_STATUS  Status;
+
+  for (Us = 0; ; Us += CODEC_BOOT_POLL_STEP_US) {
+    Raw1   = 0;
+    Status = CodecRead (CS47L93_REG_IRQ1_RAW_STATUS1, &Raw1);
+    if (!EFI_ERROR (Status) && ((Raw1 & CS47L93_BOOT_DONE) != 0)) {
+      DEBUG ((DEBUG_WARN, "AudioProbe: codec BOOT_DONE after %u us (IRQ1_RAW_STATUS1 %x)\n", Us, Raw1));
+      return;
+    }
+
+    if (EFI_ERROR (Status) || (Us >= CODEC_BOOT_POLL_MAX_US)) {
+      DEBUG ((DEBUG_WARN, "AudioProbe: codec BOOT_DONE not set after %u us (IRQ1_RAW_STATUS1 %x, %r)\n", Us, Raw1, Status));
+      return;
+    }
+
+    gBS->Stall (CODEC_BOOT_POLL_STEP_US);
+  }
+}
+
+// Gpg1HandoffCon/Dat: the gpg1 bank as sboot left it; the reset line is restored to these at the end.
+// (In the deferred DCVDD flow the entry point asserted the reset after saving them.)
+STATIC
+VOID
+CodecProbe (
+  IN UINT32  Gpg1HandoffCon,
+  IN UINT32  Gpg1HandoffDat
+  )
 {
   UINTN    Cmu;
   UINT32   Gate;
   UINT32   SavedMode;
   UINT32   Gpp0Con;
-  UINT32   Gpg1Con;
-  UINT32   Gpg1Dat;
   UINT32   Saved[8];
   BOOLEAN  Ok;
   BOOLEAN  Released;
@@ -591,8 +656,6 @@ CodecProbe (VOID)
   Mode      = (volatile UINT32 *)((UINTN)EXYNOS_PERIC0_USI_SYSREG_BASE + EXYNOS_USI01_MODE_OFFSET);
   SavedMode = *Mode;
   Gpp0Con   = MmioRead32 (GPIO0 + EXYNOS_GPIO_GPP0_OFF);
-  Gpg1Con   = MmioRead32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF);
-  Gpg1Dat   = MmioRead32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF + EXYNOS_GPIO_BANK_DAT);
   Saved[0]  = MmioRead32 (SPI + SPI_CH_CFG);
   Saved[1]  = MmioRead32 (SPI + SPI_MODE_CFG);
   Saved[2]  = MmioRead32 (SPI + SPI_SLAVE_SEL);
@@ -602,8 +665,9 @@ CodecProbe (VOID)
   Saved[6]  = MmioRead32 (SPI + SPI_FB_CLK);
   Saved[7]  = MmioRead32 (SPI + SPI_USI_CON);
   DEBUG ((DEBUG_WARN, "AudioProbe: codec bus at handoff: usi_1 mode %x, gpp0 CON %x, gpg1 CON %x DAT %x"
-                      " (reset gpg1-0 fn %x lvl %u), codec IRQ gpa2-2 lvl %u\n",
-          SavedMode, Gpp0Con, Gpg1Con, Gpg1Dat,
+                      " | now gpg1 CON %x DAT %x (reset gpg1-0 fn %x lvl %u), codec IRQ gpa2-2 lvl %u\n",
+          SavedMode, Gpp0Con, Gpg1HandoffCon, Gpg1HandoffDat, MmioRead32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF),
+          MmioRead32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF + EXYNOS_GPIO_BANK_DAT),
           PinFunc (GPIO0, EXYNOS_GPIO_GPG1_OFF, EXYNOS_CODEC_RESET_PIN),
           PinLevel (GPIO0, EXYNOS_GPIO_GPG1_OFF, EXYNOS_CODEC_RESET_PIN),
           PinLevel ((UINTN)EXYNOS_ALIVE_GPIO_BASE, EXYNOS_ALIVE_GPA2_OFF, EXYNOS_CODEC_IRQ_PIN)));
@@ -625,13 +689,14 @@ CodecProbe (VOID)
   Released = FALSE;
   Ok       = CodecIdentify ();
   if (!Ok && BEYOND0LTE_AUDIO_PROBE_RELEASE_RESETS &&
-      PinHeldLow (GPIO0, EXYNOS_GPIO_GPG1_OFF, EXYNOS_CODEC_RESET_PIN))
+      PinNotDrivenHigh (GPIO0, EXYNOS_GPIO_GPG1_OFF, EXYNOS_CODEC_RESET_PIN))
   {
-    DEBUG ((DEBUG_WARN, "AudioProbe: codec held in reset (gpg1-0 low) - releasing it for the ID read\n"));
+    DEBUG ((DEBUG_WARN, "AudioProbe: codec in reset (gpg1-0 not driven high) - releasing it for the ID read\n"));
     PinDriveHigh (GPIO0, EXYNOS_GPIO_GPG1_OFF, EXYNOS_CODEC_RESET_PIN);
     Released = TRUE;
     gBS->Stall (2000);   // madera_disable_hard_reset: usleep_range(1000, 2000) after the release
     Ok = CodecIdentify ();
+    CodecWaitBoot ();    // madera-core.c:806 madera_wait_for_boot after the ID check
   }
 
   // Release: controller back to its handoff registers, USI reset/mode, pins and reset line as found.
@@ -646,12 +711,47 @@ CodecProbe (VOID)
   MmioWrite32 (SPI + SPI_USI_CON, Saved[7]);
   *Mode = SavedMode;
   MmioWrite32 (GPIO0 + EXYNOS_GPIO_GPP0_OFF, Gpp0Con);
-  MmioWrite32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF + EXYNOS_GPIO_BANK_DAT, Gpg1Dat);
-  MmioWrite32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF, Gpg1Con);
+  // Reset pin only (DAT bit, then CON nibble): in the deferred flow the handoff values are seconds old,
+  // and the other gpg1 pins are not ours to rewrite.
+  MmioAndThenOr32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF + EXYNOS_GPIO_BANK_DAT, ~(1u << EXYNOS_CODEC_RESET_PIN),
+                   Gpg1HandoffDat & (1u << EXYNOS_CODEC_RESET_PIN));
+  MmioAndThenOr32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF, ~(0xFu << (EXYNOS_CODEC_RESET_PIN * 4)),
+                   Gpg1HandoffCon & (0xFu << (EXYNOS_CODEC_RESET_PIN * 4)));
   DEBUG ((DEBUG_WARN, "AudioProbe: codec %a; bus released: usi_1 mode %x gpp0 CON %x gpg1 CON %x DAT %x USI_CON %x%a\n",
           Ok ? "OK" : "no answer", *Mode, MmioRead32 (GPIO0 + EXYNOS_GPIO_GPP0_OFF), MmioRead32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF),
           MmioRead32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF + EXYNOS_GPIO_BANK_DAT), MmioRead32 (SPI + SPI_USI_CON),
           Released ? " (reset back to its handoff level)" : ""));
+}
+
+// gpg1 bank as sboot left it, saved at entry before the deferred flow asserts the codec reset.
+STATIC UINT32  mGpg1HandoffCon;
+STATIC UINT32  mGpg1HandoffDat;
+
+// D8a m1b: the codec probe, run from the codec-power event group that Beyond0LteTouchPowerDxe signals at
+// ReadyToBoot after switching LDO18M (DCVDD) on (Beyond0LteAudioPower.h). Same 0x69 guard as the entry.
+STATIC
+VOID
+EFIAPI
+OnCodecPower (
+  IN EFI_EVENT  Event,
+  IN VOID       *Context
+  )
+{
+  STATIC BOOLEAN  Done;
+  UINT32          Saved;
+
+  if (Done) {
+    return;
+  }
+
+  Done = TRUE;
+  gBS->CloseEvent (Event);
+  DEBUG ((DEBUG_WARN, "AudioProbe: codec-power signalled - deferred codec probe (reset held since entry)\n"));
+  Saved        = mProgress[1];
+  mProgress[1] = AUDIO_PROGRESS_TRYING;
+  CodecProbe (mGpg1HandoffCon, mGpg1HandoffDat);
+  mProgress[1] = Saved;
+  DEBUG ((DEBUG_WARN, "AudioProbe: deferred codec probe done\n"));
 }
 
 EFI_STATUS
@@ -661,7 +761,10 @@ Beyond0LteAudioProbeEntry (
   IN EFI_SYSTEM_TABLE  *SystemTable
   )
 {
-  UINT32  Saved;
+  UINT32      Saved;
+  EFI_STATUS  Status;
+  EFI_EVENT   Event;
+  EFI_GUID    Group = BEYOND0LTE_CODEC_POWER_EVENT_GUID;
 
   if (!BEYOND0LTE_AUDIO_PROBE) {
     DEBUG ((DEBUG_WARN, "AudioProbe: disabled (BEYOND0LTE_AUDIO_PROBE 0)\n"));
@@ -673,12 +776,35 @@ Beyond0LteAudioProbeEntry (
     return EFI_SUCCESS;
   }
 
-  DEBUG ((DEBUG_WARN, "AudioProbe: start (release resets %u)\n", BEYOND0LTE_AUDIO_PROBE_RELEASE_RESETS));
+  DEBUG ((DEBUG_WARN, "AudioProbe: start (release resets %u, codec DCVDD flow %u)\n", BEYOND0LTE_AUDIO_PROBE_RELEASE_RESETS,
+          BEYOND0LTE_AUDIO_DCVDD));
   Saved        = mProgress[1];
   mProgress[1] = AUDIO_PROGRESS_TRYING;
   AmpProbe ();
-  CodecProbe ();
+
+  mGpg1HandoffCon = MmioRead32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF);
+  mGpg1HandoffDat = MmioRead32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF + EXYNOS_GPIO_BANK_DAT);
+  Status          = EFI_UNSUPPORTED;
+  if (BEYOND0LTE_AUDIO_DCVDD && BEYOND0LTE_AUDIO_PROBE_RELEASE_RESETS) {
+    // madera-core.c:755-771: reset asserted (>= 20 ms) before the supplies; LDO18M comes on at ReadyToBoot.
+    PinDriveLow (GPIO0, EXYNOS_GPIO_GPG1_OFF, EXYNOS_CODEC_RESET_PIN);
+    Status = gBS->CreateEventEx (EVT_NOTIFY_SIGNAL, TPL_NOTIFY, OnCodecPower, NULL, &Group, &Event);
+    if (!EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_WARN, "AudioProbe: codec reset asserted (gpg1 CON %x -> %x, DAT %x -> %x); codec probe deferred to"
+                          " TouchPowerDxe's LDO18M step at ReadyToBoot\n",
+              mGpg1HandoffCon, MmioRead32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF), mGpg1HandoffDat,
+              MmioRead32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF + EXYNOS_GPIO_BANK_DAT)));
+    } else {
+      // CodecProbe below restores the reset pin to the handoff values at its end.
+      DEBUG ((DEBUG_ERROR, "AudioProbe: codec-power event create failed (%r) - probing the codec now\n", Status));
+    }
+  }
+
+  if (EFI_ERROR (Status)) {
+    CodecProbe (mGpg1HandoffCon, mGpg1HandoffDat);
+  }
+
   mProgress[1] = Saved;
-  DEBUG ((DEBUG_WARN, "AudioProbe: done\n"));
+  DEBUG ((DEBUG_WARN, "AudioProbe: done%a\n", EFI_ERROR (Status) ? "" : " (codec part pending)"));
   return EFI_SUCCESS;
 }

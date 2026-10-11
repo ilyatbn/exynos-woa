@@ -136,8 +136,20 @@ UEFILOG of a real boot shows the reads.
 | Map the new MMIO windows in `PlatformMemoryMapLib` (SPI2, PERIC0/1 USI pages, PERIC1 GPIO, HSI2C38, CMU_PERIC1) | **done** | device memory only; platform build exit 0 (FD 7 340 032 B) |
 | `Beyond0LteAudioProbeDxe`: polled SPI + HSI2C ID reads, save/restore of every touched register, progress guard 0x69, flag `BEYOND0LTE_AUDIO_PROBE` | **done (code + build; device run pending)** | build exit 0, module `...555554 Beyond0LteAudioProbeDxe` in `Guid.xref`; FD sha256 `67f009ab…` |
 | Log the codec rails (S2MPS19 LDO17M/LDO18M CTRL) in `Beyond0LteTouchPowerDxe`'s read pass | **done (code + build)** | DCVDD = LDO18M is not boot-on in the vendor DT; read-only PmicRead of 0x56/0x57 at ReadyToBoot, build exit 0 |
-| Device test: UEFILOG shows codec/amp IDs | todo | **needs-boot** — procedure in `notes/d8-audio-m1.md` §3 |
+| Device test: UEFILOG shows codec/amp IDs | **ran (boot #88) — bar not met** | amps NACK (resets never released: probe rule bug), codec ID 0 (DCVDD = LDO18M off) -> milestone 1b below |
 | Milestone 2 groundwork: smallest audible path (codec + 3.5 mm jack) — exact task list | **done — design** | `notes/d8-audio-m1.md` §4: codec tone generator -> OUT2 -> HPOUT2 -> jack needs no ABOX and no Windows driver (registers pinned); portcls outline; 7-task list |
+
+### D8 audio — milestone 1b: codec DCVDD on, amps out of reset (`notes/d8-audio-m1.md` §5)
+
+Bar: the same UEFILOG lines as milestone 1, now with `CS47L92/93 ID OK` and both `CS35L40 ID OK`.
+
+| Task | State | Notes |
+|------|-------|-------|
+| Pin LDO18M voltage/enable, madera power-up order, CS35L40 reset/supplies from the vendor sources + stock dtbo | **done** | §5.1: vsel 0x28 = 1.200 V (group 3: 700 mV + n x 12.5 mV), enable 0xC0/0xC0, 5 ms ramp; amps: no supply props (fixed rails), NACK = reset never released (probe rule bug) |
+| AudioProbeDxe: amp reset release when the pin is not driven high (vendor low -> 1 ms -> high -> 2 ms) | **done (code + build)** | build exit 0; pins restored to handoff afterwards (amps back in reset) |
+| TouchPowerDxe: LDO18M on (flag `BEYOND0LTE_AUDIO_DCVDD`, vsel 0x28 check, 5 ms ramp), signal the codec-power event group | **done (code + build)** | **PMIC write** (0x57 enable 0xC0/0xC0, refused unless vsel 0x28); build exit 0 |
+| AudioProbeDxe: codec reset asserted at entry, codec probe deferred to the event group, BOOT_DONE poll | **done (code + build)** | build exit 0, FD sha256 `645c8328…`; codec reset restored to handoff afterwards |
+| Device test: UEFILOG shows codec + amp IDs | todo | **needs-boot** — procedure in `notes/d8-audio-m1.md` §5.4 |
 
 ## Working rules for this file
 

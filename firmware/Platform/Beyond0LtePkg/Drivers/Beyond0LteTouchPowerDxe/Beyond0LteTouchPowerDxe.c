@@ -10,7 +10,10 @@
     2. for each whose enable field [7:6] is not 0b11, issues FUNC_UPDATE(value 0xC0, mask 0xC0) -
        the kernel's own enable path (s2mps19_regulator.c:120-127 s2m_enable -> update_reg), so the
        voltage bits [5:0] are kept by the APM - then reads the register back and logs it;
-    3. waits the sec_ts power-on settle time.
+    3. waits the sec_ts power-on settle time;
+    4. (D8a m1b, BEYOND0LTE_AUDIO_DCVDD) reads L17CTRL, and switches LDO18M (codec DCVDD 1.2 V, 0x57) on
+       the same way when its vsel is the verified 0x28, waits 5 ms, then signals the codec-power event
+       group so Beyond0LteAudioProbeDxe probes the codec (Beyond0LteAudioPower.h).
   Every wait is bounded; any failure is logged and the handler returns (boot continues).
 
   Protocol source: LineageOS android_kernel_samsung_exynos9820, branch lineage-22.2:
@@ -29,6 +32,8 @@
 #include <Library/IoLib.h>
 #include <Guid/EventGroup.h>
 #include <Platform/Exynos9820.h>
+
+#include "../Beyond0LteAudioProbeDxe/Beyond0LteAudioPower.h"   // BEYOND0LTE_AUDIO_DCVDD, codec-power event group
 
 //
 // 0 = read-only run: log L19CTRL / L27CTRL and the ACPM channel layout, never write the PMIC.
@@ -134,7 +139,16 @@
 #define S2MPS19_SPEEDY_CHANNEL     0u      // s2mps19_core.c:55
 #define S2MPS19_I2C_ADDR_PMIC      0x01u   // s2mps19_core.c:41
 #define S2MPS19_PMIC_REG_L17CTRL   0x56u   // s2mps19-regulator.h:112  LDO17M vdd_pmic_codec_1p8 (D8a, read only)
-#define S2MPS19_PMIC_REG_L18CTRL   0x57u   // s2mps19-regulator.h:113  LDO18M vdd_codec_1p2 = codec DCVDD (D8a, read only)
+#define S2MPS19_PMIC_REG_L18CTRL   0x57u   // s2mps19-regulator.h:113  LDO18M vdd_codec_1p2 = codec DCVDD (D8a m1b)
+//
+// LDO18M voltage select for 1.2 V, VERIFIED (notes/d8-audio-m1.md §5.1): LDO18M is voltage group 3
+// (s2mps19_regulator.c:476-477) = 700 000 uV + vsel x 12 500 uV (s2mps19-regulator.h:208-209); the stock
+// dtbo pins LDO18M at 1 200 000 uV -> vsel 40 = 0x28, which is also what sboot leaves in L18CTRL (boot #88).
+// The enable is refused if the register holds any other vsel.
+//
+#define S2MPS19_L18_VSEL_1V2       0x28u
+#define S2MPS19_VSEL_MASK          0x3Fu   // s2mps19-regulator.h:217 S2MPS19_LDO_VSEL_MASK
+#define CODEC_DCVDD_RAMP_US        5000u   // stock dtbo LDO18M regulator-enable-ramp-delay = <0x1388>
 #define S2MPS19_PMIC_REG_L19CTRL   0x58u   // s2mps19-regulator.h:114  LDO19M tsp_io
 #define S2MPS19_PMIC_REG_L27CTRL   0x60u   // s2mps19-regulator.h:122  LDO27M tsp_avdd
 #define S2MPS19_ENABLE_SHIFT       6u      // s2mps19-regulator.h:220
@@ -690,6 +704,115 @@ EnsureLdoOn (
 STATIC
 VOID
 EFIAPI
+CodecPowerEmptyNotify (
+  IN EFI_EVENT  Event,
+  IN VOID       *Context
+  )
+{
+}
+
+/**
+  D8a m1b: tell Beyond0LteAudioProbeDxe that the codec DCVDD step is over (whatever its outcome). Its
+  TPL_NOTIFY group event is only queued here; it runs when this handler (DVFS block included) returns,
+  still inside the same TPL_NOTIFY ReadyToBoot dispatch loop and so before BootLogDxe's TPL_CALLBACK
+  UEFILOG flush (Beyond0LteAudioPower.h). Once per boot.
+**/
+STATIC
+VOID
+SignalCodecPower (
+  IN CONST CHAR8  *Why
+  )
+{
+  STATIC BOOLEAN  Signalled;
+  EFI_GUID        Group = BEYOND0LTE_CODEC_POWER_EVENT_GUID;
+  EFI_EVENT       Event;
+  EFI_STATUS      Status;
+
+  if (Signalled) {
+    return;
+  }
+
+  Signalled = TRUE;
+  Status    = gBS->CreateEventEx (EVT_NOTIFY_SIGNAL, TPL_CALLBACK, CodecPowerEmptyNotify, NULL, &Group, &Event);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "TouchPower: codec-power event create failed: %r\n", Status));
+    return;
+  }
+
+  DEBUG ((DEBUG_ERROR, "TouchPower: signalling codec-power group (%a)\n", Why));
+  gBS->SignalEvent (Event);
+  gBS->CloseEvent (Event);
+}
+
+/**
+  D8a m1b: CS47L93 rails. LDO17M "vdd_pmic_codec_1p8" (AVDD/DBVDD1/CPVDD1, always-on + boot-on) is only
+  read and logged. LDO18M "vdd_codec_1p2" (CPVDD2/DCVDD, not boot-on) is switched on with the kernel's own
+  enable (FUNC_UPDATE 0xC0 under mask 0xC0, s2mps19_regulator.c:120-126) when BEYOND0LTE_AUDIO_DCVDD and
+  BEYOND0LTE_TOUCH_POWER_WRITE are both 1 and its vsel is the verified 1.2 V value, then the DT's enable
+  ramp delay is waited. The codec is held in reset by AudioProbeDxe meanwhile (madera-core.c:755-771 order:
+  reset asserted, supplies, DCVDD, then reset release). LDO18M is left ON for Windows.
+**/
+STATIC
+VOID
+CodecRails (
+  IN ACPM_CHANNEL  *Ch
+  )
+{
+  UINT8       L17;
+  UINT8       L18;
+  UINT8       After;
+  EFI_STATUS  Status;
+
+  L17 = 0;
+  if (!EFI_ERROR (PmicRead (Ch, S2MPS19_PMIC_REG_L17CTRL, &L17))) {
+    DEBUG ((DEBUG_ERROR, "TouchPower: L17CTRL codec 1.8V (0x%02x) = 0x%02x  enable[7:6] = %u  vsel[5:0] = 0x%02x (read only)\n",
+            S2MPS19_PMIC_REG_L17CTRL, L17, (L17 & S2MPS19_ENABLE_MASK) >> S2MPS19_ENABLE_SHIFT, L17 & S2MPS19_VSEL_MASK));
+  }
+
+  L18    = 0;
+  Status = PmicRead (Ch, S2MPS19_PMIC_REG_L18CTRL, &L18);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "TouchPower: L18CTRL codec DCVDD read failed: %r\n", Status));
+    return;
+  }
+
+  DEBUG ((DEBUG_ERROR, "TouchPower: L18CTRL codec DCVDD 1.2V (0x%02x) = 0x%02x  enable[7:6] = %u  vsel[5:0] = 0x%02x\n",
+          S2MPS19_PMIC_REG_L18CTRL, L18, (L18 & S2MPS19_ENABLE_MASK) >> S2MPS19_ENABLE_SHIFT, L18 & S2MPS19_VSEL_MASK));
+
+  if ((L18 & S2MPS19_ENABLE_MASK) == S2MPS19_ENABLE_ON) {
+    DEBUG ((DEBUG_ERROR, "TouchPower: L18CTRL codec DCVDD already on - no write\n"));
+    return;
+  }
+
+  if (!BEYOND0LTE_AUDIO_DCVDD || !BEYOND0LTE_TOUCH_POWER_WRITE) {
+    DEBUG ((DEBUG_ERROR, "TouchPower: L18CTRL codec DCVDD off - not enabled (BEYOND0LTE_AUDIO_DCVDD %u, write %u)\n",
+            BEYOND0LTE_AUDIO_DCVDD, BEYOND0LTE_TOUCH_POWER_WRITE));
+    return;
+  }
+
+  if ((L18 & S2MPS19_VSEL_MASK) != S2MPS19_L18_VSEL_1V2) {
+    DEBUG ((DEBUG_ERROR, "TouchPower: L18CTRL vsel 0x%02x is not the verified 1.2 V value 0x%02x - REFUSING to enable\n",
+            L18 & S2MPS19_VSEL_MASK, S2MPS19_L18_VSEL_1V2));
+    return;
+  }
+
+  Status = PmicUpdate (Ch, S2MPS19_PMIC_REG_L18CTRL, S2MPS19_ENABLE_ON, S2MPS19_ENABLE_MASK);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "TouchPower: L18CTRL codec DCVDD enable failed: %r\n", Status));
+    return;
+  }
+
+  gBS->Stall (CODEC_DCVDD_RAMP_US);
+  After  = 0;
+  Status = PmicRead (Ch, S2MPS19_PMIC_REG_L18CTRL, &After);
+  DEBUG ((DEBUG_ERROR, "TouchPower: L18CTRL codec DCVDD after enable = 0x%02x (%r)  enable[7:6] = %u%a, waited %u us\n",
+          After, Status, (After & S2MPS19_ENABLE_MASK) >> S2MPS19_ENABLE_SHIFT,
+          ((After & S2MPS19_VSEL_MASK) != (L18 & S2MPS19_VSEL_MASK)) ? "  VSEL CHANGED!" : "", CODEC_DCVDD_RAMP_US));
+}
+
+STATIC
+VOID
+EFIAPI
 OnReadyToBoot (
   IN EFI_EVENT  Event,
   IN VOID       *Context
@@ -712,6 +835,7 @@ OnReadyToBoot (
 
   if (EFI_ERROR (FindChannel (ACPM_PMIC_IPC_CHANNEL, &Ch))) {
     DEBUG ((DEBUG_ERROR, "TouchPower: done (no ACPM channel)\n"));
+    SignalCodecPower ("no ACPM channel - DCVDD untouched");
     return;
   }
 
@@ -733,25 +857,14 @@ OnReadyToBoot (
   DEBUG ((DEBUG_ERROR, "TouchPower: done%a\n", mIpcBroken ? " (ACPM IPC failed)" : ""));
 
   //
-  // D8a (notes/d8-audio-m1.md): READ-ONLY - the CS47L93 codec rails. LDO17M "vdd_pmic_codec_1p8" (AVDD/
-  // DBVDD1/CPVDD1, always-on + boot-on) and LDO18M "vdd_codec_1p2" (CPVDD2/DCVDD, NOT boot-on) in the
-  // beyond0lte board dtsi:1614-1630; offsets s2mps19-regulator.h:112-113. Tells whether the audio probe's
-  // codec ID read could have worked (DCVDD off = no answer). Never written here.
+  // D8a (notes/d8-audio-m1.md §5): the CS47L93 codec rails - LDO17M read, LDO18M (DCVDD) on when flagged;
+  // then the deferred codec probe in Beyond0LteAudioProbeDxe runs (event group, Beyond0LteAudioPower.h).
   //
-  {
-    STATIC CONST UINT8   CodecReg[]  = { S2MPS19_PMIC_REG_L17CTRL, S2MPS19_PMIC_REG_L18CTRL };
-    STATIC CONST CHAR8   *CodecName[] = { "L17CTRL codec 1.8V", "L18CTRL codec DCVDD 1.2V" };
-    UINTN                L;
-    UINT8                Value;
-
-    for (L = 0; (L < ARRAY_SIZE (CodecReg)) && !mIpcBroken; L++) {
-      Value = 0;
-      if (!EFI_ERROR (PmicRead (&Ch, CodecReg[L], &Value))) {
-        DEBUG ((DEBUG_ERROR, "TouchPower: %a (0x%02x) = 0x%02x  enable[7:6] = %u  vsel[5:0] = 0x%02x (read only)\n",
-                CodecName[L], CodecReg[L], Value, (Value & S2MPS19_ENABLE_MASK) >> S2MPS19_ENABLE_SHIFT, Value & 0x3F));
-      }
-    }
+  if (!mIpcBroken) {
+    CodecRails (&Ch);
   }
+
+  SignalCodecPower (mIpcBroken ? "ACPM IPC failed" : "codec rails step done");
 
   //
   // m15 (user: "everything is still kinda slow"): what clocks does Windows inherit? READ-ONLY FREQ_GET on the

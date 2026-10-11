@@ -55,3 +55,5 @@ Shipped = GOP framebuffer + inbox BasicDisplay + WARP (CPU rendering). => speed 
   view of the bounce (firmware-reserved pool only), read copy-back = DSB, DC CIVAC over the range (line from
   CTR_EL0), DSB, RtlCopyMemory; writes/commands keep the Device-memory view. dumpbin of the .sys shows
   "dc CIVAC,x8" and "mrs x8,CTR_EL0". Early mark "=CACHED BOUNCE line=" records line size + mapping success.
+- Run 25 (w33, 15:21, back 208 s): disk seq write 26.2 MB/s (was 16.5), seq read 20.1 (11.2), random 4K 2314
+  IOPS (1422); PER_READ_US DEVICE 128, ZERO 0, COPYBACK 126 (was 286); desktop at 84 s (was ~104). Next: w34.

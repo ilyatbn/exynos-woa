@@ -181,3 +181,13 @@ hang (notes/m14-smp.md: "Needs kernel-level debugging (KDNET/USB) - parked"), ea
 - boot #73 flashed, readback 1b927acb… = image. ESP BCD: debug on again (elevated session; dbgsettings unchanged:
   NET busparams 0 169.254.255.255:50005 key 1.2.3.4), on-device sha fdc75865… = host. WinDbgX listening,
   log %TEMP%\kd73.log.
+- Test 2 result (user, ~20:45): boot #73 with debug on BOOTS to the desktop (no hang - SUSPHY fix confirmed as the
+  hang cause, INFERRED from the change set). Phone Device Manager shows "Microsoft Kernel Debug Network Adapter"
+  (kdnic = KDNET transport initialized on the target). User also reports Windows feels faster (MADT eff fix).
+- But host (AMD xHCI port 6) sees NOTHING from the phone: no KDNET EEM adapter, no failed-enumeration device,
+  no PnP events -> the phone never attaches D+ (no pull-up seen). WinDbg (user's instance, pid 9844, 20:01) was
+  listening on 50005; my second instance failed "port in use" (harmless).
+- Suspects for no attach: (1) D+/D- not routed to the AP: the MAX77705 MUIC owns the USB-C data switch and
+  nothing in our tree programs it (no COMN1SW/COMP2SW anywhere in notes/code) - Android's muic driver does it;
+  (2) RUN_STOP never set / kd gave up after its 3 s + 3 s attach timeouts (notes/m17-kd-dll-re.md); (3) PHY
+  not driving (UTMI opmode / termination). Need: UEFILOG of this boot (CSFTRST rehearsal line).

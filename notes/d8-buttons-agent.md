@@ -44,3 +44,4 @@ for now; Bixby = Task Manager; everything configurable (an app later; a config f
   agent action `rotate`; default bixby.long=rotate; ini version=2 with a v1->v2 migration that only changes an
   untouched bixby.long=none. Rotation itself is UNTESTED on this phone (BasicDisplay may refuse with BADMODE;
   s10erotate logs the ChangeDisplaySettingsEx result to %TEMP%\s10erotate.log).
+- Test 4 (user): Bixby long press rotates portrait <-> landscape - WORKS (BasicDisplay accepts the orientation change). All four button behaviours device-validated.

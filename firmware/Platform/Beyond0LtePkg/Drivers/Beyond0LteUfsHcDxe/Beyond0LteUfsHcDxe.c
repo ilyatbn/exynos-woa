@@ -1841,6 +1841,21 @@ Beyond0LteUfsHcCallback (
         ((AfcLock & 0x3u) << 16) | (HcsNew & 0xFFFFu)
         );
       //
+      // m15 (Windows storage ~23 MB/s, device time dominant): log the negotiated link mode so it can be read
+      // from UEFILOG.TXT. PA_PWRMode 0x1571 (0x11 = Fast/Fast HS), PA_RxGear 0x1583, PA_TxGear 0x1568,
+      // PA_ActiveRx/TxDataLanes 0x1580/0x1560, PA_HSSeries 0x156A (1 = Rate A, 2 = Rate B) - same DME_GET helper.
+      //
+      DEBUG ((
+        DEBUG_ERROR,
+        "UfsHc: link after PMC: PWRMode 0x%x UPMS %u HCS 0x%x RxGear %u TxGear %u RxLanes %u TxLanes %u HSSeries %u\n",
+        PwrNew & 0xFFu, (Upms != 0) ? 1u : 0u, HcsNew,
+        Beyond0LteDme (PostDrvIf, UFS_UIC_DME_GET, 0x1583u << 16, 0),
+        Beyond0LteDme (PostDrvIf, UFS_UIC_DME_GET, 0x1568u << 16, 0),
+        Beyond0LteDme (PostDrvIf, UFS_UIC_DME_GET, 0x1580u << 16, 0),
+        Beyond0LteDme (PostDrvIf, UFS_UIC_DME_GET, 0x1560u << 16, 0),
+        Beyond0LteDme (PostDrvIf, UFS_UIC_DME_GET, 0x156Au << 16, 0)
+        ));
+      //
       // *** CYCLE A1: read back the NEGOTIATED PA_HSSeries after the PMC -> D[262] (panel "hsS"). 2 = Rate B
       // (cyA0 requested B; if hsS != 2 the PMC fell back to Rate A => Rate B was never actually tested).
       //

@@ -115,7 +115,9 @@
 // The channel table in APM SRAM must also contain an entry with this id or nothing is sent.
 //
 #define ACPM_PMIC_IPC_CHANNEL  2u
-#define ACPM_DVFS_IPC_CHANNEL  5u   // VERIFIED live DT acpm_dvfs acpm-ipc-channel (dt-acpm-20261011.tar)
+#define ACPM_DVFS_IPC_CHANNEL  0u   // VERIFIED live DT clock-controller@0x1a240000 (samsung,exynos9820-clock)
+                                    // acpm-ipc-channel = 0: cal_if_init(np) -> exynos_acpm_set_device -> the
+                                    // channel exynos_acpm_get/set_rate use. acpm_dvfs ch 5 = MIF notify (BUFFER).
 #define ACPM_DVFS_FREQ_GET     1u   // drivers-branch notes/cpu-driver-9820.md F9 (FREQ_REQ 0, FREQ_GET 1)
 
 //
@@ -723,13 +725,13 @@ OnReadyToBoot (
 
   //
   // m15 (user: "everything is still kinda slow"): what clocks does Windows inherit? READ-ONLY FREQ_GET on the
-  // ACPM DVFS channel. Live DT acpm_dvfs acpm-ipc-channel = 5 (dt-acpm-20261011.tar, VERIFIED); message per
+  // ACPM DVFS channel (ACPM_DVFS_IPC_CHANNEL, VERIFIED 0 - see its definition); message per
   // drivers-branch notes/cpu-driver-9820.md F9/F11 (exynos_acpm_get_rate: cmd[0] = fvmap idx, cmd[2] = 1
   // FREQ_GET, reply cmd[1] = kHz); idx 0 MIF, 2 LITTLE, 3 MID, 4 BIG (shipped DT cal_ids 0xb040000/2/3/4).
   //
   if (!mIpcBroken && !EFI_ERROR (FindChannel (ACPM_DVFS_IPC_CHANNEL, &Ch))) {
-    STATIC CONST UINT32  Idx[]  = { 0, 2, 3, 4 };
-    STATIC CONST CHAR8   *Name[] = { "MIF", "CPU LITTLE", "CPU MID", "CPU BIG" };
+    STATIC CONST UINT32  Idx[]  = { 0, 1, 2, 3, 4 };
+    STATIC CONST CHAR8   *Name[] = { "MIF", "INT", "CPU LITTLE", "CPU MID", "CPU BIG" };
     UINTN                I;
 
     for (I = 0; (I < ARRAY_SIZE (Idx)) && !mIpcBroken; I++) {

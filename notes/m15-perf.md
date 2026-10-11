@@ -80,3 +80,8 @@ Shipped = GOP framebuffer + inbox BasicDisplay + WARP (CPU rendering). => speed 
   the CPU clocks (~1.05/1.22 GHz) => ACPM DVFS (channel 5 is TYPE_BUFFER; protocol = drivers-branch research).
 - Summary of m15 so far: w33+w34 = disk ~2x (seq read 11 -> ~23-25 MB/s, random 1422 -> ~2850 IOPS), desktop
   ~104 s -> ~78 s. Next big lever: DVFS (CPU + bus clocks).
+- DVFS channel traced (LineageOS 9820 kernel): drivers/soc/samsung/cal-if/acpm_dvfs.c exynos_acpm_get/set_rate send
+  on acpm_dvfs.ch_num, set by exynos_acpm_set_device(np) from cal_if_init(np) in clk-exynos9820.c
+  (CLK_OF_DECLARE "samsung,exynos9820-clock"). The samsung,exynos-acpm-dvfs node's channel (5) is only the MIF
+  notification channel (TYPE_BUFFER, ACPM -> AP). Live DT: clock-controller@0x1a240000 acpm-ipc-channel = 0
+  (VERIFIED, TWRP). Boot #61: read-only FREQ_GET on channel 0 for MIF/INT/LITTLE/MID/BIG.

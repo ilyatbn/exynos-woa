@@ -56,3 +56,18 @@ Found:
   skip string.
 - Not covered: a hang later in XhciDxe (BDS connect) is not under 0x67. If PHY/DWC3 reads pass, the
   clocks are on, and XhciDxe's own loops have timeouts.
+
+### Review of 587024e (task 2)
+- Watchdog check: `BEYOND0LTE_EARLY_WATCHDOG 1` (ArmPlatformLib.c:25) arms WTCON 82 s with INFORM3=recovery
+  in SEC, so a USB hang in DXE lands in **TWRP after ~82 s**, not in a loop. The 0x67 skip only fires if
+  progress[0] survives TWRP's Linux boot; if it does not, each USB-hang boot simply costs 82 s → TWRP.
+- AML read risk (unverified): if ACPI.sys refuses the SystemMemory region on RuntimeServicesData, `_STA`
+  fails → XHC0 absent (or an ACPI bugcheck caught by S10eDiag → TWRP with the code). First run tells.
+- No code change from this review.
+
+### Image for the first device run
+- `s10e-artifacts\boot66-v2.img` sha256 c0a99c03167bf9300b99f7f8f724b5b438a88d94c1a03382f415c96b44fd7e20
+  = boot #65 config + USB stack + guard (587024e). Phone not on adb at pack time (in Windows, stay.flg).
+- Run plan: dock unpowered, plugged in before power-on, a USB keyboard + mouse on it. Collect UEFILOG.TXT
+  ("UsbHost:", "Beyond0LteUsbHostEntry", XHCI lines, fuel-gauge report) and, from Windows, pnputil
+  /enum-devices for ACPI\PNP0D10 + USB\ devices.

@@ -88,3 +88,12 @@ USI mode slots (samsung,exynos-usi, each reg = 4 bytes in sysreg 0x10421000): 'i
   Not yet verified by a finger on the glass.
 - 2026-10-11 ~12:30 USER CONFIRMED on device: "touch is working" (boot #47, stay.flg run). Remaining: performance
   ("everything is super slow") -> RAM (m13) and SMP.
+
+## Right-click (2026-10-11, user question "simulate right clicking. long press?")
+- Windows maps touch **press-and-hold → right-click** natively for any HID Touch Screen digitizer.
+- Our descriptor (Device.c:676-992) is a complete one: Digitizer page 0x0D usage 0x04 Touch Screen,
+  report ID 0x54, finger collections (Tip Switch, Contact Identifier, X/Y), Contact Count 0x54 and
+  Contact Count Maximum 0x55 as a FEATURE (Device.c:984/988). So no driver change is needed for it.
+- If the user reports hold does nothing: check the "Press and hold" setting (legacy Pen and Touch control
+  panel, per-user Wisp\Touch registry), and whether the driver keeps reporting the contact as down
+  while it is held still (hold detection needs the contact to stay down, not a stream of moves).

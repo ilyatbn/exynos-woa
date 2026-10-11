@@ -36,11 +36,23 @@ Environment:
 #define RESHUB_USE_HELPER_ROUTINES
 #include "reshub.h"
 
-#define STAR2_ALIVE_GPIO_PHYSICAL_ADDRESS  0x14050000ULL
+// BEYOND0 (Exynos 9820): the ALIVE pinctrl block lives at 0x15850000 (live
+// DTB pinctrl@15850000, notes/d8-audio.md SS1.5) — the 9810's 0x14050000 is
+// wrong here: Device.c matches the ACPI memory resource against this
+// constant, so with the 9810 value probe fails on the S10e (the DSDT
+// provides 0x15850000, Dsdt.asl).
+#define STAR2_ALIVE_GPIO_PHYSICAL_ADDRESS  0x15850000ULL
 #define STAR2_ALIVE_GPIO_LENGTH            0x00001000UL
 
-#define STAR2_GPA1_CON                     0x040UL
-#define STAR2_GPA1_PUD                     0x048UL
+// BEYOND0 (Exynos 9820): the 9820 ALIVE table has NO etc1 bank in front, so
+// every gpa bank sits 0x20 lower than on the 9810: gpa0 CON @0x000, gpa1 @
+// 0x020, gpa2 @0x040 (vendor pinctrl-exynos-arm64.c exynos9820_pin_banks0,
+// notes/d8-audio.md SS3). The 9810's 0x040/0x048 are gpa2's registers here.
+// The EINT word offsets below are UNCHANGED from the 9810: gpa1's
+// eint_offset 0x04 / fltcon_offset 0x08 are identical in both tables
+// (EXYNOS7_WKUP_ECON 0x700, EFLTCON 0x800, EMASK 0x900, EPEND 0xA00).
+#define STAR2_GPA1_CON                     0x020UL
+#define STAR2_GPA1_PUD                     0x028UL
 #define STAR2_EINT_CON                     0x704UL
 #define STAR2_EINT_FILTER                  0x808UL
 #define STAR2_EINT_MASK                    0x904UL

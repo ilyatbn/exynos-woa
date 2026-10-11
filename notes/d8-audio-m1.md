@@ -508,3 +508,71 @@ amps NACK). Rules as §0 (no adb, no flash; the main session runs the device tes
   grep finds no other gpg1 user, but the hazard is real). Follow-up: restore only the reset pin's CON
   nibble + DAT bit; the event-create-failure branch no longer restores twice. Build exit 0, FD sha256
   5aece1ce38616270..., sizes unchanged.
+
+### 5.4 Device test procedure (milestone 1b) - for the main session
+
+Build on main after merging this branch (normal `build-uefi.ps1 -Platform Beyond0LtePkg`), pack + flash
+as every boot (only by-name/boot). Boot once to Windows (or past BDS), pull `UEFILOG.TXT` from TWRP,
+`grep -E 'AudioProbe|TouchPower: (L1[78]CTRL|signalling)'`.
+
+**PMIC write in this image:** S2MPS19 0x57 (LDO18M) enable field 0b11 through ACPM FUNC_UPDATE
+(0xC0 / mask 0xC0 - the kernel's own s2m_enable), only if the register reads vsel 0x28 (1.2 V).
+Disable: build with `-D`/edit `BEYOND0LTE_AUDIO_DCVDD 0` in Beyond0LteAudioPower.h (back to milestone-1
+behaviour, read only).
+
+Expected lines on success, in order (`<>` = learned on the device; DEBUG %x = upper-case hex, no 0x):
+```
+AudioProbe: start (release resets 1, codec DCVDD flow 1)
+AudioProbe: CMU_PERIC1 USI_I2C mux <> div <> | USI17_I2C gate IPCLK <> PCLK <> QCH <>
+AudioProbe: gph1 PUD <> at handoff (4 bits/pin; reset R <> L <>, 0 = no pull) - read only
+AudioProbe: amp bus at handoff: usi_17_i2c mode 4 (never written), gph0 CON <>, gph1 CON <> DAT <> (reset R gph1-1 fn 0 lvl 0, L gph1-2 fn 0 lvl 0)
+AudioProbe: hsi2c38 at handoff: ... / after init: ...
+AudioProbe: hsi2c38 addr 40 write: INT_STAT <> ERR <>          (first try, amps still in reset)
+AudioProbe: amp R/bot @40 DEVID read Not Found
+AudioProbe: hsi2c38 addr 41 write: ... / amp L/rcv @41 DEVID read Not Found
+AudioProbe: amp R/bot in reset (gph1-1 fn 0 lvl 0) - output low, 1 ms, high for the ID read
+AudioProbe: amp L/rcv in reset (gph1-2 fn 0 lvl 0) - output low, 1 ms, high for the ID read
+AudioProbe: amp resets released: gph1 CON <fn 1 in nibbles 1,2> DAT <bits 1,2 set>
+AudioProbe: amp R/bot @40 DEVID 35A40 REVID <> OTPID <> IRQ1_STATUS4 <> (OTP_BOOT_DONE <>) -> CS35L40 ID OK   (35B40 if REVID[3:0] odd)
+AudioProbe: amp L/rcv @41 DEVID 35A40 ... -> CS35L40 ID OK
+AudioProbe: amps R OK, L OK; bus released: gph0 CON <handoff> gph1 CON <handoff> DAT <handoff> USI_CON <handoff> (resets back to their handoff level)
+AudioProbe: codec reset asserted (gpg1 CON <h> -> <h, nibble0=1>, DAT <h> -> <bit0=0>); codec probe deferred to TouchPowerDxe's LDO18M step at ReadyToBoot
+AudioProbe: done (codec part pending)
+... (other drivers, BDS) ...
+TouchPower: L17CTRL codec 1.8V (0x56) = 0xEC  enable[7:6] = 3  vsel[5:0] = 0x2C (read only)
+TouchPower: L18CTRL codec DCVDD 1.2V (0x57) = 0x28  enable[7:6] = 0  vsel[5:0] = 0x28
+TouchPower: ACPM seq <> sent <0x0157|seq> <C0C002> -> reply ...
+TouchPower: L18CTRL codec DCVDD after enable = 0xE8 (Success)  enable[7:6] = 3, waited 5000 us
+TouchPower: signalling codec-power group (codec rails step done)
+TouchPower: DVFS ... (unchanged)
+AudioProbe: codec-power signalled - deferred codec probe (reset held since entry)
+AudioProbe: CMU_PERIC0 USI01 ... / codec bus at handoff: ... | now gpg1 ... (reset gpg1-0 fn 1 lvl 0) ...
+AudioProbe: spi2 at handoff: ... / spi2 after init: ...
+AudioProbe: codec ID 0 HW_REV 0 IRQ1_RAW_STATUS1 0 (BOOT_DONE 0) -> no answer (...)      (reset still held: expected)
+AudioProbe: codec in reset (gpg1-0 not driven high) - releasing it for the ID read
+AudioProbe: codec ID 6371 HW_REV <> IRQ1_RAW_STATUS1 <> (BOOT_DONE <>) -> CS47L92/93 ID OK
+AudioProbe: codec BOOT_DONE after <0..25000> us (IRQ1_RAW_STATUS1 <bit7 set>)
+AudioProbe: codec OK; bus released: usi_1 mode <h> gpp0 CON <h> gpg1 CON <h> DAT <h> USI_CON <h> (reset back to its handoff level)
+AudioProbe: deferred codec probe done
+```
+Milestone 1b is **done** when both `CS35L40 ID OK` and `CS47L92/93 ID OK` appear. Paste the raw lines here.
+
+Reading failures:
+- amps still `Not Found` after "amp resets released" -> the reset was not the (only) cause: compare
+  `gph1 CON/DAT` in that line (must show output + high), then suspect the amp VA rail (board-fixed,
+  no DT supply - nothing we can switch) or SDA/SCL pull-ups; next read = Android `i2cdetect`-free
+  check of /sys/bus/i2c/devices on the stock ROM (needs root) - do not guess further.
+- `REFUSING to enable` -> L18CTRL vsel was not 0x28: no write happened; record the value.
+- `L18CTRL ... after enable` shows enable 0 or `VSEL CHANGED!` -> the APM rejected/altered the update;
+  stop, do not retry blindly.
+- No `AudioProbe: codec-power signalled` line although `TouchPower: signalling` is there -> the group
+  event did not dispatch before the UEFILOG flush (ordering assumption wrong): look in the next boot's
+  UEFILOG tail / the FB console.
+- codec still ID 0 after the release with DCVDD on -> SPI side (SCLK rate UNVERIFIED, CS mode); compare
+  the spi2 dumps with boot #88.
+- Hang (progress word ends 0x69, no UEFILOG) -> the next boot skips the whole probe by itself; read
+  `/proc/debug_history` from TWRP (AGENTS.md §9).
+
+State handed to Windows: LDO18M **on** (left on deliberately - the codec is held in reset, the madera
+pre-release state); amp and codec reset pins, gph0/gpp0 pin functions, USI modes, hsi2c38/spi2
+controller registers all back at their handoff values.

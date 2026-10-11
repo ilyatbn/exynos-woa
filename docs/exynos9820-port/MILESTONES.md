@@ -313,6 +313,7 @@ tree does not contain.
 | Milestone 1: UEFI PCIe link-up (`Beyond0LtePcieDxe`, flag + 0x68 guard + 'WLAN' word) | doing | code-complete + built (`notes/m12-wifi-m1.md`); `Guided` until the device prints `[PCIe] R1: endpoint 14e4:...` |
 | Milestone 1: DSDT `Device (WLAN)` `SAMS9825`, `_STA` gated on 'WLAN' | doing | built into Dsdt.aml; `Guided` until Windows shows `ACPI\SAMS9825\0` on a link-up boot |
 | Milestone 1: Windows probe driver reads VID/DID/BARs/chipid | doing | KMDF probe `drivers/Exynos9820Wlan` built + test-signed; `Guided` until a report with `Result 0` is collected |
+| Milestone 2: BCM4375 firmware download + ARM start from the Windows probe (no NDIS, no DMA) | doing | references + register map in `notes/m12-wifi-m2.md`; `Guided` until the device report shows a valid `pcie_shared` pointer |
 | Decide whether WiFi is required at all when LAN is available | **done** | **LAN-first**; if WiFi is genuinely needed, put a **USB WiFi adapter in the dock** (an ordinary Windows device once M10 works), not the phone's WLAN |
 
 ### M13 — LAN through the dock

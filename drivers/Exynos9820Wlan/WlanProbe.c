@@ -19,17 +19,12 @@
 #include <ntddk.h>
 #include <wdf.h>
 #include <ntstrsafe.h>
-#include "Exynos9820Wlan.h"
+#include "WlanDl.h"
 
 DRIVER_INITIALIZE DriverEntry;
 EVT_WDF_DRIVER_DEVICE_ADD WlanEvtDeviceAdd;
 EVT_WDF_DEVICE_PREPARE_HARDWARE WlanEvtPrepareHardware;
 EVT_WDF_DEVICE_RELEASE_HARDWARE WlanEvtReleaseHardware;
-
-typedef struct _WLAN_REPORT {
-    CHAR    Text[WLAN_REPORT_MAX];
-    size_t  Used;
-} WLAN_REPORT, *PWLAN_REPORT;
 
 typedef struct _WLAN_PROBE {
     ULONG   VendorDevice;
@@ -49,7 +44,7 @@ typedef struct _WLAN_PROBE {
 #define WLAN_RESULT_BAR0_UNUSABLE   5
 #define WLAN_RESULT_CHIPID_MISMATCH 6
 
-static VOID
+VOID
 ReportLine(_Inout_ PWLAN_REPORT R, _In_z_ _Printf_format_string_ PCSTR Fmt, ...)
 {
     va_list Args;
@@ -66,7 +61,7 @@ ReportLine(_Inout_ PWLAN_REPORT R, _In_z_ _Printf_format_string_ PCSTR Fmt, ...)
     va_end(Args);
 }
 
-static VOID
+VOID
 ReportWriteFile(_In_ PWLAN_REPORT R)
 {
     UNICODE_STRING    Name;
@@ -99,7 +94,7 @@ RegSetDword(_In_ WDFKEY Key, _In_ PCWSTR Name, _In_ ULONG Value)
 }
 
 static VOID
-ReportWriteRegistry(_In_ WDFDRIVER Driver, _In_ PWLAN_REPORT R, _In_ PWLAN_PROBE P)
+ReportWriteRegistry(_In_ WDFDRIVER Driver, _In_ PWLAN_REPORT R, _In_ PWLAN_PROBE P, _In_opt_ PWLAN_DL_RESULT Dl)
 {
     WDFKEY         Key;
     UNICODE_STRING Name;
@@ -121,6 +116,15 @@ ReportWriteRegistry(_In_ WDFDRIVER Driver, _In_ PWLAN_REPORT R, _In_ PWLAN_PROBE
     RegSetDword(Key, L"ClassRev", P->ClassRev);
     RegSetDword(Key, L"Subsystem", P->Subsystem);
     RegSetDword(Key, L"ChipId", P->ChipId);
+    if (Dl != NULL) {
+        RegSetDword(Key, L"DlResult", Dl->DlResult);
+        RegSetDword(Key, L"RamSize", Dl->RamSize);
+        RegSetDword(Key, L"OtpVid", Dl->OtpVid);
+        RegSetDword(Key, L"NvramToken", Dl->NvramToken);
+        RegSetDword(Key, L"SharedAddr", Dl->SharedAddr);
+        RegSetDword(Key, L"SharedFlags", Dl->SharedFlags);
+        RegSetDword(Key, L"ArmReleased", Dl->ArmReleased);
+    }
     for (I = 0; I < EP_CFG_BAR_COUNT; I++) {
         if (NT_SUCCESS(RtlStringCchPrintfW(BarName, ARRAYSIZE(BarName), L"Bar%u", I))) {
             RegSetDword(Key, BarName, P->Bar[I]);
@@ -136,6 +140,47 @@ ReportWriteRegistry(_In_ WDFDRIVER Driver, _In_ PWLAN_REPORT R, _In_ PWLAN_PROBE
         RtlFreeUnicodeString(&Value);
     }
 
+    WdfRegistryClose(Key);
+}
+
+/* Parameters key settings: Download (default 1), OtpProbe (default 1), NvramFile, FirmwareFile
+   (empty = automatic / default). */
+static VOID
+WlanReadConfig(_In_ WDFDRIVER Driver, _Out_ PWLAN_DL_CONFIG DlCfg)
+{
+    WDFKEY         Key;
+    UNICODE_STRING Name;
+    UNICODE_STRING Value;
+    ULONG          V;
+
+    RtlZeroMemory(DlCfg, sizeof(*DlCfg));
+    DlCfg->Download = 1;
+    DlCfg->OtpProbe = 1;
+    if (!NT_SUCCESS(WdfDriverOpenParametersRegistryKey(Driver, KEY_READ, WDF_NO_OBJECT_ATTRIBUTES, &Key))) {
+        return;
+    }
+    RtlInitUnicodeString(&Name, L"Download");
+    if (NT_SUCCESS(WdfRegistryQueryULong(Key, &Name, &V))) {
+        DlCfg->Download = V;
+    }
+    RtlInitUnicodeString(&Name, L"OtpProbe");
+    if (NT_SUCCESS(WdfRegistryQueryULong(Key, &Name, &V))) {
+        DlCfg->OtpProbe = V;
+    }
+    RtlInitUnicodeString(&Name, L"NvramFile");
+    Value.Buffer        = DlCfg->NvramFile;
+    Value.Length        = 0;
+    Value.MaximumLength = (USHORT)(sizeof(DlCfg->NvramFile) - sizeof(WCHAR));
+    if (!NT_SUCCESS(WdfRegistryQueryUnicodeString(Key, &Name, NULL, &Value))) {
+        DlCfg->NvramFile[0] = 0;
+    }
+    RtlInitUnicodeString(&Name, L"FirmwareFile");
+    Value.Buffer        = DlCfg->FirmwareFile;
+    Value.Length        = 0;
+    Value.MaximumLength = (USHORT)(sizeof(DlCfg->FirmwareFile) - sizeof(WCHAR));
+    if (!NT_SUCCESS(WdfRegistryQueryUnicodeString(Key, &Name, NULL, &Value))) {
+        DlCfg->FirmwareFile[0] = 0;
+    }
     WdfRegistryClose(Key);
 }
 
@@ -163,8 +208,12 @@ WlanEvtPrepareHardware(_In_ WDFDEVICE Device, _In_ WDFCMRESLIST Raw, _In_ WDFCMR
     PHYSICAL_ADDRESS                 Bar0Phys;
     ULONG                            Bar0Lo;
     NTSTATUS                         Status = STATUS_SUCCESS;
+    WLAN_DL_CONFIG                   DlCfg;
+    WLAN_DL_RESULT                   Dl;
+    BOOLEAN                          DlRan = FALSE;
 
     UNREFERENCED_PARAMETER(Raw);
+    RtlZeroMemory(&Dl, sizeof(Dl));
 
     R = (WLAN_REPORT *)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(*R), 'nlWE');
     if (R == NULL) {
@@ -274,6 +323,15 @@ WlanEvtPrepareHardware(_In_ WDFDEVICE Device, _In_ WDFCMRESLIST Raw, _In_ WDFCMR
     if ((P.ChipId & CC_CHIPID_MASK) == BCM4375_CHIP_ID) {
         ReportLine(R, "RESULT 0: BCM4375 alive\r\n");
         P.Result = WLAN_RESULT_OK;
+        ReportWriteFile(R);
+        /* Milestone 2 (notes/m12-wifi-m2.md): firmware download + ARM start. BAR2 = 64-bit TCM window. */
+        if ((P.Bar[2] & EP_CFG_BAR_TYPE_MASK) == EP_CFG_BAR_TYPE_64 && P.Bar[3] == 0) {
+            WlanReadConfig(WdfDeviceGetDriver(Device), &DlCfg);
+            WlanDlRun(R, Cfg, Bar0Lo, P.Bar[2] & EP_CFG_BAR_MEM_MASK, P.Command, &DlCfg, &Dl);
+            DlRan = TRUE;
+        } else {
+            ReportLine(R, "DL 2: BAR2 0x%08lX/0x%08lX is not a 64-bit BAR below 4 GB\r\n", P.Bar[2], P.Bar[3]);
+        }
     } else {
         ReportLine(R, "RESULT %u: chip id mismatch\r\n", WLAN_RESULT_CHIPID_MISMATCH);
         P.Result = WLAN_RESULT_CHIPID_MISMATCH;
@@ -288,7 +346,7 @@ Report:
     }
 
     ReportWriteFile(R);
-    ReportWriteRegistry(WdfDeviceGetDriver(Device), R, &P);
+    ReportWriteRegistry(WdfDeviceGetDriver(Device), R, &P, DlRan ? &Dl : NULL);
     ExFreePoolWithTag(R, 'nlWE');
     return Status;
 }

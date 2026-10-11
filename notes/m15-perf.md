@@ -71,3 +71,12 @@ Shipped = GOP framebuffer + inbox BasicDisplay + WARP (CPU rendering). => speed 
   is synchronous in StartIo; poll timing accurate (11.5 us per 10 us stall). Suspect the benchmark file is
   fragmented (NTFS issuing small requests; boot-wide average read is 8 KB) -> s10eperf raw \.\C: (read-only,
   4 KiB / 64 KiB / 1 MiB requests from offset 0) in run 29.
+- Run 29 raw \.\C: (read-only): 4 KiB 561 us/req (7.3 MB/s), 64 KiB 4186 us (15.7 MB/s), 1 MiB 53 ms (19.7
+  MB/s). Counters: ~6144 x 64 KiB commands in the test account for ~25 s of the boot's 29.6 s DEVICE time => a
+  64 KiB command really spends ~4 ms in the controller/device (~15 MB/s, ~64 ns/byte) although the link is
+  HS-G3 x2 Rate B. Not the driver (copy 40 us/read, completion synchronous), not fragmentation.
+  Leading suspect: bus clocks left at boot level (FSYS/INT/MIF - Linux raises INT/MIF via ACPM DVFS + pm_qos
+  while UFS is busy); others: HCI AXI burst config (AXIDMA 0x98000003), FMP inline-crypto path. Same lever as
+  the CPU clocks (~1.05/1.22 GHz) => ACPM DVFS (channel 5 is TYPE_BUFFER; protocol = drivers-branch research).
+- Summary of m15 so far: w33+w34 = disk ~2x (seq read 11 -> ~23-25 MB/s, random 1422 -> ~2850 IOPS), desktop
+  ~104 s -> ~78 s. Next big lever: DVFS (CPU + bus clocks).

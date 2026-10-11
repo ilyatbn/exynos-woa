@@ -322,6 +322,25 @@
 
 //
 // ---------------------------------------------------------------------------
+// ACPM IPC (APM core that owns the S2MPS19 PMIC on the 9820)  [notes/m12-acpm.md]
+//
+// VERIFIED 2026-10-11 from the live device tree (TWRP root read, archive
+// s10e-artifacts\dt-acpm-20261011.tar, notes/m12-touch.md): node acpm_ipc,
+// compatible "samsung,exynos-acpm-ipc",
+//   reg = <0x15900000 0x1000>   mailbox registers (kernel acpm_ipc.c:791 resource 0, "intr")
+//         <0x02039000 0x30000>  APM SRAM          (kernel acpm_ipc.c:796 resource 1, "sram_base")
+//   initdata-base = <0x7000>    struct acpm_framework offset in that SRAM (acpm_ipc.c:801-808)
+// TWRP /proc/iomem independently lists "02039000-02068fff : /acpm_ipc".
+// ---------------------------------------------------------------------------
+//
+#define EXYNOS_ACPM_IPC_MBOX_BASE        0x0000000015900000ULL   // VERIFIED (live DT acpm_ipc reg[0])
+#define EXYNOS_ACPM_IPC_MBOX_SIZE        0x0000000000001000ULL   // VERIFIED (live DT acpm_ipc reg[0])
+#define EXYNOS_ACPM_SRAM_BASE            0x0000000002039000ULL   // VERIFIED (live DT acpm_ipc reg[1], /proc/iomem)
+#define EXYNOS_ACPM_SRAM_SIZE            0x0000000000030000ULL   // VERIFIED (live DT acpm_ipc reg[1], /proc/iomem)
+#define EXYNOS_ACPM_INITDATA_OFFSET      0x00007000u             // VERIFIED (live DT acpm_ipc initdata-base)
+
+//
+// ---------------------------------------------------------------------------
 // Clock management (CMU)  [TOP same base, the banks are a different set]
 //
 // VERIFIED from the vendor DT:

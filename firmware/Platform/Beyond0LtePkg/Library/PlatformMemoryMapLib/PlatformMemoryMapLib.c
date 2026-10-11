@@ -133,6 +133,13 @@ STATIC CONST MMIO_REGION  mMmioRegions[] = {
   { EXYNOS_PMU_BASE,           EXYNOS_PMU_SIZE,           "PMU"         },  // moved from 0x14060000
   { EXYNOS_SPEEDY_BASE,        EXYNOS_SPEEDY_SIZE,        "SPEEDY"      },  // extent now a live DTB read (0x2000) -> published
   { EXYNOS_SPEEDY1_BASE,       EXYNOS_SPEEDY1_SIZE,       "SPEEDY1"     },  // extent now a live DTB read (0x2000) -> published
+  //
+  // ACPM IPC (notes/m12-acpm.md): mailbox registers + APM SRAM (IPC queues, initdata). Both are the
+  // live DT acpm_ipc reg pair (dt-acpm-20261011.tar); the kernel ioremaps them as device memory
+  // (acpm_ipc.c:791-799). Used by Beyond0LteTouchPowerDxe before ExitBootServices.
+  //
+  { EXYNOS_ACPM_IPC_MBOX_BASE, EXYNOS_ACPM_IPC_MBOX_SIZE, "ACPM_MBOX"   },
+  { EXYNOS_ACPM_SRAM_BASE,     EXYNOS_ACPM_SRAM_SIZE,     "ACPM_SRAM"   },
 
   { EXYNOS_CMU_BANK0_BASE,     EXYNOS_CMU_BANK0_SIZE,     "CMU_BANK0"   },
   { EXYNOS_CMU_BANK1_BASE,     EXYNOS_CMU_BANK1_SIZE,     "CMU_BANK1"   },

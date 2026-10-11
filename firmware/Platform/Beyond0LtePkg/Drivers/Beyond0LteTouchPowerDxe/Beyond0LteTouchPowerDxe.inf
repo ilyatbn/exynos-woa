@@ -1,0 +1,33 @@
+## @file
+#  Beyond0LteTouchPowerDxe - at ReadyToBoot, asks the APM (ACPM IPC) to switch on the S2MPS19 touch rails
+#  LDO19M (tsp_io) and LDO27M (tsp_avdd) if they are off (notes/m12-acpm.md).
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = Beyond0LteTouchPowerDxe
+  FILE_GUID                      = 11111111-2222-3333-4444-555555555551
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 0.1
+  ENTRY_POINT                    = Beyond0LteTouchPowerEntry
+
+[Sources]
+  Beyond0LteTouchPowerDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  Silicon/Exynos9820Pkg/Exynos9820Pkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  BaseLib
+  DebugLib
+  IoLib
+
+[Guids]
+  gEfiEventReadyToBootGuid           ## CONSUMES ## Event
+
+[Depex]
+  TRUE

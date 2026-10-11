@@ -257,3 +257,11 @@ Found:
 - Hsi2cBusSetup saves mode, gpm12/13 CON, USI_CON; PmicBusRelease (called from the entry wrapper after
   UsbHostBringUp on every path) disables INT_EN, acks, AUTO_CONF/CTL 0, USI_CON restored (reset), mode
   and pin functions restored, logs the result. PMIC-side state (VBUS boost) is untouched by the release.
+
+### Run 6 (boot #70): 0x14C again → bus-state hypothesis FALSE
+- UEFILOG boot 134: setup (mode 0→4, CON 1→2), probe, FG `SOC 99.6% VCELL 4232mV`, no CC attach, then
+  `Hsi2c45 bus released: mode 0, gpm12 CON 1, gpm13 CON 1, USI_CON 1` - handoff state identical to the
+  bootloader's, and Windows still bugchecks 0x14C.
+- Decisive test next: boot #68 (the exact run-4 image that reached the desktop, sha cb25db01…d465)
+  reflashed. If 0x14C persists → cause is NOT the firmware delta (something changed on the phone after
+  run 4: PMIC state from the FG/CCIC reads persisting across resets, NTFS/registry, BCD edit, …).

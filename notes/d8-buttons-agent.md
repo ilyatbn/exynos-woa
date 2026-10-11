@@ -39,3 +39,8 @@ for now; Bixby = Task Manager; everything configurable (an app later; a config f
 - Fix: "screen off" = topmost full-virtual-screen black window (AMOLED: black = unlit), cursor hidden, swallows touch;
   next power press finds it (FindWindow class S10eKeysBlank) and closes it. SC_MONITORPOWER no longer used for off.
   Deployed s10ekeys.exe (hash in this commit's session log).
+- Test 3 (user): black-overlay screen toggle WORKS (off/on), power menu works, Bixby -> Task Manager works.
+- User request: Bixby long press = rotate portrait <-> landscape. s10erotate.exe gets `toggle` (0 <-> 90);
+  agent action `rotate`; default bixby.long=rotate; ini version=2 with a v1->v2 migration that only changes an
+  untouched bixby.long=none. Rotation itself is UNTESTED on this phone (BasicDisplay may refuse with BADMODE;
+  s10erotate logs the ChangeDisplaySettingsEx result to %TEMP%\s10erotate.log).

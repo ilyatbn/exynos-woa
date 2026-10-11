@@ -401,7 +401,7 @@ static KEY gKeys[] = {
     { L"power",   2, 1UL << 4, L"screen",  L"powermenu", 0, 0, 0, 0 },
     { L"volup",   0, 1UL << 3, L"none",    L"none",      0, 0, 0, 0 },
     { L"voldown", 0, 1UL << 4, L"none",    L"none",      0, 0, 0, 0 },
-    { L"bixby",   0, 1UL << 6, L"taskmgr", L"none",      0, 0, 0, 0 },
+    { L"bixby",   0, 1UL << 6, L"taskmgr", L"rotate",    0, 0, 0, 0 },
 };
 
 static BOOL
@@ -420,15 +420,16 @@ KeysWriteDefaultConfig(void)
     HANDLE File;
     static const char Text[] =
         "; S10e hardware buttons - S10eAgent re-reads this file on every press (no restart needed).\r\n"
-        "; Actions: none | screen | powermenu | wake | taskmgr | reboot | recovery | shutdown | run:<command line>\r\n"
+        "; Actions: none | screen | powermenu | wake | taskmgr | rotate | reboot | recovery | shutdown | run:<command line>\r\n"
         ";   screen = toggle display, powermenu = Reboot/Recovery/Shut down/Cancel popup, recovery = reboot to TWRP.\r\n"
         "; run: commands start in your session, e.g. run:C:\\Windows\\System32\\osk.exe\r\n"
         "[buttons]\r\n"
+        "version=2\r\n"
         "long_press_ms=700\r\n"
         "power.short=screen\r\npower.long=powermenu\r\n"
         "volup.short=none\r\nvolup.long=none\r\n"
         "voldown.short=none\r\nvoldown.long=none\r\n"
-        "bixby.short=taskmgr\r\nbixby.long=none\r\n";
+        "bixby.short=taskmgr\r\nbixby.long=rotate\r\n";
     DWORD Written;
 
     CreateDirectoryW(L"C:\\ProgramData\\S10e", NULL);
@@ -437,6 +438,16 @@ KeysWriteDefaultConfig(void)
         WriteFile(File, Text, (DWORD)(sizeof(Text) - 1), &Written, NULL);
         CloseHandle(File);
         LogLine("keys: wrote default %ls", KEYS_CONFIG);
+    } else if (GetPrivateProfileIntW(L"buttons", L"version", 1, KEYS_CONFIG) < 2) {
+        wchar_t Value[64];
+
+        // v1 -> v2 (user, 2026-10-12): Bixby long press rotates. Only an untouched "none" is changed.
+        GetPrivateProfileStringW(L"buttons", L"bixby.long", L"none", Value, ARRAYSIZE(Value), KEYS_CONFIG);
+        if (_wcsicmp(Value, L"none") == 0) {
+            WritePrivateProfileStringW(L"buttons", L"bixby.long", L"rotate", KEYS_CONFIG);
+        }
+        WritePrivateProfileStringW(L"buttons", L"version", L"2", KEYS_CONFIG);
+        LogLine("keys: config migrated to v2 (bixby.long was %ls)", Value);
     }
 }
 
@@ -499,6 +510,8 @@ KeysAction(const KEY *Key, BOOL Long)
 
         swprintf_s(Command, ARRAYSIZE(Command), L"C:\\Windows\\System32\\s10ekeys.exe %s", Action);
         KeysRunInSession(Command, FALSE);
+    } else if (_wcsicmp(Action, L"rotate") == 0) {
+        KeysRunInSession(L"C:\\Windows\\System32\\s10erotate.exe toggle", FALSE);
     } else if (_wcsicmp(Action, L"taskmgr") == 0) {
         KeysRunInSession(L"C:\\Windows\\System32\\Taskmgr.exe", TRUE);
     } else if (_wcsicmp(Action, L"reboot") == 0) {

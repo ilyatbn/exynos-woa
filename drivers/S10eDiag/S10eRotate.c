@@ -4,7 +4,7 @@
  * later"). Uses the standard ChangeDisplaySettingsExW orientation path, so a future sensor service can call
  * it the same way. Runs in the user's session (the desktop launchers); no admin needed.
  *
- *   s10erotate 0 | 90 | 180 | 270 | cycle | query
+ *   s10erotate 0 | 90 | 180 | 270 | cycle | toggle | query   (toggle = portrait <-> landscape)
  *
  * Exit code 0 = applied; otherwise the DISP_CHANGE_* value (e.g. -2 BADMODE if the display driver does not
  * support rotation). Every call appends one line to %TEMP%\s10erotate.log.
@@ -52,7 +52,10 @@ main(int argc, char **argv)
         return 0;
     }
 
-    if (strcmp(argv[1], "cycle") == 0) {
+    if (strcmp(argv[1], "toggle") == 0) {
+        // Bixby long press (buttons.ini bixby.long=rotate): portrait <-> landscape (0 <-> 90).
+        Target = (Mode.dmDisplayOrientation & 1) ? 0 : 1;
+    } else if (strcmp(argv[1], "cycle") == 0) {
         Target = (Mode.dmDisplayOrientation + 1) % 4;
     } else {
         Target = (DWORD)(atoi(argv[1]) / 90) % 4;

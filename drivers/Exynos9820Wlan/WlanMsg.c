@@ -45,6 +45,15 @@ typedef struct _MSG_STATE {
     LONG                RespStatus;
     BOOLEAN             Acked;
     BOOLEAN             Completed;
+    /* milestone 4: events + escan */
+    ULONG               RxOffset;       /* pcie_shared dma_rxoffset, applied to event buffers (dhd) */
+    ULONG               Events;
+    ULONG               EventLines;
+    ULONG               ScanEvents;
+    BOOLEAN             ScanDone;
+    ULONG               ScanStatus;
+    ULONG               BssCount;
+    UCHAR               Bss[SCAN_MAX_BSS][6];
 } MSG_STATE, *PMSG_STATE;
 
 static ULONG
@@ -90,17 +99,27 @@ RingItem(_In_ PMSG_STATE S, _In_ PMSG_RING G, _In_ ULONG Index)
     return S->Va + G->Off + Index * G->ItemSize;
 }
 
-/* Fill the next H2D control item (40 B) and advance the host write index (written to TCM by the caller). */
+/* Fill the next H2D control item (40 B) and advance the host write index (written to TCM by the caller).
+   NULL when the ring stays full for 100 ms (the firmware has not consumed what was posted). */
 static PUCHAR
 H2dCtrlNext(_Inout_ PMSG_STATE S, _In_ UCHAR Type, _In_ ULONG RequestId)
 {
     PMSG_RING G = &S->Ring[RING_H2D_CTRL];
-    PUCHAR    It = RingItem(S, G, G->Host);
+    PUCHAR    It;
+    ULONG     Tries;
 
+    for (Tries = 0; ((G->Host + 1) % G->MaxItem) == Tcm16(S, G->RIdxAddr); Tries++) {
+        if (Tries == 100) {
+            ReportLine(S->R, "[msg] H2D ctrl ring full (w %lu r %u)\r\n", G->Host, Tcm16(S, G->RIdxAddr));
+            return NULL;
+        }
+        KeStallExecutionProcessor(1000);
+    }
+    It = RingItem(S, G, G->Host);
     RtlZeroMemory(It, G->ItemSize);
     It[MSGH_TYPE]  = Type;
     It[MSGH_IFID]  = 0;
-    It[MSGH_FLAGS] = 0;   /* current_phase 0: the ring never wraps in milestone 3 */
+    It[MSGH_FLAGS] = 0;   /* no phase bit, as fmac brcmf_msgbuf_tx_ioctl: wrapping needs only the full check */
     It[MSGH_EPOCH] = (UCHAR)(G->Seq % EPOCH_MODULO);
     G->Seq++;
     *(ULONG UNALIGNED *)(It + MSGH_REQUEST_ID) = RequestId;
@@ -116,6 +135,101 @@ H2dCtrlCommit(_Inout_ PMSG_STATE S)
     KeMemoryBarrier();
     TcmW16(S, G->WIdxAddr, (USHORT)G->Host);
     Doorbell(S, S->Db0);
+}
+
+/* IOCTLRESP_BUF_POST / EVENT_BUF_POST (same item, bcmmsgbuf.h:333): one host buffer, no commit. */
+static BOOLEAN
+BufPost(_Inout_ PMSG_STATE S, _In_ UCHAR Type, _In_ ULONG PktId, _In_ ULONG Off, _In_ ULONG Len)
+{
+    PUCHAR    It = H2dCtrlNext(S, Type, PktId);
+    ULONGLONG Ba = S->La + Off;
+
+    if (It == NULL) {
+        return FALSE;
+    }
+    *(USHORT UNALIGNED *)(It + BUFPOST_LEN)     = (USHORT)Len;
+    *(ULONG UNALIGNED *)(It + BUFPOST_ADDR)     = (ULONG)Ba;
+    *(ULONG UNALIGNED *)(It + BUFPOST_ADDR + 4) = (ULONG)(Ba >> 32);
+    return TRUE;
+}
+
+static ULONG
+Be32(_In_reads_(4) const UCHAR *P)
+{
+    return ((ULONG)P[0] << 24) | ((ULONG)P[1] << 16) | ((ULONG)P[2] << 8) | P[3];
+}
+
+/* One escan result payload (brcmf_escan_result_le, fwil_types.h:470): log each BSS once (BSSID dedupe). */
+static VOID
+EscanResult(_Inout_ PMSG_STATE S, _In_reads_bytes_(Len) const UCHAR *D, _In_ ULONG Len)
+{
+    ULONG Count, K, Off = ESCAN_RES_BSS_INFO, J;
+
+    if (Len < ESCAN_RES_BSS_INFO) {
+        return;
+    }
+    Count = *(const USHORT UNALIGNED *)(D + ESCAN_RES_BSS_COUNT);
+    for (K = 0; K < Count && Off + BSS_INFO_MIN_LEN <= Len; K++) {
+        const UCHAR *B    = D + Off;
+        ULONG        BLen = *(const ULONG UNALIGNED *)(B + BSS_LENGTH);
+        ULONG        SsidLen = B[BSS_SSID_LEN];
+        CHAR         Ssid[33];
+
+        if (BLen < BSS_INFO_MIN_LEN || Off + BLen > Len) {
+            ReportLine(S->R, "[scan] bss_info length %lu at %lu of %lu - stop parsing this event\r\n", BLen, Off, Len);
+            return;
+        }
+        for (J = 0; J < S->BssCount && RtlCompareMemory(S->Bss[J], B + BSS_BSSID, 6) != 6; J++) {
+        }
+        if (J == S->BssCount && S->BssCount < SCAN_MAX_BSS) {
+            RtlCopyMemory(S->Bss[S->BssCount++], B + BSS_BSSID, 6);
+            if (SsidLen > 32) {
+                SsidLen = 32;
+            }
+            for (J = 0; J < SsidLen; J++) {
+                Ssid[J] = (B[BSS_SSID + J] >= 0x20 && B[BSS_SSID + J] < 0x7F) ? (CHAR)B[BSS_SSID + J] : '?';
+            }
+            Ssid[SsidLen] = 0;
+            ReportLine(S->R, "[scan] %02X:%02X:%02X:%02X:%02X:%02X ch %3u rssi %4d chanspec 0x%04X \"%s\"\r\n",
+                       B[BSS_BSSID], B[BSS_BSSID + 1], B[BSS_BSSID + 2], B[BSS_BSSID + 3], B[BSS_BSSID + 4],
+                       B[BSS_BSSID + 5], B[BSS_CTL_CH], *(const SHORT UNALIGNED *)(B + BSS_RSSI),
+                       *(const USHORT UNALIGNED *)(B + BSS_CHANSPEC), Ssid);
+        }
+        Off += BLen;
+    }
+}
+
+/* A WL_EVENT buffer: bcm event packet (fweh.h:202-248, big-endian header). */
+static VOID
+EventPacket(_Inout_ PMSG_STATE S, _In_reads_bytes_(Len) const UCHAR *P, _In_ ULONG Len)
+{
+    ULONG Type, Status, DataLen;
+
+    S->Events++;
+    if (Len < EVT_DATA || P[EVT_OUI] != 0x00 || P[EVT_OUI + 1] != 0x10 || P[EVT_OUI + 2] != 0x18 ||
+        P[EVT_USR_SUBTYPE] != 0 || P[EVT_USR_SUBTYPE + 1] != BCMILCP_BCM_SUBTYPE_EVENT) {
+        ReportLine(S->R, "[evt] not a bcm event (len %lu)\r\n", Len);
+        return;
+    }
+    Type    = Be32(P + EVT_TYPE);
+    Status  = Be32(P + EVT_STATUS);
+    DataLen = Be32(P + EVT_DATALEN);
+    if (DataLen > Len - EVT_DATA) {
+        DataLen = Len - EVT_DATA;
+    }
+    if (Type == WLC_E_ESCAN_RESULT) {
+        S->ScanEvents++;
+        EscanResult(S, P + EVT_DATA, DataLen);
+        if (Status != WLC_E_STATUS_PARTIAL) {
+            S->ScanDone   = TRUE;
+            S->ScanStatus = Status;
+        }
+        return;
+    }
+    if (S->EventLines++ < 32) {
+        ReportLine(S->R, "[evt] type %lu status %lu reason %lu datalen %lu\r\n", Type, Status, Be32(P + EVT_REASON),
+                   DataLen);
+    }
 }
 
 /* dhd dhd_prot_d2h_sync_xorcsum: complete when the epoch matches and the XOR of all words is 0. */
@@ -141,6 +255,7 @@ D2hCtrlPoll(_Inout_ PMSG_STATE S)
 {
     PMSG_RING G = &S->Ring[RING_D2H_CTRL_CPL];
     ULONG     W, Count = 0, Tries;
+    BOOLEAN   Repost = FALSE;
 
     KeMemoryBarrier();
     W = Tcm16(S, G->WIdxAddr);
@@ -176,22 +291,39 @@ D2hCtrlPoll(_Inout_ PMSG_STATE S)
                        *(USHORT UNALIGNED *)(It + CPL_IOCTL_TRANS_ID), *(ULONG UNALIGNED *)(It + CPL_IOCTL_CMD), Pkt);
             S->RespStatus = St;
             S->RespLen    = 0;
-            if (Pkt >= 0x1000 && Pkt < 0x1000 + IOCTL_RESP_BUF_COUNT) {
+            if (Pkt >= IOCTL_RESP_PKTID0 && Pkt < IOCTL_RESP_PKTID0 + IOCTL_RESP_BUF_COUNT) {
                 ULONG Copy = (Len < sizeof(S->Resp)) ? Len : sizeof(S->Resp);
+                ULONG Off  = MSG_OFF_IOCTL_RESP + (Pkt - IOCTL_RESP_PKTID0) * IOCTL_RESP_BUF_SIZE;
 
-                RtlCopyMemory(S->Resp, S->Va + MSG_OFF_IOCTL_RESP + (Pkt - 0x1000) * IOCTL_RESP_BUF_SIZE, Copy);
+                RtlCopyMemory(S->Resp, S->Va + Off, Copy);
                 S->RespLen = Copy;
+                Repost |= BufPost(S, MSG_TYPE_IOCTLRESP_BUF_POST, Pkt, Off, IOCTL_RESP_BUF_SIZE);   /* fmac reposts too */
             }
             S->Completed = TRUE;
+            break;
+        }
+        case MSG_TYPE_WL_EVENT: {
+            ULONG Pkt = *(ULONG UNALIGNED *)(It + MSGH_REQUEST_ID);
+            ULONG Len = *(USHORT UNALIGNED *)(It + EVTCPL_DATA_LEN);
+
+            if (Pkt >= EVENT_BUF_PKTID0 && Pkt < EVENT_BUF_PKTID0 + EVENT_BUF_COUNT) {
+                ULONG Off = MSG_OFF_EVENT_BUF + (Pkt - EVENT_BUF_PKTID0) * EVENT_BUF_SIZE;
+
+                if (S->RxOffset < EVENT_BUF_SIZE && Len <= EVENT_BUF_SIZE - S->RxOffset) {
+                    EventPacket(S, S->Va + Off + S->RxOffset, Len);
+                } else {
+                    ReportLine(S->R, "[evt] length %lu + rxoffset %lu exceeds the buffer\r\n", Len, S->RxOffset);
+                }
+                Repost |= BufPost(S, MSG_TYPE_EVENT_BUF_POST, Pkt, Off, EVENT_BUF_SIZE);
+            } else {
+                ReportLine(S->R, "[evt] unknown buffer pktid 0x%lX\r\n", Pkt);
+            }
             break;
         }
         case MSG_TYPE_GEN_STATUS:
         case MSG_TYPE_RING_STATUS:
             ReportLine(S->R, "[msg] %s status %d ring %u\r\n", (Type == MSG_TYPE_GEN_STATUS) ? "GEN" : "RING",
                        *(SHORT UNALIGNED *)(It + CPL_STATUS), *(USHORT UNALIGNED *)(It + CPL_RING_ID));
-            break;
-        case MSG_TYPE_WL_EVENT:
-            ReportLine(S->R, "[msg] WL event (buffer not posted)\r\n");
             break;
         default:
             ReportLine(S->R, "[msg] D2H ctrl item type 0x%02X\r\n", Type);
@@ -205,43 +337,46 @@ D2hCtrlPoll(_Inout_ PMSG_STATE S)
         KeMemoryBarrier();
         TcmW16(S, G->RIdxAddr, (USHORT)G->Host);
     }
+    if (Repost) {
+        H2dCtrlCommit(S);
+    }
     return Count;
 }
 
-/* GET_VAR <Name>: request buffer = name + NUL, response up to OutLen bytes. */
+/* One IOCTLPTR_REQ (fmac brcmf_msgbuf_tx_ioctl: get and set differ only by Cmd): In[InLen] is copied to the
+   request buffer, which also receives up to OutLen bytes; waits for IOCTL_CMPLT (polled). Trans id counts up. */
 static ULONG
-IoctlGetVar(_Inout_ PMSG_STATE S, _In_z_ PCSTR Name, _In_ ULONG OutLen, _In_ USHORT TransId)
+Ioctl(_Inout_ PMSG_STATE S, _In_ ULONG Cmd, _In_reads_bytes_(InLen) const VOID *In, _In_ ULONG InLen,
+      _In_ ULONG OutLen, _In_z_ PCSTR What)
 {
+    static USHORT TransId;
     PUCHAR        Req = S->Va + MSG_OFF_IOCTL_REQ;
     PUCHAR        It;
-    size_t        NameLen;
-    ULONG         InLen, Ms;
+    ULONG         BufLen, Ms;
     LARGE_INTEGER Delay;
 
-    if (!NT_SUCCESS(RtlStringCbLengthA(Name, 64, &NameLen))) {
+    if (InLen > IOCTL_REQ_MAX_INPUT || OutLen > IOCTL_REQ_MAX_INPUT) {
         return MSG_IOCTL_ERROR;
     }
-    InLen = (ULONG)NameLen + 1;
-    if (InLen < OutLen) {
-        InLen = OutLen;   /* the buffer carries the name in and the value out */
-    }
-    if (InLen > IOCTL_REQ_MAX_INPUT) {
-        InLen = IOCTL_REQ_MAX_INPUT;
-    }
+    BufLen = (InLen > OutLen) ? InLen : OutLen;   /* the buffer carries the input in and the value out */
     RtlZeroMemory(Req, IOCTL_REQ_BUF_SIZE);
-    RtlCopyMemory(Req, Name, NameLen + 1);
+    RtlCopyMemory(Req, In, InLen);
 
     S->Acked = S->Completed = FALSE;
     S->RespLen = 0;
     It = H2dCtrlNext(S, MSG_TYPE_IOCTLPTR_REQ, IOCTL_REQ_PKTID);
-    *(ULONG UNALIGNED *)(It + IOREQ_CMD)         = WLC_GET_VAR;
+    if (It == NULL) {
+        return MSG_TIMEOUT;
+    }
+    TransId++;
+    *(ULONG UNALIGNED *)(It + IOREQ_CMD)         = Cmd;
     *(USHORT UNALIGNED *)(It + IOREQ_TRANS_ID)   = TransId;
-    *(USHORT UNALIGNED *)(It + IOREQ_INPUT_LEN)  = (USHORT)InLen;
-    *(USHORT UNALIGNED *)(It + IOREQ_OUTPUT_LEN) = (USHORT)OutLen;
+    *(USHORT UNALIGNED *)(It + IOREQ_INPUT_LEN)  = (USHORT)BufLen;
+    *(USHORT UNALIGNED *)(It + IOREQ_OUTPUT_LEN) = (USHORT)BufLen;
     *(ULONG UNALIGNED *)(It + IOREQ_BUF_ADDR)     = (ULONG)(S->La + MSG_OFF_IOCTL_REQ);
     *(ULONG UNALIGNED *)(It + IOREQ_BUF_ADDR + 4) = (ULONG)((S->La + MSG_OFF_IOCTL_REQ) >> 32);
     H2dCtrlCommit(S);
-    ReportLine(S->R, "[msg] GET_VAR \"%s\" sent (in %lu out %lu trans %u), H2D ctrl w %lu r %u\r\n", Name, InLen, OutLen,
+    ReportLine(S->R, "[msg] ioctl %lu %s sent (len %lu trans %u), H2D ctrl w %lu r %u\r\n", Cmd, What, BufLen,
                TransId, S->Ring[RING_H2D_CTRL].Host, Tcm16(S, S->Ring[RING_H2D_CTRL].RIdxAddr));
 
     for (Ms = 0; Ms < IOCTL_RESP_TIMEOUT_MS && !S->Completed; Ms += 5) {
@@ -253,12 +388,30 @@ IoctlGetVar(_Inout_ PMSG_STATE S, _In_z_ PCSTR Name, _In_ ULONG OutLen, _In_ USH
         KeDelayExecutionThread(KernelMode, FALSE, &Delay);
     }
     if (!S->Completed) {
-        ReportLine(S->R, "[msg] GET_VAR \"%s\": no completion in %u ms (acked %u; H2D ctrl r %u, D2H ctrl w %u)\r\n",
-                   Name, IOCTL_RESP_TIMEOUT_MS, S->Acked, Tcm16(S, S->Ring[RING_H2D_CTRL].RIdxAddr),
+        ReportLine(S->R, "[msg] ioctl %lu %s: no completion in %u ms (acked %u; H2D ctrl r %u, D2H ctrl w %u)\r\n",
+                   Cmd, What, IOCTL_RESP_TIMEOUT_MS, S->Acked, Tcm16(S, S->Ring[RING_H2D_CTRL].RIdxAddr),
                    Tcm16(S, S->Ring[RING_D2H_CTRL_CPL].WIdxAddr));
         return MSG_TIMEOUT;
     }
     return (S->RespStatus == 0) ? MSG_OK : MSG_IOCTL_ERROR;
+}
+
+/* GET_VAR / SET_VAR <Name>: buffer = name + NUL [+ Val]. */
+static ULONG
+IoctlVar(_Inout_ PMSG_STATE S, _In_ BOOLEAN Set, _In_z_ PCSTR Name, _In_reads_bytes_opt_(ValLen) const VOID *Val,
+         _In_ ULONG ValLen, _In_ ULONG OutLen)
+{
+    UCHAR  Buf[128];
+    size_t NameLen;
+
+    if (!NT_SUCCESS(RtlStringCbLengthA(Name, 64, &NameLen)) || NameLen + 1 + ValLen > sizeof(Buf)) {
+        return MSG_IOCTL_ERROR;
+    }
+    RtlCopyMemory(Buf, Name, NameLen + 1);
+    if (ValLen != 0) {
+        RtlCopyMemory(Buf + NameLen + 1, Val, ValLen);
+    }
+    return Ioctl(S, Set ? WLC_SET_VAR : WLC_GET_VAR, Buf, (ULONG)NameLen + 1 + ValLen, OutLen, Name);
 }
 
 _Use_decl_annotations_
@@ -315,6 +468,7 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
         ReportLine(R, "MSG %u: ring_info pointer outside RAM\r\n", MSG_BAD_SHARED);
         goto Stop;
     }
+    S->RxOffset = Tcm32(S, Shared + SH_DMA_RXOFFSET);
     RingMem = Tcm32(S, Ri + RI_RINGMEM_PTR);
     H2dW    = Tcm32(S, Ri + RI_H2D_W_IDX_PTR);
     H2dR    = Tcm32(S, Ri + RI_H2D_R_IDX_PTR);
@@ -408,12 +562,8 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
 
     /* 5. ioctl-response buffers */
     for (I = 0; I < IOCTL_RESP_BUF_COUNT; I++) {
-        PUCHAR    It = H2dCtrlNext(S, MSG_TYPE_IOCTLRESP_BUF_POST, 0x1000 + I);
-        ULONGLONG Ba = S->La + MSG_OFF_IOCTL_RESP + (ULONGLONG)I * IOCTL_RESP_BUF_SIZE;
-
-        *(USHORT UNALIGNED *)(It + BUFPOST_LEN)     = (USHORT)IOCTL_RESP_BUF_SIZE;
-        *(ULONG UNALIGNED *)(It + BUFPOST_ADDR)     = (ULONG)Ba;
-        *(ULONG UNALIGNED *)(It + BUFPOST_ADDR + 4) = (ULONG)(Ba >> 32);
+        (VOID)BufPost(S, MSG_TYPE_IOCTLRESP_BUF_POST, IOCTL_RESP_PKTID0 + I, MSG_OFF_IOCTL_RESP + I * IOCTL_RESP_BUF_SIZE,
+                      IOCTL_RESP_BUF_SIZE);
     }
     H2dCtrlCommit(S);
     {
@@ -429,7 +579,7 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
     ReportWriteFile(R);
 
     /* 6. first ioctls */
-    M->Result = IoctlGetVar(S, "cur_etheraddr", 32, 1);
+    M->Result = IoctlVar(S, FALSE, "cur_etheraddr", NULL, 0, 32);
     if (M->Result == MSG_OK && S->RespLen >= 6) {
         RtlCopyMemory(M->Mac, S->Resp, 6);
         M->MacValid = TRUE;
@@ -437,7 +587,7 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
                    S->Resp[3], S->Resp[4], S->Resp[5]);
     }
     if (M->Result == MSG_OK) {
-        M->Result = IoctlGetVar(S, "ver", 200, 2);
+        M->Result = IoctlVar(S, FALSE, "ver", NULL, 0, 200);
         if (M->Result == MSG_OK) {
             S->Resp[(S->RespLen < sizeof(S->Resp)) ? S->RespLen : sizeof(S->Resp) - 1] = 0;
             for (I = 0; I < S->RespLen && S->Resp[I] != 0; I++) {
@@ -457,6 +607,97 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
         ReportLine(R, "MSG 0: firmware answered over msgbuf (MAC %s)\r\n", M->MacValid ? "read" : "not read");
     } else {
         ReportLine(R, "MSG %lu: msgbuf exchange failed\r\n", M->Result);
+    }
+    ReportWriteFile(R);
+
+    /* 8. milestone 4 (notes/m12-wifi-m4.md): event buffers, ESCAN_RESULT in event_msgs, UP, escan, results */
+    if (M->Result == MSG_OK && M->Config->Scan) {
+        UCHAR         Mask[WL_EVENTING_MASK_LEN];
+        ULONG         One = 1, Ms;
+        UCHAR         Esc[ESCAN_PARAMS_V2_SIZE];
+        ULONG         EscLen;
+        BOOLEAN       V2;
+        LARGE_INTEGER Delay;
+
+        ReportLine(R, "---- milestone 4: events + escan ----\r\n");
+        M->ScanResult = SCAN_FAILED;
+        for (I = 0; I < EVENT_BUF_COUNT; I++) {
+            (VOID)BufPost(S, MSG_TYPE_EVENT_BUF_POST, EVENT_BUF_PKTID0 + I, MSG_OFF_EVENT_BUF + I * EVENT_BUF_SIZE,
+                          EVENT_BUF_SIZE);
+        }
+        H2dCtrlCommit(S);
+        ReportLine(R, "[scan] %u event buffers posted (rxoffset %lu)\r\n", EVENT_BUF_COUNT, S->RxOffset);
+        if (IoctlVar(S, FALSE, "event_msgs", NULL, 0, WL_EVENTING_MASK_LEN) != MSG_OK || S->RespLen < WL_EVENTING_MASK_LEN) {
+            goto ScanEnd;
+        }
+        RtlCopyMemory(Mask, S->Resp, WL_EVENTING_MASK_LEN);
+        ReportLine(R, "[scan] event_msgs byte 8 = 0x%02X (ESCAN_RESULT bit %s)\r\n", Mask[WLC_E_ESCAN_RESULT / 8],
+                   (Mask[WLC_E_ESCAN_RESULT / 8] & (1 << (WLC_E_ESCAN_RESULT % 8))) ? "set" : "clear");
+        Mask[WLC_E_ESCAN_RESULT / 8] |= (UCHAR)(1 << (WLC_E_ESCAN_RESULT % 8));
+        if (IoctlVar(S, TRUE, "event_msgs", Mask, WL_EVENTING_MASK_LEN, 0) != MSG_OK ||
+            Ioctl(S, WLC_UP, &One, sizeof(One), 0, "UP") != MSG_OK) {
+            goto ScanEnd;
+        }
+        /* escan (fmac cfg80211.c brcmf_run_escan / brcmf_escan_prep): all channels, broadcast, active. v2 when
+           the "scan_ver" int get succeeds (fmac feature.c:342 BRCMF_FEAT_SCAN_V2), else v1. */
+        V2 = (IoctlVar(S, FALSE, "scan_ver", NULL, 0, sizeof(ULONG)) == MSG_OK);
+        ReportLine(R, "[scan] scan_ver %s -> escan params v%u\r\n", V2 ? "answered" : "failed", V2 ? 2 : 1);
+        RtlZeroMemory(Esc, sizeof(Esc));
+        *(ULONG UNALIGNED *)(Esc + ESCAN_VERSION)  = V2 ? ESCAN_REQ_VERSION_V2 : ESCAN_REQ_VERSION;
+        *(USHORT UNALIGNED *)(Esc + ESCAN_ACTION)  = WL_SCAN_ACTION_START;
+        *(USHORT UNALIGNED *)(Esc + ESCAN_SYNC_ID) = 0x1234;
+        if (V2) {
+            PUCHAR P = Esc + ESCAN_PARAMS;
+
+            *(USHORT UNALIGNED *)(P + SCANP2_VERSION) = SCAN_PARAMS_VERSION_V2;
+            *(USHORT UNALIGNED *)(P + SCANP2_LENGTH)  = SCANP2_FIXED_SIZE;
+            RtlFillMemory(P + SCANP2_BSSID, 6, 0xFF);
+            P[SCANP2_BSS_TYPE] = DOT11_BSSTYPE_ANY;
+            *(ULONG UNALIGNED *)(P + SCANP2_SCAN_TYPE)   = SCANTYPE_ACTIVE;
+            *(LONG UNALIGNED *)(P + SCANP2_NPROBES)      = -1;
+            *(LONG UNALIGNED *)(P + SCANP2_ACTIVE_TIME)  = -1;
+            *(LONG UNALIGNED *)(P + SCANP2_PASSIVE_TIME) = -1;
+            *(LONG UNALIGNED *)(P + SCANP2_HOME_TIME)    = -1;
+            EscLen = ESCAN_PARAMS_V2_SIZE;
+        } else {
+            PUCHAR P = Esc + ESCAN_PARAMS;
+
+            RtlFillMemory(P + SCANP_BSSID, 6, 0xFF);
+            P[SCANP_BSS_TYPE]  = DOT11_BSSTYPE_ANY;
+            P[SCANP_SCAN_TYPE] = SCANTYPE_ACTIVE;
+            *(LONG UNALIGNED *)(P + SCANP_NPROBES)      = -1;
+            *(LONG UNALIGNED *)(P + SCANP_ACTIVE_TIME)  = -1;
+            *(LONG UNALIGNED *)(P + SCANP_PASSIVE_TIME) = -1;
+            *(LONG UNALIGNED *)(P + SCANP_HOME_TIME)    = -1;
+            EscLen = ESCAN_PARAMS_V1_SIZE;
+        }
+        if (IoctlVar(S, TRUE, "escan", Esc, EscLen, 0) != MSG_OK) {
+            goto ScanEnd;
+        }
+        for (Ms = 0; Ms < SCAN_TIMEOUT_MS && !S->ScanDone; Ms += 10) {
+            (VOID)D2hCtrlPoll(S);
+            Delay.QuadPart = -10000LL * 10;
+            KeDelayExecutionThread(KernelMode, FALSE, &Delay);
+        }
+        M->BssCount = S->BssCount;
+        if (S->ScanDone && S->ScanStatus == 0) {
+            M->ScanResult = SCAN_OK;
+        } else if (!S->ScanDone) {
+            M->ScanResult = SCAN_TIMEOUT;
+        } else {
+            M->ScanResult = SCAN_FW_STATUS;   /* final escan event with a non-success status */
+        }
+        ReportLine(R, "SCAN %lu: %lu BSS from %lu escan events (%s, status %lu) after %lu ms; %lu events total\r\n",
+                   M->ScanResult, S->BssCount, S->ScanEvents, S->ScanDone ? "done" : "not done", S->ScanStatus, Ms,
+                   S->Events);
+ScanEnd:
+        if (M->ScanResult == SCAN_FAILED) {
+            ReportLine(R, "SCAN %u: setup ioctl failed\r\n", SCAN_FAILED);
+        }
+        if ((Tcm32(S, Shared + SH_FLAGS) & PCIE_SHARED_TRAP) != 0) {
+            ReportLine(R, "[scan] firmware TRAP flag set (trap 0x%08lX)\r\n", Tcm32(S, Shared + SH_TRAP_ADDR));
+        }
+        WlanBusConsoleDump(R, Bus);
     }
 
 Stop:

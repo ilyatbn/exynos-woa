@@ -151,7 +151,7 @@ ReportWriteRegistry(_In_ WDFDRIVER Driver, _In_ PWLAN_REPORT R, _In_ PWLAN_PROBE
 
 /* Parameters key settings: Download (default 1), OtpProbe (default 1), NvramFile, FirmwareFile
    (empty = automatic / default), Msgbuf (default 1), HostCap (default WLAN_HOSTCAP_AUTO),
-   DoorbellDar (default 0). */
+   DoorbellDar (default 0), Scan (default 1). */
 static VOID
 WlanReadConfig(_In_ WDFDRIVER Driver, _Out_ PWLAN_DL_CONFIG DlCfg)
 {
@@ -165,6 +165,7 @@ WlanReadConfig(_In_ WDFDRIVER Driver, _Out_ PWLAN_DL_CONFIG DlCfg)
     DlCfg->OtpProbe = 1;
     DlCfg->Msgbuf   = 1;                    /* defaults documented in WlanDl.h */
     DlCfg->HostCap  = WLAN_HOSTCAP_AUTO;
+    DlCfg->Scan     = 1;
     if (!NT_SUCCESS(WdfDriverOpenParametersRegistryKey(Driver, KEY_READ, WDF_NO_OBJECT_ATTRIBUTES, &Key))) {
         return;
     }
@@ -183,6 +184,10 @@ WlanReadConfig(_In_ WDFDRIVER Driver, _Out_ PWLAN_DL_CONFIG DlCfg)
     RtlInitUnicodeString(&Name, L"HostCap");
     if (NT_SUCCESS(WdfRegistryQueryULong(Key, &Name, &V))) {
         DlCfg->HostCap = V;
+    }
+    RtlInitUnicodeString(&Name, L"Scan");
+    if (NT_SUCCESS(WdfRegistryQueryULong(Key, &Name, &V))) {
+        DlCfg->Scan = V;
     }
     RtlInitUnicodeString(&Name, L"DoorbellDar");
     if (NT_SUCCESS(WdfRegistryQueryULong(Key, &Name, &V))) {
@@ -353,6 +358,7 @@ WlanEvtPrepareHardware(_In_ WDFDEVICE Device, _In_ WDFCMRESLIST Raw, _In_ WDFCMR
             Msg.DmaEnabler = WlanGetContext(Device)->DmaEnabler;
             Msg.Config     = &DlCfg;
             Msg.Result     = MSG_SKIPPED;
+            Msg.ScanResult = SCAN_SKIPPED;
             /* milestone 3 (notes/m12-wifi-m3.md) runs inside WlanDlRun once pcie_shared is up */
             WlanDlRun(R, Cfg, Bar0Lo, P.Bar[2] & EP_CFG_BAR_MEM_MASK, P.Command, &DlCfg, &Dl, WlanMsgRun, &Msg);
             DlRan = TRUE;

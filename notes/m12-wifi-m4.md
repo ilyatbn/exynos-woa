@@ -65,3 +65,18 @@ BSS (BSSID, SSID, channel, RSSI) the firmware reports. Proves the radio receives
 - Results: event 69 with status 8 PARTIAL per batch (bcmevent.h:330), final status 0 SUCCESS (fweh.h:118).
   Event mask: WL_EVENTING_MASK_LEN 16 (wlioctl_defs.h:1438), bit 69 = byte 8 bit 5; GET "event_msgs", set
   bit, SET.
+- Design decision (small step): M4 runs inside the existing fw-up callback (PrepareHardware), after the M3
+  ioctls, and ends with the same teardown (ARM halt, BME off, free). Making the firmware resident (device
+  lifetime DMA, ReleaseHardware teardown) moves to M5, the NDIS prerequisite.
+- dhd/fmac choose escan v2 when "scan_ver" answers (dhd wl_cfg80211.c:18501-18511, fmac feature.c:342 int get)
+  -> driver queries scan_ver and builds v2 (fwil_types.h:409, fixed 72, version 2 :54/:74) or v1.
+- Code (WlanMsg.c):
+  - generic Ioctl(cmd, in, inlen, outlen) + IoctlVar(get/set);
+  - H2D full check: no phase bit, same as fmac, so the ring may wrap;
+  - IOCTL_CMPLT reposts its response buffer;
+  - WL_EVENT: parse the bcm event and repost the buffer;
+  - escan results deduped by BSSID (64 max), each logged as `[scan] BSSID ch rssi chanspec "ssid"`;
+  - sequence: 8 event buffers, event_msgs get + set bit 69, UP(1), scan_ver, escan, poll up to 10 s;
+    final line `SCAN n: ...`.
+- Registry Parameters\Scan (default 1). MSG_DMA_SIZE 0x23000 -> 0x27000 (event buffers @0x23000).
+  DriverVer 1.0.4.0. Build s10e-artifacts\wifi-m4, sys A9E67C40D5DF74AF.

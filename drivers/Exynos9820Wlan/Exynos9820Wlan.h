@@ -368,7 +368,8 @@
 #define MSG_OFF_IOCTL_REQ           0x11000        /* 2048 */
 #define MSG_OFF_SCRATCH             0x12000        /* 8 */
 #define MSG_OFF_IOCTL_RESP          0x13000        /* 8 x 8192 = 0x10000 */
-#define MSG_DMA_SIZE                0x23000
+#define MSG_OFF_EVENT_BUF           0x23000        /* milestone 4: 8 x 2048 = 0x4000 */
+#define MSG_DMA_SIZE                0x27000
 
 /* MsgResult values (README.md). */
 #define MSG_OK                      0
@@ -379,5 +380,77 @@
 #define MSG_TIMEOUT                 5
 #define MSG_IOCTL_ERROR             6
 #define MSG_TRAP                    7
+
+/* ---- milestone 4: events + escan (notes/m12-wifi-m4.md; dhd = bcmdhd lineage-23.2, fmac = brcmfmac master) ---- */
+#define MSG_TYPE_EVENT_BUF_POST     0x0D           /* bcmmsgbuf.h:176 */
+#define IOCTL_RESP_PKTID0           0x1000         /* host-chosen buffer ids (any value except 0xFFFE) */
+#define EVENT_BUF_PKTID0            0x2000
+#define EVENT_BUF_COUNT             8              /* fmac msgbuf.c:60 BRCMF_MSGBUF_MAX_EVENTBUF_POST */
+#define EVENT_BUF_SIZE              2048           /* fmac msgbuf.c:56 BRCMF_MSGBUF_MAX_PKT_SIZE */
+#define EVTCPL_DATA_LEN             0x0C           /* wlevent_req_msg_t.event_data_len u16, bcmmsgbuf.h:708-721 */
+/* bcm event packet, big-endian header fields (fmac fweh.h:202-248) */
+#define EVT_OUI                     19             /* brcm_ethhdr.oui[3] = 00 10 18 (BRCM_OUI fweh.h:202) */
+#define EVT_USR_SUBTYPE             22             /* be16 */
+#define BCMILCP_BCM_SUBTYPE_EVENT   1              /* fweh.h:203 */
+#define EVT_TYPE                    28
+#define EVT_STATUS                  32
+#define EVT_REASON                  36
+#define EVT_DATALEN                 44
+#define EVT_DATA                    72
+#define WLC_E_ESCAN_RESULT          69             /* dhd bcmevent.h:184, fmac fweh.h:89 */
+#define WLC_E_STATUS_PARTIAL        8              /* dhd bcmevent.h:330 */
+#define WL_EVENTING_MASK_LEN        16             /* dhd wlioctl_defs.h:1438 */
+#define WLC_UP                      2              /* fmac fwil.h:15 BRCMF_C_UP */
+#define WLC_SET_VAR                 263            /* fmac fwil.h:81 BRCMF_C_SET_VAR */
+/* escan request v1: brcmf_escan_params_le (fmac fwil_types.h:460) + brcmf_scan_params_le (:368) */
+#define ESCAN_VERSION               0              /* u32 */
+#define ESCAN_ACTION                4              /* u16 */
+#define ESCAN_SYNC_ID               6              /* u16 */
+#define ESCAN_PARAMS                8
+#define ESCAN_REQ_VERSION           1              /* dhd wlioctl.h:871, fmac fwil_types.h:73 */
+#define WL_SCAN_ACTION_START        1              /* dhd wlioctl_defs.h:307 */
+#define SCANP_BSSID                 36
+#define SCANP_BSS_TYPE              42
+#define SCANP_SCAN_TYPE             43
+#define SCANP_NPROBES               44
+#define SCANP_ACTIVE_TIME           48
+#define SCANP_PASSIVE_TIME          52
+#define SCANP_HOME_TIME             56
+#define SCANP_FIXED_SIZE            64             /* fmac fwil_types.h:50, dhd wlioctl.h:907 */
+#define ESCAN_PARAMS_V1_SIZE        (ESCAN_PARAMS + SCANP_FIXED_SIZE)
+/* v2: brcmf_scan_params_v2_le (fmac fwil_types.h:409), natural alignment */
+#define ESCAN_REQ_VERSION_V2        2              /* fmac fwil_types.h:74 */
+#define SCAN_PARAMS_VERSION_V2      2              /* fmac fwil_types.h:54 */
+#define SCANP2_VERSION              0              /* u16 */
+#define SCANP2_LENGTH               2              /* u16 = fixed size + channels/ssids (none here) */
+#define SCANP2_BSSID                40
+#define SCANP2_BSS_TYPE             46
+#define SCANP2_SCAN_TYPE            48             /* u32 in v2 */
+#define SCANP2_NPROBES              52
+#define SCANP2_ACTIVE_TIME          56
+#define SCANP2_PASSIVE_TIME         60
+#define SCANP2_HOME_TIME            64
+#define SCANP2_FIXED_SIZE           72             /* fmac fwil_types.h:51 BRCMF_SCAN_PARAMS_V2_FIXED_SIZE */
+#define ESCAN_PARAMS_V2_SIZE        (ESCAN_PARAMS + SCANP2_FIXED_SIZE)
+#define DOT11_BSSTYPE_ANY           2              /* fmac fwil_types.h:72 */
+#define SCANTYPE_ACTIVE             0              /* fmac fwil_types.h:62 */
+/* escan result (fmac fwil_types.h:470) and wl_bss_info v109 (dhd wlioctl.h:384-424) */
+#define ESCAN_RES_BSS_COUNT         10             /* u16 */
+#define ESCAN_RES_BSS_INFO          12
+#define BSS_LENGTH                  4              /* u32, record length incl. IEs */
+#define BSS_BSSID                   8
+#define BSS_SSID_LEN                18
+#define BSS_SSID                    19
+#define BSS_CHANSPEC                72
+#define BSS_RSSI                    78             /* s16 dBm */
+#define BSS_CTL_CH                  88
+#define BSS_INFO_MIN_LEN            128            /* v109 fixed part (ie_offset default) */
+#define SCAN_MAX_BSS                64             /* distinct BSSIDs logged */
+#define SCAN_TIMEOUT_MS             10000
+#define SCAN_OK                     0
+#define SCAN_FAILED                 1
+#define SCAN_TIMEOUT                2
+#define SCAN_SKIPPED                3
+#define SCAN_FW_STATUS              4
 
 #endif /* _EXYNOS9820_WLAN_H */

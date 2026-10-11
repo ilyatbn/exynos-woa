@@ -12,6 +12,8 @@ typedef struct _WLAN_MSG_CTX {
     ULONG                 Result;       /* MSG_* */
     UCHAR                 Mac[6];
     BOOLEAN               MacValid;
+    ULONG                 ScanResult;   /* SCAN_* (milestone 4) */
+    ULONG                 BssCount;
 } WLAN_MSG_CTX, *PWLAN_MSG_CTX;
 
 _IRQL_requires_(PASSIVE_LEVEL)

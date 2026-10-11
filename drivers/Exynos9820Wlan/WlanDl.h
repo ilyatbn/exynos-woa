@@ -26,6 +26,7 @@ typedef struct _WLAN_DL_CONFIG {
     ULONG   Msgbuf;                     /* 0 = stop after milestone 2 (fw left running, no DMA); default 1 */
     ULONG   HostCap;                    /* WLAN_HOSTCAP_AUTO (default), WLAN_HOSTCAP_DONT_WRITE, or a literal */
     ULONG   DoorbellDar;                /* 1 = ring the DAR doorbells 0xA20/0xA24 instead of 0x140/0x144 */
+    ULONG   Scan;                       /* milestone 4: 1 (default) = events + one escan after the M3 ioctls */
 } WLAN_DL_CONFIG, *PWLAN_DL_CONFIG;
 
 /* What the download did; also kept in the device context for EvtDeviceReleaseHardware. */

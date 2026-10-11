@@ -293,7 +293,7 @@ device-validated** — MILESTONES row stays `doing`; the device test procedure a
   64 %, Voltage 3948 -> 3942 mV across samples. **The driver -> batclass -> Windows path is live**; Windows
   re-reads status. So an unplug that does not change the icon means the *reading* did not change.
 - Likely cause (code reading, UNVERIFIED on the device): booted with no cable, Beyond0LteUsbHostDxe falls back
-  to OTG boost (CNFG_00 mode 0xE, Pmic.c Max77705...OtgOn, charger engine OFF) and nothing in Windows turns it
+  to OTG boost (CNFG_00 mode 0xE, Pmic.c:397 Max77705VbusOn, charger engine OFF) and nothing in Windows turns it
   off. The phone then drives VBUS itself, so CHGIN_DTLS probably stays "valid" -> "plugged in" forever, and a
   charger plugged in later does not charge (engine off).
 - 1.0.0.3: mode 0xE/0xF (UsbHw.h:320-321 [K]) -> report off line + discharging (BuildStatus), with a
@@ -301,3 +301,4 @@ device-validated** — MILESTONES row stays `doing`; the device test procedure a
   - `Guided` until the user boots without a cable and the Hist lines show ps=2 with CNFG_00 mode E.
   - Charging after a later plug-in needs an attach-driven mode switch (OTG off -> CHG+BUCK). That is policy
     with hardware risk, so it goes to parkinglot/usb-host-hotplug-and-power.md.
+- Review of ed630ca: function citation was vague ('Max77705...OtgOn') -> fixed to Pmic.c:397 Max77705VbusOn. Mode values checked against UsbHw.h:320-321. BuildStatus: boost forces OnLine FALSE, so the existing else-if gives DISCHARGING (no new path).

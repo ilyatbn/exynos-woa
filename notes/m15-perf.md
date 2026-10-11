@@ -33,3 +33,8 @@ Shipped = GOP framebuffer + inbox BasicDisplay + WARP (CPU rendering). => speed 
   storage is the dominant bottleneck. Suspect: the bounce buffer is mapped MmNonCached (UfsMapFirmwareReserved-
   Workspace) and UFS_WIDE_UNCACHED_ACCESS=0 copies it with 4-byte volatile accesses; max transfer 64 KiB.
   Run 23 adds UfsDiag.exe (perf counters: device vs zero-fill vs bounce in/out ticks) to prove the split first.
+- Run 23 (15:12, back 111 s): Windows bugchecked EARLY (before S10eDiag): =UFSBUGCHECK BC=0xED
+  UNMOUNTABLE_BOOT_VOLUME P1 ffffb701573f8060 P2 C0000010 (STATUS_INVALID_DEVICE_REQUEST); boot pair -> TWRP.
+  PRAM ring held run 22's lines with bit-decay. fsck.ntfs -n afterwards: $MFT/$MFTMirr OK, ro mount OK.
+  Re-run unchanged (run 24) to see whether it repeats; suspects if it does: NTFS state after many flushreset
+  returns + installer ntfsfix journal resets; an early UFS driver failure.

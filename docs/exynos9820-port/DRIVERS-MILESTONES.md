@@ -135,7 +135,7 @@ UEFILOG of a real boot shows the reads.
 | Add the audio-bus constants (spi_2, hsi2c_38, USI mode regs, PERIC0/1 pin banks, reset pins, CMU diag offsets) to `Exynos9820.h` | **done** | all from §1, VERIFIED tags with cites; INTREQ__USI17_I2C 428 re-read from the dt-bindings header |
 | Map the new MMIO windows in `PlatformMemoryMapLib` (SPI2, PERIC0/1 USI pages, PERIC1 GPIO, HSI2C38, CMU_PERIC1) | **done** | device memory only; platform build exit 0 (FD 7 340 032 B) |
 | `Beyond0LteAudioProbeDxe`: polled SPI + HSI2C ID reads, save/restore of every touched register, progress guard 0x69, flag `BEYOND0LTE_AUDIO_PROBE` | **done (code + build; device run pending)** | build exit 0, module `...555554 Beyond0LteAudioProbeDxe` in `Guid.xref`; FD sha256 `67f009ab…` |
-| Log the codec rails (S2MPS19 LDO17M/LDO18M CTRL) in `Beyond0LteTouchPowerDxe`'s read pass | todo | DCVDD = LDO18M is not boot-on in the vendor DT |
+| Log the codec rails (S2MPS19 LDO17M/LDO18M CTRL) in `Beyond0LteTouchPowerDxe`'s read pass | **done (code + build)** | DCVDD = LDO18M is not boot-on in the vendor DT; read-only PmicRead of 0x56/0x57 at ReadyToBoot, build exit 0 |
 | Device test: UEFILOG shows codec/amp IDs | todo | **needs-boot** — procedure in `notes/d8-audio-m1.md` §4 |
 | Milestone 2 groundwork: smallest audible path (codec + 3.5 mm jack) — exact task list | todo | design only |
 

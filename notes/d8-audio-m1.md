@@ -208,3 +208,15 @@ Exynos9820.h already cites for CMU blocks).
   * Accepted risks (recorded, not bugs): the PERIC1 GPIO block's own clock
     gate is not checked before its SFRs are read (only the bus PCLK gates
     are); a hang there is caught by the 0x69 guard on the next boot.
+- Task "codec rails log": S2MPS19 L17CTRL 0x56 / L18CTRL 0x57
+  (s2mps19-regulator.h:112-113; LDO17M/LDO18M are children of
+  s2mps19mfd@00, board dtsi:1334-1663 - not the s2mpb02 ldo17/18 at
+  dtsi:1818-1826, which are a different PMIC) read through the existing
+  ACPM PmicRead in TouchPowerDxe's ReadyToBoot pass, after the touch rails,
+  before DVFS, skipped if the IPC broke. Read only. Build exit 0, FD
+  sha256 29de7b4d...
+  Review: Ch at that point is still the PMIC channel (FindChannel(PMIC)
+  earlier in the same function; the DVFS FindChannel comes after). The
+  probe runs at DXE dispatch, this log at ReadyToBoot - so the rail value is
+  read ~seconds after the codec probe; LDO18M is only ever changed by the
+  kernel, so the value is representative of the probe's moment.

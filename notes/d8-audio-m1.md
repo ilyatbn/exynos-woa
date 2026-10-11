@@ -664,13 +664,13 @@ copied verbatim).
 [MR:25, 2323-2343]; default 0 [L92T:122]. "Tone Generator 1" PGA needs SYSCLK [L92:980, 1492]. Mixer source
 "Tone Generator 1" = 0x04 (§4.1). OUT2LMIX_INPUT_1_SOURCE/VOLUME 0x690/0x691, OUT2RMIX 0x698/0x699 [MR:467-476];
 volume [7:1] [MH:74-75], madera_mixer_tlv -32 dB + 1 dB/step [MC:1741] -> 0x40 = 0 dB (reset 0x0080).
-DAC_DIGITAL_VOLUME_2L/2R 0x419/0x41D: VU bit9, MUTE bit8, VOL[7:0] [MR:4446-4456]; madera_digital_tlv -64 dB +
+DAC_DIGITAL_VOLUME_2L/2R 0x419/0x41D: VU bit9, MUTE bit8, VOL[7:0] [MR:4447-4457]; madera_digital_tlv -64 dB +
 0.5 dB/step [MC:1732] -> 0x80 = 0 dB; reset 0x0180 = muted [L92T:273,277].
 OUTPUT_ENABLES_1 0x400: OUT2L_ENA bit3, OUT2R_ENA bit2, EP_SEL bit15 [MR:4258, 4293, 4297]. madera_hp_ev
 [MC:2737-2778] POST_PMU sets the bit, then madera_out_ev sleeps 6 ms per CS47L92/93 output (12 ms L+R)
 [MC:2646-2687]; PRE_PMD clears it, POST_PMD sleeps 1 ms per output [MC:2695-2727].
 HP status: IRQ1_RAW_STATUS_12 0x188B HP2L/R_SC_STS1 bits 2/3; _13 0x188C HP2L/R_ENABLE_DONE_STS1 bits 2/3;
-_14 0x188D HP2L/R_DISABLE_DONE_STS1 bits 2/3 [MR:1516-1518, 8083-8106]; readable [L92T:2198-2208].
+_14 0x188D HP2L/R_DISABLE_DONE_STS1 bits 2/3 [MR:1516-1518, 8069-8170]; readable [L92T:2198-2208].
 HP clamp (CS47L92/93): HEADPHONE_DETECT_0 0x299 HPD_OVD_ENA_SEL bit15 [EXT:859-918, MR:182, 3524]; reset 0 = no
 clamp [L92T:207] -> read only. Charge pump / HP offset: the driver writes nothing beyond the patch's
 write-sequencer entries - the codec's sequencer runs them on OUTnx_ENA. DRE/EDRE default on (0x3F), noise gate
@@ -711,4 +711,12 @@ Mixer source value "Tone Generator 1" = 0x04 [MC:1422-1424 texts, 1574-1576 valu
 - Safety: no AP CMU/PMU/ABOX write; only SPI writes to a codec that ends in hard reset; level -32 dBFS; the amps
   (speaker/receiver) are never enabled (OUT2 feeds only the jack); if no headphones are plugged the output just
   drives the open jack.
+
+### 6.3 Commit reviews (AGENTS.md §4)
+- Review 0b4e1b9 (research notes): re-grepped every cite. [DTBO:1481] routing, [MC:1422-1424/1574-1576] mixer
+  texts/values, [MH:194-197] range TLV, [CORE:41, 905, 917] 32k MCLK2 + patch_fn, [L92:2148] FLL1 base - OK.
+  FOUND: two registers.h ranges were off (HP SC/ENABLE/DISABLE status cited 8083-8106, real headers at
+  8069/8103/8137; DAC volume 4446-4456 -> 4447-4457) - fixed in the follow-up commit. FLLHJ numbers re-derived
+  by a python transliteration of madera_fllhj_apply (scratchpad one-liner): MCLK2 -> N 375 THETA 0 LAMBDA 1
+  FB 4 gains 0x23F0 thr 2; MCLK1 -> refdiv 1 N 22 THETA 0x45A LAMBDA 0x659 FB 1 gains 0x21F0 thr 8 hp 3 fast 3.
 

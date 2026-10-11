@@ -67,3 +67,24 @@ files (`git checkout origin/drivers -- <paths>`), never `git merge`. Plan:
 - BUILD (DEBUG, CLANGPDB, PcieDxe + memory map + SEC clear + DSDT WLAN all in the tree): exit 0,
   `- Done -`, FVMAIN_COMPACT 759104/761856 used, 2752 B free (was ~3136 B before this work);
   BEYOND0LTE_UEFI.fd sha256 4b8abc3f402d5913...0d815. Dsdt.aml contains SAMS9825 + WLST region.
+
+## Review of commits 9e9f5dd (1/5) and 6a0dd62 (2/5)
+
+- FOUND (1/5): the commit also contains the six verbatim origin/drivers PcieDxe files - they were
+  still staged in the index from the initial `git checkout origin/drivers -- <dir>` and `git add
+  <paths>` does not unstage other entries. Harm: none functional (module not in DSC/FDF until 2/5, so
+  not built), but the commit message does not say it. Not rewritten (unpushed, but AGENTS §4: follow-
+  ups, no folding); history now reads "verbatim port in 1/5, fixes in 2/5". Lesson: `git status` before
+  every commit, not after.
+- Checked mechanically: FILE_GUID ...5553 appears once in firmware/ (grep), old names
+  EXYNOS_FSYS1_GPIO_SIZE / BCM4375_EXPECTED_PCI_ID have zero users in firmware/ (grep -w),
+  `git diff --stat 302c285 HEAD -- Star2LtePkg Exynos9810Pkg` empty (9810 tree byte-unchanged),
+  every Stall in the module re-read (only the 100 ms WLAN_EN one changed meaning).
+- Checked by reading: guard sets [1]=0x68 BEFORE the first CMU_FSYS1 read (inside PcieWlanBringUp);
+  [1] restored on every return path (single exit after the call); 'WLAN' only on EFI_SUCCESS, which
+  needs link-up + VID 0x14E4; BAR sizing restores the original value before assigning, handles
+  unimplemented (0), dead (~0), I/O, 64-bit (upper sized, BAR+1 skipped) and does-not-fit BARs;
+  Cursor alignment assumes power-of-two sizes (PCI guarantees it).
+- Accepted risks (recorded, not bugs): ClocksOn writes ACPM/HWACG-owned gates directly (open item
+  P4); a PCIe completion error on the CFG/BAR reads could raise an SError rather than return ~0 -
+  covered by the 0x68 guard (the boot after skips WLAN), not prevented.

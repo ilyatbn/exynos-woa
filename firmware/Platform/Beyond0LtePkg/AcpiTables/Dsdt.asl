@@ -356,5 +356,45 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
                 Return (Zero)
             }
         }
+
+        // M12 WiFi milestone 1 (notes/m12-wifi-m1.md): the BCM4375 WLAN endpoint behind PCIe root
+        // port 0. NOT a PCI bind (docs/exynos9820-port/M12-WIFI-DESIGN.md section 2): Beyond0LtePcieDxe
+        // trains the link, programs the iATU windows, sizes + assigns the EP BARs and latches them;
+        // this device hands the Windows driver exactly the two translated windows.
+        // VERIFIED windows (vendor DT pcie0@13ED0000, Exynos9820.h):
+        //   CFG0 iATU window 0x14FFE000 +0x2000 (bus1 dev0 func0 config)   EXYNOS_PCIE0_CFG_BASE/SIZE
+        //   MEM iATU window  0x14000000 +0xFF0000 (1:1; EP BARs land here)  EXYNOS_PCIE0_MEM_BASE/SIZE
+        // VERIFIED IRQ: INTREQ__PCIE_WIFI0 = 253 -> GSIV 285 (EXYNOS_PCIE0_GSIV), level-high. The UEFI
+        // half does not enable INTx at the root port yet; the milestone-1 driver does not connect it.
+        // The ELBI/DBI/PHY/IA windows are deliberately NOT here: the role-latch contract (same as XHC0)
+        // keeps the controller itself out of the OS path.
+        // _CRS ORDER IS A BINDING CONTRACT: Exynos9820Wlan takes memory descriptor 0 = CFG, 1 = MEM.
+        // _CCA 0: whether the EP's DMA is coherent is open item P5 (the board DT asks for coherency
+        // and SysMMU; we program the sharability bits but run without the SysMMU) - milestone 1 does no
+        // DMA, so the conservative value (Windows does cache maintenance) is used, like XHC0/UFS0.
+        // Present only when Beyond0LtePcieDxe brought the link up this boot and read a Broadcom vendor
+        // ID: it writes 'WLAN' (0x4E414C57) to the progress page word [3], 0x8FE0F00C; SEC clears it.
+        Device (WLAN)
+        {
+            Name (_HID, "SAMS9825")   // project-local ID for the BCM4375 WLAN device (SAMS9821 = UFN0)
+            Name (_UID, Zero)
+            Name (_CCA, Zero)
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, 0x14FFE000, 0x00002000)  // CFG0 window
+                Memory32Fixed (ReadWrite, 0x14000000, 0x00FF0000)  // MEM window (EP BARs)
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)
+                {
+                    285  // VERIFIED: INTREQ__PCIE_WIFI0 253 + 32 (Exynos9820.h EXYNOS_PCIE0_GSIV)
+                }
+            })
+            OperationRegion (WLST, SystemMemory, 0x8FE0F00C, 4)
+            Field (WLST, DWordAcc, NoLock, Preserve) { WLNS, 32 }
+            Method (_STA, 0, NotSerialized)
+            {
+                If (LEqual (WLNS, 0x4E414C57)) { Return (0x0F) }
+                Return (Zero)
+            }
+        }
     }
 }

@@ -311,7 +311,7 @@ tree does not contain.
 | Identify the WLAN hardware in the S10e (live) | **done** | Broadcom **DHD** over Samsung reserved memory + blobs (`bcmdhd_sta.bin`, `nvram_net.txt`) — not a PC wifi card; `notes/dock-desktop.md` §1 |
 | Find existing Windows drivers for Samsung Exynos WLAN | **reopened 2026-10-11 — the old "dead end" was wrong about the bus** | §6 proved only the *platform glue node* has no `reg`. The chip is a **BCM4375 on PCIe root port `pcie_0@0x13ED0000`** (Gen1 x1, INTx, expected `14e4:4475`) — `notes/m12-wifi-chip.md`. No Windows driver exists for it on any arch, so one must be written |
 | Milestone 1: UEFI PCIe link-up (`Beyond0LtePcieDxe`, flag + 0x68 guard + 'WLAN' word) | doing | code-complete + built (`notes/m12-wifi-m1.md`); `Guided` until the device prints `[PCIe] R1: endpoint 14e4:...` |
-| Milestone 1: DSDT `Device (WLAN)` `SAMS9825`, `_STA` gated on 'WLAN' | todo | |
+| Milestone 1: DSDT `Device (WLAN)` `SAMS9825`, `_STA` gated on 'WLAN' | doing | built into Dsdt.aml; `Guided` until Windows shows `ACPI\SAMS9825\0` on a link-up boot |
 | Milestone 1: Windows probe driver reads VID/DID/BARs/chipid | todo | |
 | Decide whether WiFi is required at all when LAN is available | **done** | **LAN-first**; if WiFi is genuinely needed, put a **USB WiFi adapter in the dock** (an ordinary Windows device once M10 works), not the phone's WLAN |
 

@@ -1085,3 +1085,18 @@ stay.flg on the ESP = interactive (no restart); desktop icons "Reboot to TWRP" /
 **Next order:** (1) SMP via the ACPI parking protocol for the 4 A55 cores + hide PSCI from Windows (notes/m14-smp.md,
 in progress); then remove numproc. (2) Power button (ALIVE key-power under pinctrl@15850000). (3) Strip bring-up
 diagnostics. (4) USB device mode (KDNET over USB EEM) as its own milestone.
+
+### §25 update (2026-10-11 16:05): 6 cores, clocks raised, storage 2x
+- BOOT = boot #63; UFS driver w34 (s10e-artifacts\ufs-w23\Exynos9820Ufs-w34.sys, swap with
+  firmware/tools/s10e-swap-ufs.sh). 6 CPUs (A55 x4 + A75 x2) via the ACPI parking protocol, cores started one at a
+  time (notes/m14-smp.md); M4 big cores park but hang Windows' boot (mask 0x3E). FADT without PSCI: Windows
+  restarts cleanly through EFI ResetSystem (runtime DebugLib null); a clean restart does NOT honour INFORM3
+  recovery, so the agent returns to TWRP with `s10ediag flushreset`.
+- Clocks: ACPM DVFS from UEFI (channel 0 = clock-controller@0x1a240000, verified): LITTLE 1.456 GHz, MID 1.794 GHz,
+  INT 400 MHz, behind a 0x66 self-healing guard (notes/m15-perf.md). Ladders from the TWRP kernel sysfs.
+- Storage: w33/w34 (8-byte copies, no pre-zero, cached read copy-back with DC CIVAC) ~2x; remaining limit is
+  ~4 ms per 64 KiB inside the controller at HS-G3x2 Rate B - cause open.
+- Boot screen: no text (BEYOND0LTE_FB_CONSOLE 0) + progress bar; shim bands off.
+- Tools in Windows: s10ediag (peek/poke/mark/flushreset), S10eAgent (ESP scripts, desktop icons incl. Reboot to
+  TWRP / Collect logs / Task Manager / Rotate *), s10erotate, s10eperf.
+- Next: storage controller clocks (FSYS0/UniPro), big cores, rotation test (needs the user), power button.

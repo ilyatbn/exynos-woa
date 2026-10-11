@@ -97,3 +97,7 @@ Shipped = GOP framebuffer + inbox BasicDisplay + WARP (CPU rendering). => speed 
   1690000 1586000 1508000 1404000 1222000 1066000 962000 845000 754000 650000 507000 (1.22 GHz measured = 1222000
   step); devfreq_mif 421000..2093000 (cur 2093000 in TWRP), devfreq_int 100000 200000 267000 400000 534000.
   Boot #63: LITTLE 1456000, MID 1794000, INT 400000 (MIF untouched).
+- Run 32 (boot #63, 16:00): replies echo 1456000 / 1794000 / 400000. Windows: cpu0-3 ~1.45 GHz, cpu4-5 ~1.79 GHz
+  (was 1.22), memcpy 4314 MB/s (was 3330-3535). Disk UNCHANGED (seq read 25.3, raw 64 KiB 4.0 ms, 4 KiB 555 us)
+  => INT is not the storage limiter. Open: UFS core/UniPro clocks (FSYS0), FMP descriptor path, controller
+  config. CPU: ~+40 % LITTLE, ~+47 % MID vs this morning. MIF not touched (TWRP runs it at 2093000).

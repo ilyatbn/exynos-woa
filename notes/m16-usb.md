@@ -370,3 +370,8 @@ Found:
   CCCTRL1_W 0x0C [0x1F] (DRP SrcSnk|SnkSrc|DetEn + Dbg|Aud per beyond0 dts) - never sent by our firmware, the likely
   reason CCStat stays 0 after Linux's shutdown reset. Next firmware task: send it (+ CTRLREG3 LockErrorEn clear),
   then the CC poll should see SOURCE and the fallback becomes a safety net.
+- Run 11 result (user): dock powered + keyboard lit before the logo; replug in Windows also powered; NO keyboard/
+  mouse in Windows. Power path solved (fallback), enumeration not.
+- boot #82 (sha see git log / s10e-artifacts): Max77705CcicInit after the switch: clear UIC..VDM ints, log SYSMsg +
+  CC_STATUS1, CCCTRL1 before, opcode 0x54 [00], CCCTRL1_W 0x0C [1F], read back, CTRLREG3 LockErrorEn clear.
+  Not flashed yet.

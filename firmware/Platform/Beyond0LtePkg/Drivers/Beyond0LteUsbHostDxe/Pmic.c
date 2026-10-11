@@ -575,3 +575,60 @@ Max77705UsbSwitchToAp (VOID)
 
   return Status;
 }
+
+//
+// M16 run 10 (notes/m16-ccic-init.md): after Linux's max77705_usbc_shutdown reset the CCIC sees a termination on CC1
+// but never resolves an attach (CC_STATUS0 0x48, CCStat 0). The kernel's probe - and its own BOOT_POR recovery -
+// configure the port before anything else: opcode 0x54 [0x00] (CCIC auto-VBUS off: the AP switches VBUS) and
+// CCCTRL1_W 0x0C [0x1F] (DRP: SrcSnk | SnkSrc | DetEn + Dbg | Aud, beyond0 dts max77705,support-audio), then
+// CTRLREG3 LockErrorEn (bit1) cleared if set. Our firmware never sent them. Every step is logged; failures are not
+// fatal (the CC poll + fallback boost still run).
+//
+#define MAX77705_OPC_AUTO_VBUS_W    0x54    // [K usbc.c init_opcode: 0x54 [0x00]]
+#define MAX77705_OPC_CCCTRL1_R      0x0B    // [K OPCODE_CCCTRL1_R]
+#define MAX77705_OPC_CCCTRL1_W      0x0C    // [K OPCODE_CCCTRL1_W]
+#define MAX77705_CCCTRL1_DRP_AUD    0x1F    // [K init_opcode(0) with support-audio]
+#define MAX77705_OPC_CTRLREG3_R     0x1C    // [K OPCODE_CTRLREG3_R]
+#define MAX77705_OPC_CTRLREG3_W     0x1D    // [K OPCODE_CTRLREG3_W]
+#define MAX77705_CTRLREG3_LOCKERREN BIT1    // [K pdic_manual_ccopen_request(0)]
+
+VOID
+Max77705CcicInit (VOID)
+{
+  UINT8  Reg;
+  UINT8  Data;
+  UINT8  Resp[2];
+  UINT8  Status1;
+  UINT8  SysMsg;
+
+  // Clear latched interrupt status (UIC/CC/PD/VDM), then log what the CCIC reports before we configure it.
+  for (Reg = MAX77705_UIC_INT; Reg <= 0x05; Reg++) {
+    (VOID)Max77705RegRead (MAX77705_CCIC_ADDR, Reg, &Data);
+  }
+
+  SysMsg = Status1 = 0;
+  (VOID)Max77705RegRead (MAX77705_CCIC_ADDR, 0x07, &SysMsg);
+  (VOID)Max77705RegRead (MAX77705_CCIC_ADDR, 0x0B, &Status1);
+  DEBUG ((DEBUG_INFO, "%a: SYSMsg %x CC_STATUS1 %x (VSAFE0V %u AttachSrcErr %u ConnStat(water) %u)\n", __func__, SysMsg,
+          Status1, (Status1 >> 3) & 1, (Status1 >> 2) & 1, (Status1 >> 1) & 1));
+
+  Resp[0] = Resp[1] = 0;
+  (VOID)Max77705Opcode (MAX77705_OPC_CCCTRL1_R, NULL, 0, Resp, 2);
+  DEBUG ((DEBUG_INFO, "%a: CCCTRL1 before = %x\n", __func__, Resp[1]));
+
+  Data = 0x00;
+  (VOID)Max77705Opcode (MAX77705_OPC_AUTO_VBUS_W, &Data, 1, Resp, 2);
+  Data = MAX77705_CCCTRL1_DRP_AUD;
+  (VOID)Max77705Opcode (MAX77705_OPC_CCCTRL1_W, &Data, 1, Resp, 2);
+  Resp[1] = 0;
+  (VOID)Max77705Opcode (MAX77705_OPC_CCCTRL1_R, NULL, 0, Resp, 2);
+  DEBUG ((DEBUG_INFO, "%a: CCCTRL1 after = %x (want %x)\n", __func__, Resp[1], MAX77705_CCCTRL1_DRP_AUD));
+
+  Resp[1] = 0;
+  if (!EFI_ERROR (Max77705Opcode (MAX77705_OPC_CTRLREG3_R, NULL, 0, Resp, 2)) &&
+      ((Resp[1] & MAX77705_CTRLREG3_LOCKERREN) != 0)) {
+    Data = (UINT8)(Resp[1] & ~MAX77705_CTRLREG3_LOCKERREN);
+    (VOID)Max77705Opcode (MAX77705_OPC_CTRLREG3_W, &Data, 1, Resp, 2);
+    DEBUG ((DEBUG_INFO, "%a: CTRLREG3 LockErrorEn cleared (%x)\n", __func__, Data));
+  }
+}

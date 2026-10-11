@@ -177,6 +177,7 @@ UsbHostBringUp (
     // never enumerated in M16 runs 1-5 (notes/m17-muic-switch.md). Route it to the AP before the controller starts.
     if (CcicOk) {
       (VOID)Max77705UsbSwitchToAp ();
+      Max77705CcicInit ();
     }
     // Battery PoC read (notes/battery-driver.md): proves the gauge path and
     // gives a boot-time SOC we can cross-check against Android. Report-only;

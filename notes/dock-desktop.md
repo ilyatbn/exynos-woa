@@ -712,7 +712,7 @@ order:
 | processor | MPIDR | DT identity | `/proc/cpuinfo` implementer/part |
 |---|---|---|---|
 | 0–3 | `0x000`–`0x005`… i.e. 0x0, 0x1, 0x2, 0x3 | `ananke` | 0x41 / 0xd05 (Cortex-A55 class) |
-| 4–5 | 0x4, 0x5 | `prometheus` | 0x41 / 0xd0a |
+| 4–5 | 0x4, 0x5 | `prometheus` | 0x41 / 0xd0a (live read) — **open conflict 2026-10-11**: the shipped Android 12 kernel's MIDR-shaped constants carry 0xd05/0xd09 (A55/A75) and no 0xd0a; 4.14 predates A76 errata code so absence proves little. Closing read: re-dump `/proc/cpuinfo` on the phone |
 | 6–7 | **0x100, 0x101** | `cheetah` | 0x53 (Samsung) / 0x003 |
 
 *(fact)* **Two MPIDR clusters, sized 6 + 2** — Aff1 = 0 for the six ARM cores and

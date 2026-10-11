@@ -63,7 +63,8 @@
 //
 // ProcessorPowerEfficiencyClass: 0 = highest performance. The S10e has THREE
 // classes, not two: the Samsung-implemented pair is the fastest, the ARM
-// 0xd0a pair is the middle cluster, and the four A55s are the LITTLE side.
+// middle pair (prometheus; live MIDR read 0xd0a vs kernel constant 0xd09 —
+// open, see notes/psci-parking.md), and the four A55s are the LITTLE side.
 //
 #define EFF_BIG     0
 #define EFF_MID     1

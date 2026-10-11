@@ -14,7 +14,9 @@ Nothing here is "done" until it is cross-checked against the dump itself.
   8 CPUs, **two MPIDR clusters 6+2** — `cpu@0000`–`cpu@0005` (Aff1=0),
   `cpu@0100`–`cpu@0101` (Aff1=1); **three efficiency classes**:
   `arm,ananke` (Cortex-A55 class, MIDR 0x41/0xd05), `arm,prometheus`
-  (0x41/0xd0a), `arm,cheetah` (Samsung 0x53/0x003). `enable-method = "psci"`.
+  (live MIDR read says 0x41/0xd0a; the shipped kernel's MIDR-shaped
+  constants say 0xd09/A75 — unresolved conflict, see `notes/psci-parking.md`),
+  `arm,cheetah` (Samsung 0x53/0x003). `enable-method = "psci"`.
 - ACPI side is published: MADT GICC ×8, DSDT `_MAT` ×8, PPTT = package →
   3 efficiency classes → 8 cores (`notes/m8-acpi.md`, `Madt.aslc`, `Pptt.aslc`).
 - CMU block addresses from Samsung's own calibration table

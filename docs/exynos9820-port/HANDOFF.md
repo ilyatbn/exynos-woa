@@ -979,3 +979,35 @@ Everything below is committed; `git log --oneline` since `d60bbb0` is the work.
 - **Next unblocked:** D6 research (DP alt mode over the combo PHY) — stretch;
   or start the D5b rung-1 scoping (DECON display-only WDDM) if the user
   prioritizes external display.
+
+## 22. Restart point — CPU-driver research (2026-10-11, Android 12 dump pass)
+
+**Committed** (all on `drivers`, identity `ilyatbn` verified first):
+- `67612d8` tooling + shipped-DT facts; `39d6041` the ACPM DVFS protocol;
+  `ffea46c` + `1589600` + `b2168a8` review fixes. Notes:
+  **`notes/cpu-driver-9820.md` F1–F11** — read that file first.
+- Tools: `tools/dump-tools/` (fdt.py with the Samsung v40-DTB layout,
+  sbootimg.py, sparse_img.py, dtsift.py, xref.py, test_fdt.py green).
+  venv there (git-ignored). Extracted artefacts under `dumps/hhxj6/`
+  (git-ignored `dumps/`): base.dtb/dts, 7 SKU overlays, kernel, cm.bin,
+  vendor.raw (ext4), PIT, source cross-checks in `src/`.
+- The Android 12 dump: `/home/ilya/Downloads/firmware/*.md5` are the real
+  ODIN tars (G970FXXUHHXJ6); members lz4. Windows NTFS volume is mounted
+  rw at `/media/ilya/6CD6B182D6B14CD8` (813 GB free) for staging.
+
+**Headline finding:** 9820 CPU DVFS is **ACPM-IPC, not CMU MMIO** —
+4×u32 `{idx|seq<<16, kHz, opcode, 0}` on channel 5 (idx 2/3/4 = LITTLE/
+MID/BIG), doorbell `INTGR0=(1<<ch)<<16` at `0x15900000`, rings in ACPM
+SRAM `0x2039000+0x30000` (framework @+0x7000), OPP+voltages readable as
+plain memory (fvmap, plugin base + `0xa400`). Verified in the shipped
+kernel binary (F11). One protocol covers all three core types.
+
+**Nothing in flight.** Next, in order:
+1. D7 row 2 (one safe read, needs the phone on Windows/TWRP):
+   `cat /sys/fs/pstore/console-ramoops*` (grep `CPUFREQ of domain`) or
+   `dd if=/dev/block/platform/13d60000.ufs/by-name/ACPM bs=4096 count=35`
+   → the shipped OPP+voltage ladder; parse with the F9 fvmap layout.
+2. D7 row 3: Windows CPU-driver design doc (KMDF, polling mode, fvmap at
+   init, thermal clamp from F6 trips; PPTT perf ranks from F5).
+3. Firmware follow-up: PPTT performance-counters from F5 (272/531/785);
+   ACPM device + SPI 40 (GSIV 72) into the DSDT when the driver lands.

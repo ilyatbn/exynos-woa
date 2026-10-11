@@ -14,3 +14,7 @@ User: "the hard job of adding at least 1 more core and as much ram as possible".
 - Run 10 plan: drivers/S10eDiag/esp/extra-ramprobe.cmd - from Windows (EL1 under Samsung EL2), single-word
   MMIO-mapped reads of 0x8C0000000, 0x900000000, 0x940000000, 0x97FFFF000, 0x88AD00000, then write/readback/restore
   at 0x8C0000000 and 0x940000000, last 0x880000000; a mark before each step. The first abort names the address.
+- Run 10 (12:00): Windows restarted itself at 192 s uptime, before the agent (S10eDiag loaded 60 s) - the second
+  chkdsk /spotfix (run 9's extra-touch.cmd scheduled it again) repairs and restarts; restart -> 0xA0 PSCI ->
+  S10eDiag reset -> TWRP. RAM probe never ran. Mark ring decoded after a firmware bounce (0x81 hardening worked:
+  the bounce dumped instead of continuing). Re-run = run 11 (12:16).

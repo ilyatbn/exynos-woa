@@ -27,3 +27,9 @@ Shipped = GOP framebuffer + inbox BasicDisplay + WARP (CPU rendering). => speed 
   (tmp_index != rear) can never pass, so ch5 must be driven through a path I have not traced - left to the
   user's CPU-research branch (drivers: notes/cpu-driver-9820.md) instead of guessing. winsat -> banner only as
   SYSTEM. Next: s10eperf.exe (own cpu/mem/disk numbers), run 22.
+- Run 22 (s10eperf, 15:06, back 244 s): cpu0-3 (A55) ~1.02-1.05 GHz, cpu4-5 (A75) ~1.22 GHz (dependent XOR/ADD
+  chain - an estimate; DT ceilings 1.95 / 2.4 GHz) => CPUs at roughly half speed. memcpy 3330 MB/s (fine).
+  DISK: seq write 15.5 MB/s, seq read 11.2 MB/s, random 4K 1172 IOPS (QD1) - UFS 2.1 does hundreds of MB/s =>
+  storage is the dominant bottleneck. Suspect: the bounce buffer is mapped MmNonCached (UfsMapFirmwareReserved-
+  Workspace) and UFS_WIDE_UNCACHED_ACCESS=0 copies it with 4-byte volatile accesses; max transfer 64 KiB.
+  Run 23 adds UfsDiag.exe (perf counters: device vs zero-fill vs bounce in/out ticks) to prove the split first.

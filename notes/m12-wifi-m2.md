@@ -139,3 +139,19 @@ file -> registry `NvramFile`, default `nvram.txt_1rh_es43_b1`.
 - BAR sizes used by the driver come from the device-validated UEFI print of boot #88 (m1 notes): BAR0 64-bit
   0x10000 @0x14000000, BAR2 64-bit 0x400000 @0x14400000. The driver does not re-size BARs (no BAR writes);
   it checks BAR2 is 64-bit, upper dword 0, 4 MB aligned and fits the MEM window.
+
+## RESULT (boot #92 + driver 1.0.2.0, unattended, 2026-10-12 ~01:43) - FIRMWARE RUNS. Milestone 2 DEVICE-VALIDATED
+- EROM @0x18111000, 12 cores: CC 0x800 r64 @0x18000000, D11 0x812 r82 x2, ARMCR4 0x83E r15 @0x18002000 wrap
+  0x18102000, PCIE2 0x83C r64 @0x18003000, 0x844 r2, GCI 0x840 @0x18010000, PMU 0x827 r35 @0x18012000, SR 0x841 x3,
+  0x240 @0x19000000.
+- OTP CIS @0x18011120: 80 02 00 0B 80 03 02 00 13 80 03 1B ... -> vid 0x5133 -> SEMCO -> nvram.txt_CS01_semco_b1
+  (12247 B -> 8848 B, token 0xF75C08A3 = the offline python port exactly).
+- CR4 cap 0x00351585, 13 banks -> RAM 0x170000..0x300000 (1600 KB). fw @0x170000, nvram @0x2FDD70, seed
+  @0x2FDCE8, 0 read-back mismatches; reset instr 0xBBDCF186.
+- pcie_shared at 0x0024F8BC after 180 ms; flags 0x30040007 (version 7, no trap/assert); console 0x002ACB4C;
+  fwid 0x1B4772FD. Console: "RTE (SDIO-PCIE-MSGBUF) 18.41.117 (B1 Network/rsdb) on BCM4375 r5 @ 37.4/160.0/
+  400.0MHz", "pciemsgbuf0: Broadcom PCIE MSGBUF driver", wl0 (5G) + wl1 (2G) "Broadcom BCM4375 802.11 Wireless
+  Controller", "ThreadX v5.6 initialized".
+- Cosmetic: report header still says "milestone-1 probe" (string edit missed) - fix with milestone 3.
+- Next = milestone 3: msgbuf rings (bus mastering + DMA buffers in the PCIe window), D2H/H2D mailboxes, first
+  firmware ioctl (cur_etheraddr / ver), then the NDIS layer.

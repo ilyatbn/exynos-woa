@@ -13,3 +13,6 @@ UNVERIFIED: that sboot's FDT at x0 survives until DXE (log line "no valid FDT at
 flag text; the framebuffer pixel order (only white/red used); that a warm reset from LPM boots normally.
 Test: shutdown Windows (power menu), plug charger -> expect the battery bar; hold power -> Windows; unplug -> off.
 Every boot logs "ChargerMode: sboot FDT at ..., bootargs ...", so even a normal boot verifies the FDT path.
+- boot #88 (sha 7e7e1219…) = main ff30e87: charger mode + stay.flg boot pair + audio probe DXE (0x69 guard) + WiFi
+  PCIe DXE (0x68 guard). Build exit 0. FVMAIN_COMPACT 99 % full (784 B free of 0xBB000) -> FOLLOW-UP before the
+  next DXE: grow the compressed FV / FD region (Beyond0LtePkg.fdf).

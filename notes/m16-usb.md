@@ -315,3 +315,14 @@ Found:
   stays on BOOT (XHC0 hidden, USB bring-up in UEFI); unattended Setup (specialize + oobe, ~1.5 h on 1 core).
 - Afterwards (as in §24/§25): W37 power hive edit + s10e-install-diag.sh need `reg load` = an ELEVATED shell
   (this session is not); touch/HSI2C via pnputil inside Windows; BCD numproc.
+- 19:05 transfer EXIT 0 (win-w5 windows.img, 11.7 GiB written + verified; ESP files refreshed in place - old
+  UEFILOG/WINPRAM/S10EDIAG\out stay). Log: s10e-artifacts\win-w5\transfer-20261011.log.
+- Fresh BCD = installer default numproc 4 + testsigning. User: we had 6 cores (A55x4 + A75x2 via parking,
+  mask 0x3E) → numproc must go. bcdedit /store is Access denied unelevated →
+- New: firmware/tools/s10e-setupcomplete.cmd placed as C:\Windows\Setup\Scripts\SetupComplete.cmd by
+  firmware/tools/s10e-provision-fresh.sh (TWRP, no elevation): bcdedit /deletevalue numproc, W37 power keys,
+  S10eDiag/S10eAgent via sc create + tools, mountmgr NoAutoMount + mountvol D..Z /D, test cert + pnputil
+  Exynos9820Hsi2c (touch-t2) + S6SY761TouchBeyond0 (touch-hold = 6.0.5058.5). Log C:\S10eProv\setupcomplete.log.
+- Provisioned: UFS w34 on device sha 8ea93ce8… = host. First run's umount hit "busy" (set -e stopped before the
+  ESP step; finished by hand) → retry loop added. ESP S10EDIAG: collect/desktop.cmd fresh, no extra.cmd, no
+  WINRUN.FLG, stay.flg kept (interactive). BOOT = boot #71 (XHC0 hidden).

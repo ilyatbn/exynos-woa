@@ -21,7 +21,8 @@
     * MPIDR affinity:  TWO clusters, sized 6 + 2 — cpu@0000..cpu@0005 (Aff1=0)
       and cpu@0100,cpu@0101 (Aff1=1). This is what the MADT's MPIDR column carries.
     * Efficiency classes: THREE — ananke/LITTLE (4), prometheus/MID (2),
-      cheetah/BIG (2). This is what the MADT's ProcessorPowerEfficiencyClass carries.
+      cheetah/BIG (2). This is what the MADT's ProcessorPowerEfficiencyClass carries
+      (as EFF_LITTLE 0 < EFF_MID 1 < EFF_BIG 2 - ACPI: lower = more efficient).
 
   The PPTT's cluster level follows the THREE EFFICIENCY CLASSES, not the two MPIDR
   clusters. Reason: the PPTT type-0 node has no MPIDR field — MPIDR lives only in the

@@ -173,3 +173,13 @@ No device access in this task; build-verified only (Guided, not Ready).
   collision: offering even one M4 (real, unique MPIDR) kills Windows early - the M4 running Windows' processor
   start/init path (CPU feature / system-register difference on Samsung's custom core, or EL2/EL3 reaction).
   Needs kernel-level debugging (KDNET/USB) - parked. Defaults restored: mask 0x3E, REAL_MPIDR 0 (= boot #63).
+
+## MADT efficiency classes were inverted (2026-10-11, user question on big.LITTLE scheduling)
+- ACPI 6.0+ GICC ProcessorPowerEfficiencyClass: "lower efficiency class numbers are more efficient than higher
+  ones" (Linux arch/arm64/include/asm/acpi.h comment; Windows uses the field to pick cores for foreground/high-QoS
+  work). Madt.aslc (from the 9810) had EFF_BIG 0 / MID 1 / LITTLE 2 with the comment "0 = highest performance" ->
+  Windows saw the four A55s as its FASTEST class and the A75 pair as middle.
+- Fixed: EFF_LITTLE 0, EFF_MID 1, EFF_BIG 2 (Pptt.aslc comment updated; no code reads the macros elsewhere).
+  Built; compiled MADT decoded: uid 0-3 eff 0, uid 4-5 eff 1, uid 6-7 eff 2. Device effect UNVERIFIED (expect
+  foreground threads on CPU 4/5; check Task Manager per-core load under a single-threaded load).
+- No DVFS from Windows (no PEP/_CPC): clocks are fixed by UEFI (LITTLE 1.456 GHz, MID 1.794 GHz, notes/m15-perf.md).

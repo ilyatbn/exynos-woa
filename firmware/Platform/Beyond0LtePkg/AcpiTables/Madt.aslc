@@ -61,13 +61,16 @@
 #define MPIDR_CORE(Cluster, Cpu)  (((Cluster) << 8) | (Cpu))
 
 //
-// ProcessorPowerEfficiencyClass: 0 = highest performance. The S10e has THREE
-// classes, not two: the Samsung-implemented pair is the fastest, the ARM
-// 0xd0a pair is the middle cluster, and the four A55s are the LITTLE side.
+// ProcessorPowerEfficiencyClass (ACPI 6.0+): "lower efficiency class numbers
+// are more efficient than higher ones" - 0 is the MOST EFFICIENT (LITTLE) class,
+// the highest number the fastest. The 9810 table had this inverted (0 = big),
+// which made Windows treat the A55s as its fastest cores and steer foreground
+// threads onto them (notes/m14-smp.md, 2026-10-11). The S10e has THREE classes:
+// the four A55s (LITTLE), the ARM 0xd0a pair (MID), the Samsung M4 pair (BIG).
 //
-#define EFF_BIG     0
+#define EFF_LITTLE  0
 #define EFF_MID     1
-#define EFF_LITTLE  2
+#define EFF_BIG     2
 
 //
 // Uniprocessor-boot isolation knob, kept from the 9810 flow: with it set, only

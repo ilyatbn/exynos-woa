@@ -224,3 +224,10 @@ hang (notes/m14-smp.md: "Needs kernel-level debugging (KDNET/USB) - parked"), ea
 - boot #75 (sha 8d5329a5…): KD device path applies the TWRP-read PHY bits after UsbPhyInit (HSREWA_CTRL
   DIG_BYPASS_CON_EN, HSPCTRL RETENABLE_EN, HSPPARACON = 0xC16F3337, CLKRST LINK_PCLK_SEL + 3 ms), with PHY dumps
   before/after in UEFILOG; attach probe still on. Host mode unchanged.
+- boot #75 result: Windows logo, no spinner (new hang). UEFILOG: PHY before = LINKCTRL 53FF0 LINKPORT 1107C
+  CLKRST 1004 UTMI 30 HSP 10003300 TUNE C12F3537 TEST 80000 REWA_CTRL 10000000 -> REWA bypass and RETENABLE
+  were ALREADY set (prime suspect wrong; the PHY wrapper == Linux except TUNE, CLKRST LINK_PCLK_SEL and
+  LINKCTRL FORCE_PIPE_EN). With LINK_PCLK_SEL=1 the link never left Disconnected and the core would not halt
+  (100 ms) -> dead link clock (SS PHY held down) -> kd module hang. Reverted (boot #76, sha 3e992f62…), device
+  tune kept; probe now also logs PHY LINESTATE per change + a per-state ms histogram.
+- Remaining suspect: the MAX77705 USB-C D+/D- switch (research -> notes/m17-muic-switch.md).

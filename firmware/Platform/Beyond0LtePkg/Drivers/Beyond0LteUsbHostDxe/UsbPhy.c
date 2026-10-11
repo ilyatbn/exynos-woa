@@ -234,7 +234,7 @@ UsbPhyDeviceModeDeltas (VOID)
   MmioWrite32 (PHY0 + USBCON_HSREWA_CTRL, MmioRead32 (PHY0 + USBCON_HSREWA_CTRL) | HSREWA_DIG_BYPASS_CON_EN);
   MmioWrite32 (PHY0 + USBCON_HSP, MmioRead32 (PHY0 + USBCON_HSP) | HSP_RETENABLE_EN);
   MmioWrite32 (PHY0 + USBCON_HSP_TUNE, USBCON_HSP_TUNE_DEVICE);
-  MmioWrite32 (PHY0 + USBCON_CLKRST, MmioRead32 (PHY0 + USBCON_CLKRST) | CLKRST_LINK_PCLK_SEL);
-  gBS->Stall (3000);   // [K g2_link_pclk_sel: mdelay(3) after LINK_PCLK_SEL]
+  // NOT CLKRST LINK_PCLK_SEL: Linux has it set because its SS PHY runs; with ours held down it moved the link to a
+  // dead clock - boot #75 link never left Disconnected, the core would not halt and Windows' kd module hung.
   UsbPhyDump ("after ");
 }

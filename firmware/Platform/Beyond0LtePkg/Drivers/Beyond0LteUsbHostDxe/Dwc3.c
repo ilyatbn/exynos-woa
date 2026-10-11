@@ -82,20 +82,29 @@ Dwc3DeviceAttachProbe (VOID)
   UINT32  Last;
   UINTN   Ms;
   UINTN   Changes;
+  UINT32  Line;
+  UINT32  LastLine;
+  UINTN   LineCount[4];
 
   Dwc3EventBufferSetup ();
   MmioWrite32 (DWC3 + DWC3_DCFG, (MmioRead32 (DWC3 + DWC3_DCFG) & ~0x7u));  // DEVSPD 0 = high speed
   MmioWrite32 (DWC3 + DWC3_DCTL, MmioRead32 (DWC3 + DWC3_DCTL) | DCTL_RUN_STOP);
-  Last    = 0xFFFFFFFF;
-  Changes = 0;
+  Last     = 0xFFFFFFFF;
+  LastLine = 0xFF;
+  Changes  = 0;
+  ZeroMem (LineCount, sizeof (LineCount));
   for (Ms = 0; Ms < ATTACH_PROBE_MS; Ms++) {
     // DSTS: [2:0] CONNECTSPD, [21:18] USBLNKST (0 = U0/ON, 4 = SS.Disabled, 5 = Rx.Detect, 3 = U3/suspend),
     // [22] DEVCTRLHLT. SOFFN [16:3] ticks every microframe once a host drives the bus - masked out here.
+    // PHY LINESTATE (HSPTEST [21:20]): what the transceiver sees on D+/D- - 0 SE0, 1 J, 2 K, 3 SE1.
     Dsts = MmioRead32 (DWC3 + DWC3_DSTS) & ~(0x3FFFu << 3);
-    if ((Dsts != Last) && (Changes < 24)) {
-      DEBUG ((DEBUG_INFO, "Dwc3AttachProbe: t=%u ms DSTS %x (speed %u linkst %u halted %u) GEVNTCOUNT %x\n", Ms, Dsts,
-              Dsts & 7, (Dsts >> 18) & 0xF, (Dsts >> 22) & 1, MmioRead32 (DWC3 + DWC3_GEVNTCOUNT (0))));
-      Last = Dsts;
+    Line = (MmioRead32 (EXYNOS_USBDRD_PHY_BASE + USBCON_HSP_TEST) >> 20) & 3;
+    LineCount[Line]++;
+    if (((Dsts != Last) || (Line != LastLine)) && (Changes < 24)) {
+      DEBUG ((DEBUG_INFO, "Dwc3AttachProbe: t=%u ms DSTS %x (speed %u linkst %u halted %u) linestate %u GEVNTCOUNT %x\n",
+              Ms, Dsts, Dsts & 7, (Dsts >> 18) & 0xF, (Dsts >> 22) & 1, Line, MmioRead32 (DWC3 + DWC3_GEVNTCOUNT (0))));
+      Last     = Dsts;
+      LastLine = Line;
       Changes++;
     }
 
@@ -111,8 +120,9 @@ Dwc3DeviceAttachProbe (VOID)
     gBS->Stall (1000);
   }
 
-  DEBUG ((DEBUG_INFO, "Dwc3AttachProbe: done, %u DSTS changes, SOFFN %x, halted after %u ms\n", Changes,
-          (MmioRead32 (DWC3 + DWC3_DSTS) >> 3) & 0x3FFF, Ms));
+  DEBUG ((DEBUG_INFO, "Dwc3AttachProbe: done, %u changes, SOFFN %x, halted after %u ms, linestate ms SE0 %u J %u K %u SE1 %u\n",
+          Changes, (MmioRead32 (DWC3 + DWC3_DSTS) >> 3) & 0x3FFF, Ms, LineCount[0], LineCount[1], LineCount[2],
+          LineCount[3]));
 }
 
 STATIC

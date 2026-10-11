@@ -1,4 +1,4 @@
-# Driver milestones (phase two) — USB host, hub, HID, WiFi, GPU/display
+# Driver milestones (phase two) — USB host, hub, HID, WiFi, GPU/display, audio + buttons
 
 This file is the plan of record for the **driver work stream**, run in parallel with
 the boot work stream (M8/M9 in [`MILESTONES.md`](MILESTONES.md)). It expands the
@@ -51,6 +51,7 @@ ACPI/Windows half remains.
 | D4 | WiFi: USB adapter path chosen + validated (vendor bcmdhd stays closed) | **doing** | research + choice **done** (`notes/d4-usb-wifi.md`): no USB WiFi driver exists for ARM64 — decision is PicoPiFi (Pico W, driverless RNDIS) as the WiFi option, dock ethernet (M13) stays primary; device validation rides on D1/D3 |
 | D5 | GPU/display: framebuffer deliverable decided; Mali WDDM reopened as D5b | **doing** | research + verdict **done** (`notes/d5-gpu-display.md` + addendum): shipped-code deliverable is GOP + in-box BasicDisplay; acceleration reopened after the S9 WDDM report — kbase r10p0 source is already in the 9820 kernel, feasibility inventory (D5b) is next; fb handoff validation still **needs-boot** |
 | D6 | External display (DP alt mode over the combo PHY) — stretch | **doing** | research + hub ID + decision **done** (`notes/d6-external-display.md`): user's UGREEN HDMI = DP alt mode (no DisplayLink chip) -> dark under Windows until a display-only WDDM exists (D5b rung 1); DisplayLink adapter is the buy-it-now alternative; DeX-on-Android validation recorded |
+| D8 | Audio (speaker/mic/volume) + hardware buttons | **doing** | research **done** (`notes/d8-audio.md`, `notes/d8-audio-linux.md`, `notes/d8-audio-windows.md`): hardware fully identified from the shipped dump — ABOX DSP + CS47L93 codec (SPI) + 2× CS35L40 amps (I2C) + DMIC mics; buttons are 4 ALIVE-GPIO EINTs. Buttons = GpioClx provider + ACPI0011 (inbox Hidinterrupt.sys) — buildable now; audio = ladder (USB dongle now / portcls+ABOX-direct next / Calliope parity last) |
 
 ## Task list
 
@@ -120,6 +121,22 @@ ACPI/Windows half remains.
 | Close the shipped OPP+voltage ladder values | **todo — one safe read** | pstore `console-ramoops` from TWRP (kernel prints `CPUFREQ of domain…` at boot) or 143 KB `by-name/ACPM` dump; both read-only, F10 |
 | Design doc: Windows CPU driver (KMDF, polling-mode ACPM IPC, fvmap read at init, thermal clamp from DT trips) | **todo** | one uniform protocol covers all three core types — the M4/prometheus/ananke differences are hidden inside the ACPM; PPTT performance ranks from F5 (272/531/785 DMIPS) |
 | Implement + device-validate | **todo** | bar: Windows can set/get each cluster's frequency; nothing is Ready until observed |
+
+### D8 — Audio (speakers, mic, volume) + hardware buttons
+
+| Task | State | Notes |
+|------|-------|-------|
+| Research: identify the audio hardware + buttons from the shipped Android 12 dump (DT, vendor firmware, kernel strings) | **done** | `notes/d8-audio.md` §1: ABOX audio DSP (`abox@18c50000`, 2×CA32 "Calliope" cores, 12 RDMA/8 WDMA/4 UAIF/1 DSIF), sound card `samsung,beyond-madera`, codec **Cirrus CS47L93 on spi_2** (irq gpa2-2, reset gpg1-0), **2× CS35L40 SmartAmp on hsi2c_38** @0x40/0x41 (bot=right/bottom spk, rcv=left/receiver), DMICs into CS47L93 IN3L/IN4L, mics/headphone/jack all codec-side; buttons = `gpio-keys` on ALIVE GPIO: VOLUP gpa0-3, VOLDN gpa0-4, POWER gpa2-4, BIXBY gpa0-6 |
+| Research: Linux/Android driver stack (abox, beyond_madera, madera, cs35l40) + mainline status | **done** | `notes/d8-audio-linux.md`: full source map + line refs; ABOX **not mainlined** (Samsung's 2025 upstream attempt = ExynosAuto only); madera mainline (CS47L93 via cs47l92.c); cs35l40 folded into mainline cs35l41 family; **no firmware-free playback mode exists in the vendor driver** — the DSP programs the DMA buffers; UAIF format/enable IS AP-owned |
+| Research: Windows prior art (portcls/ACX on ARM64, Cirrus Windows drivers, WoA audio status, button mechanisms) | **done** | `notes/d8-audio-windows.md`: portcls works non-PCI (SimpleAudioSample ROOT device); ACX = modern class extension built for DSP+codec+amp stacks; **Mu-Silicium audio ❌ on every Exynos target — no prior art to copy**; Cirrus Windows packs binary-only behind click-through, no CS47L93/CS35L40 pack; buttons: **ACPI0011 + inbox Hidinterrupt.sys + GpioClx** is the native path (exact _DSD format captured); usbaudio2.sys inbox on ARM64 |
+| Fix: Beyond0 touch port carried 9810 ALIVE-GPIO constants (base 0x14050000, GPA1_CON 0x040) — probe would fail on the S10e | **done** | found while pinning the EINT map (`notes/d8-audio.md` §4); base→0x15850000, CON/PUD→0x020/0x028; EINT constants proven correct for 9820 |
+| Constants: ALIVE GPIO bank/EINT register map + key GSIVs + ABOX windows into `Exynos9820.h` | **doing** | all VERIFIED this session from vendor pinctrl + dt-bindings (`notes/d8-audio.md` §3): banks gpa0..gpa4 @0x000..0x080, EINT_CON 0x700+4/bank, FLTCON 0x800+8/bank, MASK 0x900, PENDING 0xA00; keys = GSIV 40/41/43/57 |
+| DSDT: ALIVE GPIO controller device + `Device (BTNS)` ACPI0011 with 4 GpioInt + _DSD button usages | **doing** | format = learn.microsoft.com ACPI0011 desktop sample; Power=0x01/0x81, VolUp=0x0C/0xE9, VolDn=0x0C/0xEA, Bixby=0x0C/0x221 |
+| Windows driver: `Exynos9820Gpio` — GpioClx provider for the ALIVE block (SimGpio skeleton, Exynos bank/EINT registers) | **doing** | unblocks Hidinterrupt for buttons AND the codec/amp/jack IRQs for D8-audio later; ActiveBoth via GpioClx level+polarity emulation |
+| Device test: volume/power/Bixby buttons under Windows | todo | **needs-windows + needs-boot** |
+| Audio rung 0 (interim): USB-C audio dongle under XHC0 — zero driver work | **done — decision** | usbaudio2.sys inbox ARM64 (`notes/d8-audio-windows.md` Q4); rides entirely on D1/D3 |
+| Audio rung 1 (the driver project): portcls WaveRT miniport (SimpleAudioSample skeleton) + ABOX UAIF/RDMA programmed directly (SPUS/SPUM router RE from `calliope2.dt`) + CS47L93 (needs an Exynos SPI/USI master driver) + CS35L40 over our HSI2C driver | todo | ladder + blockers in `notes/d8-audio-linux.md` Q2/Q3 + `notes/d8-audio-windows.md` Q1 bottom line; codec rails LDO17M(1.8V always-on)/LDO18M(1.2V) via S2MPS19 — check state at handoff instead of re-programming |
+| Audio rung 2 (parity): Calliope IPC (rings 0x850000/0x854000, SGI doorbell 0x18CF1F00) + load calliope_*.bin from the device's own /vendor at install time — never commit the blobs | todo | proprietary-firmware posture + licensing in `notes/d8-audio-windows.md` Q5; ABOX GIC may be EL3-secured (boot hazard note in linux notes) |
 
 ## Working rules for this file
 

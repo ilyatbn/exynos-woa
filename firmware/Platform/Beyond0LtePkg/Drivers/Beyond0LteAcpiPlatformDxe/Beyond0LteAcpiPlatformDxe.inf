@@ -24,6 +24,11 @@
 
 [Sources]
   Beyond0LteAcpiPlatformDxe.c
+  Beyond0LteParking.c              # m14: ACPI parking protocol (BEYOND0LTE_SMP_PARKING)
+  Beyond0LteParking.h
+
+[Sources.AARCH64]
+  AArch64/Beyond0LteParkStub.S     # m14: parking stub, copied into each mailbox page
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -36,6 +41,9 @@
   BaseMemoryLib
   CacheMaintenanceLib
   DebugLib
+  ArmLib                          ## m14: ArmReadMpidr (already linked through CacheMaintenanceLib)
+  ArmSmcLib                       ## m14: PSCI 0.1 CPU_ON
+  TimerLib                        ## m14: MicroSecondDelay (no Metronome dependency)
 
 [Protocols]
   gEfiAcpiTableProtocolGuid       ## CONSUMES

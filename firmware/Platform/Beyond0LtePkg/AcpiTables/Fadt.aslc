@@ -6,7 +6,7 @@
   almost every field below is 0. The fields that matter are:
     - Flags        -> HW_REDUCED_ACPI (+ low-power S0 idle + reset register)
     - ResetReg     -> Exynos PMU SWRESET, used because EL3 lacks PSCI SYSTEM_RESET
-    - ArmBootArch  -> PSCI_COMPLIANT (Windows still uses PSCI for CPU on/off)
+    - ArmBootArch  -> PSCI_COMPLIANT only when BEYOND0LTE_FADT_PSCI (m14: off with parking)
 
   The DSDT pointer (XDsdt) is filled in at install time by the AcpiPlatformDxe, so
   it is left 0 here.
@@ -90,9 +90,17 @@ EFI_ACPI_6_3_FIXED_ACPI_DESCRIPTION_TABLE  Fadt = {
     EFI_ACPI_6_3_RESET_REG_SUP,
   BEYOND0LTE_RESET_GAS,                           // ResetReg: PMU SWRESET (offset UNVERIFIED)
   EXYNOS_PMU_SWRESET_VALUE,                       // ResetValue: 2 (W32: VERIFIED, same sites)
-  // ArmBootArch: PSCI remains required for secondary-CPU lifecycle operations.
-  // UNVERIFIED on the S10e — our EL3 monitor's PSCI compliance is unconfirmed.
+  // ArmBootArch (m14, Beyond0LteAcpiHeader.h BEYOND0LTE_FADT_PSCI). The EL3 is
+  // PSCI 0.1 (live DT /psci, m10 W8): CPU_ON/CPU_OFF/CPU_SUSPEND only, so a
+  // PSCI_COMPLIANT FADT makes Windows reset through SYSTEM_RESET, which fails
+  // (0xA0, m11 run 5). With the parking protocol on, the flag is cleared: the
+  // secondaries come from the MADT mailboxes and restart uses ResetReg above.
+  // That Windows accepts a non-PSCI FADT is UNVERIFIED on this device.
+#if BEYOND0LTE_FADT_PSCI
   EFI_ACPI_6_3_ARM_PSCI_COMPLIANT,
+#else
+  0,
+#endif
   EFI_ACPI_6_3_FIXED_ACPI_DESCRIPTION_TABLE_MINOR_REVISION,
   0,                                              // XFirmwareCtrl
   0,                                              // XDsdt (set by installer)

@@ -18,7 +18,7 @@
 
 [Sources]
   Dsdt.asl                       # CPU baseline plus supported HSI2C10/SEC_TS touch path (already ported)
-  Fadt.aslc                      # Fixed table: HW-reduced + PSCI (PSCI compliance UNVERIFIED on this SoC)
+  Fadt.aslc                      # Fixed table: HW-reduced, PMU reset reg, PSCI flag per BEYOND0LTE_FADT_PSCI (m14)
   Madt.aslc                      # GIC: GICC per core, GICD (GICv2; node is cortex-a15/a9-gic, NOT arm,gic-400)
   Pptt.aslc                      # Processor topology: package / 3 efficiency-class clusters / 8 cores
   Gtdt.aslc                      # ARMv8 architected generic timer (counter freq UNVERIFIED on this SoC)

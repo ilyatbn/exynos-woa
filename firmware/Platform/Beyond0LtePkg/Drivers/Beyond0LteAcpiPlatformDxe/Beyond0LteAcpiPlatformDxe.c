@@ -22,6 +22,8 @@
 #include <Library/CacheMaintenanceLib.h>
 #include <Platform/Exynos9820.h>
 #include <Guid/EventGroup.h>
+#include "../../AcpiTables/Beyond0LteAcpiHeader.h"   // m14 BEYOND0LTE_SMP_PARKING
+#include "Beyond0LteParking.h"
 
 //
 // m10 W17: winload's heap overwrites a callee-saved register slot on the firmware stack
@@ -462,6 +464,15 @@ Beyond0LteAcpiPlatformEntry (
         if (Header->Signature == EFI_ACPI_6_3_GENERIC_TIMER_DESCRIPTION_TABLE_SIGNATURE) {
           Beyond0LtePatchGtdt (Header);
         }
+        #if BEYOND0LTE_SMP_PARKING
+        //
+        // m14: start the parked secondaries and publish their mailboxes in this
+        // MADT before it is installed (the installer recomputes the checksum).
+        //
+        if (Header->Signature == EFI_ACPI_6_3_MULTIPLE_APIC_DESCRIPTION_TABLE_SIGNATURE) {
+          Beyond0LteParkSecondaries (Header);
+        }
+        #endif
         TableKey = 0;
         Status = AcpiTable->InstallAcpiTable (AcpiTable, Header, Header->Length, &TableKey);
         #if BEYOND0LTE_PRAM_DIAG

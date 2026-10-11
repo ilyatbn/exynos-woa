@@ -28,6 +28,48 @@
 #define NULL_GAS  { EFI_ACPI_6_3_SYSTEM_MEMORY, 0, 0, EFI_ACPI_6_3_UNDEFINED, 0 }
 
 //
+// m14 (notes/m14-smp.md): Windows SMP through the ACPI Multiprocessor Parking
+// Protocol. Shared by Fadt.aslc and Beyond0LteAcpiPlatformDxe (which starts the
+// cores and patches the MADT), so both sides see the same switches.
+//
+// BEYOND0LTE_SMP_PARKING 1: at MADT install time the DXE PSCI-0.1 CPU_ONs every
+//   secondary in BEYOND0LTE_SMP_PARK_MASK into a firmware parking stub and fills
+//   that GICC's ParkingProtocolVersion/ParkedAddress. Every other ENABLED
+//   secondary GICC is marked disabled (with PSCI off Windows could not start it).
+//   0: MADT untouched (all eight GICCs enabled, PSCI CPU_ON - today's image).
+//
+// BEYOND0LTE_SMP_PARK_MASK: bit n = the n-th GICC in Madt.aslc (0-3 A55, 4-5
+//   prometheus, 6-7 cheetah). Default 0x0E = the three secondary A55s. The boot
+//   core (MPIDR == MPIDR_EL1) is always skipped. The mid/big cores are NOT
+//   parked by default: on the 9810 a PSCI CPU_ON of a big core never returned
+//   and took the SoC down (Star2LtePkg PBML STAR2LTE_PSCI_PARK block); on the
+//   9820 that is untested.
+//
+// BEYOND0LTE_FADT_PSCI: FADT ArmBootArch PSCI_COMPLIANT. Default = !PARKING:
+//   with parking on, Windows must stop using PSCI (it calls SYSTEM_RESET
+//   0x84000009, which Samsung's PSCI 0.1 EL3 answers NOT_SUPPORTED -> bugcheck
+//   0xA0, notes/m11-s10ediag.md run 5) and fall back to the FADT reset register
+//   (PMU SWRESET, VERIFIED W32). Whether this Windows build boots with a
+//   non-PSCI FADT is UNVERIFIED; set 1 to get the S9's proven combination
+//   (PSCI_COMPLIANT + parked GICCs) back without touching anything else.
+//
+#ifndef BEYOND0LTE_SMP_PARKING
+#define BEYOND0LTE_SMP_PARKING  1
+#endif
+
+#ifndef BEYOND0LTE_SMP_PARK_MASK
+#define BEYOND0LTE_SMP_PARK_MASK  0x0Eu
+#endif
+
+#ifndef BEYOND0LTE_FADT_PSCI
+#if BEYOND0LTE_SMP_PARKING
+#define BEYOND0LTE_FADT_PSCI  0
+#else
+#define BEYOND0LTE_FADT_PSCI  1
+#endif
+#endif
+
+//
 // Standard ACPI table header initializer. 'Signature' and 'Type' (the C struct
 // type) and 'Revision' are table-specific; everything else is platform-wide.
 //

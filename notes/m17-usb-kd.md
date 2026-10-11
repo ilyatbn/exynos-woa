@@ -239,3 +239,14 @@ hang (notes/m14-smp.md: "Needs kernel-level debugging (KDNET/USB) - parked"), ea
   (and likely M16's dark dock).
 - boot #77 (sha 582d4b46…): KD path = PmicBusInit -> Max77705UsbSwitchToAp (log FW rev, BC_STATUS, STATUS1/2,
   CONTROL1 before, write 0x09, read back) -> PmicBusRelease -> PHY -> DWC3 -> attach probe (+linestate).
+
+## WORKING (2026-10-11 21:21) - Windows kernel debugging over USB on the S10e
+- boot #77 (MAX77705 COM switch -> USB-AP) + BCD debug on: host enumerated "Windows KDNET USB-EEM Network
+  Adapter" USB\VID_045E&PID_064D 38 s after `adb reboot`; WinDbgX: "Connected to target 169.254.88.67 on port
+  50005 on local IP 169.254.1.2 ... Connected to Windows 10 22621 ARM 64-bit (AArch64) target ... Kernel Debugger
+  connection established", Kernel base 0xfffff800`41800000, uptime 0:00:04 (1 proc at that point - parked cores
+  start later). User confirmed. ROOT CAUSE of "no attach": the USB-C D+/D- switch left OPEN by Linux's shutdown.
+- Fixes that were all needed: GUSB2PHYCFG SUSPHY/ENBLSLPM cleared at handoff + FIX2 phase-1 (kd module hang),
+  COM switch to USB-AP (attach). DBG2 0x8003/0x5143 type 5, busparams 0 as designed.
+- Follow-ups (own tasks): (1) attach probe off (8 s boot cost; diagnostic answered); (2) apply the COM-switch fix
+  to the M16 host path (dock/keyboard) - same open switch; (3) device-mode PHY tune kept from TWRP read, review.

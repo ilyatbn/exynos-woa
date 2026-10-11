@@ -128,3 +128,11 @@ Found:
 - Fix: snapshot FS1/FS2/FS3/SLA(0x6C)/CONF/TIMEOUT at handoff (bootloader = working reference), Hsi2cReset()
   = SW_RST pulse + restore + kernel init writes + INT ack; used at init and after timeout/error/busy.
   The `_BOOT` constants stay in UsbHw.h but are no longer used.
+
+### Run 2 (boot #67) — flashed 2026-10-11
+- boot67-v2.img sha256 239bb3a0…18db (verified on the partition) = 524e8ab: DWC_usb31 accepted, HSI2C45
+  timing preserved across reset, register dumps, client probe, CC poll gated on the CCIC answering.
+- Expect in UEFILOG: `Hsi2c45 at handoff/after init` dumps, `PmicBusProbe: client …`, `Dwc3HostInit:
+  DWC_usb31 GSNPSID 33313130 VER_NUMBER …`, then either `CC source attach … VBUS boost on` or the reason.
+- Open for later: charger register protection (kernel unlocks CHG_CNFG_06 CHGPROT before CNFG writes) -
+  read CNFG_02 back after the OTG_ILIM write once the bus answers.

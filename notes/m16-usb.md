@@ -440,3 +440,4 @@ Found:
   keyboard+mouse via the dock = OTG budget (900 mA) -> try 1.2/1.5 A; HDMI needs SS + PD/DP alt mode.
 - Follow-up (own commit): make the "de-isolate + clean teardown" state explicit in the USB2-only path, so it does
   not depend on a failed SS attempt (and skip the 2x100 ms PLL polls once SS is known not to lock).
+- boot #86: OTG_ILIM 1.2 A (CNFG_02 bits 7:6 = 10) - test dock + mouse + lit mechanical keyboard.

@@ -410,7 +410,8 @@ Max77705VbusOn (VOID)
 
   // M16 run 13: 500 mA ran a keyboard/mouse but a flash drive enumerated only on the 2nd try and an NVMe
   // enclosure / DisplayLink dock never held a connection. Linux uses 900 mA (TWRP read CNFG_02 0x4A).
-  Reg = (UINT8)((Reg & ~0xC0) | (MAX77705_OTG_ILIM_900MA << 6));
+  // Run 15: dock + mouse fine at 900 mA, dock + mouse + a lit mechanical keyboard drops out -> 1.2 A test.
+  Reg = (UINT8)((Reg & ~0xC0) | (MAX77705_OTG_ILIM_1200MA << 6));
   Status = Max77705RegWrite (MAX77705_CHG_ADDR, MAX77705_CHG_CNFG_02, Reg);
   if (EFI_ERROR (Status)) {
     return Status;

@@ -60,3 +60,49 @@ hang (notes/m14-smp.md: "Needs kernel-level debugging (KDNET/USB) - parked"), ea
 - Notes: PC host presents Rp -> CCIC settles SINK (d1-usb-host.md:528-534), so device mode needs no VBUS boost;
   no real VBUS-present register known (HSP_TEST linestate = proxy, UsbHw.h:115). Mu-Silicium UsbfnDwc3Dxe works
   only on 9830 (d1-usb-host.md:268-290).
+- Public Qualcomm DBG2 example (SDM845, from QC reference ACPI): https://raw.githubusercontent.com/silime/oneplus-sdm845-acpi/HEAD/Common/dbg2.aslc
+  (original Renegade copy: https://git.renegade-project.org/?a=blob_plain&f=Common%2Fdbg2.aslc&hb=refs%2Fheads%2Fmaster&p=edk2-sdm845-acpi.git - host down 2026-10-11).
+  Entry 0 = UART KDCOM (0x8000/0x0011). Entries 1,2 = KDNET on SNPS controller: PortType 0x8003, Subtype 0x5143,
+  DDI Revision field 1 (!= spec's 0), 2 GAS both = DWC3 base (0x0A600000), AddressSize {0xFFFFF, 0x1000},
+  Namespace "\_SB.URS0", OemData = ACPI_DEBUG_DEVICE_OEM_DATA_V3: PortType(ctrl type)=5 USBFN_SYNOPSYS
+  (1=USBFN ChipIdea-era, 3=USBFN_BUFFERED), Reserved 0, Signature 'FIX2', WriteCount, 8x{BAR idx u8, Phase u8
+  (1=after reset,2=config done,3=connect done), rsvd u16, Offset u32, AND u32, OR u32}, then {UsbCore u8, rsvd, rsvd,
+  'USBC'}. Writes used: DCFG(0xC700) &= ~7 (force HighSpeed), QC QSCRATCH 0xF8810 |= 0x10100000 (VBUS valid override).
+  Table rev 1. => per-SoC PHY/glue quirks are expressed as OEM register writes; module itself is SNPS-generic (INFERRED).
+- Serial fallback: MS UART library (WDK kdserial sample, mirrored at https://github.com/HTC-Leo-Revival-Project/KdSerial ,
+  "Copyright (c) Microsoft") has sam5250.c = DBG2 serial subtype 0x000A (hardware.c table index 0xA). Registers
+  ULCON 0x00/UCON 0x04/UFCON 0x08/UTRSTAT 0x10/UERSTAT 0x14/UFSTAT 0x18/UTXH 0x20/URXH 0x24/UINTP 0x30/UINTM 0x38,
+  TX-full = UFSTAT bit24, RX-ready = UTRSTAT bit0 = same s3c/exynos UART layout as 9820 (INFERRED compatible).
+  Init writes UCON=0, ULCON=3, UFCON=1, UINTM=0xF, UINTP=0xF, UCON=5. SetBaud does NOTHING ("no way to determine
+  reference clock") -> firmware must leave UART clock + UBRDIV/UFRACVAL programmed (115200 from sboot/UEFI).
+- Custom kd modules: https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/kdserial-extensibility-code-samples
+  - unsigned custom kdcom.dll loads only with testsigning AND boot debugger connected; not used for boot debugger.
+- LOCAL VERIFICATION: our own ARM64 22631 image ships it: C:\Users\ilya\code\s10e-artifacts\win-w5\out\esp\EFI\Microsoft\Boot\kd_8003_5143.dll
+  (64480 B, PE machine aa64, FileDescription "Qualcomm Network Kernel Debug Extensibility Module", 10.0.22621.2506).
+  Same ESP also has kdstub.dll, kdnet_uart16550.dll, kd_07_1415.dll, kd_02_*. (System32 copy not checked - install.wim
+  needs elevated DISM; ISO 7z 9.13 too old.) Strings: both "Chipidea Controller" and "Synopsys Controller" backends;
+  UsbFnMpSynopsys*; only DWC3 *device* regs logged (GCTL, DCTL, DCFG, GEVNTADR Hi/Lo, GEVNTSIZ, GEVNTCOUNT, DEVTEN/DSTS);
+  ResetController/RestartController; "Device Speed HS/SS", BOS SS descriptor; two personalities "KdNet VirtEth" (WINUSB
+  compat ID) and "KdNet EEM" (EEM selected via SET_CONTROL_LINE_STATE). NO PHY/clock/Qualcomm-PHY strings ->
+  firmware must leave PHY+clocks+glue powered; SoC glue quirks go via DBG2 OEM 'FIX2' writes (INFERRED from strings).
+- Opcode scan of kd_8003_5143.dll (movz immediates): uses DWC3 offsets 0xC110 (GCTL), 0xC200 (GUSB2PHYCFG), 0xC2C0
+  (GUSB3PIPECTL), 0xC700 (DCFG), 0xC704 (DCTL); NO 0xC120 (GSNPSID) / 0x5533 / 0x3331 immediates -> no visible core-ID
+  gate (heuristic, INFERRED) - DWC_usb31 1.70a should not be rejected by ID check.
+- Exynos device-mode glue already in tree: Beyond0LteUsbHostDxe/UsbHw.h UTMI_FORCE_VBUSVALID BIT5 / UTMI_FORCE_BVALID
+  BIT4 ("device-mode only"), LINKCTRL_DIS_QACT_BVALID BIT9 -> candidates for UEFI pre-set or DBG2 FIX2 writes via BAR1=PHY.
+- Fallback serial: 619k ID resistor = JIG_UART_ON on Samsung MUIC (S7 guide https://xdaforums.com/t/guide-samsung-galaxy-s7-uart.3743895/ ,
+  jig https://github.com/Otus9051/uart-usb-jig) - S10e Type-C routing not verified.
+- KDUSB (DBG2 0x8002/0x0000) requires xHCI DbC -> ruled out (DebugCapSupOffset 0xFFFFFFFF).
+- CONCLUSION: route = DBG2 entry 1 PortType 0x8003 Subtype 0x5143 (inbox, MS-signed, Synopsys backend), base
+  0x10C00000; firmware leaves PHY/clocks/VBUS-valid set; DCFG forced HS via FIX2; bcdedit net hostip 169.254.255.255
+  busparams 1. Serial SAM5250 (0x8000/0x000A) as entry 0 if a UART cable path exists.
+- Verified locally (2026-10-11): win-w5 ESP EFI\Microsoft\Boot\kd_8003_5143.dll = PE machine 0xAA64, contains
+  'UsbFnMpSynopsys'; kdstub.dll + kd_02_* + kdnet_uart16550 alongside.
+
+## Task plan (one commit each)
+- T1 firmware: Beyond0LteUsbHostDxe gets a KD-device mode (flag): PMU de-iso + USB2 PHY init + UTMI/HSP VBUS
+  fake, DWC3 left powered in device role, no xHCI registration, no VBUS boost, XHC0 stays hidden.
+- T2 ACPI: a DSDT device for the controller in function mode (the DBG2 namespace target).
+- T3 ACPI: Dbg2.aslc - one Net entry 0x8003/0x5143, BAR = DWC3, OemData FIX2 (DCFG HS), into AcpiTables.inf.
+- T4 Windows: bcdedit /dbgsettings net hostip:169.254.255.255 port:50005 key + busparams 0 + /debug on.
+- T5 host: WinDbg -k net:port=50005,key=...; link test (USB 3 Type-A port + C-to-A cable).

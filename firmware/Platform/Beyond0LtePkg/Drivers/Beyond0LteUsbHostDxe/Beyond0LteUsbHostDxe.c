@@ -41,13 +41,13 @@
 // M16 run 7: 0 = bring USB up in UEFI but keep XHC0 hidden from Windows (no 'USBH' word). Every boot
 // after the first one in which Windows installed usbxhci on XHC0 (run 4) bugchecks 0x14C, even on the
 // run-4 image itself - this isolates Windows' early-boot USBXHCI start on our controller.
-#define BEYOND0LTE_USB_EXPOSE_TO_WINDOWS  0
+#define BEYOND0LTE_USB_EXPOSE_TO_WINDOWS  1   // M17: back on - run 8 cleared usbxhci of the 0x14C (still bugchecked hidden)
 
 // M17 (notes/m17-usb-kd.md): 1 = bring the port up as a USB DEVICE for Windows kernel debugging (KDNET over
 // USB EEM, inbox kd_8003_5143.dll via ACPI DBG2) instead of as a host. PHY + DWC3 in device role, no PMIC
 // traffic (a PC host's Rp settles the CCIC to SINK by itself, no VBUS boost), no UEFI xHCI, XHC0 hidden;
 // status word 'USBD' makes the DSDT's UFN0 (the DBG2 namespace device) present.
-#define BEYOND0LTE_USB_KD_DEVICE  1
+#define BEYOND0LTE_USB_KD_DEVICE  0   // 1 = KD image (boot #78), 0 = host/dock image; BCD debug must match
 
 // Boot progress page (0x8FE0F000, WINPRAM, EfiRuntimeServicesData): [0] = the previous boot's last code,
 // [1] = this boot's, [2] = USB status (cleared in SEC, ArmPlatformLib.c). The USB clock gates are
@@ -173,6 +173,11 @@ UsbHostBringUp (
             __func__, Status));
   } else {
     CcicOk = PmicBusProbe ();   // M16 run 2: which MAX77705 clients answer
+    // M17 finding: the USB-C D+/D- switch is left OPEN by Linux's shutdown on every reboot - the reason the dock
+    // never enumerated in M16 runs 1-5 (notes/m17-muic-switch.md). Route it to the AP before the controller starts.
+    if (CcicOk) {
+      (VOID)Max77705UsbSwitchToAp ();
+    }
     // Battery PoC read (notes/battery-driver.md): proves the gauge path and
     // gives a boot-time SOC we can cross-check against Android. Report-only;
     // a failure here must never affect host bring-up.

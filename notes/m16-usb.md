@@ -337,3 +337,12 @@ Found:
   on later boots (agent.log "request: reboot to TWRP" 5 s after collect; the delete was lost once in the
   flushreset). Fix: S10eAgent discards request files present at its start (stale). Built (s10ediag-m17),
   S10eAgent.exe deployed (sha 80652877… = host). WINRUN.FLG removed by the stage script.
+
+### M17 finding applied to the host path (2026-10-11 ~21:30)
+- Root cause for the dark dock in runs 1-5 (INFERRED, test pending): the MAX77705 USB-C D+/D- switch is left OPEN by
+  Linux's shutdown (notes/m17-muic-switch.md); M17 proved the same open switch blocked device mode. UsbHostBringUp
+  now calls Max77705UsbSwitchToAp after PmicBusProbe (logged before/after CONTROL1).
+- BEYOND0LTE_USB_EXPOSE_TO_WINDOWS back to 1 (run 8 showed the 0x14C persisted with XHC0 hidden, so usbxhci was not
+  its cause; fresh install since). BEYOND0LTE_USB_KD_DEVICE default 0 = host image.
+- boot #79 (sha cbf70f68…) = host/dock image; boot #78 = KD image. BCD debug must be OFF with #79 (the kd module
+  would claim the same DWC3).

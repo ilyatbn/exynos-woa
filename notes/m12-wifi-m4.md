@@ -51,3 +51,17 @@ BSS (BSSID, SSID, channel, RSSI) the firmware reports. Proves the radio receives
     - rateset {count u32 @52, rates[16] @56}, chanspec u16 @72, atim @74, dtim u8 @76, RSSI s16 @78,
       phy_noise @80, n_cap @81, nbss_cap @84, ctl_ch @88;
     - ie_offset @116, ie_length @120, SNR @124 (size 128).
+- Cross-check closed: dhd `wl_bss_info_v109_t` (wlioctl.h:384-424, explicit padding fields) gives the same
+  offsets:
+  - BSSID @8, SSID_len @18, SSID @19, rateset @52/56, chanspec @72, dtim @76, RSSI s16 @78, ctl_ch @88;
+  - ie_offset u16 @116, ie_length u32 @120, SNR @124.
+- escan start (fmac cfg80211.c:1447-1488, run_escan + escan_prep :~1100):
+  - v1 path when the fw lacks FEAT_SCAN_V2: version 1 (wlioctl.h:871 ESCAN_REQ_VERSION 1), action 1
+    (wlioctl_defs.h:307 WL_SCAN_ACTION_START), sync_id;
+  - params v1: bssid ff*6, bss_type 2, scan_type 0 (active), nprobes/active/passive/home = -1, channel_num 0
+    (all channels), empty ssid;
+  - size 8 + 64 (BRCMF_SCAN_PARAMS_FIXED_SIZE fwil_types.h:50 = dhd WL_SCAN_PARAMS_FIXED_SIZE wlioctl.h:907).
+  - Sent as SET_VAR "escan".
+- Results: event 69 with status 8 PARTIAL per batch (bcmevent.h:330), final status 0 SUCCESS (fweh.h:118).
+  Event mask: WL_EVENTING_MASK_LEN 16 (wlioctl_defs.h:1438), bit 69 = byte 8 bit 5; GET "event_msgs", set
+  bit, SET.

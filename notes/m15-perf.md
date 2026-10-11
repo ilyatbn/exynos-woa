@@ -57,3 +57,6 @@ Shipped = GOP framebuffer + inbox BasicDisplay + WARP (CPU rendering). => speed 
   "dc CIVAC,x8" and "mrs x8,CTR_EL0". Early mark "=CACHED BOUNCE line=" records line size + mapping success.
 - Run 25 (w33, 15:21, back 208 s): disk seq write 26.2 MB/s (was 16.5), seq read 20.1 (11.2), random 4K 2314
   IOPS (1422); PER_READ_US DEVICE 128, ZERO 0, COPYBACK 126 (was 286); desktop at 84 s (was ~104). Next: w34.
+- Run 26 (15:25): the w34 swap FAILED silently - /tmp/win missing in TWRP (tmpfs cleared), ntfs mount failed,
+  adb push landed in TWRP's tmpfs. Run 26 = w33 again (a repeat measurement). Swap procedure must mkdir the
+  mount point and refuse to push unless the rw mount is confirmed.

@@ -1161,3 +1161,7 @@ worktree branches; merge, build, test unattended.
 remove extra.cmd. Battery floor: < 15 % -> park in TWRP 30 min (memory: unattended-battery-floor).
 **Parking lot:** parkinglot/usb-host-hotplug-and-power.md, parkinglot/touch-double-tap.md. KD auto-role (device
 when VBUS in, host otherwise; DBG2 only in device role) is the next debugging improvement.
+**§29 update (2026-10-12 ~01:45).** BOOT = boot #92 (0f2cd533…: #91 + audio 1b). Validated unattended:
+battery charging under Windows (charger WDT kick), audio 1b (both CS35L40 + CS47L93 IDs, LDO18M on), WiFi
+milestone 2 (BCM4375 firmware 18.41.117 running, SEMCO module, driver 1.0.2.0 swapped into DriverStore, blobs in
+C:\Windows\System32\drivers\bcm4375\). In flight (subagents): WiFi M3 (msgbuf + first ioctl), audio M2 (tone to jack).

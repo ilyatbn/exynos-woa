@@ -137,3 +137,20 @@ Exynos9820.h already cites for CMU blocks).
   0x10800000 +0x8000 (read-only diagnostics).
 - Progress code 0x69 (free: grep of firmware/Platform + bootshim shows
   0x60,61,63,65,66,67,70,71,72,80 in use; 0x68 reserved for PCIe WLAN).
+
+## 2. Commit reviews (AGENTS.md §4)
+
+- bc71273 (facts + task list) review: checked mechanically that the
+  pinctrl_N -> exynos9820_pin_banksN mapping is by alias order
+  (exynos9820.dts:49-56 pinctrl0..7 = pinctrl_0..7; exynos9820_pin_ctrl[]
+  index 5 = banks5 "PERIC0", index 6 = banks6 "PERIC1"), and cross-checked
+  against the device-validated Windows touch driver: gpp1 CON at 0x020 of
+  0x10430000 (drivers/Exynos9820Hsi2c/exynos9820hsi2c.h:84) == banks5 gpp1
+  @0x020. Bank table use is therefore proven on hardware for PERIC0.
+  CS47L93 ID 0x6371 confirmed: madera-core accepts only the *_SILICON_ID
+  list and CS47L93 has no own entry, so a CS47L93 must read 0x6371 or the
+  shipped kernel would reject it. No follow-ups.
+- Task "port f22718a": `git cherry-pick f22718a` applied clean onto main
+  (header-only, +79). Duplicate-#define check: `grep -o '#define NAME' |
+  sort | uniq -d` on Exynos9820.h = empty. Amended to carry the milestone
+  move + this note + attribution (same commit, per §3).

@@ -1,0 +1,68 @@
+;
+; S10eBattery.inf - Galaxy S10e (Exynos 9820) MAX77705 battery miniclass driver.
+; Binds the DSDT device \_SB.BAT0 (ACPI\SAMS9826). notes/battery-driver-m1.md.
+; Install sections follow Microsoft's simbatt sample INF (MIT): Include=battery.inf / Needs=Battery_Inst pulls in
+; the inbox battery class (battc.sys) setup.
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = Battery
+ClassGuid   = {72631e54-78a4-11d0-bcf7-00aa00b7b32a}
+Provider    = %ProviderString%
+DriverVer   = 10/12/2026,1.0.0.1
+CatalogFile = S10eBattery.cat
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskDesc%,,,""
+
+[SourceDisksFiles]
+S10eBattery.sys = 1,,
+
+[Manufacturer]
+%ManufacturerString% = Standard,NTarm64.10.0...16299
+
+[Standard.NTarm64.10.0...16299]
+%DeviceDesc% = S10eBattery_Device, ACPI\SAMS9826
+
+[S10eBattery_Device.NT]
+CopyFiles = S10eBattery_Device_Drivers
+Include   = battery.inf
+Needs     = Battery_Inst
+
+[S10eBattery_Device.NT.HW]
+AddReg = S10eBattery_Device.NT.AddReg
+
+[S10eBattery_Device.NT.AddReg]
+HKR,,Security,,"D:P(A;;GA;;;AU)(A;;GA;;;S-1-15-2-1)"  ; simbatt: allow authenticated users and appcontainers
+
+[S10eBattery_Device_Drivers]
+S10eBattery.sys
+
+[S10eBattery_Device.NT.Services]
+AddService = S10eBattery,%SPSVCINST_ASSOCSERVICE%,S10eBattery_Service_Inst
+
+[S10eBattery_Service_Inst]
+DisplayName   = %ServiceDesc%
+ServiceType   = 1               ; SERVICE_KERNEL_DRIVER
+StartType     = 3               ; SERVICE_DEMAND_START
+ErrorControl  = 1               ; SERVICE_ERROR_NORMAL
+ServiceBinary = %13%\S10eBattery.sys
+
+[S10eBattery_Device.NT.Wdf]
+KmdfService = S10eBattery,S10eBattery_Wdf
+
+[S10eBattery_Wdf]
+KmdfLibraryVersion = 1.15
+
+[Strings]
+SPSVCINST_ASSOCSERVICE = 0x00000002
+ProviderString         = "exynos-woa"
+ManufacturerString     = "Samsung Electronics Co."
+DiskDesc               = "Galaxy S10e Battery Installation Disk"
+DeviceDesc             = "Galaxy S10e Battery (MAX77705 fuel gauge)"
+ServiceDesc            = "Galaxy S10e Battery"

@@ -1,0 +1,42 @@
+## @file
+#  Brings the S10e's PCIe root port 0 up in UEFI (clocks, PHY, PERST#, link
+#  training, iATU MEM+CFG0, endpoint BAR0+COMMAND) and latches that state for
+#  the Windows WLAN miniport to inherit — the firmware half of M12/D4b. The
+#  sequence is a transliteration of the shipping exynos9820 kernel's
+#  pcie-exynos-host-v0.c + pci-exynos9820_cal.c (notes/m12-wifi-chip.md).
+#  No EDK2 PCI root bridge is registered: the single 4K CFG0 iATU window
+#  cannot back a 2-bus ECAM contract (docs/exynos9820-port/M12-WIFI-DESIGN.md
+#  section 2). Nothing here is validated on an S10e yet.
+#
+#  FILE_GUID 11111111-2222-3333-4444-555555555549 is this module's BUILD
+#  IDENTITY, not a hardware read.
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = Beyond0LtePcieDxe
+  FILE_GUID                      = 11111111-2222-3333-4444-555555555549
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 0.1
+  ENTRY_POINT                    = Beyond0LtePcieEntry
+
+[Sources]
+  Beyond0LtePcieDxe.c
+  PcieLink.c
+  PciePhy.c
+  PcieHw.h
+  PcieInternal.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  Silicon/Exynos9820Pkg/Exynos9820Pkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  DebugLib
+  IoLib
+  BaseLib
+
+[Depex]
+  gEfiCpuArchProtocolGuid

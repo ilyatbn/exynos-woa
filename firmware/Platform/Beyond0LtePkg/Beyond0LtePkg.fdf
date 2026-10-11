@@ -267,6 +267,10 @@
   INF MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf
   INF MdeModulePkg/Bus/Usb/UsbMouseDxe/UsbMouseDxe.inf
 
+  # --- PCIe root port 0 (M12/D4b): link-up to the BCM4375 WLAN endpoint,
+  #     iATU + EP BAR0 latched for the Windows miniport (rung R1). ---
+  INF Platform/Beyond0LtePkg/Drivers/Beyond0LtePcieDxe/Beyond0LtePcieDxe.inf
+
   #
   # --- BDS: finds and launches the Windows Boot Manager ---
   #

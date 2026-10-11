@@ -229,6 +229,29 @@ phy_check_rx_elecidle` (lines 396-412). For **ch0 (the WiFi port)** the sequence
 
 https://raw.githubusercontent.com/LineageOS/android_kernel_samsung_exynos9820/lineage-23.2/drivers/pci/dwc/pci-exynos9820_cal.c
 
+## Review of the Beyond0LtePcieDxe commit (2026-10-11)
+
+Checked the transliteration line-by-line against v0.c:1217-1341/2447-2506 and
+cal.c:31-394: word-vs-byte indexing (Phy[I] = +i*4 ✓, TRSV at word 0x30+I =
+byte (0x30+i)*4 ✓), PWRCTL offsets 0x80/0x15C = 0x20*4/0x57*4 ✓, IA base-addr
+values ✓, QCH_SEL mask 0xFF0|0xF0|0xF ✓ (PMU/APB/AXI), L1-exit bits 0x1|0x10 ✓,
+LNKCAP field masks (SLS 0xF, MLW 0x3F0, L1EL 0x7<<15) ✓, TLS Gen1=1 ✓, aux
+26MHz=0x1A ✓, L1SS 0xEA ✓, RL bit5 ✓, ATU region1 CFG0 / region0 MEM with CR2
+last ✓, link-up poll window [0x0d..0x14] × 2000 × 10 µs ✓, retry teardown
+(PERST low, LTSSM 0) ✓, W1C IRQ_PULSE + linkdown enable ✓.
+Found and fixed in-review: (1) `phy_all_pwrdn_clear` was mis-placed inside
+establish_link — kernel runs it in poweron BEFORE soft-reset/PERST; moved to
+`PowerOnPrep` with the history-arm writes. (2) `MicroSecondDelay` is UefiLib,
+not linked — switched to `gBS->Stall` (repo UsbHostDxe convention). (3) CMU
+gate/QCH writes were plain writes — now `MmioOr32` (RMW) matching the repo
+HSI2C SetRegisterBits convention so autogating bits survive. (4) stray label
+typo in PciePhy.c removed.
+Deliberate deviations (recorded in-file): no OTP PHY retune (no OTP reader),
+no SysMMU (P5), direct CMU gates instead of ACPM RPC (P4), RC's own VID/DID
+not rewritten to Samsung IDs (kernel does it for its enumeration bookkeeping),
+EP COMMAND = MSE|BME without the test path's INTx mask, PM_CTRL upper half not
+zeroed (kernel zeroes the whole dword; conservative here).
+
 ## Live reads still queued (needs-phone)
 
 - `ls /sys/bus/pci/devices/` + `cat vendor device` → confirm `14e4:4475` (or 4476/4477).

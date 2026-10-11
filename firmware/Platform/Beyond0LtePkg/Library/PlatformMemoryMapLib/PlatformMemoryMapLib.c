@@ -437,6 +437,9 @@ ArmPlatformGetVirtualMemoryMap (
       }
 #endif
 
+      // W35: the Windows UFS driver's DMA workspace (inside its bank0 window) - never RAM to anyone.
+      BuildMemoryAllocationHob (BEYOND0LTE_UFS_DMA_POOL_BASE, BEYOND0LTE_UFS_DMA_POOL_SIZE, EfiReservedMemoryType);
+
       // W31: runtime data (still never handed to the OS as RAM) so the runtime ResetSystem can
       // reach the boot progress word at 0x8FE0F000 after SetVirtualAddressMap.
       BuildMemoryAllocationHob (BEYOND0LTE_WINPRAM_BASE, BEYOND0LTE_WINPRAM_SIZE, EfiRuntimeServicesData);

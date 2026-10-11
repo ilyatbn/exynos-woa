@@ -504,3 +504,11 @@ W34 ROOT CAUSE: PeilessSec _ModuleEntryPoint takes the TransferList base from TP
 when x1 = TL magic (never, with our shim). TPIDRRO_EL0 survives warm reset; Windows leaves per-thread data in it, so
 SecMain dereferenced a stale value right after MMU-on and faulted with no vectors. Linux leaves it 0 (why boots after
 TWRP always worked). Fix: shim 'msr tpidrro_el0, xzr' (boot #43 sha 975700d6...).
+
+## W35 - with more RAM the Windows driver's DMA workspace landed outside its window -> firmware-reserved pool (2026-10-11)
+Attempt c43 (boot #43 = TPIDRRO fix + bank1/2 RAM, w32, fresh image): back in 157 s. Marks: stages 1-3, FAIL 1<<8/9/10
+(UTRL/UCD/BOUNCE_PHYSICAL) -> diagnostic-only -> 0x7B: StorPortGetUncachedExtension now returns memory above the driver's
+bank0 DMA window (0xA7400000..0xBAB00000, UFS_DMA_WINDOW_ENFORCE build). The driver already supports a firmware-published
+pool (UfsMapFirmwareReservedWorkspace: PRAM +0x3F54 'DMP1', +0x3F58 base, +0x3F5C magic^base^0x24000^'DPOK').
+Boot #44: PlatformMemoryMapLib reserves 0xA7400000+256 KiB (EfiReservedMemoryType); BootLogDxe writes the record at
+ReadyToBoot every boot.

@@ -37,4 +37,18 @@ typedef struct {
 #define BEYOND0LTE_WINPRAM_SIZE   0x0000000000100000ULL
 #define BEYOND0LTE_WINPRAM_DUMP   0x0000000000010000ULL   // bytes copied to the ESP (ring window + latch)
 
+//
+// W35: DMA workspace for the Windows UFS driver (drivers/Exynos9820Ufs UfsMapFirmwareReservedWorkspace).
+// With bank1/bank2 published as RAM, StorPortGetUncachedExtension returned memory outside the
+// driver's bank0 DMA window (0xA7400000..0xBAB00000) and it refused to start (UTRL/UCD/BOUNCE
+// _PHYSICAL failures -> 0x7B). The firmware reserves this block and publishes it in the PRAM ring
+// page: +0x3F54 'DMP1', +0x3F58 base, +0x3F5C magic ^ base ^ 0x24000 ^ 'DPOK'.
+//
+#define BEYOND0LTE_UFS_DMA_POOL_BASE    0x00000000A7400000ULL
+#define BEYOND0LTE_UFS_DMA_POOL_SIZE    0x0000000000040000ULL
+#define BEYOND0LTE_UFS_DMA_POOL_WORKSPACE  0x00024000u   // = UFS_WORKSPACE_SIZE
+#define BEYOND0LTE_UFS_DMA_POOL_MAGIC   0x31504D44u      // 'DMP1'
+#define BEYOND0LTE_UFS_DMA_POOL_GUARD   0x4B4F5044u      // 'DPOK'
+#define BEYOND0LTE_UFS_DMA_POOL_RECORD  (BEYOND0LTE_WINPRAM_BASE + 0x3F54ULL)
+
 #endif

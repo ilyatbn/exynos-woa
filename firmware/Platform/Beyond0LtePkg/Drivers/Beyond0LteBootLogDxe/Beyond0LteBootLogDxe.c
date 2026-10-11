@@ -388,6 +388,20 @@ OnReadyToBoot (
   }
  #endif
 
+  //
+  // W35: publish the reserved UFS DMA workspace to the Windows driver (record in the PRAM ring
+  // page, uncached window - see Beyond0LteBootLog.h). The driver consumes it on every boot.
+  //
+  {
+    volatile UINT32  *Rec;
+
+    Rec    = (volatile UINT32 *)(UINTN)BEYOND0LTE_UFS_DMA_POOL_RECORD;
+    Rec[1] = (UINT32)BEYOND0LTE_UFS_DMA_POOL_BASE;
+    Rec[2] = BEYOND0LTE_UFS_DMA_POOL_MAGIC ^ (UINT32)BEYOND0LTE_UFS_DMA_POOL_BASE ^
+             BEYOND0LTE_UFS_DMA_POOL_WORKSPACE ^ BEYOND0LTE_UFS_DMA_POOL_GUARD;
+    Rec[0] = BEYOND0LTE_UFS_DMA_POOL_MAGIC;
+  }
+
  #if BEYOND0LTE_HANDOFF_WATCHDOG
   //
   // W25: the firmware reached the OS hand-off - cancel SEC's "recovery" dead man's switch:

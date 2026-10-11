@@ -220,3 +220,7 @@ Path: BCM4375 PCIe master -> Exynos PCIe0 RC (DesignWare) inbound -> SysMMU_PCIE
   D2H index slot = ring id - 2; IOCTL_CMPLT request_id = response-buffer pktid (fmac
   brcmf_msgbuf_process_ioctl_complete looks it up in rx_pktids), handled as 0x1000+k. No findings.
 - Device test pending: expect `[msg] IOCTL CMPLT status 0` x2, `cur_etheraddr = ..`, `ver = wl0: ...`, `MSG 0`.
+- Run m3-1 (02:12): boot #93 (s10e-artifacts\boot93-v2.img sha 77bfd211…, = main c20e6c0: audio M2 tone +
+  watchdog 1) flashed, readback OK; Exynos9820Wlan.sys 1.0.3.0 (7f4ed72f…) copied over the DriverStore copy
+  in exynos9820wlan.inf_arm64_1828e8231b692d7b (NTFS needed fsck.ntfs first: unclean after the forced reset).
+  Battery 63 %. Unattended cycle started.

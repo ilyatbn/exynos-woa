@@ -829,3 +829,6 @@ proven and the problem is analogue (jack detect / HP stage) - say so in the resu
   (CTRL1 7004 -> 1001 running -> 1004 disabled; CTRL11 11 -> 5 -> 4; DT1 33E8 -> 32E8; SYSCLK1 404 -> 444).
   "NO LOCK after 301 ms" matches the 0..300 inclusive loop. No follow-ups. Branch state: 7 commits on e3f72a2,
   not pushed, nothing packed or flashed.
+
+- 2026-10-12 02:12: audio M2 merged to main (c20e6c0), built into boot #93 (FVMAIN_COMPACT 1152 B free),
+  flashed; unattended run - result from UEFILOG `AudioTone|AudioProbe` after the cycle.

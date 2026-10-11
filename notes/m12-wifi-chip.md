@@ -266,6 +266,19 @@ MEM range 0x14000000/0xFF0000, Gen1 x1, INTx-only (use-msi=false + chip_support_
 WLAN_EN gpg0-5 / HOST_WAKE gpa0-7 / PERST gpf2-2, CMU_FSYS1 gate/QCH offsets, PMU 0x71C PHY control,
 "9820 skips the PMU wakeup-mask step" guard, I/A microprogram register list.
 
+## Review of commit 7ccc524 (constants)
+
+Checked every new constant against the fetched sources: window addresses/sizes vs
+exynos9820.dts:4383-4389, gate offsets vs cmucal-sfr.c:1126-1150, muxes vs :135/:138,
+QCH values vs :2255-2259, PMU 0x71C vs pcie-exynos-host-v0.h:223, GPIO block ownership
+via a parent-node scan of exynos9820-pinctrl.dtsi (gpf2→13C40000, gpg0→10430000,
+gpa0→15850000), envelope arithmetic (0x13F01000-0x13EC0000 = 0x41000), and no
+overlap among the 7 new map entries or with DRAM/FB. Found and fixed: the five QCH
+**source-line citations** were shifted (values were already correct). Also tried to
+close EXYNOS_FSYS1_GPIO_SIZE: pinctrl@13C40000 has **no `reg`** (banks are MFD
+children; the size lives in a driver table not found this pass) — stays UNVERIFIED,
+0x1000 is a conservative placeholder.
+
 ## Dead ends (do not repeat)
 
 - linux-firmware: no 4375 PCIe firmware at all (WHENCE scan).

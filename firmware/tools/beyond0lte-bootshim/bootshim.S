@@ -124,6 +124,17 @@ _start:
 	str	w17, [x16]              /* prev = last boot's code                   */
 	PROGRESS 0x51                   /* shim entered                              */
 
+	/* ---- W34: THE second-boot hang. PeilessSec's _ModuleEntryPoint takes the
+	 * TransferList base from TPIDRRO_EL0 and only initialises that register when x1
+	 * holds the TL magic, which ours never does. TPIDRRO_EL0 survives a warm reset:
+	 * after Windows (which keeps per-thread data there) or anything else left it
+	 * non-zero, SecMain dereferenced the stale value as a TransferList right after
+	 * the MMU came on (progress 0x63) and faulted with no vectors -> hang. After
+	 * Linux it happened to be 0, which is why boots following TWRP always worked.
+	 * Zero it: "no TransferList". */
+	msr	tpidrro_el0, xzr
+	isb
+
 	/* ---- W25 dead man's switch (unattended bring-up) ---------------------
 	 * Reboot reason = RECOVERY (PMU INFORM3 0x1586080C = 0x12345674) and watchdog cl0 =
 	 * 82 s, before anything else can hang. The firmware sets the reason back to normal

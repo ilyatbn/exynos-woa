@@ -490,3 +490,17 @@ hit stale lines. Fix: that 2 MiB is mapped Normal non-cacheable (later table ent
 ResetSystem cleans its progress write (dc civac) before SWRESET.
 Driver w32: SRB_FUNCTION_SHUTDOWN (clean shutdown/restart) writes 0x80 into the progress word (non-cached) so the
 firmware's boot pair continues into Windows after Setup's own restarts. Firmware boot #41 = FADT fix + uncached handoff.
+
+## W33/W34 - more RAM; the second-boot hang ROOT CAUSE (stale TPIDRRO_EL0) (2026-10-11)
+Attempt c32 (boot #41 + w32, fresh image) ran ~1 h 40 min unattended: debug_history #350 23:32 boot; #351 00:09:54
+Windows' OWN restart (FADT reset fix works, INFORM3 normal) -> firmware saw 0x80 and continued (WINPRAM-RESTART.BIN);
+#352 00:11:33 a second OS restart (oobeSystem 'REBOOT') -> continued; #353 00:58:29 the 45-min watchdog cap on the third
+Windows boot; #354 recovery. Panther: specialize done, oobeSystem msoobe final tasks ran; no S10e profile yet; nothing
+flushed from the third boot (evtx stop at boot start). Suspect resources (1 core, ~0.9 GB).
+W33 boot #42: bank1/bank2 carved ranges published as system memory (resource HOBs; W2 only mapped them). Health test:
+UEFI ran the full path with them (DXE allocates top-down = uses them first), boot pair -> TWRP in 86 s.
+Its log: progress prev=0x63 for the boot that hung after the cap -> after the MMU came on, before SecMain's next print.
+W34 ROOT CAUSE: PeilessSec _ModuleEntryPoint takes the TransferList base from TPIDRRO_EL0 and only writes that register
+when x1 = TL magic (never, with our shim). TPIDRRO_EL0 survives warm reset; Windows leaves per-thread data in it, so
+SecMain dereferenced a stale value right after MMU-on and faulted with no vectors. Linux leaves it 0 (why boots after
+TWRP always worked). Fix: shim 'msr tpidrro_el0, xzr' (boot #43 sha 975700d6...).

@@ -165,19 +165,29 @@ Rd (IN UINT32 Reg)
   return Value;
 }
 
-// Read-modify-write + read-back, one log line. TRUE when the masked bits read back as written.
+// Read-modify-write + read-back, one log line. TRUE when the masked bits read back as written, ignoring
+// the bits in NoVerify (write strobes such as the DAC volume-update bit, whose read-back is unknown).
+STATIC
+BOOLEAN
+SetEx (IN CONST CHAR8 *Name, IN UINT32 Reg, IN UINT16 Mask, IN UINT16 Value, IN UINT16 NoVerify)
+{
+  EFI_STATUS  Status;
+  UINT16      Back;
+  UINT16      Check;
+
+  Status = CodecUpdate (Reg, Mask, Value);
+  Back   = Rd (Reg);
+  Check  = (UINT16)(Mask & ~NoVerify);
+  DEBUG ((DEBUG_WARN, "AudioTone: %a [%x] mask %x <- %x : read %x %a\n", Name, Reg, Mask, Value & Mask, Back,
+          EFI_ERROR (Status) ? "SPI ERROR" : (((Back & Check) == (Value & Check)) ? "ok" : "MISMATCH")));
+  return !EFI_ERROR (Status) && ((Back & Check) == (Value & Check));
+}
+
 STATIC
 BOOLEAN
 Set (IN CONST CHAR8 *Name, IN UINT32 Reg, IN UINT16 Mask, IN UINT16 Value)
 {
-  EFI_STATUS  Status;
-  UINT16      Back;
-
-  Status = CodecUpdate (Reg, Mask, Value);
-  Back   = Rd (Reg);
-  DEBUG ((DEBUG_WARN, "AudioTone: %a [%x] mask %x <- %x : read %x %a\n", Name, Reg, Mask, Value & Mask, Back,
-          EFI_ERROR (Status) ? "SPI ERROR" : (((Back & Mask) == (Value & Mask)) ? "ok" : "MISMATCH")));
-  return !EFI_ERROR (Status) && ((Back & Mask) == (Value & Mask));
+  return SetEx (Name, Reg, Mask, Value, 0);
 }
 
 STATIC
@@ -353,8 +363,8 @@ CodecTonePlay (VOID)
   (VOID)Set ("OUT2RMIX in1 = tone1", R_OUT2RMIX_INPUT_1_SRC, 0x00FF, MIX_SRC_TONE1);
   (VOID)Set ("OUT2LMIX in1 vol -20dB", R_OUT2LMIX_INPUT_1_VOL, 0x00FE, TONE_MIX_VOL_REG);
   (VOID)Set ("OUT2RMIX in1 vol -20dB", R_OUT2RMIX_INPUT_1_VOL, 0x00FE, TONE_MIX_VOL_REG);
-  (VOID)Set ("DAC2L -12dB unmute", R_DAC_DIGITAL_VOLUME_2L, DAC_VU | DAC_MUTE | 0x00FF, DAC_VU | TONE_DAC_VOL);
-  (VOID)Set ("DAC2R -12dB unmute", R_DAC_DIGITAL_VOLUME_2R, DAC_VU | DAC_MUTE | 0x00FF, DAC_VU | TONE_DAC_VOL);
+  (VOID)SetEx ("DAC2L -12dB unmute", R_DAC_DIGITAL_VOLUME_2L, DAC_VU | DAC_MUTE | 0x00FF, DAC_VU | TONE_DAC_VOL, DAC_VU);
+  (VOID)SetEx ("DAC2R -12dB unmute", R_DAC_DIGITAL_VOLUME_2R, DAC_VU | DAC_MUTE | 0x00FF, DAC_VU | TONE_DAC_VOL, DAC_VU);
   (VOID)Set ("TONE1_ENA (rate = SAMPLE_RATE_1)", R_TONE_GENERATOR_1, 0xFFFF, TONE1_ENA);
 
   // 6. OUT2L/OUT2R: madera_hp_ev POST_PMU sets the enable bits, madera_out_ev waits 6 ms per output.
@@ -392,8 +402,8 @@ CodecTonePlay (VOID)
   gBS->Stall (OUT_DOWN_DELAY_US);
   LogStatus ("outputs off (+2 ms)");
   (VOID)Set ("TONE1 off", R_TONE_GENERATOR_1, 0xFFFF, 0);
-  (VOID)Set ("DAC2L mute (default)", R_DAC_DIGITAL_VOLUME_2L, DAC_VU | DAC_MUTE | 0x00FF, DAC_VU | DAC_MUTE | DAC_VOL_0DB);
-  (VOID)Set ("DAC2R mute (default)", R_DAC_DIGITAL_VOLUME_2R, DAC_VU | DAC_MUTE | 0x00FF, DAC_VU | DAC_MUTE | DAC_VOL_0DB);
+  (VOID)SetEx ("DAC2L mute (default)", R_DAC_DIGITAL_VOLUME_2L, DAC_VU | DAC_MUTE | 0x00FF, DAC_VU | DAC_MUTE | DAC_VOL_0DB, DAC_VU);
+  (VOID)SetEx ("DAC2R mute (default)", R_DAC_DIGITAL_VOLUME_2R, DAC_VU | DAC_MUTE | 0x00FF, DAC_VU | DAC_MUTE | DAC_VOL_0DB, DAC_VU);
   (VOID)Set ("OUT2LMIX in1 none", R_OUT2LMIX_INPUT_1_SRC, 0x00FF, 0);
   (VOID)Set ("OUT2RMIX in1 none", R_OUT2RMIX_INPUT_1_SRC, 0x00FF, 0);
   (VOID)Set ("OUT2LMIX in1 vol 0dB (default)", R_OUT2LMIX_INPUT_1_VOL, 0x00FE, MIX_VOL_0DB_REG);
@@ -402,6 +412,6 @@ CodecTonePlay (VOID)
   FllDisable ();
   LogStatus ("after teardown");
   DEBUG ((DEBUG_WARN, "AudioTone: done - tone %a; codec goes back into hard reset next\n",
-          Played ? "PLAYED (listen: ~1 kHz, ~2 s, both ears)" : (Shorted ? "STOPPED (HP2 short)" : "NOT PLAYED (HP clamp)")));
+          Played ? "PLAYED (listen: ~2 s, both ears; pitch UNVERIFIED, expected ~1 kHz)" : (Shorted ? "STOPPED (HP2 short)" : "NOT PLAYED (HP clamp)")));
   return Played;
 }

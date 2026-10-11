@@ -656,7 +656,7 @@ madera_sysclk_ev = madera_spin_sysclk: 4 dummy reads of reg 0 + 300 us [MC:174-2
 **Sample rate**: SAMPLE_RATE_1 0x102 [4:0] [MR:52, 2502], reset 0x0011 [L92T:146] = 8 kHz (madera_sr_vals[17]
 [MC:3216-3241]) -> set 0x03 (48 kHz). OUTPUT_RATE_1 OUT_RATE[15:11] default 0 = SAMPLE_RATE_1 [MC:3249-3252].
 **Hardware patch** applied by madera-core right after the ID check [CORE:903-910] = cs47l92_patch
-[L92T:22-118]: 37 x 16-bit writes + 28 x 32-bit writes (0x3030..0x31D8, output write-sequencer entries) through
+[L92T:22-118]: 38 x 16-bit writes + 28 x 32-bit writes (0x3030..0x31D8, output write-sequencer entries) through
 the 32-bit regmap (reg 32, pad 16, val 32, BE, stride 2 [L92T:2391-2405]). Applied the same way first (values
 copied verbatim).
 
@@ -688,7 +688,7 @@ Mixer source value "Tone Generator 1" = 0x04 [MC:1422-1424 texts, 1574-1576 valu
   their defaults). Then the bus is released and the reset line restored as in 1b (codec back in hard reset ->
   every register we wrote is wiped). Flag `BEYOND0LTE_AUDIO_TONE` (1 for the test build).
 - Sequence (kernel order: madera-core probe -> machine-driver init/bias -> DAPM power-up -> DAPM power-down):
-  1. cs47l92_patch: 37 x 16-bit + 28 x 32-bit writes, verbatim (incl. the odd 0x30D1 - regmap_register_patch
+  1. cs47l92_patch: 38 x 16-bit + 28 x 32-bit writes, verbatim (incl. the odd 0x30D1 - regmap_register_patch
      -> _regmap_multi_reg_write -> _regmap_write does not check the stride); log the read-back mismatch count.
   2. CLOCK_32K_1 0x100: mask 0x43 <- 0x41 (ENA + MCLK2).
   3. SAMPLE_RATE_1 0x102 <- 0x0003 (48 kHz); SYSTEM_CLOCK_1 0x101 mask 0x870F <- 0x0404 (98 MHz, FLL1; = default).
@@ -736,4 +736,22 @@ Mixer source value "Tone Generator 1" = 0x04 [MC:1422-1424 texts, 1574-1576 valu
   `CodecWaitBoot()` (now returns BOOLEAN) and the ID matched. Build exit 0: AudioProbeDxe.efi 26 112 B (was
   ~20 KB), FD 7 340 032 B sha256 4f3f0c9b7789d2a7abae33ff9604f8cc715f8b72898090f32c23d981748192c1,
   FVMAIN_COMPACT 1 232 B free (99%, auto-sized), FVMAIN 33%. `grep -a` on the .efi finds the AudioTone strings.
+- Review f6ce147 (tone sequence), adversarial:
+  * Patch tables diffed by script (scratchpad m2check.py: regex-extract both tables from cs47l92-tables.c and
+    AudioTone.c): 16-bit 38 == 38 entries identical, 32-bit 28 == 28 identical.
+  * 48 register/field constants in AudioTone.c compared by script with registers.h: 0 mismatches; composites
+    OUT2_ENA_BOTH 0xC, DT1 mask 0x103, SYSCLK set mask 0x870F, HP2 SC 0xC, HPD_OVD 0x8000 recomputed - equal.
+  * Every register the sequence reads is in the cs47l92 16-bit readable list (FLL1 0x171-0x17D incl.
+    CS47L92_FLL1_CONTROL_7..10 [L92T:1188-1199]), so CodecUpdate's read-modify-write on 0x17A/0x17D does not
+    merge garbage into the bits it keeps.
+  * FOUND: the notes said 37 x 16-bit patch writes - it is 38 (0x120 is written twice). Fixed in the follow-up.
+  * FOUND: DAC volume writes verified the VU bit; cs47l92 probe "latches" VU once [L92:2024-2033, 2156-2159],
+    whether VU reads back is unknown -> possible false MISMATCH in an unattended log. Follow-up: SetEx() with a
+    no-verify mask (VU) for the four DAC writes.
+  * FOUND: the final log line asserted "~1 kHz" - the pitch is UNVERIFIED (6.1). Reworded in the follow-up.
+  * Checked, no change: tone only runs inside the "released from reset" branch (RELEASE_RESETS 0 -> never);
+    hang anywhere inside is covered by the 0x69 guard set in OnCodecPower; total stall <= 2 s hold + 12 + 2 ms
+    + 2 x 300 ms FLL waits + 300 ms disable wait, at TPL_NOTIFY (Stall is legal there).
 
+- Follow-up to f6ce147 (SetEx no-verify VU, pitch wording, 38 patch writes): build exit 0, AudioProbeDxe.efi
+  26 624 B, FD sha256 68fd92c3a42a95912649e57b51d62716d6e4384c6ba60c081f176fb0176ad0f1, FVMAIN_COMPACT 1 112 B free.

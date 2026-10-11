@@ -289,6 +289,7 @@ S10eIoctl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     case IOCTL_S10EDIAG_RECOVERY_ON_RESET:
         InterlockedExchange(&gRecoveryArmed, 1);
         S10eWritePmu(S10E_PMU_INFORM3, S10E_REBOOT_RECOVERY);
+        S10eWritePmu(S10E_PMU_RSTSTAT, 0);   // m14 run 18: Samsung's recovery reboot clears RSTSTAT too
         Status = STATUS_SUCCESS;
         break;
 
@@ -359,6 +360,7 @@ S10eShutdown(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     // Last-chance notification: nothing in Windows writes INFORM3 after this point.
     if (gRecoveryArmed != 0) {
         S10eWritePmu(S10E_PMU_INFORM3, S10E_REBOOT_RECOVERY);
+        S10eWritePmu(S10E_PMU_RSTSTAT, 0);
     }
 
     Irp->IoStatus.Status = STATUS_SUCCESS;

@@ -439,6 +439,14 @@ ExynosPmuReset (
     if (!EfiGoneVirtual () || mInform3VirtualReady) {
       if (MmioRead32 ((UINTN)mInform3) != (EXYNOS_REBOOT_REASON_BASE | EXYNOS_REBOOT_MODE_RECOVERY)) {
         MmioWrite32 ((UINTN)mInform3, EXYNOS_REBOOT_REASON_BASE);
+      } else {
+        //
+        // m14 run 18 (user: "keeps loading windows then safely rebooting"): INFORM3 alone did not take sboot
+        // to recovery on this clean path. Samsung's recovery reboot (and BootLogDxe RebootToRecovery /
+        // S10eDiag's hard reset, which do reach TWRP) also clear RSTSTAT. Same PMU page as INFORM3, so the
+        // runtime mapping of mInform3 covers it.
+        //
+        MmioWrite32 ((UINTN)mInform3 - EXYNOS_PMU_INFORM3_OFFSET + EXYNOS_PMU_RSTSTAT_OFFSET, 0);
       }
       ArmDataSynchronizationBarrier ();
     }

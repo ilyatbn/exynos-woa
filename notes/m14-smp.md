@@ -134,3 +134,12 @@ No device access in this task; build-verified only (Guided, not Ready).
   reset the SoC without a crash record. Open questions: Windows' processor-start of the M4 (different MPIDR
   format MT=0 vs the A55/A75 MT=1; MADT efficiency class 0; GICR/PMU/ID differences), EL3/uH reaction.
   Default back to mask 0x3E (6 cores). Boot #52 = 6 cores + the run-16 restart fix (not yet exercised).
+- Run 18 (boot #52, 6 cores + restart fix, 13:34): RESTARTS ARE CLEAN - user: "it keeps loading windows then safely
+  rebooting (i see a you are about to be logged out screen). nothing crashes"; System log: four 1074 planned
+  restarts in a row, no Kernel-Power 41 between them (the one 41 = the user's forced reset). 6 logical CPUs each pass.
+  But the recovery reboot reason did not survive: every pass UEFI saw progress 0x80 ("Windows asked for this
+  restart - continuing") -> endless agent loop until the user forced TWRP by keys.
+  Fix (boot #53 + S10eDiag): on a recovery reboot also clear PMU RSTSTAT (+0x404, VERIFIED) like Samsung's recovery
+  reboot / BootLogDxe RebootToRecovery / S10eDiag's hard reset (all of which do reach TWRP): ResetSystemLib when
+  INFORM3 is already recovery; S10eDiag at RECOVERY_ON_RESET and in the last-chance shutdown notification.
+  UNVERIFIED that RSTSTAT is what sboot keys on - run 19 decides.

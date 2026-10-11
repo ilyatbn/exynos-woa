@@ -358,3 +358,107 @@ stage end to end - the same pieces the Windows driver needs.
 - RESULT (boot #88): amps @40/@41 NACK (Not Found) on hsi2c38; reset pins gph1-1/2 fn 0 lvl 0 at handoff (held?).
   Codec: ID 0 HW_REV 0 before and after releasing gpg1-0; LDO18M (DCVDD 1.2 V) enable[7:6] = 0 -> codec unpowered,
   as predicted; LDO17M (1.8 V) on. Next (milestone 1b): LDO18M on via ACPM, amp resets high, retry IDs.
+
+## 5. Milestone 1b - codec DCVDD on, amps out of reset, IDs answer
+
+Goal: the CS47L93 and both CS35L40 answer their ID reads (boot #88 result above: codec ID 0,
+amps NACK). Rules as §0 (no adb, no flash; the main session runs the device test).
+
+### 5.0 Progress log
+- 2026-10-12: worktree `agent-a052cd89fc73ae14a` fast-forwarded to main 7f03e5b.
+- Read Beyond0LteAudioProbeDxe.c (runs at DXE dispatch) and Beyond0LteTouchPowerDxe.c (ACPM path,
+  runs at ReadyToBoot, TPL_NOTIFY; EnsureLdoOn = PmicRead + PmicUpdate(0xC0, mask 0xC0) + read-back).
+  => the codec probe currently runs *before* any ACPM access exists; LDO18M on must be ordered
+  before it (design in 5.2).
+- Amp-probe bug found by reading the code: the reset release only fires when the pin is an output
+  driven low (`PinHeldLow`). Boot #88 logged gph1-1/2 **fn 0 (input)**, lvl 0 -> the release branch
+  never ran; the amps were never taken out of reset. Same rule for the codec reset: it was released
+  (it reports "before and after"), so gpg1-0 must have been output-low there.
+- Primary DT source for this section: the **stock shipped dtbo** (the phone's own, extracted earlier
+  to `%TEMP%\opencode\stock\dtbo.dtb`), decompiled with tools/dump-tools/fdt.py (scratchpad
+  dtdump.py). [DTBO] line numbers below refer to that decompile (out_0_0.dts).
+- Kernel files fetched 2026-10-12 (raw, LineageOS android_kernel_samsung_exynos9820 @ lineage-22.2) to
+  the scratchpad: drivers/regulator/s2mps19_regulator.c [REG], include/linux/mfd/samsung/
+  s2mps19-regulator.h [REGH], drivers/mfd/madera-core.c [MAD], drivers/mfd/cs35l41-core.c [L41C],
+  sound/soc/codecs/cs35l41.c [L41].
+
+### 5.1 Facts (citations)
+
+**LDO18M = codec DCVDD, vsel 0x28 = 1.200 V (VERIFIED)**
+- [DTBO:4774-4782] `LDO18M { regulator-name = "vdd_codec_1p2"; min = max = 0x124f80 (1 200 000 uV);
+  regulator-ramp-delay = 12000; regulator-enable-ramp-delay = 0x1388 (5000 us);
+  regulator-initial-mode = 3; }` - no always-on, no boot-on (matches §1.2 from the LineageOS dtsi).
+- [DTBO:4764-4773] `LDO17M "vdd_pmic_codec_1p8"` 1 800 000 uV, always-on, boot-on.
+- [REG:476-477] `LDO_DESC("LDO18M", _LDO(18), &_ldo_ops(), 3, _REG(_L18CTRL), _REG(_L18CTRL), ...)` ->
+  voltage group 3; [REG:406-420] LDO_DESC: min_uV = _LDO_MIN(g), uV_step = _LDO_STEP(g), vsel_mask 0x3F,
+  enable_mask S2MPS19_ENABLE_MASK; [REGH:208-209] `S2MPS19_LDO_MIN3 700000`, `S2MPS19_LDO_STEP3 12500`.
+  => vsel 0x28 (40) -> 700 000 + 40 x 12 500 = **1 200 000 uV**. The live value read on boot #88
+  (L18CTRL = 0x28) is exactly the DT voltage. A different vsel would be refused by the firmware.
+- Cross-check with the rail that is on: LDO17M group 1 [REG:474-475], MIN1 700 000 / STEP1 25 000
+  [REGH:204-205]; boot #88 L17CTRL 0xEC -> vsel 0x2C (44) -> 700 000 + 44 x 25 000 = 1 800 000 uV = the DT
+  value. The formula reproduces a live, known-good rail.
+- Enable: [REG:120-126] s2m_enable = update_reg(enable_reg, opmode[id], enable_mask); opmode from
+  initial-mode 3 -> s2mps19_of_map_mode(3) = 0x3 [REG:93-104], shifted by S2MPS19_ENABLE_SHIFT 6
+  [REGH:220-221] -> value 0xC0 under mask 0xC0 = exactly TouchPowerDxe's EnsureLdoOn update. Register
+  0x57 [REGH:113].
+- Regulator core waits enable-ramp-delay (5000 us, DT) after enable; S2MPS19_ENABLE_TIME_LDO 128 us
+  [REGH:225] is the descriptor minimum. Use 5000 us.
+
+**CS47L93 power-up order (madera-core)**
+- [MAD:43-46] core supplies = AVDD, DBVDD1 (both LDO17M here, already on).
+- [MAD:755-771] probe: `msleep(20)` "Ensure period of reset asserted before we apply the supplies" ->
+  regulator_bulk_enable(core) -> regulator_enable(DCVDD) -> madera_disable_hard_reset.
+- [MAD:261-266] disable_hard_reset: gpio 1, usleep_range(1000, 2000).
+- [MAD:778-797] read MADERA_SOFTWARE_RESET (0x0000) = silicon ID; CS47L92/93 = 0x6371.
+- [MAD:204-235] madera_wait_for_boot: poll IRQ1_RAW_STATUS_1 for BOOT_DONE_STS1, interval <= 5000 us,
+  timeout 25 000 us; then acks BOOT_DONE_EINT1 by a write to IRQ1_STATUS_1 (we will NOT write it: the
+  codec goes back into reset afterwards, which clears it).
+- => firmware order: gpg1-0 output low (reset asserted) >= 20 ms -> LDO18M on -> 5 ms ramp ->
+  gpg1-0 high -> 2 ms -> ID read -> BOOT_DONE poll (5 ms steps, 25 ms) -> gpg1-0 back to handoff.
+
+**CS35L40 amps - why they NACKed**
+- [DTBO:5292-5360] cs35l40@40 reset-gpios <&gph1 1 0>, cs35l40@41 reset-gpios <&gph1 2 0> (flags 0 =
+  GPIO_ACTIVE_HIGH). **No VA-supply / VP-supply properties** in either node.
+- [L41C:34-36] supplies "VA", "VP" via devm_regulator_bulk_get -> without DT properties these are dummy
+  regulators: the rails are board-fixed, there is no PMIC LDO or enable GPIO to switch. No
+  amp-power-enable GPIO exists in the overlay (only hsi2c38-bus, spk-amp-rst-n, rcv-amp-rst-n, amp-int
+  in the pinctrl-0 of the bus node [DTBO:5291]).
+- [L41C:72-92] reset: devm_gpiod_get_optional("reset", GPIOD_OUT_LOW) (output, logical 0 = pin low =
+  in reset) -> usleep_range(1000, 1100) -> set 1 (pin high = out of reset) -> usleep_range(2000, 2100).
+  Then DEVID/REVID [L41:2131-2154] and OTP_BOOT_DONE poll, 1 ms steps, 100 tries [L41:2100, 2185-2197].
+- [DTBO:5239-5258] spk-amp-rst-n gph1-1 / rcv-amp-rst-n gph1-2: function 1 (output), pin-val 0,
+  pud 0, con-pdn 3 - the kernel's pinctrl state drives them **output low**; only the driver lifts them.
+- Boot #88: gph1-1/2 were fn 0 (input) lvl 0 at handoff = amps in reset (an input with no
+  pull cannot hold RESET high; the line reads 0). Our probe's release condition was
+  `PinHeldLow` = output AND low, which an input pin never matches -> **the release never ran**. Root
+  cause of the NACK = our probe's condition, not the bus: the NACK itself proves the controller drove
+  SCL/SDA and got no ACK (a dead/unclocked block times out instead).
+- hsi2c38 USI mode: logged 4 (= I2C, usi_v2.c:18-20) at handoff; the kernel never writes it
+  (§1.1) and it already reads I2C -> nothing to write.
+- Bus speed: DT clock-frequency 0x61a80 = 400 kHz [DTBO:5289] = what we program.
+
+### 5.2 Design (milestone 1b)
+- Ordering problem: AudioProbeDxe runs at DXE dispatch; the only ACPM/PMIC writer (TouchPowerDxe) runs
+  at ReadyToBoot. Moving ACPM traffic earlier would be a new, untested ACPM timing; instead:
+  * AudioProbeDxe entry (flag `BEYOND0LTE_AUDIO_DCVDD` = 1): amp probe as before (fixed release rule),
+    codec: save gpg1 handoff CON/DAT, assert the codec reset (gpg1-0 output low - madera's "reset
+    asserted >= 20 ms before supplies"; DXE->ReadyToBoot is seconds), register a TPL_NOTIFY event in
+    the new event group `gBeyond0LteCodecPowerEventGuid` and defer the codec probe to it.
+  * TouchPowerDxe ReadyToBoot (after the touch rails, same ACPM channel): L17CTRL read (log), L18CTRL
+    read; if enable[7:6] != 3 and vsel == 0x28 (1.2 V, 5.1) -> FUNC_UPDATE(0xC0, mask 0xC0), read back,
+    wait 5000 us (DT enable-ramp-delay). vsel != 0x28 -> refuse, log. Then - in every path, including
+    "no ACPM channel" - signal the event group once.
+  * The group event (TPL_NOTIFY) is queued (DxeCore Event.c:235 InsertTailList on gEventQueue[NotifyTpl])
+    during TouchPower's own TPL_NOTIFY ReadyToBoot handler and
+    dispatched by the same TPL_NOTIFY dispatch loop (Event.c:153-200 CoreDispatchEventNotifies walks
+    the queue until empty), i.e. before BootLogDxe's TPL_CALLBACK UEFILOG flush: the codec lines land
+    in the same boot's UEFILOG.
+- Codec probe (deferred): progress guard 0x69 again; bus up; ID read with reset held (expect 0 - the
+  "before" point); release reset (pin high), 2 ms, ID read, BOOT_DONE poll 5 ms x 5; restore bus, then
+  the reset pin to the *handoff* CON/DAT saved at entry (= codec back in reset).
+- Amps: release rule becomes "pin not an output driven high" (was: output driven low). Vendor sequence:
+  DAT 0 + output (reset asserted), 1 ms, DAT 1, 3 ms (kernel 2-2.1 ms), DEVID read. Afterwards the
+  reset pins go back to handoff (input) -> amps back in reset.
+- State left behind for Windows: **LDO18M stays ON** (codec DCVDD 1.2 V; the codec itself is held in
+  reset, which is the madera probe's own pre-release state - no current path beyond reset leakage).
+  Every pin/bus register is restored. Nothing else stays on.

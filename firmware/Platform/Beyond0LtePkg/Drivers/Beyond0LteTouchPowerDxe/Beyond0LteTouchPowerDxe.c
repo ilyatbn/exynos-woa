@@ -712,9 +712,10 @@ CodecPowerEmptyNotify (
 }
 
 /**
-  D8a m1b: tell Beyond0LteAudioProbeDxe that the codec DCVDD step is over (whatever its outcome), so its
-  deferred codec probe runs now - inside this TPL_NOTIFY ReadyToBoot dispatch, before the UEFILOG flush
-  (Beyond0LteAudioPower.h). Once per boot.
+  D8a m1b: tell Beyond0LteAudioProbeDxe that the codec DCVDD step is over (whatever its outcome). Its
+  TPL_NOTIFY group event is only queued here; it runs when this handler (DVFS block included) returns,
+  still inside the same TPL_NOTIFY ReadyToBoot dispatch loop and so before BootLogDxe's TPL_CALLBACK
+  UEFILOG flush (Beyond0LteAudioPower.h). Once per boot.
 **/
 STATIC
 VOID

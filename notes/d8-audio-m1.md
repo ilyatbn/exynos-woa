@@ -478,3 +478,17 @@ amps NACK). Rules as §0 (no adb, no flash; the main session runs the device tes
   read back (logs "VSEL CHANGED!" if the APM moved the voltage bits). Then `SignalCodecPower` - also on
   the "no ACPM channel" early return and when the IPC broke. Nothing listens yet (next task). **This is
   the PMIC write of milestone 1b.** Build exit 0, FVMAIN_COMPACT 176 B free (auto-sized FV).
+
+### 5.3 Commit reviews (AGENTS.md §4)
+- Review 1cc53ce (facts): cited [DTBO] line numbers re-checked with grep on the decompile (spk-amp-rst-n
+  5239, clock-frequency 5289, pinctrl-0 5291 - three cites were off by a few lines and were fixed before
+  the commit). vsel formula cross-checked on the live, known-good LDO17M (0xEC -> 1.8 V = DT). OK.
+- Review (amp reset rule): `grep PinHeldLow` in the driver = none left; the codec call site changed
+  rule too (its boot #88 state, output-low, still matches -> same behaviour). Restore order DAT then
+  CON puts the line low while still an output, then input = back in reset. An amp that answered on the
+  first read is never toggled. No follow-ups.
+- Review (LDO18M on): DxeCore checked - CoreSignalEvent on a group member signals every event of the
+  group (Event.c CoreNotifySignalList), the TPL_CALLBACK empty event queued by the signal is unlinked by
+  CloseEvent. The CodecRails path is gated by both flags and the vsel check; `PmicUpdate` mask 0xC0 cannot
+  touch vsel. FOUND: the SignalCodecPower comment said the codec probe "runs now"; it is only queued and
+  runs after the handler (incl. the DVFS block) returns - comment fixed in the follow-up commit.

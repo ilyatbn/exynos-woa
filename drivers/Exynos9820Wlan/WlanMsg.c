@@ -55,6 +55,7 @@ typedef struct _MSG_STATE {
     ULONG               BssCount;
     UCHAR               Bss[SCAN_MAX_BSS][6];
     UCHAR               VarBuf[IOCTL_REQ_MAX_INPUT];   /* iovar name + value (clmload chunks) */
+    BOOLEAN             ScanV2;         /* escan params version chosen at milestone 4 */
 } MSG_STATE, *PMSG_STATE;
 
 static ULONG
@@ -508,6 +509,53 @@ EscanBuild(_Out_writes_bytes_(ESCAN_PARAMS_V2_SIZE) PUCHAR Esc, _In_ BOOLEAN V2)
     return ESCAN_PARAMS_V1_SIZE;
 }
 
+/* One escan with the version chosen at milestone 4 (S->ScanV2), results logged as they arrive; SCAN_*. dhd
+   wl_cfgscan.c:1327-1333 treats BCME_EPERM as "not permitted at this point of time": retried every 200 ms up to
+   ESCAN_EPERM_RETRIES, draining events meanwhile. */
+static ULONG
+EscanRun(_Inout_ PMSG_STATE S)
+{
+    UCHAR         Esc[ESCAN_PARAMS_V2_SIZE];
+    ULONG         EscLen, Try, Ms, Result;
+    LARGE_INTEGER Delay;
+
+    S->ScanDone   = FALSE;
+    S->ScanStatus = 0;
+    S->ScanEvents = 0;
+    S->BssCount   = 0;
+    EscLen = EscanBuild(Esc, S->ScanV2);
+    for (Try = 0;; Try++) {
+        if (IoctlVar(S, TRUE, "escan", Esc, EscLen, 0) == MSG_OK) {
+            break;
+        }
+        if (S->RespStatus != BCME_EPERM || Try + 1 >= ESCAN_EPERM_RETRIES) {
+            ReportLine(S->R, "[scan] escan refused (status %ld) after %lu attempts\r\n", S->RespStatus, Try + 1);
+            return SCAN_FAILED;
+        }
+        for (Ms = 0; Ms < 200; Ms += 10) {
+            (VOID)D2hCtrlPoll(S);
+            Delay.QuadPart = -10000LL * 10;
+            KeDelayExecutionThread(KernelMode, FALSE, &Delay);
+        }
+    }
+    ReportLine(S->R, "[scan] escan v%u accepted on attempt %lu\r\n", S->ScanV2 ? 2 : 1, Try + 1);
+    for (Ms = 0; Ms < SCAN_TIMEOUT_MS && !S->ScanDone; Ms += 10) {
+        (VOID)D2hCtrlPoll(S);
+        Delay.QuadPart = -10000LL * 10;
+        KeDelayExecutionThread(KernelMode, FALSE, &Delay);
+    }
+    if (S->ScanDone && S->ScanStatus == 0) {
+        Result = SCAN_OK;
+    } else if (!S->ScanDone) {
+        Result = SCAN_TIMEOUT;
+    } else {
+        Result = SCAN_FW_STATUS;   /* final escan event with a non-success status */
+    }
+    ReportLine(S->R, "SCAN %lu: %lu BSS from %lu escan events (%s, status %lu) after %lu ms; %lu events total\r\n",
+               Result, S->BssCount, S->ScanEvents, S->ScanDone ? "done" : "not done", S->ScanStatus, Ms, S->Events);
+    return Result;
+}
+
 _Use_decl_annotations_
 VOID
 WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
@@ -707,13 +755,9 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
     /* 8. milestone 4 (notes/m12-wifi-m4.md): event buffers, ESCAN_RESULT in event_msgs, UP, escan, results */
     if (M->Result == MSG_OK && M->Config->Scan) {
         UCHAR         Mask[WL_EVENTING_MASK_LEN];
-        ULONG         One = 1, Ms;
-        UCHAR         Esc[ESCAN_PARAMS_V2_SIZE];
-        ULONG         EscLen;
+        ULONG         One = 1;
         BOOLEAN       V2;
         ULONG         Major;
-        ULONG         Try;
-        LARGE_INTEGER Delay;
 
         ReportLine(R, "---- milestone 4: events + escan ----\r\n");
         M->ScanResult = SCAN_FAILED;
@@ -747,48 +791,34 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
         }
         V2 = (IoctlVar(S, FALSE, "scan_ver", NULL, 0, sizeof(ULONG)) == MSG_OK);
         ReportLine(R, "[scan] scan_ver %s -> escan params v%u\r\n", V2 ? "answered" : "failed", V2 ? 2 : 1);
-        EscLen = EscanBuild(Esc, V2);
-        /* dhd wl_cfgscan.c:1327-1333 treats BCME_EPERM as "not permitted at this point of time" (transient):
-           retry every 200 ms for up to ESCAN_EPERM_RETRIES, draining events meanwhile. */
-        for (Try = 0;; Try++) {
-            if (IoctlVar(S, TRUE, "escan", Esc, EscLen, 0) == MSG_OK) {
-                break;
-            }
-            if (S->RespStatus != BCME_EPERM || Try + 1 >= ESCAN_EPERM_RETRIES) {
-                ReportLine(R, "[scan] escan refused (status %ld) after %lu attempts\r\n", S->RespStatus, Try + 1);
-                goto ScanEnd;
-            }
-            for (Ms = 0; Ms < 200; Ms += 10) {
-                (VOID)D2hCtrlPoll(S);
-                Delay.QuadPart = -10000LL * 10;
-                KeDelayExecutionThread(KernelMode, FALSE, &Delay);
-            }
-        }
-        ReportLine(R, "[scan] escan v%u accepted on attempt %lu\r\n", V2 ? 2 : 1, Try + 1);
-        for (Ms = 0; Ms < SCAN_TIMEOUT_MS && !S->ScanDone; Ms += 10) {
-            (VOID)D2hCtrlPoll(S);
-            Delay.QuadPart = -10000LL * 10;
-            KeDelayExecutionThread(KernelMode, FALSE, &Delay);
-        }
-        M->BssCount = S->BssCount;
-        if (S->ScanDone && S->ScanStatus == 0) {
-            M->ScanResult = SCAN_OK;
-        } else if (!S->ScanDone) {
-            M->ScanResult = SCAN_TIMEOUT;
-        } else {
-            M->ScanResult = SCAN_FW_STATUS;   /* final escan event with a non-success status */
-        }
-        ReportLine(R, "SCAN %lu: %lu BSS from %lu escan events (%s, status %lu) after %lu ms; %lu events total\r\n",
-                   M->ScanResult, S->BssCount, S->ScanEvents, S->ScanDone ? "done" : "not done", S->ScanStatus, Ms,
-                   S->Events);
+        S->ScanV2 = V2;
+        M->ScanResult = EscanRun(S);
+        M->BssCount   = S->BssCount;
 ScanEnd:
         if (M->ScanResult == SCAN_FAILED) {
-            ReportLine(R, "SCAN %u: setup ioctl failed\r\n", SCAN_FAILED);
+            ReportLine(R, "SCAN %u: setup ioctl or escan request failed\r\n", SCAN_FAILED);
         }
         if ((Tcm32(S, Shared + SH_FLAGS) & PCIE_SHARED_TRAP) != 0) {
             ReportLine(R, "[scan] firmware TRAP flag set (trap 0x%08lX)\r\n", Tcm32(S, Shared + SH_TRAP_ADDR));
         }
         WlanBusConsoleDump(R, Bus);
+    }
+
+    /* 9. milestone 5 (notes/m12-wifi-m5.md): keep the firmware, rings and buffer for the device lifetime. The
+       copy of Bus lives in M (device context); WlanDlRun sees Bus->Keep and leaves BAR0/BAR2 + chip mapped. */
+    if (M->Config->Resident && M->Result == MSG_OK && M->ScanResult == SCAN_OK) {
+        M->Bus          = *Bus;
+        M->Bus.Keep     = TRUE;
+        Bus->Keep       = TRUE;
+        S->Bus          = &M->Bus;
+        M->State        = S;
+        M->CommonBuffer = Cb;
+        M->Resident     = TRUE;
+        M->Quiesced     = FALSE;
+        M->Config       = NULL;   /* points at PrepareHardware's stack */
+        ReportLine(R, "RESIDENT: firmware kept running (ARM up, bus master on, buffer 0x%I64X, rings live)\r\n", S->La);
+        ReportWriteFile(R);
+        return;
     }
 
 Stop:
@@ -807,4 +837,93 @@ Stop:
         ExFreePoolWithTag(S, 'mDlW');
     }
     ReportWriteFile(R);
+}
+
+/* ---------------------------------------------------------------- milestone 5 runtime */
+
+static PMSG_STATE
+Live(_In_ PWLAN_MSG_CTX M, _In_ PWLAN_REPORT R)
+{
+    PMSG_STATE S;
+
+    if (!M->Resident || M->Quiesced || M->State == NULL) {
+        return NULL;
+    }
+    S    = (PMSG_STATE)M->State;
+    S->R = R;
+    WlanBusSetReport(&M->Bus, R);
+    return S;
+}
+
+_Use_decl_annotations_
+ULONG
+WlanMsgPoll(PWLAN_MSG_CTX M, PWLAN_REPORT R)
+{
+    PMSG_STATE S = Live(M, R);
+
+    if (S == NULL) {
+        return 0;
+    }
+    if ((Tcm32(S, S->Bus->SharedAddr + SH_FLAGS) & PCIE_SHARED_TRAP) != 0) {
+        ReportLine(R, "[run] firmware TRAP flag set (trap 0x%08lX) - quiescing\r\n",
+                   Tcm32(S, S->Bus->SharedAddr + SH_TRAP_ADDR));
+        WlanBusConsoleDump(R, &M->Bus);
+        WlanMsgQuiesce(M, R);
+        return 0;
+    }
+    return D2hCtrlPoll(S);
+}
+
+_Use_decl_annotations_
+ULONG
+WlanMsgRescan(PWLAN_MSG_CTX M, PWLAN_REPORT R)
+{
+    PMSG_STATE S = Live(M, R);
+
+    if (S == NULL) {
+        return SCAN_SKIPPED;
+    }
+    return EscanRun(S);
+}
+
+_Use_decl_annotations_
+VOID
+WlanMsgQuiesce(PWLAN_MSG_CTX M, PWLAN_REPORT R)
+{
+    ULONG Cmd;
+
+    if (!M->Resident || M->Quiesced) {
+        return;
+    }
+    WlanBusSetReport(&M->Bus, R);
+    WlanBusArmHalt(&M->Bus);
+    KeStallExecutionProcessor(1000);
+    Cmd = READ_REGISTER_ULONG((volatile ULONG *)(M->Bus.Cfg + EP_CFG_COMMAND)) & 0xFFFF;
+    WRITE_REGISTER_ULONG((volatile ULONG *)(M->Bus.Cfg + EP_CFG_COMMAND), Cmd & ~EP_CFG_COMMAND_BME);
+    M->Quiesced = TRUE;
+    ReportLine(R, "[run] quiesced: ARM halted, EP COMMAND 0x%08lX\r\n",
+               READ_REGISTER_ULONG((volatile ULONG *)(M->Bus.Cfg + EP_CFG_COMMAND)));
+}
+
+_Use_decl_annotations_
+VOID
+WlanMsgFree(PWLAN_MSG_CTX M)
+{
+    if (!M->Resident) {
+        return;
+    }
+    NT_ASSERT(M->Quiesced);   /* lifetime rule: never free a buffer the firmware may still DMA into */
+    if (!M->Quiesced) {
+        return;               /* leak rather than free under live DMA */
+    }
+    if (M->CommonBuffer != NULL) {
+        WdfObjectDelete(M->CommonBuffer);
+        M->CommonBuffer = NULL;
+    }
+    if (M->State != NULL) {
+        ExFreePoolWithTag(M->State, 'mDlW');
+        M->State = NULL;
+    }
+    WlanDlRelease(&M->Bus);
+    M->Resident = FALSE;
 }

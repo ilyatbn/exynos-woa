@@ -14,9 +14,26 @@ typedef struct _WLAN_MSG_CTX {
     BOOLEAN               MacValid;
     ULONG                 ScanResult;   /* SCAN_* (milestone 4) */
     ULONG                 BssCount;
+    /* milestone 5: firmware resident after PrepareHardware (Config->Resident and M3/M4 OK) */
+    BOOLEAN               Resident;     /* State/CommonBuffer/Bus below are live */
+    BOOLEAN               Quiesced;     /* ARM halted + bus mastering off (WlanMsgQuiesce) */
+    PVOID                 State;        /* WlanMsg.c MSG_STATE */
+    WDFCOMMONBUFFER       CommonBuffer;
+    WLAN_BUS              Bus;          /* kept copy; owns BAR0/BAR2 + chip until WlanMsgFree */
 } WLAN_MSG_CTX, *PWLAN_MSG_CTX;
 
+/* WLAN_MSG_CTX must outlive PrepareHardware (device context) once Resident is set. */
 _IRQL_requires_(PASSIVE_LEVEL)
 WLAN_FW_UP_FN WlanMsgRun;
+
+/* Resident-firmware runtime (all PASSIVE_LEVEL, serialized by the caller; no-ops unless Resident). */
+_IRQL_requires_(PASSIVE_LEVEL)
+ULONG WlanMsgPoll(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R);      /* drain D2H control completions */
+_IRQL_requires_(PASSIVE_LEVEL)
+ULONG WlanMsgRescan(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R);    /* one more escan, SCAN_* */
+_IRQL_requires_(PASSIVE_LEVEL)
+VOID  WlanMsgQuiesce(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R);   /* ARM halt, 1 ms, BME off */
+_IRQL_requires_(PASSIVE_LEVEL)
+VOID  WlanMsgFree(_Inout_ PWLAN_MSG_CTX M);                              /* after Quiesce: buffer, state, BARs */
 
 #endif /* _WLAN_MSG_H */

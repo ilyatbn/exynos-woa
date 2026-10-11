@@ -663,6 +663,33 @@ WlanBusArmHalt(PWLAN_BUS Bus)
 
 _Use_decl_annotations_
 VOID
+WlanBusSetReport(PWLAN_BUS Bus, PWLAN_REPORT R)
+{
+    ((PBCM_CHIP)Bus->Chip)->R = R;
+}
+
+_Use_decl_annotations_
+VOID
+WlanDlRelease(PWLAN_BUS Bus)
+{
+    PBCM_CHIP C = (PBCM_CHIP)Bus->Chip;
+
+    if (C == NULL) {
+        return;
+    }
+    if (C->Bar0 != NULL) {
+        MmUnmapIoSpace((PVOID)C->Bar0, WLAN_BAR0_SIZE);
+    }
+    if (C->Tcm != NULL) {
+        MmUnmapIoSpace((PVOID)C->Tcm, WLAN_BAR2_SIZE);
+    }
+    ExFreePoolWithTag(C, 'cDlW');
+    Bus->Chip = NULL;
+    Bus->Tcm  = NULL;
+}
+
+_Use_decl_annotations_
+VOID
 WlanBusConsoleDump(PWLAN_REPORT R, PWLAN_BUS Bus)
 {
     PBCM_CHIP C = (PBCM_CHIP)Bus->Chip;
@@ -917,6 +944,10 @@ WlanDlRun(PWLAN_REPORT R, volatile UCHAR *Cfg, ULONG Bar0Lo, ULONG Bar2Lo, ULONG
         C->R = R;
         if (Bus.ArmHalted) {
             Out->ArmReleased = FALSE;
+        }
+        if (Bus.Keep) {
+            Out->Kept = TRUE;
+            C = NULL;   /* mappings + chip now belong to the callback's copy of Bus (WlanDlRelease) */
         }
     }
     goto Done;

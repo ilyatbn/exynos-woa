@@ -58,6 +58,8 @@
 /* Not Windows\Temp: that directory's index was corrupt on this unit (notes/m12-touch.md run 6). */
 #define WLAN_REPORT_FILE            L"\\SystemRoot\\System32\\LogFiles\\Exynos9820Wlan.txt"
 #define WLAN_REPORT_MAX             16384
+#define WLAN_RUN_REPORT_FILE        L"\\SystemRoot\\System32\\LogFiles\\Exynos9820Wlan-run.txt"
+#define WLAN_POLL_MS                100            /* milestone 5 D2H poll period (no interrupt yet) */
 
 /* ======================================================================
  * Milestone 2: firmware download + ARM start (notes/m12-wifi-m2.md, which

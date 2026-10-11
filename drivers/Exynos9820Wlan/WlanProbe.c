@@ -23,7 +23,16 @@
 #include "WlanMsg.h"
 
 typedef struct _WLAN_DEVICE_CONTEXT {
-    WDFDMAENABLER DmaEnabler;   /* milestone 3 msgbuf memory (NULL if creation failed) */
+    WDFDMAENABLER   DmaEnabler; /* milestone 3 msgbuf memory (NULL if creation failed) */
+    /* milestone 5: resident firmware (notes/m12-wifi-m5.md) */
+    WLAN_MSG_CTX    Msg;        /* owns rings, buffer, BAR0/BAR2 while Msg.Resident */
+    volatile UCHAR *Cfg;        /* EP config window kept for Msg.Bus.Cfg (BME off at quiesce) */
+    WDFTIMER        PollTimer;  /* WLAN_POLL_MS -> PollWork */
+    WDFWORKITEM     PollWork;
+    PWLAN_REPORT    RunR;       /* Exynos9820Wlan-run.txt */
+    ULONG           Ticks;
+    ULONG           RescanTicks;
+    ULONG           Polled;     /* D2H items consumed at runtime */
 } WLAN_DEVICE_CONTEXT, *PWLAN_DEVICE_CONTEXT;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(WLAN_DEVICE_CONTEXT, WlanGetContext)
 
@@ -31,6 +40,10 @@ DRIVER_INITIALIZE DriverEntry;
 EVT_WDF_DRIVER_DEVICE_ADD WlanEvtDeviceAdd;
 EVT_WDF_DEVICE_PREPARE_HARDWARE WlanEvtPrepareHardware;
 EVT_WDF_DEVICE_RELEASE_HARDWARE WlanEvtReleaseHardware;
+EVT_WDF_DEVICE_D0_ENTRY         WlanEvtD0Entry;
+EVT_WDF_DEVICE_D0_EXIT          WlanEvtD0Exit;
+EVT_WDF_TIMER                   WlanPollTimer;
+EVT_WDF_WORKITEM                WlanPollWork;
 
 typedef struct _WLAN_PROBE {
     ULONG   VendorDevice;
@@ -76,7 +89,7 @@ ReportWriteFile(_In_ PWLAN_REPORT R)
     HANDLE            File;
     NTSTATUS          Status;
 
-    RtlInitUnicodeString(&Name, WLAN_REPORT_FILE);
+    RtlInitUnicodeString(&Name, (R->FileName != NULL) ? R->FileName : WLAN_REPORT_FILE);
     InitializeObjectAttributes(&Oa, &Name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
     Status = ZwCreateFile(&File, GENERIC_WRITE | SYNCHRONIZE, &Oa, &Iosb, NULL, FILE_ATTRIBUTE_NORMAL,
                           FILE_SHARE_READ, FILE_OVERWRITE_IF,
@@ -151,7 +164,7 @@ ReportWriteRegistry(_In_ WDFDRIVER Driver, _In_ PWLAN_REPORT R, _In_ PWLAN_PROBE
 
 /* Parameters key settings: Download (default 1), OtpProbe (default 1), NvramFile, FirmwareFile
    (empty = automatic / default), Msgbuf (default 1), HostCap (default WLAN_HOSTCAP_AUTO),
-   DoorbellDar (default 0), Scan (default 1). */
+   DoorbellDar (default 0), Scan (default 1), Resident (default 1), RescanSeconds (default 30). */
 static VOID
 WlanReadConfig(_In_ WDFDRIVER Driver, _Out_ PWLAN_DL_CONFIG DlCfg)
 {
@@ -166,6 +179,8 @@ WlanReadConfig(_In_ WDFDRIVER Driver, _Out_ PWLAN_DL_CONFIG DlCfg)
     DlCfg->Msgbuf   = 1;                    /* defaults documented in WlanDl.h */
     DlCfg->HostCap  = WLAN_HOSTCAP_AUTO;
     DlCfg->Scan     = 1;
+    DlCfg->Resident = 1;
+    DlCfg->RescanSeconds = 30;
     if (!NT_SUCCESS(WdfDriverOpenParametersRegistryKey(Driver, KEY_READ, WDF_NO_OBJECT_ATTRIBUTES, &Key))) {
         return;
     }
@@ -188,6 +203,14 @@ WlanReadConfig(_In_ WDFDRIVER Driver, _Out_ PWLAN_DL_CONFIG DlCfg)
     RtlInitUnicodeString(&Name, L"Scan");
     if (NT_SUCCESS(WdfRegistryQueryULong(Key, &Name, &V))) {
         DlCfg->Scan = V;
+    }
+    RtlInitUnicodeString(&Name, L"Resident");
+    if (NT_SUCCESS(WdfRegistryQueryULong(Key, &Name, &V))) {
+        DlCfg->Resident = V;
+    }
+    RtlInitUnicodeString(&Name, L"RescanSeconds");
+    if (NT_SUCCESS(WdfRegistryQueryULong(Key, &Name, &V))) {
+        DlCfg->RescanSeconds = V;
     }
     RtlInitUnicodeString(&Name, L"DoorbellDar");
     if (NT_SUCCESS(WdfRegistryQueryULong(Key, &Name, &V))) {
@@ -237,7 +260,8 @@ WlanEvtPrepareHardware(_In_ WDFDEVICE Device, _In_ WDFCMRESLIST Raw, _In_ WDFCMR
     WLAN_DL_CONFIG                   DlCfg;
     WLAN_DL_RESULT                   Dl;
     BOOLEAN                          DlRan = FALSE;
-    WLAN_MSG_CTX                     Msg;
+    PWLAN_DEVICE_CONTEXT             Ctx = WlanGetContext(Device);
+    PWLAN_MSG_CTX                    Msg = &Ctx->Msg;
 
     UNREFERENCED_PARAMETER(Raw);
     RtlZeroMemory(&Dl, sizeof(Dl));
@@ -354,13 +378,18 @@ WlanEvtPrepareHardware(_In_ WDFDEVICE Device, _In_ WDFCMRESLIST Raw, _In_ WDFCMR
         /* Milestone 2 (notes/m12-wifi-m2.md): firmware download + ARM start. BAR2 = 64-bit TCM window. */
         if ((P.Bar[2] & EP_CFG_BAR_TYPE_MASK) == EP_CFG_BAR_TYPE_64 && P.Bar[3] == 0) {
             WlanReadConfig(WdfDeviceGetDriver(Device), &DlCfg);
-            RtlZeroMemory(&Msg, sizeof(Msg));
-            Msg.DmaEnabler = WlanGetContext(Device)->DmaEnabler;
-            Msg.Config     = &DlCfg;
-            Msg.Result     = MSG_SKIPPED;
-            Msg.ScanResult = SCAN_SKIPPED;
+            RtlZeroMemory(Msg, sizeof(*Msg));
+            Msg->DmaEnabler = Ctx->DmaEnabler;
+            Msg->Config     = &DlCfg;
+            Msg->Result     = MSG_SKIPPED;
+            Msg->ScanResult = SCAN_SKIPPED;
             /* milestone 3 (notes/m12-wifi-m3.md) runs inside WlanDlRun once pcie_shared is up */
-            WlanDlRun(R, Cfg, Bar0Lo, P.Bar[2] & EP_CFG_BAR_MEM_MASK, P.Command, &DlCfg, &Dl, WlanMsgRun, &Msg);
+            WlanDlRun(R, Cfg, Bar0Lo, P.Bar[2] & EP_CFG_BAR_MEM_MASK, P.Command, &DlCfg, &Dl, WlanMsgRun, Msg);
+            if (Msg->Resident) {
+                Ctx->Cfg         = Cfg;   /* Msg->Bus.Cfg points into it: unmapped in ReleaseHardware */
+                Cfg              = NULL;
+                Ctx->RescanTicks = DlCfg.RescanSeconds * (1000 / WLAN_POLL_MS);
+            }
             DlRan = TRUE;
         } else {
             ReportLine(R, "DL 2: BAR2 0x%08lX/0x%08lX is not a 64-bit BAR below 4 GB\r\n", P.Bar[2], P.Bar[3]);
@@ -384,12 +413,124 @@ Report:
     return Status;
 }
 
+/* Run-time report: appended, the whole file rewritten each time (WLAN_REPORT_MAX caps it). */
+static PWLAN_REPORT
+RunReport(_Inout_ PWLAN_DEVICE_CONTEXT Ctx)
+{
+    if (Ctx->RunR == NULL) {
+        Ctx->RunR = (PWLAN_REPORT)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(WLAN_REPORT), 'rlWE');
+        if (Ctx->RunR != NULL) {
+            Ctx->RunR->FileName = WLAN_RUN_REPORT_FILE;
+            ReportLine(Ctx->RunR, "Exynos9820Wlan milestone-5 run log (resident firmware, poll %u ms)\r\n", WLAN_POLL_MS);
+        }
+    }
+    return Ctx->RunR;
+}
+
+/* Timer (DISPATCH) only queues the passive work item; the item does the ring work. */
+VOID
+WlanPollTimer(_In_ WDFTIMER Timer)
+{
+    WdfWorkItemEnqueue(WlanGetContext(WdfTimerGetParentObject(Timer))->PollWork);
+}
+
+VOID
+WlanPollWork(_In_ WDFWORKITEM WorkItem)
+{
+    PWLAN_DEVICE_CONTEXT Ctx = WlanGetContext(WdfWorkItemGetParentObject(WorkItem));
+    PWLAN_REPORT         R   = RunReport(Ctx);
+    ULONG                N;
+
+    if (R == NULL || !Ctx->Msg.Resident || Ctx->Msg.Quiesced) {
+        return;
+    }
+    N = WlanMsgPoll(&Ctx->Msg, R);
+    Ctx->Polled += N;
+    Ctx->Ticks++;
+    if (N != 0) {
+        ReportWriteFile(R);
+    }
+    if (Ctx->RescanTicks != 0 && Ctx->Ticks == Ctx->RescanTicks) {
+        ReportLine(R, "[run] t=%lu s: rescan with the resident firmware (%lu D2H items polled so far)\r\n",
+                   Ctx->Ticks * WLAN_POLL_MS / 1000, Ctx->Polled);
+        (VOID)WlanMsgRescan(&Ctx->Msg, R);
+        ReportWriteFile(R);
+    }
+    if ((Ctx->Ticks % (60000 / WLAN_POLL_MS)) == 0) {
+        ReportLine(R, "[run] t=%lu s: alive, %lu D2H items polled\r\n", Ctx->Ticks * WLAN_POLL_MS / 1000, Ctx->Polled);
+        ReportWriteFile(R);
+    }
+}
+
+NTSTATUS
+WlanEvtD0Entry(_In_ WDFDEVICE Device, _In_ WDF_POWER_DEVICE_STATE PreviousState)
+{
+    PWLAN_DEVICE_CONTEXT Ctx = WlanGetContext(Device);
+    PWLAN_REPORT         R;
+
+    if (Ctx->Msg.Resident) {
+        R = RunReport(Ctx);
+        if (Ctx->Msg.Quiesced) {
+            if (R != NULL) {
+                ReportLine(R, "[run] D0 entry from D%d: firmware was quiesced; a restart needs a new PrepareHardware\r\n",
+                           (int)PreviousState - (int)WdfPowerDeviceD0);
+                ReportWriteFile(R);
+            }
+        } else {
+            WdfTimerStart(Ctx->PollTimer, WDF_REL_TIMEOUT_IN_MS(WLAN_POLL_MS));
+        }
+    }
+    return STATUS_SUCCESS;
+}
+
+/* Leaving D0 (sleep, shutdown, removal): stop polling and quiesce - the firmware must not DMA while the
+   system changes power state. ReleaseHardware frees. */
+NTSTATUS
+WlanEvtD0Exit(_In_ WDFDEVICE Device, _In_ WDF_POWER_DEVICE_STATE TargetState)
+{
+    PWLAN_DEVICE_CONTEXT Ctx = WlanGetContext(Device);
+    PWLAN_REPORT         R;
+
+    WdfTimerStop(Ctx->PollTimer, TRUE);
+    WdfWorkItemFlush(Ctx->PollWork);
+    if (Ctx->Msg.Resident && !Ctx->Msg.Quiesced) {
+        R = RunReport(Ctx);
+        if (R != NULL) {
+            ReportLine(R, "[run] D0 exit to state %d after %lu s\r\n", (int)TargetState, Ctx->Ticks * WLAN_POLL_MS / 1000);
+            WlanMsgQuiesce(&Ctx->Msg, R);
+            ReportWriteFile(R);
+        }
+    }
+    return STATUS_SUCCESS;
+}
+
 NTSTATUS
 WlanEvtReleaseHardware(_In_ WDFDEVICE Device, _In_ WDFCMRESLIST Translated)
 {
-    UNREFERENCED_PARAMETER(Device);
+    PWLAN_DEVICE_CONTEXT Ctx = WlanGetContext(Device);
+    PWLAN_REPORT         R;
+
     UNREFERENCED_PARAMETER(Translated);
-    return STATUS_SUCCESS;   /* nothing stays mapped after PrepareHardware */
+    WdfTimerStop(Ctx->PollTimer, TRUE);
+    WdfWorkItemFlush(Ctx->PollWork);
+    if (Ctx->Msg.Resident) {
+        R = RunReport(Ctx);
+        if (!Ctx->Msg.Quiesced && R != NULL) {
+            WlanMsgQuiesce(&Ctx->Msg, R);
+        }
+        WlanMsgFree(&Ctx->Msg);
+    }
+    if (Ctx->Cfg != NULL && !Ctx->Msg.Resident) {
+        MmUnmapIoSpace((PVOID)Ctx->Cfg, WLAN_CFG_WINDOW_SIZE);
+        Ctx->Cfg = NULL;
+    }
+    if (Ctx->RunR != NULL) {
+        ReportLine(Ctx->RunR, "[run] released\r\n");
+        ReportWriteFile(Ctx->RunR);
+        ExFreePoolWithTag(Ctx->RunR, 'rlWE');
+        Ctx->RunR = NULL;
+    }
+    return STATUS_SUCCESS;
 }
 
 NTSTATUS
@@ -406,6 +547,8 @@ WlanEvtDeviceAdd(_In_ WDFDRIVER Driver, _Inout_ PWDFDEVICE_INIT DeviceInit)
     WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&Pnp);
     Pnp.EvtDevicePrepareHardware = WlanEvtPrepareHardware;
     Pnp.EvtDeviceReleaseHardware = WlanEvtReleaseHardware;
+    Pnp.EvtDeviceD0Entry         = WlanEvtD0Entry;
+    Pnp.EvtDeviceD0Exit          = WlanEvtD0Exit;
     WdfDeviceInitSetPnpPowerEventCallbacks(DeviceInit, &Pnp);
 
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&Attr, WLAN_DEVICE_CONTEXT);
@@ -419,6 +562,28 @@ WlanEvtDeviceAdd(_In_ WDFDRIVER Driver, _Inout_ PWDFDEVICE_INIT DeviceInit)
     WDF_DMA_ENABLER_CONFIG_INIT(&Dma, WdfDmaProfilePacket, MSG_DMA_SIZE);
     if (!NT_SUCCESS(WdfDmaEnablerCreate(Device, &Dma, WDF_NO_OBJECT_ATTRIBUTES, &WlanGetContext(Device)->DmaEnabler))) {
         WlanGetContext(Device)->DmaEnabler = NULL;
+    }
+    /* milestone 5 poll: periodic timer -> passive work item (both children of the device) */
+    {
+        WDF_TIMER_CONFIG      Tc;
+        WDF_WORKITEM_CONFIG   Wc;
+        WDF_OBJECT_ATTRIBUTES A;
+
+        WDF_WORKITEM_CONFIG_INIT(&Wc, WlanPollWork);
+        WDF_OBJECT_ATTRIBUTES_INIT(&A);
+        A.ParentObject = Device;
+        Status = WdfWorkItemCreate(&Wc, &A, &WlanGetContext(Device)->PollWork);
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
+        WDF_TIMER_CONFIG_INIT_PERIODIC(&Tc, WlanPollTimer, WLAN_POLL_MS);
+        Tc.AutomaticSerialization = FALSE;
+        WDF_OBJECT_ATTRIBUTES_INIT(&A);
+        A.ParentObject = Device;
+        Status = WdfTimerCreate(&Tc, &A, &WlanGetContext(Device)->PollTimer);
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
     }
     return STATUS_SUCCESS;
 }

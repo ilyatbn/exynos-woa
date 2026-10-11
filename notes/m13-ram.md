@@ -18,3 +18,7 @@ User: "the hard job of adding at least 1 more core and as much ram as possible".
   chkdsk /spotfix (run 9's extra-touch.cmd scheduled it again) repairs and restarts; restart -> 0xA0 PSCI ->
   S10eDiag reset -> TWRP. RAM probe never ran. Mark ring decoded after a firmware bounce (0x81 hardening worked:
   the bounce dumped instead of continuing). Re-run = run 11 (12:16).
+- Run 11 (12:07, back 421 s): ALL high-bank accesses from Windows (EL1, MMIO-mapped) SURVIVED:
+  0x8C0000000=0, 0x900000000=4b45908a, 0x940000000=58444e49, 0x97FFFF000=abafaf8f, 0x88AD00000=a8004980;
+  write 0x5A5AA5A5 + readback OK at 0x8C0000000 and 0x940000000 (restored to 0); 0x880000000=0c1d0201.
+  => the 64-bit bank is EL1-accessible under Samsung's EL2. Boot #16's reset (m8 B62) was not the bank itself.

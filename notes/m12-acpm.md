@@ -83,3 +83,5 @@ fw_header/framework.h + common.h, sec_ts y771/y771_d, include/linux/mfd/samsung/
   - Open: LDO19M's Android opmode is 0b10 (initial-mode 2 = SEC_OPMODE_MIF); the driver writes 0b11 when it reads
     0b10. Harmless while awake (0b11 = on in normal mode) but it is not Android's value; if 0b10 is read, the rail
     was very likely already on and the I2C-low problem is elsewhere.
+- 2026-10-11 (main session): live DT read in TWRP: speedy@15970000/s2mps19mfd@00/acpm-ipc-channel = 00000002
+  => ACPM_PMIC_IPC_CHANNEL VERIFIED (renamed from _UNVERIFIED). Boot #47 = first on-device run.

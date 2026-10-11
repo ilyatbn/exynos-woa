@@ -110,13 +110,11 @@
 //
 // Which ACPM IPC channel the PMIC client uses: the "acpm-ipc-channel" property of its DT node
 // (acpm_ipc.c:233-236, client node = s2mps19mfd, s2mps19_core.c:266).
-// UNVERIFIED on the live tree: 2 is the value in the STOCK G970F dtbo.img (first FDT,
-// s10e-artifacts\dtbo.dtb, /fragment@70/__overlay__/s2mps19mfd@00/acpm-ipc-channel); the live archive
-// dt-acpm-20261011.tar does not contain the node. Read that closes it (TWRP):
-//   xxd /proc/device-tree/speedy@15970000/s2mps19mfd@00/acpm-ipc-channel   (expect 00000002)
+// VERIFIED 2026-10-11 on the live tree (TWRP): xxd /proc/device-tree/speedy@15970000/s2mps19mfd@00/
+// acpm-ipc-channel = 00000002 (the stock dtbo's fragment@70 value too).
 // The channel table in APM SRAM must also contain an entry with this id or nothing is sent.
 //
-#define ACPM_PMIC_IPC_CHANNEL_UNVERIFIED  2u
+#define ACPM_PMIC_IPC_CHANNEL  2u
 
 //
 // S2MPS19 addressing through ACPM: speedy channel 0 (s2mps19_core.c:55, stock dtbo acpm-speedy-channel 0),
@@ -699,7 +697,7 @@ OnReadyToBoot (
     BEYOND0LTE_TOUCH_POWER_WRITE ? "on" : "off"
     ));
 
-  if (EFI_ERROR (FindChannel (ACPM_PMIC_IPC_CHANNEL_UNVERIFIED, &Ch))) {
+  if (EFI_ERROR (FindChannel (ACPM_PMIC_IPC_CHANNEL, &Ch))) {
     DEBUG ((DEBUG_ERROR, "TouchPower: done (no ACPM channel)\n"));
     return;
   }

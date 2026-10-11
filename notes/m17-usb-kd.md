@@ -202,3 +202,22 @@ hang (notes/m14-smp.md: "Needs kernel-level debugging (KDNET/USB) - parked"), ea
 - Test 3 (boot #74, 20:55): own WinDbgX listening ("Waiting to reconnect..."); host PnP watcher 200 s from
   `adb reboot`: NO new USB device at all (no failed enumeration either) through UEFI's 8 s probe window and the
   Windows KD boot. Need the UEFILOG DSTS trace (TWRP).
+
+## Attach-probe result + TWRP register comparison (2026-10-11 ~21:10)
+- UEFILOG boot #74 probe: t0 linkst 4 (Disconnected) -> t1 0 (ON) -> t4 5 (Early suspend) -> t7 3 (Suspend),
+  SOFFN 0, GEVNTCOUNT 0, for 8 s. The core attaches internally, then sees an idle bus: no host reset, no SOF ->
+  the pull-up / line state never reaches the host. Problem is between the DWC3 and the connector (PHY wrapper),
+  before Windows - so it also likely explains M16's dark dock in host mode.
+- TWRP (Linux device mode WORKING on the same cable): /dev/mem absent (CONFIG_DEVMEM off), but debugfs has
+  10b00000.phy/{regdump,regmap}, 10c00000.dwc3/{regdump,link_state,mode}, max77705-regs. Saved to
+  s10e-artifacts\twrp-usb-regs-20261011\. dwc3: mode=device, link_state=U2.
+- DWC3 globals in Linux == ours: GCTL 30C12004, GUSB2PHYCFG 00102540 (Linux keeps SUSPHY+ENBLSLPM SET),
+  GSBUSCFG0 22220009 -> the core is not the difference.
+- PHY wrapper (Linux values) vs our UsbPhyInit:
+  HSREWA_CTRL 0x108 = 0x10000000 (DIG_BYPASS_CON_EN bit28 = 1)  -- ours never written  (prime suspect: REWA
+     block sits between link and HS PHY; bypass lets the link's UTMI termsel/opmode reach the transceiver)
+  HSPCTRL 0x54 = 0x10003300 (RETENABLE_EN bit28 = 1)            -- ours never written
+  CLKRSTCTRL 0x20 = 0x00001084 (LINK_PCLK_SEL bit7 = 1)          -- ours never written
+  HSPPARACON 0x58 = 0xC16F3337 (device-column tune)              -- ours host column (SQRX 5, TXRES 1)
+  LINKCTRL 0x04 = 0x00043FF0 (FORCE_PIPE_EN bit16 = 0, DIS_BUSPEND_QACT 1) -- ours sets FORCE_PIPE_EN
+  LINKPORT 0x08 = 0x0001107C; UTMICTRL 0x50 = 0x30; HSPTEST 0x5C = 0x00040000; SECPMACTL 0x48 = 0x100.

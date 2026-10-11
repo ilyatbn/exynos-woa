@@ -1,4 +1,4 @@
-/*  WlanProbe.c - S10e BCM4375 WLAN, milestone-1 probe (KMDF, no NDIS).
+/*  WlanProbe.c - S10e BCM4375 WLAN, probe, firmware download (WlanDl.c) and msgbuf bring-up (WlanMsg.c) (KMDF, no NDIS).
 
     Binds ACPI\SAMS9825 (Dsdt.asl Device (WLAN), present only when Beyond0LtePcieDxe trained the
     PCIe link and read a Broadcom vendor ID this boot), maps the two _CRS memory windows and reports:
@@ -20,6 +20,12 @@
 #include <wdf.h>
 #include <ntstrsafe.h>
 #include "WlanDl.h"
+#include "WlanMsg.h"
+
+typedef struct _WLAN_DEVICE_CONTEXT {
+    WDFDMAENABLER DmaEnabler;   /* milestone 3 msgbuf memory (NULL if creation failed) */
+} WLAN_DEVICE_CONTEXT, *PWLAN_DEVICE_CONTEXT;
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(WLAN_DEVICE_CONTEXT, WlanGetContext)
 
 DRIVER_INITIALIZE DriverEntry;
 EVT_WDF_DRIVER_DEVICE_ADD WlanEvtDeviceAdd;
@@ -144,7 +150,8 @@ ReportWriteRegistry(_In_ WDFDRIVER Driver, _In_ PWLAN_REPORT R, _In_ PWLAN_PROBE
 }
 
 /* Parameters key settings: Download (default 1), OtpProbe (default 1), NvramFile, FirmwareFile
-   (empty = automatic / default). */
+   (empty = automatic / default), Msgbuf (default 1), HostCap (default WLAN_HOSTCAP_AUTO),
+   DoorbellDar (default 0). */
 static VOID
 WlanReadConfig(_In_ WDFDRIVER Driver, _Out_ PWLAN_DL_CONFIG DlCfg)
 {
@@ -156,6 +163,8 @@ WlanReadConfig(_In_ WDFDRIVER Driver, _Out_ PWLAN_DL_CONFIG DlCfg)
     RtlZeroMemory(DlCfg, sizeof(*DlCfg));
     DlCfg->Download = 1;
     DlCfg->OtpProbe = 1;
+    DlCfg->Msgbuf   = 1;                    /* defaults documented in WlanDl.h */
+    DlCfg->HostCap  = WLAN_HOSTCAP_AUTO;
     if (!NT_SUCCESS(WdfDriverOpenParametersRegistryKey(Driver, KEY_READ, WDF_NO_OBJECT_ATTRIBUTES, &Key))) {
         return;
     }
@@ -166,6 +175,18 @@ WlanReadConfig(_In_ WDFDRIVER Driver, _Out_ PWLAN_DL_CONFIG DlCfg)
     RtlInitUnicodeString(&Name, L"OtpProbe");
     if (NT_SUCCESS(WdfRegistryQueryULong(Key, &Name, &V))) {
         DlCfg->OtpProbe = V;
+    }
+    RtlInitUnicodeString(&Name, L"Msgbuf");
+    if (NT_SUCCESS(WdfRegistryQueryULong(Key, &Name, &V))) {
+        DlCfg->Msgbuf = V;
+    }
+    RtlInitUnicodeString(&Name, L"HostCap");
+    if (NT_SUCCESS(WdfRegistryQueryULong(Key, &Name, &V))) {
+        DlCfg->HostCap = V;
+    }
+    RtlInitUnicodeString(&Name, L"DoorbellDar");
+    if (NT_SUCCESS(WdfRegistryQueryULong(Key, &Name, &V))) {
+        DlCfg->DoorbellDar = V;
     }
     RtlInitUnicodeString(&Name, L"NvramFile");
     Value.Buffer        = DlCfg->NvramFile;
@@ -211,6 +232,7 @@ WlanEvtPrepareHardware(_In_ WDFDEVICE Device, _In_ WDFCMRESLIST Raw, _In_ WDFCMR
     WLAN_DL_CONFIG                   DlCfg;
     WLAN_DL_RESULT                   Dl;
     BOOLEAN                          DlRan = FALSE;
+    WLAN_MSG_CTX                     Msg;
 
     UNREFERENCED_PARAMETER(Raw);
     RtlZeroMemory(&Dl, sizeof(Dl));
@@ -223,7 +245,7 @@ WlanEvtPrepareHardware(_In_ WDFDEVICE Device, _In_ WDFCMRESLIST Raw, _In_ WDFCMR
     RtlZeroMemory(&P, sizeof(P));
     Phys[0].QuadPart = Phys[1].QuadPart = 0;
     Len[0] = Len[1] = 0;
-    ReportLine(R, "Exynos9820Wlan milestone-1 probe (ACPI\\SAMS9825)\r\n");
+    ReportLine(R, "Exynos9820Wlan milestone-3 (ACPI\\SAMS9825)\r\n");
 
     Count = WdfCmResourceListGetCount(Translated);
     for (I = 0; I < Count; I++) {
@@ -327,7 +349,12 @@ WlanEvtPrepareHardware(_In_ WDFDEVICE Device, _In_ WDFCMRESLIST Raw, _In_ WDFCMR
         /* Milestone 2 (notes/m12-wifi-m2.md): firmware download + ARM start. BAR2 = 64-bit TCM window. */
         if ((P.Bar[2] & EP_CFG_BAR_TYPE_MASK) == EP_CFG_BAR_TYPE_64 && P.Bar[3] == 0) {
             WlanReadConfig(WdfDeviceGetDriver(Device), &DlCfg);
-            WlanDlRun(R, Cfg, Bar0Lo, P.Bar[2] & EP_CFG_BAR_MEM_MASK, P.Command, &DlCfg, &Dl);
+            RtlZeroMemory(&Msg, sizeof(Msg));
+            Msg.DmaEnabler = WlanGetContext(Device)->DmaEnabler;
+            Msg.Config     = &DlCfg;
+            Msg.Result     = MSG_SKIPPED;
+            /* milestone 3 (notes/m12-wifi-m3.md) runs inside WlanDlRun once pcie_shared is up */
+            WlanDlRun(R, Cfg, Bar0Lo, P.Bar[2] & EP_CFG_BAR_MEM_MASK, P.Command, &DlCfg, &Dl, WlanMsgRun, &Msg);
             DlRan = TRUE;
         } else {
             ReportLine(R, "DL 2: BAR2 0x%08lX/0x%08lX is not a 64-bit BAR below 4 GB\r\n", P.Bar[2], P.Bar[3]);
@@ -364,6 +391,9 @@ WlanEvtDeviceAdd(_In_ WDFDRIVER Driver, _Inout_ PWDFDEVICE_INIT DeviceInit)
 {
     WDF_PNPPOWER_EVENT_CALLBACKS Pnp;
     WDFDEVICE                    Device;
+    WDF_OBJECT_ATTRIBUTES        Attr;
+    WDF_DMA_ENABLER_CONFIG       Dma;
+    NTSTATUS                     Status;
 
     UNREFERENCED_PARAMETER(Driver);
 
@@ -372,7 +402,19 @@ WlanEvtDeviceAdd(_In_ WDFDRIVER Driver, _Inout_ PWDFDEVICE_INIT DeviceInit)
     Pnp.EvtDeviceReleaseHardware = WlanEvtReleaseHardware;
     WdfDeviceInitSetPnpPowerEventCallbacks(DeviceInit, &Pnp);
 
-    return WdfDeviceCreate(&DeviceInit, WDF_NO_OBJECT_ATTRIBUTES, &Device);
+    WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&Attr, WLAN_DEVICE_CONTEXT);
+    Status = WdfDeviceCreate(&DeviceInit, &Attr, &Device);
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+    /* 32-bit packet profile: the common buffer lands below 4 GB, as the 32-bit ring addresses need.
+       A failure only disables milestone 3 (WlanMsgRun reports MSG_NO_DMA). */
+    WdfDeviceSetAlignmentRequirement(Device, FILE_QUAD_ALIGNMENT);   /* common buffers are page-aligned anyway; WlanMsgRun checks */
+    WDF_DMA_ENABLER_CONFIG_INIT(&Dma, WdfDmaProfilePacket, MSG_DMA_SIZE);
+    if (!NT_SUCCESS(WdfDmaEnablerCreate(Device, &Dma, WDF_NO_OBJECT_ATTRIBUTES, &WlanGetContext(Device)->DmaEnabler))) {
+        WlanGetContext(Device)->DmaEnabler = NULL;
+    }
+    return STATUS_SUCCESS;
 }
 
 NTSTATUS

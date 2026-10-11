@@ -238,4 +238,146 @@
 #define DL_TIMEOUT                  7
 #define DL_BAD_SHARED               8
 
+/* ======================================================================
+ * Milestone 3: msgbuf common rings, bus mastering (polled), first ioctl
+ * (notes/m12-wifi-m3.md carries the citation table; dhd = bcmdhd lineage-23.2,
+ * fmac = brcmfmac master). Facts only, no code copied.
+ * ==================================================================== */
+
+/* More pciedev_shared_t members (dhd include/bcmpcie.h:330-395). */
+#define SH_TOTAL_LFRAG_CNT          0x20           /* u16 */
+#define SH_MAX_HOST_RXBUFS          0x22           /* u16 */
+#define SH_SCRATCH_LEN              0x34
+#define SH_SCRATCH_ADDR             0x38           /* sh_addr_t */
+#define SH_FLAGS2                   0x50
+#define SH_HOST_CAP                 0x54
+#define SH_SIZE_V7                  0x78           /* through host_cap3 */
+
+/* pcie_shared flags (bcmpcie.h:67-124). */
+#define PCIE_SHARED_DMA_INDEX       0x00010000UL
+#define PCIE_SHARED_D2H_SYNC_SEQNUM 0x00020000UL
+#define PCIE_SHARED_D2H_SYNC_XORCSUM 0x00040000UL
+#define PCIE_SHARED_2BYTE_INDICES   0x00100000UL
+#define PCIE_SHARED_HOSTRDY_SUPPORT 0x10000000UL
+#define PCIE_SHARED_DAR             0x80000000UL
+#define PCIE_SHARED_VERSION_7       7
+
+/* host_cap bits (bcmpcie.h:403-418) and the value the driver writes by default (notes "host_cap"). */
+#define HOSTCAP_H2D_ENABLE_HOSTRDY  0x00000400UL
+#define HOSTCAP_DS_NO_OOB_DW        0x00001000UL
+#define HOSTCAP_UR_FW_NO_TRAP       0x00800000UL
+#define WLAN_HOSTCAP_AUTO           0xFFFFFFFEUL   /* registry default: compute like dhd_set_host_cap */
+#define WLAN_HOSTCAP_DONT_WRITE     0xFFFFFFFFUL   /* registry: leave host_cap alone (fmac style) */
+
+/* ring_info_t (bcmpcie.h:290-324). */
+#define RI_RINGMEM_PTR              0x00
+#define RI_H2D_W_IDX_PTR            0x04
+#define RI_H2D_R_IDX_PTR            0x08
+#define RI_D2H_W_IDX_PTR            0x0C
+#define RI_D2H_R_IDX_PTR            0x10
+#define RI_MAX_TX_FLOWRINGS         0x34           /* u16 */
+#define RI_MAX_SUBMISSION_QUEUES    0x36           /* u16 */
+#define RI_MAX_COMPLETION_RINGS     0x38           /* u16 */
+#define RI_MAX_VDEVS                0x3A           /* u16 */
+#define RI_SIZE                     0x3C
+
+/* ring_mem_t (bcmpcie.h:275-282): 16 bytes per common ring at ringmem_ptr + 16 * ring id. */
+#define RM_SIZE                     16
+#define RM_IDX                      0x00           /* u16 */
+#define RM_TYPE                     0x02           /* u8 */
+#define RM_MAX_ITEM                 0x04           /* u16 */
+#define RM_LEN_ITEMS                0x06           /* u16 */
+#define RM_BASE_ADDR                0x08           /* sh_addr_t */
+#define RW_INDEX_SZ                 4              /* flags lack 2BYTE_INDICES (dhd_pcie.c:8597-8598) */
+
+/* Common rings: ids (bcmpcie.h:171-175), item sizes + depths (dhd include/bcmmsgbuf.h:47-77, v7 sizes). */
+#define RING_H2D_CTRL               0
+#define RING_H2D_RXPOST             1
+#define RING_D2H_CTRL_CPL           2
+#define RING_D2H_TX_CPL             3
+#define RING_D2H_RX_CPL             4
+#define RING_COMMON_COUNT           5
+#define RING_H2D_COUNT              2
+#define H2D_CTRL_ITEMSIZE           40
+#define H2D_CTRL_MAX_ITEM           64
+#define H2D_RXPOST_ITEMSIZE         32
+#define H2D_RXPOST_MAX_ITEM         512
+#define D2H_CTRL_CPL_ITEMSIZE       24
+#define D2H_CTRL_CPL_MAX_ITEM       64
+#define D2H_TX_CPL_ITEMSIZE         24
+#define D2H_TX_CPL_MAX_ITEM         1024
+#define D2H_RX_CPL_ITEMSIZE         40
+#define D2H_RX_CPL_MAX_ITEM         512
+
+/* Message types (bcmmsgbuf.h:160-177) and header layout (cmn_msg_hdr_t :145-156). */
+#define MSG_TYPE_GEN_STATUS         0x01
+#define MSG_TYPE_RING_STATUS        0x02
+#define MSG_TYPE_IOCTLPTR_REQ       0x09
+#define MSG_TYPE_IOCTLPTR_REQ_ACK   0x0A
+#define MSG_TYPE_IOCTLRESP_BUF_POST 0x0B
+#define MSG_TYPE_IOCTL_CMPLT        0x0C
+#define MSG_TYPE_WL_EVENT           0x0E
+#define MSGH_TYPE                   0x00           /* u8 */
+#define MSGH_IFID                   0x01           /* u8 */
+#define MSGH_FLAGS                  0x02           /* u8 */
+#define MSGH_EPOCH                  0x03           /* u8 */
+#define MSGH_REQUEST_ID             0x04           /* u32 */
+/* ioctl_req_msg_t (bcmmsgbuf.h:313-330) */
+#define IOREQ_CMD                   0x08
+#define IOREQ_TRANS_ID              0x0C           /* u16 */
+#define IOREQ_INPUT_LEN             0x0E           /* u16 */
+#define IOREQ_OUTPUT_LEN            0x10           /* u16 */
+#define IOREQ_BUF_ADDR              0x18           /* bcm_addr64_t */
+/* ioctl_resp_evt_buf_post_msg_t (bcmmsgbuf.h:333-343) */
+#define BUFPOST_LEN                 0x08           /* u16 */
+#define BUFPOST_ADDR                0x10           /* bcm_addr64_t */
+/* D2H completions (bcmmsgbuf.h:584-756): compl_msg_hdr_t at +8, XOR marker in the last word */
+#define CPL_STATUS                  0x08           /* s16 */
+#define CPL_RING_ID                 0x0A           /* u16 */
+#define CPL_ACK_CMD                 0x0C           /* ioctl_req_ack_msg_t.cmd */
+#define CPL_IOCTL_RESP_LEN          0x0C           /* ioctl_comp_resp_msg_t, u16 */
+#define CPL_IOCTL_TRANS_ID          0x0E           /* u16 */
+#define CPL_IOCTL_CMD               0x10           /* u32 */
+#define EPOCH_MODULO                253            /* D2H/H2D_EPOCH_MODULO bcmmsgbuf.h:41,44 */
+#define EPOCH_INIT_VAL              254            /* *_EPOCH_INIT_VAL bcmmsgbuf.h:42,45 */
+
+#define IOCTL_REQ_PKTID             0xFFFEUL       /* DHD_IOCTL_REQ_PKTID dhd_msgbuf.c:1670 */
+#define IOCTL_REQ_BUF_SIZE          2048           /* DHD_IOCTL_REQ_PKTBUFSZ dhd_msgbuf.c:114 */
+#define IOCTL_REQ_MAX_INPUT         (IOCTL_REQ_BUF_SIZE - H2D_CTRL_ITEMSIZE)   /* dhd_msgbuf.c:115 */
+#define IOCTL_RESP_BUF_SIZE         8192           /* DHD_FLOWRING_IOCTL_BUFPOST_PKTSZ dhd_msgbuf.c:128 */
+#define IOCTL_RESP_BUF_COUNT        8              /* DHD_FLOWRING_MAX_IOCTLRESPBUF_POST dhd_msgbuf.c:132 */
+#define D2H_SCRATCH_LEN             8              /* DMA_D2H_SCRATCH_BUF_LEN dhd_msgbuf.c:119 */
+#define WLC_GET_VAR                 262            /* fmac fwil.h:80 BRCMF_C_GET_VAR */
+#define IOCTL_RESP_TIMEOUT_MS       2000           /* fmac msgbuf.c:28 MSGBUF_IOCTL_RESP_TIMEOUT */
+
+/* PCIE2 core registers, through the BAR0 window at the PCIE2 core base (dhd include/pcie_core.h). */
+#define PCIE2_H2D_DB0               0x140          /* PCIH2D_MailBox, pcie_core.h:946 */
+#define PCIE2_H2D_DB1               0x144          /* PCIH2D_DB1, pcie_core.h:947 */
+#define PCIE2_DAR64_H2D_DB0         0xA20          /* dar_64.h2d_db_0_0, pcie_core.h:335 (fmac pcie.c:149) */
+#define PCIE2_DAR64_H2D_DB1         0xA24          /* fmac pcie.c:150 */
+#define PCIE2_MAILBOXINT_REV64      0xC30          /* PCIMailBoxInt(rev >= 64), pcie_core.h:961 */
+#define PCIE2_MAILBOXINT_OLD        0x48           /* PCIMailBoxInt(rev < 64) */
+#define PCIE2_DOORBELL_VALUE        0x12345678UL   /* dhd ringbell dhd_pcie.c:7786, hostready :6160 */
+
+/* One common buffer, every region 4 KB aligned (notes "DMA decision" 6). */
+#define MSG_OFF_H2D_CTRL            0x00000
+#define MSG_OFF_H2D_RXPOST          0x01000        /* 512 x 32 = 0x4000 */
+#define MSG_OFF_D2H_CTRL_CPL        0x05000        /* 64 x 24 = 0x600 */
+#define MSG_OFF_D2H_TX_CPL          0x06000        /* 1024 x 24 = 0x6000 */
+#define MSG_OFF_D2H_RX_CPL          0x0C000        /* 512 x 40 = 0x5000 */
+#define MSG_OFF_IOCTL_REQ           0x11000        /* 2048 */
+#define MSG_OFF_SCRATCH             0x12000        /* 8 */
+#define MSG_OFF_IOCTL_RESP          0x13000        /* 8 x 8192 = 0x10000 */
+#define MSG_DMA_SIZE                0x23000
+
+/* MsgResult values (README.md). */
+#define MSG_OK                      0
+#define MSG_SKIPPED                 1
+#define MSG_NO_DMA                  2
+#define MSG_BAD_SHARED              3
+#define MSG_BME                     4
+#define MSG_TIMEOUT                 5
+#define MSG_IOCTL_ERROR             6
+#define MSG_TRAP                    7
+
 #endif /* _EXYNOS9820_WLAN_H */

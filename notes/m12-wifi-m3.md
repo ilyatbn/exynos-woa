@@ -204,3 +204,19 @@ Path: BCM4375 PCIe master -> Exynos PCIe0 RC (DesignWare) inbound -> SysMMU_PCIE
 - FOUND: WlanDl.h documents Msgbuf "default 1" and HostCap "WLAN_HOSTCAP_AUTO (default)", but WlanReadConfig
   zero-fills the struct, so both were 0. Fixed in the follow-up commit (defaults set; still not read from the
   registry - that belongs with WlanMsg.c). Rebuilt: exit 0, /W4 /WX clean.
+
+### 2026-10-12 - WlanMsg.c written (main session; subagent write was blocked)
+- `drivers/Exynos9820Wlan/WlanMsg.c` + `WlanMsg.h`: WlanMsgRun = fw-up callback. Order: flags check
+  (v7, XORCSUM, no DMA_INDEX/2BYTE) -> ring_info -> WdfCommonBuffer 0x23000 (checked 4 KB aligned, < 4 GB)
+  -> host_cap (AUTO = 7 | DS_NO_OOB_DW | UR_FW_NO_TRAP | HOSTRDY if supported) -> ring_mem[0..4] + indices
+  zeroed + scratch -> BME on -> DB1 hostready -> 8 IOCTLRESP_BUF_POST, DB0 -> GET_VAR cur_etheraddr (out 32),
+  ver (out 200), polled 5 ms up to 2 s each -> console dump -> stop: ARM halt, 1 ms, BME off, free.
+- WlanProbe.c: device context with WDFDMAENABLER (WdfDmaProfilePacket, MaximumLength MSG_DMA_SIZE; failure ->
+  MSG_NO_DMA, driver still loads), registry Msgbuf/HostCap/DoorbellDar read, FwUp = WlanMsgRun.
+- `FILE_PAGE_ALIGNMENT` does not exist in the WDK headers -> FILE_QUAD_ALIGNMENT (the common buffer is page
+  aligned by allocation; WlanMsgRun checks La & 0xFFF).
+- DriverVer 1.0.3.0. Build: s10e-artifacts\wifi-m3\Exynos9820Wlan, sys sha256 prefix 7F4ED72F402B8A80.
+- Review: item offsets vs the constants table (IOREQ_BUF_ADDR 0x18, BUFPOST_ADDR 0x10, CPL_* in a 24 B item);
+  D2H index slot = ring id - 2; IOCTL_CMPLT request_id = response-buffer pktid (fmac
+  brcmf_msgbuf_process_ioctl_complete looks it up in rx_pktids), handled as 0x1000+k. No findings.
+- Device test pending: expect `[msg] IOCTL CMPLT status 0` x2, `cur_etheraddr = ..`, `ver = wl0: ...`, `MSG 0`.

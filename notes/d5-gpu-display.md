@@ -372,10 +372,10 @@ is BSD for the same reason.
   S9+ "WDDM, code not released": kernel half = a kbase→WDDM port (could be
   released, GPL), userspace half = a port of Arm's proprietary Midgard DDK
   binary (cannot be released) — which is exactly why it stays closed.
-- *(fact)* Userspace quality matters for the ladder: S9+ Midgard's open driver
-  is **Lima** (GL 2.1-era, no Vulkan); our G76 Bifrost's open driver is
-  **panfrost** (GLES 3.1 / Vulkan 1.3). If anyone ever does the open rung-2
-  path, the 9820 is the BETTER target of the two, not the worse.
+- *(CORRECTED 2026-10-12, notes/gpu-windows-prior-art.md)* The S9+'s Mali-G72 is **Bifrost** (v6), not
+  Midgard, and panfrost (not Lima) is its open driver; our G76 is Bifrost v7. The earlier claim here ("S9+
+  Midgard ... Lima") was wrong. Both GPUs are panfrost targets; the closest prior art is
+  gahingwoo/wddm-mali-g52 (Bifrost v7, Mesa 26.2 d3d10umd + panfrost on Windows).
 
 ### D5b(d) — panfrost-on-Windows sizing (2026-10-10)
 

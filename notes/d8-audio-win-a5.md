@@ -183,3 +183,14 @@ Device result (coordinator, runs in scratchpad\runs\audA5\last\audio, \audA5b, \
   `cb <Name>(args) -> <status>` (cap 400/stream; rare callbacks flushed always, frequent ones every 16th line or on
   error); CreateStream traced with pin/format/mode/status; circuit PowerUp/PowerDown callbacks registered (as the sample)
   and logged. Run log 64 -> 256 KiB. Builds: ACX 1.1 exit 0, ACX 1.0 (-AcxMinor 0) exit 0.
+- Review of T7 (adversarial). Hook arguments checked against the MS DDI page for
+  AcxCircuitInitAssignAcxRequestPreprocessCallback, whose own example registers exactly (AcxRequestTypeAny, NULL,
+  AcxItemIdNone) on a render circuit, and the page says multiple registrations are allowed (first match wins); the
+  ACX sample's CircuitHelper.cpp:504/533/610 returns unhandled requests with AcxCircuitDispatchAcxRequest the same
+  way. Each hook dispatches exactly once on every path and never touches the request afterwards (the logged fields
+  come from the local ACX_REQUEST_PARAMETERS copy; Control/Value pointers are not dereferenced). Wrappers: output
+  pointers (FifoSize/Delay/CurrentPacket/PositionInBlocks) are caller-owned and always written by the implementations
+  (all return STATUS_SUCCESS paths only); Ctx is still valid after FreeRtPackets (stream context). Flushes only at
+  PASSIVE (KeGetCurrentIrql check in AUD_TRACE; hooks are PASSIVE by contract). Cost noted: an NT_ERROR status flushes the
+  whole log (<= 256 KiB, write-through) - the endpoint builder's unsupported-property probes each cause one; accepted
+  for a diagnostic build. No findings.

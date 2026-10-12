@@ -639,7 +639,9 @@
 #define CNT_XTLV_LT40_UCODE         0x300          /* :3505 */
 #define CNT_XTLV_GE40_UCODE         0x400          /* :3506 */
 #define CNT_XTLV_GE80_UCODE         0x900          /* :3508 */
-/* wl_cnt_wlc_t (wlioctl.h:3778-4005), all-uint32 prefix up to rxuflo[NFIFO] at 128 */
+/* wl_cnt_wlc_t (wlioctl.h:3778-4005), all-uint32 prefix up to rxuflo[NFIFO] at 128. UNVERIFIED for this fw: the
+   offsets are those of the lineage-23.2 header; fw 18.41.117 using the same struct revision is assumed - the join-end
+   hex dump is the ground truth to check them against (e.g. rxframe vs the frame counts the run implies). */
 #define CNTWLC_TXFRAME              0
 #define CNTWLC_RXFRAME              60
 #define CNTWLC_RXNOBUF              76             /* "rx out of buffers errors" wlioctl.h:3803 */

@@ -2106,7 +2106,8 @@ CountersDump(_Inout_ PMSG_STATE S, _In_z_ PCSTR When, _In_ BOOLEAN Hex)
     if (End > Len) {
         End = Len;
     }
-    ReportLine(S->R, "[cnt] %s: counters version %lu datalen %u (reply %lu B)\r\n", When, Ver,
+    ReportLine(S->R, "[cnt] %s: counters version %lu datalen %u (reply %lu B; decode = lineage-23.2 offsets, UNVERIFIED "
+               "for this fw)\r\n", When, Ver,
                *(const USHORT UNALIGNED *)(B + 2), Len);
     if (Hex) {
         HexDump(S, "[cnt]", B, (End < CNT_HEX_MAX) ? End : CNT_HEX_MAX);

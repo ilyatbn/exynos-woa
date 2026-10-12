@@ -232,3 +232,11 @@ Refs: scratchpad src/bcmdhd (LineageOS lineage-23.2) and src/brcmfmac (torvalds 
   PCIMailBoxMask (0xC30/0xC34 for PCIE2 rev >= 64; this chip's PCIE2 core 0x83C is rev 64 per the EROM log),
   shared flags; GET_VAR "counters" -> version/datalen, hex (<= 2048 B), decoded "[cnt] ... wlc rxframe rxnobuf ..."
   and "[cnt] ... macstat 0x4xx rxf0ovfl rxdtucastmbss". All read-only. Build W4/WX clean.
+- Review of 9359f3b (adversarial): xtlv walk cannot underflow (Off + 4 <= End checked before End - Off - 4), a
+  zero-length tlv still advances 4 B, a truncated tlv stops the walk with a log line; hex dump bounded by End <=
+  RespLen <= 4096 and capped at 2048; PCIMailBoxInt is a W1C status register, a read has no side effect (no write
+  added); offsets/ids re-checked against wlioctl.h with cntoff.py and rg (3479, 3499-3508, 3803, 4299, 4505;
+  pcie_core.h:961-962; fmac pcie.c:231-232 = shared +0x28/+0x2C). FOUND: the counter offsets come from the
+  lineage-23.2 header, and nothing proves fw 18.41.117 uses that struct revision, yet the source/log presented the
+  decode as fact. Fixed in a follow-up commit: header comment + log line mark the decode UNVERIFIED (hex = ground
+  truth). Close it with the first join-end dump: the WLC tlv's rxframe/txframe must be plausible for the run.

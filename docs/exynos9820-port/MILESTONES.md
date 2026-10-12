@@ -320,7 +320,13 @@ tree does not contain.
 | Milestone 6: WPA2-PSK join (SET_SSID + 4-way handshake) | doing | run m6-3 with the user's network: firmware refuses `sup_wpa` (-23 BCME_UNSUPPORTED) = **no in-dongle supplicant** in this build; the 4-way handshake must run on the host over EAPOL frames, so it needs the M7 data path first. PBKDF2 PMK (self-test PASS) is reused - `notes/m12-wifi-m6.md` |
 | Milestone 7: msgbuf data path (tx flowring + rx completion) + host WPA2 4-way handshake (EAPOL) | doing | associates (1.0.7.1-1.0.7.3 on device) but the fw never completes an rx buffer (rx cpl w 0, deauth 15); 1.0.7.4 (`wifi-m7c`, built, not device-tested): 511 rx buffers of rxbufpost_sz posted before the first UP, fmac-style refill, counters/mailbox/ring_mem diagnostics at join end - `notes/m12-wifi-m7.md` |
 | Milestone 8: NDIS 802.3 adapter (Windows sees a wired NIC) + `wifi-connect` app that writes Ssid/Passphrase and restarts the driver (disable/enable) | todo | user's choice 2026-10-12: do this first (also gives a network for Windows debugging tools) |
-| Milestone 9: native Windows WiFi (WDI / WiFiCx: adapter in the network flyout, scan list, connect from the Windows UI) | todo | user's choice 2026-10-12: wanted after M8 |
+| Milestone 9: native Windows WiFi (WDI / WiFiCx: adapter in the network flyout, scan list, connect from the Windows UI) | doing | user's choice 2026-10-12 (after the 1.0.7.4 join): WiFiCx 1.0 + NetAdapterCx 2.2 client `drivers/Exynos9820WlanCx`, plan W1..W5 in `notes/m12-wifi-wificx.md` |
+| M9 T1: warm restart - D11 cores into reset before the firmware image write (fmac cr4_set_passive) | todo | cures "DL 6 TCM read-back mismatch" after a device restart? (UNVERIFIED) |
+| M9 W1: WiFiCx skeleton - adapter visible in Windows, MAC from the firmware, radio/reset/config commands, no traffic | todo | |
+| M9 W2: scan - WDI_TASK_SCAN -> escan -> BSS list in the Windows network flyout | todo | |
+| M9 W3: data path - NetAdapter tx/rx queues over the msgbuf flowring / rx completions | todo | |
+| M9 W4: connect - WDI_TASK_CONNECT (firmware join, OS supplicant over the data path), cipher keys, disconnect | todo | |
+| M9 W5: power, roaming, interrupt instead of polling, flowring delete on disconnect | todo | |
 | Decide whether WiFi is required at all when LAN is available | **done** | **LAN-first**; if WiFi is genuinely needed, put a **USB WiFi adapter in the dock** (an ordinary Windows device once M10 works), not the phone's WLAN |
 
 ### M13 — LAN through the dock

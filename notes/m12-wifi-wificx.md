@@ -1,0 +1,115 @@
+# M12 WiFi — native Windows WiFi (WiFiCx client driver)
+
+User decision 2026-10-12 (notes/m12-wifi-m7.md, end): from the connected stage (1.0.7.4 joined the user's
+WPA2 network) go to native Windows WiFi: adapter in the Windows network UI, scan list, connect with a
+password, ipconfig shows a real adapter, browsing works. This session: build + test-sign + package only,
+**no phone access** (no adb). Everything here is device-unvalidated until a device run says otherwise.
+
+Base: main ba1820e. Existing driver: drivers/Exynos9820Wlan (KMDF, ACPI\SAMS9825, Class=System,
+1.0.7.4).
+
+## Progress log
+- 2026-10-12: read AGENTS.md, notes/m12-wifi-m7.md, notes/m12-wifi-m7-rx-audit.md, the driver's README /
+  build-package.ps1 / .inx / .vcxproj. NetAdapterCx version research already exists (m7 notes:75-84:
+  target NetAdapterCx 2.3 for 22631).
+- WDK 10.0.26100.0 on this box ships WiFiCx headers 1.0 / 1.1 / 1.2
+  (Include\10.0.26100.0\km\wificx\1.x\wificx.h), stub libs Lib\10.0.26100.0\km\arm64\wificx\1.x\wificxstub.lib,
+  the WDI TLV generator/parser Lib\...\km\arm64\wlan\2.0\WificxTLVGenParse.lib with its headers
+  km\dot11wificxintf.h (1786 lines) + km\dot11wificxtypes.hpp (C++, 1139 lines).
+- WiFiCx 1.0 API (wificx.h): WifiDeviceInitConfig(DeviceInit), WifiDeviceInitialize(Device, WIFI_DEVICE_CONFIG
+  {WdiVersion, SendCommand, CreateAdapter, CreateWifiDirectDevice}), WifiDeviceSet{Device,Station,Band,Phy,
+  WiFiDirect}Capabilities, WifiDeviceReceiveIndication(Device, MessageId, WDFMEMORY), WifiAdapterInitialize,
+  WifiRequestGetInOutBuffer / GetMessageId / SetBytesNeeded / Complete, WifiAdapterInitGetType, AddPeer...
+  => the OS talks WDI messages (TLV-encoded) to EvtWifiDeviceSendCommand; the driver answers with
+  WifiRequestComplete and pushes WDI indications with WifiDeviceReceiveIndication.
+- WiFiCx sample: microsoft/Windows-driver-samples network/wlan/wificx (cloned 2026-10-12 to scratchpad
+  ref/wds, HEAD 2dc3fd3a, MS-PL; read, nothing copied verbatim). Facts used:
+  - DeviceAdd order: NetDeviceInitConfig -> WifiDeviceInitConfig -> WdfDeviceCreate -> WifiDeviceInitialize
+    (driver.cpp:96-151), TlvContext.PeerVersion = WifiDeviceGetOsWdiVersion (driver.cpp:166).
+  - Capabilities set from EvtDevicePrepareHardware (device.cpp:9-20 -> wifihal.cpp:76-500).
+  - EvtWifiDeviceCreateAdapter: WifiAdapterInitGetType must be EXTENSIBLE_STATION, datapath callbacks,
+    NetAdapterCreate, WifiAdapterInitialize, caps, NetAdapterStart (device.cpp:35-94, adapter.cpp:22-63).
+  - Command flow: EvtWifiDeviceSendCommand -> WifiRequestGetInOutBuffer/GetMessageId; M3 = WifiRequestComplete;
+    task M4 = WifiDeviceReceiveIndication(completion indication id, header with the request's TransactionId);
+    unsolicited indications use TransactionId 0 (wifirequest.cpp:34-97, wifitransition.cpp:179-216).
+  - TLV parse/generate via WificxTLVGenParse.lib (Lib\10.0.26100.0\km\arm64\wlan\2.0) + operator new(size_t,
+    ULONG_PTR AllocationContext) / delete supplied by the client (memorymanagement.cpp:118-148).
+  - Data path sample (network/netadaptercx/netvadapterlibrary) uses Ethernet-like addressing; the frame
+    format on the NetAdapter queues for WiFiCx is **UNVERIFIED** (see design).
+- Version check (learn.microsoft.com "Building a WiFiCx driver for multiple versions of Windows", fetched
+  2026-10-12): Windows 11 21H2 and 22H2: KMDF 1.33, NetAdapterCx 2.2, **WiFiCx 1.0 only**; "To load a
+  WiFiCx-based driver on Windows 11, versions 21H2 and 22H2, the NetAdapterCx version has to be forced to 2.2";
+  22H2 Moment 3+ allows 2.2+. WiFiCx 1.1/1.2 need build >= 25330. The device runs 22631.2861 (ISO
+  Windows11_22631.2861_Pro_arm64.iso, install.wim index 3 = 22621.2861 + 23H2 enablement,
+  notes/m10-windows-deploy-plan.md:43,173) = 22H2 servicing branch.
+  **Decision: WIFI_VERSION 1.0, NETADAPTER_VERSION 2.2, KMDF 1.33.** The WDK msbuild default for WiFiCx 1.0 is
+  NetAdapterCx 2.1 (build\10.0.26100.0\WindowsDriver.KernelMode.CX.Default.props:80-90); overridden to 2.2
+  per the doc. Whether wificx.sys is in the device image: not read (install.wim needs DISM elevation; the
+  7-Zip 9.13 on this box cannot open it) - UNVERIFIED; documented as inbox since Windows 11 21H2.
+  WDI version announced: WDI_VERSION_LATEST (2.0.13, dot11wificxintf.h:1403) as the sample does; the OS's
+  WDI version is read with WifiDeviceGetOsWdiVersion and logged (the TLV parser adapts via PeerVersion).
+- Who runs WPA2 (learn.microsoft.com "WiFiCx Wi-Fi 7 feature requirements" + OID_WDI_SET_ADD_CIPHER_KEYS):
+  "For data frames, including 4-way handshake and 802.1x authentication frames ...", "Windows supports
+  GCMP-256 in the 4-way handshake", keys plumbed with OID_WDI_SET_ADD_CIPHER_KEYS; TlvGenerated_.hpp has no
+  PMK/PSK TLV (only PMKID / PMK names). => **the OS supplicant runs the 4-way handshake over the NetAdapter
+  data path and plumbs PTK/GTK with WDI_SET_ADD_CIPHER_KEYS.** The driver never sees the PSK.
+  Consequences: (1) EAPOL frames pass through rx/tx unchanged (the M7b capture is off in the Cx driver);
+  (2) the association result must carry the association request frame (the RSN IE the OS echoes in msg 2):
+  "Windows requires that the driver indicates the Association Request and Response frames" (wificx-wi-fi-7);
+  (3) EAPOL msg 4 must be on the air before the pairwise key is installed (dhd wl_cfg80211.c:6903-6904
+  dhd_wait_pend8021x) -> the worker drains tx and waits for tx completion before SET_ADD_CIPHER_KEYS.
+- OID_WDI_TASK_CONNECT doc: no own scan needed, use the host's BSS list; report ASSOCIATION_RESULT per attempt;
+  M4 = CONNECT_COMPLETE; normal execution time 10 s.
+- WDI message ids (dot11wificxintf.h:36-167): TASK_SCAN 4, TASK_CONNECT 6, TASK_DOT11_RESET 7,
+  TASK_DISCONNECT 8, TASK_SET_RADIO_STATE 11, SET_ADD_CIPHER_KEYS 29, SET_DELETE_CIPHER_KEYS 30,
+  INDICATION_SCAN_COMPLETE 60, BSS_ENTRY_LIST 62, DOT11_RESET_COMPLETE 63, CONNECT_COMPLETE 64,
+  RADIO_STATUS 67, ASSOCIATION_RESULT 76, DISASSOCIATION 51, LINK_STATE_CHANGE 53, DISCONNECT_COMPLETE 21,
+  SET_RADIO_STATE_COMPLETE 22, SET_ADAPTER_CONFIGURATION 85.
+
+### Warm restart (TCM read-back mismatch on a device restart while the firmware runs)
+- Observed (m7 notes:284-285): pnputil restart while fw runs -> next download "DL 6: TCM read-back mismatch"
+  (28 mismatches). Our quiesce halts only the ARM CR4 and clears BME (WlanMsg.c WlanMsgQuiesce).
+- fmac brcmf_chip_cr4_set_passive (chip.c:1323-1337, run before every download): halt the CR4 **and put
+  every D11 core in reset** (brcmf_chip_coredisable, prereset PHYRESET|PHYCLOCKEN, reset PHYCLOCKEN;
+  D11_BCMA_IOCTL_PHYCLOCKEN 0x4, PHYRESET 0x8 chip.c:81-82); ai coredisable chip.c:350-382 (skip if already in
+  reset; IOCTL = prereset|FGC|CLK; RESET_CTL = 1; wait RESET_CTL == 1 up to 300 us; IOCTL = reset|FGC|CLK).
+  Our EROM has two D11 cores 0x812 rev 82 (notes/m12-wifi-m2.md:144). Hypothesis (UNVERIFIED): the D11 MAC
+  keeps DMAing received frames into TCM while only the ARM is halted. Backplane-only, no PCIe-level side
+  effect -> done by default.
+- Heavier resets exist and are NOT used (link-level side effects that cannot be tested without the phone):
+  dhd dhdpcie_dongle_reset (dhd_pcie.c:1328-1350) = FLR (DevCtl bit 15 when DevCap bit 28 is set,
+  dhd_bus_perform_flr :4906-5000, config-space save/restore incl. BARs), else the ChipCommon watchdog
+  (pcie_watchdog_reset pcie_core.c:52-115: ASPM off, watchdog = F0 subsystem reset | 4 for ccrev >= 65); fmac
+  brcmf_pcie_reset_device (pcie.c:656-708: ASPM off, CC watchdog = 4, 100 ms). Our EP config space is a CFG0
+  iATU window behind the UEFI-trained RC; a reset that wipes the EP's BARs/COMMAND cannot be re-enumerated
+  from Windows. Next step only if the D11 disable does not cure DL 6.
+
+## Plan (milestones W1..W5; tasks = one commit each)
+Architecture: new KMDF project **drivers/Exynos9820WlanCx** (Class=Net, WiFiCx 1.0 + NetAdapterCx 2.2,
+ACPI\SAMS9825, service Exynos9820WlanCx) that compiles the existing C bring-up (WlanDl.c, WlanMsg.c,
+WlanSup.c + a shared WlanCommon.c) from drivers/Exynos9820Wlan plus new C++ WiFiCx files. The KMDF probe
+driver (Exynos9820Wlan, Class=System) stays buildable with unchanged behaviour; only one of the two can own
+the device (the Cx INF is newer and Class=Net).
+Threading: one worker thread owns the msgbuf state (existing code is PASSIVE + single owner): runs queued
+WiFiCx commands, drains the NetAdapter tx FIFO into the flowring, polls the D2H rings (rx -> rx FIFO ->
+NetAdapter rx queue) and raises unsolicited indications (link loss). SendCommand (<= DISPATCH) only queues.
+Logs: Exynos9820WlanCx.txt (bring-up) + Exynos9820WlanCx-run.txt (runtime, rotated when full).
+- T0 notes + plan (this commit).
+- T1 warm restart: D11 cores into reset before the image write (fmac cr4_set_passive) + log the first
+  mismatching addresses + one rewrite. Shared WlanDl.c (both drivers).
+- T2 refactor: report/config/chip-probe helpers out of WlanProbe.c into WlanCommon.c (pure move); report
+  file names overridable per project.
+- T3 WlanMsg.c API for the Cx driver: EAPOL pass-through switch, per-BSS scan hook, link-loss hook,
+  connect / disconnect / set key / wait tx idle.
+- **W1 skeleton** (T4): project, INF, DeviceAdd / PrepareHardware (bring-up) / Release / D0, worker, WiFiCx
+  capabilities (2.4 + 5 GHz, OPEN/NONE + RSNA_PSK/CCMP), CreateAdapter (MAC = cur_etheraddr), dispatcher:
+  SET_RADIO_STATE, DOT11_RESET, SET_ADAPTER_CONFIGURATION + other sets accepted and logged, unknown ->
+  NOT_SUPPORTED; every command TLV-dumped into the log. Adapter visible, no traffic.
+- **W2 scan** (T5): TASK_SCAN -> escan -> BSS_ENTRY_LIST (probe response body synthesized from wl_bss_info:
+  timestamp 0, beacon period, capability, IEs) -> SCAN_COMPLETE.
+- **W3 data path** (T6): NetAdapter tx/rx queues over the flowring / rx completions (copy FIFOs).
+- **W4 connect** (T7): TASK_CONNECT -> firmware join (no host supplicant) -> ASSOCIATION_RESULT (assoc
+  req/resp bodies from assoc_info + assoc_req_ies / assoc_resp_ies) + LINK_STATE_CHANGE -> CONNECT_COMPLETE;
+  SET_ADD/DELETE_CIPHER_KEYS -> wsec_key; TASK_DISCONNECT and firmware deauth/link-down -> DISASSOCIATION.
+- W5 power / roam / interrupt / flowring delete on disconnect: not this session (todo row).
+- T8 ESP install/collect script drivers/S10eDiag/esp/extra-wifi-cx.cmd.

@@ -89,7 +89,7 @@ Paths relative to `C:\Users\ilya\code\mali\linux\drivers\gpu\drm\panfrost\`.
   matches `0x7001`). kbase cross-check: `mali_kbase/.../mali_kbase_gpu_id.h:110`
   `GPU_ID2_PRODUCT_TNOX = GPU_ID2_MODEL_MAKE(7, 1)` (arch_major 7, product_major 1). So the
   **G76 internal codename is tNOx** ("Gondul" from the task prompt: not found in any clone yet —
-  checked below). **Expected 9820 GPU_ID>>16 = 0x7?01 pattern — UNVERIFIED** until read on device.
+  checked below). **Expected 9820 GPU_ID>>16 matches `0x7001` after the `0xf00f` mask (exact value `0x72?1`, see the identity section below) — UNVERIFIED** until read on device.
 - **G76 features** `panfrost_features.h:85-97`: JOBCHAIN_DISAMBIGUATION, PWRON_DURING_PWROFF_TRANS,
   XAFFINITY, THREAD_GROUP_SPLIT, FLUSH_REDUCTION, PROTECTED_MODE, PROTECTED_DEBUG_MODE,
   COHERENCY_REG, **AARCH64_MMU**, TLS_HASHING, IDVS_GROUP_SIZE, 3BIT_EXT_RW_L2_MMU_CONFIG.
@@ -180,17 +180,17 @@ Paths relative to `C:\Users\ilya\code\mali\linux\drivers\gpu\drm\panfrost\`.
   **Job Header** (align 64): w0 exception status, w1 first incomplete task, w2-3 fault pointer,
   w4 bit0 Is64b (default true) / bits1-7 Type / bit8 Barrier / bit9 Invalidate Cache /
   bits16-31 Index, w5 Dependency 1/2 (16 b each), w6-7 Next (GPU VA, 0 ends chain).
-  `v7.xml:1368-1395` **Write Value Job** = header + payload at +32: Address (64 b), Type
+  `v7.xml:1368-1399` (type enum 1368-1376, payload 1378-1382, aggregate 1396-1399) **Write Value Job** = header + payload at +32: Address (64 b), Type
   (3 Zero, 6 Immediate 32, 7 Immediate 64, 2 System Timestamp, 1 Cycle Counter), Immediate Value.
   ⇒ the **smallest real job**: no shader, no tiler, no framebuffer — writes a value to a GPU VA.
   Mesa itself emits one (`lib/pan_jc.h:231-241`, ZERO type, to clear tiler state on v4/v5);
   job index assigned `++job_index` starting at 1 (`pan_jc.h:158-165`).
-  Also `Cache Flush Job` (`v7.xml:1384-1398`) and `Fragment Job` (bounds + framebuffer ptr,
+  Also `Cache Flush Job` (payload `v7.xml:1384-1394`, aggregate 1401-1404) and `Fragment Job` (bounds + framebuffer ptr,
   `:1352-1366`) — fragment = the "clear" job once a framebuffer descriptor is built.
 - pandecode: `genxml/decode.c` (785) + `decode_jm.c` (687; write-value case :408-409, :614) —
   dumps a job chain from GPU memory; also standalone copy in group repo `pandecode-standalone/`.
 - Bifrost compiler: `src/panfrost/compiler/bifrost/` (+ shared NIR passes in `compiler/`; whole
-  `compiler/` tree ≈125 k lines incl. midgard + kraid) — `bifrost_compile.c`, `bi_ra.c`,
+  `compiler/` tree ≈125 k lines of .c/.h/.py/.xml incl. midgard, plus 38 356 lines of Rust in `kraid/`) — `bifrost_compile.c`, `bi_ra.c`,
   `bifrost/ISA.xml`, `bifrost/bi_pack.c`, `bifrost/disassemble.c`; standalone driver
   `compiler/bifrost/cmdline.c`. `bi_quirks.h:29-41`: quirks only for G71/G72/G31 — **G76 (arch
   7.2) gets none**. `compiler/bifrost/README.md`: register conventions (blend R0-R15/R48,
@@ -278,3 +278,17 @@ history: the other 19 (one of them, `future-linux-panfrost`, is empty). Largest:
 mesa-upstream 549 M, linux 522 M, mesa 172 M (du incl. `.git`).
 
 - 2026-10-12 — README written; research complete; next: commit notes, then MILESTONES rows.
+
+## Review of commit e45567b (adversarial, AGENTS §4)
+
+Checked mechanically (`sed -n` on every cited line range, `find | xargs cat | wc -l`):
+- OK: `pan_kmod.h:453-550` (struct start / `};`), `pan_kmod.c:18-37`, `panfrost_mmu.c:30,221,362,
+  585,613`, `panfrost_gpu.c:117,483`; MMIO window claim (max AS 15 → 0x27C0, JS 15 → 0x1F80,
+  STACK 0xE44, all < 0x5000); 22 README rows = 22 API projects.
+- Found: (1) `v7.xml:1368-1395` cut the Write Value aggregate (ends 1399); (2) Cache Flush cite
+  `1384-1398` pointed into the Write Value aggregate (cache flush aggregate is 1401-1404);
+  (3) "≈125 k lines incl. kraid" — the count excluded kraid's `.rs` (38 356 lines);
+  (4) the drm section said "0x7?01 pattern", looser than and easy to misread against the exact
+  `0x72?1` derived later. `panfrost_gpu.c:117-176/428-450/483-506` ranges are ±1 line (blank
+  lines at the edges) — accepted, not wrong.
+- Fixed in the follow-up commit (this one): all four corrected in place above.

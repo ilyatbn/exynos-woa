@@ -14,6 +14,14 @@ set D=%TMP%\s10e-audio
 if exist "%D%" rd /s /q "%D%"
 xcopy /e /i /y "%ESP%\S10EDIAG\drivers\Exynos9820Audio" "%D%" > "%W%\xcopy.txt" 2>&1
 if exist "%ESP%\S10EDIAG\audio-stage.cmd" call "%ESP%\S10EDIAG\audio-stage.cmd"
+rem A device keeps its installed package even when a newer one is staged (run audA6s: 1.0.1.4 still loaded), so remove
+rem every existing exynos9820audio.inf package first (the device is hidden, nothing is loaded).
+pnputil /enum-drivers > "%W%\enum-before.txt" 2>&1
+powershell -NoProfile -Command "$t = Get-Content '%W%\enum-before.txt' -Raw; foreach ($x in ($t -split '(?=Published Name:)')) { if ($x -match 'exynos9820audio.inf' -and $x -match 'Published Name:\s+(oem\d+\.inf)') { $Matches[1] } }" > "%W%\old-oem.txt" 2>&1
+for /f "usebackq delims=" %%O in ("%W%\old-oem.txt") do (
+  s10ediag mark "a: delete old package %%O"
+  pnputil /delete-driver %%O /uninstall /force >> "%W%\pnputil-delete.txt" 2>&1
+)
 pnputil /add-driver "%D%\Exynos9820Audio.inf" > "%W%\pnputil-add.txt" 2>&1
 pnputil /enum-drivers > "%W%\enum-drivers.txt" 2>&1
 if exist "%ESP%\S10EDIAG\noaudio.flg" del /f /q "%ESP%\S10EDIAG\noaudio.flg"

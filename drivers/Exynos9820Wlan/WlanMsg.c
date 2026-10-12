@@ -2016,6 +2016,21 @@ WlanMsgJoin(PWLAN_MSG_CTX M, PWLAN_REPORT R, const WLAN_JOIN_CONFIG *J)
         ReportLine(R, "JOIN %u: AP security not supported (needs RSN v1, PSK, CCMP, no MFP)\r\n", JOIN_SETUP_FAILED);
         return JOIN_SETUP_FAILED;
     }
+    /* rx audit (notes/m12-wifi-m7-rx-audit.md fix 1): DHD and brcmfmac post the rx data buffers BEFORE the
+       firmware is brought up; ours were posted after WLC_UP (run: fw r 128, rx cpl w 0). Bounce the interface so
+       the firmware's UP sees the posted buffers. */
+    {
+        ULONG Zero = 0;
+        ULONG Rd = Ioctl(S, WLC_DOWN, &Zero, sizeof(Zero), 0, "DOWN");
+        ULONG Ru = Ioctl(S, WLC_UP, &One, sizeof(One), 0, "UP");
+
+        ReportLine(R, "[join] interface bounce: DOWN %lu UP %lu (rxpost host w %lu fw r %u)\r\n", Rd, Ru,
+                   S->Ring[RING_H2D_RXPOST].Host, Tcm16(S, S->Ring[RING_H2D_RXPOST].RIdxAddr));
+        if (IoctlVar(S, FALSE, "rxbufpost_sz", NULL, 0, sizeof(ULONG)) == MSG_OK && S->RespLen >= 2) {
+            ReportLine(R, "[join] firmware rxbufpost_sz %u (our rx buffers are %u B)\r\n",
+                       *(USHORT UNALIGNED *)S->Resp, DATA_BUF_SIZE);
+        }
+    }
     S->Joining     = TRUE;
     S->JoinSetSsid = -1;
     S->JoinPskSup  = -1;

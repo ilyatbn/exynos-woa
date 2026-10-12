@@ -403,6 +403,7 @@
 #define WLC_E_STATUS_PARTIAL        8              /* dhd bcmevent.h:330 */
 #define WL_EVENTING_MASK_LEN        16             /* dhd wlioctl_defs.h:1438 */
 #define WLC_UP                      2              /* fmac fwil.h:15 BRCMF_C_UP */
+#define WLC_DOWN                    3              /* dhd wlioctl_defs.h:605, fmac fwil.h:16 BRCMF_C_DOWN */
 #define WLC_SET_VAR                 263            /* fmac fwil.h:81 BRCMF_C_SET_VAR */
 /* escan request v1: brcmf_escan_params_le (fmac fwil_types.h:460) + brcmf_scan_params_le (:368) */
 #define ESCAN_VERSION               0              /* u32 */

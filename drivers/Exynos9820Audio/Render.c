@@ -516,7 +516,7 @@ static PUCHAR AudPacketVa(_In_ PAUD_STREAM_CONTEXT Ctx, _In_ ULONG Packet)
 {
     ULONG Index = Packet % Ctx->PacketCount;
 
-    return Ctx->RingAlloc + (SIZE_T)Index * Ctx->AllocPerPacket + ((Index == 0) ? Ctx->FirstPacketOffset : 0);
+    return Ctx->PacketBuf[Index] + ((Index == 0) ? Ctx->FirstPacketOffset : 0);
 }
 
 /* Fill one DMA slot. Explicit 32-bit volatile stores: the ring is non-cached (possibly Device memory on ARM64), where
@@ -578,11 +578,10 @@ static VOID AudRingFree(_Inout_ PAUD_STREAM_CONTEXT Ctx)
             IoFreeMdl(Ctx->PacketMdl[I]);
             Ctx->PacketMdl[I] = NULL;
         }
-    }
-
-    if (Ctx->RingAlloc != NULL) {
-        MmFreeContiguousMemory(Ctx->RingAlloc);
-        Ctx->RingAlloc = NULL;
+        if (Ctx->PacketBuf[I] != NULL) {
+            ExFreePoolWithTag(Ctx->PacketBuf[I], AUD_POOL_TAG);
+            Ctx->PacketBuf[I] = NULL;
+        }
     }
 
     if (Ctx->DmaVa != NULL) {
@@ -716,7 +715,7 @@ static NTSTATUS AudStreamAllocateRtPackets(ACXSTREAM Stream, ULONG PacketCount, 
         (PacketSize % Ctx->BlockAlign) != 0) {
         return STATUS_INVALID_PARAMETER;
     }
-    if (Ctx->RingAlloc != NULL || Ctx->DmaVa != NULL) {
+    if (Ctx->PacketBuf[0] != NULL || Ctx->DmaVa != NULL) {
         return STATUS_INVALID_DEVICE_STATE;
     }
 
@@ -724,14 +723,18 @@ static NTSTATUS AudStreamAllocateRtPackets(ACXSTREAM Stream, ULONG PacketCount, 
     High.QuadPart = 0xFFFFFFFFLL;   /* RDMA BUF_STR/BUF_END are 32-bit SFRs (only the DMA ring needs it) */
     Skip.QuadPart = 0;
 
-    /* Client packets: page-rounded, packet 0 ends where packet 1 starts (sample layout); CPU-only, cached. */
+    /* Client packets: page-rounded, packet 0 at offset (alloc - size) - the ACX sample's layout AND allocation
+       (StreamEngine.cpp: ExAllocatePool2(POOL_FLAG_NON_PAGED) per packet, IoAllocateMdl(.., FALSE, TRUE, ..),
+       MmBuildMdlForNonPagedPool). A11: the endpoint's format probe (create, RT buffer, latency, close) fails on an
+       ACX-side answer; packet memory was the remaining difference to the sample in that path. ExAllocatePool2 zeroes. */
     Ctx->AllocPerPacket = (ULONG)ROUND_TO_PAGES(PacketSize);
-    Ctx->RingAlloc = (PUCHAR)MmAllocateContiguousNodeMemory((SIZE_T)Ctx->AllocPerPacket * PacketCount, Low, High, Skip,
-                                                            PAGE_READWRITE, MM_ANY_NODE_OK);
-    if (Ctx->RingAlloc == NULL) {
-        return STATUS_INSUFFICIENT_RESOURCES;
+    for (I = 0; I < PacketCount; I++) {
+        Ctx->PacketBuf[I] = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, Ctx->AllocPerPacket, AUD_POOL_TAG);
+        if (Ctx->PacketBuf[I] == NULL) {
+            AudRingFree(Ctx);
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
     }
-    RtlZeroMemory(Ctx->RingAlloc, (SIZE_T)Ctx->AllocPerPacket * PacketCount);
 
     /* DMA ring: AUD_DMA_SLOTS periods of 4 x 32-bit frames, non-cached. A failure only costs the hardware path. */
     Ctx->FramesPerPacket = PacketSize / Ctx->BlockAlign;
@@ -751,8 +754,7 @@ static NTSTATUS AudStreamAllocateRtPackets(ACXSTREAM Stream, ULONG PacketCount, 
     Ctx->PacketSize  = PacketSize;
     Ctx->FirstPacketOffset = Ctx->AllocPerPacket - PacketSize;
     for (I = 0; I < PacketCount; I++) {
-        Ctx->PacketMdl[I] = IoAllocateMdl(Ctx->RingAlloc + (SIZE_T)I * Ctx->AllocPerPacket, Ctx->AllocPerPacket, FALSE,
-                                          FALSE, NULL);
+        Ctx->PacketMdl[I] = IoAllocateMdl(Ctx->PacketBuf[I], Ctx->AllocPerPacket, FALSE, TRUE, NULL);
         if (Ctx->PacketMdl[I] == NULL) {
             ExFreePoolWithTag(P, AUD_POOL_TAG);
             AudRingFree(Ctx);

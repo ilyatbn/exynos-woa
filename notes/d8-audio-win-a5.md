@@ -522,3 +522,9 @@ header VT_BLOB 0x41 + 1, also present on every PC entry; the payload `0A00 0000 
   filter's own intersection result as the format and with KsCreatePin2 - so the pin part is NOT validated on the host
   (unprivileged session; Steam/HAP filters may refuse user pins); on the phone it runs as SYSTEM and logs the error if
   it fails. The filter-level dumps alone show ACX's actual answers (MODEDATAFORMATS / default format / ranges).
+- T24: client RT packets allocated exactly like the ACX sample (StreamEngine.cpp AllocateRtPackets): per packet
+  ExAllocatePool2(POOL_FLAG_NON_PAGED, page-rounded) + IoAllocateMdl(buf, size, FALSE, TRUE, NULL) +
+  MmBuildMdlForNonPagedPool, packet 0 at offset alloc - size (unchanged). Replaces one MmAllocateContiguousNodeMemory
+  block below 4 GiB (only the separate non-cached DMA ring needs that, unchanged). Reason: BUFFER_WITH_NOTIFICATION is
+  in the failing per-format probe and ACX maps these MDLs to user mode; this was the remaining difference from the
+  sample in that path. Build exit 0.

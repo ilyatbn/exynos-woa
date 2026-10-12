@@ -228,8 +228,9 @@ typedef struct _AUD_STREAM_CONTEXT {
     ULONG            BytesPerSec;
     ULONG            BitsPerSample;     /* container bits: 16 or 32 */
 
-    /* Client packets (mapped to audiodg): one contiguous cached allocation, one MDL per packet. */
-    PUCHAR           RingAlloc;
+    /* Client packets (mapped to audiodg by ACX): one non-paged pool allocation + MDL per packet, exactly the ACX
+       sample's StreamEngine.cpp AllocateRtPackets (A11; was one contiguous MmAllocateContiguousNodeMemory block). */
+    PUCHAR           PacketBuf[AUD_MAX_PACKETS];
     ULONG            AllocPerPacket;    /* page-rounded packet size */
     PMDL             PacketMdl[AUD_MAX_PACKETS];
     ULONG            PacketCount;

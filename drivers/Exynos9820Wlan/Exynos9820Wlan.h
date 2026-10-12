@@ -535,6 +535,7 @@
 #define TXP_META_LEN                40             /* u16 */
 #define TXP_DATA_LEN                42             /* u16 */
 #define PKT_FLAGS_FRAME_802_3       0x01           /* BCMPCIE_PKT_FLAGS_FRAME_802_3 bcmmsgbuf.h:999 */
+#define PKT_FLAGS_FRAME_802_11      0x02           /* BCMPCIE_PKT_FLAGS_FRAME_802_11 bcmmsgbuf.h:1000 */
 #define PKT_FLAGS_FRAME_MASK        0x07           /* fmac msgbuf.c:64 */
 #define PKT_FLAGS_PRIO_SHIFT        5              /* bcmmsgbuf.h:1019 */
 /* host_txbuf_cmpl_t (bcmmsgbuf.h:1046-1080), 24 B: status @8 (CPL_STATUS), flowring @10 */

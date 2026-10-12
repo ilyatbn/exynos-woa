@@ -103,3 +103,14 @@ fwil_types.h). Line numbers are of those copies.
   (W4/WX clean, first try).
 - Not device-tested on its own: the first observable is "DATA 0" + the rxpost fw r index; flowring/tx/rx are
   exercised by M7b's join, so the device test is planned with the M7b build.
+- Review of e326ee6 (adversarial):
+  - Checked: txpost/rxpost field writes vs dhd_prot_txdata (dhd_msgbuf.c:6750-6890: flags 802_3 | prio<<5,
+    seg_cnt 1, data_len = len - 14, metadata 0) and dhd_prot_rxbuf_post (:4605-4620: epoch = seqnum % 253,
+    data_buf_len, metadata 0). dhd does not set the epoch on txpost items; ours carries seq % 253 - harmless
+    (same as the ctrl ring, which the fw accepts), noted rather than changed.
+  - Checked: per-ring MDL sizes == ring geometry (64x24, 1024x24, 512x40); RegionMdlsFree frees them; old
+    MdlD2h has no remaining user (rg). WlanMsgFree deletes DataBuffer while quiesced only.
+  - FOUND: RxComplete set RxCount = I when a repost failed - every later completion of a higher buffer would
+    then be "unknown" and never reposted. Fixed (follow-up commit): count RxLost, keep RxCount.
+  - FOUND (cosmetic): magic 0x02 for the 802.11 frame flag -> PKT_FLAGS_FRAME_802_11 (bcmmsgbuf.h:1000).
+  - Rebuilt wifi-m7a: sys 2FF9300287AE6C9F85600B492E3BFACE645527418D0473801636C78D3B95CECE.

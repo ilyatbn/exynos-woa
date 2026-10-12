@@ -94,7 +94,7 @@ typedef struct _MSG_STATE {
     PMDL                MdlData;        /* whole data buffer: one clean after zeroing */
     PMDL                MdlTx[TX_BUF_COUNT];
     PMDL                MdlRx[RX_BUF_COUNT];
-    ULONG               TxPosted, TxDone, TxErrors, RxFrames, RxEapol, RxBad, TxLogged, RxLogged;
+    ULONG               TxPosted, TxDone, TxErrors, RxFrames, RxEapol, RxBad, RxLost, TxLogged, RxLogged;
     WLAN_RX_FN         *RxFn;
     PVOID               RxCtx;
     /* EAPOL frame for the handshake (M7b): the latest one, copied out of its rx buffer */
@@ -450,7 +450,7 @@ RxComplete(_Inout_ PMSG_STATE S, _In_ PUCHAR It, _Inout_ PBOOLEAN Repost)
         Off = S->RxOffset;
     }
     if (Off >= DATA_BUF_SIZE || Len > DATA_BUF_SIZE - Off || Len < ETH_HLEN ||
-        (Flags & PKT_FLAGS_FRAME_MASK) == 0x02 /* 802.11 = monitor frame, fmac :1205 */) {
+        (Flags & PKT_FLAGS_FRAME_MASK) == PKT_FLAGS_FRAME_802_11 /* monitor frame, fmac :1205 */) {
         S->RxBad++;
         if (S->RxLogged++ < 16) {
             ReportLine(S->R, "[rx] pktid 0x%lX dropped: len %lu offset %lu flags 0x%04lX status %ld\r\n", Pkt, Len, Off,
@@ -482,8 +482,10 @@ RxComplete(_Inout_ PMSG_STATE S, _In_ PUCHAR It, _Inout_ PBOOLEAN Repost)
     if (RxPost(S, I)) {
         *Repost = TRUE;
     } else {
-        S->RxCount = I;   /* never happens with 128 buffers on a 512-item ring; stop using the tail */
-        ReportLine(S->R, "[rx] repost of buffer %lu failed - rx buffers reduced to %lu\r\n", I, S->RxCount);
+        /* cannot happen with <= 128 buffers on a 512-item ring; the buffer stays out of circulation (its
+           pktid stays valid, so a late completion for it is still recognised) */
+        S->RxLost++;
+        ReportLine(S->R, "[rx] repost of buffer %lu failed - %lu rx buffers lost\r\n", I, S->RxLost);
     }
 }
 

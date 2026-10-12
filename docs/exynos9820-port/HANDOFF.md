@@ -1260,3 +1260,17 @@ notes/gpu-m16-g10.md). **Next:** after G9/G9b on the phone, the 4-step validatio
   (\S10EDIAG\nogpu.flg on the ESP hides GPU0 on any image; flag-0 images always hide it): boot107-loop-v2.img
   sha 6f6396e2…, boot106-gpuon-v2.img sha b0a7629d…. Test order unchanged: reinstall -> #107 -> #106 -> mali-g9b
   (G9b) -> remove MaliG76Probe -> mali-g10 display-only -> full.flg -> gpu.flg (m5test).
+
+## 32. Restart point (2026-10-12 ~19:25, unattended, user remote)
+
+**What happened to the phone.** debug_history entry 717 (power-on 16:13 by the charger, LPM) records
+"(S) OCP_B1,OCP_B5": after the KD boot (#104, ~13:20 local) the phone powered OFF on a sub-PMIC buck over-current
+trip; the dtbo names those rails only s_vdd_buck1.. (consumer unknown). Logs saved to scratchpad
+runs/pre-reflash-1612 (WINPRAM from 09:52 is decayed, nothing from the KD run).
+**Reflash done (user-authorized).** S10eHarness transfer win-w5 EXIT 0 (19:21, s10e-artifacts\win-w5\transfer-20261012.log);
+s10e-provision-fresh.sh with UFS w34 (8ea93ce8…), **s10ediag-m18** (s10eperf sweep/loop), touch-t2 Hsi2c, touch-hold,
+wdktestcert. ESP: BCD pristine (e5d4a24e…, debug off), no stay.flg, no WINRUN.FLG, no extra.cmd, \S10EDIAG\install removed.
+BOOT = #105 (c06b623d…, watchdog 0). Windows Setup started 19:22; background wait-for-recovery 2.5 h.
+**Next order.** Setup done -> boot #107 loop (6f6396e2…) with extra.cmd = extra-ufsprobe2.cmd (m15 u2 read-only probe)
+-> boot #108 (59ed2abe…, = #107 + BEYOND0LTE_UFS_IOCOH_9820 1) with extra-ufsprobe2 again (A/B on iocoh) -> GPU
+order of §30 (#106, mali-g9b, ...) -> drivers back one at a time via ESP install (battery-m4, WLAN 1.0.7.3, audio).

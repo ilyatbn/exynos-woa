@@ -1339,3 +1339,4 @@ boot-loaded drivers go through hide-flag + pnputil stage + unhide (extra-audio-s
 gpu\stage.flg); clean-restart runs save PRAM to \WINPRAM-RESTART.BIN (not WINPRAM.BIN); marker files in C:\S10eTmp
 (audswap.flg, gpumode2.flg) survive a crashed pass and make the next run skip pass 1 - check marks first.
 **In flight:** audio a11, GPU G13 (mali-g15), remote-control channel (S10eAgent outbound HTTP poll to the laptop).
+**§32 audio addendum 7 (2026-10-13, agent).** a10: family probe accepted, DEFAULT mode added, cache {74E4357A},2 still empty; the four per-mode pin probes (create, RT buffer, latency, close) are the cache builder and fail on an ACX-answered RT property. a11 = s10e-artifacts\audio-a11 (1.0.1.10, sys 09ecf93a...): RT packets allocated like the ACX sample, GetHwLatency = sample values; new esp\ks-probe.ps1 (run by extra-audio-swap pass 2 as SYSTEM) prints ACX's answers. Test: notes/d8-audio-win-a5.md "A11 device test".

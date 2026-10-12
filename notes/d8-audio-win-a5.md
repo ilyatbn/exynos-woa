@@ -535,3 +535,15 @@ header VT_BLOB 0x41 + 1, also present on every PC entry; the payload `0A00 0000 
   (run-after-probe.txt) so the driver side of the probe pin is captured; packet free path frees every allocated
   PacketBuf[] even after a partial allocation (AudRingFree walks all AUD_MAX_PACKETS slots); AudPacketVa unchanged
   semantics (packet 0 + offset); the DMA ring allocation is untouched. No findings.
+- T26 package s10e-artifacts\audio-a11 (1.0.1.10, ACX 1.1, signed 5DD5DEE1... sys + cat, InfVerif VALID, hardware 0/0/0):
+    09ECF93A35D6D211ED1DC8FD06EE1C7F969B73E1F46B910A8A8242D6C198AF19  Exynos9820Audio.sys
+    1A9A7A8D5AD716CC10DD1C2BCAFD9F59DA3E735956DCAFD1C789B76F06FE6928  Exynos9820Audio.inf
+    0431034D8A5ADE897D5F394D6F5E2DEF5F1587A0E0D484A97C4DFAE531FA21F6  exynos9820audio.cat
+
+### A11 device test
+Copy ks-probe.ps1 + the new extra-audio-swap.cmd to \S10EDIAG, swap to audio-a11, stage A. Read: audiotest `props:` /
+mmdevices.txt {74E4357A},2 (filled = fixed by T24/T25) and {F19F064D},0; audio\ksprobe.txt - per line status + hex:
+MODEDATAFORMATS RAW/DEFAULT, PROPOSEDATAFORMAT get, and for the probe pin QUERY_NOTIFICATION_SUPPORT,
+SETWRITEPACKET/PACKETCOUNT basic, BUFFER_WITH_NOTIFICATION (BufferAddress / ActualBufferSize / CallMemoryBarrier),
+HWLATENCY, then the RUN positions (advancing = streaming path works); run-after-probe.txt shows the driver side.
+If KsCreatePin fails there too (87 as on this PC), the filter-level lines still show ACX's real answers.

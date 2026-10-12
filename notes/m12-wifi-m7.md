@@ -214,3 +214,15 @@ Refs: scratchpad src/bcmdhd (LineageOS lineage-23.2) and src/brcmfmac (torvalds 
   output_buf_len = max(in, out) up to IOCTL_RESP_MAX_OUT 4096 (host choice, <= the 8 KB ioctl-resp buffers) with
   input_buf_len clipped to 2008 - the dhd rule (dhd_msgbuf.c:8093-8100, :8134, :8139; fmac msgbuf.c:459-463).
   S->Resp 1024 -> 4096. Every existing call has out <= 2008, so its request is byte-identical. Build clean.
+- Review of a5bc36c (adversarial): every Resp consumer bounds by RespLen / sizeof(S->Resp) (rg); the copy-out reads
+  <= 4096 of an 8192 B resp buffer; input copy still <= 2008 (VarBuf/IoctlVar bound); fmac msgbuf.c:459-463 sets
+  output_buf_len = len and input_buf_len = min(len, BRCMF_TX_IOCTL_MAX_MSG_SIZE) (that define is not in the
+  fetched files - not cited by value). No findings.
+- Counters layout (for task 4b): "counters" reply = wl_cnt_info_t {u16 version, u16 datalen, xtlvs}
+  (wlioctl.h:3713-3723), xtlv = {u16 id, u16 len, data} (bcmtlv.h:137-141, BCM_XTLV_HDR_SIZE 4 :158), each tuple
+  padded to 4 B (wlioctl.h:3716-3718); WL_CNT_VERSION_XTLV 30 (:3479); ids WLC 0x100, LE10 ucode 0x200, LT40 0x300,
+  GE40 0x400, GE64 ucodex 0x800, GE80 0x900 (:3498-3509). Offsets computed by parsing the structs (scratchpad
+  cntoff.py, uint32-only prefixes): wl_cnt_wlc_t (wlioctl.h:3778-4005) rxframe 60, rxnobuf 76, rxnoscb 104,
+  rxbadproto 108, rxbadsrcmac 112, rxbadda 116, rxfilter 120, rxoflo 124 (first array rxuflo[NFIFO] at 128);
+  ge40/lt40/le10 macstat (256 B): rxdtucastmbss 100 (le10: rxdfrmucastmbss 100), rxf0ovfl 180; ge80 macstat:
+  rxdtucastmbss 76, rxf0ovfl 256.

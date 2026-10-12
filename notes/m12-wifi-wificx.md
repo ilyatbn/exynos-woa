@@ -205,3 +205,9 @@ Logs: Exynos9820WlanCx.txt (bring-up) + Exynos9820WlanCx-run.txt (runtime, rotat
   no flowring = drop). First 8 tx layouts recorded and logged by the worker ("[tx] packet layout #n: layer2 type
   ..."): this is the device-side check of the UNVERIFIED frame format. Worker waits CX_LINK_WAIT_MS (5 ms) while
   Dev->Linked (set in W4). Build W4/WX clean. Not device-tested.
+- Review of 68f0695 (W3): checked the rx fragment/packet pairing against the NetAdapterCx samples (one fragment
+  per packet at Fr->BeginIndex), Ignore packets returned unsent, the tx fragment walk ends at the packet's last
+  fragment, notification is one-shot under the FIFO lock, the rx queue handle is cleared in EvtDestroy, the
+  802.11->802.3 conversion offsets (A2 @10, A3 @16, QoS +2). FOUND: (1) tx Advance called CxFifoPut on a NULL
+  TxFifo when the FIFO allocation failed (crash); (2) the tx layout log could print stale stack bytes for a
+  packet shorter than 14 B. Fixed in a follow-up commit.

@@ -87,6 +87,9 @@ CxTxAdvance(NETPACKETQUEUE Queue)
             Len = CxDot11ToEth(Frame, Len);
             Ok  = (Len != 0);
         }
+        if (Len < 14) {
+            RtlZeroMemory(Frame, 14);   /* the layout log below must not show stale stack bytes */
+        }
         if (Dev->TxLayoutLog < 8) {
             DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
                        "Exynos9820WlanCx: tx packet layer2 type %u hdr %u, %lu B, %02X %02X %02X %02X %02X %02X %02X %02X "
@@ -97,7 +100,7 @@ CxTxAdvance(NETPACKETQUEUE Queue)
             Dev->TxLayout[0] = P->Layout.Layer2Type;
             RtlCopyMemory(Dev->TxLayout + 1, Frame, 14);
         }
-        if (!Ok || Len < 14 || !CxFifoPut(Dev->TxFifo, Frame, Len)) {
+        if (!Ok || Len < 14 || Dev->TxFifo == NULL || !CxFifoPut(Dev->TxFifo, Frame, Len)) {
             Q->Dropped++;
         } else {
             Any = TRUE;

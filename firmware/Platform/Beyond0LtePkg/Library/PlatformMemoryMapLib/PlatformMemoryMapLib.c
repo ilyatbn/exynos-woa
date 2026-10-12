@@ -76,8 +76,9 @@
 //
 // Deliberate containments, all derived from the vendor DT's reg lists rather
 // than restated:
-//   * CMU_TOP (0x1A240000) sits INSIDE CMU_BANK0 (0x1A200000 + 0x8000), so only
-//     the bank is mapped.
+//   * CMU_TOP (0x1A240000) is NOT inside CMU_BANK0 (0x1A200000 + 0x8000 ends at
+//     0x1A208000) - an older version of this comment claimed it was. It is mapped
+//     on its own since M16 G3 (GpuProbeDxe reads PLL_G3D there).
 //   * UFS_VS (0x13D61100) sits INSIDE UFS_HCI (0x13D60000 + 0x2000), so only the
 //     HCI window is mapped.
 //   * GICD_ISPENDRN (0x10101200) sits INSIDE GICD, so it is not mapped either.
@@ -201,6 +202,14 @@ STATIC CONST MMIO_REGION  mMmioRegions[] = {
   { EXYNOS_PINCTRL_AUD_BASE,   EXYNOS_PINCTRL_AUD_SIZE,   "GPIO_AUD"    },
   { EXYNOS_ABOX_SYSMMU_BASE,   EXYNOS_ABOX_SYSMMU_SIZE,   "SYSMMU_AUD"  },
   { EXYNOS_ABOX_SRAM_BASE,     EXYNOS_ABOX_SRAM_SIZE,     "ABOX_SRAM"   },  // m3 run 2: SRAM tone buffer variants
+  //
+  // M16 G3 (Beyond0LteGpuProbeDxe, notes/gpu-m16-g2g3.md): CMU_TOP holds PLL_G3D (always-on block, read
+  // unconditionally); CMU_G3D and the GPU are read only while PMU says the G3D domain is on. Mapping is not
+  // an access (boot #95 lesson above).
+  //
+  { EXYNOS_CMU_TOP_BASE,       EXYNOS_CMU_TOP_SIZE,       "CMU_TOP"     },
+  { EXYNOS_CMU_G3D_BASE,       EXYNOS_CMU_G3D_SIZE,       "CMU_G3D"     },
+  { EXYNOS_G3D_BASE,           EXYNOS_G3D_SIZE,           "G3D"         },
 
   { EXYNOS_DECON_F_BASE,       EXYNOS_DECON_F_SIZE,       "DECON_F"     },
   { EXYNOS_DECON_T_BASE,       EXYNOS_DECON_T_SIZE,       "DECON_T"     },

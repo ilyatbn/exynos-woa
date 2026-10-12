@@ -356,7 +356,8 @@
 //                    0x0 0x1bf00000 0x8000>
 //   cmu_ewf  reg = <0x0 0x1a240000 0x1000>
 //
-// So 0x1A240000 is still inside the 0x1A200000 bank, and the 9810's CMU_FSYS0
+// 0x1A240000 is NOT inside the 0x1A200000 +0x8000 bank (that ends at 0x1A208000;
+// corrected M16 G3 review - it is mapped as its own window now), and the 9810's CMU_FSYS0
 // at 0x11000000 does not exist on this SoC at all. RESOLVED 2026-10-09: the
 // DT's five-window `cmu` node is NOT the whole CMU set. Samsung's own
 // calibration table (drivers/soc/samsung/cal-if/exynos9820/cmucal-sfr.c, the
@@ -758,6 +759,22 @@
 #define EXYNOS_CMU_AUD_SIZE       0x0000000000008000ULL   // SOURCE-ONLY (same SFR_BLOCK)
 #define EXYNOS_PINCTRL_AUD_BASE   0x0000000018C60000ULL   // SOURCE-ONLY (pinctrl@18C60000 "AUD", bank gpb1 @+0x20)
 #define EXYNOS_PINCTRL_AUD_SIZE   0x0000000000001000ULL   // SOURCE-ONLY (exynos9820.dts:1119-1121 pinctrl_1 reg size)
+
+// M16 G2/G3 (Mali-G76 "G3D" block). SOURCE-ONLY = cited from the LineageOS lineage-22.2 vendor tree
+// (notes/gpu-m16-g2g3.md F1-F5 with file:line), no live read yet; Beyond0LteGpuProbeDxe reads the PMU
+// status words first and touches nothing in 0x18400000.. (CMU_G3D, GPU) unless both say "on".
+#define EXYNOS_PMU_EMBEDDED_G3D_CONFIGURATION_OFFSET  0x2100u  // SOURCE-ONLY (pd-embedded_g3d@15862100, pmucal embedded_g3d_on)
+#define EXYNOS_PMU_EMBEDDED_G3D_STATUS_OFFSET         0x2104u  // SOURCE-ONLY (pmucal status seq + mali DT gpu_pmu_status_reg_offset, bit0)
+#define EXYNOS_PMU_EMBEDDED_G3D_OUT_OFFSET            0x2120u  // SOURCE-ONLY (pmucal embedded_g3d_on SET_BIT_ATOMIC 0x2)
+#define EXYNOS_PMU_G3D_CONFIGURATION_OFFSET           0x2380u  // SOURCE-ONLY (pmucal embedded_g3d_on writes bit0)
+#define EXYNOS_PMU_G3D_STATUS_OFFSET                  0x2384u  // SOURCE-ONLY (pmucal embedded_g3d_on waits bit0)
+#define EXYNOS_CMU_TOP_PLL_G3D_LOCKTIME_OFFSET        0x0008u  // SOURCE-ONLY (cmucal-sfr.c:63, CMU_CMU = EXYNOS_CMU_TOP_BASE)
+#define EXYNOS_CMU_TOP_PLL_G3D_CON0_OFFSET            0x0140u  // SOURCE-ONLY (cmucal-sfr.c:64; ENABLE 31 STABLE 29 M 25:16 P 13:8 S 2:0)
+#define EXYNOS_CMU_TOP_PLL_G3D_CON2_OFFSET            0x0148u  // SOURCE-ONLY (pmucal embedded_g3d_on/off write it; not in cmucal-sfr.c)
+#define EXYNOS_CMU_G3D_BASE       0x0000000018400000ULL   // SOURCE-ONLY (cal-if SFR_BLOCK(CMU_G3D, 0x18400000, 0x8000), cmucal-sfr.c:22)
+#define EXYNOS_CMU_G3D_SIZE       0x0000000000008000ULL   // SOURCE-ONLY (same SFR_BLOCK)
+#define EXYNOS_G3D_BASE           0x0000000018500000ULL   // SOURCE-ONLY (mali@18500000, exynos9820-mali_common.dtsi:14-16; G1 live read pending)
+#define EXYNOS_G3D_SIZE           0x0000000000005000ULL   // SOURCE-ONLY (same node, reg size 0x5000)
 
 //
 // ---------------------------------------------------------------------------

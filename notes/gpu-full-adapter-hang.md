@@ -246,3 +246,8 @@ Start state (HANDOFF §32): \S10EDIAG\nogpu.flg SET, MaliG76Wddm 1.0.10.1 instal
    hand, same key) to see which switch changes the PRAM picture.
 4. GpuEnable 1 only after mode 1 gives a desktop or a trace that explains it: rm full.flg, touch gpu.flg, step 2 again.
 5. Back to display-only: rm the flags, extra-gpu-mode.cmd once (writes 0/0, deletes EnablePreemption).
+
+## Review of 75035bd (package)
+- Packaged INF sha256 == repo INF (4AB4F4D1...); the .sys was built after the last code commit (F2) and the INF
+  bump; signer thumbprint of sys and cat = 5DD5DEE1... (Get-AuthenticodeSignature; signtool verify /pa stops at the
+  untrusted WDK test root on this PC, as expected). No defect.

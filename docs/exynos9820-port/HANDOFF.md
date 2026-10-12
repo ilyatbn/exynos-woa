@@ -1274,3 +1274,10 @@ BOOT = #105 (c06b623d…, watchdog 0). Windows Setup started 19:22; background w
 **Next order.** Setup done -> boot #109 loop (4f738af3…, #107 + UEFI UfsSpeed test) with extra.cmd = extra-ufsprobe2.cmd (m15 u2 read-only probe)
 -> boot #108 (7a138c7e…, #109 + BEYOND0LTE_UFS_IOCOH_9820 1) with extra-ufsprobe2 again (A/B on iocoh) -> GPU
 order of §30 (#106, mali-g9b, ...) -> drivers back one at a time via ESP install (battery-m4, WLAN 1.0.7.3, audio).
+**§32 update (2026-10-12 ~22:30).** UFS: Windows driver now **w37** (live in DriverStore, sha 7f4f1bcd…; `.prev` = w36).
+Large reads 20 -> 117 MB/s (notes/m15-ufs-throughput.md: device VPD 0xB0 optimal transfer 8 KiB made classpnp split
+reads -> w36 clears it; per-read byte-wise evidence walk on the Device-memory bounce -> w37 limits it to boot).
+Use Exynos9820Ufs-w37.sys for future reinstalls (provision script arg). Driver swaps go through
+esp/extra-ufsswap.cmd (TWRP ntfs-3g refuses rw on the flushreset-dirty volume; never fsck). BOOT = #107. ESP extra.cmd
+cleared. BT Q1 closed (parkinglot/bluetooth-d4c.md). Next: GPU order (#106, mali-g9b...), then drivers back one at
+a time (battery-m4, WLAN 1.0.7.3, audio); UFS follow-ups (copy-back, >64 KiB transfers, writes) are lower priority.

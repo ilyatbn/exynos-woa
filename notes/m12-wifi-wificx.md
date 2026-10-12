@@ -359,3 +359,16 @@ What the logs must show (Exynos9820WlanCx.txt = bring-up, -run.txt = runtime):
   first 8 delivered rx packets are logged by the worker: "[rx] delivered #n: layer2 type .. hdr .. frags ..
   ignore .., valid .. offset ..: <first 32 bytes>". KeysSet cleared on disconnect. The tx side already converts
   802.11 tx packets to 802.3 (W3), and "[tx] packet layout #1" will show what the OS sends.
+- Review of b7a07b5: re-framing length = Len + 18 (30 B header+SNAP, EtherType + payload = Len - 12), bounded by
+  CX_FRAME_MAX before the copy and by the OS fragment capacity in rx Advance; Layer2HeaderLength 24 fits the 7-bit
+  field; Protected only after a successful pairwise wsec_key, cleared on unlink; RxFormat read once per
+  PrepareHardware. No findings.
+- **Package s10e-artifacts\wifi-cx5 (inx 1.0.9.6, stampinf 10/13/2026,0.37.30.366), supersedes cx4:**
+  - Exynos9820WlanCx.sys 220568 B sha256 B1739903E792A701E638CCAB2F8F7BC0753ACA2AA2C0D80D3515C8084E55641A
+  - Exynos9820WlanCx.inf   2600 B sha256 9F294841C51D1742AA15285833E5BFF5BC8403CD20AC4EB19B30091474D80BBD
+  - exynos9820wlancx.cat   2538 B sha256 74BE9CCB3841C93A659639E43611384B94FFFAF345D732B057C3E1FF8350185B
+  + extra-wifi-cx.cmd. Not device-tested. Expect: bring-up "[cx] rx frames to the OS as 802.11 data + LLC/SNAP";
+  after connect "[rx] delivered #1: layer2 type 3 hdr 24 ...: 0802 0000 A8DB03063CEF <bssid> <sa> 0000 AAAA0300
+  0000 888E"; then "[tx] packet layout #1" (EAPOL msg 2) and "[key] add". If still no tx: RxFormat 1 A/B is
+  pointless (that was cx4); next suspects are a missing per-packet WiFi rx extension or the Protected/exemption
+  rule.

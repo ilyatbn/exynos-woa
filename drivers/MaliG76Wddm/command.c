@@ -444,8 +444,10 @@ void MwArmPoll(MW_ADAPTER *A)
  * dxgkrnl (DWM pacing, sync-interval presents, flips) waited forever - the prime suspect for the full-adapter black
  * screen (notes/gpu-full-adapter-hang.md). A periodic timer stands in: its DPC reports the vsync at the device's
  * interrupt level through DxgkCbSynchronizeExecution and queues our DPC, as DxgkCbNotifyInterrupt requires. The
- * panel's real refresh is whatever sboot programmed (60 Hz on this phone, UNVERIFIED by a register read); the timer
- * runs at the 60 Hz the VidPN reports (display.c FillSignal) to the timer resolution (KeSetTimerEx: whole ms). */
+ * panel's real refresh is whatever sboot programmed (60 Hz on this phone, UNVERIFIED by a register read). The timer
+ * period is 16 ms (KeSetTimerEx takes whole ms: 62.5 Hz nominal, near the 60 Hz the VidPN reports, display.c
+ * FillSignal), and expiries land on the system clock tick (15.6 ms by default), so individual intervals jitter by a
+ * tick. dxgkrnl only needs vsyncs to keep coming; it does not time the panel from them. */
 #define MW_VSYNC_PERIOD_MS      16
 #define MW_VSYNC_PERIOD_100NS   166667ULL       /* 1/60 s, for GetScanLine */
 

@@ -146,3 +146,12 @@ never were.
 - MwCommandStop (StopDevice, full modes) clears VsEnabled, cancels the timer before KeFlushQueuedDpcs.
 - UNVERIFIED: the panel's real refresh (sboot's DECON timing) - 60 Hz is what the VidPN reports, not a register read.
 - Build 5: exit 0, sys sha256 047BA8E8...
+
+## Review of 77a56ec (F1, adversarial)
+Checked: VsTimer/VsDpc initialised for every mode in AddDevice (MwCommandInit) but only armed by ControlInterrupt,
+which only the full init table has (rg "DxgkDdiControlInterrupt" adapter.c: InitFull only); StopDevice -> MwCommandStop
+clears VsEnabled + cancels before KeFlushQueuedDpcs, and ControlInterrupt after Stopping does nothing; the DPC's
+failure path cancels its own periodic timer (KeCancelTimer is legal at DISPATCH). Build 5 exit 0.
+Found: the comment claimed the timer "runs at the 60 Hz the VidPN reports" - 16 ms is 62.5 Hz nominal and the
+expiries snap to the 15.6 ms clock tick. Comment corrected in the follow-up commit (no code change; rate kept: a
+vsync slightly faster than the panel only shortens vblank waits, never blocks one).

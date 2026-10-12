@@ -75,11 +75,11 @@ PMU = 0x15860000 (EXYNOS_PMU_BASE, VERIFIED). CMU_CMU = 0x1A240000 (= EXYNOS_CMU
 
 ### F4 Who powers it on Android (order)
 - kbase `gpu_power_on` → `pm_runtime_get_sync` (`G\plat_gpu_notifier.c:99-133`) → genpd
-  `exynos_pd_power_on` (`G\exynos-pd.c:99-135`: idle-ip status + `exynos_bts_scitoken_setting` pre-hook,
+  `exynos_pd_power_on` (`G\exynos-pd.c:99-135`: idle-ip status + `exynos_bts_scitoken_setting` pre-hook (the latter only if the pd has a devfreq sync index, :64-71),
   then `cal_pd_control(0xB1380007, 1)`) → `pmucal_local_enable(7)` (F3) + `bts_pd_sync` (`G\calif_cal-if.c:182-197`).
 - then `pm_callback_runtime_on` (`G\plat_gpu_notifier.c:253-278`) → `gpu_set_target_clk_vol(gpu_dvfs_start_clock
   = 260000)` → `gpu_set_dvfs_using_calapi` (`G\plat_gpu_control.c:119-161`), which refuses if
-  `gpu_is_power_on()` is false, then `cal_dfs_set_rate(ACPM_DVFS_G3D, clk*1000)`.
+  `gpu_is_power_on()` is false, then `cal_dfs_set_rate(ACPM_DVFS_G3D, clk*KHZ)` (KHZ = 1000, `G\plat_mali_kbase_platform.h:45`; clk in kHz → rate in Hz).
 - Mali-internal L2/shader/tiler power (GPU_PWRON regs) is kbase's generic code after this — G4.
 
 ### F5 Clock/voltage = ACPM, not direct CMU
@@ -116,3 +116,12 @@ PMU = 0x15860000 (EXYNOS_PMU_BASE, VERIFIED). CMU_CMU = 0x1A240000 (= EXYNOS_CMU
 - Does sboot leave G3D on at UEFI entry? Unknown — that is exactly what the probe's first line answers.
 - Residual hazard even with the domain on: the G3D D_TZPC state (if sboot/EL3 left it secure, a NS read of
   0x18500000 is an external abort). Not decidable from source; the progress word brackets each read.
+
+## Review of 934d8ab (G2)
+- Checked mechanically (grep in `G`): every pmucal line range (555/569/586/596), pm-domains :77-83, mali dtsi
+  :14-23/:40-47, cal-if.c :57-77/:106-116/:182-197, cmucal.h masks, dts :2072-2075 and :4865-4870, rae.c
+  :102-116/:145-151/:356-357, ra.c :415-437 gate semantics, SPI→INTID (+32). plat_gpu_control.c range was
+  off by 2 (117 → 119-161), fixed before the commit.
+- Found: (1) F4 stated the `exynos_bts_scitoken_setting` pre-hook as unconditional — it runs only when
+  `devfreq_index >= 0` (`exynos-pd.c:64-71`); (2) "clk*1000" asserted the KHZ constant without a citation.
+  Both fixed in the follow-up commit.

@@ -1294,3 +1294,13 @@ W3 data path, W4 connect/keys/disconnect; drivers/S10eDiag/esp/extra-wifi-cx.cmd
 **Next order:** notes/m12-wifi-wificx.md "ESP test" (install via extra-wifi-cx.cmd; reboot once if DL 6), user
 connects from the flyout, collect; then fix the "M3 ... NOT_SUPPORTED" ids and the UNVERIFIED items the log
 resolves (tx layout line, WDI version), then W5 (power/D3, roaming, interrupt, flowring delete).
+**§32 update (2026-10-12 ~20:45 device time).** (1) Clean return to TWRP VALIDATED on boot #113 (fb7a0ed3…):
+collect.cmd writes \S10EDIAG\torecovery.flg + `shutdown /r`; BootLog's OS-restart branch sees it -> recovery
+(UEFILOG "clean Windows restart with torecovery.flg"). No more hard reset at the end of unattended runs, so registry
+changes (driver installs, MaliG76Wddm Parameters) are flushed. ESP files pass both ways (token test). (2) Audio 1.0.1.4
+(s10e-artifacts\audio-a5) CRASHES Windows ~50 s into a boot when loaded at boot (S10eDiag's bugcheck path resets
+straight to recovery: debug_history REBOOTMODE4 64 s after NORMAL, so UEFI never saves that PRAM). Live install on the
+install boot worked. Rescue: \S10EDIAG\noaudio.flg (boot #112+, AUD0._STA 0) - currently SET. (3) GPU: display-only
+MaliG76Wddm works (Started, FbMatchesGop, Presents); FullAdapter 1 (GPU half off) and GpuEnable 1 both hang Windows
+with a black screen and the 82 s watchdog does not fire; \S10EDIAG\nogpu.flg currently SET. (4) WiFi: 1.0.7.4 joined
+the user's WPA2 network; WiFiCx driver (drivers/Exynos9820WlanCx, s10e-artifacts\wifi-cx3, HANDOFF §33) next.

@@ -92,6 +92,7 @@ typedef struct _AUD_CONFIG {
     ULONG AboxEnable;   /* 0 (default): 1 = run the ABOX stage-1/2 hooks on stream start (TODO stubs) */
     ULONG HwVolume;     /* 0 (default): 1 = ACX volume + mute elements on the amp; 0 = audiodg software volume */
     ULONG CacheMaint;   /* 1 (default): clean the DMA ring around every packet (ABOX DMA does not snoop) */
+    ULONG Stereo;       /* 0 (default): mono (L+R)/2 on the loudspeaker only; 1 = L on the earpiece amp (untested) */
 } AUD_CONFIG, *PAUD_CONFIG;
 
 /* ======================================================================

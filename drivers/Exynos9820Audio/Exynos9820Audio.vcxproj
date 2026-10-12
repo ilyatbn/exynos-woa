@@ -55,6 +55,7 @@
     <ClCompile Include="AmpI2c.c" />
     <ClCompile Include="RunLog.c" />
     <ClInclude Include="Exynos9820Audio.h" />
+    <ClInclude Include="AmpOtpMap.h" />
     <ResourceCompile Include="resource.rc" />
     <FilesToPackage Include="$(TargetPath)" />
   </ItemGroup>

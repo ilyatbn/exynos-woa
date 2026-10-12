@@ -8,16 +8,18 @@
  * KeStallExecutionProcessor. Boot #92 (d8-audio-m1.md:582) read DEVID 35A40 REVID A0 OTPID 3 OTP_BOOT_DONE 1 on
  * both amps this way. Clocks: CMU_PERIC1 is never written (UEFI only reads it; it is not in our _CRS).
  *
- * Amp sequences: notes/d8-audio-m3-amp.md "Proposed sequence" rows, written as data so the stage-1 proof from the
- * main session replaces rows, not code. ALL rows past the ID read are UNVERIFIED on the device, and the OTP trim
- * unpack (rows 2.x) is a TODO stub - AmpPowerUp refuses GLOBAL_EN without it (amp notes Safety: "never run
- * GLOBAL_EN without the OTP unpack").
+ * Amp sequences = the device-validated UEFI code, main 24fb796 Beyond0LteAudioProbeDxe/AudioSpeaker.c (boot #99,
+ * loudspeaker heard by the PC mic): AmpConfigure :274-339 (errata, OTP unpack :219-271 with AudioAmpOtp.h, bypass
+ * trims, PLL from 6.144 MHz SCLK, ASP DSP-A 32-bit slot, gain 0x0A, muted), power-up :569-582 (with UAIF1 data
+ * already flowing - no PUP_DONE otherwise), power-down :341-360. Rows keep the amp notes' row numbers.
+ * Validated for @0x40 only; @0x41 (earpiece, slot 0) is configured the same way but only with Parameters\Stereo = 1.
  *
  * Every function runs at PASSIVE_LEVEL with Dev->BusLock held (taken by the public entry points).
  * NOT VALIDATED ON HARDWARE (stage Guided).
  */
 
 #include "Exynos9820Audio.h"
+#include "AmpOtpMap.h"   /* otp_map_2, copy of Beyond0LteAudioProbeDxe/AudioAmpOtp.h */
 
 /* HSI2C register map (= AudioProbeHw.h, which cites i2c-exynos5.c and UsbHw.h). */
 #define HSI2C_CTL                 0x00u
@@ -85,9 +87,9 @@
 #define CS35L40_VOL_SHIFT         3
 #define CS35L40_VOL_MUTE_FIELD    0x4CFu        /* -817 steps = mute (amp notes F8) */
 #define CS35L40_VOL_MIN_STEPS     (-816)        /* lowest non-mute step */
-/* Fixed digital volume while Windows applies endpoint volume in software (HwVolume = 0): the amp notes' first-test
-   value -20 dB (Safety, row 7.2); the earpiece 6 dB lower. UNVERIFIED loudness - raise only after a heard test. */
-#define AMP_SPK_FIXED_STEPS       (-160)
+/* Fixed digital volume while Windows applies endpoint volume in software (HwVolume = 0): -10 dB, the level of the
+   validated boot #99 tone (AudioSpeaker.c :85, :582); the earpiece 6 dB lower. */
+#define AMP_SPK_FIXED_STEPS       (-80)
 #define AMP_RCV_TRIM_STEPS        (-48)
 
 /* ---------------------------------------------------------------------------------------------------------------- */
@@ -325,9 +327,8 @@ typedef struct _AMP_STEP {
     PCSTR  Row;
 } AMP_STEP;
 
-/* Rows 1.x (A0 errata, K:2040-2052) and 3.x-5.x (cap trim, IRQ mask, boost, ASP, clocks, gain, muted). The PLL rows
-   (4.1/4.2) are for 6.144 MHz SCLK = 128 bits/frame (stock DTBO ampclk); 3.072 MHz uses 0x21 / the other row set. */
-static const AMP_STEP AmpConfigSeq[] = {
+/* Rows 1.x (A0 errata, K:2040-2052) = AudioSpeaker.c :289-297. */
+static const AMP_STEP AmpErrataSeq[] = {
     { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x00005555, 0, "1.1" },
     { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x0000AAAA, 0, "1.1" },
     { AMP_OP_WRITE, 0x00003854, 0, 0x05180240, 0, "1.2" },
@@ -339,7 +340,12 @@ static const AMP_STEP AmpConfigSeq[] = {
     { AMP_OP_WRITE, 0x00010B18, 0, 0x00000000, 0, "1.7" },
     { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x0000CCCC, 0, "1.8" },
     { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x00003333, 0, "1.8" },
-    /* rows 2.x (OTP unpack) run separately: AmpOtpUnpack */
+    { AMP_OP_END,   0, 0, 0, 0, NULL },
+};
+
+/* Rows 3.x-5.x = AudioSpeaker.c :305-333 (cap trim clear, IRQ mask, boost peak, hi-z, noise gate, PLL from 6.144 MHz
+   SCLK code 0x28, 48 kHz, ASP DSP-A 32-bit slot, per-amp RX slot, DAC <- ASPRX1, gain 0x0A, muted). */
+static const AMP_STEP AmpConfigSeq[] = {
     { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x00005555, 0, "3.1" },
     { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x0000AAAA, 0, "3.1" },
     { AMP_OP_RMW,   0x00007418, 0x00000F80, 0, 0, "3.2" },
@@ -370,38 +376,45 @@ static const AMP_STEP AmpConfigSeq[] = {
     { AMP_OP_END,   0, 0, 0, 0, NULL },
 };
 
-/* Rows 6.3-6.8 (host clocks already running: AboxStart comes first). Row 6.9 is checked in code. */
+/* Rows 6.2-6.8 = AudioSpeaker.c :569-579 (UAIF1 data must already flow: AboxStart comes first). The PLL_LOCK bit is
+   never seen set (boot #99), so it is only acknowledged, not polled. Row 6.9 is checked in code. The pup patch is
+   wrapped in the 0x5555/0xAAAA test key, as the validated code does (the amp notes' 0x55/0xAA was not run). */
 static const AMP_STEP AmpPowerUpSeq[] = {
+    { AMP_OP_WRITE, CS35L40_IRQ1_STATUS3, 0, 0x00000002, 0, "6.2" },
     { AMP_OP_WRITE, 0x00004800, 0, 0x00010000, 0, "6.3" },
     { AMP_OP_RMW,   0x0000201C, 0x00000010, 0x00000010, 0, "6.4" },
     { AMP_OP_WRITE, 0x00002018, 0, 0x00000021, 0, "6.5" },
-    { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x00000055, 0, "6.6" },
-    { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x000000AA, 0, "6.6" },
+    { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x00005555, 0, "6.6" },
+    { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x0000AAAA, 0, "6.6" },
     { AMP_OP_WRITE, 0x00002084, 0, 0x002F1AA0, 0, "6.6" },
-    { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x000000CC, 0, "6.6" },
-    { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x00000033, 0, "6.6" },
+    { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x0000CCCC, 0, "6.6" },
+    { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x00003333, 0, "6.6" },
     { AMP_OP_RMW,   CS35L40_PWR_CTRL1, 0x00000001, 0x00000001, 0, "6.7" },
     { AMP_OP_POLL,  CS35L40_IRQ1_STATUS1, CS35L40_PUP_DONE, CS35L40_PUP_DONE, 100, "6.8" },
     { AMP_OP_END,   0, 0, 0, 0, NULL },
 };
 
-/* Rows 8.3-8.6 (mute 8.1/8.2 = AmpMute first). */
+/* Rows 8.3-8.6 = AudioSpeaker.c :351-358 (mute 8.1/8.2 = AmpMuteLocked first). Run to the end even if a row fails. */
 static const AMP_STEP AmpPowerDownSeq[] = {
     { AMP_OP_RMW,   CS35L40_PWR_CTRL1, 0x00000001, 0x00000000, 0, "8.3" },
     { AMP_OP_POLL,  CS35L40_IRQ1_STATUS1, CS35L40_PDN_DONE, CS35L40_PDN_DONE, 100, "8.4" },
-    { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x00000055, 0, "8.5" },
-    { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x000000AA, 0, "8.5" },
+    { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x00005555, 0, "8.5" },
+    { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x0000AAAA, 0, "8.5" },
     { AMP_OP_WRITE, 0x00002084, 0, 0x002F1AA3, 0, "8.5" },
-    { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x000000CC, 0, "8.5" },
-    { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x00000033, 0, "8.5" },
+    { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x0000CCCC, 0, "8.5" },
+    { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x00003333, 0, "8.5" },
     { AMP_OP_WRITE, 0x00004800, 0, 0x00000000, 0, "8.6" },
     { AMP_OP_WRITE, 0x00002018, 0, 0x00000000, 0, "8.6" },
     { AMP_OP_END,   0, 0, 0, 0, NULL },
 };
 
-static NTSTATUS AmpRunSeq(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ PAUD_AMP Amp, _In_ const AMP_STEP *Seq, _In_ PCSTR What)
+/* StopOnError FALSE (teardown) runs every row and returns the first failure. */
+static NTSTATUS AmpRunSeq(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ PAUD_AMP Amp, _In_ const AMP_STEP *Seq, _In_ PCSTR What,
+                          _In_ BOOLEAN StopOnError)
 {
     NTSTATUS Status = STATUS_SUCCESS;
+    NTSTATUS First  = STATUS_SUCCESS;
+    NTSTATUS W1c;
     ULONG    I;
     ULONG    V = 0;
     ULONG    Ms;
@@ -431,8 +444,11 @@ static NTSTATUS AmpRunSeq(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ PAUD_AMP Amp, _I
                 }
                 KeStallExecutionProcessor(1000);
             }
-            if (NT_SUCCESS(Status) && S->Value != 0) {
-                Status = AmpWrite(Dev, Amp->Addr, S->Reg, S->Mask);   /* W1C */
+            if (S->Value != 0) {
+                W1c = AmpWrite(Dev, Amp->Addr, S->Reg, S->Mask);   /* W1C, also after a timeout (AudioSpeaker.c :353, :579) */
+                if (NT_SUCCESS(Status)) {
+                    Status = W1c;
+                }
             }
             AudLog(Dev->Log, "amp %s %s row %s: [%05lX] = %08lX after %lu ms, %08lX\r\n", Amp->Name, What, S->Row,
                    S->Reg, V, Ms, Status);
@@ -447,23 +463,91 @@ static NTSTATUS AmpRunSeq(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ PAUD_AMP Amp, _I
 
         if (!NT_SUCCESS(Status)) {
             AudLog(Dev->Log, "amp %s %s: row %s [%05lX] failed %08lX\r\n", Amp->Name, What, S->Row, S->Reg, Status);
-            return Status;
+            if (StopOnError) {
+                return Status;
+            }
+            if (NT_SUCCESS(First)) {
+                First = Status;
+            }
+            Status = STATUS_SUCCESS;
         }
     }
 
-    AudLog(Dev->Log, "amp %s %s: %lu rows OK\r\n", Amp->Name, What, I);
-    return STATUS_SUCCESS;
+    AudLog(Dev->Log, "amp %s %s: %lu rows, %08lX\r\n", Amp->Name, What, I, First);
+    return First;
 }
 
 /*
- * TODO(stage 1 - main session): rows 2.1-2.5, the OTP trim unpack (vendor cs35l41.c:544-632 with otp_map_2 for
- * OTPID 3, tables cs35l41-tables.c:771-872; amp notes F3). Without it the boost peak-current sense and references
- * run untrimmed, so AmpPowerUp refuses GLOBAL_EN until this sets Amp->OtpDone.
+ * Rows 2.1-2.5: OTP trim unpack = AudioSpeaker.c AmpOtpUnpack :219-271 (vendor cs35l41_otp_unpack, cs35l41.c:544-632),
+ * same header check, same bit walk over otp_map_2 (AmpOtpMap.h). Without it the boost current sense and references
+ * run untrimmed, so AmpPowerUp refuses GLOBAL_EN unless this succeeded (Amp->OtpDone).
  */
+#define CS35L40_OTP_MEM0  0x00000400u
+
 static NTSTATUS AmpOtpUnpack(_Inout_ PAUD_DEVICE_CONTEXT Dev, _Inout_ PAUD_AMP Amp)
 {
-    AudLog(Dev->Log, "amp %s: OTP unpack not implemented (OTPID %lu) - GLOBAL_EN stays off\r\n", Amp->Name, Amp->OtpId);
-    return STATUS_NOT_IMPLEMENTED;
+    ULONG    Mem[32];
+    ULONG    OtpId = 0;
+    ULONG    Val;
+    ULONG    BitOffset;
+    ULONG    ArrayOffset;
+    ULONG    Size;
+    ULONG    I;
+    NTSTATUS Status;
+    NTSTATUS First;
+
+    First = AmpWrite(Dev, Amp->Addr, CS35L40_TEST_KEY_CTL, 0x00005555);
+    Status = AmpWrite(Dev, Amp->Addr, CS35L40_TEST_KEY_CTL, 0x0000AAAA);
+    First = NT_SUCCESS(First) ? Status : First;
+    Status = AmpRead(Dev, Amp->Addr, CS35L40_OTPID, &OtpId);
+    First = NT_SUCCESS(First) ? Status : First;
+    for (I = 0; I < 32; I++) {
+        Status = AmpRead(Dev, Amp->Addr, CS35L40_OTP_MEM0 + I * 4, &Mem[I]);
+        First = NT_SUCCESS(First) ? Status : First;
+    }
+
+    if (!NT_SUCCESS(First) || (Mem[1] & 0xFFFFFFFEu) != 0x1500u || (Mem[2] & 0xFFFFu) != 0x0300u ||
+        (OtpId != 2 && OtpId != 3)) {
+        AudLog(Dev->Log, "amp %s: OTP header bad (I2C %08lX, OTPID %lX MEM1 %lX MEM2 %lX) - no unpack\r\n", Amp->Name,
+               First, OtpId, Mem[1], Mem[2]);
+        (VOID)AmpWrite(Dev, Amp->Addr, CS35L40_TEST_KEY_CTL, 0x0000CCCC);
+        (VOID)AmpWrite(Dev, Amp->Addr, CS35L40_TEST_KEY_CTL, 0x00003333);
+        return NT_SUCCESS(First) ? STATUS_DEVICE_DATA_ERROR : First;
+    }
+
+    BitOffset   = 16;
+    ArrayOffset = 2;
+    for (I = 0; I < ARRAYSIZE(mAmpOtpMap2); I++) {
+        Size = mAmpOtpMap2[I].Size;
+        if (BitOffset + Size - 1 >= 32) {
+            Val  = (ULONG)(((ULONGLONG)Mem[ArrayOffset] & (0xFFFFFFFFull << BitOffset) & 0xFFFFFFFFull) >> BitOffset);
+            ArrayOffset++;
+            Val |= (Mem[ArrayOffset] & (ULONG)((1ull << (BitOffset + Size - 32)) - 1)) << (32 - BitOffset);
+            BitOffset += Size - 32;
+        } else {
+            Val        = (ULONG)(((ULONGLONG)Mem[ArrayOffset] >> BitOffset) & ((1ull << Size) - 1));
+            BitOffset += Size;
+        }
+
+        if (BitOffset == 32) {
+            BitOffset = 0;
+            ArrayOffset++;
+        }
+
+        if (mAmpOtpMap2[I].Reg != 0) {
+            Status = AmpUpdate(Dev, Amp->Addr, mAmpOtpMap2[I].Reg, (ULONG)(((1ull << Size) - 1) << mAmpOtpMap2[I].Shift),
+                               Val << mAmpOtpMap2[I].Shift);
+            First = NT_SUCCESS(First) ? Status : First;
+        }
+    }
+
+    Status = AmpWrite(Dev, Amp->Addr, CS35L40_TEST_KEY_CTL, 0x0000CCCC);
+    First = NT_SUCCESS(First) ? Status : First;
+    Status = AmpWrite(Dev, Amp->Addr, CS35L40_TEST_KEY_CTL, 0x00003333);
+    First = NT_SUCCESS(First) ? Status : First;
+    AudLog(Dev->Log, "amp %s: OTP unpacked (OTPID %lX, %u fields, ended at word %lu bit %lu): %08lX\r\n", Amp->Name, OtpId,
+           (ULONG)ARRAYSIZE(mAmpOtpMap2), ArrayOffset, BitOffset, First);
+    return First;
 }
 
 /* ---------------------------------------------------------------------------------------------------------------- */
@@ -566,6 +650,7 @@ NTSTATUS AmpInit(_Inout_ PAUD_DEVICE_CONTEXT Dev)
         if (!A->Present && (PinFunc(Dev, AUD_GPIO_GPH1_OFF, A->ResetPin) != AUD_GPIO_FUNC_OUTPUT ||
                             PinLevel(Dev, AUD_GPIO_GPH1_OFF, A->ResetPin) == 0)) {
             PinDrive(Dev, AUD_GPIO_GPH1_OFF, A->ResetPin, FALSE);
+            A->OtpDone = A->Configured = A->Powered = FALSE;   /* a reset wipes every amp register */
             Released = TRUE;
         }
     }
@@ -628,7 +713,7 @@ static NTSTATUS AmpMuteLocked(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ PAUD_AMP Amp
     if (Mute) {
         Status = AmpUpdate(Dev, Amp->Addr, CS35L40_AMP_DIG_VOL_CTRL, CS35L40_VOL_MASK,
                            CS35L40_VOL_MUTE_FIELD << CS35L40_VOL_SHIFT);
-        KeStallExecutionProcessor(1000);   /* >= the volume ramp (ramp field POR 0 -> 1 ms per amp notes 8.1) */
+        KeStallExecutionProcessor(2000);   /* >= the volume ramp; AudioSpeaker.c :349 waits 2 ms */
         if (NT_SUCCESS(Status)) {
             Status = AmpWrite(Dev, Amp->Addr, CS35L40_AMP_OUT_MUTE, 0x10);
         }
@@ -650,13 +735,15 @@ static VOID AmpPowerDownLocked(_Inout_ PAUD_DEVICE_CONTEXT Dev, _Inout_ PAUD_AMP
     }
 
     (VOID)AmpMuteLocked(Dev, Amp, TRUE);
-    (VOID)AmpRunSeq(Dev, Amp, AmpPowerDownSeq, "power-down");
+    (VOID)AmpRunSeq(Dev, Amp, AmpPowerDownSeq, "power-down", FALSE);
     Amp->Powered = FALSE;
 }
 
 /*
- * Configure (once) + GLOBAL_EN on every present amp, then unmute. Requires Cfg.AmpEnable and the OTP unpack.
- * Order: the host clocks must already run (AboxStart before this, amp notes row 6.1).
+ * Configure (once: errata -> OTP unpack -> rows 3-5, the AudioSpeaker.c AmpConfigure order) + GLOBAL_EN on the
+ * loudspeaker amp (and the earpiece amp with Parameters\Stereo = 1), then unmute. Requires Cfg.AmpEnable.
+ * Order: UAIF1 SPK_EN + RDMA0 must already be running with data (AboxStart first): without data on UAIF1 the amp
+ * never reports PUP_DONE (boot #98).
  */
 _IRQL_requires_(PASSIVE_LEVEL)
 NTSTATUS AmpPowerUp(_Inout_ PAUD_DEVICE_CONTEXT Dev)
@@ -674,17 +761,25 @@ NTSTATUS AmpPowerUp(_Inout_ PAUD_DEVICE_CONTEXT Dev)
     for (I = 0; I < ARRAYSIZE(Dev->Amp); I++) {
         PAUD_AMP A = &Dev->Amp[I];
 
-        if (!A->Present || A->Powered) {
+        if (!A->Present || A->Powered || (A->Addr == AUD_AMP_L_I2C_ADDR && !Dev->Cfg.Stereo)) {
             continue;
         }
 
-        if (!A->OtpDone && !NT_SUCCESS(AmpOtpUnpack(Dev, A))) {
-            Status = STATUS_NOT_IMPLEMENTED;
-            continue;
+        /* Errata and OTP unpack are not idempotent (OTP RMWs on top of the errata writes): once per reset release. */
+        if (!A->OtpDone) {
+            Status = AmpRunSeq(Dev, A, AmpErrataSeq, "errata", TRUE);
+            if (NT_SUCCESS(Status)) {
+                Status = AmpOtpUnpack(Dev, A);
+            }
+            if (!NT_SUCCESS(Status)) {
+                AudLog(Dev->Log, "amp %s: errata/OTP failed %08lX - GLOBAL_EN stays off\r\n", A->Name, Status);
+                continue;
+            }
+            A->OtpDone = TRUE;
         }
 
         if (!A->Configured) {
-            Status = AmpRunSeq(Dev, A, AmpConfigSeq, "config");
+            Status = AmpRunSeq(Dev, A, AmpConfigSeq, "config", TRUE);
             if (!NT_SUCCESS(Status)) {
                 continue;
             }
@@ -692,7 +787,7 @@ NTSTATUS AmpPowerUp(_Inout_ PAUD_DEVICE_CONTEXT Dev)
         }
 
         A->Powered = TRUE;   /* from here on AmpPowerDownLocked must undo GLOBAL_EN */
-        Status = AmpRunSeq(Dev, A, AmpPowerUpSeq, "power-up");
+        Status = AmpRunSeq(Dev, A, AmpPowerUpSeq, "power-up", TRUE);
         S1 = 0;
         (VOID)AmpRead(Dev, A->Addr, CS35L40_IRQ1_STATUS1, &S1);
         if (NT_SUCCESS(Status) && (S1 & CS35L40_STATUS1_ERRORS) != 0) {

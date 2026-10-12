@@ -291,3 +291,6 @@ Expected in run.txt: `Exynos9820Audio 1.0.1.6 (ACX 1.1`, `circuit: host pin id 0
 2 ch 48000 32-bit float mix), vol: hw support 0x3, `played 96000 frames`, run.txt `cb StreamPrepareHardware -> 0`,
 `cb Run -> 0`. If the round still repeats with the sized intersection answered: the next failing step is visible as the
 last request before the repeat. A/B: Parameters\KsOverride = 0 = a6 behaviour.
+- Review of T11 / earlier HANDOFF commits: finding R5 - the three HANDOFF §32 audio addenda (a5, a6, a7) were written
+  through a Python string where "\a" in "s10e-artifacts\audio-aN" became a BEL byte (0x07): the package paths read
+  "s10e-artifacts<BEL>udio-aN". Fixed in its own commit (byte replace, 0 BEL bytes left; notes file checked: none).

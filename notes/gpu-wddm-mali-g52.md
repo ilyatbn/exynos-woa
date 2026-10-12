@@ -356,7 +356,7 @@ device read yet (the read that closes it is named). "SOURCE-ONLY" = from stock D
 | R2 | Interrupts | up to 3 interrupt resources, one ISR, any order (malikm/device.c:49-59; maligpu.c:398-399) | GSIV 379/380/381 | **job GSIV 320, mmu 319, gpu 321** (SPI 288/287/289 + 32; gpu-odin-rom.md:38-39,253; +32 convention ours:Dsdt.asl:319-322). Trigger: DT flags cell 0 (= kernel default), Level/ActiveHigh by our DSDT convention - UNVERIFIED for these lines | DSDT only; G10 must check `Irqs` != 0 before dropping the 1 ms poll (command.c:406-435) |
 | R3 | ACPI hardware ID | `ACPI\RKCP7402` in every INF + comments (maliwddm.inf; malikm/device.c:3-6; m1probe.c:3); malidod DSP0 `RKCP7403` | RKCP7402 | new _HID in our namespace style (`EXYN9820`/`SAMS9820` precedents, ours:Dsdt.asl:219,251) - a naming decision for G9, not a hardware constant | INF `[Standard.NTARM64]` lines; malidod/DSP0 pairing not needed (render-only was refused anyway, maliwddm.h:24-34) |
 | R4 | "GPU is powered" check before the first GPU access | `PMU_PA 0x27380000`, STATUS0 0x230 bit25 == 0 && ACK0 0x120 bit0 == 0 (maligpu.h:16-18; maligpu.c:25-39; m1probe.c:15-17,115-126) | RK PMU, bit **clear** = on | PMU 0x15860000 (VERIFIED ours:Exynos9820.h:280) **+0x2104 EMBEDDED_G3D_STATUS bit0 == 1 and +0x2384 G3D_STATUS bit0 == 1**; then CMU_G3D 0x18400000 +0x2004 gate not forced off (MANUAL bit20 = 1 && CG_VAL bit21 = 0 means off) (notes/gpu-m16-g2g3.md F3, F5, F6; SOURCE-ONLY, G3 boot pending) | Rewrite `PmuSaysGpuIsOn` (polarity inverted, two bits, two blocks). CMU_G3D may only be read once both PMU bits are set (F3) |
-| R5 | GPU_ID gate | `(GPU_ID >> 16) != 0x7402` -> refuse (maligpu.c:152; m1probe.c:131); fake table PROD_ID 0x7402 (malikm_drm.c:1271) | 0x7402 = PAN_PROD_ID(7,4,2) "G52 r1" (mesa:pan_model.c:82) | **0x72?1** = PAN_PROD_ID(7,2,1) "G76" (mesa:pan_model.c:80; field layout pan_model.h:25-28,39-40); drm `GPU_MODEL(g76, 0x7001)` under mask 0xf00f (panfrost_gpu.c:226; panfrost_device.h:231-237). arch_rev nibble UNVERIFIED (G3 log) | compare `((id >> 16) & 0xF0FF) == 0x7201` |
+| R5 | GPU_ID gate | `(GPU_ID >> 16) != 0x7402` -> refuse (maligpu.c:152; m1probe.c:131); fake table PROD_ID 0x7402 (malikm_drm.c:1271) | 0x7402 = PAN_PROD_ID(7,4,2) "G52 r1" (mesa:pan_model.c:82) | **0x72?1** = PAN_PROD_ID(7,2,1) "G76" (mesa:pan_model.c:80; field layout pan_model.h:25-28,39-40); drm `GPU_MODEL(g76, 0x7001)` under mask 0xf00f (panfrost_gpu.c:226; panfrost_device.h:231-237). arch_rev nibble UNVERIFIED (G3 log) | compare `((id >> 16) & 0xFF0F) == 0x7201` (masks arch_rev, bits 7:4 of the high half) |
 | R6 | Init quirks | TILER_CONFIG read-back + `JM_CONFIG = 0xF << 16`, "for a G52: no shader quirks" (maligpu.c:95-98) | none else | G76 = G52 features **+ TLS_HASHING + 3BIT_EXT_RW_L2_MMU_CONFIG** (drm panfrost_features.h:73-97), issues 0 for both (panfrost_issues.h:248,259) -> add **GPU_SHADER_CONFIG 0xF04 = SC_TLS_HASH_ENABLE BIT(17)** (panfrost_gpu.c:141-145; panfrost_regs.h:180,211). 3BIT_EXT_RW_L2_MMU_CONFIG: no drm/panfrost .c writes GPU_L2_MMU_CONFIG 0xF0C (fields only defined, panfrost_regs.h:182-203) - whether the vendor kbase programs L2_MMU_CONFIG on 9820 is UNVERIFIED (read kbase r32p1 `kbase_hw_set_issues`/L2_MMU_CONFIG path) | add one register write + define |
 | R7 | Core power-up | `L2/SHADER/TILER_PWRON_LO = *_PRESENT`, poll READY_LO == PRESENT (maligpu.c:100-107) | SHADER_PRESENT 0x7, L2 0x1 (malikm_drm.c:1273-1275) | MP12 -> 12 bits set in SHADER_PRESENT (layout UNVERIFIED; G76 MP11 vs MP12 also open, MILESTONES G3); L2_PRESENT UNVERIFIED (panfrost powers only core group 0 when L2_PRESENT != 1) | none if L2_PRESENT == 1 and SHADER_PRESENT fits 32 bits; else restrict to core group 0 like panfrost |
 | R8 | Job affinity | `JS_AFFINITY_NEXT = SHADER_PRESENT` (maligpu.c:366-367; m1probe.c:205) | 0x7 | full mask if one core group (G3 read) | as R7 |
@@ -415,3 +415,18 @@ Found and fixed (this follow-up commit):
    (loop over `git ls-files`); they fall under the repo LICENSE.
 4. "Repo quiet since 2026-10-03" is only what the local clone shows -> "Local clone HEAD is 2026-10-03".
 Left as is (marked): interrupt delivery on their board UNVERIFIED (I8); GOP pixel-format mapping UNVERIFIED (R15).
+
+## Review of 1a26048 (MILESTONES M16 restructure, adversarial, 2026-10-12)
+Checked mechanically: every new/changed M16 row has exactly 4 `|` (awk NF); cited lines re-read
+(adapter.c:118 first memory resource, command.c:406-435 poll, maliwddm.h:24-34 render-only refusal,
+pan_model.c:80, m1probe.c 280 lines via wc); GPU_ID mask evaluated in Python for an arch-7.2 rev-1 GPU_ID
+0x7211xxxx: `& 0xF0FF` -> 0x7011, `& 0xFF0F` -> 0x7201, drm's `& 0xF00F` -> 0x7001.
+Found and fixed (follow-up commit):
+1. **Wrong mask**: G9b and R5 said `((id>>16) & 0xF0FF) == 0x7201`, which clears arch_minor and keeps
+   arch_rev - it can never equal 0x7201 on a G76 with arch_rev != 0 and would refuse the GPU. Correct mask
+   `0xFF0F` (arch_rev = bits 7:4 of the high half, pan_model.h:27). Fixed in MILESTONES G9b and notes R5.
+2. G9 stated Level/ActiveHigh as fact; the trigger is UNVERIFIED (DT flags cell 0, gpu-odin-rom.md:38) - marked.
+3. G13 said "nobody has shown DWM on Mali"; NTDEV posted S9+ (G72) DWM photos with the method undisclosed
+   (gpu-windows-prior-art.md) - reworded to "no public code".
+Not changed: the "same commit" rule (AGENTS.md section 3) - the inventory row was added in 1a26048, not in
+3e73db6, because the task asked for the MILESTONES update as a separate commit.

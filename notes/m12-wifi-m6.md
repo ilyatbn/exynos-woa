@@ -57,3 +57,10 @@ Needs the user: SSID + passphrase of their network (never guessed, never committ
     while W != position, so a second consumer is the explanation: the timer re-enqueues the work item every
     100 ms while the 2 s rescan runs inside it, and a second instance drains the same ring concurrently.
   - 1.0.6.1: an interlocked PollBusy flag means only one poller runs at a time. Build wifi-m6b.
+- Run m6-2 (03:18, 1.0.6.1): self-test PASS, SCAN 0 (11 BSS), RESIDENT, t = 30 s rescan SCAN 0 (10 BSS, 57
+  events total) with **no unsynced item**. The concurrent-poller diagnosis holds.
+- Review of 5e7b44a: no return between the flag acquire and its release in WlanPollWork (both early returns
+  come before the acquire). D0Exit / ReleaseHardware stop the timer and flush, so the flag cannot be left
+  set across teardown. No findings.
+- State: M6 code is complete and dormant. **Waiting for the user's SSID + passphrase** (registry, see above).
+  The join is the only M6 step still to validate.

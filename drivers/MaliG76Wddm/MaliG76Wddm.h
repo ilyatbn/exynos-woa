@@ -165,6 +165,12 @@ struct _MW_ADAPTER {
     ULONG Patches, PatchAllocations, PatchPatchLocations, PatchSegment0;
     ULONG PresentBlts, PresentFills, PresentSkips;
     ULONG64 PatchAddress0;
+
+    /* PRAM trace heartbeat (pram.c): a 1 Hz timer from StartDevice to StopDevice, and what it reports. */
+    KTIMER HbTimer;
+    KDPC HbDpc;
+    BOOLEAN HbArmed;
+    volatile LONG IsrCalls, DpcCalls, VsyncTicks;
 };
 
 /* ---- trace: Seen_<ddi>, Fail_<ddi> in the device's registry key ---- */
@@ -172,6 +178,13 @@ void MwLog(MW_ADAPTER *A, PCWSTR Name, ULONG Value);
 void MwLogHook(void *Owner, PCWSTR Name, ULONG Value);
 NTSTATUS MwRet(MW_ADAPTER *A, PCWSTR Name, NTSTATUS St);
 void MwEnter(MW_ADAPTER *A, PCWSTR Name);
+
+/* pram.c: DDI trace into the reserved RAM the firmware saves as \WINPRAM.BIN (any IRQL) */
+void MwPramInit(ULONG Enable, ULONG Mode, ULONG Build);
+void MwPramFree(void);
+void MwPramText(BOOLEAN First, const CHAR *Tag, PCWSTR Name, ULONG Value, BOOLEAN HasValue);
+void MwPramDdi(BOOLEAN First, BOOLEAN Exit, const CHAR *Name, NTSTATUS Status);
+void MwPramHeartbeat(ULONG Isr, ULONG Dpc, ULONG Vsync, ULONG Submits, ULONG Presents, ULONG Fence);
 
 /* display.c: VidPN and the POST framebuffer (both modes), PresentDisplayOnly (display-only mode) */
 NTSTATUS MwDisplayStart(MW_ADAPTER *A);

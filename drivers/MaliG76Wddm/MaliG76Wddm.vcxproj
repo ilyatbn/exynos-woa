@@ -49,6 +49,7 @@
     <ClCompile Include="memory.c" />
     <ClCompile Include="command.c" />
     <ClCompile Include="maligpu.c" />
+    <ClCompile Include="pram.c" />
     <FilesToPackage Include="$(TargetPath)" />
   </ItemGroup>
   <Target Name="ValidateOfflineBuild" BeforeTargets="PrepareForBuild">

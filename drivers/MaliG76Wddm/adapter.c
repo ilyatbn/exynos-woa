@@ -21,6 +21,8 @@ void MwLog(MW_ADAPTER *A, PCWSTR Name, ULONG Value)
     OBJECT_ATTRIBUTES oa;
 
     DbgPrintEx(DPFLTR_IHVVIDEO_ID, DPFLTR_ERROR_LEVEL, "MaliG76Wddm: %ws = 0x%08x\n", Name, Value);
+    /* Into PRAM first: the registry write and its flush below are what a hang or a reset loses. */
+    MwPramText(FALSE, "R ", Name, Value, TRUE);
     if (A == NULL || A->Pdo == NULL || KeGetCurrentIrql() != PASSIVE_LEVEL)
         return;
     if (!NT_SUCCESS(IoOpenDeviceRegistryKey(A->Pdo, PLUGPLAY_REGKEY_DEVICE, KEY_WRITE, &key)))
@@ -91,9 +93,30 @@ NTSTATUS MwRet(MW_ADAPTER *A, PCWSTR Name, NTSTATUS St)
 
 /* ---- PnP ---- */
 
+/* PRAM heartbeat, 1 Hz while started (pram.c MwPramHeartbeat). */
+static VOID HbDpc(PKDPC Dpc, PVOID Context, PVOID Arg1, PVOID Arg2)
+{
+    MW_ADAPTER *a = (MW_ADAPTER *)Context;
+    UNREFERENCED_PARAMETER(Dpc);
+    UNREFERENCED_PARAMETER(Arg1);
+    UNREFERENCED_PARAMETER(Arg2);
+    MwPramHeartbeat((ULONG)a->IsrCalls, (ULONG)a->DpcCalls, (ULONG)a->VsyncTicks, a->Submits,
+                    a->Presents + a->DodPresents, a->LastCompletedFence);
+}
+
+static void HbStop(MW_ADAPTER *A)
+{
+    if (!A->HbArmed)
+        return;
+    KeCancelTimer(&A->HbTimer);
+    KeFlushQueuedDpcs();
+    A->HbArmed = FALSE;
+}
+
 static NTSTATUS APIENTRY MwAddDevice(IN_CONST_PDEVICE_OBJECT Pdo, OUT_PPVOID Context)
 {
     MW_ADAPTER *a = (MW_ADAPTER *)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(MW_ADAPTER), MW_TAG);
+    MwPramDdi(TRUE, FALSE, "AddDevice", 0);
     if (a == NULL)
         return STATUS_NO_MEMORY;
     a->Pdo = (PDEVICE_OBJECT)Pdo;
@@ -102,7 +125,10 @@ static NTSTATUS APIENTRY MwAddDevice(IN_CONST_PDEVICE_OBJECT Pdo, OUT_PPVOID Con
     a->Gpu.Log = MwLogHook;
     a->Gpu.LogOwner = a;
     MwCommandInit(a);
+    KeInitializeTimer(&a->HbTimer);
+    KeInitializeDpc(&a->HbDpc, HbDpc, a);
     *Context = a;
+    MwPramDdi(TRUE, TRUE, "AddDevice", STATUS_SUCCESS);
     return STATUS_SUCCESS;
 }
 
@@ -171,12 +197,15 @@ static NTSTATUS APIENTRY MwStartDevice(IN_CONST_PVOID Context, IN_PDXGK_START_IN
     NTSTATUS st;
     UNREFERENCED_PARAMETER(StartInfo);
 
+    MwPramDdi(TRUE, FALSE, "StartDevice", 0);
     a->Dxgk = *Dxgk;
     MwLog(a, L"Build", MW_BUILD);
     MwLog(a, L"Mode", (ULONG)a->Mode);
     st = MwDisplayStart(a);
-    if (!NT_SUCCESS(st))
+    if (!NT_SUCCESS(st)) {
+        MwPramDdi(TRUE, TRUE, "StartDevice", st);
         return MwRet(a, L"Fail_StartDisplay", st);
+    }
 
     /* G76: display-only touches nothing of the GPU. The full adapter without the GPU half only masks the GPU's
      * interrupt outputs (dxgkrnl connects our ISR to the three lines; a level line left asserted by the firmware
@@ -203,12 +232,20 @@ static NTSTATUS APIENTRY MwStartDevice(IN_CONST_PVOID Context, IN_PDXGK_START_IN
     *Sources = 1;
     *Children = 1;
     MwLog(a, L"Started", 1);
+    {
+        LARGE_INTEGER due;
+        due.QuadPart = -10000000LL;     /* 1 s, then every second */
+        a->HbArmed = TRUE;
+        KeSetTimerEx(&a->HbTimer, due, 1000, &a->HbDpc);
+    }
+    MwPramDdi(TRUE, TRUE, "StartDevice", STATUS_SUCCESS);
     return STATUS_SUCCESS;
 }
 
 static NTSTATUS APIENTRY MwStopDevice(IN_CONST_PVOID Context)
 {
     MW_ADAPTER *a = (MW_ADAPTER *)Context;
+    HbStop(a);
     if (a->Mode != MwModeDisplayOnly) {
         MwCommandStop(a);
         MwLog(a, L"Renders", a->Renders);
@@ -226,6 +263,8 @@ static NTSTATUS APIENTRY MwStopDevice(IN_CONST_PVOID Context)
 static NTSTATUS APIENTRY MwRemoveDevice(IN_CONST_PVOID Context)
 {
     MW_ADAPTER *a = (MW_ADAPTER *)Context;
+    MwPramDdi(TRUE, FALSE, "RemoveDevice", 0);
+    HbStop(a);
     MwDisplayStop(a);
     ExFreePoolWithTag(Context, MW_TAG);
     return STATUS_SUCCESS;
@@ -252,13 +291,16 @@ static NTSTATUS APIENTRY MwSetPowerState(IN_CONST_PVOID Context, IN_ULONG Uid,
     return STATUS_SUCCESS;
 }
 
+/* Called at bugcheck / hibernation time: stores only. */
 static VOID APIENTRY MwResetDevice(IN_CONST_PVOID Context)
 {
     UNREFERENCED_PARAMETER(Context);
+    MwPramDdi(TRUE, FALSE, "ResetDevice", 0);
 }
 
 static VOID APIENTRY MwUnload(VOID)
 {
+    MwPramFree();
 }
 
 static NTSTATUS APIENTRY MwQueryInterface(IN_CONST_PVOID Context, IN_PQUERY_INTERFACE Qi)
@@ -274,6 +316,7 @@ static BOOLEAN APIENTRY MwInterruptRoutine(IN_CONST_PVOID Context, IN_ULONG Mess
 {
     MW_ADAPTER *a = (MW_ADAPTER *)Context;
     UNREFERENCED_PARAMETER(MessageNumber);
+    InterlockedIncrement(&a->IsrCalls);
     if (!a->GpuUp || !MkIsr(&a->Gpu))
         return FALSE;
     (void)MwJobInterrupt(a);
@@ -283,6 +326,7 @@ static BOOLEAN APIENTRY MwInterruptRoutine(IN_CONST_PVOID Context, IN_ULONG Mess
 static VOID APIENTRY MwDpcRoutine(IN_CONST_PVOID Context)
 {
     MW_ADAPTER *a = (MW_ADAPTER *)Context;
+    InterlockedIncrement(&a->DpcCalls);
     a->Dxgk.DxgkCbNotifyDpc(a->Dxgk.DeviceHandle);
 }
 
@@ -482,12 +526,20 @@ static NTSTATUS APIENTRY MwSetPointerShape(IN_CONST_HANDLE hAdapter, const DXGKA
 /* The wrappers find the adapter from the DDI's first parameter, whose type
  * differs: an adapter, a device (OpenAllocation, CreateContext, ...), a
  * context (Render, Present, ...) or the miniport context. */
+/* Every call is also traced into PRAM (pram.c): the entry before anything that can block, the exit with its status;
+ * the first call of each DDI also lands in the first-call lines. */
 #define TRACE_WITH(Name, Proto, Args, AdapterExpr)                             \
     static NTSTATUS APIENTRY T_##Name Proto                                    \
     {                                                                          \
+        static LONG first_;                                                    \
+        BOOLEAN f_ = InterlockedExchange(&first_, 1) == 0;                     \
         MW_ADAPTER *a_ = (AdapterExpr);                                        \
+        NTSTATUS st_;                                                          \
+        MwPramDdi(f_, FALSE, #Name, 0);                                        \
         MwEnter(a_, L"Enter_" MW_W(#Name));                                    \
-        return MwRet(a_, L"Fail_" MW_W(#Name), Mw##Name Args);                 \
+        st_ = Mw##Name Args;                                                   \
+        MwPramDdi(f_, TRUE, #Name, st_);                                       \
+        return MwRet(a_, L"Fail_" MW_W(#Name), st_);                           \
     }
 #define TRACE_ADAPTER(Name, Proto, Args) TRACE_WITH(Name, Proto, Args, (MW_ADAPTER *)hAdapter)
 #define TRACE_DEVICE(Name, Proto, Args) TRACE_WITH(Name, Proto, Args, ((MW_DEVICE *)hDevice)->Adapter)
@@ -542,9 +594,28 @@ TRACE_ADAPTER(QueryCurrentFence, (IN_CONST_HANDLE hAdapter, DXGKARG_QUERYCURRENT
 TRACE_ADAPTER(CollectDbgInfo, (IN_CONST_HANDLE hAdapter, const DXGKARG_COLLECTDBGINFO *a), (hAdapter, a))
 TRACE_ADAPTER(CancelCommand, (IN_CONST_HANDLE hAdapter, const DXGKARG_CANCELCOMMAND *a), (hAdapter, a))
 TRACE_ADAPTER(PreemptCommand, (IN_CONST_HANDLE hAdapter, const DXGKARG_PREEMPTCOMMAND *a), (hAdapter, a))
+TRACE_CTX(RenderKm, (IN_CONST_HANDLE hContext, DXGKARG_RENDER *a), (hContext, a))
+TRACE_ADAPTER(GetNodeMetadata, (IN_CONST_HANDLE hAdapter, UINT n, DXGKARG_GETNODEMETADATA *a), (hAdapter, n, a))
+TRACE_ADAPTER(QueryDependentEngineGroup, (IN_CONST_HANDLE hAdapter, DXGKARG_QUERYDEPENDENTENGINEGROUP *a), (hAdapter, a))
+TRACE_CONTEXT(StopDeviceAndReleasePostDisplayOwnership,
+              (IN_CONST_PVOID Context, IN_CONST_D3DDDI_VIDEO_PRESENT_TARGET_ID t, PDXGK_DISPLAY_INFORMATION d),
+              (Context, t, d))
 
-/* G76: Services\MaliG76Wddm\Parameters\<Name> as a DWORD; 0 when the key or the value is absent or not a DWORD. */
-static ULONG ReadParameter(HANDLE Params, PCWSTR Name)
+/* The bugcheck screen: PRAM only (stores), the registry trace is not callable there. */
+static NTSTATUS APIENTRY T_SystemDisplayEnable(IN_CONST_PVOID Context, IN_CONST_D3DDDI_VIDEO_PRESENT_TARGET_ID t,
+                                               PDXGKARG_SYSTEM_DISPLAY_ENABLE_FLAGS f, OUT UINT *w, OUT UINT *h,
+                                               OUT D3DDDIFORMAT *c)
+{
+    NTSTATUS st;
+    MwPramDdi(TRUE, FALSE, "SystemDisplayEnable", 0);
+    st = MwSystemDisplayEnable(Context, t, f, w, h, c);
+    MwPramDdi(TRUE, TRUE, "SystemDisplayEnable", st);
+    return st;
+}
+
+/* G76: Services\MaliG76Wddm\Parameters\<Name> as a DWORD; Default when the key or the value is absent or not a
+ * DWORD. */
+static ULONG ReadParameter(HANDLE Params, PCWSTR Name, ULONG Default)
 {
     UNICODE_STRING name;
     UCHAR buf[sizeof(KEY_VALUE_PARTIAL_INFORMATION) + sizeof(ULONG)];
@@ -552,15 +623,16 @@ static ULONG ReadParameter(HANDLE Params, PCWSTR Name)
     ULONG len = 0;
 
     if (Params == NULL)
-        return 0;
+        return Default;
     RtlInitUnicodeString(&name, Name);
     if (!NT_SUCCESS(ZwQueryValueKey(Params, &name, KeyValuePartialInformation, v, sizeof(buf), &len)) ||
         v->Type != REG_DWORD || v->DataLength != sizeof(ULONG))
-        return 0;
+        return Default;
     return *(const ULONG *)v->Data;
 }
 
-static MW_MODE ReadMode(PUNICODE_STRING RegistryPath)
+/* The mode, and the switches that are not modes (Parameters\PramTrace, default 1). */
+static MW_MODE ReadMode(PUNICODE_STRING RegistryPath, ULONG *PramTrace)
 {
     OBJECT_ATTRIBUTES oa;
     UNICODE_STRING sub = RTL_CONSTANT_STRING(L"Parameters");
@@ -573,8 +645,9 @@ static MW_MODE ReadMode(PUNICODE_STRING RegistryPath)
         if (!NT_SUCCESS(ZwOpenKey(&params, KEY_READ, &oa)))
             params = NULL;
     }
-    gpu = ReadParameter(params, L"GpuEnable");
-    full = ReadParameter(params, L"FullAdapter");
+    gpu = ReadParameter(params, L"GpuEnable", 0);
+    full = ReadParameter(params, L"FullAdapter", 0);
+    *PramTrace = ReadParameter(params, L"PramTrace", 1);
     if (params != NULL)
         ZwClose(params);
     if (svc != NULL)
@@ -618,8 +691,8 @@ static NTSTATUS InitDisplayOnly(PDRIVER_OBJECT DriverObject, PUNICODE_STRING Reg
     init.DxgkDdiRecommendMonitorModes = T_RecommendMonitorModes;
     init.DxgkDdiQueryVidPnHWCapability = T_QueryVidPnHWCapability;
     init.DxgkDdiPresentDisplayOnly = T_PresentDisplayOnly;
-    init.DxgkDdiStopDeviceAndReleasePostDisplayOwnership = MwStopDeviceAndReleasePostDisplayOwnership;
-    init.DxgkDdiSystemDisplayEnable = MwSystemDisplayEnable;
+    init.DxgkDdiStopDeviceAndReleasePostDisplayOwnership = T_StopDeviceAndReleasePostDisplayOwnership;
+    init.DxgkDdiSystemDisplayEnable = T_SystemDisplayEnable;
     init.DxgkDdiSystemDisplayWrite = MwSystemDisplayWrite;
     return DxgkInitializeDisplayOnlyDriver(DriverObject, RegistryPath, &init);
 }
@@ -659,7 +732,7 @@ static NTSTATUS InitFull(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPa
     init.DxgkDdiCreateContext = T_CreateContext;
     init.DxgkDdiDestroyContext = T_DestroyContext;
     init.DxgkDdiRender = T_Render;
-    init.DxgkDdiRenderKm = MwRenderKm;
+    init.DxgkDdiRenderKm = T_RenderKm;
     init.DxgkDdiPresent = T_Present;
     init.DxgkDdiPatch = T_Patch;
     init.DxgkDdiSubmitCommand = T_SubmitCommand;
@@ -668,10 +741,10 @@ static NTSTATUS InitFull(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPa
     init.DxgkDdiResetFromTimeout = T_ResetFromTimeout;
     init.DxgkDdiRestartFromTimeout = T_RestartFromTimeout;
     init.DxgkDdiCollectDbgInfo = T_CollectDbgInfo;
-    init.DxgkDdiGetNodeMetadata = MwGetNodeMetadata;
+    init.DxgkDdiGetNodeMetadata = T_GetNodeMetadata;
     init.DxgkDdiResetEngine = T_ResetEngine;
     init.DxgkDdiQueryEngineStatus = T_QueryEngineStatus;
-    init.DxgkDdiQueryDependentEngineGroup = MwQueryDependentEngineGroup;
+    init.DxgkDdiQueryDependentEngineGroup = T_QueryDependentEngineGroup;
     init.DxgkDdiCancelCommand = T_CancelCommand;
     init.DxgkDdiControlInterrupt = T_ControlInterrupt;
     init.DxgkDdiGetScanLine = T_GetScanLine;
@@ -687,8 +760,8 @@ static NTSTATUS InitFull(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPa
     init.DxgkDdiSetVidPnSourceAddress = T_SetVidPnSourceAddress;
     init.DxgkDdiRecommendMonitorModes = T_RecommendMonitorModes;
     init.DxgkDdiQueryVidPnHWCapability = T_QueryVidPnHWCapability;
-    init.DxgkDdiStopDeviceAndReleasePostDisplayOwnership = MwStopDeviceAndReleasePostDisplayOwnership;
-    init.DxgkDdiSystemDisplayEnable = MwSystemDisplayEnable;
+    init.DxgkDdiStopDeviceAndReleasePostDisplayOwnership = T_StopDeviceAndReleasePostDisplayOwnership;
+    init.DxgkDdiSystemDisplayEnable = T_SystemDisplayEnable;
     init.DxgkDdiSystemDisplayWrite = MwSystemDisplayWrite;
     return DxgkInitialize(DriverObject, RegistryPath, &init);
 }
@@ -697,7 +770,15 @@ DRIVER_INITIALIZE DriverEntry;
 
 NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
-    MwMode = ReadMode(RegistryPath);
-    return MwMode == MwModeDisplayOnly ? InitDisplayOnly(DriverObject, RegistryPath)
-                                       : InitFull(DriverObject, RegistryPath);
+    ULONG pram = 1;
+    NTSTATUS st;
+
+    MwMode = ReadMode(RegistryPath, &pram);
+    MwPramInit(pram, (ULONG)MwMode, MW_BUILD);
+    st = MwMode == MwModeDisplayOnly ? InitDisplayOnly(DriverObject, RegistryPath)
+                                     : InitFull(DriverObject, RegistryPath);
+    MwPramText(TRUE, "DxgkInitialize ", NULL, (ULONG)st, TRUE);
+    if (!NT_SUCCESS(st))
+        MwPramFree();       /* no DxgkDdiUnload follows a failed DriverEntry */
+    return st;
 }

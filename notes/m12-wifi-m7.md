@@ -255,7 +255,7 @@ Refs: scratchpad src/bcmdhd (LineageOS lineage-23.2) and src/brcmfmac (torvalds 
     identical to ours. Interrupt mask (fmac pcie.c:914-919 before hostready): polled driver, ctrl completions
     already work without it; now logged (PCIMailBoxMask) instead of written.
 - **Package 1.0.7.4 = C:\Users\ilya\code\s10e-artifacts\wifi-m7c** (build-package.ps1, test-signed with the WDK
-  test cert 5DD5DEE1...4E48, Inf2Cat 10_RS3/NI/GE_ARM64; built from 1 commit before this notes commit, W4/WX clean):
+  test cert 5DD5DEE1...4E48, Inf2Cat 10_RS3/NI/GE_ARM64; built from tree d2e849b = driver code of 31c5897, W4/WX clean):
   - Exynos9820Wlan.sys 78232 B  sha256 E766DE6D606BB128ED0366A38EA53820F970AF7445118CD26DA68574BC1FEBC1
   - Exynos9820Wlan.inf  1841 B  sha256 362ECC88E38BC8D7EE5D40AA169808ACE079BF3A87510999F2DA53874350BFB9
   - exynos9820wlan.cat  2522 B  sha256 C6E1956883C8ED67C5EA9C1E0B25541D98E85525A97E33EA5A0D231E8EFB7F3D

@@ -13,7 +13,6 @@ s10ediag mark a: swap pass 1 (AUD0 hidden)
 set D=%TMP%\s10e-audio
 if exist "%D%" rd /s /q "%D%"
 xcopy /e /i /y "%ESP%\S10EDIAG\drivers\Exynos9820Audio" "%D%" > "%W%\xcopy.txt" 2>&1
-if exist "%ESP%\S10EDIAG\audio-stage.cmd" call "%ESP%\S10EDIAG\audio-stage.cmd"
 rem A device keeps its installed package even when a newer one is staged (run audA6s: 1.0.1.4 still loaded), so remove
 rem every existing exynos9820audio.inf package first (the device is hidden, nothing is loaded).
 pnputil /enum-drivers > "%W%\enum-before.txt" 2>&1
@@ -23,6 +22,9 @@ for /f "usebackq delims=" %%O in ("%W%\old-oem.txt") do (
   pnputil /delete-driver %%O /uninstall /force >> "%W%\pnputil-delete.txt" 2>&1
 )
 pnputil /add-driver "%D%\Exynos9820Audio.inf" > "%W%\pnputil-add.txt" 2>&1
+rem Stage Parameters AFTER the delete/add: deleting the old package removed earlier values, and the INF AddReg defaults
+rem are AmpInit/AmpEnable/AboxEnable 1 (run audA7 ran with the amps enabled). NOCLOBBER keeps these values at install.
+if exist "%ESP%\S10EDIAG\audio-stage.cmd" call "%ESP%\S10EDIAG\audio-stage.cmd"
 pnputil /enum-drivers > "%W%\enum-drivers.txt" 2>&1
 if exist "%ESP%\S10EDIAG\noaudio.flg" del /f /q "%ESP%\S10EDIAG\noaudio.flg"
 echo pass2 > C:\S10eTmp\audswap.flg

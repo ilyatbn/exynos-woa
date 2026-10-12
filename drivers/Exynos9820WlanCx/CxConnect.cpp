@@ -108,6 +108,10 @@ CxIndicateAssoc(PCX_DEVICE Dev, const UCHAR *Bssid, WDI_ASSOC_STATUS St, const W
     PUCHAR                                 Req = NULL, Resp = NULL, Bcn = NULL;
     UINT8                                 *Out = NULL;
     ULONG                                  OutLen = 0;
+    NDIS_STATUS                            Ns;
+    WDI_PHY_TYPE                           Phy;
+    const UCHAR                           *RespIes = (A != NULL) ? A->RespIes : NULL;
+    ULONG                                  RespIesLen = (A != NULL) ? A->RespIesLen : 0;
 
     if (R == NULL) {
         return;
@@ -123,6 +127,33 @@ CxIndicateAssoc(PCX_DEVICE Dev, const UCHAR *Bssid, WDI_ASSOC_STATUS St, const W
     R->AssociationResultParameters.PortAuthorized               = FALSE;   /* the OS supplicant authorizes */
     R->AssociationResultParameters.DSInfo                       = WDI_DS_UNKNOWN;
     R->AssociationResultParameters.BandID = (B != NULL && B->Channel > 14) ? WDI_BAND_ID_5000 : WDI_BAND_ID_2400;
+    /* WDI_TLV_PHY_TYPE_LIST is not optional in WDI_ASSOCIATION_RESULT_CONTAINER (no _IsPresent bit; 
+       :4099-4132) and the WiFiCx sample always sends it (wifihaltestdata.h:226-231); the cx3 run's generator failure
+       ("association result generation failed") came from leaving it empty (UNVERIFIED until the next run, the NDIS
+       status is logged now). The PHY in use from the association response IEs: VHT capabilities (191) -> VHT, HT
+       capabilities (45) -> HT, else OFDM (5 GHz) / ERP (2.4 GHz) (802.11-2016 9.4.2.56 / 9.4.2.158). */
+    if (RespIes != NULL && CxFindIe(RespIes, RespIesLen, 191) != NULL) {
+        Phy = WDI_PHY_TYPE_VHT;
+    } else if (RespIes != NULL && CxFindIe(RespIes, RespIesLen, 45) != NULL) {
+        Phy = WDI_PHY_TYPE_HT;
+    } else {
+        Phy = (R->AssociationResultParameters.BandID == WDI_BAND_ID_5000) ? WDI_PHY_TYPE_OFDM : WDI_PHY_TYPE_ERP;
+    }
+    R->ActivePhyTypeList.SimpleAssign(&Phy, 1);
+    /* WMM negotiated = the AP's response carries the WMM parameter element (vendor IE 00-50-F2 type 2, WMM spec
+       2.2.2); the firmware does the WMM itself, this only informs the OS. */
+    if (RespIes != NULL) {
+        ULONG Q = 0;
+
+        while (Q + 2 <= RespIesLen && Q + 2 + RespIes[Q + 1] <= RespIesLen) {
+            if (RespIes[Q] == 0xDD && RespIes[Q + 1] >= 4 && RespIes[Q + 2] == 0x00 && RespIes[Q + 3] == 0x50 &&
+                RespIes[Q + 4] == 0xF2 && RespIes[Q + 5] == 0x02) {
+                R->AssociationResultParameters.WMMQoSEnabled = TRUE;
+                break;
+            }
+            Q += 2 + RespIes[Q + 1];
+        }
+    }
     if (A != NULL && St == WDI_ASSOC_STATUS_SUCCESS) {
         /* frame bodies: assoc request = capability + listen interval + IEs, response = capability + status + AID
            + IEs (802.11-2016 9.3.3.6 / 9.3.3.7; firmware gives the fixed fields in assoc_info, the IEs separately) */
@@ -156,13 +187,19 @@ CxIndicateAssoc(PCX_DEVICE Dev, const UCHAR *Bssid, WDI_ASSOC_STATUS St, const W
         }
     }
     P.AssociationResults.SimpleAssign(R, 1);
-    if (GenerateWdiIndicationAssociationResult(&P, 0, &Dev->Tlv, &OutLen, &Out) == NDIS_STATUS_SUCCESS) {
+    Ns = GenerateWdiIndicationAssociationResult(&P, 0, &Dev->Tlv, &OutLen, &Out);
+    if (Ns == NDIS_STATUS_SUCCESS) {
+        CxLog(Dev, "[join] association result: status %u, phy %u, wmm %u, req %lu B resp %lu B beacon %u\r\n", St, Phy,
+              R->AssociationResultParameters.WMMQoSEnabled, R->AssociationRequestFrame.ElementCount,
+              R->AssociationResponseFrame.ElementCount, R->Optional.BeaconProbeResponse_IsPresent);
         CxIndicate(Dev, WDI_INDICATION_ASSOCIATION_RESULT, NULL, NDIS_STATUS_SUCCESS, Out, OutLen);
         FreeGenerated(Out);
     } else {
-        CxLog(Dev, "[join] association result generation failed\r\n");
+        CxLog(Dev, "[join] association result generation failed: NDIS 0x%08lX (peer WDI 0x%08lX)\r\n", Ns,
+              Dev->Tlv.PeerVersion);
     }
     P.AssociationResults.SimpleAssign(NULL, 0);
+    R->ActivePhyTypeList.SimpleAssign(NULL, 0);
     R->AssociationRequestFrame.SimpleAssign(NULL, 0);
     R->AssociationResponseFrame.SimpleAssign(NULL, 0);
     R->BeaconProbeResponse.SimpleAssign(NULL, 0);

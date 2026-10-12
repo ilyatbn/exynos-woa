@@ -296,3 +296,28 @@ What the logs must show (Exynos9820WlanCx.txt = bring-up, -run.txt = runtime):
 - CX 0: MAC A8:DB:03:06:3C:EF. **netsh wlan show interfaces: interface "WiFi", "Samsung Exynos 9820 BCM4375 Wi-Fi",
   Radio Hardware On / Software On, State disconnected.** WDI scans: SCAN 0, 31-34 records -> 10-14 BSS each.
 - Next: the user connects through the Windows flyout (password typed by the user), then ipconfig + a web page.
+
+## Device run of wifi-cx3 (boot #113, Windows 22631, by the coordinator/user; logs scratchpad runs/cx-user, runs/cx1)
+- Good: pnputil install (oem9); T1 D11 reset -> 0 mismatches (warm restart cured); netsh shows interface "WiFi"
+  (Samsung Exynos 9820 BCM4375 Wi-Fi); WDI scans 10-14 BSS; the networks appear in the flyout. W1 + W2 + T1
+  device-validated.
+- Fail: "unable to connect" on Home-X (2.4) and HomeX-5 (5 GHz), right or wrong password. Per attempt: firmware
+  join OK ("CONNECT 0 ... after 150 ms", assoc_info req 160 / resp 213 B) then "[join] association result
+  generation failed" -> no ASSOCIATION_RESULT reached the OS; LINK_STATE 53 + CONNECT_COMPLETE 64 success were
+  sent anyway. EAPOL msg 1 reached the rx FIFO and was delivered (rx fifo in 1 out 1) but the OS never sent msg 2
+  (tx fifo in 0) -> AP deauth reason 2/15. Root cause (most likely): without an association result the OS
+  supplicant never started the handshake.
+- Unsupported ids seen: 34 = WDI_GET_STATISTICS (dot11wificxintf.h:69), three times after a connect; 75 =
+  WDI_ABORT_TASK (:173) with WDI_TLV_CANCEL_PARAMETERS naming a scan that had already completed.
+- Escan refused with status -16 while associated -> SCAN_COMPLETE failure.
+- run.2: a re-connect after a deauth got "event 16 status 0 reason 2 addr 00:00:00:00:00:00" right after SET_SSID
+  = the firmware's link-down for the OLD association, which WlanMsgConnect counted as losing the new join
+  (CONNECT 3 in 0 ms).
+- cx4 changes (T9, this commit): ASSOCIATION_RESULT now carries WDI_TLV_PHY_TYPE_LIST (ActivePhyTypeList has no
+  _IsPresent bit in WDI_ASSOCIATION_RESULT_CONTAINER, TlvGenerated_.hpp:4099-4132; the sample always sends it,
+  wifihaltestdata.h:226-231) = VHT / HT / OFDM / ERP from the response IEs, WMMQoSEnabled from the WMM parameter
+  IE; the generator's NDIS status is logged on failure, success logs "[join] association result: status ...".
+  GET_STATISTICS answered (one MAC + one PHY entry, our FIFO frame counts; both arrays required,
+  TlvGenerated_.hpp:5757-5769; BUFFER_OVERFLOW + bytes needed if the out buffer is short). ABORT_TASK answered
+  success (commands are serialized: the named task has completed). A scan the firmware refuses with no records
+  re-reports the previous list as cached information instead of failing.

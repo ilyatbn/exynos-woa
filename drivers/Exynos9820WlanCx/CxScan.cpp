@@ -113,7 +113,7 @@ CxIndicateBss(PCX_DEVICE Dev, ULONG First, ULONG N, PUCHAR Body, ULONGLONG Now)
         E[I].ChannelInfo.BandId = (B->Channel <= 14) ? WDI_BAND_ID_2400 : WDI_BAND_ID_5000;
         E[I].Optional.EntryAgeInfo_IsPresent = 1;
         E[I].EntryAgeInfo.HostTimeStamp      = Now;
-        E[I].EntryAgeInfo.CachedInformation  = FALSE;
+        E[I].EntryAgeInfo.CachedInformation  = Dev->BssCached;
     }
     P.Optional.DeviceDescriptor_IsPresent = 1;
     P.DeviceDescriptor.SimpleAssign(E, N);
@@ -138,7 +138,7 @@ CxTaskScan(PCX_DEVICE Dev, PCX_CMD Cmd, const WDI_MESSAGE_HEADER *H, const UINT8
     WDI_SCAN_PARAMETERS P;
     WDI_MESSAGE_HEADER  Copy = *H;
     NDIS_STATUS         Ns = ParseWdiTaskScan(TlvLen, Tlv, &Dev->Tlv, &P);
-    ULONG               Rc, I, Ssids;
+    ULONG               Rc, I, Ssids, OldN;
     PUCHAR              Body;
     LARGE_INTEGER       Now;
 
@@ -154,9 +154,16 @@ CxTaskScan(PCX_DEVICE Dev, PCX_CMD Cmd, const WDI_MESSAGE_HEADER *H, const UINT8
     }
     CxM3(Dev, Cmd, STATUS_SUCCESS);
     /* broadcast escan only: a directed probe for the host's SSID list (hidden networks) is not implemented */
+    OldN            = Dev->BssN;
     Dev->BssN       = 0;
     Dev->BssRecords = 0;
     Rc = WlanMsgRescan(&Dev->Msg, Dev->RunR);
+    if (Dev->BssRecords == 0 && Rc != SCAN_OK) {
+        /* cx3 run: while associated the firmware refuses escan (status -16) - nothing was overwritten, so the
+           previous list is reported again (as cached information) instead of failing the scan */
+        Dev->BssN = OldN;
+        CxLog(Dev, "[scan] escan not possible now (SCAN %lu): re-reporting %lu cached BSS\r\n", Rc, OldN);
+    }
     KeQuerySystemTimePrecise(&Now);
     CxLog(Dev, "[scan] WDI scan (%lu SSIDs requested, broadcast used): SCAN %lu, %lu records -> %lu BSS\r\n", Ssids, Rc,
           Dev->BssRecords, Dev->BssN);
@@ -169,6 +176,7 @@ CxTaskScan(PCX_DEVICE Dev, PCX_CMD Cmd, const WDI_MESSAGE_HEADER *H, const UINT8
     }
     Body = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, CX_BSS_PER_INDICATION * (CX_FIXED_BODY + CX_BSS_IES_MAX),
                                    CX_POOL_TAG);
+    Dev->BssCached = (Dev->BssRecords == 0 && Dev->BssN != 0);
     if (Body != NULL) {
         for (I = 0; I < Dev->BssN; I += CX_BSS_PER_INDICATION) {
             CxIndicateBss(Dev, I, min(CX_BSS_PER_INDICATION, Dev->BssN - I), Body, (ULONGLONG)Now.QuadPart);

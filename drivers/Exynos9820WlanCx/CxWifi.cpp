@@ -287,6 +287,59 @@ CxTaskDot11Reset(PCX_DEVICE Dev, PCX_CMD Cmd, const WDI_MESSAGE_HEADER *H)
     CxIndicate(Dev, WDI_INDICATION_DOT11_RESET_COMPLETE, &Copy, NDIS_STATUS_SUCCESS, NULL, 0);
 }
 
+/* WDI_GET_STATISTICS (34, dot11wificxintf.h:69): one peer MAC entry + one PHY entry (both arrays are required in
+   WDI_GET_STATISTICS_PARAMETERS, TlvGenerated_.hpp:5757-5769). The firmware counters are not read yet: only the frame
+   counts this driver itself moved through its FIFOs are reported. The result goes into the request's out buffer
+   after the message header (WiFiCx sample wifihal.cpp:993-1043 pattern). */
+static VOID
+CxGetStatistics(PCX_DEVICE Dev, PCX_CMD Cmd, PUCHAR Buf, UINT OutLen)
+{
+    WDI_GET_STATISTICS_PARAMETERS  P;
+    WDI_MAC_STATISTICS_CONTAINER   Mac;
+    WDI_PHY_STATISTICS_CONTAINER   Phy;
+    UINT8                         *Out = NULL;
+    ULONG                          Len = 0;
+    NDIS_STATUS                    Ns;
+
+    RtlCopyMemory(Mac.MACAddress.Address, Dev->Bssid, 6);
+    Mac.TransmittedFrameCount = (Dev->TxFifo != NULL) ? Dev->TxFifo->Out : 0;
+    Mac.ReceivedFrameCount    = (Dev->RxFifo != NULL) ? Dev->RxFifo->Out : 0;
+    Phy.PhyType               = WDI_PHY_TYPE_HT;
+    Phy.TransmittedFrameCount = Mac.TransmittedFrameCount;
+    Phy.ReceivedFrameCount    = Mac.ReceivedFrameCount;
+    P.PeerMACStatistics.SimpleAssign(&Mac, 1);
+    P.PhyStatistics.SimpleAssign(&Phy, 1);
+    Ns = GenerateWdiGetStatistics(&P, sizeof(WDI_MESSAGE_HEADER), &Dev->Tlv, &Len, &Out);
+    P.PeerMACStatistics.SimpleAssign(NULL, 0);
+    P.PhyStatistics.SimpleAssign(NULL, 0);
+    if (Ns != NDIS_STATUS_SUCCESS) {
+        CxLog(Dev, "[wdi] statistics generation failed 0x%08lX\r\n", Ns);
+        CxM3(Dev, Cmd, STATUS_UNSUCCESSFUL);
+        return;
+    }
+    if (OutLen < Len) {
+        FreeGenerated(Out);
+        WifiRequestSetBytesNeeded(Cmd->Request, Len);
+        WifiRequestComplete(Cmd->Request, STATUS_BUFFER_OVERFLOW, sizeof(WDI_MESSAGE_HEADER));
+        CxLog(Dev, "[wdi] M3 id %u: statistics need %lu B, out buffer %u\r\n", Cmd->MessageId, Len, OutLen);
+        return;
+    }
+    /* keep the request's header (PortId / TransactionId), copy the TLVs behind it */
+    RtlCopyMemory(Buf + sizeof(WDI_MESSAGE_HEADER), Out + sizeof(WDI_MESSAGE_HEADER), Len - sizeof(WDI_MESSAGE_HEADER));
+    FreeGenerated(Out);
+    WifiRequestComplete(Cmd->Request, STATUS_SUCCESS, Len);
+}
+
+/* WDI_ABORT_TASK (75, dot11wificxintf.h:173; WDI_TLV_CANCEL_PARAMETERS = original task OID / transaction / port).
+   The worker runs one command at a time, so the task named here has already completed (its M4 was sent) when the
+   abort is dequeued: nothing is left to cancel, the abort itself succeeds. */
+static VOID
+CxAbortTask(PCX_DEVICE Dev, PCX_CMD Cmd)
+{
+    CxLog(Dev, "[wdi] abort: the named task already completed (commands are serialized)\r\n");
+    CxM3(Dev, Cmd, STATUS_SUCCESS);
+}
+
 _Use_decl_annotations_
 VOID
 CxRunCommand(PCX_DEVICE Dev, PCX_CMD Cmd)
@@ -333,6 +386,12 @@ CxRunCommand(PCX_DEVICE Dev, PCX_CMD Cmd)
         break;
     case WDI_SET_ADD_CIPHER_KEYS:
         CxSetAddKeys(Dev, Cmd, Tlv, TlvLen);
+        break;
+    case WDI_GET_STATISTICS:
+        CxGetStatistics(Dev, Cmd, Buf, OutLen);
+        break;
+    case WDI_ABORT_TASK:
+        CxAbortTask(Dev, Cmd);
         break;
     default:
         if (CxIsAcceptedSet(Cmd->MessageId)) {

@@ -79,6 +79,7 @@ typedef struct _CX_DEVICE {
     PCX_BSS             Bss;            /* CX_MAX_BSS entries (WDF memory, child of the device) */
     ULONG               BssN;
     ULONG               BssRecords;     /* escan records seen in the current scan */
+    BOOLEAN             BssCached;      /* the list being reported is the previous scan's (escan refused) */
 
     /* W3 data path */
     PCX_FIFO            RxFifo;         /* worker (RxFn) -> rx queue */

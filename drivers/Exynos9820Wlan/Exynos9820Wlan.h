@@ -565,6 +565,63 @@
 #define DAT_OFF_RXBUF               0x26000        /* 128 x 2048 = 0x40000 */
 #define DAT_DMA_SIZE                0x66000
 #define FLOW_CREATE_TIMEOUT_MS      2000
+/* ---- milestone 7b: host WPA2-PSK 4-way handshake (notes/m12-wifi-m7.md "Protocol facts - M7b";
+   hostap = wpa_supplicant src/common/wpa_common.h, dhd = bcmdhd) ---- */
+#define EAPOL_VERSION_TX            1              /* wpa_supplicant DEFAULT_EAPOL_VERSION */
+#define EAPOL_TYPE_KEY              3              /* IEEE802_1X_TYPE_EAPOL_KEY */
+#define EAPOL_KEY_DESC_RSN          2              /* EAPOL_KEY_TYPE_RSN */
+#define EK_DESC                     4              /* offsets from the EAPOL header (struct wpa_eapol_key */
+#define EK_INFO                     5              /*  wpa_common.h:246-257 + 16 B MIC + 2 B length) */
+#define EK_KEYLEN                   7
+#define EK_REPLAY                   9
+#define EK_NONCE                    17
+#define EK_IV                       49
+#define EK_RSC                      65
+#define EK_MIC                      81
+#define EK_DATALEN                  97
+#define EK_DATA                     99
+#define EK_FIXED_BODY               95             /* key descriptor without key data */
+#define KI_VER_MASK                 0x0007         /* WPA_KEY_INFO_TYPE_MASK wpa_common.h:226 */
+#define KI_VER_HMAC_SHA1_AES        0x0002         /* :229 */
+#define KI_PAIRWISE                 0x0008         /* :231 */
+#define KI_KEYIDX_MASK              0x0030         /* :233 */
+#define KI_INSTALL                  0x0040         /* :235 */
+#define KI_ACK                      0x0080         /* :237 */
+#define KI_MIC                      0x0100         /* :238 */
+#define KI_SECURE                   0x0200         /* :239 */
+#define KI_ERROR                    0x0400         /* :240 */
+#define KI_REQUEST                  0x0800         /* :241 */
+#define KI_ENCR_DATA                0x1000         /* :242 */
+#define RSN_IE_ID                   48             /* DOT11_MNG_RSN_ID dhd 802.11.h:1450 */
+#define RSN_IE_MAX                  64
+#define RSN_SUITE_CCMP              4              /* 00-0F-AC-04 wpa_common.h:124 */
+#define RSN_AKM_PSK_SUITE           2              /* 00-0F-AC-02 wpa_common.h:84 */
+#define RSN_CAP_MFPR                0x0040         /* wpa_common.h:194 */
+#define KDE_GTK                     1              /* RSN_KEY_DATA_GROUPKEY wpa_common.h:144 */
+#define BSS_IE_OFFSET               116            /* wl_bss_info_v109 ie_offset u16 (dhd wlioctl.h:417) */
+#define BSS_IE_LENGTH               120            /* ie_length u32 (:419) */
+/* wl_wsec_key_t (dhd wlioctl.h:1513-1533), sent with the "wsec_key" iovar (dhd wl_cfg80211.c:6906) */
+#define WSK_INDEX                   0
+#define WSK_LEN                     4
+#define WSK_DATA                    8
+#define WSK_ALGO                    112
+#define WSK_FLAGS                   116
+#define WSK_IV_INIT                 132
+#define WSK_RXIV_HI                 140
+#define WSK_RXIV_LO                 144
+#define WSK_EA                      156
+#define WSK_SIZE                    164
+#define CRYPTO_ALGO_AES_CCM         4              /* dhd wlioctl_defs.h:420 */
+#define WL_PRIMARY_KEY              0x0002         /* dhd wlioctl_defs.h:473 */
+#define WL_ASSOC_INFO_MAX           512            /* dhd buffer for "assoc_info" (wl_cfg80211.c:15040) */
+#define MSG4_TX_WAIT_MS             1000           /* dhd_wait_pend8021x before the pairwise key */
+#define JOIN_HANDSHAKE_FAILED       5
+#define JOIN_NOT_FOUND              6
+#define HS_IDLE                     0
+#define HS_SENT_M2                  1
+#define HS_DONE                     2
+#define HS_FAILED                   3
+
 /* WlanMsgTx results */
 #define TX_OK                       0
 #define TX_NO_FLOWRING              1

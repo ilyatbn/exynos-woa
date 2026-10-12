@@ -114,3 +114,33 @@ fwil_types.h). Line numbers are of those copies.
     then be "unknown" and never reposted. Fixed (follow-up commit): count RxLost, keep RxCount.
   - FOUND (cosmetic): magic 0x02 for the 802.11 frame flag -> PKT_FLAGS_FRAME_802_11 (bcmmsgbuf.h:1000).
   - Rebuilt wifi-m7a: sys 2FF9300287AE6C9F85600B492E3BFACE645527418D0473801636C78D3B95CECE.
+
+### Protocol facts - M7b EAPOL-Key (hostap = wpa_supplicant master, downloaded 2026-10-12 to scratchpad src/hostap)
+- EAPOL header (802.1X): version, type 3 = EAPOL-Key, length BE16. wpa_supplicant sends version =
+  conf eapol_version (default 1).
+- struct wpa_eapol_key (wpa_common.h:246-257): type (2 = RSN), key_info BE16, key_length BE16, replay[8],
+  nonce[32], iv[16], rsc[8], id[8], MIC[16] (HMAC-SHA1 AKM), key data length BE16, key data. Offsets from the
+  EAPOL header: 4 type, 5 info, 7 len, 9 replay, 17 nonce, 49 iv, 65 rsc, 73 id, 81 MIC, 97 data len, 99 data.
+- key_info bits (wpa_common.h:226-242): version mask 0x7 (2 = HMAC_SHA1_AES), KEY_TYPE 0x8 (pairwise),
+  INSTALL 0x40, ACK 0x80, MIC 0x100, SECURE 0x200, ERROR 0x400, REQUEST 0x800, ENCR_KEY_DATA 0x1000.
+- msg 2 (wpa.c:550-700): key_info = ver + KEY_TYPE + MIC; key_length 0 (RSN); replay = msg 1's; nonce = SNonce;
+  key data = the RSN IE of the assoc request. msg 4 (wpa.c:2416-2490): key_info = (msg3 AND SECURE) + ver +
+  KEY_TYPE + MIC; replay = msg 3's; no key data.
+- MIC (wpa_common.c:458-482): HMAC-SHA1(KCK, whole EAPOL frame with MIC zeroed), first 16 B.
+- PTK (wpa_common.c:597-650): PRF(PMK, "Pairwise key expansion", min(AA,SPA), max(AA,SPA), min(ANonce,SNonce),
+  max(ANonce,SNonce)); CCMP: KCK 16, KEK 16, TK 16 = 48 B.
+- Key data of msg 3 is AES-key-wrapped with KEK (ENCR_KEY_DATA); KDE = DD len 00-0F-AC type data; GTK KDE type 1
+  (RSN_KEY_DATA_GROUPKEY wpa_common.h:144): keyid bits 0-1, tx bit 2, reserved, GTK (wpa.c:1689-1702);
+  padding = DD followed by 0 (wpa_common.c:4388).
+- RSN IE: tag 48 (802.11.h:1450), version 1 (wpa_common.h:68), CCMP 00-0F-AC-04 (:124), PSK AKM 00-0F-AC-02
+  (:84); capabilities MFPR = bit 6, MFPC = bit 7 (wpa_common.h:194-195).
+- wl_bss_info_v109 (wlioctl.h:384-424): ie_offset u16 @116, ie_length u32 @120.
+- 2026-10-12 (main session took M7b over after the subagent stopped): WlanMsgJoin rewritten for a HOST
+  supplicant: SupSelfTest; rescan with TargetSsid (BSSID + RSN IE of the strongest match); own RSN IE (v1, the
+  AP's group cipher, CCMP, PSK, caps 0; refuses MFPR) set with "wpaie"; INFRA/wpa_auth/auth/wsec (no sup_wpa);
+  SET_SSID; the tx flowring (DA = AP) is created once SET_SSID reports status 0; SupEapol handles msg 1/4
+  (SNonce from BCryptGenRandom, PTK, msg 2 with our RSN IE), msg 3/4 (ANonce check, MIC verify, GTK KDE from the
+  AES-unwrapped key data, msg 4, wait for its tx completion, pairwise key idx 0 ea = AA, GTK with RSC, flags
+  WL_PRIMARY_KEY - dhd wl_add_keyext / add_key), group rekey 1/2 (also from WlanMsgPoll). Replay counter checked.
+  Result JOIN_OK only after the keys are installed; JOIN 5 = handshake failed (bad MIC on msg 3 = wrong
+  passphrase). Driver 1.0.7.1, package s10e-artifacts\wifi-m7b, sys sha256 87acacf9e30afea5….

@@ -9,7 +9,7 @@ Signature="$WINDOWS NT$"
 Class=System
 ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
 Provider=%ProviderName%
-DriverVer=10/12/2026,1.0.7.0
+DriverVer=10/12/2026,1.0.7.1
 CatalogFile=Exynos9820Wlan.cat
 PnpLockdown=1
 

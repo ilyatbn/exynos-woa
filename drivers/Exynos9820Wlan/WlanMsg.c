@@ -21,6 +21,7 @@
 #include <bcrypt.h>
 #include "WlanDl.h"
 #include "WlanMsg.h"
+#include "WlanSup.h"
 
 typedef struct _MSG_RING {
     ULONG   Id;
@@ -44,7 +45,7 @@ typedef struct _MSG_STATE {
     MSG_RING            Ring[RING_COMMON_COUNT];
     ULONG               Db0;
     ULONG               Db1;
-    UCHAR               Resp[256];
+    UCHAR               Resp[1024];     /* M7b: 256 -> 1024 for "assoc_req_ies" */
     ULONG               RespLen;
     LONG                RespStatus;
     BOOLEAN             Acked;
@@ -101,7 +102,32 @@ typedef struct _MSG_STATE {
     UCHAR               Eapol[512];
     ULONG               EapolLen;
     BOOLEAN             EapolPending;
+    ULONG               TxLastIndex;    /* tx buffer of the last TxFrame (M7b waits for msg 4's completion) */
+    /* ---- milestone 7b host supplicant (WPA2-PSK, CCMP) ---- */
+    UCHAR               Pmk[PMK_LEN];
+    UCHAR               TargetSsid[32];
+    ULONG               TargetSsidLen;  /* != 0: EscanResult records the target's BSSID + RSN IE */
+    UCHAR               ApBssid[6];
+    LONG                ApRssi;
+    UCHAR               ApRsn[RSN_IE_MAX];
+    ULONG               ApRsnLen;
+    UCHAR               OwnRsn[RSN_IE_MAX];   /* the RSN IE of our assoc request = msg 2 key data */
+    ULONG               OwnRsnLen;
+    BOOLEAN             AssocIesRead;
+    UCHAR               Aa[6];          /* authenticator address = source of msg 1 */
+    UCHAR               ANonce[SUP_NONCE_LEN];
+    UCHAR               SNonce[SUP_NONCE_LEN];
+    UCHAR               Ptk[SUP_PTK_LEN];
+    BOOLEAN             PtkSet;
+    UCHAR               Replay[8];      /* last replay counter of a MIC-verified frame */
+    BOOLEAN             ReplaySet;
+    ULONG               Hs;             /* HS_* */
+    ULONG               GtkIdx;
+    ULONG               Rekeys;
+    BOOLEAN             Authorized;     /* keys installed and the link not lost since */
 } MSG_STATE, *PMSG_STATE;
+
+static VOID SupEapol(_Inout_ PMSG_STATE S);   /* M7b host supplicant, defined with WlanMsgJoin */
 
 static ULONG
 Tcm32(_In_ PMSG_STATE S, _In_ ULONG Addr)
@@ -304,6 +330,26 @@ EscanResult(_Inout_ PMSG_STATE S, _In_reads_bytes_(Len) const UCHAR *D, _In_ ULO
             ReportLine(S->R, "[scan] bss_info length %lu at %lu of %lu - stop parsing this event\r\n", BLen, Off, Len);
             return;
         }
+        /* M7b: the join target's BSSID + RSN IE (strongest BSS with that SSID) */
+        if (S->TargetSsidLen != 0 && SsidLen == S->TargetSsidLen &&
+            RtlCompareMemory(B + BSS_SSID, S->TargetSsid, SsidLen) == SsidLen &&
+            (S->ApRsnLen == 0 || *(const SHORT UNALIGNED *)(B + BSS_RSSI) > S->ApRssi)) {
+            ULONG IeOff = *(const USHORT UNALIGNED *)(B + BSS_IE_OFFSET);
+            ULONG IeLen = *(const ULONG UNALIGNED *)(B + BSS_IE_LENGTH);
+            ULONG P;
+
+            if (IeOff >= BSS_INFO_MIN_LEN && IeOff <= BLen && IeLen <= BLen - IeOff) {
+                for (P = IeOff; P + 2 <= IeOff + IeLen && P + 2 + B[P + 1] <= IeOff + IeLen; P += 2 + B[P + 1]) {
+                    if (B[P] == RSN_IE_ID && 2 + B[P + 1] <= RSN_IE_MAX) {
+                        RtlCopyMemory(S->ApRsn, B + P, 2 + B[P + 1]);
+                        S->ApRsnLen = 2 + B[P + 1];
+                        RtlCopyMemory(S->ApBssid, B + BSS_BSSID, 6);
+                        S->ApRssi = *(const SHORT UNALIGNED *)(B + BSS_RSSI);
+                        break;
+                    }
+                }
+            }
+        }
         for (J = 0; J < S->BssCount && RtlCompareMemory(S->Bss[J], B + BSS_BSSID, 6) != 6; J++) {
         }
         if (J == S->BssCount && S->BssCount < SCAN_MAX_BSS) {
@@ -342,9 +388,12 @@ EventPacket(_Inout_ PMSG_STATE S, _In_reads_bytes_(Len) const UCHAR *P, _In_ ULO
     if (DataLen > Len - EVT_DATA) {
         DataLen = Len - EVT_DATA;
     }
-    if (S->Joining && (Type == WLC_E_SET_SSID || Type == WLC_E_AUTH || Type == WLC_E_ASSOC || Type == WLC_E_LINK ||
-                       Type == WLC_E_PSK_SUP || Type == WLC_E_DEAUTH_IND || Type == WLC_E_DISASSOC_IND)) {
-        USHORT Flags = (USHORT)((P[EVT_FLAGS] << 8) | P[EVT_FLAGS + 1]);
+    if ((S->Joining || S->Authorized) &&
+        (Type == WLC_E_SET_SSID || Type == WLC_E_AUTH || Type == WLC_E_ASSOC || Type == WLC_E_LINK ||
+         Type == WLC_E_PSK_SUP || Type == WLC_E_DEAUTH_IND || Type == WLC_E_DISASSOC_IND)) {
+        USHORT  Flags = (USHORT)((P[EVT_FLAGS] << 8) | P[EVT_FLAGS + 1]);
+        BOOLEAN Lost  = (Type == WLC_E_DEAUTH_IND || Type == WLC_E_DISASSOC_IND ||
+                         (Type == WLC_E_LINK && (Flags & WLC_EVENT_MSG_LINK) == 0));
 
         ReportLine(S->R, "[join] event %lu status %lu reason %lu flags 0x%04X addr %02X:%02X:%02X:%02X:%02X:%02X\r\n",
                    Type, Status, Be32(P + EVT_REASON), Flags, P[EVT_ADDR], P[EVT_ADDR + 1], P[EVT_ADDR + 2],
@@ -353,14 +402,15 @@ EventPacket(_Inout_ PMSG_STATE S, _In_reads_bytes_(Len) const UCHAR *P, _In_ ULO
             S->JoinSetSsid = (LONG)Status;
         } else if (Type == WLC_E_PSK_SUP) {
             S->JoinPskSup = (LONG)Status;
-        } else if (Type == WLC_E_LINK) {
-            if ((Flags & WLC_EVENT_MSG_LINK) != 0) {
-                S->JoinLinkUp = TRUE;
-            } else {
-                S->JoinLost = TRUE;
-            }
-        } else if (Type == WLC_E_DEAUTH_IND || Type == WLC_E_DISASSOC_IND) {
+        } else if (Type == WLC_E_LINK && !Lost) {
+            S->JoinLinkUp = TRUE;
+        }
+        if (Lost) {
             S->JoinLost = TRUE;
+            if (S->Authorized) {
+                S->Authorized = FALSE;   /* M7b: keys are gone with the association */
+                ReportLine(S->R, "[link] LOST after the handshake (event %lu reason %lu)\r\n", Type, Be32(P + EVT_REASON));
+            }
         }
         return;
     }
@@ -1076,6 +1126,7 @@ TxFrame(_Inout_ PMSG_STATE S, _In_reads_bytes_(Len) const UCHAR *Frame, _In_ ULO
     S->TxBusy[I] = TRUE;
     S->TxNext    = (I + 1) % TX_BUF_COUNT;
     S->TxPosted++;
+    S->TxLastIndex = I;
     CacheClean(S->MdlTx[I]);
     H2dCommit(S, &S->Flow, S->Flow.Mdl);
     if (S->TxLogged < 32) {
@@ -1426,7 +1477,14 @@ WlanMsgPoll(PWLAN_MSG_CTX M, PWLAN_REPORT R)
         WlanMsgQuiesce(M, R);
         return 0;
     }
-    return D2hPollAll(S);
+    {
+        ULONG N = D2hPollAll(S);
+
+        if (S->EapolPending) {
+            SupEapol(S);   /* M7b: group rekeys after the join */
+        }
+        return N;
+    }
 }
 
 _Use_decl_annotations_
@@ -1638,21 +1696,298 @@ SetInt(_Inout_ PMSG_STATE S, _In_z_ PCSTR Name, _In_ ULONG Value)
     return IoctlVar(S, TRUE, Name, &Value, sizeof(Value), 0);
 }
 
-/* fmac brcmf_cfg80211_connect order (cfg80211.c:2440-2620) with the firmware supplicant; PMK as dhd sends it
-   (wl_cfg80211.c:7100-7127: 64 hex chars, flags WSEC_PASSPHRASE, sizeof(wsec_pmk_t) 260). */
+static USHORT
+Be16(_In_reads_(2) const UCHAR *P)
+{
+    return (USHORT)((P[0] << 8) | P[1]);
+}
+
+/* Our RSN IE (= the assoc request IE = msg 2 key data, 802.11i 7.3.2.25): version 1, the AP's group cipher,
+   pairwise CCMP, AKM PSK, capabilities 0 (no MFP). NULL when the AP needs something else. */
+static BOOLEAN
+BuildOwnRsn(_Inout_ PMSG_STATE S)
+{
+    static const UCHAR Oui[3] = { 0x00, 0x0F, 0xAC };
+    const UCHAR *A = S->ApRsn;
+    ULONG        Caps = 0;
+
+    if (S->ApRsnLen < 8 || A[0] != RSN_IE_ID || A[2] != 1 || A[3] != 0 || RtlCompareMemory(A + 4, Oui, 3) != 3) {
+        return FALSE;
+    }
+    if (S->ApRsnLen >= 2UL + A[1] && A[1] >= 20) {
+        Caps = A[2 + A[1] - 2] | (A[2 + A[1] - 1] << 8);   /* only valid for the single-suite layout */
+    }
+    if ((Caps & RSN_CAP_MFPR) != 0) {
+        ReportLine(S->R, "[sup] AP requires management frame protection (RSN caps 0x%04lX) - not supported\r\n", Caps);
+        return FALSE;
+    }
+    S->OwnRsn[0] = RSN_IE_ID;
+    S->OwnRsn[1] = 20;
+    S->OwnRsn[2] = 1;
+    S->OwnRsn[3] = 0;
+    RtlCopyMemory(S->OwnRsn + 4, A + 4, 4);            /* group cipher as the AP announces it */
+    S->OwnRsn[8] = 1;
+    S->OwnRsn[9] = 0;
+    RtlCopyMemory(S->OwnRsn + 10, Oui, 3);
+    S->OwnRsn[13] = RSN_SUITE_CCMP;
+    S->OwnRsn[14] = 1;
+    S->OwnRsn[15] = 0;
+    RtlCopyMemory(S->OwnRsn + 16, Oui, 3);
+    S->OwnRsn[19] = RSN_AKM_PSK_SUITE;
+    S->OwnRsn[20] = 0;
+    S->OwnRsn[21] = 0;
+    S->OwnRsnLen  = 22;
+    return TRUE;
+}
+
+/* "wsec_key" with wl_wsec_key_t (dhd wl_add_keyext / wl_cfg80211_add_key, wl_cfg80211.c:6838-6910, 7110-7150). */
+static ULONG
+InstallKey(_Inout_ PMSG_STATE S, _In_ ULONG Index, _In_reads_(SUP_KEY_LEN) const UCHAR *Key,
+           _In_reads_opt_(6) const UCHAR *Ea, _In_reads_opt_(6) const UCHAR *Rsc)
+{
+    UCHAR K[WSK_SIZE];
+    ULONG Rc;
+
+    RtlZeroMemory(K, sizeof(K));
+    *(ULONG UNALIGNED *)(K + WSK_INDEX) = Index;
+    *(ULONG UNALIGNED *)(K + WSK_LEN)   = SUP_KEY_LEN;
+    RtlCopyMemory(K + WSK_DATA, Key, SUP_KEY_LEN);
+    *(ULONG UNALIGNED *)(K + WSK_ALGO)  = CRYPTO_ALGO_AES_CCM;
+    if (Ea != NULL) {
+        RtlCopyMemory(K + WSK_EA, Ea, 6);
+    } else {
+        *(ULONG UNALIGNED *)(K + WSK_FLAGS) = WL_PRIMARY_KEY;
+    }
+    if (Rsc != NULL) {
+        *(ULONG UNALIGNED *)(K + WSK_RXIV_HI)  = ((ULONG)Rsc[5] << 24) | ((ULONG)Rsc[4] << 16) | ((ULONG)Rsc[3] << 8) | Rsc[2];
+        *(USHORT UNALIGNED *)(K + WSK_RXIV_LO) = (USHORT)((Rsc[1] << 8) | Rsc[0]);
+        *(ULONG UNALIGNED *)(K + WSK_IV_INIT)  = 1;
+    }
+    Rc = IoctlVar(S, TRUE, "wsec_key", K, sizeof(K), 0);
+    RtlSecureZeroMemory(K, sizeof(K));
+    RtlSecureZeroMemory(S->Va + MSG_OFF_IOCTL_REQ, IOCTL_REQ_BUF_SIZE);
+    RtlSecureZeroMemory(S->VarBuf, sizeof(S->VarBuf));
+    return Rc;
+}
+
+/* Send one EAPOL-Key frame to the AP (wpa_supplicant wpa_eapol_key_send): MIC over the EAPOL PDU with the
+   MIC field zero. */
+static ULONG
+SendKey(_Inout_ PMSG_STATE S, _In_ USHORT Info, _In_reads_(8) const UCHAR *Replay,
+        _In_reads_opt_(SUP_NONCE_LEN) const UCHAR *Nonce, _In_reads_bytes_opt_(DataLen) const UCHAR *Data, _In_ ULONG DataLen)
+{
+    UCHAR  F[ETH_HLEN + EK_DATA + RSN_IE_MAX];
+    PUCHAR E = F + ETH_HLEN;
+    ULONG  Body = EK_FIXED_BODY + DataLen;
+    UCHAR  Mic[SUP_MIC_LEN];
+
+    if (DataLen > RSN_IE_MAX) {
+        return TX_BAD_LENGTH;
+    }
+    RtlZeroMemory(F, sizeof(F));
+    RtlCopyMemory(F, S->Aa, 6);
+    RtlCopyMemory(F + 6, S->Mac, 6);
+    F[12] = (UCHAR)(ETH_TYPE_EAPOL >> 8);
+    F[13] = (UCHAR)(ETH_TYPE_EAPOL & 0xFF);
+    E[0] = EAPOL_VERSION_TX;
+    E[1] = EAPOL_TYPE_KEY;
+    E[2] = (UCHAR)(Body >> 8);
+    E[3] = (UCHAR)Body;
+    E[EK_DESC]     = EAPOL_KEY_DESC_RSN;
+    E[EK_INFO]     = (UCHAR)(Info >> 8);
+    E[EK_INFO + 1] = (UCHAR)Info;
+    RtlCopyMemory(E + EK_REPLAY, Replay, 8);
+    if (Nonce != NULL) {
+        RtlCopyMemory(E + EK_NONCE, Nonce, SUP_NONCE_LEN);
+    }
+    E[EK_DATALEN]     = (UCHAR)(DataLen >> 8);
+    E[EK_DATALEN + 1] = (UCHAR)DataLen;
+    if (DataLen != 0) {
+        RtlCopyMemory(E + EK_DATA, Data, DataLen);
+    }
+    if (!NT_SUCCESS(SupMic(S->Ptk + SUP_KCK_OFF, E, 4 + Body, Mic))) {
+        return TX_BAD_LENGTH;
+    }
+    RtlCopyMemory(E + EK_MIC, Mic, SUP_MIC_LEN);
+    return TxFrame(S, F, ETH_HLEN + 4 + Body);
+}
+
+/* Verify the MIC of a received EAPOL-Key PDU (E, Len = 4 + body). */
+static BOOLEAN
+MicOk(_Inout_ PMSG_STATE S, _In_reads_bytes_(Len) const UCHAR *E, _In_ ULONG Len)
+{
+    UCHAR Copy[sizeof(S->Eapol)];
+    UCHAR Mic[SUP_MIC_LEN];
+
+    if (Len > sizeof(Copy) || Len < EK_DATA) {
+        return FALSE;
+    }
+    RtlCopyMemory(Copy, E, Len);
+    RtlZeroMemory(Copy + EK_MIC, SUP_MIC_LEN);
+    return NT_SUCCESS(SupMic(S->Ptk + SUP_KCK_OFF, Copy, Len, Mic)) && RtlCompareMemory(Mic, E + EK_MIC, SUP_MIC_LEN) == SUP_MIC_LEN;
+}
+
+/* GTK KDE (dd len 00-0F-AC-01 keyid/tx reserved GTK) from decrypted key data; returns the GTK length or 0. */
+static ULONG
+FindGtk(_In_reads_bytes_(Len) const UCHAR *D, _In_ ULONG Len, _Out_ PULONG Idx, _Out_writes_(32) PUCHAR Gtk)
+{
+    ULONG P = 0;
+
+    while (P + 2 <= Len && D[P] != 0) {
+        ULONG L = D[P + 1];
+
+        if (P + 2 + L > Len) {
+            break;
+        }
+        if (D[P] == 0xDD && L >= 6 + SUP_KEY_LEN && D[P + 2] == 0x00 && D[P + 3] == 0x0F && D[P + 4] == 0xAC &&
+            D[P + 5] == KDE_GTK) {
+            ULONG G = L - 6;
+
+            if (G > 32) {
+                G = 32;
+            }
+            *Idx = D[P + 6] & 3;
+            RtlCopyMemory(Gtk, D + P + 8, G);
+            return G;
+        }
+        P += 2 + L;
+    }
+    return 0;
+}
+
+/* Waits (polling the tx completion ring) until the last posted tx buffer is done: msg 4 must be on the air
+   before the pairwise key is installed (dhd_wait_pend8021x). */
+static VOID
+WaitTxIdle(_Inout_ PMSG_STATE S)
+{
+    ULONG         Ms;
+    LARGE_INTEGER Delay;
+
+    for (Ms = 0; Ms < MSG4_TX_WAIT_MS && S->TxBusy[S->TxLastIndex]; Ms += 5) {
+        (VOID)D2hPoll(S, RING_D2H_TX_CPL);
+        Delay.QuadPart = -10000LL * 5;
+        KeDelayExecutionThread(KernelMode, FALSE, &Delay);
+    }
+}
+
+/* Host WPA2-PSK supplicant (IEEE 802.11i 8.5.3 4-way handshake, 8.5.4 group key handshake). */
+static VOID
+SupEapol(_Inout_ PMSG_STATE S)
+{
+    PUCHAR F = S->Eapol;
+    PUCHAR E = F + ETH_HLEN;
+    ULONG  Len = S->EapolLen, Pdu, DataLen, GtkLen, GtkIdx = 0, Rc;
+    USHORT Info;
+    UCHAR  Plain[RSN_IE_MAX * 4];
+    UCHAR  Gtk[32];
+
+    S->EapolPending = FALSE;
+    if (Len < ETH_HLEN + EK_DATA || E[1] != EAPOL_TYPE_KEY || E[EK_DESC] != EAPOL_KEY_DESC_RSN) {
+        ReportLine(S->R, "[sup] EAPOL frame ignored (len %lu type %u desc %u)\r\n", Len, E[1], E[EK_DESC]);
+        return;
+    }
+    Pdu     = 4 + Be16(E + 2);
+    Info    = Be16(E + EK_INFO);
+    DataLen = Be16(E + EK_DATALEN);
+    if (Pdu > Len - ETH_HLEN || EK_DATA + DataLen > Pdu || (Info & KI_VER_MASK) != KI_VER_HMAC_SHA1_AES) {
+        ReportLine(S->R, "[sup] EAPOL-Key malformed or unsupported (info 0x%04X len %lu data %lu)\r\n", Info, Pdu, DataLen);
+        return;
+    }
+    if (S->ReplaySet && (Info & KI_MIC) != 0 && RtlCompareMemory(E + EK_REPLAY, S->Replay, 8) != 8) {
+        ULONG K;
+
+        for (K = 0; K < 8 && E[EK_REPLAY + K] == S->Replay[K]; K++) {
+        }
+        if (K < 8 && E[EK_REPLAY + K] < S->Replay[K]) {
+            ReportLine(S->R, "[sup] replayed EAPOL-Key dropped\r\n");
+            return;
+        }
+    }
+
+    if ((Info & (KI_PAIRWISE | KI_ACK | KI_MIC)) == (KI_PAIRWISE | KI_ACK)) {
+        /* msg 1/4 */
+        RtlCopyMemory(S->Aa, F + 6, 6);
+        RtlCopyMemory(S->ANonce, E + EK_NONCE, SUP_NONCE_LEN);
+        if (!NT_SUCCESS(SupRandom(S->SNonce, SUP_NONCE_LEN)) ||
+            !NT_SUCCESS(SupPtk(S->Pmk, S->Aa, S->Mac, S->ANonce, S->SNonce, S->Ptk))) {
+            S->Hs = HS_FAILED;
+            ReportLine(S->R, "[sup] msg 1/4: PTK derivation failed\r\n");
+            return;
+        }
+        S->PtkSet = TRUE;
+        Rc = SendKey(S, KI_VER_HMAC_SHA1_AES | KI_PAIRWISE | KI_MIC, E + EK_REPLAY, S->SNonce, S->OwnRsn, S->OwnRsnLen);
+        S->Hs = HS_SENT_M2;
+        ReportLine(S->R, "[sup] msg 1/4 from %02X:%02X:%02X:%02X:%02X:%02X -> msg 2/4 sent (tx %lu)\r\n", S->Aa[0], S->Aa[1],
+                   S->Aa[2], S->Aa[3], S->Aa[4], S->Aa[5], Rc);
+        return;
+    }
+    if (!S->PtkSet || (Info & KI_MIC) == 0 || !MicOk(S, E, Pdu)) {
+        ReportLine(S->R, "[sup] EAPOL-Key info 0x%04X: MIC %s - dropped\r\n", Info, S->PtkSet ? "BAD" : "without a PTK");
+        if ((Info & KI_PAIRWISE) != 0 && S->Hs == HS_SENT_M2) {
+            S->Hs = HS_FAILED;   /* msg 3 with a bad MIC = wrong passphrase */
+        }
+        return;
+    }
+    RtlCopyMemory(S->Replay, E + EK_REPLAY, 8);
+    S->ReplaySet = TRUE;
+    GtkLen = 0;
+    if ((Info & KI_ENCR_DATA) != 0 && DataLen >= 24 && DataLen - 8 <= sizeof(Plain)) {
+        if (NT_SUCCESS(SupAesUnwrap(S->Ptk + SUP_KEK_OFF, E + EK_DATA, DataLen, Plain))) {
+            GtkLen = FindGtk(Plain, DataLen - 8, &GtkIdx, Gtk);
+        } else {
+            ReportLine(S->R, "[sup] key data unwrap failed\r\n");
+        }
+        RtlSecureZeroMemory(Plain, sizeof(Plain));
+    }
+
+    if ((Info & (KI_PAIRWISE | KI_ACK | KI_INSTALL)) == (KI_PAIRWISE | KI_ACK | KI_INSTALL)) {
+        /* msg 3/4 */
+        if (RtlCompareMemory(E + EK_NONCE, S->ANonce, SUP_NONCE_LEN) != SUP_NONCE_LEN) {
+            ReportLine(S->R, "[sup] msg 3/4 ANonce differs from msg 1 - dropped\r\n");
+            return;
+        }
+        Rc = SendKey(S, KI_VER_HMAC_SHA1_AES | KI_PAIRWISE | KI_MIC | KI_SECURE, E + EK_REPLAY, NULL, NULL, 0);
+        WaitTxIdle(S);
+        Rc = (Rc << 8) | InstallKey(S, 0, S->Ptk + SUP_TK_OFF, S->Aa, NULL);
+        if (GtkLen >= SUP_KEY_LEN) {
+            Rc = (Rc << 8) | InstallKey(S, GtkIdx, Gtk, NULL, E + EK_RSC);
+            S->GtkIdx = GtkIdx;
+        }
+        RtlSecureZeroMemory(Gtk, sizeof(Gtk));
+        S->Hs         = HS_DONE;
+        S->Authorized = TRUE;
+        ReportLine(S->R, "[sup] msg 3/4 MIC ok, GTK idx %lu (%lu B) -> msg 4/4 sent, keys installed (codes 0x%06lX)\r\n",
+                   GtkIdx, GtkLen, Rc);
+        return;
+    }
+    if ((Info & (KI_PAIRWISE | KI_ACK)) == KI_ACK && GtkLen >= SUP_KEY_LEN) {
+        /* group key msg 1/2 (rekey) */
+        Rc = SendKey(S, KI_VER_HMAC_SHA1_AES | KI_MIC | KI_SECURE, E + EK_REPLAY, NULL, NULL, 0);
+        Rc = (Rc << 8) | InstallKey(S, GtkIdx, Gtk, NULL, E + EK_RSC);
+        RtlSecureZeroMemory(Gtk, sizeof(Gtk));
+        S->GtkIdx = GtkIdx;
+        S->Rekeys++;
+        ReportLine(S->R, "[sup] group rekey #%lu: GTK idx %lu installed, msg 2/2 sent (codes 0x%04lX)\r\n", S->Rekeys, GtkIdx, Rc);
+        return;
+    }
+    RtlSecureZeroMemory(Gtk, sizeof(Gtk));
+    ReportLine(S->R, "[sup] EAPOL-Key info 0x%04X not handled\r\n", Info);
+}
+
+/* M7b join: the firmware associates (WPA2-PSK, CCMP, no in-dongle supplicant), the host runs the 4-way
+   handshake over the data path. Order as fmac brcmf_cfg80211_connect (cfg80211.c:2440-2620) minus sup_wpa,
+   plus the RSN IE of the association request set with "wpaie" (dhd wl_cfg80211.c:6244). */
 _Use_decl_annotations_
 ULONG
 WlanMsgJoin(PWLAN_MSG_CTX M, PWLAN_REPORT R, const WLAN_JOIN_CONFIG *J)
 {
     PMSG_STATE    S = Live(M, R);
     UCHAR         Mask[WL_EVENTING_MASK_LEN];
-    UCHAR         Pmk[WSEC_PMK_SIZE];
     UCHAR         Join[JOIN_PARAMS_SIZE];
     ULONG         One = 1, I, Ms, Result = JOIN_SETUP_FAILED;
     LARGE_INTEGER Delay;
     static const UCHAR Events[] = { WLC_E_SET_SSID, WLC_E_AUTH, WLC_E_DEAUTH_IND, WLC_E_ASSOC, WLC_E_DISASSOC_IND,
                                     WLC_E_LINK, WLC_E_PSK_SUP };
-    static const CHAR  Hex[] = "0123456789abcdef";
 
     if (S == NULL) {
         return JOIN_SETUP_FAILED;
@@ -1660,7 +1995,27 @@ WlanMsgJoin(PWLAN_MSG_CTX M, PWLAN_REPORT R, const WLAN_JOIN_CONFIG *J)
     if (!J->Valid) {
         return JOIN_NOT_CONFIGURED;
     }
-    ReportLine(R, "---- milestone 6: join \"%.*s\" (WPA2-PSK, firmware supplicant) ----\r\n", (int)J->SsidLen, J->Ssid);
+    ReportLine(R, "---- milestone 7b: join \"%.*s\" (WPA2-PSK, host supplicant) ----\r\n", (int)J->SsidLen, J->Ssid);
+    (VOID)SupSelfTest(R);
+    RtlCopyMemory(S->Pmk, J->Pmk, PMK_LEN);
+    RtlCopyMemory(S->TargetSsid, J->Ssid, J->SsidLen);
+    S->TargetSsidLen = J->SsidLen;
+    S->ApRsnLen      = 0;
+    S->Hs            = HS_IDLE;
+    S->PtkSet        = FALSE;
+    S->ReplaySet     = FALSE;
+    S->Authorized    = FALSE;
+    (VOID)EscanRun(S);   /* records the target's BSSID + RSN IE (EscanResult) */
+    if (S->ApRsnLen == 0) {
+        ReportLine(R, "JOIN %u: \"%.*s\" not found with an RSN IE in the scan\r\n", JOIN_NOT_FOUND, (int)J->SsidLen, J->Ssid);
+        return JOIN_NOT_FOUND;
+    }
+    ReportLine(R, "[join] target %02X:%02X:%02X:%02X:%02X:%02X rssi %ld, AP RSN IE %lu B\r\n", S->ApBssid[0], S->ApBssid[1],
+               S->ApBssid[2], S->ApBssid[3], S->ApBssid[4], S->ApBssid[5], S->ApRssi, S->ApRsnLen);
+    if (!BuildOwnRsn(S)) {
+        ReportLine(R, "JOIN %u: AP security not supported (needs RSN v1, PSK, CCMP, no MFP)\r\n", JOIN_SETUP_FAILED);
+        return JOIN_SETUP_FAILED;
+    }
     S->Joining     = TRUE;
     S->JoinSetSsid = -1;
     S->JoinPskSup  = -1;
@@ -1678,26 +2033,14 @@ WlanMsgJoin(PWLAN_MSG_CTX M, PWLAN_REPORT R, const WLAN_JOIN_CONFIG *J)
         Ioctl(S, WLC_SET_INFRA, &One, sizeof(One), 0, "SET_INFRA") != MSG_OK ||
         SetInt(S, "wpa_auth", WPA2_AUTH_PSK) != MSG_OK ||
         SetInt(S, "auth", WL_AUTH_OPEN_SYSTEM) != MSG_OK ||
-        SetInt(S, "wsec", AES_ENABLED) != MSG_OK ||
-        SetInt(S, "sup_wpa", 1) != MSG_OK) {
+        SetInt(S, "wsec", AES_ENABLED) != MSG_OK) {
         ReportLine(R, "[join] security setup refused (last status %ld)\r\n", S->RespStatus);
         goto Done;
     }
-    RtlZeroMemory(Pmk, sizeof(Pmk));
-    *(USHORT UNALIGNED *)(Pmk + 0) = 2 * PMK_LEN;
-    *(USHORT UNALIGNED *)(Pmk + 2) = WSEC_PASSPHRASE;
-    for (I = 0; I < PMK_LEN; I++) {
-        Pmk[4 + 2 * I]     = (UCHAR)Hex[J->Pmk[I] >> 4];
-        Pmk[4 + 2 * I + 1] = (UCHAR)Hex[J->Pmk[I] & 0xF];
+    if (IoctlVar(S, TRUE, "wpaie", S->OwnRsn, S->OwnRsnLen, 0) != MSG_OK) {
+        ReportLine(R, "[join] wpaie refused (status %ld) - the firmware builds its own RSN IE\r\n", S->RespStatus);
     }
-    I = Ioctl(S, WLC_SET_WSEC_PMK, Pmk, sizeof(Pmk), 0, "SET_WSEC_PMK");
-    RtlSecureZeroMemory(Pmk, sizeof(Pmk));
-    RtlSecureZeroMemory(S->Va + MSG_OFF_IOCTL_REQ, IOCTL_REQ_BUF_SIZE);   /* the request buffer held the key */
-    RtlSecureZeroMemory(S->VarBuf, sizeof(S->VarBuf));
-    if (I != MSG_OK) {
-        ReportLine(R, "[join] SET_WSEC_PMK refused (status %ld)\r\n", S->RespStatus);
-        goto Done;
-    }
+    RtlCopyMemory(S->Aa, S->ApBssid, 6);
     RtlZeroMemory(Join, sizeof(Join));
     *(ULONG UNALIGNED *)Join = J->SsidLen;
     RtlCopyMemory(Join + 4, J->Ssid, J->SsidLen);
@@ -1706,23 +2049,43 @@ WlanMsgJoin(PWLAN_MSG_CTX M, PWLAN_REPORT R, const WLAN_JOIN_CONFIG *J)
         goto Done;
     }
     Result = JOIN_TIMEOUT;
-    for (Ms = 0; Ms < JOIN_TIMEOUT_MS; Ms += 20) {
-        (VOID)D2hCtrlPoll(S);
-        if ((S->JoinSetSsid > 0) || (S->JoinPskSup >= 0 && S->JoinPskSup != WLC_SUP_KEYED) || S->JoinLost) {
+    for (Ms = 0; Ms < JOIN_TIMEOUT_MS; Ms += 10) {
+        (VOID)D2hPollAll(S);
+        if (S->JoinSetSsid == 0 && !S->FlowRequested) {
+            /* tx flowring once associated (dhd creates it on the first tx after the link is up); a msg 1 that
+               arrived meanwhile stays pending and is answered below */
+            if (!FlowRingCreate(S, S->ApBssid)) {
+                ReportLine(R, "[join] no tx flowring - the handshake cannot be sent\r\n");
+                Result = JOIN_SETUP_FAILED;
+                break;
+            }
+        }
+        if (S->EapolPending && S->FlowOpen) {
+            SupEapol(S);
+        }
+        if (S->JoinSetSsid > 0 || S->JoinLost) {
             Result = JOIN_FW_FAILED;
             break;
         }
-        if (S->JoinSetSsid == 0 && S->JoinPskSup == WLC_SUP_KEYED) {
+        if (S->Hs == HS_FAILED) {
+            Result = JOIN_HANDSHAKE_FAILED;
+            break;
+        }
+        if (S->Hs == HS_DONE) {
             Result = JOIN_OK;
             break;
         }
-        Delay.QuadPart = -10000LL * 20;
+        Delay.QuadPart = -10000LL * 10;
         KeDelayExecutionThread(KernelMode, FALSE, &Delay);
     }
-    ReportLine(R, "JOIN %lu: SET_SSID %ld, PSK_SUP %ld, link %s%s after %lu ms\r\n", Result, S->JoinSetSsid,
-               S->JoinPskSup, S->JoinLinkUp ? "up" : "not up", S->JoinLost ? ", lost" : "", Ms);
+    ReportLine(R, "JOIN %lu: SET_SSID %ld, handshake state %lu, link %s%s, eapol rx %lu tx %lu after %lu ms\r\n", Result,
+               S->JoinSetSsid, S->Hs, S->JoinLinkUp ? "up" : "not up", S->JoinLost ? ", lost" : "", S->RxEapol, S->TxPosted, Ms);
 Done:
     S->Joining = FALSE;
+    if (Result != JOIN_OK) {
+        RtlSecureZeroMemory(S->Ptk, sizeof(S->Ptk));
+        S->PtkSet = FALSE;
+    }
     if (Result == JOIN_SETUP_FAILED) {
         ReportLine(R, "JOIN %u: setup failed\r\n", JOIN_SETUP_FAILED);
     }

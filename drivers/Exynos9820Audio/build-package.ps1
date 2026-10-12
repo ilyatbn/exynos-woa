@@ -1,14 +1,15 @@
-# Build + package Exynos9820Audio (ARM64, ACX 1.0, test-signed) into $Out (sys, inf, cat). notes/d8-audio-win-m1.md.
+# Build + package Exynos9820Audio (ARM64, ACX 1.1 - or 1.0 with -AcxMinor 0 -, test-signed) into $Out (sys, inf, cat).
+# notes/d8-audio-win-m1.md, notes/d8-audio-win-a5.md.
 # Same flow as drivers/S10eBattery/build-package.ps1 (VS18 MSBuild with VisualStudioVersion=17.0, SkipPackageVerification,
 # ApiValidator_Enable=false, SignMode=Off; then signtool + Inf2Cat by hand with the WDK test certificate).
-param([Parameter(Mandatory)][string]$Out)
+param([Parameter(Mandatory)][string]$Out, [ValidateSet(0, 1)][int]$AcxMinor = 1)
 $ErrorActionPreference = 'Stop'
 $kit = 'C:\Program Files (x86)\Windows Kits\10'
 $msbuild = 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe'
 $proj = Join-Path $PSScriptRoot 'Exynos9820Audio.vcxproj'
 $work = Join-Path $env:TEMP 'exynos9820audio-build'
 & $msbuild $proj /t:Rebuild /p:Configuration=Release /p:Platform=ARM64 /p:SignMode=Off /p:VisualStudioVersion=17.0 `
-    /p:SkipPackageVerification=true /p:ApiValidator_Enable=false "/p:OutDir=$work\" "/p:IntDir=$work\obj\" `
+    /p:SkipPackageVerification=true /p:ApiValidator_Enable=false /p:ACX_VERSION_MINOR=$AcxMinor "/p:OutDir=$work\" "/p:IntDir=$work\obj\" `
     /nologo /v:minimal | Select-Object -Last 8
 if ($LASTEXITCODE -ne 0) { throw "msbuild $LASTEXITCODE" }
 New-Item -ItemType Directory -Force -Path $Out | Out-Null

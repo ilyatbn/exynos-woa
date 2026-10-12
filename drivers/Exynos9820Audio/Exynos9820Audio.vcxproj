@@ -1,8 +1,9 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<!-- Exynos9820Audio: ACX 1.0 render driver (KMDF), ARM64 only. Shape = drivers/S10eBattery/S10eBattery.vcxproj (builds on
+<!-- Exynos9820Audio: ACX 1.1 render driver (KMDF), ARM64 only. Shape = drivers/S10eBattery/S10eBattery.vcxproj (builds on
      this box with VS18 MSBuild + WDK 26100, see build-package.ps1); ACX include/lib wiring = Windows-driver-samples
-     audio/Acx/Samples/AudioCodec/Driver/AudioCodec.vcxproj with ACX 1.0 (the phone's 22621 image ships Acx01000.sys)
-     and KMDF 1.31 (the sample's value; 22621 has 1.33). notes/d8-audio-win-m1.md. -->
+     audio/Acx/Samples/AudioCodec/Driver/AudioCodec.vcxproj: ACX 1.1 (A6: 1.0 is the pre-release DDI version, MS doc "ACX version
+     information"; build-package.ps1 -AcxMinor 0 builds the old binding) and KMDF 1.31 (the sample's value; 22621 has 1.33).
+     notes/d8-audio-win-m1.md, notes/d8-audio-win-a5.md. -->
 <Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Release|ARM64"><Configuration>Release</Configuration><Platform>ARM64</Platform></ProjectConfiguration>
@@ -16,7 +17,7 @@
     <KMDF_VERSION_MAJOR>1</KMDF_VERSION_MAJOR>
     <KMDF_VERSION_MINOR>31</KMDF_VERSION_MINOR>
     <ACX_VERSION_MAJOR>1</ACX_VERSION_MAJOR>
-    <ACX_VERSION_MINOR>0</ACX_VERSION_MINOR>
+    <ACX_VERSION_MINOR>1</ACX_VERSION_MINOR>
     <SignMode>Off</SignMode>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />

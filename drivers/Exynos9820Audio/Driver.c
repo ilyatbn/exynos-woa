@@ -1,8 +1,8 @@
 /*
  * Driver.c - Exynos9820Audio entry, PnP/power and the _CRS contract.
  *
- * Binds ACPI\SAMS9827 (Dsdt.asl Device (AUD0)). ACX 1.0: the phone's 22621 image ships Acx01000.sys
- * (notes/d8-audio-win-m1.md), so the project links km\acx\km\1.0\acxstub.lib. Entry/AddDevice shape:
+ * Binds ACPI\SAMS9827 (Dsdt.asl Device (AUD0)). ACX 1.1 like the sample (A6; 1.0 is the pre-release DDI version,
+ * notes/d8-audio-win-a5.md); the 22621 runtime is Acx01000.sys (major 1). Entry/AddDevice shape:
  * Windows-driver-samples audio/Acx/Samples/AudioCodec/Driver/{Driver,Device}.cpp.
  *
  * PrepareHardware: check the eight memory descriptors against the Exynos9820.h windows (refuse to map anything on a
@@ -153,8 +153,8 @@ NTSTATUS AudEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     Dev->VolumeLevel = -20 * 0x10000;
     AudSwVolumeInit(Dev, -20 * 0x10000);   /* HwVolume = 0: same starting level, applied in software */
 
-    AudLog(Dev->Log, "Exynos9820Audio %s (ACX 1.0, ACPI\\SAMS9827): AmpInit %lu AmpEnable %lu AboxEnable %lu HwVolume %lu "
-           "Stereo %lu\r\n", AUD_DRIVER_VERSION, Dev->Cfg.AmpInit, Dev->Cfg.AmpEnable, Dev->Cfg.AboxEnable,
+    AudLog(Dev->Log, "Exynos9820Audio %s (ACX 1.%d, ACPI\\SAMS9827): AmpInit %lu AmpEnable %lu AboxEnable %lu HwVolume %lu "
+           "Stereo %lu\r\n", AUD_DRIVER_VERSION, (int)ACX_VERSION_MINOR, Dev->Cfg.AmpInit, Dev->Cfg.AmpEnable, Dev->Cfg.AboxEnable,
            Dev->Cfg.HwVolume, Dev->Cfg.Stereo);
 
     Status = WdfWaitLockCreate(WDF_NO_OBJECT_ATTRIBUTES, &Dev->BusLock);

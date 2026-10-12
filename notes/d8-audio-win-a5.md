@@ -165,3 +165,11 @@ Device result (coordinator, runs in scratchpad\runs\audA5\last\audio, \audA5b, \
   preprocess callbacks, set/id/verb/item + the dispatch status) and every ACX callback with its status; version 1.0.1.5.
 - T5: RunLog.c AudLogFlush snapshot buffer POOL_FLAG_PAGED -> POOL_FLAG_NON_PAGED (the only POOL_FLAG_PAGED in the
   driver - rg). Build exit 0.
+- T6: vcxproj ACX_VERSION_MINOR 0 -> 1 (km\acx\km\1.1 headers + 1.1 acxstub.lib), build-package.ps1 -AcxMinor (default
+  1, 0 = old binding as fallback), run-log header prints "ACX 1.<minor>". Both builds exit 0 (/W4 /WX); bind info read
+  from the binaries (_Acx_BIND_INFO RVA 0xe250 per map): minor 1 -> version {1,1,0}, AcxFunctionCount 221; minor 0 ->
+  {1,0,0}, 210 (= AcxFunctionTableNumEntries of each header). No source changes needed (1.1 is a superset; ACX_PIN_CONFIG_INIT
+  now sets MaxStreams = AcxInstanceIndeterminate).
+- Review of T5: rg POOL_FLAG_PAGED in the driver -> none left; every other buffer touched at DISPATCH (stream context,
+  packets: MmAllocateContiguousNodeMemory, DMA ring, run log) is non-paged; no #pragma alloc_text/PAGE sections in the
+  driver (PAGED_CODE() asserts only) -> no paged code either. No findings.

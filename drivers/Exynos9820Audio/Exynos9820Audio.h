@@ -1,5 +1,5 @@
 /*
- * Exynos9820Audio.h - Galaxy S10e (Exynos 9820) loudspeaker render driver, ACX 1.0 (KMDF).
+ * Exynos9820Audio.h - Galaxy S10e (Exynos 9820) loudspeaker render driver, ACX 1.1 (KMDF).
  *
  * Path: ABOX RDMA0 -> SPUS OUT0 -> SIFS1 -> UAIF1 (DSP-A, ABOX clock master) -> CS35L40 @0x40 (bottom speaker)
  * / @0x41 (earpiece) on hsi2c_38. notes/d8-audio-m3-abox.md, notes/d8-audio-m3-amp.md, notes/d8-audio-win-m1.md.

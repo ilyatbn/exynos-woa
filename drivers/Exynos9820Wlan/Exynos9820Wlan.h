@@ -348,6 +348,7 @@
 #define IOCTL_REQ_MAX_INPUT         (IOCTL_REQ_BUF_SIZE - H2D_CTRL_ITEMSIZE)   /* dhd_msgbuf.c:115 */
 #define IOCTL_RESP_BUF_SIZE         8192           /* DHD_FLOWRING_IOCTL_BUFPOST_PKTSZ dhd_msgbuf.c:128 */
 #define IOCTL_RESP_BUF_COUNT        8              /* DHD_FLOWRING_MAX_IOCTLRESPBUF_POST dhd_msgbuf.c:132 */
+#define IOCTL_RESP_MAX_OUT          4096           /* host choice (<= IOCTL_RESP_BUF_SIZE): largest reply copied out */
 #define D2H_SCRATCH_LEN             8              /* DMA_D2H_SCRATCH_BUF_LEN dhd_msgbuf.c:119 */
 #define WLC_GET_VAR                 262            /* fmac fwil.h:80 BRCMF_C_GET_VAR */
 #define IOCTL_RESP_TIMEOUT_MS       2000           /* fmac msgbuf.c:28 MSGBUF_IOCTL_RESP_TIMEOUT */

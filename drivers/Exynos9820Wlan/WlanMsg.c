@@ -46,7 +46,7 @@ typedef struct _MSG_STATE {
     MSG_RING            Ring[RING_COMMON_COUNT];
     ULONG               Db0;
     ULONG               Db1;
-    UCHAR               Resp[1024];     /* M7b: 256 -> 1024 for "assoc_req_ies" */
+    UCHAR               Resp[IOCTL_RESP_MAX_OUT];   /* M7b: 256 -> 1024 ("assoc_req_ies"); M7c: 4096 ("counters") */
     ULONG               RespLen;
     LONG                RespStatus;
     BOOLEAN             Acked;
@@ -756,7 +756,10 @@ D2hPollAll(_Inout_ PMSG_STATE S)
 }
 
 /* One IOCTLPTR_REQ (fmac brcmf_msgbuf_tx_ioctl: get and set differ only by Cmd): In[InLen] is copied to the
-   request buffer, which also receives up to OutLen bytes; waits for IOCTL_CMPLT (polled). Trans id counts up. */
+   request buffer, which also receives up to OutLen bytes; waits for IOCTL_CMPLT (polled). Trans id counts up.
+   M7c: output_buf_len = max(InLen, OutLen) up to IOCTL_RESP_MAX_OUT, input_buf_len clipped to the 2008 B the
+   request buffer holds - dhd_fillup_ioct_reqst (dhd_msgbuf.c:8093-8100, :8134, :8139) and fmac
+   brcmf_msgbuf_tx_ioctl (msgbuf.c:459-463) do the same; the reply lands in a 8 KB ioctl-resp buffer. */
 static ULONG
 Ioctl(_Inout_ PMSG_STATE S, _In_ ULONG Cmd, _In_reads_bytes_(InLen) const VOID *In, _In_ ULONG InLen,
       _In_ ULONG OutLen, _In_z_ PCSTR What)
@@ -767,7 +770,7 @@ Ioctl(_Inout_ PMSG_STATE S, _In_ ULONG Cmd, _In_reads_bytes_(InLen) const VOID *
     ULONG         BufLen, Ms;
     LARGE_INTEGER Delay;
 
-    if (InLen > IOCTL_REQ_MAX_INPUT || OutLen > IOCTL_REQ_MAX_INPUT) {
+    if (InLen > IOCTL_REQ_MAX_INPUT || OutLen > IOCTL_RESP_MAX_OUT) {
         return MSG_IOCTL_ERROR;
     }
     BufLen = (InLen > OutLen) ? InLen : OutLen;   /* the buffer carries the input in and the value out */
@@ -783,7 +786,7 @@ Ioctl(_Inout_ PMSG_STATE S, _In_ ULONG Cmd, _In_reads_bytes_(InLen) const VOID *
     TransId++;
     *(ULONG UNALIGNED *)(It + IOREQ_CMD)         = Cmd;
     *(USHORT UNALIGNED *)(It + IOREQ_TRANS_ID)   = TransId;
-    *(USHORT UNALIGNED *)(It + IOREQ_INPUT_LEN)  = (USHORT)BufLen;
+    *(USHORT UNALIGNED *)(It + IOREQ_INPUT_LEN)  = (USHORT)((BufLen < IOCTL_REQ_MAX_INPUT) ? BufLen : IOCTL_REQ_MAX_INPUT);
     *(USHORT UNALIGNED *)(It + IOREQ_OUTPUT_LEN) = (USHORT)BufLen;
     *(ULONG UNALIGNED *)(It + IOREQ_BUF_ADDR)     = (ULONG)(S->La + MSG_OFF_IOCTL_REQ);
     *(ULONG UNALIGNED *)(It + IOREQ_BUF_ADDR + 4) = (ULONG)((S->La + MSG_OFF_IOCTL_REQ) >> 32);

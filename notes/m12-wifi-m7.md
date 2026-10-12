@@ -209,3 +209,8 @@ Refs: scratchpad src/bcmdhd (LineageOS lineage-23.2) and src/brcmfmac (torvalds 
   keeps every posted length inside our 2048 B buffer; citations verified by rg (4204 default, 4493 pktsz, 4508
   PKTGET, 4608 data_buf_len). FOUND: the failure log printed S->RespStatus, which Ioctl() does not reset, so a
   timeout would show the previous ioctl's status. Fixed in a follow-up commit (logs the MSG_* code + resp_len too).
+- Task 4a (prep for the counters diagnostic): GET_VAR "counters" replies up to WL_CNTBUF_MAX_SIZE; dhd reads it with
+  a WLC_IOCTL_MAXLEN buffer (wl_android.c:3856-3862, fetched to scratchpad wlan-refs/bcmdhd). Ioctl() now sends
+  output_buf_len = max(in, out) up to IOCTL_RESP_MAX_OUT 4096 (host choice, <= the 8 KB ioctl-resp buffers) with
+  input_buf_len clipped to 2008 - the dhd rule (dhd_msgbuf.c:8093-8100, :8134, :8139; fmac msgbuf.c:459-463).
+  S->Resp 1024 -> 4096. Every existing call has out <= 2008, so its request is byte-identical. Build clean.

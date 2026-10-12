@@ -198,3 +198,6 @@ No code defect found in the F2 diff; nothing to fix.
 - DriverVer 10/13/2026,1.0.13.1 (was 1.0.10.1): the phone has 1.0.10.1 installed; PnP ranks a same-version package
   by date only, so the bump makes the new package win when GPU0 is next enumerated. Switches PramTrace / SoftVsync /
   FlipBlt documented in the INF header (no AddReg: absent = default 1, so the install's MW_Parameters stays 0/0).
+- extra-gpu-mode.cmd pass 1 also stages \S10EDIAG\gpu\MaliG76Wddm\MaliG76Wddm.inf with `pnputil /add-driver ...
+  /install` while GPU0 is hidden (no live swap of the running display driver); output gpu\pnputil-stage.txt. The
+  existing extra-gpu-g10.cmd installs only when the service is absent, so without this the phone would keep 1.0.10.1.

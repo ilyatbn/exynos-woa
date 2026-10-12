@@ -184,3 +184,11 @@ Logs: Exynos9820WlanCx.txt (bring-up) + Exynos9820WlanCx-run.txt (runtime, rotat
   was never cleared, so a second EvtWifiDeviceCreateAdapter (PnP stop/start) would be refused; (2) the run-log
   header claimed a 5 ms "linked" poll that the worker does not do. Fixed in a follow-up commit (adapter cleanup
   callback; header line). W1 package wifi-cx1 is superseded by the next package.
+- W2 (T5): CxScan.cpp. WlanMsgSetCxHooks(CxBssRecord) at PrepareHardware; CxBssRecord upserts per BSSID into a
+  64-entry cache (WDF memory child of the device): beacon period / capability / chanspec / RSSI / ctl_ch / IEs (cut
+  at 1400 B, flagged). TASK_SCAN: parse (SSID count logged), M3, broadcast escan (WlanMsgRescan), one log line
+  per BSS, BSS_ENTRY_LIST indications of up to 16 entries (unsolicited, TransactionId 0, like the sample
+  wifihal.cpp:580-585) with the probe-response body = timestamp 0 + beacon interval + capability + IEs, RSSI,
+  link quality (linear -100..-50 dBm -> 0..100, host choice), channel + band (ch <= 14 -> 2.4 GHz else 5 GHz),
+  age = KeQuerySystemTimePrecise; then M4 SCAN_COMPLETE (failure status only when the escan failed and nothing
+  was found). Build W4/WX clean. Not device-tested. Known gaps: hidden SSIDs (directed probe), 6 GHz n/a.

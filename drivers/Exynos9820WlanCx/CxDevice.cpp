@@ -217,6 +217,8 @@ CxEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRESLIST Translated
             if (Dev->Msg.Resident) {
                 Dev->Cfg = Cfg;    /* Msg.Bus.Cfg points into it: unmapped in ReleaseHardware */
                 Cfg      = NULL;
+                /* W2: escan records -> the WDI BSS list; EAPOL frames pass through to the data path */
+                WlanMsgSetCxHooks(&Dev->Msg, CxBssRecord, NULL, Dev);
             }
         } else {
             ReportLine(R, "DL 2: BAR2 0x%08lX/0x%08lX is not a 64-bit BAR below 4 GB\r\n", P.Bar[2], P.Bar[3]);
@@ -349,6 +351,19 @@ CxEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     Dev->Device  = Device;
     Dev->RadioOn = TRUE;
     KeInitializeEvent(&Dev->Wake, SynchronizationEvent, FALSE);
+    {
+        WDF_OBJECT_ATTRIBUTES M;
+        WDFMEMORY             Mem;
+
+        WDF_OBJECT_ATTRIBUTES_INIT(&M);
+        M.ParentObject = Device;
+        if (NT_SUCCESS(WdfMemoryCreate(&M, NonPagedPoolNx, CX_POOL_TAG, CX_MAX_BSS * sizeof(CX_BSS), &Mem,
+                                       (PVOID *)&Dev->Bss))) {
+            RtlZeroMemory(Dev->Bss, CX_MAX_BSS * sizeof(CX_BSS));
+        } else {
+            Dev->Bss = NULL;   /* WDI_TASK_SCAN then fails with STATUS_INSUFFICIENT_RESOURCES */
+        }
+    }
     KeInitializeSpinLock(&Dev->CmdLock);
     InitializeListHead(&Dev->CmdList);
 

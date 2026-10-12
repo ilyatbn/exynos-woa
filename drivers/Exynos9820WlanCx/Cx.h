@@ -25,6 +25,23 @@ extern "C" {
 #define CX_LINK_WAIT_MS         5           /* while associated: rx latency bound (host choice, timer resolution) */
 #define CX_LOG_ROTATE           (WLAN_REPORT_MAX * 3 / 4)
 
+/* W2 scan cache: one entry per BSSID from the escan records of the current WDI_TASK_SCAN */
+#define CX_MAX_BSS              64          /* = SCAN_MAX_BSS of WlanMsg.c */
+#define CX_BSS_IES_MAX          1400        /* host choice: IEs kept per BSS (longer beacons are cut, logged) */
+#define CX_BSS_PER_INDICATION   16          /* host choice: BSS entries per WDI_INDICATION_BSS_ENTRY_LIST */
+
+typedef struct _CX_BSS {
+    UCHAR           Bssid[6];
+    USHORT          BeaconPeriod;
+    USHORT          Capability;
+    USHORT          Chanspec;
+    UCHAR           Channel;            /* control channel (wl_bss_info ctl_ch) */
+    SHORT           Rssi;
+    BOOLEAN         Cut;                /* IEs longer than CX_BSS_IES_MAX */
+    ULONG           IesLen;
+    UCHAR           Ies[CX_BSS_IES_MAX];
+} CX_BSS, *PCX_BSS;
+
 typedef struct _CX_CMD {
     LIST_ENTRY      Link;
     WIFIREQUEST     Request;
@@ -45,6 +62,9 @@ typedef struct _CX_DEVICE {
     NETADAPTER          Adapter;        /* the station adapter (EvtWifiDeviceCreateAdapter) */
     WDI_PORT_ID         PortId;
     BOOLEAN             RadioOn;
+    PCX_BSS             Bss;            /* CX_MAX_BSS entries (WDF memory, child of the device) */
+    ULONG               BssN;
+    ULONG               BssRecords;     /* escan records seen in the current scan */
 
     /* worker */
     PKTHREAD            Thread;
@@ -75,6 +95,17 @@ EVT_WIFI_DEVICE_CREATE_WIFIDIRECTDEVICE CxEvtCreateWifiDirectDevice;
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CxSetCapabilities(_Inout_ PCX_DEVICE Dev);
 _IRQL_requires_(PASSIVE_LEVEL) VOID CxRunCommand(_Inout_ PCX_DEVICE Dev, _In_ PCX_CMD Cmd);
 _IRQL_requires_(PASSIVE_LEVEL) VOID CxFailCommand(_Inout_ PCX_DEVICE Dev, _In_ PCX_CMD Cmd, _In_ NTSTATUS Status);
+
+/* CxScan.cpp */
+WLAN_BSS_FN CxBssRecord;
+_IRQL_requires_(PASSIVE_LEVEL) VOID CxTaskScan(_Inout_ PCX_DEVICE Dev, _In_ PCX_CMD Cmd, _In_ const WDI_MESSAGE_HEADER *H,
+                                               _In_reads_bytes_(TlvLen) const UINT8 *Tlv, _In_ ULONG TlvLen);
+_IRQL_requires_(PASSIVE_LEVEL) PCX_BSS CxFindBss(_In_ PCX_DEVICE Dev, _In_reads_(6) const UCHAR *Bssid);
+
+/* CxWifi.cpp (shared with the other command files) */
+VOID CxIndicate(_Inout_ PCX_DEVICE Dev, _In_ UINT16 MessageId, _In_opt_ const WDI_MESSAGE_HEADER *Req,
+                _In_ NDIS_STATUS Status, _In_reads_bytes_opt_(TlvLen) const UINT8 *Tlv, _In_ ULONG TlvLen);
+VOID CxM3(_Inout_ PCX_DEVICE Dev, _In_ PCX_CMD Cmd, _In_ NTSTATUS Status);
 
 /* CxAdapter.cpp */
 EVT_WIFI_DEVICE_CREATE_ADAPTER      CxEvtCreateAdapter;

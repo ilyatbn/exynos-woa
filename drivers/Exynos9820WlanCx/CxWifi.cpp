@@ -169,7 +169,8 @@ CxSetCapabilities(PCX_DEVICE Dev)
 
 /* One WDI indication: header (+ TLVs). Req = the request header for a task completion (its PortId +
    TransactionId), NULL for an unsolicited one (TransactionId 0, the station port). */
-static VOID
+_Use_decl_annotations_
+VOID
 CxIndicate(PCX_DEVICE Dev, UINT16 MessageId, const WDI_MESSAGE_HEADER *Req, NDIS_STATUS Status,
            const UINT8 *Tlv, ULONG TlvLen)
 {
@@ -201,7 +202,8 @@ CxIndicate(PCX_DEVICE Dev, UINT16 MessageId, const WDI_MESSAGE_HEADER *Req, NDIS
           (Req != NULL) ? "M4" : "unsolicited", (Req != NULL) ? Req->TransactionId : 0UL, Status, TlvLen);
 }
 
-static VOID
+_Use_decl_annotations_
+VOID
 CxM3(PCX_DEVICE Dev, PCX_CMD Cmd, NTSTATUS Status)
 {
     WifiRequestComplete(Cmd->Request, Status, sizeof(WDI_MESSAGE_HEADER));
@@ -317,6 +319,9 @@ CxRunCommand(PCX_DEVICE Dev, PCX_CMD Cmd)
         break;
     case WDI_TASK_DOT11_RESET:
         CxTaskDot11Reset(Dev, Cmd, H);
+        break;
+    case WDI_TASK_SCAN:
+        CxTaskScan(Dev, Cmd, H, Tlv, TlvLen);   /* W2, CxScan.cpp */
         break;
     default:
         if (CxIsAcceptedSet(Cmd->MessageId)) {

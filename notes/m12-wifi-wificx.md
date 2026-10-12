@@ -373,3 +373,11 @@ What the logs must show (Exynos9820WlanCx.txt = bring-up, -run.txt = runtime):
   pointless (that was cx4); next suspects are a missing per-packet WiFi rx extension or the Protected/exemption
   rule.
 - Review of 24a7c8f: the W4 milestone row sed did not match again (backslash in the pattern); fixed in a follow-up commit with a script.
+
+## USER RESULT cx5 (2026-10-13 ~01:10): **WIFI WORKS** (native WiFiCx, Windows flyout + Windows supplicant)
+- User: "wifi is working. very slowly but working". Connected to the laptop's hotspot S10eTest: the laptop's
+  tethering manager lists client a8:db:03:06:3c:ef "DESKTOP-24G4OQF" 192.168.137.90 (DHCP from 192.168.137.1).
+  ICMP from the laptop times out (default Windows firewall on a public network - not a link failure).
+- Root cause of cx3/cx4 "unable to connect": rx frames had to be delivered as 802.11 data + LLC/SNAP (cx5), plus the
+  association-result TLV (cx4). Open: throughput ("very slow"), firewall/remote access, power/D3, roaming.
+- Next: S10eAgent outbound remote-control channel to 192.168.137.1 (avoids inbound firewall + UAC; runs as SYSTEM).

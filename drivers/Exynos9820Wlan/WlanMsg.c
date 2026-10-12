@@ -2080,6 +2080,14 @@ WlanMsgJoin(PWLAN_MSG_CTX M, PWLAN_REPORT R, const WLAN_JOIN_CONFIG *J)
     }
     ReportLine(R, "JOIN %lu: SET_SSID %ld, handshake state %lu, link %s%s, eapol rx %lu tx %lu after %lu ms\r\n", Result,
                S->JoinSetSsid, S->Hs, S->JoinLinkUp ? "up" : "not up", S->JoinLost ? ", lost" : "", S->RxEapol, S->TxPosted, Ms);
+    /* run w7b: no EAPOL arrived - show where the rx path stands and what the firmware says */
+    ReportLine(R, "[join] rings: rxpost host w %lu fw r %u | rx cpl fw w %u host r %lu | tx cpl fw w %u | rx frames %lu bad %lu, "
+               "tx posted %lu done %lu\r\n", S->Ring[RING_H2D_RXPOST].Host, Tcm16(S, S->Ring[RING_H2D_RXPOST].RIdxAddr),
+               Tcm16(S, S->Ring[RING_D2H_RX_CPL].WIdxAddr), S->Ring[RING_D2H_RX_CPL].Host,
+               Tcm16(S, S->Ring[RING_D2H_TX_CPL].WIdxAddr), S->RxFrames, S->RxBad, S->TxPosted, S->TxDone);
+    if (Result != JOIN_OK) {
+        WlanBusConsoleDump(R, S->Bus);
+    }
 Done:
     S->Joining = FALSE;
     if (Result != JOIN_OK) {

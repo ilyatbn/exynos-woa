@@ -144,3 +144,10 @@ fwil_types.h). Line numbers are of those copies.
   WL_PRIMARY_KEY - dhd wl_add_keyext / add_key), group rekey 1/2 (also from WlanMsgPoll). Replay counter checked.
   Result JOIN_OK only after the keys are installed; JOIN 5 = handshake failed (bad MIC on msg 3 = wrong
   passphrase). Driver 1.0.7.1, package s10e-artifacts\wifi-m7b, sys sha256 87acacf9e30afea5….
+- **Run w7b (1.0.7.1, boot #99):** self-test PASS; target 44:DF:65:D7:CD:41 rssi -69, AP RSN IE 22 B; wpaie,
+  INFRA, wpa_auth, auth, wsec all status 0; SET_SSID -> events AUTH 0, LINK up, ASSOC 0, SET_SSID 0 =
+  **associated**; FLOW_RING_CREATE status 0 (flowring 2 open in 10 ms). Then **no EAPOL frame reached the host**
+  (eapol rx 0, no [rx] lines at all) and 2.7 s later DEAUTH_IND reason 15 (4-way handshake timeout). => the rx
+  data path delivers nothing (or msg 1 is dropped before RxComplete).
+- 1.0.7.2 (wifi-m7b2): diagnostics only - at JOIN end the rxpost/rx-cpl/tx-cpl ring indices, rx/tx counters and
+  the firmware console dump.

@@ -22,7 +22,11 @@ for /f "usebackq skip=1 delims=" %%L in ("%P%\hash-after.txt") do (s10ediag mark
 echo swapped > C:\S10eTmp\ufsswap.flg
 s10ediag mark s: clean restart
 shutdown /r /t 0 /f
-ping -n 120 127.0.0.1 > nul
+rem Never return to collect.cmd while Windows shuts down: a killed ping let collect.cmd write torecovery.flg
+rem before the restart, so the firmware went to TWRP instead of pass 2 (run g15full).
+:holdrestart
+ping -n 30 127.0.0.1 > nul
+goto holdrestart
 goto end
 :measure
 del /f /q C:\S10eTmp\ufsswap.flg

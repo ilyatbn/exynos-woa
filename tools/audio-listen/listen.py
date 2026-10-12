@@ -2,11 +2,12 @@
 
 The Windows-level mic endpoint on this PC is muted (WASAPI/MME return exact zeros), but the raw WDM-KS
 pin still delivers the hardware signal, so this opens the WDM-KS "Microphone Array" device by name.
-Nothing is saved to disk: only per-100 ms levels and the detected tone bursts are printed.
+Nothing is saved to disk: only narrowband levels at the requested frequencies and the detected bursts.
 
-usage: python -I listen.py SECONDS [--selftest]
+usage: python -I listen.py SECONDS [--freqs 1000,1500,...] [--selftest]
+  --freqs     target tones (Hz); default 1000,1500,3000,6000
   --selftest  plays a 1 kHz tone on the PC speakers after 1 s (proves the mic path works)
-Output: one line per detected burst: start s, duration s, dominant Hz, level dBFS, SNR dB.
+Output: per frequency, bursts where the +-15 Hz band rises >= 10 dB over its own median for >= 300 ms.
 """
 import queue
 import sys
@@ -15,7 +16,7 @@ import numpy as np
 import sounddevice as sd
 
 FS = 48000
-FRAME = FS // 10
+FRAME = FS // 10   # 100 ms -> 10 Hz bins
 
 
 def find_mic():
@@ -28,6 +29,9 @@ def find_mic():
 
 def main():
     secs = float(sys.argv[1]) if len(sys.argv) > 1 else 30
+    freqs = [1000, 1500, 3000, 6000]
+    if '--freqs' in sys.argv:
+        freqs = [float(v) for v in sys.argv[sys.argv.index('--freqs') + 1].split(',')]
     selftest = '--selftest' in sys.argv
     dev, ch = find_mic()
     q = queue.Queue()
@@ -44,34 +48,32 @@ def main():
     frames = len(x) // FRAME
     w = np.hanning(FRAME)
     f = np.fft.rfftfreq(FRAME, 1 / FS)
-    band = (f > 150) & (f < 12000)
-    peak_db, peak_hz = [], []
-    for i in range(frames):
-        X = np.abs(np.fft.rfft(x[i * FRAME:(i + 1) * FRAME] * w)) / (w.sum() / 2)
-        k = np.argmax(np.where(band, X, 0))
-        peak_db.append(20 * np.log10(X[k] + 1e-12))
-        peak_hz.append(f[k])
-    peak_db = np.array(peak_db)
-    floor = np.median(peak_db)
-    on = peak_db > floor + 15
-    on[:5] = False   # the first 0.5 s holds the capture start-up transient
-    print(f'mic dev {dev}, {frames} frames, noise floor (median peak) {floor:.0f} dBFS')
-    bursts = 0
-    i = 0
-    while i < frames:
-        if on[i]:
-            j = i
-            while j < frames and on[j]:
-                j += 1
-            if j - i >= 2:   # >= 200 ms: ignore clicks
-                hz = np.median(peak_hz[i:j])
-                lvl = peak_db[i:j].max()
-                print(f'BURST start {i / 10:.1f} s dur {(j - i) / 10:.1f} s ~{hz:.0f} Hz peak {lvl:.0f} dBFS SNR {lvl - floor:.0f} dB')
-                bursts += 1
-            i = j
-        else:
-            i += 1
-    print(f'BURSTS {bursts}')
+    spec = np.array([np.abs(np.fft.rfft(x[i * FRAME:(i + 1) * FRAME] * w)) / (w.sum() / 2) for i in range(frames)])
+    print(f'mic dev {dev}, {frames} frames')
+    total = 0
+    for hz in freqs:
+        sel = (f >= hz - 15) & (f <= hz + 15)
+        lvl = 20 * np.log10(spec[:, sel].max(axis=1) + 1e-12)
+        floor = np.median(lvl)
+        on = lvl > floor + 10
+        on[:5] = False   # capture start-up transient
+        i = 0
+        found = 0
+        while i < frames:
+            if on[i]:
+                j = i
+                while j < frames and on[j]:
+                    j += 1
+                if j - i >= 3:
+                    print(f'TONE {hz:.0f} Hz start {i / 10:.1f} s dur {(j - i) / 10:.1f} s peak {lvl[i:j].max():.0f} dBFS'
+                          f' SNR {lvl[i:j].max() - floor:.0f} dB')
+                    found += 1
+                i = j
+            else:
+                i += 1
+        print(f'{hz:.0f} Hz: floor {floor:.0f} dBFS, max {lvl[5:].max():.0f} dBFS, bursts {found}')
+        total += found
+    print(f'BURSTS {total}')
 
 
 if __name__ == '__main__':

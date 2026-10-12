@@ -81,7 +81,8 @@
 #define AMP_RX_SLOT        0x00000001u             // @40 (right-channel-amp) takes slot 1 (table row 5.2)
 #define AMP_GAIN_FIELD     0x0Au                   // [9:5], Safety: first test value
 #define AMP_VOL_MUTE       0x4CFu                  // [13:3]
-#define AMP_VOL_M20DB      0x760u                  // [13:3] = -20 dB
+#define AMP_VOL_M20DB      0x760u                  // [13:3] = -20 dB (11-bit two's complement, 1/8 dB steps)
+#define AMP_VOL_M10DB      0x7B0u                  // [13:3] = -10 dB
 
 //
 // ABOX (ifr) / CMU_AUD / GPIO_AUD / SYSREG_AUD offsets (abox notes F2, F6, F7, F8, F10-F12).
@@ -131,6 +132,7 @@
 #define TONE_BYTES         (TONE_FRAMES * TONE_SLOTS * 4u)
 #define TONE_PERIOD_BYTES  (TONE_BYTES / 2u)
 #define TONE_HOLD_MS       2000u
+#define SRAM_TONE_OFFSET   0x10000u           // inside ABOX SRAM (0x59000 B), unused while the DSP is off
 
 // One 1.5 kHz period, sin * 0.25 (-12 dBFS) as left-justified 32-bit (round(0.25 * 2^31 * sin(2 pi k / 32))).
 STATIC CONST INT32  mSine32[32] = {
@@ -387,6 +389,85 @@ SetDiv (IN UINTN Reg, IN UINT32 Ratio)
   return FALSE;
 }
 
+//
+// m3 run 2: the RDMA address space is UNVERIFIED, so one boot tries three buffers, each with its own pitch
+// so the PC microphone tells which one sounded: physical DRAM, ABOX SRAM by physical address, ABOX SRAM by
+// DSP-side offset (abox_addr_to_phys_addr: addresses < 0x80000000 are SRAM offsets, abox.c:249-262).
+//
+typedef struct {
+  CONST CHAR8  *Name;
+  UINT32       Kind;     // 0 = DRAM buffer, 1 = SRAM, DMA address = physical, 2 = SRAM, DMA address = offset
+  UINT32       Step;     // sine table step: 1 = 1.5 kHz, 2 = 3 kHz, 4 = 6 kHz
+} TONE_VARIANT;
+
+STATIC CONST TONE_VARIANT  mVariants[] = {
+  { "DRAM physical, 1.5 kHz",       0, 1 },
+  { "SRAM physical, 3 kHz",         1, 2 },
+  { "SRAM offset 0x10000, 6 kHz",   2, 4 },
+};
+
+STATIC
+BOOLEAN
+PlayVariant (IN CONST TONE_VARIANT *T, IN UINTN Rdma, IN EFI_PHYSICAL_ADDRESS DramBuf)
+{
+  volatile INT32  *Pcm;
+  UINT32          Dma;
+  UINT32          St[8];
+  UINTN           I;
+  UINT32          V;
+
+  if (T->Kind == 0) {
+    Pcm = (volatile INT32 *)(UINTN)DramBuf;
+    Dma = (UINT32)DramBuf;
+  } else {
+    Pcm = (volatile INT32 *)(UINTN)(EXYNOS_ABOX_SRAM_BASE + SRAM_TONE_OFFSET);
+    Dma = (T->Kind == 1) ? (UINT32)(EXYNOS_ABOX_SRAM_BASE + SRAM_TONE_OFFSET) : SRAM_TONE_OFFSET;
+  }
+
+  for (I = 0; I < TONE_FRAMES; I++) {
+    Pcm[I * TONE_SLOTS + 0] = 0;
+    Pcm[I * TONE_SLOTS + 1] = mSine32[(I * T->Step) % 32];
+    Pcm[I * TONE_SLOTS + 2] = 0;
+    Pcm[I * TONE_SLOTS + 3] = 0;
+  }
+
+  if (T->Kind == 0) {
+    WriteBackDataCacheRange ((VOID *)(UINTN)DramBuf, TONE_BYTES);
+  }
+
+  MemoryFence ();
+  MmioWrite32 (Rdma + R_BUF_STR, Dma);
+  MmioWrite32 (Rdma + R_BUF_END, Dma + TONE_BYTES);
+  MmioWrite32 (Rdma + R_BUF_OFFSET, TONE_PERIOD_BYTES);
+  MmioWrite32 (Rdma + R_STR_POINT, Dma);
+  MmioWrite32 (Rdma + R_VOL_FACTOR, R_VOL_UNITY);
+  MmioWrite32 (Rdma + R_CTRL0, R_CTRL0_RESET | R_FORMAT_4X32 | BIT0);
+  for (I = 0; I < ARRAY_SIZE (St); I++) {
+    St[I] = MmioRead32 (Rdma + R_STATUS);
+    gBS->Stall (5000);
+  }
+
+  DEBUG ((DEBUG_WARN, "AudioSpk: variant \"%a\": DMA %x, RDMA0 STATUS every 5 ms: %x %x %x %x %x %x %x %x | UAIF1 STATUS %x\n",
+          T->Name, Dma, St[0], St[1], St[2], St[3], St[4], St[5], St[6], St[7], MmioRead32 (IFR + X_UAIF1_STATUS)));
+  for (I = 0; I < TONE_HOLD_MS / 250; I++) {
+    gBS->Stall (250 * 1000);
+    V = ARd (A_IRQ1_STATUS1);
+    if ((V & A_ERR_BITS) != 0) {
+      DEBUG ((DEBUG_ERROR, "AudioSpk: amp error bits %x at %u ms - stopping\n", V, (UINT32)((I + 1) * 250)));
+      break;
+    }
+  }
+
+  LogState (T->Name, Rdma);
+  MmioWrite32 (Rdma + R_CTRL0, R_CTRL0_RESET);
+  for (I = 0; I < 50 && (MmioRead32 (Rdma + R_STATUS) & BIT31) != 0; I++) {
+    gBS->Stall (1000);
+  }
+
+  DEBUG ((DEBUG_WARN, "AudioSpk: variant \"%a\" stopped: RDMA0 STATUS %x after %u ms\n", T->Name, MmioRead32 (Rdma + R_STATUS), (UINT32)I));
+  return (V & A_ERR_BITS) == 0;
+}
+
 BOOLEAN
 SpeakerTonePlay (
   VOID
@@ -394,9 +475,7 @@ SpeakerTonePlay (
 {
   EFI_STATUS            Status;
   EFI_PHYSICAL_ADDRESS  Buf;
-  INT32                 *Pcm;
   UINTN                 Pages;
-  UINTN                 I;
   UINTN                 Ms;
   UINTN                 Rdma;
   UINT32                V;
@@ -409,6 +488,7 @@ SpeakerTonePlay (
   UINT32                SavedSbank;
   UINT32                SavedCtrl0;
   UINT32                SavedCtrl1;
+  UINTN                 Variant;
   BOOLEAN               Played;
 
   Rdma       = IFR + X_RDMA0;
@@ -435,16 +515,6 @@ SpeakerTonePlay (
     return FALSE;
   }
 
-  Pcm = (INT32 *)(UINTN)Buf;
-  for (I = 0; I < TONE_FRAMES; I++) {
-    Pcm[I * TONE_SLOTS + 0] = 0;
-    Pcm[I * TONE_SLOTS + 1] = mSine32[I % 32];
-    Pcm[I * TONE_SLOTS + 2] = 0;
-    Pcm[I * TONE_SLOTS + 3] = 0;
-  }
-
-  WriteBackDataCacheRange (Pcm, TONE_BYTES);
-
   // Save everything the ABOX side writes.
   SavedDiv      = MmioRead32 (CMU + C_DIV_UAIF1);
   SavedGpb1     = MmioRead32 ((UINTN)EXYNOS_PINCTRL_AUD_BASE + G_GPB1_CON);
@@ -470,16 +540,10 @@ SpeakerTonePlay (
   MmioWrite32 (IFR + X_UAIF1_CTRL1, X_UAIF1_CTRL1_4X32);
   MmioWrite32 (IFR + X_UAIF1_CTRL0, X_UAIF1_CTRL0_MST);
 
-  // Stage 2: RDMA0 ring -> SIFS1 -> UAIF1.
+  // Stage 2: RDMA0 -> SIFS1 -> UAIF1 route; the ring is programmed per variant (PlayVariant).
   MmioWrite32 (IFR + X_SBANK_RDMA0, X_SBANK_RDMA0_VAL);
-  MmioWrite32 (Rdma + R_BUF_STR, (UINT32)Buf);
-  MmioWrite32 (Rdma + R_BUF_END, (UINT32)Buf + TONE_BYTES);
-  MmioWrite32 (Rdma + R_BUF_OFFSET, TONE_PERIOD_BYTES);
-  MmioWrite32 (Rdma + R_STR_POINT, (UINT32)Buf);
-  MmioWrite32 (Rdma + R_VOL_FACTOR, R_VOL_UNITY);
   MmioWrite32 (IFR + X_ROUTE_CTRL0, X_ROUTE_UAIF1_SIFS1);
-  MmioWrite32 (Rdma + R_CTRL0, R_CTRL0_RESET | R_FORMAT_4X32 | BIT0);
-  LogState ("RDMA0 enabled", Rdma);
+  LogState ("route set, RDMA0 off", Rdma);
   MmioOr32 (IFR + X_UAIF1_CTRL0, X_UAIF1_SPK_EN);
   DEBUG ((DEBUG_WARN, "AudioSpk: buffer %lx..%lx; gpb1 CON %x; RDMA0 BUF_STR %x END %x OFFSET %x STR_POINT %x VOL %x\n",
           Buf, Buf + TONE_BYTES, MmioRead32 ((UINTN)EXYNOS_PINCTRL_AUD_BASE + G_GPB1_CON), MmioRead32 (Rdma + R_BUF_STR),
@@ -503,23 +567,14 @@ SpeakerTonePlay (
   AWr (A_IRQ1_STATUS1, A_PUP_DONE);
   if ((Ms <= 100) && ((V & A_ERR_BITS) == 0)) {
     AWr (A_AMP_OUT_MUTE, 0);
-    ARmw (A_AMP_DIG_VOL, 0x3FF8u, AMP_VOL_M20DB << 3);
-    LogState ("tone start", Rdma);
-    for (I = 0; I < TONE_HOLD_MS / 250; I++) {
-      gBS->Stall (250 * 1000);
-      V = ARd (A_IRQ1_STATUS1);
-      if ((V & A_ERR_BITS) != 0) {
-        DEBUG ((DEBUG_ERROR, "AudioSpk: amp error bits %x at %u ms - stopping\n", V, (UINT32)((I + 1) * 250)));
-        break;
-      }
-
-      if (I == 3) {
-        LogState ("mid-tone", Rdma);
-      }
+    ARmw (A_AMP_DIG_VOL, 0x3FF8u, AMP_VOL_M10DB << 3);
+    Played = TRUE;
+    for (Variant = 0; Variant < ARRAY_SIZE (mVariants) && Played; Variant++) {
+      Played = PlayVariant (&mVariants[Variant], Rdma, Buf);
+      gBS->Stall (500 * 1000);
     }
 
-    Played = (I == TONE_HOLD_MS / 250);
-    LogState ("tone end", Rdma);
+    LogState ("tones end", Rdma);
   } else {
     DEBUG ((DEBUG_ERROR, "AudioSpk: amp did not power up cleanly (PUP %u ms, IRQ1_STATUS1 %x) - no unmute\n", (UINT32)Ms, V));
   }
@@ -555,6 +610,6 @@ SpeakerTonePlay (
   }
 
   DEBUG ((DEBUG_WARN, "AudioSpk: done - tone %a (amp I2C errors %u); amps go back into reset next\n",
-          Played ? "PLAYED (listen: ~2 s 1.5 kHz on the loudspeaker)" : "NOT played", (UINT32)mAmpErrors));
+          Played ? "variants PLAYED (mic decides which one sounded)" : "NOT played", (UINT32)mAmpErrors));
   return Played;
 }

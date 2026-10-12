@@ -397,3 +397,16 @@ UAIF1 SPK (F12); needs UAIF0 configured as I2S master (same F4 rules) plus codec
   SPK_EN; amp PLL lock / PUP_DONE / unmute -20 dB; 2 s; full teardown + restore. 1.5 kHz is chosen so the mic
   can tell it from the 1 kHz headphone tone. Also BEYOND0LTE_WINDOWS_WATCHDOG 1 (unattended session).
   Build exit 0, FVMAIN_COMPACT 1336 B free; boot97-v2.img sha256 1e71e6a0ab7c0095e0a061ed2e0b8a2ca862614bc970bcc4abfb3be3de7b2454.
+- **boot #97 RESULT (run b97, 10:23):** every step clean in UEFILOG: amp OTP_BOOT_DONE, OTP unpacked (OTPID 3,
+  99 fields, ended word 24 bit 0), 0 I2C errors; DIV_UAIF1 5 -> 0x5F; UAIF1 CTRL0 0x1000015 CTRL1 0x1B4DF7DF;
+  RDMA0 CTRL0 0x401B01 (readback keeps the FORMAT bits), STATUS 0x80000060 -> 0x800006F0 -> 0x80000768 ->
+  0x800007E8 over 2 s (PROGRESS bit31 set; bits 27:12 stay 0, bits 11:0 count slowly - meaning unknown);
+  amp PLL_LOCK seen only after the 20 ms poll (STATUS3 0x2000002F at tone start), PUP_DONE 1 ms, no error
+  bits during the tone; PDN_DONE 0 ms; teardown restored everything (RDMA0 STATUS 0x900 afterwards).
+  **Mic: nothing**, not even the headphone tone that run 1 heard - the room floor was ~13 dB higher and the
+  broadband peak detector missed it. -> listen.py rewritten as a narrowband detector (+-15 Hz around the target
+  tones, >= 10 dB over that band's median for >= 300 ms; self-test SNR 56 dB at 1 kHz).
+- boot #98 (run 2): three RDMA buffer variants in one boot, each 2 s with its own pitch: DRAM physical 1.5 kHz,
+  ABOX SRAM by physical address 3 kHz, ABOX SRAM by DSP offset 0x10000 6 kHz (abox.c:249-262); amp digital
+  volume -10 dB; RDMA0 STATUS sampled every 5 ms after each enable. ABOX SRAM added to the UEFI MMIO map.
+  Build exit 0, FVMAIN_COMPACT 1000 B free, boot98-v2.img sha256 34ea311d….

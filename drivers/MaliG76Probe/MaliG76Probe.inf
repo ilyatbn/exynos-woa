@@ -1,0 +1,62 @@
+;
+; MaliG76Probe.inf - M16 G9b: run one WRITE_VALUE job on the Galaxy S10e's Mali-G76 (Exynos 9820).
+; Binds the DSDT device \_SB.GPU0 (ACPI\SAMS9828), present only when UEFI left the G3D domain powered.
+; Derived from m1probe.inf of wddm-mali-g52 (https://github.com/gahingwoo/wddm-mali-g52), GPL-2.0.
+; notes/gpu-m16-g9b.md.
+;
+; SPDX-License-Identifier: GPL-2.0
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = System
+ClassGuid   = {4D36E97D-E325-11CE-BFC1-08002BE10318}
+Provider    = %ProviderString%
+DriverVer   = 10/12/2026,1.0.0.1
+CatalogFile = MaliG76Probe.cat
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskDesc%,,,""
+
+[SourceDisksFiles]
+MaliG76Probe.sys = 1,,
+
+[Manufacturer]
+%ManufacturerString% = Standard,NTarm64.10.0...16299
+
+[Standard.NTarm64.10.0...16299]
+%DeviceDesc% = MaliG76Probe_Device, ACPI\SAMS9828
+
+[MaliG76Probe_Device.NT]
+CopyFiles = MaliG76Probe_Device_Drivers
+
+[MaliG76Probe_Device_Drivers]
+MaliG76Probe.sys
+
+[MaliG76Probe_Device.NT.Services]
+AddService = MaliG76Probe,%SPSVCINST_ASSOCSERVICE%,MaliG76Probe_Service_Inst
+
+[MaliG76Probe_Service_Inst]
+DisplayName   = %ServiceDesc%
+ServiceType   = 1               ; SERVICE_KERNEL_DRIVER
+StartType     = 3               ; SERVICE_DEMAND_START
+ErrorControl  = 1               ; SERVICE_ERROR_NORMAL
+ServiceBinary = %13%\MaliG76Probe.sys
+
+[MaliG76Probe_Device.NT.Wdf]
+KmdfService = MaliG76Probe,MaliG76Probe_Wdf
+
+[MaliG76Probe_Wdf]
+KmdfLibraryVersion = 1.15
+
+[Strings]
+SPSVCINST_ASSOCSERVICE = 0x00000002
+ProviderString         = "exynos-woa"
+ManufacturerString     = "exynos-woa"
+DiskDesc               = "Mali-G76 G9b probe Installation Disk"
+DeviceDesc             = "Arm Mali-G76 (G9b write-value probe)"
+ServiceDesc            = "Arm Mali-G76 G9b probe"

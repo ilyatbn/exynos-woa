@@ -77,6 +77,13 @@ TheMorc (Richard Gráčik) — S6SY761Touch (https://github.com/TheMorc/S6SY761T
   Linux sec_ts / s6sy761 driver by Andi Shyti and Samsung Electronics (GPL-2.0).
   The original copyright and license notices are retained in that subtree.
 
+gahingwoo — wddm-mali-g52 (https://github.com/gahingwoo/wddm-mali-g52)
+  drivers/MaliG76Probe/ is derived from its drivers/m1probe (commit 16f7e7c6),
+  the KMDF driver that ran one Mali-G52 job under Windows on the RK3576,
+  GPL-2.0, retargeted here to the Galaxy S10e's Mali-G76. The licence text is
+  drivers/MaliG76Probe/LICENSE. Its register usage follows the Linux drm/panfrost
+  driver (GPL-2.0).
+
 Microsoft Windows-driver-samples — SkeletonI2C
   The WDF/SpbCx framework scaffolding of drivers/Exynos9810Hsi2c/ comes from the
   spb/SkeletonI2C sample (https://github.com/microsoft/Windows-driver-samples).

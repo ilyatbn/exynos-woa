@@ -51,3 +51,108 @@
   re-probe already read GPU_ID through that clock, so the block answers); (b) EMBEDDED on + outer off at entry ->
   hidden and not powered on (conservative); (c) 0x6A-skip boot -> hidden (word cleared before the skip).
 - Nothing to fix in a follow-up commit.
+
+## Task 2 - G9b drivers/MaliG76Probe (design, 2026-10-12)
+
+Source: W `drivers/m1probe/m1probe.c` (280 lines, GPL-2.0, gahingwoo, commit 16f7e7c6), INF m1probe.inf.
+Retarget per R-list:
+- R3: binds ACPI\SAMS9828. R1: GPU = first memory resource; the driver ALSO checks it is 0x18500000/0x5000 and
+  the second is 0x15862000/0x1000 (refuses otherwise, BAT0/AUD0 style) - no MmMapIoSpace of a hard-coded PA
+  (m1probe mapped PMU_PA itself; we take the PMU page from _CRS).
+- R4: powered = PMU+0x2104 bit0 == 1 AND PMU+0x2384 bit0 == 1 (polarity inverted vs RK). Checked before the first
+  GPU access in PrepareHardware and again right before the run. Not powered -> no GPU mapping, no interrupt
+  objects, run log "not powered", device starts doing nothing. CMU_G3D gate (R4 3rd condition) is not in _CRS:
+  UEFI already required it for the 'GPU0' word that makes the device present (_STA) - trusted, recorded.
+- R5: ((GPU_ID >> 16) & 0xFF0F) == 0x7201, else stop.
+- R6: after soft reset, panfrost_gpu_init_quirks for G76: SHADER_CONFIG 0xF04 = SC_TLS_HASH_ENABLE BIT(17)
+  (panfrost_gpu.c:141-145, regs.h:180,211), TILER_CONFIG read+write back (:149-155), JM_CONFIG = 0xF << 16
+  (:166-170, regs.h:227-228). Read back and logged. L2_MMU_CONFIG (0xF0C) NOT written (panfrost does not; R6).
+- R7/R8: L2_PRESENT must have exactly one bit (panfrost_get_core_mask, panfrost_gpu.c:429-450, uses all cores
+  then); more than one -> stop and log (core-group masking left to G11, no guess). Power order as panfrost
+  (:461-471): L2 = L2_PRESENT, poll L2_READY == L2_PRESENT; then SHADER = SHADER_PRESENT and TILER = TILER_PRESENT
+  (m1probe.c:145-151), poll both; 20 ms per poll (panfrost readl_relaxed_poll_timeout 20000 us).
+- R10 decision (page-table format): **Mali-LPAE ("legacy") exactly as m1probe**, TRANSTAB = L0 | 0x7
+  (ADRMODE_TABLE 3 | READ_INNER, regs.h:359-361), MEMATTR 0x00888d88, TRANSCFG 0 (= AS_TRANSCFG_ADRMODE_LEGACY,
+  regs.h:331), 4 levels L0-L3, leaf 0x2C5, tables | 3. Reason: the KMD we will reuse (maligpu.c:115-130) uses it and
+  it ran on a Bifrost v7 G52; mainline panfrost uses ARM_MALI_LPAE on every SoC except MT8188/8192/8370
+  (panfrost_mmu.c:786-795) although G76 also has HW_FEATURE_AARCH64_MMU (panfrost_features.h:94). Whether the
+  G76 accepts legacy mode is exactly what this probe proves (AS0_FAULTSTATUS / MMU_INT_RAWSTAT logged).
+  MILESTONES G5's AArch64-4K plan stays open (decide at G5; R10).
+- R11: contiguous memory limited to min(40, MMU_FEATURES PA bits) (m1probe used 40; G76 PA bits UNVERIFIED -> read).
+- R12: memory MmNonCached (no CPU cache maintenance), JS_CONFIG flush clean+invalidate at start and end (m1probe).
+- R17: WRITE_VALUE job header/payload byte-identical to m1probe.c:182-186 on **JS0** (the slot m1probe proved on
+  G52; panfrost's JS1 choice is for G6/G11). JS0_FEATURES logged.
+- Completion: polled (authoritative, as m1probe) PLUS interrupts connected for the three _CRS lines: one ISR
+  reads JOB/MMU/GPU_INT_STAT, clears what it saw, accumulates the bits per line. JOB_INT_MASK = JS0 done|fail
+  (0x00010001), MMU_INT_MASK = AS0 fault (0x00010001) only during the job, GPU_INT_MASK stays 0; all masks 0
+  again afterwards and in D0Exit. The poll ORs RAWSTAT with the ISR-seen bits (the ISR clears RAWSTAT). Result:
+  whether each line fired = the first evidence for G11 that GSIV 319/320 + Level/High work (R2 UNVERIFIED).
+- Timeouts: soft reset 100 ms (m1probe Poll 10000 x 10 us), AS update 100 ms, job 500 ms (m1probe 50000 x 10 us).
+  Job not finished -> soft reset again before freeing the memory; if that reset also times out the 5 pages are
+  leaked on purpose (the GPU may still write them).
+- Output: \SystemRoot\System32\LogFiles\MaliG76Probe-run.txt rewritten at each checkpoint (Exynos9820Audio
+  RunLog.c pattern), plus DbgPrintEx. Runs once per driver load, in EvtDeviceD0EntryPostInterruptsEnabled.
+
+## Task 2 - implementation + build (2026-10-12)
+- Files: drivers/MaliG76Probe/{MaliG76Probe.c, .inf, .vcxproj, build-package.ps1, LICENSE (= upstream LICENSE,
+  sha256 498d3290..., GPL-2.0), README.md (origin)}; NOTICE gets a wddm-mali-g52 entry. KMDF 1.15 (repo
+  convention; m1probe used 1.33 - nothing used needs > 1.11: WdfInterruptCreate in PrepareHardware is 1.11+).
+- Flow: PrepareHardware: run log; resources logged (raw GSIV + level/edge per interrupt); contract check (2 memory =
+  0x18500000/0x5000 then 0x15862000/0x1000, 3 interrupts) else STATUS_DEVICE_CONFIGURATION_ERROR; map PMU page;
+  powered? no -> "RESULT: SKIPPED (not powered)", GPU never mapped; map GPU; GPU_ID gate; all INT_MASKs 0; 3
+  WDFINTERRUPTs (one ISR). D0EntryPostInterruptsEnabled (once): MpRun. D0ExitPreInterruptsDisabled: masks 0 if
+  still powered. ISR: re-checks PMU power, reads JOB/MMU/GPU_INT_STAT, clears + accumulates, counts per line.
+- Build: `build-package.ps1 -Out C:\Users\ilya\code\s10e-artifacts\mali-g9b` **exit 0** first try (VS18 MSBuild,
+  WDK 10.0.26100, /W4 /WX), Inf2Cat ok, InfVerif /w exit 0, sys + cat signed by "WDKTestCert ilya,134359747320405644"
+  (status UnknownError on the PC = test root not trusted here, as for every package). MaliG76Probe.sys 30 616 B.
+  sha256:
+  - MaliG76Probe.sys `F4DC8B0176ADE0AF96EF73F41272F5E27146E544BE45C3200D44735181477B8D`
+  - MaliG76Probe.inf `4B606010D4A9906DBD20CBE99426C1A59FC27C64953DCAFDD4236BF649A8245D`
+  - malig76probe.cat `9170BB98F0A853F9AF3740A25327723DA5649107ACDBAF83D7C5C5FEBA292436`
+
+## Expected run log (C:\Windows\System32\LogFiles\MaliG76Probe-run.txt), PASS case
+```
+[0.000] MaliG76Probe (M16 G9b) start - 5 resources
+[0.000] res 0: memory 0000000018500000 len 5000
+[0.000] res 1: memory 0000000015862000 len 1000
+[0.000] res 2: interrupt raw vector 320 (GSIV) level, translated vector .. level ..   (+ 319, 321)
+[0.000] G3D powered (EMBEDDED_G3D_STATUS ...1 G3D_STATUS ...1)
+[0.000] GPU_ID 72?1???? -> ((id >> 16) & ff0f) = 7201, G76 7201: yes
+[0.000] ready: 3 interrupts created; the run starts once they are connected
+[0.0xx] run: start
+[0.0xx] GPU_ID .. L2_FEATURES .. CORE_FEATURES .. TILER_FEATURES .. MEM_FEATURES ..
+[0.0xx] MMU_FEATURES .. AS_PRESENT .. JS_PRESENT .. JS0_FEATURES .. GPU_STATUS .. THREAD_MAX_THREADS .. COHERENCY_FEATURES ..
+[0.0xx] SHADER_PRESENT 00000000:.... (12? cores) TILER_PRESENT 00000001 L2_PRESENT 00000001
+[0.0xx] soft reset: GPU_INT_RAWSTAT 00000100 -> RESET_COMPLETED      (bit8; other bits may be set too)
+[0.0xx] quirks: SHADER_CONFIG 00020000 TILER_CONFIG .. JM_CONFIG 000f0000
+[0.0xx] power: L2_READY 00000001 TILER_READY 00000001 SHADER_READY ....
+[0.0xx] memory: 5 pages at PA 00000000........ (limit 2^NN)
+[0.0xx] AS0: TRANSTAB ..:.......7 MEMATTR 00888d88 TRANSCFG 00000000 (Mali-LPAE) - updated
+[0.0xx] job: WRITE_VALUE c0ffee42 -> GPU VA 2000100 submitted on JS0 (affinity ....)
+[0.0xx] job: completed; JOB_INT_RAWSTAT 00000000 (ISR cleared it) JS0_STATUS .. MMU_INT_RAWSTAT 00000000 AS0_FAULTSTATUS 00000000 ..
+[0.0xx] irq: ISR saw JOB 00000001 MMU 00000000 GPU 00000000; hits per line 1/0/0 (GSIV 320/319/321), empty 0
+[0.0xx] memory: job header word0 (exception status) 00000001, target c0ffee42 (want c0ffee42)
+[0.0xx] RESULT: PASS (the G76 wrote the value)
+```
+- Other shapes: "G3D NOT powered ... RESULT: SKIPPED" (GPU0 should then not exist at all - _STA); "GPU_ID .. NO";
+  "core layout not handled" (L2_PRESENT != 1 bit or cores in SHADER_PRESENT_HI: needs the panfrost core-group
+  mask, G11); "power: .. after 20 ms"; "AS0 .. still active"; "job: MMU FAULT" (LPAE rejected or a PTE bit wrong
+  -> AS0_FAULTSTATUS/ADDRESS); "job: TIMEOUT" + "irq: ... 0/0/0" (no completion, no line). If JOB bits appear in
+  "ISR saw" with hits on line 0, GSIV 320 + Level/High is proven for G11. "empty N" > 0 = the line fired without
+  a GPU status bit (misrouted / wrong trigger).
+- Exception status word: Bifrost job header exception_status low byte 0x01 = DONE (panfrost/kbase naming);
+  the exact expected value is not asserted by the driver (PASS = completion + target value).
+
+## Hazards (for the boot)
+- Needs G9 flag 1 (or sboot leaving G3D on) for GPU0 to exist; with the committed flag 0 the package installs
+  nothing that runs (no device).
+- First GPU job ever on this phone: the G76 issuing DMA at a Windows PA through Mali-LPAE. A wrong PTE/attribute
+  shows as an MMU fault (logged), not a hang, if the MMU behaves like the G52's. The pages are freed only after a
+  completed job or a successful soft reset; otherwise leaked on purpose.
+- Interrupts: GSIV 319/320/321 and Level/High UNVERIFIED (DT flags 0). A misrouted level line that is asserted
+  without a GPU status bit would make the ISR return FALSE forever (interrupt storm -> CPU stuck). Counted as
+  "empty", but a storm would prevent the log flush. Mitigation if it happens: uninstall / disable the service
+  offline (R19 path) - a storm would show as a hang right after the driver loads.
+- Clock: whatever UEFI's ACPM FREQ_REQ (260 MHz) left; no DVFS, no thermal under Windows. One short job only.
+- A bus fault on the first GPU read (DTZPC not restored in UEFI) would be an SError -> bugcheck at driver load.
+  UEFI's own re-probe read GPU_ID before setting 'GPU0', so this should already have been caught there.

@@ -30,10 +30,12 @@
   PeCoffGetEntryPointLib
   DebugLib
   IoLib
+  TimerLib
 
 [Protocols]
   gEfiSimpleFileSystemProtocolGuid   ## CONSUMES
   gEfiCpuArchProtocolGuid            ## CONSUMES
+  gEfiBlockIoProtocolGuid            ## CONSUMES
 
 [Guids]
   gEfiEventReadyToBootGuid           ## CONSUMES ## Event

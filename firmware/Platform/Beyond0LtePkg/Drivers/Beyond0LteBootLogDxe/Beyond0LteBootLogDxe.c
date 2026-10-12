@@ -32,6 +32,8 @@
 #include <Guid/EventGroup.h>
 #include <Guid/DebugImageInfoTable.h>
 #include <Library/IoLib.h>
+#include <Library/TimerLib.h>
+#include <Protocol/BlockIo.h>
 #include <Platform/Exynos9820.h>
 
 #include "../../Library/Beyond0LteFbSerialPortLib/Beyond0LteBootLog.h"
@@ -280,6 +282,87 @@ ReadTest (
 
 #endif
 
+//
+// m15 UFS speed split (notes/m15-ufs-throughput.md): time raw ReadBlocks on the whole-disk BlockIo (UEFI's own UFS
+// path = Beyond0LteUfsHcDxe + UfsPassThru) before Windows starts. Same sizes as s10eperf raw/sweep. Read-only.
+// UEFI fast (~hundreds of MB/s) => the controller/clocks are fine and the Windows miniport is the limiter;
+// UEFI slow too => controller/PHY/clock configuration.
+//
+#ifndef BEYOND0LTE_UFS_SPEED_TEST
+#define BEYOND0LTE_UFS_SPEED_TEST  0
+#endif
+
+#if BEYOND0LTE_UFS_SPEED_TEST
+STATIC
+VOID
+UfsSpeedTest (
+  VOID
+  )
+{
+  EFI_HANDLE             *Handles;
+  UINTN                  Count;
+  UINTN                  Index;
+  EFI_BLOCK_IO_PROTOCOL  *BlockIo;
+  EFI_BLOCK_IO_PROTOCOL  *Disk;
+  UINT8                  *Buf;
+  UINTN                  Size;
+  UINTN                  Reads;
+  UINTN                  I;
+  UINT64                 T0;
+  UINT64                 Ns;
+  EFI_STATUS             Status;
+
+  Disk = NULL;
+  if (EFI_ERROR (gBS->LocateHandleBuffer (ByProtocol, &gEfiBlockIoProtocolGuid, NULL, &Count, &Handles))) {
+    DEBUG ((DEBUG_ERROR, "UfsSpeed: no BlockIo\n"));
+    return;
+  }
+
+  for (Index = 0; Index < Count; Index++) {
+    if (EFI_ERROR (gBS->HandleProtocol (Handles[Index], &gEfiBlockIoProtocolGuid, (VOID **)&BlockIo))) {
+      continue;
+    }
+
+    if (!BlockIo->Media->LogicalPartition && BlockIo->Media->MediaPresent &&
+        ((Disk == NULL) || (BlockIo->Media->LastBlock > Disk->Media->LastBlock)))
+    {
+      Disk = BlockIo;
+    }
+  }
+
+  FreePool (Handles);
+  if (Disk == NULL) {
+    DEBUG ((DEBUG_ERROR, "UfsSpeed: no whole-disk BlockIo\n"));
+    return;
+  }
+
+  DEBUG ((DEBUG_ERROR, "UfsSpeed: disk block %u last 0x%lx align %u\n", Disk->Media->BlockSize,
+          Disk->Media->LastBlock, Disk->Media->IoAlign));
+  Buf = AllocatePages (EFI_SIZE_TO_PAGES (SIZE_1MB));
+  if (Buf == NULL) {
+    return;
+  }
+
+  for (Size = SIZE_4KB; Size <= SIZE_1MB; Size *= 2) {
+    Reads = (Size >= SIZE_256KB) ? 16 : 128;
+    T0    = GetPerformanceCounter ();
+    for (I = 0; I < Reads; I++) {
+      Status = Disk->ReadBlocks (Disk, Disk->Media->MediaId, (EFI_LBA)((I * Size) / Disk->Media->BlockSize), Size, Buf);
+      if (EFI_ERROR (Status)) {
+        break;
+      }
+    }
+
+    Ns = GetTimeInNanoSecond (GetPerformanceCounter () - T0);
+    DEBUG ((DEBUG_ERROR, "UfsSpeed: %7u B x %3u: %r, %lu us per read, %lu KB/s\n", (UINT32)Size, (UINT32)I, Status,
+            (I != 0) ? (Ns / 1000) / I : 0, (Ns != 0) ? ((UINT64)I * Size * 1000000ULL) / Ns : 0));
+  }
+
+  FreePages (Buf, EFI_SIZE_TO_PAGES (SIZE_1MB));
+}
+
+#endif
+
 /** Writes Size bytes of memory at Address to Name on the ESP (overwrites). Logs the result. **/
 STATIC
 VOID
@@ -343,6 +426,10 @@ OnReadyToBoot (
 
  #if BEYOND0LTE_READ_TEST
   ReadTest ();
+ #endif
+
+ #if BEYOND0LTE_UFS_SPEED_TEST
+  UfsSpeedTest ();
  #endif
 
   //

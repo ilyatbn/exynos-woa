@@ -155,3 +155,16 @@ failure path cancels its own periodic timer (KeCancelTimer is legal at DISPATCH)
 Found: the comment claimed the timer "runs at the 60 Hz the VidPN reports" - 16 ms is 62.5 Hz nominal and the
 expiries snap to the 15.6 ms clock tick. Comment corrected in the follow-up commit (no code change; rate kept: a
 vsync slightly faster than the panel only shortens vblank waits, never blocks one).
+
+## F2 - presents reach the panel (command.c, memory.c, Parameters\FlipBlt default 1)
+- Found while writing it: **with the GPU half off (mode 1) no present could ever reach the panel** -
+  BuildPagingBuffer MAP_APERTURE_SEGMENT returned before recording the allocation's MDL when !GpuUp (memory.c), and
+  DoPresent's AllocationVa needs that MDL -> every Blt counted as PresentSkips. Now the MDL is recorded (and cleared
+  on UNMAP) without any GPU mapping when the GPU half is off.
+- Present with Flags.Flip (and FlipBlt 1): op = BLT of the whole source allocation (pAllocationList[1], Width x
+  Height from its creation data) into the GOP fb (ToScanout), done at SubmitCommand like every present. The
+  allocation list of a present has fixed slots (DXGKARG_PRESENT has no list size; DXGK_PRESENT_SOURCE_INDEX 1,
+  DESTINATION_INDEX 2, d3dkmddi.h:163-165).
+- Cost: one full 1080x2280x4 = 9.8 MB copy per flip at DISPATCH (SubmitCommand) into a write-combined mapping.
+  Acceptable for a first light; FlipBlt 0 restores the original (flips dropped).
+- Build 6: exit 0 (after dropping a guard on a field DXGKARG_PRESENT does not have), sys sha256 58E7B879...

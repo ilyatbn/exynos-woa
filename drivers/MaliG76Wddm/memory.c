@@ -244,8 +244,19 @@ NTSTATUS APIENTRY MwBuildPagingBuffer(IN_CONST_HANDLE hAdapter, DXGKARG_BUILDPAG
     switch (Arg->Operation) {
     case DXGK_OPERATION_MAP_APERTURE_SEGMENT: {
         MW_ALLOCATION *alloc = (MW_ALLOCATION *)Arg->MapApertureSegment.hAllocation;
-        if (alloc == NULL || !a->GpuUp)
+        if (alloc == NULL)
             return STATUS_SUCCESS;
+        if (!a->GpuUp) {
+            /* G76: no GPU mapping, but the pages are still how a present reaches the pixels (command.c
+             * AllocationVa); the original returned before recording them, so with the GPU half off every present
+             * was skipped. */
+            ExAcquireFastMutex(&a->MmuLock);
+            alloc->Mdl = Arg->MapApertureSegment.pMdl;
+            alloc->MdlPage = (ULONG)Arg->MapApertureSegment.MdlOffset;
+            ExReleaseFastMutex(&a->MmuLock);
+            a->Maps++;
+            return STATUS_SUCCESS;
+        }
         ULONG pages = (ULONG)Arg->MapApertureSegment.NumberOfPages;
         if (pages > alloc->Pages)
             pages = alloc->Pages;
@@ -266,8 +277,15 @@ NTSTATUS APIENTRY MwBuildPagingBuffer(IN_CONST_HANDLE hAdapter, DXGKARG_BUILDPAG
     }
     case DXGK_OPERATION_UNMAP_APERTURE_SEGMENT: {
         MW_ALLOCATION *alloc = (MW_ALLOCATION *)Arg->UnmapApertureSegment.hAllocation;
-        if (alloc == NULL || !a->GpuUp)
+        if (alloc == NULL)
             return STATUS_SUCCESS;
+        if (!a->GpuUp) {
+            ExAcquireFastMutex(&a->MmuLock);
+            alloc->Mdl = NULL;
+            ExReleaseFastMutex(&a->MmuLock);
+            a->Unmaps++;
+            return STATUS_SUCCESS;
+        }
         a->Unmaps++;
         ExAcquireFastMutex(&a->MmuLock);
         if (alloc->Mapped)

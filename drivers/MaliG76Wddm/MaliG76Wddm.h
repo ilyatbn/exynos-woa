@@ -60,6 +60,9 @@ extern MW_MODE MwMode;          /* set once in DriverEntry */
 /* Parameters\SoftVsync (default 1): the full adapter reports a 60 Hz software vsync while dxgkrnl has it enabled
  * (command.c); 0 = the original's behaviour (ControlInterrupt says yes, no vsync is ever reported). */
 extern ULONG MwSoftVsync;
+/* Parameters\FlipBlt (default 1): a Flip present is carried out as a CPU copy of the new primary into the GOP
+ * framebuffer (command.c); 0 = the original's behaviour (flips are dropped, the panel never shows them). */
+extern ULONG MwFlipBlt;
 
 /* ---- objects ---- */
 
@@ -97,6 +100,7 @@ typedef struct _MW_CONTEXT {
 
 typedef struct _MW_PRESENT_OP {
     ULONG Kind;
+    BOOLEAN ToScanout;          /* G76: a flip - the destination is the GOP framebuffer, whatever Dst is */
     ULONG Color;
     MW_ALLOCATION *Src, *Dst;
     RECT SrcRect, DstRect;

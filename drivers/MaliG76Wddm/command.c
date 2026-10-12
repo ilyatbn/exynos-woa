@@ -139,9 +139,15 @@ NTSTATUS APIENTRY MwPresent(IN_CONST_HANDLE hContext, DXGKARG_PRESENT *Arg)
         return STATUS_INVALID_PARAMETER;
     RtlZeroMemory(priv, sizeof(*priv));
     priv->Reserved = MW_DMA_MAGIC;
-    if (Arg->Flags.Blt || Arg->Flags.ColorFill) {
+    /* G76: a flip names only the new primary (the source slot); with FlipBlt it becomes a whole-surface blt into the
+     * GOP framebuffer, which the firmware's scan-out shows. The original dropped flips (step d not done), so a
+     * compositor that flips never reached the panel. */
+    BOOLEAN flip = Arg->Flags.Flip && MwFlipBlt && Arg->pAllocationList != NULL &&
+                   Arg->pAllocationList[DXGK_PRESENT_SOURCE_INDEX].hDeviceSpecificAllocation != NULL;
+    if (Arg->Flags.Blt || Arg->Flags.ColorFill || flip) {
         MW_PRESENT_OP *op = &priv->Present;
         op->Kind = Arg->Flags.ColorFill ? MW_PRESENT_FILL : MW_PRESENT_BLT;
+        op->ToScanout = flip && !Arg->Flags.Blt && !Arg->Flags.ColorFill;
         op->Color = Arg->Color;
         /* A present's allocation list has fixed slots; an unused one has
          * no allocation. */
@@ -152,6 +158,15 @@ NTSTATUS APIENTRY MwPresent(IN_CONST_HANDLE hContext, DXGKARG_PRESENT *Arg)
         op->NumRects = Arg->SubRectCnt <= MW_MAX_RECTS ? Arg->SubRectCnt : 0;
         for (ULONG i = 0; i < op->NumRects; i++)
             op->Rects[i] = Arg->pDstSubRects[i];
+        if (op->ToScanout) {
+            /* The whole new primary (a flip carries no rectangles). */
+            const MW_ALLOCATION *s = op->Src;
+            op->SrcRect.left = op->SrcRect.top = 0;
+            op->SrcRect.right = (LONG)s->Width;
+            op->SrcRect.bottom = (LONG)s->Height;
+            op->DstRect = op->SrcRect;
+            op->NumRects = 0;
+        }
         /* Both allocations must be resident (and their pages known). */
         for (UINT i = DXGK_PRESENT_SOURCE_INDEX;
              i <= DXGK_PRESENT_DESTINATION_INDEX && Arg->PatchLocationListOutSize > 0; i++) {
@@ -195,11 +210,14 @@ static void DoPresent(MW_ADAPTER *A, const MW_PRESENT_OP *Op)
     LONG dstW, dstH, dstPitch, srcPitch = 0, srcW = 0, srcH = 0;
     ULONG n = Op->NumRects ? Op->NumRects : 1;
 
-    if (Op->Dst != NULL && (Op->Dst->Flags & MW_ALLOC_PRIMARY) && A->FbVa != NULL) {
+    if ((Op->ToScanout || (Op->Dst != NULL && (Op->Dst->Flags & MW_ALLOC_PRIMARY))) && A->FbVa != NULL) {
         dst = A->FbVa;
         dstW = (LONG)A->Fb.Width;
         dstH = (LONG)A->Fb.Height;
         dstPitch = (LONG)A->Fb.Pitch;
+    } else if (Op->ToScanout) {
+        A->PresentSkips++;
+        return;
     } else {
         dst = AllocationVa(Op->Dst);
         if (dst == NULL) {

@@ -12,6 +12,7 @@
 
 MW_MODE MwMode = MwModeDisplayOnly;
 ULONG MwSoftVsync = 1;
+ULONG MwFlipBlt = 1;
 
 /* ---- trace ---- */
 
@@ -650,6 +651,7 @@ static MW_MODE ReadMode(PUNICODE_STRING RegistryPath, ULONG *PramTrace)
     full = ReadParameter(params, L"FullAdapter", 0);
     *PramTrace = ReadParameter(params, L"PramTrace", 1);
     MwSoftVsync = ReadParameter(params, L"SoftVsync", 1) != 0;
+    MwFlipBlt = ReadParameter(params, L"FlipBlt", 1) != 0;
     if (params != NULL)
         ZwClose(params);
     if (svc != NULL)

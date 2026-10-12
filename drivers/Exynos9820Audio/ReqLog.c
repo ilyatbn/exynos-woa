@@ -14,6 +14,7 @@
  * Volume (A7): per request key (set, id, verb, item type, item id) the first AUD_REQKEY_FIRST occurrences are logged,
  * then every AUD_REQKEY_EVERY-th with its running count; the format carried by every PROPOSEDATAFORMAT set on a pin is
  * decoded (first AUD_FMTLOG_MAX). The file is flushed every AUD_REQLOG_FLUSH logged lines and after error statuses.
+ * A7 also answers two host-pin format properties itself (see "driver-completed host-pin format requests" below).
  * notes/d8-audio-win-a5.md.
  */
 
@@ -248,6 +249,191 @@ static VOID AudReqInspect(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ CHAR Who, _In_ c
     }
 }
 
+/* ================================================================================================================
+ * A7: driver-completed host-pin format requests (Parameters\KsOverride = 1, default).
+ *
+ * Run audA6u: every endpoint-builder round ends with KSPROPERTY_PIN_DATAINTERSECTION on the host pin (input: our own
+ * range list, 184 B; output size query) and never a sized follow-up - the intersection fails inside ACX, the engine
+ * gets no device format, AudioSrv rejects the endpoint (0x80070032). The KS contract of the two pin properties is
+ * small and fully specified, so the driver answers them for the host pin itself:
+ *  - DATAINTERSECTION get: walk the KSMULTIPLE_ITEM of KSDATARANGEs (8-byte aligned, KSDATARANGE_ATTRIBUTES ranges
+ *    followed by their attribute list); the first range admitting 48 kHz / 2 ch / 16 bit (else 32 bit) PCM yields
+ *    the matching format of the pin's list (Render.c AudFormatPcm16/32). Output length 0 = size query:
+ *    STATUS_BUFFER_OVERFLOW + Information = size (the convention of the ACX sample's CircuitHelper.cpp:540-545);
+ *    too small = STATUS_BUFFER_TOO_SMALL; no range = STATUS_NO_MATCH.
+ *  - PROPOSEDATAFORMAT set with a wave format: STATUS_SUCCESS for 48 kHz stereo 16/32-bit integer PCM
+ *    (WAVEFORMATEX PCM or EXTENSIBLE/PCM with valid bits = container, mask 0 or stereo), else STATUS_NO_MATCH.
+ * Everything else (other pins, other verbs, formats without a wave header) still goes to ACX.
+ * ================================================================================================================ */
+
+#define AUD_KSPROPERTY_PIN_DATAINTERSECTION   4u    /* ks.h KSPROPERTY_PIN_DATAINTERSECTION */
+
+static const GUID AudGuidNull = { 0 };
+
+static BOOLEAN AudGuidIs(_In_ const GUID *A, _In_ const GUID *B)
+{
+    return (RtlCompareMemory(A, B, sizeof(GUID)) == sizeof(GUID)) ? TRUE : FALSE;
+}
+
+static BOOLEAN AudGuidIsOrWild(_In_ const GUID *A, _In_ const GUID *B)
+{
+    return AudGuidIs(A, B) || AudGuidIs(A, &AudGuidNull);
+}
+
+/* Bits (16 or 32) one range admits for 48 kHz stereo PCM, 0 if none. */
+static ULONG AudRangeBits(_In_ const KSDATARANGE *R)
+{
+    const KSDATARANGE_AUDIO *A = (const KSDATARANGE_AUDIO *)R;
+
+    if (!AudGuidIsOrWild(&R->MajorFormat, &KSDATAFORMAT_TYPE_AUDIO) ||
+        !AudGuidIsOrWild(&R->SubFormat, &KSDATAFORMAT_SUBTYPE_PCM)) {
+        return 0;
+    }
+    if (AudGuidIs(&R->Specifier, &AudGuidNull)) {
+        return 16;                                   /* full wildcard */
+    }
+    if (!AudGuidIs(&R->Specifier, &KSDATAFORMAT_SPECIFIER_WAVEFORMATEX) || R->FormatSize < sizeof(KSDATARANGE_AUDIO)) {
+        return 0;
+    }
+    if (A->MaximumChannels != (ULONG)-1 && A->MaximumChannels < AUD_CHANNELS) {
+        return 0;
+    }
+    if (A->MinimumSampleFrequency > AUD_RATE || A->MaximumSampleFrequency < AUD_RATE) {
+        return 0;
+    }
+    if (A->MinimumBitsPerSample <= 16 && A->MaximumBitsPerSample >= 16) {
+        return 16;
+    }
+    if (A->MinimumBitsPerSample <= 32 && A->MaximumBitsPerSample >= 32) {
+        return 32;
+    }
+    return 0;
+}
+
+static NTSTATUS AudIntersect(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ const ACX_REQUEST_PARAMETERS *P, _Out_ PULONG_PTR Info)
+{
+    const KSMULTIPLE_ITEM *Item = (const KSMULTIPLE_ITEM *)P->Parameters.Property.Control;
+    const UCHAR           *Cur;
+    const UCHAR           *End;
+    const KSDATARANGE     *R;
+    const KSDATAFORMAT_WAVEFORMATEXTENSIBLE *Out = NULL;
+    ULONG                  I;
+    ULONG                  Bits = 0;
+
+    *Info = 0;
+    if (Item == NULL || P->Parameters.Property.ControlCb < sizeof(KSMULTIPLE_ITEM) ||
+        Item->Size < sizeof(KSMULTIPLE_ITEM) || Item->Size > P->Parameters.Property.ControlCb) {
+        AudLog(Dev->Log, "ks: intersection control %lu B not a range list (size %lu)\r\n", P->Parameters.Property.ControlCb,
+               (Item != NULL && P->Parameters.Property.ControlCb >= sizeof(ULONG)) ? Item->Size : 0);
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    Cur = (const UCHAR *)(Item + 1);
+    End = (const UCHAR *)Item + Item->Size;
+    for (I = 0; I < Item->Count && Bits == 0; I++) {
+        if ((SIZE_T)(End - Cur) < sizeof(KSDATARANGE)) {
+            break;
+        }
+        R = (const KSDATARANGE *)Cur;
+        if (R->FormatSize < sizeof(KSDATARANGE) || R->FormatSize > (ULONG)(End - Cur)) {
+            break;
+        }
+        Bits = AudRangeBits(R);
+        AudLog(Dev->Log, "ks: intersection range %lu: size %lu flags %lX sub {%08lX} spec {%08lX} -> %lu bit\r\n", I,
+               R->FormatSize, R->Flags, R->SubFormat.Data1, R->Specifier.Data1, Bits);
+        Cur += (R->FormatSize + 7u) & ~7u;
+        if ((R->Flags & KSDATARANGE_ATTRIBUTES) != 0 && (SIZE_T)(End - Cur) >= sizeof(KSMULTIPLE_ITEM)) {
+            const KSMULTIPLE_ITEM *Attr = (const KSMULTIPLE_ITEM *)Cur;   /* the range's attribute list */
+
+            if (Attr->Size < sizeof(KSMULTIPLE_ITEM) || Attr->Size > (ULONG)(End - Cur)) {
+                break;
+            }
+            Cur += (Attr->Size + 7u) & ~7u;
+        }
+    }
+
+    if (Bits == 0) {
+        return STATUS_NO_MATCH;
+    }
+    Out = AudHostFormat(Bits);
+
+    if (P->Parameters.Property.ValueCb == 0) {
+        *Info = sizeof(*Out);
+        return STATUS_BUFFER_OVERFLOW;
+    }
+    if (P->Parameters.Property.ValueCb < sizeof(*Out) || P->Parameters.Property.Value == NULL) {
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+    RtlCopyMemory(P->Parameters.Property.Value, Out, sizeof(*Out));
+    *Info = sizeof(*Out);
+    return STATUS_SUCCESS;
+}
+
+/* PROPOSEDATAFORMAT set: TRUE = handled (Status set), FALSE = not a wave format, leave it to ACX. */
+static BOOLEAN AudPropose(_In_ const ACX_REQUEST_PARAMETERS *P, _Out_ NTSTATUS *Status)
+{
+    const KSDATAFORMAT *F = (const KSDATAFORMAT *)P->Parameters.Property.Value;
+    ULONG              Cb = P->Parameters.Property.ValueCb;
+    const WAVEFORMATEX *W;
+    ULONG              Bits;
+
+    *Status = STATUS_NO_MATCH;
+    if (F == NULL || Cb < sizeof(KSDATAFORMAT) + sizeof(WAVEFORMATEX) ||
+        !AudGuidIs(&F->Specifier, &KSDATAFORMAT_SPECIFIER_WAVEFORMATEX)) {
+        return FALSE;
+    }
+    W = (const WAVEFORMATEX *)(F + 1);
+    Bits = W->wBitsPerSample;
+
+    if (!AudGuidIs(&F->MajorFormat, &KSDATAFORMAT_TYPE_AUDIO) || !AudGuidIs(&F->SubFormat, &KSDATAFORMAT_SUBTYPE_PCM) ||
+        W->nChannels != AUD_CHANNELS || W->nSamplesPerSec != AUD_RATE || (Bits != 16 && Bits != 32) ||
+        W->nBlockAlign != AUD_CHANNELS * (Bits / 8) || W->nAvgBytesPerSec != AUD_RATE * W->nBlockAlign) {
+        return TRUE;
+    }
+    if (W->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
+        const WAVEFORMATEXTENSIBLE *X = (const WAVEFORMATEXTENSIBLE *)W;
+
+        if (Cb < sizeof(KSDATAFORMAT) + sizeof(WAVEFORMATEXTENSIBLE) || !AudGuidIs(&X->SubFormat, &KSDATAFORMAT_SUBTYPE_PCM) ||
+            X->Samples.wValidBitsPerSample != Bits || (X->dwChannelMask != 0 && X->dwChannelMask != KSAUDIO_SPEAKER_STEREO)) {
+            return TRUE;
+        }
+    } else if (W->wFormatTag != WAVE_FORMAT_PCM) {
+        return TRUE;
+    }
+
+    *Status = STATUS_SUCCESS;
+    return TRUE;
+}
+
+/* TRUE = the driver completed the request. */
+static BOOLEAN AudKsOverride(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ WDFREQUEST Request, _In_ const ACX_REQUEST_PARAMETERS *P)
+{
+    NTSTATUS  Status;
+    ULONG_PTR Info = 0;
+
+    if (Dev == NULL || !Dev->Cfg.KsOverride || P->Type != AcxRequestTypeProperty ||
+        P->Parameters.Property.Set.Data1 != 0x8C134960 || P->Parameters.Property.ItemType != AcxItemTypePin ||
+        P->Parameters.Property.ItemId != Dev->HostPinId ||
+        !AudGuidIs(&P->Parameters.Property.Set, &KSPROPSETID_Pin)) {
+        return FALSE;
+    }
+
+    if (P->Parameters.Property.Id == AUD_KSPROPERTY_PIN_DATAINTERSECTION && P->Parameters.Property.Verb == AcxPropertyVerbGet) {
+        Status = AudIntersect(Dev, P, &Info);
+    } else if (P->Parameters.Property.Id == AUD_KSPROPERTY_PIN_PROPOSEDATAFORMAT &&
+               P->Parameters.Property.Verb == AcxPropertyVerbSet) {
+        if (!AudPropose(P, &Status)) {
+            return FALSE;
+        }
+    } else {
+        return FALSE;
+    }
+
+    WdfRequestCompleteWithInformation(Request, Status, Info);
+    AudReqLog(Dev, 'c', P, "done", Status, Info);
+    return TRUE;
+}
+
 _Use_decl_annotations_
 VOID NTAPI AudEvtCircuitRequestPreprocess(ACXOBJECT Object, ACXCONTEXT DriverContext, WDFREQUEST Request)
 {
@@ -260,6 +446,9 @@ VOID NTAPI AudEvtCircuitRequestPreprocess(ACXOBJECT Object, ACXCONTEXT DriverCon
     ACX_REQUEST_PARAMETERS_INIT(&P);
     AcxRequestGetParameters(Request, &P);
     AudReqInspect(Dev, 'C', &P);
+    if (AudKsOverride(Dev, Request, &P)) {
+        return;                                                            /* completed by the driver */
+    }
     Status = AcxCircuitDispatchAcxRequest((ACXCIRCUIT)Object, Request);   /* the request belongs to ACX from here on */
     AudReqLog(Dev, 'C', &P, "disp", Status, 0);
 }

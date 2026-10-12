@@ -55,6 +55,7 @@ HKR,Parameters,AmpEnable,0x00010003,1
 HKR,Parameters,AboxEnable,0x00010003,1
 HKR,Parameters,HwVolume,0x00010003,0
 HKR,Parameters,Stereo,0x00010003,0
+HKR,Parameters,KsOverride,0x00010003,1
 
 [Audio_Device.NT.Wdf]
 KmdfService = Exynos9820Audio,Audio_Wdf

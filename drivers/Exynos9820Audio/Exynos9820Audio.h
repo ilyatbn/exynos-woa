@@ -92,6 +92,7 @@ typedef struct _AUD_CONFIG {
     ULONG AboxEnable;   /* 1 (default): ABOX stage 1 + RDMA0 on stream start (boot #99 sequence) */
     ULONG HwVolume;     /* 0 (default): volume + mute elements applied in software by the driver; 1 = on the amp registers */
     ULONG Stereo;       /* 0 (default): mono (L+R)/2 on the loudspeaker only; 1 = L on the earpiece amp (untested) */
+    ULONG KsOverride;   /* 1 (default, A7): the driver answers host-pin DATAINTERSECTION / PROPOSEDATAFORMAT (ReqLog.c) */
 } AUD_CONFIG, *PAUD_CONFIG;
 
 /* ======================================================================
@@ -176,6 +177,7 @@ typedef struct _AUD_DEVICE_CONTEXT {
 
     ACXCIRCUIT  Render;
     BOOLEAN     CircuitAdded;
+    ULONG       HostPinId;      /* ACX id of the streaming (host) pin, set when the circuit is built */
 
     volatile LONG ReqLogged;    /* ReqLog.c: KS request lines logged so far (capped) */
     volatile LONG FmtLogged;    /* ReqLog.c: PROPOSEDATAFORMAT formats decoded so far (capped) */
@@ -271,6 +273,7 @@ VOID AudLog(_In_opt_ PAUD_RUNLOG Log, _In_z_ _Printf_format_string_ PCSTR Fmt, .
 _IRQL_requires_(PASSIVE_LEVEL) VOID AudLogFlush(_In_opt_ PAUD_RUNLOG Log);
 
 /* Render.c */
+const KSDATAFORMAT_WAVEFORMATEXTENSIBLE *AudHostFormat(_In_ ULONG Bits);
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS AudRenderCircuitCreate(_In_ WDFDEVICE Device, _In_ PAUD_DEVICE_CONTEXT Dev);
 VOID AudSwVolumeInit(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ LONG LevelKs);
 

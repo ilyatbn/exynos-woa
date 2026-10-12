@@ -53,6 +53,7 @@ static VOID AudReadConfig(_In_ WDFDRIVER Driver)
         { L"AboxEnable", FIELD_OFFSET(AUD_CONFIG, AboxEnable) },
         { L"HwVolume",   FIELD_OFFSET(AUD_CONFIG, HwVolume) },
         { L"Stereo",     FIELD_OFFSET(AUD_CONFIG, Stereo) },
+        { L"KsOverride", FIELD_OFFSET(AUD_CONFIG, KsOverride) },
     };
     WDFKEY         Key;
     UNICODE_STRING Name;
@@ -64,6 +65,7 @@ static VOID AudReadConfig(_In_ WDFDRIVER Driver)
     g_Cfg.AboxEnable = 1;
     g_Cfg.HwVolume   = 0;
     g_Cfg.Stereo     = 0;
+    g_Cfg.KsOverride = 1;
 
     if (!NT_SUCCESS(WdfDriverOpenParametersRegistryKey(Driver, KEY_READ, WDF_NO_OBJECT_ATTRIBUTES, &Key))) {
         return;

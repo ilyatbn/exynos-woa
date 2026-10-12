@@ -255,3 +255,14 @@ proven). Still GetMixFormat / EndpointVolume Activate 0x80070032 (state 1).
   "disp" (dispatch return, not completion); every Pin.14 PROPOSEDATAFORMAT set on a pin is decoded before ACX gets it
   (`fmt C #n set pin#k: size .. flags .. sub {..} spec {..} EXT ch Hz bits/valid align avg mask sub` or the
   WAVEFORMATEX / no-wave variants; first 48). Build exit 0.
+- T10: Parameters\KsOverride (default 1, INF NOCLOBBER, Driver.c AudReadConfig). The circuit hook completes two
+  host-pin properties itself (pin id from AcxPinGetId(Pins[0]), logged "circuit: host pin id .."):
+  DATAINTERSECTION get (walk KSMULTIPLE_ITEM ranges, 8-byte aligned, skip attribute lists; first range admitting
+  48 kHz/2 ch/16 (else 32) bit PCM; ValueCb 0 -> STATUS_BUFFER_OVERFLOW + Information 104; < 104 -> BUFFER_TOO_SMALL;
+  else copy AudFormatPcm16/32 (Render.c AudHostFormat), SUCCESS, 104; no range -> STATUS_NO_MATCH; each range logged
+  "ks: intersection range ..") and PROPOSEDATAFORMAT set with a WAVEFORMATEX header (SUCCESS only for 48 kHz stereo
+  16/32-bit PCM, tag PCM or EXTENSIBLE/PCM with valid = container bits and mask 0/3; else NO_MATCH; formats without a
+  wave header still go to ACX). Completion with WdfRequestCompleteWithInformation as in the ACX sample's
+  CircuitHelper.cpp:615-618; logged as `req c ... done <status> info <n>`. Sizes checked against the a6 log:
+  sizeof(KSDATAFORMAT_WAVEFORMATEXTENSIBLE) = 104 (= ACX default-format get), KSDATARANGE_AUDIO 84 -> 88 aligned, 2
+  ranges + header = 184 (= DATARANGES/intersection control). Build exit 0.

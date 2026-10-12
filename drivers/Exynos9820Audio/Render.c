@@ -62,6 +62,12 @@ static KSDATAFORMAT_WAVEFORMATEXTENSIBLE AudFormatPcm32 = {
     }
 };
 
+/* The pin's formats for ReqLog.c's intersection: 32 -> AudFormatPcm32, anything else -> AudFormatPcm16. */
+const KSDATAFORMAT_WAVEFORMATEXTENSIBLE *AudHostFormat(_In_ ULONG Bits)
+{
+    return (Bits == 32) ? &AudFormatPcm32 : &AudFormatPcm16;
+}
+
 EVT_ACX_CIRCUIT_CREATE_STREAM        AudEvtCircuitCreateStream;
 EVT_ACX_STREAM_PREPARE_HARDWARE      AudEvtStreamPrepareHardware;
 EVT_ACX_STREAM_RELEASE_HARDWARE      AudEvtStreamReleaseHardware;
@@ -428,7 +434,10 @@ NTSTATUS AudRenderCircuitCreate(_In_ WDFDEVICE Device, _In_ PAUD_DEVICE_CONTEXT 
 
     Status = AcxCircuitAddPins(Circuit, Pins, ARRAYSIZE(Pins));
     if (NT_SUCCESS(Status)) {
-        Dev->Render = Circuit;
+        Dev->Render    = Circuit;
+        Dev->HostPinId = AcxPinGetId(Pins[0]);
+        AudLog(Dev->Log, "circuit: host pin id %lu, bridge pin id %lu, KsOverride %lu\r\n", Dev->HostPinId,
+               AcxPinGetId(Pins[1]), Dev->Cfg.KsOverride);
     }
 
     return Status;

@@ -39,3 +39,17 @@ one more escan proves the firmware is still alive and usable. Teardown: D0Exit (
   - The "not synced" line is now logged once per item, with fw w/r indices and the raw 24 B, plus a "synced
     after N stalled polls" line.
   - Build wifi-m5b, sys 4DADE1BC….
+- **Run m5-2 (03:03, 1.0.5.1, invalidate on): the stall is gone.**
+  - PrepareHardware SCAN 0 (10 BSS) + RESIDENT; at t = 30 s the resident rescan gave SCAN 0, 10 BSS, 24 escan
+    events, 51 events total (D2H ctrl ring well past lap 2), with no unsynced item.
+  - **Root cause: the WDF common buffer is CPU-cached and device writes do not update CPU caches**, so a line
+    the CPU read in lap 1 stays stale in lap 2. Lap 1 worked only because the lines were not yet cached.
+  - Hazard check: the boot after m5-1's hard reset with the fw live has a complete UEFILOG (1274 lines, normal
+    end), and that cycle returned normally.
+  - Open: why CPU-written H2D items reach the device without a clean (ioctls and H2D wrap all worked). Either
+    device reads snoop or the lines got evicted. Not something to rely on.
+- Next (1.0.5.2): full cache maintenance replaces the experiment.
+  - Clean H2D rings + ioctl request before each doorbell.
+  - Invalidate the D2H rings and the response/event buffers before reading.
+  - Clean the whole buffer once after zeroing.
+  - The CPU never writes device-written regions after that clean, so invalidate cannot drop data.

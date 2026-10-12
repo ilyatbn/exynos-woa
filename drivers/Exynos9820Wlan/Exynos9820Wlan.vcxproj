@@ -61,6 +61,7 @@
     <ClCompile Include="WlanProbe.c" />
     <ClCompile Include="WlanDl.c" />
     <ClCompile Include="WlanMsg.c" />
+    <ClCompile Include="WlanSup.c" />
     <ClInclude Include="Exynos9820Wlan.h" />
     <ResourceCompile Include="resource.rc" />
     <Inf Include="Exynos9820Wlan.inx">

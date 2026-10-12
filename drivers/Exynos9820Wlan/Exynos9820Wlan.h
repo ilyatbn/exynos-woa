@@ -57,7 +57,7 @@
 /* Report sinks (README.md "Reading the result"). */
 /* Not Windows\Temp: that directory's index was corrupt on this unit (notes/m12-touch.md run 6). */
 #define WLAN_REPORT_FILE            L"\\SystemRoot\\System32\\LogFiles\\Exynos9820Wlan.txt"
-#define WLAN_REPORT_MAX             16384
+#define WLAN_REPORT_MAX             32766          /* M7: was 16384; x2 as UTF-16 must stay <= 65535 B (Report REG_SZ) */
 #define WLAN_RUN_REPORT_FILE        L"\\SystemRoot\\System32\\LogFiles\\Exynos9820Wlan-run.txt"
 #define WLAN_POLL_MS                100            /* milestone 5 D2H poll period (no interrupt yet) */
 
@@ -403,6 +403,7 @@
 #define WLC_E_STATUS_PARTIAL        8              /* dhd bcmevent.h:330 */
 #define WL_EVENTING_MASK_LEN        16             /* dhd wlioctl_defs.h:1438 */
 #define WLC_UP                      2              /* fmac fwil.h:15 BRCMF_C_UP */
+#define WLC_DOWN                    3              /* dhd wlioctl_defs.h:605, fmac fwil.h:16 BRCMF_C_DOWN */
 #define WLC_SET_VAR                 263            /* fmac fwil.h:81 BRCMF_C_SET_VAR */
 /* escan request v1: brcmf_escan_params_le (fmac fwil_types.h:460) + brcmf_scan_params_le (:368) */
 #define ESCAN_VERSION               0              /* u32 */
@@ -504,5 +505,129 @@
 #define SCAN_TIMEOUT                2
 #define SCAN_SKIPPED                3
 #define SCAN_FW_STATUS              4
+
+/* ---- milestone 7a: msgbuf data path (notes/m12-wifi-m7.md "Protocol facts - M7a"; dhd = bcmdhd
+   include/bcmmsgbuf.h + dhd_msgbuf.c, fmac = brcmfmac msgbuf.c) ---- */
+#define MSG_TYPE_FLOW_RING_CREATE       0x03       /* bcmmsgbuf.h:162 */
+#define MSG_TYPE_FLOW_RING_CREATE_CMPLT 0x04       /* :163 */
+#define MSG_TYPE_TX_POST                0x0F       /* :178 */
+#define MSG_TYPE_TX_STATUS              0x10       /* :179 */
+#define MSG_TYPE_RXBUF_POST             0x11       /* :180 */
+#define MSG_TYPE_RX_CMPLT               0x12       /* :181 */
+/* tx_flowring_create_request_t (bcmmsgbuf.h:439-455), 40 B on the H2D control ring */
+#define FLOWC_DA                    8              /* u8[6] */
+#define FLOWC_SA                    14             /* u8[6] */
+#define FLOWC_TID                   20
+#define FLOWC_IF_FLAGS              21
+#define FLOWC_RING_ID               22             /* u16 = flowid */
+#define FLOWC_TC                    24
+#define FLOWC_MAX_ITEMS             28             /* u16 */
+#define FLOWC_LEN_ITEM              30             /* u16 */
+#define FLOWC_RING_PTR              32             /* bcm_addr64_t */
+#define FLOWRING_FIRST_ID           2              /* DHD_FLOWRING_START_FLOWID dhd_msgbuf.c:260 */
+#define H2D_TXPOST_ITEMSIZE         48             /* H2DRING_TXPOST_ITEMSIZE bcmmsgbuf.h:47 */
+#define H2D_TXPOST_MAX_ITEM         512            /* H2DRING_TXPOST_MAX_ITEM bcmmsgbuf.h:63, dhd_msgbuf.c:438 */
+/* host_txbuf_post_t (bcmmsgbuf.h:966-997), 48 B */
+#define TXP_ETHHDR                  8              /* txhdr[ETHER_HDR_LEN] */
+#define TXP_FLAGS                   22
+#define TXP_SEG_CNT                 23
+#define TXP_META_ADDR               24             /* bcm_addr64_t */
+#define TXP_DATA_ADDR               32             /* bcm_addr64_t: payload after the 14 B header */
+#define TXP_META_LEN                40             /* u16 */
+#define TXP_DATA_LEN                42             /* u16 */
+#define PKT_FLAGS_FRAME_802_3       0x01           /* BCMPCIE_PKT_FLAGS_FRAME_802_3 bcmmsgbuf.h:999 */
+#define PKT_FLAGS_FRAME_802_11      0x02           /* BCMPCIE_PKT_FLAGS_FRAME_802_11 bcmmsgbuf.h:1000 */
+#define PKT_FLAGS_FRAME_MASK        0x07           /* fmac msgbuf.c:64 */
+#define PKT_FLAGS_PRIO_SHIFT        5              /* bcmmsgbuf.h:1019 */
+/* host_txbuf_cmpl_t (bcmmsgbuf.h:1046-1080), 24 B: status @8 (CPL_STATUS), flowring @10 */
+#define TXC_TX_STATUS               14             /* u16 */
+/* host_rxbuf_post_t (bcmmsgbuf.h:905-918), 32 B */
+#define RXP_META_LEN                8              /* u16 */
+#define RXP_DATA_LEN                10             /* u16 */
+#define RXP_META_ADDR               16             /* bcm_addr64_t */
+#define RXP_DATA_ADDR               24             /* bcm_addr64_t */
+/* host_rxbuf_cmpl_t (bcmmsgbuf.h:926-959), 40 B: status @8, ring id @10 */
+#define RXC_META_LEN                12             /* u16 */
+#define RXC_DATA_LEN                14             /* u16 */
+#define RXC_DATA_OFFSET             16             /* u16 */
+#define RXC_FLAGS                   18             /* u16 */
+#define ETH_HLEN                    14             /* ETHER_HDR_LEN */
+#define ETH_TYPE_EAPOL              0x888E         /* ETHER_TYPE_802_1X, dhd include/ethernet.h:87 */
+/* Host data buffers: one 2 KB buffer per packet (fmac BRCMF_MSGBUF_MAX_PKT_SIZE msgbuf.c:56). Counts are
+   host choices: 64 tx, 128 rx (fewer when pcie_shared max_host_rxbufs says so). */
+#define DATA_BUF_SIZE               2048
+#define TX_BUF_COUNT                64
+#define RX_BUF_COUNT                128
+#define RX_PKTID0                   0x3000         /* host-chosen ids, distinct from the M3/M4 ranges */
+#define TX_PKTID0                   0x4000
+/* Second common buffer (data path), 4 KB aligned regions */
+#define DAT_OFF_FLOWRING            0x00000        /* 512 x 48 = 0x6000 */
+#define DAT_OFF_TXBUF               0x06000        /* 64 x 2048 = 0x20000 */
+#define DAT_OFF_RXBUF               0x26000        /* 128 x 2048 = 0x40000 */
+#define DAT_DMA_SIZE                0x66000
+#define FLOW_CREATE_TIMEOUT_MS      2000
+/* ---- milestone 7b: host WPA2-PSK 4-way handshake (notes/m12-wifi-m7.md "Protocol facts - M7b";
+   hostap = wpa_supplicant src/common/wpa_common.h, dhd = bcmdhd) ---- */
+#define EAPOL_VERSION_TX            1              /* wpa_supplicant DEFAULT_EAPOL_VERSION */
+#define EAPOL_TYPE_KEY              3              /* IEEE802_1X_TYPE_EAPOL_KEY */
+#define EAPOL_KEY_DESC_RSN          2              /* EAPOL_KEY_TYPE_RSN */
+#define EK_DESC                     4              /* offsets from the EAPOL header (struct wpa_eapol_key */
+#define EK_INFO                     5              /*  wpa_common.h:246-257 + 16 B MIC + 2 B length) */
+#define EK_KEYLEN                   7
+#define EK_REPLAY                   9
+#define EK_NONCE                    17
+#define EK_IV                       49
+#define EK_RSC                      65
+#define EK_MIC                      81
+#define EK_DATALEN                  97
+#define EK_DATA                     99
+#define EK_FIXED_BODY               95             /* key descriptor without key data */
+#define KI_VER_MASK                 0x0007         /* WPA_KEY_INFO_TYPE_MASK wpa_common.h:226 */
+#define KI_VER_HMAC_SHA1_AES        0x0002         /* :229 */
+#define KI_PAIRWISE                 0x0008         /* :231 */
+#define KI_KEYIDX_MASK              0x0030         /* :233 */
+#define KI_INSTALL                  0x0040         /* :235 */
+#define KI_ACK                      0x0080         /* :237 */
+#define KI_MIC                      0x0100         /* :238 */
+#define KI_SECURE                   0x0200         /* :239 */
+#define KI_ERROR                    0x0400         /* :240 */
+#define KI_REQUEST                  0x0800         /* :241 */
+#define KI_ENCR_DATA                0x1000         /* :242 */
+#define RSN_IE_ID                   48             /* DOT11_MNG_RSN_ID dhd 802.11.h:1450 */
+#define RSN_IE_MAX                  64
+#define RSN_SUITE_CCMP              4              /* 00-0F-AC-04 wpa_common.h:124 */
+#define RSN_AKM_PSK_SUITE           2              /* 00-0F-AC-02 wpa_common.h:84 */
+#define RSN_CAP_MFPR                0x0040         /* wpa_common.h:194 */
+#define KDE_GTK                     1              /* RSN_KEY_DATA_GROUPKEY wpa_common.h:144 */
+#define BSS_IE_OFFSET               116            /* wl_bss_info_v109 ie_offset u16 (dhd wlioctl.h:417) */
+#define BSS_IE_LENGTH               120            /* ie_length u32 (:419) */
+/* wl_wsec_key_t (dhd wlioctl.h:1513-1533), sent with the "wsec_key" iovar (dhd wl_cfg80211.c:6906) */
+#define WSK_INDEX                   0
+#define WSK_LEN                     4
+#define WSK_DATA                    8
+#define WSK_ALGO                    112
+#define WSK_FLAGS                   116
+#define WSK_IV_INIT                 132
+#define WSK_RXIV_HI                 140
+#define WSK_RXIV_LO                 144
+#define WSK_EA                      156
+#define WSK_SIZE                    164
+#define CRYPTO_ALGO_AES_CCM         4              /* dhd wlioctl_defs.h:420 */
+#define WL_PRIMARY_KEY              0x0002         /* dhd wlioctl_defs.h:473 */
+#define WL_ASSOC_INFO_MAX           512            /* dhd buffer for "assoc_info" (wl_cfg80211.c:15040) */
+#define MSG4_TX_WAIT_MS             1000           /* dhd_wait_pend8021x before the pairwise key */
+#define JOIN_HANDSHAKE_FAILED       5
+#define JOIN_NOT_FOUND              6
+#define HS_IDLE                     0
+#define HS_SENT_M2                  1
+#define HS_DONE                     2
+#define HS_FAILED                   3
+
+/* WlanMsgTx results */
+#define TX_OK                       0
+#define TX_NO_FLOWRING              1
+#define TX_NO_BUFFER                2
+#define TX_BAD_LENGTH               3
+#define TX_RING_FULL                4
 
 #endif /* _EXYNOS9820_WLAN_H */

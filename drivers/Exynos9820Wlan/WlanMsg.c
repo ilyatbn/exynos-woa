@@ -21,6 +21,7 @@
 #include <bcrypt.h>
 #include "WlanDl.h"
 #include "WlanMsg.h"
+#include "WlanSup.h"
 
 typedef struct _MSG_RING {
     ULONG   Id;
@@ -31,6 +32,9 @@ typedef struct _MSG_RING {
     ULONG   RIdxAddr;       /* TCM address of the read index slot */
     ULONG   Host;           /* host-side index: write index (H2D) / read index (D2H) */
     ULONG   Seq;            /* epoch sequence */
+    PMDL    Mdl;            /* M7a: D2H ring = invalidate before reads; flowring = clean before the doorbell */
+    ULONG   LastUnsynced;   /* ring index + 1 of the last "not synced" report (log once per item) */
+    ULONG   Unsynced;       /* polls that stopped on an unsynced item */
 } MSG_RING, *PMSG_RING;
 
 typedef struct _MSG_STATE {
@@ -41,7 +45,7 @@ typedef struct _MSG_STATE {
     MSG_RING            Ring[RING_COMMON_COUNT];
     ULONG               Db0;
     ULONG               Db1;
-    UCHAR               Resp[256];
+    UCHAR               Resp[1024];     /* M7b: 256 -> 1024 for "assoc_req_ies" */
     ULONG               RespLen;
     LONG                RespStatus;
     BOOLEAN             Acked;
@@ -70,11 +74,60 @@ typedef struct _MSG_STATE {
     PMDL                MdlAll;         /* whole buffer: one clean after zeroing */
     PMDL                MdlH2d;         /* H2D ctrl + rxpost rings (clean before a doorbell) */
     PMDL                MdlReq;         /* ioctl request buffer (clean before a doorbell) */
-    PMDL                MdlD2h;         /* D2H ctrl/tx/rx completion rings (invalidate before reading) */
     PMDL                MdlBufs;        /* ioctl response + event buffers (invalidate before reading) */
-    ULONG               LastUnsynced;   /* ring index + 1 of the last "not synced" report (log once per item) */
-    ULONG               Unsynced;       /* polls that stopped on an unsynced item */
+    /* (M7a: the D2H completion rings each carry their own MDL in MSG_RING.Mdl instead of one MdlD2h) */
+    /* ---- milestone 7a data path (notes/m12-wifi-m7.md); valid when DataOn ---- */
+    BOOLEAN             DataOn;         /* second common buffer mapped, rx buffers posted */
+    PUCHAR              DVa;            /* data common buffer, DAT_OFF_* map */
+    ULONGLONG           DLa;
+    ULONG               H2dWBase;       /* ring_info h2d_w/r_idx_ptr: flowring slots continue after ring 1 */
+    ULONG               H2dRBase;
+    ULONG               MaxFlowrings;   /* ring_info max_tx_flowrings */
+    UCHAR               Mac[6];         /* cur_etheraddr (flowring SA) */
+    MSG_RING            Flow;           /* the one tx flowring (flowid FLOWRING_FIRST_ID), when FlowOpen */
+    BOOLEAN             FlowRequested;
+    BOOLEAN             FlowOpen;
+    LONG                FlowStatus;     /* FLOW_RING_CREATE_CMPLT status, -1 = none yet */
+    UCHAR               FlowDa[6];
+    BOOLEAN             TxBusy[TX_BUF_COUNT];
+    ULONG               TxNext;
+    ULONG               RxCount;        /* rx buffers in use (posted once at start, reposted on completion) */
+    PMDL                MdlData;        /* whole data buffer: one clean after zeroing */
+    PMDL                MdlTx[TX_BUF_COUNT];
+    PMDL                MdlRx[RX_BUF_COUNT];
+    ULONG               TxPosted, TxDone, TxErrors, RxFrames, RxEapol, RxBad, RxLost, TxLogged, RxLogged;
+    WLAN_RX_FN         *RxFn;
+    PVOID               RxCtx;
+    /* EAPOL frame for the handshake (M7b): the latest one, copied out of its rx buffer */
+    UCHAR               Eapol[512];
+    ULONG               EapolLen;
+    BOOLEAN             EapolPending;
+    ULONG               TxLastIndex;    /* tx buffer of the last TxFrame (M7b waits for msg 4's completion) */
+    /* ---- milestone 7b host supplicant (WPA2-PSK, CCMP) ---- */
+    UCHAR               Pmk[PMK_LEN];
+    UCHAR               TargetSsid[32];
+    ULONG               TargetSsidLen;  /* != 0: EscanResult records the target's BSSID + RSN IE */
+    UCHAR               ApBssid[6];
+    LONG                ApRssi;
+    UCHAR               ApRsn[RSN_IE_MAX];
+    ULONG               ApRsnLen;
+    UCHAR               OwnRsn[RSN_IE_MAX];   /* the RSN IE of our assoc request = msg 2 key data */
+    ULONG               OwnRsnLen;
+    BOOLEAN             AssocIesRead;
+    UCHAR               Aa[6];          /* authenticator address = source of msg 1 */
+    UCHAR               ANonce[SUP_NONCE_LEN];
+    UCHAR               SNonce[SUP_NONCE_LEN];
+    UCHAR               Ptk[SUP_PTK_LEN];
+    BOOLEAN             PtkSet;
+    UCHAR               Replay[8];      /* last replay counter of a MIC-verified frame */
+    BOOLEAN             ReplaySet;
+    ULONG               Hs;             /* HS_* */
+    ULONG               GtkIdx;
+    ULONG               Rekeys;
+    BOOLEAN             Authorized;     /* keys installed and the link not lost since */
 } MSG_STATE, *PMSG_STATE;
+
+static VOID SupEapol(_Inout_ PMSG_STATE S);   /* M7b host supplicant, defined with WlanMsgJoin */
 
 static ULONG
 Tcm32(_In_ PMSG_STATE S, _In_ ULONG Addr)
@@ -141,17 +194,44 @@ RegionMdl(_In_ PMSG_STATE S, _In_ ULONG Off, _In_ ULONG Len)
 }
 
 static VOID
+MdlFree(_Inout_ PMDL *Mdl)
+{
+    if (*Mdl != NULL) {
+        IoFreeMdl(*Mdl);
+        *Mdl = NULL;
+    }
+}
+
+static VOID
 RegionMdlsFree(_Inout_ PMSG_STATE S)
 {
-    PMDL *All[] = { &S->MdlAll, &S->MdlH2d, &S->MdlReq, &S->MdlD2h, &S->MdlBufs };
+    PMDL *All[] = { &S->MdlAll, &S->MdlH2d, &S->MdlReq, &S->MdlBufs, &S->MdlData, &S->Flow.Mdl };
     ULONG I;
 
     for (I = 0; I < ARRAYSIZE(All); I++) {
-        if (*All[I] != NULL) {
-            IoFreeMdl(*All[I]);
-            *All[I] = NULL;
-        }
+        MdlFree(All[I]);
     }
+    for (I = 0; I < RING_COMMON_COUNT; I++) {
+        MdlFree(&S->Ring[I].Mdl);
+    }
+    for (I = 0; I < TX_BUF_COUNT; I++) {
+        MdlFree(&S->MdlTx[I]);
+    }
+    for (I = 0; I < RX_BUF_COUNT; I++) {
+        MdlFree(&S->MdlRx[I]);
+    }
+}
+
+/* MDL over Len bytes of the data common buffer (RegionMdl is over the control buffer). */
+static PMDL
+DataMdl(_In_ PMSG_STATE S, _In_ ULONG Off, _In_ ULONG Len)
+{
+    PMDL Mdl = IoAllocateMdl(S->DVa + Off, Len, FALSE, FALSE, NULL);
+
+    if (Mdl != NULL) {
+        MmBuildMdlForNonPagedPool(Mdl);
+    }
+    return Mdl;
 }
 
 static PUCHAR
@@ -160,32 +240,40 @@ RingItem(_In_ PMSG_STATE S, _In_ PMSG_RING G, _In_ ULONG Index)
     return S->Va + G->Off + Index * G->ItemSize;
 }
 
-/* Fill the next H2D control item (40 B) and advance the host write index (written to TCM by the caller).
-   NULL when the ring stays full for 100 ms (the firmware has not consumed what was posted). */
+/* Fill the next item of an H2D ring and advance the host write index (written to TCM by the commit).
+   Base = the buffer the ring lives in (control buffer, or the data buffer for the flowring). NULL when the
+   ring stays full for MaxWaitMs (the firmware has not consumed what was posted). */
 static PUCHAR
-H2dCtrlNext(_Inout_ PMSG_STATE S, _In_ UCHAR Type, _In_ ULONG RequestId)
+H2dNext(_Inout_ PMSG_STATE S, _Inout_ PMSG_RING G, _In_ PUCHAR Base, _In_ UCHAR Type, _In_ ULONG RequestId,
+        _In_ ULONG MaxWaitMs)
 {
-    PMSG_RING G = &S->Ring[RING_H2D_CTRL];
-    PUCHAR    It;
-    ULONG     Tries;
+    PUCHAR It;
+    ULONG  Tries;
 
     for (Tries = 0; ((G->Host + 1) % G->MaxItem) == Tcm16(S, G->RIdxAddr); Tries++) {
-        if (Tries == 100) {
-            ReportLine(S->R, "[msg] H2D ctrl ring full (w %lu r %u)\r\n", G->Host, Tcm16(S, G->RIdxAddr));
+        if (Tries >= MaxWaitMs) {
+            ReportLine(S->R, "[msg] H2D ring %lu full (w %lu r %u)\r\n", G->Id, G->Host, Tcm16(S, G->RIdxAddr));
             return NULL;
         }
         KeStallExecutionProcessor(1000);
     }
-    It = RingItem(S, G, G->Host);
+    It = Base + G->Off + G->Host * G->ItemSize;
     RtlZeroMemory(It, G->ItemSize);
     It[MSGH_TYPE]  = Type;
     It[MSGH_IFID]  = 0;
     It[MSGH_FLAGS] = 0;   /* no phase bit, as fmac brcmf_msgbuf_tx_ioctl: wrapping needs only the full check */
-    It[MSGH_EPOCH] = (UCHAR)(G->Seq % EPOCH_MODULO);
+    It[MSGH_EPOCH] = (UCHAR)(G->Seq % EPOCH_MODULO);   /* dhd :9329 / txpost the same */
     G->Seq++;
     *(ULONG UNALIGNED *)(It + MSGH_REQUEST_ID) = RequestId;
     G->Host = (G->Host + 1) % G->MaxItem;
     return It;
+}
+
+/* Fill the next H2D control item (40 B). */
+static PUCHAR
+H2dCtrlNext(_Inout_ PMSG_STATE S, _In_ UCHAR Type, _In_ ULONG RequestId)
+{
+    return H2dNext(S, &S->Ring[RING_H2D_CTRL], S->Va, Type, RequestId, 100);
 }
 
 static VOID
@@ -242,6 +330,26 @@ EscanResult(_Inout_ PMSG_STATE S, _In_reads_bytes_(Len) const UCHAR *D, _In_ ULO
             ReportLine(S->R, "[scan] bss_info length %lu at %lu of %lu - stop parsing this event\r\n", BLen, Off, Len);
             return;
         }
+        /* M7b: the join target's BSSID + RSN IE (strongest BSS with that SSID) */
+        if (S->TargetSsidLen != 0 && SsidLen == S->TargetSsidLen &&
+            RtlCompareMemory(B + BSS_SSID, S->TargetSsid, SsidLen) == SsidLen &&
+            (S->ApRsnLen == 0 || *(const SHORT UNALIGNED *)(B + BSS_RSSI) > S->ApRssi)) {
+            ULONG IeOff = *(const USHORT UNALIGNED *)(B + BSS_IE_OFFSET);
+            ULONG IeLen = *(const ULONG UNALIGNED *)(B + BSS_IE_LENGTH);
+            ULONG P;
+
+            if (IeOff >= BSS_INFO_MIN_LEN && IeOff <= BLen && IeLen <= BLen - IeOff) {
+                for (P = IeOff; P + 2 <= IeOff + IeLen && P + 2 + B[P + 1] <= IeOff + IeLen; P += 2 + B[P + 1]) {
+                    if (B[P] == RSN_IE_ID && 2 + B[P + 1] <= RSN_IE_MAX) {
+                        RtlCopyMemory(S->ApRsn, B + P, 2 + B[P + 1]);
+                        S->ApRsnLen = 2 + B[P + 1];
+                        RtlCopyMemory(S->ApBssid, B + BSS_BSSID, 6);
+                        S->ApRssi = *(const SHORT UNALIGNED *)(B + BSS_RSSI);
+                        break;
+                    }
+                }
+            }
+        }
         for (J = 0; J < S->BssCount && RtlCompareMemory(S->Bss[J], B + BSS_BSSID, 6) != 6; J++) {
         }
         if (J == S->BssCount && S->BssCount < SCAN_MAX_BSS) {
@@ -280,9 +388,12 @@ EventPacket(_Inout_ PMSG_STATE S, _In_reads_bytes_(Len) const UCHAR *P, _In_ ULO
     if (DataLen > Len - EVT_DATA) {
         DataLen = Len - EVT_DATA;
     }
-    if (S->Joining && (Type == WLC_E_SET_SSID || Type == WLC_E_AUTH || Type == WLC_E_ASSOC || Type == WLC_E_LINK ||
-                       Type == WLC_E_PSK_SUP || Type == WLC_E_DEAUTH_IND || Type == WLC_E_DISASSOC_IND)) {
-        USHORT Flags = (USHORT)((P[EVT_FLAGS] << 8) | P[EVT_FLAGS + 1]);
+    if ((S->Joining || S->Authorized) &&
+        (Type == WLC_E_SET_SSID || Type == WLC_E_AUTH || Type == WLC_E_ASSOC || Type == WLC_E_LINK ||
+         Type == WLC_E_PSK_SUP || Type == WLC_E_DEAUTH_IND || Type == WLC_E_DISASSOC_IND)) {
+        USHORT  Flags = (USHORT)((P[EVT_FLAGS] << 8) | P[EVT_FLAGS + 1]);
+        BOOLEAN Lost  = (Type == WLC_E_DEAUTH_IND || Type == WLC_E_DISASSOC_IND ||
+                         (Type == WLC_E_LINK && (Flags & WLC_EVENT_MSG_LINK) == 0));
 
         ReportLine(S->R, "[join] event %lu status %lu reason %lu flags 0x%04X addr %02X:%02X:%02X:%02X:%02X:%02X\r\n",
                    Type, Status, Be32(P + EVT_REASON), Flags, P[EVT_ADDR], P[EVT_ADDR + 1], P[EVT_ADDR + 2],
@@ -291,14 +402,15 @@ EventPacket(_Inout_ PMSG_STATE S, _In_reads_bytes_(Len) const UCHAR *P, _In_ ULO
             S->JoinSetSsid = (LONG)Status;
         } else if (Type == WLC_E_PSK_SUP) {
             S->JoinPskSup = (LONG)Status;
-        } else if (Type == WLC_E_LINK) {
-            if ((Flags & WLC_EVENT_MSG_LINK) != 0) {
-                S->JoinLinkUp = TRUE;
-            } else {
-                S->JoinLost = TRUE;
-            }
-        } else if (Type == WLC_E_DEAUTH_IND || Type == WLC_E_DISASSOC_IND) {
+        } else if (Type == WLC_E_LINK && !Lost) {
+            S->JoinLinkUp = TRUE;
+        }
+        if (Lost) {
             S->JoinLost = TRUE;
+            if (S->Authorized) {
+                S->Authorized = FALSE;   /* M7b: keys are gone with the association */
+                ReportLine(S->R, "[link] LOST after the handshake (event %lu reason %lu)\r\n", Type, Be32(P + EVT_REASON));
+            }
         }
         return;
     }
@@ -334,18 +446,136 @@ D2hItemReady(_In_ PMSG_STATE S, _In_ PMSG_RING G, _In_ PUCHAR It)
     return X == 0;
 }
 
-/* Drain the D2H control-complete ring once; returns the number of items consumed. */
-static ULONG
-D2hCtrlPoll(_Inout_ PMSG_STATE S)
+/* ---------------------------------------------------------------- milestone 7a: data path helpers */
+
+/* Write the host write index of an H2D ring to TCM and ring DB0 (dhd ringbell is the same for every H2D
+   ring, dhd_pcie.c:7786). Mdl = the region the CPU wrote (cleaned first). */
+static VOID
+H2dCommit(_Inout_ PMSG_STATE S, _In_ PMSG_RING G, _In_opt_ PMDL Mdl)
 {
-    PMSG_RING G = &S->Ring[RING_D2H_CTRL_CPL];
+    CacheClean(Mdl);
+    KeMemoryBarrier();
+    TcmW16(S, G->WIdxAddr, (USHORT)G->Host);
+    Doorbell(S, S->Db0);
+}
+
+/* RXBUF_POST (host_rxbuf_post_t, bcmmsgbuf.h:905-918) for data buffer I, no commit. */
+static BOOLEAN
+RxPost(_Inout_ PMSG_STATE S, _In_ ULONG I)
+{
+    PUCHAR    It = H2dNext(S, &S->Ring[RING_H2D_RXPOST], S->Va, MSG_TYPE_RXBUF_POST, RX_PKTID0 + I, 10);
+    ULONGLONG Ba = S->DLa + DAT_OFF_RXBUF + (ULONGLONG)I * DATA_BUF_SIZE;
+
+    if (It == NULL) {
+        return FALSE;
+    }
+    *(USHORT UNALIGNED *)(It + RXP_META_LEN)      = 0;   /* no metadata (fmac rx_metadata_offset 0) */
+    *(USHORT UNALIGNED *)(It + RXP_DATA_LEN)      = DATA_BUF_SIZE;
+    *(ULONG UNALIGNED *)(It + RXP_DATA_ADDR)      = (ULONG)Ba;
+    *(ULONG UNALIGNED *)(It + RXP_DATA_ADDR + 4)  = (ULONG)(Ba >> 32);
+    return TRUE;
+}
+
+/* RX_CMPLT (host_rxbuf_cmpl_t, bcmmsgbuf.h:926-959): data at data_offset (or dma_rxoffset when 0, fmac
+   msgbuf.c:1199-1203), data_len bytes; EAPOL frames are kept for the handshake, others go to RxFn. The
+   buffer is reposted either way (the frame is consumed during this call). */
+static VOID
+RxComplete(_Inout_ PMSG_STATE S, _In_ PUCHAR It, _Inout_ PBOOLEAN Repost)
+{
+    ULONG  Pkt   = *(ULONG UNALIGNED *)(It + MSGH_REQUEST_ID);
+    ULONG  I     = Pkt - RX_PKTID0;
+    ULONG  Len   = *(USHORT UNALIGNED *)(It + RXC_DATA_LEN);
+    ULONG  Off   = *(USHORT UNALIGNED *)(It + RXC_DATA_OFFSET);
+    ULONG  Flags = *(USHORT UNALIGNED *)(It + RXC_FLAGS);
+    LONG   St    = *(SHORT UNALIGNED *)(It + CPL_STATUS);
+    PUCHAR F;
+    ULONG  Type;
+
+    if (Pkt < RX_PKTID0 || I >= S->RxCount) {
+        S->RxBad++;
+        ReportLine(S->R, "[rx] completion for unknown pktid 0x%lX (status %ld)\r\n", Pkt, St);
+        return;
+    }
+    if (Off == 0) {
+        Off = S->RxOffset;
+    }
+    if (Off >= DATA_BUF_SIZE || Len > DATA_BUF_SIZE - Off || Len < ETH_HLEN ||
+        (Flags & PKT_FLAGS_FRAME_MASK) == PKT_FLAGS_FRAME_802_11 /* monitor frame, fmac :1205 */) {
+        S->RxBad++;
+        if (S->RxLogged++ < 16) {
+            ReportLine(S->R, "[rx] pktid 0x%lX dropped: len %lu offset %lu flags 0x%04lX status %ld\r\n", Pkt, Len, Off,
+                       Flags, St);
+        }
+    } else {
+        CacheInvalidate(S->MdlRx[I]);
+        F    = S->DVa + DAT_OFF_RXBUF + I * DATA_BUF_SIZE + Off;
+        Type = ((ULONG)F[12] << 8) | F[13];
+        S->RxFrames++;
+        if (S->RxLogged++ < 16) {
+            ReportLine(S->R, "[rx] #%lu len %lu off %lu if %u type 0x%04lX %02X:%02X:%02X:%02X:%02X:%02X -> "
+                       "%02X:%02X:%02X:%02X:%02X:%02X\r\n", S->RxFrames, Len, Off, It[MSGH_IFID], Type, F[6], F[7],
+                       F[8], F[9], F[10], F[11], F[0], F[1], F[2], F[3], F[4], F[5]);
+        }
+        if (Type == ETH_TYPE_EAPOL) {
+            S->RxEapol++;
+            if (Len <= sizeof(S->Eapol)) {
+                RtlCopyMemory(S->Eapol, F, Len);
+                S->EapolLen     = Len;
+                S->EapolPending = TRUE;
+            } else {
+                ReportLine(S->R, "[rx] EAPOL frame of %lu B exceeds %u - dropped\r\n", Len, (ULONG)sizeof(S->Eapol));
+            }
+        } else if (S->RxFn != NULL) {
+            S->RxFn(S->RxCtx, F, Len);
+        }
+    }
+    if (RxPost(S, I)) {
+        *Repost = TRUE;
+    } else {
+        /* cannot happen with <= 128 buffers on a 512-item ring; the buffer stays out of circulation (its
+           pktid stays valid, so a late completion for it is still recognised) */
+        S->RxLost++;
+        ReportLine(S->R, "[rx] repost of buffer %lu failed - %lu rx buffers lost\r\n", I, S->RxLost);
+    }
+}
+
+/* TX_STATUS (host_txbuf_cmpl_t, bcmmsgbuf.h:1046-1080): the tx buffer is free again. */
+static VOID
+TxStatus(_Inout_ PMSG_STATE S, _In_ PUCHAR It)
+{
+    ULONG Pkt = *(ULONG UNALIGNED *)(It + MSGH_REQUEST_ID);
+    ULONG I   = Pkt - TX_PKTID0;
+    LONG  St  = *(SHORT UNALIGNED *)(It + CPL_STATUS);
+
+    if (Pkt < TX_PKTID0 || I >= TX_BUF_COUNT || !S->TxBusy[I]) {
+        ReportLine(S->R, "[tx] status for unknown pktid 0x%lX (status %ld)\r\n", Pkt, St);
+        return;
+    }
+    S->TxBusy[I] = FALSE;
+    S->TxDone++;
+    if (St != 0) {
+        S->TxErrors++;
+    }
+    if (S->TxLogged < 32 || St != 0) {
+        S->TxLogged++;
+        ReportLine(S->R, "[tx] done pktid 0x%lX status %ld tx_status 0x%04X flowring %u (%lu done, %lu errors)\r\n",
+                   Pkt, St, *(USHORT UNALIGNED *)(It + TXC_TX_STATUS), *(USHORT UNALIGNED *)(It + CPL_RING_ID),
+                   S->TxDone, S->TxErrors);
+    }
+}
+
+/* Drain one D2H completion ring once (dhd dhd_prot_process_msgtype); returns the number of items consumed. */
+static ULONG
+D2hPoll(_Inout_ PMSG_STATE S, _In_ ULONG Ring)
+{
+    PMSG_RING G = &S->Ring[Ring];
     ULONG     W, Count = 0, Tries;
-    BOOLEAN   Repost = FALSE;
+    BOOLEAN   Repost = FALSE, RxRepost = FALSE;
 
     KeMemoryBarrier();
     W = Tcm16(S, G->WIdxAddr);
     if (W >= G->MaxItem) {
-        ReportLine(S->R, "[msg] D2H ctrl write index %lu out of range\r\n", W);
+        ReportLine(S->R, "[msg] D2H ring %lu write index %lu out of range\r\n", Ring, W);
         return 0;
     }
     while (G->Host != W) {
@@ -353,28 +583,28 @@ D2hCtrlPoll(_Inout_ PMSG_STATE S)
         UCHAR  Type;
 
         for (Tries = 0; Tries < 100; Tries++) {
-            CacheInvalidate(S->MdlD2h);
+            CacheInvalidate(G->Mdl);
             if (D2hItemReady(S, G, It)) {
                 break;
             }
             KeStallExecutionProcessor(10);
         }
         if (Tries == 100) {
-            S->Unsynced++;
-            if (S->LastUnsynced != G->Host + 1) {
+            G->Unsynced++;
+            if (G->LastUnsynced != G->Host + 1) {
                 const ULONG *Wd = (const ULONG *)It;
 
-                S->LastUnsynced = G->Host + 1;
-                ReportLine(S->R, "[msg] D2H item %lu not synced (epoch %u want %lu; fw w %u r %u; cache maint %u): "
-                           "%08lX %08lX %08lX %08lX %08lX %08lX\r\n", G->Host, It[MSGH_EPOCH], G->Seq % EPOCH_MODULO,
-                           Tcm16(S, G->WIdxAddr), Tcm16(S, G->RIdxAddr), S->MdlD2h != NULL, Wd[0], Wd[1], Wd[2],
+                G->LastUnsynced = G->Host + 1;
+                ReportLine(S->R, "[msg] D2H ring %lu item %lu not synced (epoch %u want %lu; fw w %u r %u; cache maint %u): "
+                           "%08lX %08lX %08lX %08lX %08lX %08lX\r\n", Ring, G->Host, It[MSGH_EPOCH], G->Seq % EPOCH_MODULO,
+                           Tcm16(S, G->WIdxAddr), Tcm16(S, G->RIdxAddr), G->Mdl != NULL, Wd[0], Wd[1], Wd[2],
                            Wd[3], Wd[4], Wd[5]);
             }
             break;
         }
-        if (S->LastUnsynced == G->Host + 1) {
-            ReportLine(S->R, "[msg] D2H item %lu synced after %lu stalled polls\r\n", G->Host, S->Unsynced);
-            S->LastUnsynced = 0;
+        if (G->LastUnsynced == G->Host + 1) {
+            ReportLine(S->R, "[msg] D2H ring %lu item %lu synced after %lu stalled polls\r\n", Ring, G->Host, G->Unsynced);
+            G->LastUnsynced = 0;
         }
         Type = It[MSGH_TYPE];
         switch (Type) {
@@ -423,13 +653,30 @@ D2hCtrlPoll(_Inout_ PMSG_STATE S)
             }
             break;
         }
+        case MSG_TYPE_FLOW_RING_CREATE_CMPLT: {   /* ring_create_response_t bcmmsgbuf.h:758-764 */
+            LONG  St = *(SHORT UNALIGNED *)(It + CPL_STATUS);
+            ULONG Id = *(USHORT UNALIGNED *)(It + CPL_RING_ID);
+
+            ReportLine(S->R, "[flow] FLOW_RING_CREATE_CMPLT status %ld flowid %lu\r\n", St, Id);
+            if (Id == FLOWRING_FIRST_ID) {
+                S->FlowStatus = St;
+                S->FlowOpen   = (St == 0);
+            }
+            break;
+        }
+        case MSG_TYPE_TX_STATUS:
+            TxStatus(S, It);
+            break;
+        case MSG_TYPE_RX_CMPLT:
+            RxComplete(S, It, &RxRepost);
+            break;
         case MSG_TYPE_GEN_STATUS:
         case MSG_TYPE_RING_STATUS:
             ReportLine(S->R, "[msg] %s status %d ring %u\r\n", (Type == MSG_TYPE_GEN_STATUS) ? "GEN" : "RING",
                        *(SHORT UNALIGNED *)(It + CPL_STATUS), *(USHORT UNALIGNED *)(It + CPL_RING_ID));
             break;
         default:
-            ReportLine(S->R, "[msg] D2H ctrl item type 0x%02X\r\n", Type);
+            ReportLine(S->R, "[msg] D2H ring %lu item type 0x%02X\r\n", Ring, Type);
             break;
         }
         G->Seq++;
@@ -443,7 +690,31 @@ D2hCtrlPoll(_Inout_ PMSG_STATE S)
     if (Repost) {
         H2dCtrlCommit(S);
     }
+    if (RxRepost) {
+        H2dCommit(S, &S->Ring[RING_H2D_RXPOST], S->MdlH2d);
+    }
     return Count;
+}
+
+/* The control-complete ring only (ioctl waits, escan, M3/M4 bring-up). */
+static ULONG
+D2hCtrlPoll(_Inout_ PMSG_STATE S)
+{
+    return D2hPoll(S, RING_D2H_CTRL_CPL);
+}
+
+/* All three completion rings (fmac brcmf_proto_msgbuf_rx_trigger order: rx, tx, ctrl). The data rings are
+   only drained once the data path is on (before that nothing is posted that could complete there). */
+static ULONG
+D2hPollAll(_Inout_ PMSG_STATE S)
+{
+    ULONG N = 0;
+
+    if (S->DataOn) {
+        N += D2hPoll(S, RING_D2H_RX_CPL);
+        N += D2hPoll(S, RING_D2H_TX_CPL);
+    }
+    return N + D2hPoll(S, RING_D2H_CTRL_CPL);
 }
 
 /* One IOCTLPTR_REQ (fmac brcmf_msgbuf_tx_ioctl: get and set differ only by Cmd): In[InLen] is copied to the
@@ -657,6 +928,215 @@ EscanRun(_Inout_ PMSG_STATE S)
     return Result;
 }
 
+/* Milestone 7a: second common buffer (tx flowring + tx/rx packet buffers), MDLs, rx buffers posted on the
+   H2D rxpost ring. FALSE = no data path (logged); the control path is unaffected. */
+static BOOLEAN
+DataInit(_Inout_ PMSG_STATE S, _Inout_ PWLAN_MSG_CTX M)
+{
+    WDFCOMMONBUFFER Db = NULL;
+    NTSTATUS        Status;
+    ULONG           I, Max;
+
+    ReportLine(S->R, "---- milestone 7a: msgbuf data path ----\r\n");
+    if (S->MaxFlowrings == 0 || !InRam(S, S->H2dWBase, RW_INDEX_SZ * (FLOWRING_FIRST_ID + 1)) ||
+        !InRam(S, S->H2dRBase, RW_INDEX_SZ * (FLOWRING_FIRST_ID + 1))) {
+        ReportLine(S->R, "DATA 1: no tx flowring available (max flowrings %lu)\r\n", S->MaxFlowrings);
+        return FALSE;
+    }
+    Status = WdfCommonBufferCreate(M->DmaEnabler, DAT_DMA_SIZE, WDF_NO_OBJECT_ATTRIBUTES, &Db);
+    if (!NT_SUCCESS(Status)) {
+        ReportLine(S->R, "DATA 2: WdfCommonBufferCreate(0x%X) 0x%08lX\r\n", DAT_DMA_SIZE, Status);
+        return FALSE;
+    }
+    S->DVa = (PUCHAR)WdfCommonBufferGetAlignedVirtualAddress(Db);
+    S->DLa = (ULONGLONG)WdfCommonBufferGetAlignedLogicalAddress(Db).QuadPart;
+    if ((S->DLa >> 32) != 0 || (S->DLa & 0xFFF) != 0) {
+        ReportLine(S->R, "DATA 2: data buffer 0x%I64X not 4 KB aligned below 4 GB\r\n", S->DLa);
+        goto Fail;
+    }
+    RtlZeroMemory(S->DVa, DAT_DMA_SIZE);
+    if (S->MdlAll != NULL) {   /* cache maintenance on (Parameters\CacheMaint): MDLs as for the control buffer */
+        S->MdlData  = DataMdl(S, 0, DAT_DMA_SIZE);
+        S->Flow.Mdl = DataMdl(S, DAT_OFF_FLOWRING, H2D_TXPOST_MAX_ITEM * H2D_TXPOST_ITEMSIZE);
+        for (I = 0; I < TX_BUF_COUNT; I++) {
+            S->MdlTx[I] = DataMdl(S, DAT_OFF_TXBUF + I * DATA_BUF_SIZE, DATA_BUF_SIZE);
+        }
+        for (I = 0; I < RX_BUF_COUNT; I++) {
+            S->MdlRx[I] = DataMdl(S, DAT_OFF_RXBUF + I * DATA_BUF_SIZE, DATA_BUF_SIZE);
+        }
+        if (S->MdlData == NULL || S->Flow.Mdl == NULL) {
+            ReportLine(S->R, "DATA 2: data MDLs not allocated\r\n");
+            goto Fail;
+        }
+        for (I = 0; I < TX_BUF_COUNT; I++) {
+            if (S->MdlTx[I] == NULL) {
+                ReportLine(S->R, "DATA 2: data MDLs not allocated\r\n");
+                goto Fail;
+            }
+        }
+        for (I = 0; I < RX_BUF_COUNT; I++) {
+            if (S->MdlRx[I] == NULL) {
+                ReportLine(S->R, "DATA 2: data MDLs not allocated\r\n");
+                goto Fail;
+            }
+        }
+        CacheClean(S->MdlData);   /* zeroed flowring + buffers reach memory before the device reads them */
+    }
+
+    /* tx flowring geometry (dhd_prot_flow_ring_create :9338-9341); created after association (FlowRingCreate) */
+    S->Flow.Id       = FLOWRING_FIRST_ID;
+    S->Flow.ItemSize = H2D_TXPOST_ITEMSIZE;
+    S->Flow.MaxItem  = H2D_TXPOST_MAX_ITEM;
+    S->Flow.Off      = DAT_OFF_FLOWRING;
+    S->Flow.WIdxAddr = S->H2dWBase + RW_INDEX_SZ * FLOWRING_FIRST_ID;
+    S->Flow.RIdxAddr = S->H2dRBase + RW_INDEX_SZ * FLOWRING_FIRST_ID;
+    S->Flow.Seq      = EPOCH_INIT_VAL;
+    S->Flow.Host     = 0;
+    S->FlowStatus    = -1;
+
+    /* rx buffers: min(RX_BUF_COUNT, max_host_rxbufs) (fmac pcie.c:1651 max_rxbufpost) */
+    Max = Tcm16(S, S->Bus->SharedAddr + SH_MAX_HOST_RXBUFS);
+    S->RxCount = (Max != 0 && Max < RX_BUF_COUNT) ? Max : RX_BUF_COUNT;
+    for (I = 0; I < S->RxCount; I++) {
+        if (!RxPost(S, I)) {
+            S->RxCount = I;
+            break;
+        }
+    }
+    H2dCommit(S, &S->Ring[RING_H2D_RXPOST], S->MdlH2d);
+    M->DataBuffer = Db;
+    S->DataOn     = TRUE;
+    ReportLine(S->R, "DATA 0: buffer 0x%X B at 0x%I64X; %lu rx buffers posted (max_host_rxbufs %lu), rxpost w %lu fw r %u; "
+               "flowring %u slots w 0x%08lX r 0x%08lX (max flowrings %lu)\r\n", DAT_DMA_SIZE, S->DLa, S->RxCount, Max,
+               S->Ring[RING_H2D_RXPOST].Host, Tcm16(S, S->Ring[RING_H2D_RXPOST].RIdxAddr), FLOWRING_FIRST_ID,
+               S->Flow.WIdxAddr, S->Flow.RIdxAddr, S->MaxFlowrings);
+    return TRUE;
+
+Fail:
+    MdlFree(&S->MdlData);
+    MdlFree(&S->Flow.Mdl);
+    for (I = 0; I < TX_BUF_COUNT; I++) {
+        MdlFree(&S->MdlTx[I]);
+    }
+    for (I = 0; I < RX_BUF_COUNT; I++) {
+        MdlFree(&S->MdlRx[I]);
+    }
+    WdfObjectDelete(Db);   /* nothing was posted yet: the device has no address in it */
+    S->DVa = NULL;
+    S->DLa = 0;
+    return FALSE;
+}
+
+/* MSG_TYPE_FLOW_RING_CREATE (tx_flowring_create_request_t, dhd_prot_flow_ring_create dhd_msgbuf.c:9289-9392)
+   for the one STA flowring: ifidx 0, tid 0, SA = our MAC, DA = the AP. The flowring write index is written
+   to TCM first (dhd :9382). Waits for FLOW_RING_CREATE_CMPLT. TRUE = open. */
+static BOOLEAN
+FlowRingCreate(_Inout_ PMSG_STATE S, _In_reads_(6) const UCHAR *Da)
+{
+    PUCHAR        It;
+    ULONGLONG     Ba = S->DLa + DAT_OFF_FLOWRING;
+    ULONG         Ms;
+    LARGE_INTEGER Delay;
+
+    if (!S->DataOn) {
+        return FALSE;
+    }
+    if (S->FlowOpen || S->FlowRequested) {
+        return S->FlowOpen;   /* one create per device lifetime (no delete path yet) */
+    }
+    RtlCopyMemory(S->FlowDa, Da, 6);
+    TcmW16(S, S->Flow.WIdxAddr, 0);
+    It = H2dCtrlNext(S, MSG_TYPE_FLOW_RING_CREATE, 0);   /* request_id 0 as dhd :9326 */
+    if (It == NULL) {
+        return FALSE;
+    }
+    RtlCopyMemory(It + FLOWC_DA, Da, 6);
+    RtlCopyMemory(It + FLOWC_SA, S->Mac, 6);
+    It[FLOWC_TID]      = 0;
+    It[FLOWC_IF_FLAGS] = 0;
+    *(USHORT UNALIGNED *)(It + FLOWC_RING_ID)      = FLOWRING_FIRST_ID;
+    *(USHORT UNALIGNED *)(It + FLOWC_MAX_ITEMS)    = H2D_TXPOST_MAX_ITEM;
+    *(USHORT UNALIGNED *)(It + FLOWC_LEN_ITEM)     = H2D_TXPOST_ITEMSIZE;
+    *(ULONG UNALIGNED *)(It + FLOWC_RING_PTR)      = (ULONG)Ba;
+    *(ULONG UNALIGNED *)(It + FLOWC_RING_PTR + 4)  = (ULONG)(Ba >> 32);
+    S->FlowRequested = TRUE;
+    S->FlowStatus    = -1;
+    H2dCtrlCommit(S);
+    ReportLine(S->R, "[flow] FLOW_RING_CREATE flowid %u da %02X:%02X:%02X:%02X:%02X:%02X sa %02X:%02X:%02X:%02X:%02X:%02X "
+               "ring 0x%I64X %u x %u\r\n", FLOWRING_FIRST_ID, Da[0], Da[1], Da[2], Da[3], Da[4], Da[5], S->Mac[0], S->Mac[1],
+               S->Mac[2], S->Mac[3], S->Mac[4], S->Mac[5], Ba, H2D_TXPOST_MAX_ITEM, H2D_TXPOST_ITEMSIZE);
+    for (Ms = 0; Ms < FLOW_CREATE_TIMEOUT_MS && S->FlowStatus < 0; Ms += 10) {
+        (VOID)D2hPollAll(S);
+        if (S->FlowStatus >= 0) {
+            break;
+        }
+        Delay.QuadPart = -10000LL * 10;
+        KeDelayExecutionThread(KernelMode, FALSE, &Delay);
+    }
+    ReportLine(S->R, "FLOW %lu: flowring %u %s (status %ld) after %lu ms\r\n", S->FlowOpen ? 0UL : 1UL,
+               FLOWRING_FIRST_ID, S->FlowOpen ? "open" : "NOT open", S->FlowStatus, Ms);
+    return S->FlowOpen;
+}
+
+/* One 802.3 frame on the flowring (host_txbuf_post_t, fmac brcmf_msgbuf_txflow msgbuf.c:721-792): the 14 B
+   header goes in the item, the payload is copied to a tx buffer, data_len = payload length. */
+static ULONG
+TxFrame(_Inout_ PMSG_STATE S, _In_reads_bytes_(Len) const UCHAR *Frame, _In_ ULONG Len)
+{
+    PUCHAR    It;
+    ULONG     I = 0, J;
+    ULONGLONG Ba;
+
+    if (!S->FlowOpen) {
+        return TX_NO_FLOWRING;
+    }
+    if (Len < ETH_HLEN || Len - ETH_HLEN > DATA_BUF_SIZE) {
+        return TX_BAD_LENGTH;
+    }
+    for (J = 0; J < TX_BUF_COUNT; J++) {
+        I = (S->TxNext + J) % TX_BUF_COUNT;
+        if (!S->TxBusy[I]) {
+            break;
+        }
+    }
+    if (J == TX_BUF_COUNT) {
+        (VOID)D2hPoll(S, RING_D2H_TX_CPL);   /* reclaim, then try once more */
+        for (J = 0; J < TX_BUF_COUNT; J++) {
+            I = (S->TxNext + J) % TX_BUF_COUNT;
+            if (!S->TxBusy[I]) {
+                break;
+            }
+        }
+        if (J == TX_BUF_COUNT) {
+            return TX_NO_BUFFER;
+        }
+    }
+    It = H2dNext(S, &S->Flow, S->DVa, MSG_TYPE_TX_POST, TX_PKTID0 + I, 0);
+    if (It == NULL) {
+        return TX_RING_FULL;
+    }
+    Ba = S->DLa + DAT_OFF_TXBUF + (ULONGLONG)I * DATA_BUF_SIZE;
+    RtlCopyMemory(S->DVa + DAT_OFF_TXBUF + I * DATA_BUF_SIZE, Frame + ETH_HLEN, Len - ETH_HLEN);
+    RtlCopyMemory(It + TXP_ETHHDR, Frame, ETH_HLEN);
+    It[TXP_FLAGS]   = PKT_FLAGS_FRAME_802_3;   /* priority 0 (best effort) on the tid-0 flowring */
+    It[TXP_SEG_CNT] = 1;
+    *(ULONG UNALIGNED *)(It + TXP_DATA_ADDR)     = (ULONG)Ba;
+    *(ULONG UNALIGNED *)(It + TXP_DATA_ADDR + 4) = (ULONG)(Ba >> 32);
+    *(USHORT UNALIGNED *)(It + TXP_DATA_LEN)     = (USHORT)(Len - ETH_HLEN);
+    S->TxBusy[I] = TRUE;
+    S->TxNext    = (I + 1) % TX_BUF_COUNT;
+    S->TxPosted++;
+    S->TxLastIndex = I;
+    CacheClean(S->MdlTx[I]);
+    H2dCommit(S, &S->Flow, S->Flow.Mdl);
+    if (S->TxLogged < 32) {
+        ReportLine(S->R, "[tx] post #%lu pktid 0x%lX len %lu type 0x%04X -> %02X:%02X:%02X:%02X:%02X:%02X, flowring w %lu r %u\r\n",
+                   S->TxPosted, TX_PKTID0 + I, Len, (USHORT)((Frame[12] << 8) | Frame[13]), Frame[0], Frame[1], Frame[2],
+                   Frame[3], Frame[4], Frame[5], S->Flow.Host, Tcm16(S, S->Flow.RIdxAddr));
+    }
+    return TX_OK;
+}
+
 _Use_decl_annotations_
 VOID
 WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
@@ -727,6 +1207,9 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
         ReportLine(R, "MSG %u: ring_info pointers/maxima not usable\r\n", MSG_BAD_SHARED);
         goto Stop;
     }
+    S->H2dWBase     = H2dW;   /* M7a: flowring index slots continue these arrays (dhd_pcie.c:8914-8932) */
+    S->H2dRBase     = H2dR;
+    S->MaxFlowrings = Tcm16(S, Ri + RI_MAX_TX_FLOWRINGS);
 
     /* 2. DMA memory */
     M->Result = MSG_NO_DMA;
@@ -744,9 +1227,13 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
         S->MdlAll  = RegionMdl(S, 0, MSG_DMA_SIZE);
         S->MdlH2d  = RegionMdl(S, MSG_OFF_H2D_CTRL, MSG_OFF_D2H_CTRL_CPL - MSG_OFF_H2D_CTRL);
         S->MdlReq  = RegionMdl(S, MSG_OFF_IOCTL_REQ, IOCTL_REQ_BUF_SIZE);
-        S->MdlD2h  = RegionMdl(S, MSG_OFF_D2H_CTRL_CPL, MSG_OFF_IOCTL_REQ - MSG_OFF_D2H_CTRL_CPL);
+        /* M7a: one MDL per completion ring, so a poll invalidates only the ring it reads */
+        S->Ring[RING_D2H_CTRL_CPL].Mdl = RegionMdl(S, MSG_OFF_D2H_CTRL_CPL, D2H_CTRL_CPL_MAX_ITEM * D2H_CTRL_CPL_ITEMSIZE);
+        S->Ring[RING_D2H_TX_CPL].Mdl   = RegionMdl(S, MSG_OFF_D2H_TX_CPL, D2H_TX_CPL_MAX_ITEM * D2H_TX_CPL_ITEMSIZE);
+        S->Ring[RING_D2H_RX_CPL].Mdl   = RegionMdl(S, MSG_OFF_D2H_RX_CPL, D2H_RX_CPL_MAX_ITEM * D2H_RX_CPL_ITEMSIZE);
         S->MdlBufs = RegionMdl(S, MSG_OFF_IOCTL_RESP, MSG_DMA_SIZE - MSG_OFF_IOCTL_RESP);
-        if (S->MdlAll == NULL || S->MdlH2d == NULL || S->MdlReq == NULL || S->MdlD2h == NULL || S->MdlBufs == NULL) {
+        if (S->MdlAll == NULL || S->MdlH2d == NULL || S->MdlReq == NULL || S->Ring[RING_D2H_CTRL_CPL].Mdl == NULL ||
+            S->Ring[RING_D2H_TX_CPL].Mdl == NULL || S->Ring[RING_D2H_RX_CPL].Mdl == NULL || S->MdlBufs == NULL) {
             ReportLine(R, "MSG %u: cache-maintenance MDLs not allocated\r\n", MSG_NO_DMA);
             goto Stop;
         }
@@ -840,6 +1327,7 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
     M->Result = IoctlVar(S, FALSE, "cur_etheraddr", NULL, 0, 32);
     if (M->Result == MSG_OK && S->RespLen >= 6) {
         RtlCopyMemory(M->Mac, S->Resp, 6);
+        RtlCopyMemory(S->Mac, S->Resp, 6);
         M->MacValid = TRUE;
         ReportLine(R, "[msg] cur_etheraddr = %02X:%02X:%02X:%02X:%02X:%02X\r\n", S->Resp[0], S->Resp[1], S->Resp[2],
                    S->Resp[3], S->Resp[4], S->Resp[5]);
@@ -932,6 +1420,7 @@ ScanEnd:
         M->Resident     = TRUE;
         M->Quiesced     = FALSE;
         M->Config       = NULL;   /* points at PrepareHardware's stack */
+        (VOID)DataInit(S, M);     /* milestone 7a; a failure leaves the control path resident without data */
         ReportLine(R, "RESIDENT: firmware kept running (ARM up, bus master on, buffer 0x%I64X, rings live)\r\n", S->La);
         ReportWriteFile(R);
         return;
@@ -988,7 +1477,38 @@ WlanMsgPoll(PWLAN_MSG_CTX M, PWLAN_REPORT R)
         WlanMsgQuiesce(M, R);
         return 0;
     }
-    return D2hCtrlPoll(S);
+    {
+        ULONG N = D2hPollAll(S);
+
+        if (S->EapolPending) {
+            SupEapol(S);   /* M7b: group rekeys after the join */
+        }
+        return N;
+    }
+}
+
+_Use_decl_annotations_
+ULONG
+WlanMsgTx(PWLAN_MSG_CTX M, PWLAN_REPORT R, const UCHAR *Frame, ULONG Len)
+{
+    PMSG_STATE S = Live(M, R);
+
+    if (S == NULL || !S->DataOn) {
+        return TX_NO_FLOWRING;
+    }
+    return TxFrame(S, Frame, Len);
+}
+
+_Use_decl_annotations_
+VOID
+WlanMsgSetRx(PWLAN_MSG_CTX M, WLAN_RX_FN *Fn, PVOID Ctx)
+{
+    PMSG_STATE S = (M->Resident && M->State != NULL) ? (PMSG_STATE)M->State : NULL;
+
+    if (S != NULL) {
+        S->RxFn  = Fn;
+        S->RxCtx = Ctx;
+    }
 }
 
 _Use_decl_annotations_
@@ -1036,6 +1556,10 @@ WlanMsgFree(PWLAN_MSG_CTX M)
     if (M->CommonBuffer != NULL) {
         WdfObjectDelete(M->CommonBuffer);
         M->CommonBuffer = NULL;
+    }
+    if (M->DataBuffer != NULL) {
+        WdfObjectDelete(M->DataBuffer);
+        M->DataBuffer = NULL;
     }
     if (M->State != NULL) {
         RegionMdlsFree((PMSG_STATE)M->State);
@@ -1172,21 +1696,298 @@ SetInt(_Inout_ PMSG_STATE S, _In_z_ PCSTR Name, _In_ ULONG Value)
     return IoctlVar(S, TRUE, Name, &Value, sizeof(Value), 0);
 }
 
-/* fmac brcmf_cfg80211_connect order (cfg80211.c:2440-2620) with the firmware supplicant; PMK as dhd sends it
-   (wl_cfg80211.c:7100-7127: 64 hex chars, flags WSEC_PASSPHRASE, sizeof(wsec_pmk_t) 260). */
+static USHORT
+Be16(_In_reads_(2) const UCHAR *P)
+{
+    return (USHORT)((P[0] << 8) | P[1]);
+}
+
+/* Our RSN IE (= the assoc request IE = msg 2 key data, 802.11i 7.3.2.25): version 1, the AP's group cipher,
+   pairwise CCMP, AKM PSK, capabilities 0 (no MFP). NULL when the AP needs something else. */
+static BOOLEAN
+BuildOwnRsn(_Inout_ PMSG_STATE S)
+{
+    static const UCHAR Oui[3] = { 0x00, 0x0F, 0xAC };
+    const UCHAR *A = S->ApRsn;
+    ULONG        Caps = 0;
+
+    if (S->ApRsnLen < 8 || A[0] != RSN_IE_ID || A[2] != 1 || A[3] != 0 || RtlCompareMemory(A + 4, Oui, 3) != 3) {
+        return FALSE;
+    }
+    if (S->ApRsnLen >= 2UL + A[1] && A[1] >= 20) {
+        Caps = A[2 + A[1] - 2] | (A[2 + A[1] - 1] << 8);   /* only valid for the single-suite layout */
+    }
+    if ((Caps & RSN_CAP_MFPR) != 0) {
+        ReportLine(S->R, "[sup] AP requires management frame protection (RSN caps 0x%04lX) - not supported\r\n", Caps);
+        return FALSE;
+    }
+    S->OwnRsn[0] = RSN_IE_ID;
+    S->OwnRsn[1] = 20;
+    S->OwnRsn[2] = 1;
+    S->OwnRsn[3] = 0;
+    RtlCopyMemory(S->OwnRsn + 4, A + 4, 4);            /* group cipher as the AP announces it */
+    S->OwnRsn[8] = 1;
+    S->OwnRsn[9] = 0;
+    RtlCopyMemory(S->OwnRsn + 10, Oui, 3);
+    S->OwnRsn[13] = RSN_SUITE_CCMP;
+    S->OwnRsn[14] = 1;
+    S->OwnRsn[15] = 0;
+    RtlCopyMemory(S->OwnRsn + 16, Oui, 3);
+    S->OwnRsn[19] = RSN_AKM_PSK_SUITE;
+    S->OwnRsn[20] = 0;
+    S->OwnRsn[21] = 0;
+    S->OwnRsnLen  = 22;
+    return TRUE;
+}
+
+/* "wsec_key" with wl_wsec_key_t (dhd wl_add_keyext / wl_cfg80211_add_key, wl_cfg80211.c:6838-6910, 7110-7150). */
+static ULONG
+InstallKey(_Inout_ PMSG_STATE S, _In_ ULONG Index, _In_reads_(SUP_KEY_LEN) const UCHAR *Key,
+           _In_reads_opt_(6) const UCHAR *Ea, _In_reads_opt_(6) const UCHAR *Rsc)
+{
+    UCHAR K[WSK_SIZE];
+    ULONG Rc;
+
+    RtlZeroMemory(K, sizeof(K));
+    *(ULONG UNALIGNED *)(K + WSK_INDEX) = Index;
+    *(ULONG UNALIGNED *)(K + WSK_LEN)   = SUP_KEY_LEN;
+    RtlCopyMemory(K + WSK_DATA, Key, SUP_KEY_LEN);
+    *(ULONG UNALIGNED *)(K + WSK_ALGO)  = CRYPTO_ALGO_AES_CCM;
+    if (Ea != NULL) {
+        RtlCopyMemory(K + WSK_EA, Ea, 6);
+    } else {
+        *(ULONG UNALIGNED *)(K + WSK_FLAGS) = WL_PRIMARY_KEY;
+    }
+    if (Rsc != NULL) {
+        *(ULONG UNALIGNED *)(K + WSK_RXIV_HI)  = ((ULONG)Rsc[5] << 24) | ((ULONG)Rsc[4] << 16) | ((ULONG)Rsc[3] << 8) | Rsc[2];
+        *(USHORT UNALIGNED *)(K + WSK_RXIV_LO) = (USHORT)((Rsc[1] << 8) | Rsc[0]);
+        *(ULONG UNALIGNED *)(K + WSK_IV_INIT)  = 1;
+    }
+    Rc = IoctlVar(S, TRUE, "wsec_key", K, sizeof(K), 0);
+    RtlSecureZeroMemory(K, sizeof(K));
+    RtlSecureZeroMemory(S->Va + MSG_OFF_IOCTL_REQ, IOCTL_REQ_BUF_SIZE);
+    RtlSecureZeroMemory(S->VarBuf, sizeof(S->VarBuf));
+    return Rc;
+}
+
+/* Send one EAPOL-Key frame to the AP (wpa_supplicant wpa_eapol_key_send): MIC over the EAPOL PDU with the
+   MIC field zero. */
+static ULONG
+SendKey(_Inout_ PMSG_STATE S, _In_ USHORT Info, _In_reads_(8) const UCHAR *Replay,
+        _In_reads_opt_(SUP_NONCE_LEN) const UCHAR *Nonce, _In_reads_bytes_opt_(DataLen) const UCHAR *Data, _In_ ULONG DataLen)
+{
+    UCHAR  F[ETH_HLEN + EK_DATA + RSN_IE_MAX];
+    PUCHAR E = F + ETH_HLEN;
+    ULONG  Body = EK_FIXED_BODY + DataLen;
+    UCHAR  Mic[SUP_MIC_LEN];
+
+    if (DataLen > RSN_IE_MAX) {
+        return TX_BAD_LENGTH;
+    }
+    RtlZeroMemory(F, sizeof(F));
+    RtlCopyMemory(F, S->Aa, 6);
+    RtlCopyMemory(F + 6, S->Mac, 6);
+    F[12] = (UCHAR)(ETH_TYPE_EAPOL >> 8);
+    F[13] = (UCHAR)(ETH_TYPE_EAPOL & 0xFF);
+    E[0] = EAPOL_VERSION_TX;
+    E[1] = EAPOL_TYPE_KEY;
+    E[2] = (UCHAR)(Body >> 8);
+    E[3] = (UCHAR)Body;
+    E[EK_DESC]     = EAPOL_KEY_DESC_RSN;
+    E[EK_INFO]     = (UCHAR)(Info >> 8);
+    E[EK_INFO + 1] = (UCHAR)Info;
+    RtlCopyMemory(E + EK_REPLAY, Replay, 8);
+    if (Nonce != NULL) {
+        RtlCopyMemory(E + EK_NONCE, Nonce, SUP_NONCE_LEN);
+    }
+    E[EK_DATALEN]     = (UCHAR)(DataLen >> 8);
+    E[EK_DATALEN + 1] = (UCHAR)DataLen;
+    if (DataLen != 0) {
+        RtlCopyMemory(E + EK_DATA, Data, DataLen);
+    }
+    if (!NT_SUCCESS(SupMic(S->Ptk + SUP_KCK_OFF, E, 4 + Body, Mic))) {
+        return TX_BAD_LENGTH;
+    }
+    RtlCopyMemory(E + EK_MIC, Mic, SUP_MIC_LEN);
+    return TxFrame(S, F, ETH_HLEN + 4 + Body);
+}
+
+/* Verify the MIC of a received EAPOL-Key PDU (E, Len = 4 + body). */
+static BOOLEAN
+MicOk(_Inout_ PMSG_STATE S, _In_reads_bytes_(Len) const UCHAR *E, _In_ ULONG Len)
+{
+    UCHAR Copy[sizeof(S->Eapol)];
+    UCHAR Mic[SUP_MIC_LEN];
+
+    if (Len > sizeof(Copy) || Len < EK_DATA) {
+        return FALSE;
+    }
+    RtlCopyMemory(Copy, E, Len);
+    RtlZeroMemory(Copy + EK_MIC, SUP_MIC_LEN);
+    return NT_SUCCESS(SupMic(S->Ptk + SUP_KCK_OFF, Copy, Len, Mic)) && RtlCompareMemory(Mic, E + EK_MIC, SUP_MIC_LEN) == SUP_MIC_LEN;
+}
+
+/* GTK KDE (dd len 00-0F-AC-01 keyid/tx reserved GTK) from decrypted key data; returns the GTK length or 0. */
+static ULONG
+FindGtk(_In_reads_bytes_(Len) const UCHAR *D, _In_ ULONG Len, _Out_ PULONG Idx, _Out_writes_(32) PUCHAR Gtk)
+{
+    ULONG P = 0;
+
+    while (P + 2 <= Len && D[P] != 0) {
+        ULONG L = D[P + 1];
+
+        if (P + 2 + L > Len) {
+            break;
+        }
+        if (D[P] == 0xDD && L >= 6 + SUP_KEY_LEN && D[P + 2] == 0x00 && D[P + 3] == 0x0F && D[P + 4] == 0xAC &&
+            D[P + 5] == KDE_GTK) {
+            ULONG G = L - 6;
+
+            if (G > 32) {
+                G = 32;
+            }
+            *Idx = D[P + 6] & 3;
+            RtlCopyMemory(Gtk, D + P + 8, G);
+            return G;
+        }
+        P += 2 + L;
+    }
+    return 0;
+}
+
+/* Waits (polling the tx completion ring) until the last posted tx buffer is done: msg 4 must be on the air
+   before the pairwise key is installed (dhd_wait_pend8021x). */
+static VOID
+WaitTxIdle(_Inout_ PMSG_STATE S)
+{
+    ULONG         Ms;
+    LARGE_INTEGER Delay;
+
+    for (Ms = 0; Ms < MSG4_TX_WAIT_MS && S->TxBusy[S->TxLastIndex]; Ms += 5) {
+        (VOID)D2hPoll(S, RING_D2H_TX_CPL);
+        Delay.QuadPart = -10000LL * 5;
+        KeDelayExecutionThread(KernelMode, FALSE, &Delay);
+    }
+}
+
+/* Host WPA2-PSK supplicant (IEEE 802.11i 8.5.3 4-way handshake, 8.5.4 group key handshake). */
+static VOID
+SupEapol(_Inout_ PMSG_STATE S)
+{
+    PUCHAR F = S->Eapol;
+    PUCHAR E = F + ETH_HLEN;
+    ULONG  Len = S->EapolLen, Pdu, DataLen, GtkLen, GtkIdx = 0, Rc;
+    USHORT Info;
+    UCHAR  Plain[RSN_IE_MAX * 4];
+    UCHAR  Gtk[32];
+
+    S->EapolPending = FALSE;
+    if (Len < ETH_HLEN + EK_DATA || E[1] != EAPOL_TYPE_KEY || E[EK_DESC] != EAPOL_KEY_DESC_RSN) {
+        ReportLine(S->R, "[sup] EAPOL frame ignored (len %lu type %u desc %u)\r\n", Len, E[1], E[EK_DESC]);
+        return;
+    }
+    Pdu     = 4 + Be16(E + 2);
+    Info    = Be16(E + EK_INFO);
+    DataLen = Be16(E + EK_DATALEN);
+    if (Pdu > Len - ETH_HLEN || EK_DATA + DataLen > Pdu || (Info & KI_VER_MASK) != KI_VER_HMAC_SHA1_AES) {
+        ReportLine(S->R, "[sup] EAPOL-Key malformed or unsupported (info 0x%04X len %lu data %lu)\r\n", Info, Pdu, DataLen);
+        return;
+    }
+    if (S->ReplaySet && (Info & KI_MIC) != 0 && RtlCompareMemory(E + EK_REPLAY, S->Replay, 8) != 8) {
+        ULONG K;
+
+        for (K = 0; K < 8 && E[EK_REPLAY + K] == S->Replay[K]; K++) {
+        }
+        if (K < 8 && E[EK_REPLAY + K] < S->Replay[K]) {
+            ReportLine(S->R, "[sup] replayed EAPOL-Key dropped\r\n");
+            return;
+        }
+    }
+
+    if ((Info & (KI_PAIRWISE | KI_ACK | KI_MIC)) == (KI_PAIRWISE | KI_ACK)) {
+        /* msg 1/4 */
+        RtlCopyMemory(S->Aa, F + 6, 6);
+        RtlCopyMemory(S->ANonce, E + EK_NONCE, SUP_NONCE_LEN);
+        if (!NT_SUCCESS(SupRandom(S->SNonce, SUP_NONCE_LEN)) ||
+            !NT_SUCCESS(SupPtk(S->Pmk, S->Aa, S->Mac, S->ANonce, S->SNonce, S->Ptk))) {
+            S->Hs = HS_FAILED;
+            ReportLine(S->R, "[sup] msg 1/4: PTK derivation failed\r\n");
+            return;
+        }
+        S->PtkSet = TRUE;
+        Rc = SendKey(S, KI_VER_HMAC_SHA1_AES | KI_PAIRWISE | KI_MIC, E + EK_REPLAY, S->SNonce, S->OwnRsn, S->OwnRsnLen);
+        S->Hs = HS_SENT_M2;
+        ReportLine(S->R, "[sup] msg 1/4 from %02X:%02X:%02X:%02X:%02X:%02X -> msg 2/4 sent (tx %lu)\r\n", S->Aa[0], S->Aa[1],
+                   S->Aa[2], S->Aa[3], S->Aa[4], S->Aa[5], Rc);
+        return;
+    }
+    if (!S->PtkSet || (Info & KI_MIC) == 0 || !MicOk(S, E, Pdu)) {
+        ReportLine(S->R, "[sup] EAPOL-Key info 0x%04X: MIC %s - dropped\r\n", Info, S->PtkSet ? "BAD" : "without a PTK");
+        if ((Info & KI_PAIRWISE) != 0 && S->Hs == HS_SENT_M2) {
+            S->Hs = HS_FAILED;   /* msg 3 with a bad MIC = wrong passphrase */
+        }
+        return;
+    }
+    RtlCopyMemory(S->Replay, E + EK_REPLAY, 8);
+    S->ReplaySet = TRUE;
+    GtkLen = 0;
+    if ((Info & KI_ENCR_DATA) != 0 && DataLen >= 24 && DataLen - 8 <= sizeof(Plain)) {
+        if (NT_SUCCESS(SupAesUnwrap(S->Ptk + SUP_KEK_OFF, E + EK_DATA, DataLen, Plain))) {
+            GtkLen = FindGtk(Plain, DataLen - 8, &GtkIdx, Gtk);
+        } else {
+            ReportLine(S->R, "[sup] key data unwrap failed\r\n");
+        }
+        RtlSecureZeroMemory(Plain, sizeof(Plain));
+    }
+
+    if ((Info & (KI_PAIRWISE | KI_ACK | KI_INSTALL)) == (KI_PAIRWISE | KI_ACK | KI_INSTALL)) {
+        /* msg 3/4 */
+        if (RtlCompareMemory(E + EK_NONCE, S->ANonce, SUP_NONCE_LEN) != SUP_NONCE_LEN) {
+            ReportLine(S->R, "[sup] msg 3/4 ANonce differs from msg 1 - dropped\r\n");
+            return;
+        }
+        Rc = SendKey(S, KI_VER_HMAC_SHA1_AES | KI_PAIRWISE | KI_MIC | KI_SECURE, E + EK_REPLAY, NULL, NULL, 0);
+        WaitTxIdle(S);
+        Rc = (Rc << 8) | InstallKey(S, 0, S->Ptk + SUP_TK_OFF, S->Aa, NULL);
+        if (GtkLen >= SUP_KEY_LEN) {
+            Rc = (Rc << 8) | InstallKey(S, GtkIdx, Gtk, NULL, E + EK_RSC);
+            S->GtkIdx = GtkIdx;
+        }
+        RtlSecureZeroMemory(Gtk, sizeof(Gtk));
+        S->Hs         = HS_DONE;
+        S->Authorized = TRUE;
+        ReportLine(S->R, "[sup] msg 3/4 MIC ok, GTK idx %lu (%lu B) -> msg 4/4 sent, keys installed (codes 0x%06lX)\r\n",
+                   GtkIdx, GtkLen, Rc);
+        return;
+    }
+    if ((Info & (KI_PAIRWISE | KI_ACK)) == KI_ACK && GtkLen >= SUP_KEY_LEN) {
+        /* group key msg 1/2 (rekey) */
+        Rc = SendKey(S, KI_VER_HMAC_SHA1_AES | KI_MIC | KI_SECURE, E + EK_REPLAY, NULL, NULL, 0);
+        Rc = (Rc << 8) | InstallKey(S, GtkIdx, Gtk, NULL, E + EK_RSC);
+        RtlSecureZeroMemory(Gtk, sizeof(Gtk));
+        S->GtkIdx = GtkIdx;
+        S->Rekeys++;
+        ReportLine(S->R, "[sup] group rekey #%lu: GTK idx %lu installed, msg 2/2 sent (codes 0x%04lX)\r\n", S->Rekeys, GtkIdx, Rc);
+        return;
+    }
+    RtlSecureZeroMemory(Gtk, sizeof(Gtk));
+    ReportLine(S->R, "[sup] EAPOL-Key info 0x%04X not handled\r\n", Info);
+}
+
+/* M7b join: the firmware associates (WPA2-PSK, CCMP, no in-dongle supplicant), the host runs the 4-way
+   handshake over the data path. Order as fmac brcmf_cfg80211_connect (cfg80211.c:2440-2620) minus sup_wpa,
+   plus the RSN IE of the association request set with "wpaie" (dhd wl_cfg80211.c:6244). */
 _Use_decl_annotations_
 ULONG
 WlanMsgJoin(PWLAN_MSG_CTX M, PWLAN_REPORT R, const WLAN_JOIN_CONFIG *J)
 {
     PMSG_STATE    S = Live(M, R);
     UCHAR         Mask[WL_EVENTING_MASK_LEN];
-    UCHAR         Pmk[WSEC_PMK_SIZE];
     UCHAR         Join[JOIN_PARAMS_SIZE];
     ULONG         One = 1, I, Ms, Result = JOIN_SETUP_FAILED;
     LARGE_INTEGER Delay;
     static const UCHAR Events[] = { WLC_E_SET_SSID, WLC_E_AUTH, WLC_E_DEAUTH_IND, WLC_E_ASSOC, WLC_E_DISASSOC_IND,
                                     WLC_E_LINK, WLC_E_PSK_SUP };
-    static const CHAR  Hex[] = "0123456789abcdef";
 
     if (S == NULL) {
         return JOIN_SETUP_FAILED;
@@ -1194,7 +1995,42 @@ WlanMsgJoin(PWLAN_MSG_CTX M, PWLAN_REPORT R, const WLAN_JOIN_CONFIG *J)
     if (!J->Valid) {
         return JOIN_NOT_CONFIGURED;
     }
-    ReportLine(R, "---- milestone 6: join \"%.*s\" (WPA2-PSK, firmware supplicant) ----\r\n", (int)J->SsidLen, J->Ssid);
+    ReportLine(R, "---- milestone 7b: join \"%.*s\" (WPA2-PSK, host supplicant) ----\r\n", (int)J->SsidLen, J->Ssid);
+    (VOID)SupSelfTest(R);
+    RtlCopyMemory(S->Pmk, J->Pmk, PMK_LEN);
+    RtlCopyMemory(S->TargetSsid, J->Ssid, J->SsidLen);
+    S->TargetSsidLen = J->SsidLen;
+    S->ApRsnLen      = 0;
+    S->Hs            = HS_IDLE;
+    S->PtkSet        = FALSE;
+    S->ReplaySet     = FALSE;
+    S->Authorized    = FALSE;
+    (VOID)EscanRun(S);   /* records the target's BSSID + RSN IE (EscanResult) */
+    if (S->ApRsnLen == 0) {
+        ReportLine(R, "JOIN %u: \"%.*s\" not found with an RSN IE in the scan\r\n", JOIN_NOT_FOUND, (int)J->SsidLen, J->Ssid);
+        return JOIN_NOT_FOUND;
+    }
+    ReportLine(R, "[join] target %02X:%02X:%02X:%02X:%02X:%02X rssi %ld, AP RSN IE %lu B\r\n", S->ApBssid[0], S->ApBssid[1],
+               S->ApBssid[2], S->ApBssid[3], S->ApBssid[4], S->ApBssid[5], S->ApRssi, S->ApRsnLen);
+    if (!BuildOwnRsn(S)) {
+        ReportLine(R, "JOIN %u: AP security not supported (needs RSN v1, PSK, CCMP, no MFP)\r\n", JOIN_SETUP_FAILED);
+        return JOIN_SETUP_FAILED;
+    }
+    /* rx audit (notes/m12-wifi-m7-rx-audit.md fix 1): DHD and brcmfmac post the rx data buffers BEFORE the
+       firmware is brought up; ours were posted after WLC_UP (run: fw r 128, rx cpl w 0). Bounce the interface so
+       the firmware's UP sees the posted buffers. */
+    {
+        ULONG Zero = 0;
+        ULONG Rd = Ioctl(S, WLC_DOWN, &Zero, sizeof(Zero), 0, "DOWN");
+        ULONG Ru = Ioctl(S, WLC_UP, &One, sizeof(One), 0, "UP");
+
+        ReportLine(R, "[join] interface bounce: DOWN %lu UP %lu (rxpost host w %lu fw r %u)\r\n", Rd, Ru,
+                   S->Ring[RING_H2D_RXPOST].Host, Tcm16(S, S->Ring[RING_H2D_RXPOST].RIdxAddr));
+        if (IoctlVar(S, FALSE, "rxbufpost_sz", NULL, 0, sizeof(ULONG)) == MSG_OK && S->RespLen >= 2) {
+            ReportLine(R, "[join] firmware rxbufpost_sz %u (our rx buffers are %u B)\r\n",
+                       *(USHORT UNALIGNED *)S->Resp, DATA_BUF_SIZE);
+        }
+    }
     S->Joining     = TRUE;
     S->JoinSetSsid = -1;
     S->JoinPskSup  = -1;
@@ -1212,26 +2048,14 @@ WlanMsgJoin(PWLAN_MSG_CTX M, PWLAN_REPORT R, const WLAN_JOIN_CONFIG *J)
         Ioctl(S, WLC_SET_INFRA, &One, sizeof(One), 0, "SET_INFRA") != MSG_OK ||
         SetInt(S, "wpa_auth", WPA2_AUTH_PSK) != MSG_OK ||
         SetInt(S, "auth", WL_AUTH_OPEN_SYSTEM) != MSG_OK ||
-        SetInt(S, "wsec", AES_ENABLED) != MSG_OK ||
-        SetInt(S, "sup_wpa", 1) != MSG_OK) {
+        SetInt(S, "wsec", AES_ENABLED) != MSG_OK) {
         ReportLine(R, "[join] security setup refused (last status %ld)\r\n", S->RespStatus);
         goto Done;
     }
-    RtlZeroMemory(Pmk, sizeof(Pmk));
-    *(USHORT UNALIGNED *)(Pmk + 0) = 2 * PMK_LEN;
-    *(USHORT UNALIGNED *)(Pmk + 2) = WSEC_PASSPHRASE;
-    for (I = 0; I < PMK_LEN; I++) {
-        Pmk[4 + 2 * I]     = (UCHAR)Hex[J->Pmk[I] >> 4];
-        Pmk[4 + 2 * I + 1] = (UCHAR)Hex[J->Pmk[I] & 0xF];
+    if (IoctlVar(S, TRUE, "wpaie", S->OwnRsn, S->OwnRsnLen, 0) != MSG_OK) {
+        ReportLine(R, "[join] wpaie refused (status %ld) - the firmware builds its own RSN IE\r\n", S->RespStatus);
     }
-    I = Ioctl(S, WLC_SET_WSEC_PMK, Pmk, sizeof(Pmk), 0, "SET_WSEC_PMK");
-    RtlSecureZeroMemory(Pmk, sizeof(Pmk));
-    RtlSecureZeroMemory(S->Va + MSG_OFF_IOCTL_REQ, IOCTL_REQ_BUF_SIZE);   /* the request buffer held the key */
-    RtlSecureZeroMemory(S->VarBuf, sizeof(S->VarBuf));
-    if (I != MSG_OK) {
-        ReportLine(R, "[join] SET_WSEC_PMK refused (status %ld)\r\n", S->RespStatus);
-        goto Done;
-    }
+    RtlCopyMemory(S->Aa, S->ApBssid, 6);
     RtlZeroMemory(Join, sizeof(Join));
     *(ULONG UNALIGNED *)Join = J->SsidLen;
     RtlCopyMemory(Join + 4, J->Ssid, J->SsidLen);
@@ -1240,23 +2064,51 @@ WlanMsgJoin(PWLAN_MSG_CTX M, PWLAN_REPORT R, const WLAN_JOIN_CONFIG *J)
         goto Done;
     }
     Result = JOIN_TIMEOUT;
-    for (Ms = 0; Ms < JOIN_TIMEOUT_MS; Ms += 20) {
-        (VOID)D2hCtrlPoll(S);
-        if ((S->JoinSetSsid > 0) || (S->JoinPskSup >= 0 && S->JoinPskSup != WLC_SUP_KEYED) || S->JoinLost) {
+    for (Ms = 0; Ms < JOIN_TIMEOUT_MS; Ms += 10) {
+        (VOID)D2hPollAll(S);
+        if (S->JoinSetSsid == 0 && !S->FlowRequested) {
+            /* tx flowring once associated (dhd creates it on the first tx after the link is up); a msg 1 that
+               arrived meanwhile stays pending and is answered below */
+            if (!FlowRingCreate(S, S->ApBssid)) {
+                ReportLine(R, "[join] no tx flowring - the handshake cannot be sent\r\n");
+                Result = JOIN_SETUP_FAILED;
+                break;
+            }
+        }
+        if (S->EapolPending && S->FlowOpen) {
+            SupEapol(S);
+        }
+        if (S->JoinSetSsid > 0 || S->JoinLost) {
             Result = JOIN_FW_FAILED;
             break;
         }
-        if (S->JoinSetSsid == 0 && S->JoinPskSup == WLC_SUP_KEYED) {
+        if (S->Hs == HS_FAILED) {
+            Result = JOIN_HANDSHAKE_FAILED;
+            break;
+        }
+        if (S->Hs == HS_DONE) {
             Result = JOIN_OK;
             break;
         }
-        Delay.QuadPart = -10000LL * 20;
+        Delay.QuadPart = -10000LL * 10;
         KeDelayExecutionThread(KernelMode, FALSE, &Delay);
     }
-    ReportLine(R, "JOIN %lu: SET_SSID %ld, PSK_SUP %ld, link %s%s after %lu ms\r\n", Result, S->JoinSetSsid,
-               S->JoinPskSup, S->JoinLinkUp ? "up" : "not up", S->JoinLost ? ", lost" : "", Ms);
+    ReportLine(R, "JOIN %lu: SET_SSID %ld, handshake state %lu, link %s%s, eapol rx %lu tx %lu after %lu ms\r\n", Result,
+               S->JoinSetSsid, S->Hs, S->JoinLinkUp ? "up" : "not up", S->JoinLost ? ", lost" : "", S->RxEapol, S->TxPosted, Ms);
+    /* run w7b: no EAPOL arrived - show where the rx path stands and what the firmware says */
+    ReportLine(R, "[join] rings: rxpost host w %lu fw r %u | rx cpl fw w %u host r %lu | tx cpl fw w %u | rx frames %lu bad %lu, "
+               "tx posted %lu done %lu\r\n", S->Ring[RING_H2D_RXPOST].Host, Tcm16(S, S->Ring[RING_H2D_RXPOST].RIdxAddr),
+               Tcm16(S, S->Ring[RING_D2H_RX_CPL].WIdxAddr), S->Ring[RING_D2H_RX_CPL].Host,
+               Tcm16(S, S->Ring[RING_D2H_TX_CPL].WIdxAddr), S->RxFrames, S->RxBad, S->TxPosted, S->TxDone);
+    if (Result != JOIN_OK) {
+        WlanBusConsoleDump(R, S->Bus);
+    }
 Done:
     S->Joining = FALSE;
+    if (Result != JOIN_OK) {
+        RtlSecureZeroMemory(S->Ptk, sizeof(S->Ptk));
+        S->PtkSet = FALSE;
+    }
     if (Result == JOIN_SETUP_FAILED) {
         ReportLine(R, "JOIN %u: setup failed\r\n", JOIN_SETUP_FAILED);
     }

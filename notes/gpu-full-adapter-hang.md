@@ -168,3 +168,18 @@ vsync slightly faster than the panel only shortens vblank waits, never blocks on
 - Cost: one full 1080x2280x4 = 9.8 MB copy per flip at DISPATCH (SubmitCommand) into a write-combined mapping.
   Acceptable for a first light; FlipBlt 0 restores the original (flips dropped).
 - Build 6: exit 0 (after dropping a guard on a field DXGKARG_PRESENT does not have), sys sha256 58E7B879...
+
+## Review of the F2 commit (adversarial)
+- DoPresent reads alloc->Mdl at DISPATCH without MmuLock (a fast mutex cannot be taken there): same as the
+  original's design - VidMm keeps every allocation a submitted DMA buffer references resident until its fence
+  completes, so UNMAP cannot run under an in-flight present. Not new.
+- BuildPagingBuffer takes MmuLock (fast mutex) in the new !GpuUp branches: the original already took it on the
+  GpuUp path of the same DDI; no new IRQL assumption.
+- MW_PRESENT_OP grew (ToScanout) -> MW_DMA_PRIVATE grew; CreateContext reports sizeof(MW_DMA_PRIVATE) and Render/
+  Present/SubmitCommand check against the same sizeof - consistent (rg "sizeof(MW_DMA_PRIVATE)\|sizeof(\*priv)").
+- **Open, UNVERIFIED (not fixable offline):** for a DMA flip (FlipCaps 0) the software vsync reports
+  ScanoutAddress = the last SetVidPnSourceAddress address, not the flipped-to allocation's. If dxgkrnl retires
+  flips by matching that address, flips would still queue up. The PRAM trace answers it: Present(Flip) entries
+  with the heartbeat "p" counter stuck = flips not retiring -> next step is FlipOnVSyncMmIo (dxgkrnl then calls
+  SetVidPnSourceAddress per flip and the vsync reports exactly that address).
+No code defect found in the F2 diff; nothing to fix.

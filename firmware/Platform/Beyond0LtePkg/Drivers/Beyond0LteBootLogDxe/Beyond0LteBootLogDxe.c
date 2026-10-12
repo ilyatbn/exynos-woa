@@ -358,6 +358,51 @@ UfsSpeedTest (
             (I != 0) ? (Ns / 1000) / I : 0, (Ns != 0) ? ((UINT64)I * Size * 1000000ULL) / Ns : 0));
   }
 
+  //
+  // m15 u3: same 64 KiB x 128 read into three buffer locations - (a) the high allocation above, (b) a bank0
+  // allocation below the pool, (c) the Windows driver's reserved UFS DMA pool past its workspace
+  // (BEYOND0LTE_UFS_DMA_POOL_BASE + 0x28000, inside the 0x40000 pool, after the 0x24000 workspace). Windows reads
+  // 64 KiB in ~4 ms vs UEFI ~0.73 ms; if (c) is slow the pool region itself is the limiter.
+  //
+  {
+    EFI_PHYSICAL_ADDRESS  Low;
+    UINT8                 *Bufs[3];
+    CONST CHAR8           *Names[3];
+    UINTN                 B;
+
+    Low = 0xA0000000ULL;
+    Bufs[0]  = Buf;
+    Names[0] = "high";
+    Bufs[1]  = EFI_ERROR (gBS->AllocatePages (AllocateMaxAddress, EfiBootServicesData, EFI_SIZE_TO_PAGES (SIZE_64KB), &Low))
+               ? NULL : (UINT8 *)(UINTN)Low;
+    Names[1] = "bank0";
+    Bufs[2]  = (UINT8 *)(UINTN)(BEYOND0LTE_UFS_DMA_POOL_BASE + 0x28000ULL);
+    Names[2] = "pool";
+    for (B = 0; B < 3; B++) {
+      if (Bufs[B] == NULL) {
+        DEBUG ((DEBUG_ERROR, "UfsSpeed: %a buffer unavailable\n", Names[B]));
+        continue;
+      }
+
+      T0 = GetPerformanceCounter ();
+      for (I = 0; I < 128; I++) {
+        Status = Disk->ReadBlocks (Disk, Disk->Media->MediaId, (EFI_LBA)((I * SIZE_64KB) / Disk->Media->BlockSize),
+                                   SIZE_64KB, Bufs[B]);
+        if (EFI_ERROR (Status)) {
+          break;
+        }
+      }
+
+      Ns = GetTimeInNanoSecond (GetPerformanceCounter () - T0);
+      DEBUG ((DEBUG_ERROR, "UfsSpeed: 64K into %a %p x %u: %r, %lu us per read\n", Names[B], Bufs[B], (UINT32)I, Status,
+              (I != 0) ? (Ns / 1000) / I : 0));
+    }
+
+    if (Bufs[1] != NULL) {
+      gBS->FreePages (Low, EFI_SIZE_TO_PAGES (SIZE_64KB));
+    }
+  }
+
   FreePages (Buf, EFI_SIZE_TO_PAGES (SIZE_1MB));
 }
 

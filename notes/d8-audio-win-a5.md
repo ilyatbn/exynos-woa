@@ -333,3 +333,13 @@ something after it still is.
 - T12: hardware-stage defaults OFF everywhere: INF AddReg AmpInit/AmpEnable/AboxEnable 0 (NOCLOBBER kept),
   Driver.c AudReadConfig defaults 0, header comments; HwVolume 0 / Stereo 0 / KsOverride 1 unchanged. Build exit 0,
   InfVerif VALID. The staged scripts (audio-stage-A..D.cmd) still set every value explicitly.
+- T13 audio-test.ps1 (CRLF): amplitude constant Wasapi.Amp = 0.03 (shared tones and the exclusive tone); keys 0 then
+  +5 (~10 %), -2 (~6 %), +5 (~16 %), mute, unmute -3 (~10 %); new `props:` (endpoint property store: every blob and
+  every {F19F064D} engine / {E4870E26} OEM / {3D6E1656} / {1DA5D803} endpoint key), `formats:` (shared
+  IsFormatSupported for 48k PCM16, EXT16, EXT float32 + device period) and an EXCLUSIVE-mode 1 kHz 48k/16 EXT tone
+  (1.5 s, timer-driven, Initialize(period x4, period)) before tone A. Host check (this PC, Realtek endpoint, read-only
+  calls only): compiled with Add-Type; `formats:` all hr 0, period 106667/30000; `props:` reference of a WORKING
+  endpoint - {F19F064D},0 DeviceFormat = OEMFormat {E4870E26},3 = 48k/16 EXT blob (FEFF0200 80BB0000 00EE0200 0400 1000
+  1600 1000 03000000 + PCM GUID), {3D6E1656},2/3/6/7 + {E4870E26},0 = 48k float32 EXT (the mix formats), {1DA5D803},8 =
+  KSNODETYPE_SPEAKER, ,2 = KSNODETYPE_ANY, ,7 = 1 (event driven). On the phone the same dump shows which of these
+  AudioSrv failed to write.

@@ -6,10 +6,11 @@
  *   mem  - memcpy bandwidth over 64 MiB
  *   disk - sequential write/read of a 256 MiB unbuffered file, then 4 KiB random reads for 5 s
  *
- *   s10eperf [cpu] [mem] [disk <dir>] [raw <vol>] [sweep <vol>] [loop <vol> <s>]   (no arguments = cpu mem)
+ *   s10eperf [cpu] [mem] [disk <dir>] [raw <vol>] [sweep <vol>] [loop <vol> <s>] [adapter <dev>]   (no arguments = cpu mem)
  */
 
 #include <windows.h>
+#include <winioctl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -261,6 +262,39 @@ RawLoop(const char *Volume, int Seconds)
     VirtualFree(Buffer, 0, MEM_RELEASE);
 }
 
+//
+// m15 u4 (read-only): the limits classpnp actually splits by - IOCTL_STORAGE_QUERY_PROPERTY StorageAdapterProperty
+// (MaximumTransferLength, MaximumPhysicalPages, AlignmentMask) and the device's StorageAccessAlignmentProperty.
+//
+static void
+Adapter(const char *Device)
+{
+    HANDLE File = CreateFileA(Device, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+    STORAGE_PROPERTY_QUERY Query;
+    STORAGE_ADAPTER_DESCRIPTOR Desc;
+    DWORD Returned = 0;
+
+    if (File == INVALID_HANDLE_VALUE) {
+        printf("adapter: open %s failed %lu\n", Device, GetLastError());
+        return;
+    }
+    ZeroMemory(&Query, sizeof(Query));
+    ZeroMemory(&Desc, sizeof(Desc));
+    Query.PropertyId = StorageAdapterProperty;
+    Query.QueryType = PropertyStandardQuery;
+    if (DeviceIoControl(File, IOCTL_STORAGE_QUERY_PROPERTY, &Query, sizeof(Query), &Desc, sizeof(Desc), &Returned,
+                        NULL)) {
+        printf("adapter: %s MaximumTransferLength=0x%lx MaximumPhysicalPages=%lu AlignmentMask=0x%lx BusType=%u "
+               "SrbType=%u AdapterUsesPio=%u AdapterScansDown=%u CommandQueueing=%u\n",
+               Device, Desc.MaximumTransferLength, Desc.MaximumPhysicalPages, Desc.AlignmentMask,
+               (unsigned)Desc.BusType, (unsigned)Desc.SrbType, (unsigned)Desc.AdapterUsesPio,
+               (unsigned)Desc.AdapterScansDown, (unsigned)Desc.CommandQueueing);
+    } else {
+        printf("adapter: %s query failed %lu\n", Device, GetLastError());
+    }
+    CloseHandle(File);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -279,6 +313,8 @@ main(int argc, char **argv)
             Mem();
         } else if (strcmp(argv[I], "raw") == 0 && I + 1 < argc) {
             RawRead(argv[++I]);
+        } else if (strcmp(argv[I], "adapter") == 0 && I + 1 < argc) {
+            Adapter(argv[++I]);
         } else if (strcmp(argv[I], "sweep") == 0 && I + 1 < argc) {
             RawSweep(argv[++I]);
         } else if (strcmp(argv[I], "loop") == 0 && I + 2 < argc) {

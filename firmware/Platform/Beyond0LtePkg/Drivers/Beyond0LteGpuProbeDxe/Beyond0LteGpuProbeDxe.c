@@ -1,5 +1,5 @@
 /** @file
-  M16 G3: READ-ONLY probe of the Mali-G76 ("G3D") block. Logs to UEFILOG with the "GpuProbe:" prefix.
+  M16 G3: read-only probe of the Mali-G76 ("G3D") block (+ M16 G9 power-on behind a flag, GpuPower.c). Logs to UEFILOG with the "GpuProbe:" prefix.
   Recipe and every constant: notes/gpu-m16-g2g3.md (G2 findings F1-F6, "G3 design").
 
   Order, each step only if the previous one allows it:
@@ -10,14 +10,15 @@
     3. Both PMU status bits set -> CMU_G3D muxes/dividers/gates (inside the domain, lost at power-down).
     4. GPU clock gate not forced off (MANUAL=1 && CG_VAL=0) -> GPU_ID alone first; 0 or ~0 stops (bus
        decode / secure-only canary). Then the read-only ID/status registers panfrost reads at init.
-  Nothing is written to any of these blocks.
+  The probe itself writes nothing to any of these blocks.
 
-  BEYOND0LTE_GPU_POWER_ON (default 0) is an UNVERIFIED stub: the vendor power-on is the pmucal MMIO sequence
-  PLUS an SMC (DTZPC restore, need_smc 0x18410204) PLUS ACPM DVFS for clock/voltage (F3-F6), which this
-  driver does not do. With the flag set it only logs that.
+  BEYOND0LTE_GPU_POWER_ON (default 0; M16 G9, notes/gpu-m16-g3don.md): after the as-found probe, if the G3D
+  domain is OFF, GpuPower.c runs the pmucal embedded_g3d_on sequence (PMU/CMU_TOP writes), the DTZPC restore
+  SMC (0x82000410) and an ACPM DVFS FREQ_REQ for 260 MHz, leaves the domain ON for the OS, and probes again.
+  If the domain is already ON (or half on) it is not touched. With the flag 0 nothing is written anywhere.
 
-  Guard: boot progress word 0x8FE0F000[1] = 0x6A while the probe runs; a boot whose previous boot ended at
-  0x6A skips the probe (same self-healing shape as AudioProbeDxe's 0x69 / UsbHostDxe's 0x67).
+  Guard: boot progress word 0x8FE0F000[1] = 0x6A while the probe AND the power-on run; a boot whose previous
+  boot ended at 0x6A skips the whole driver (same self-healing shape as AudioProbeDxe's 0x69 / UsbHostDxe's 0x67).
 
   NOT VALIDATED ON HARDWARE (stage Guided).
 **/
@@ -30,13 +31,15 @@
 #include <Platform/Exynos9820.h>
 
 #include "GpuProbeHw.h"
+#include "GpuPower.h"
 
 // 0 = the driver does nothing (one log line).
 #ifndef BEYOND0LTE_GPU_PROBE
 #define BEYOND0LTE_GPU_PROBE  1
 #endif
 
-// G4 hook. UNVERIFIED stub (see the file header): never writes anything, whatever its value.
+// M16 G9: 1 = power the G3D on (PMU + SMC + ACPM writes, GpuPower.c) when it is OFF at entry. Committed 0;
+// the test image sets it to 1. NOT validated on hardware.
 #ifndef BEYOND0LTE_GPU_POWER_ON
 #define BEYOND0LTE_GPU_POWER_ON  0
 #endif
@@ -210,19 +213,21 @@ Beyond0LteGpuProbeEntry (
     return EFI_SUCCESS;
   }
 
-  DEBUG ((DEBUG_WARN, "GpuProbe: start (read-only; BEYOND0LTE_GPU_POWER_ON %u)\n", BEYOND0LTE_GPU_POWER_ON));
+  DEBUG ((DEBUG_WARN, "GpuProbe: start (BEYOND0LTE_GPU_POWER_ON %u)\n", BEYOND0LTE_GPU_POWER_ON));
   Saved        = mProgress[1];
   mProgress[1] = GPU_PROGRESS_TRYING;
-
-  if (BEYOND0LTE_GPU_POWER_ON) {
-    // UNVERIFIED stub (G4): needs SMC DTZPC restore + ACPM DVFS, notes/gpu-m16-g2g3.md F6. Nothing written.
-    DEBUG ((DEBUG_WARN, "GpuProbe: power-on NOT implemented (needs SMC DTZPC restore 0x18410204 + ACPM DVFS) - "
-                        "probing as found\n"));
-  }
+  __asm__ __volatile__ ("dsb sy" ::: "memory");   // guard word out before the first risky access
 
   GpuProbe ();
 
+  if (BEYOND0LTE_GPU_POWER_ON) {
+    if (GpuPowerOn ()) {
+      GpuProbe ();     // after power-on: PLL_G3D (STABLE = lock), CMU_G3D gate, GPU_ID ...
+    }
+  }
+
   mProgress[1] = Saved;
+  __asm__ __volatile__ ("dsb sy" ::: "memory");
   DEBUG ((DEBUG_WARN, "GpuProbe: done\n"));
   return EFI_SUCCESS;
 }

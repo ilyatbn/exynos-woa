@@ -82,3 +82,73 @@ files fetched for G2 (`notes/gpu-m16-g2g3.md`), copied into
   use TimerLib MicroSecondDelay (as Beyond0LteParking.c). The copied ACPM client is switched to it too.
 - Guard: the existing 0x6A word (mProgress[1]) is set before step 1 of the power-on and restored only after
   the re-probe -> a hang anywhere in power-on/SMC/ACPM/re-probe makes the next boot skip the whole driver.
+
+## Implementation (G9 UEFI half)
+- 2026-10-12 code: `Beyond0LteGpuProbeDxe/GpuPower.c` (sequence), `GpuAcpm.c` (IPC client COPIED from the validated
+  Beyond0LteTouchPowerDxe.c client: same FindChannel/CheckResponse/NextSeq/AcpmSend, prefix "GpuProbe: ACPM",
+  MicroSecondDelay instead of gBS->Stall, elem size floor 16 B instead of 8 so the 4-word reply copy never reads
+  past an element - ch 0 is elem 16 per m15 run 30). Constants: `Exynos9820.h` (SMC id/args + need_smc address,
+  SOURCE-ONLY) and `GpuProbeHw.h` (sequence values, delays, ACPM idx/kHz). inf: + ArmSmcLib, TimerLib, BaseMemoryLib.
+  Follow-up (not done here): move the duplicated ACPM client into one library used by both drivers.
+- Entry flow: guard 0x6A (+dsb) -> as-found GpuProbe() -> if flag: GpuPowerOn(); if it powered the domain on ->
+  GpuProbe() again -> restore guard (+dsb) -> "GpuProbe: done".
+- GpuPowerOn: both PMU status bits set -> "already ON - not touching"; exactly one set -> "inconsistent - not
+  touching"; both 0 -> steps 1-6 (each write logs before -> after, each wait logs value + poll count or TIMEOUT),
+  step 7 SMC (logs x0; low 32 bits != 0 -> REFUSED), step 9 ACPM FREQ_REQ (logs reply, "echo yes/NO" = reply word1
+  == 260000; a FREQ_REQ reply echoed the request in m15 run 31), 10 ms settle. Step 8 (restore list) is absent by
+  design (H5). Any wait timeout or a refused SMC -> PowerOffSafe (EMBEDDED_G3D_CONFIGURATION=0, wait, 138 us,
+  PLL_CON0 bit4=0, PLL_CON2=0x10000001; NO CMU_G3D writes, NO tz_save SMC, G3D_CONFIGURATION left as the vendor
+  off-sequence leaves it) and no ACPM request.
+- MMIO map: nothing new needed (H7).
+
+## Build (2026-10-12)
+- Scratch copy `scratchpad\build-g9.ps1` of firmware/tools/build-uefi.ps1: `$ws` = this worktree's firmware,
+  `$edk2` = main checkout's edk2, WORKSPACE = `subst V:` of `scratchpad\g9build` (Conf copied from g3build).
+- Flag 0 (committed): **exit 0**, `FVMAIN_COMPACT [99%Full] 774144 (0xbd000) total, 772080 used, 2064 (0x810) free`,
+  FVMAIN 33 %; FD 7 340 032 B sha256 `907f7729871897...`; GpuProbeDxe.efi 14 336 B (same as G3: LTO drops the
+  power-on code when the flag is 0).
+- Flag 1 (NOT committed; `#define BEYOND0LTE_GPU_POWER_ON 1`): **exit 0**, `FVMAIN_COMPACT [99%Full] 778240 (0xbe000)
+  total, 774280 used, 3960 (0xf78) free` (auto-sized, grew one 4 KiB block), FVMAIN 34 %; FD 7 340 032 B sha256
+  `7876c4d479cc49d9...`, copied to `scratchpad\BEYOND0LTE_UEFI-g9-flag1.fd` (not packed, not flashed);
+  GpuProbeDxe.efi 31 232 B, all "GpuProbe: on[..]"/ACPM strings present.
+
+## Expected UEFILOG (flag 1)
+```
+GpuProbe: start (BEYOND0LTE_GPU_POWER_ON 1)
+GpuProbe: PMU EMBEDDED_G3D CONFIG .. STATUS .. OUT .. | G3D CONFIG .. STATUS .. (bit0 = on)     <- as found
+GpuProbe: PLL_G3D CON0 .. (ENABLE . STABLE . M . P . S .) CON2 .. LOCKTIME ..
+GpuProbe: G3D domain is OFF (...)            (or ON -> G3 probe lines, then "already ON - not touching it")
+GpuProbe: power-on: G3D domain OFF at entry - running pmucal embedded_g3d_on
+GpuProbe: on[1] PLL_CON2_PLL_G3D [1a240148] x -> 30000003
+GpuProbe: on[2] PLL_CON0_PLL_G3D [1a240140] x -> x|10
+GpuProbe: on[3] G3D_CONFIGURATION [15862380] .. -> ..;  on[3] wait G3D_STATUS [15862384] = .. ok after N polls
+GpuProbe: on[4] EMBEDDED_G3D_OUT atomic-set 2 via [1586e120]: [15862120] .. -> ..
+GpuProbe: on[5] G3D_CONFIGURATION ..;  on[5] wait G3D_STATUS .. ok
+GpuProbe: on[6] EMBEDDED_G3D_CONFIGURATION [15862100] ..;  on[6] wait EMBEDDED_G3D_STATUS [15862104] .. ok
+GpuProbe: on[7] SMC 82000410 (1, 18410204, 2) DTZPC restore ...
+GpuProbe: on[7] SMC returned x0 0 (low32 0) -> ok
+GpuProbe: power-on: PMU EMBEDDED_G3D_STATUS 1 G3D_STATUS 1 after DTZPC restore
+GpuProbe: ACPM ch id 0 (idx 0) type 1 ap_poll 1 q_len 15 elem 16
+GpuProbe: ACPM seq s sent 00s0000a 0003f7a0 00000000 00000000 -> reply ...
+GpuProbe: on[9] ACPM FREQ_REQ G3D (idx 10) 260000 kHz -> reply .. 0003f7a0 .. .. (echo yes)
+GpuProbe: power-on: done, domain left ON for the OS - re-probing
+GpuProbe: PMU ... STATUS 1 ... G3D ... STATUS 1;  PLL_G3D CON0 .. (ENABLE 1 STABLE 1 M . P . S .)   <- lock
+GpuProbe: G3D domain is ON - reading CMU_G3D; 9 CMU_G3D lines; GATE_GPU_CLK (MANUAL . CG_VAL .)
+GpuProbe: GPU_ID [18500000] = 72?1.... (... G76 0x7001/0xF00F match: yes); 24 GPU lines; popcount line
+GpuProbe: done
+```
+- Failure shapes: "on[n] wait ... TIMEOUT" or "SMC ... -> REFUSED" followed by "powering the G3D domain back off" +
+  3-4 "on[off]" lines + "power-on FAILED"; ACPM failure -> "on[9] ... FAILED (..) - domain stays ON".
+  A hang anywhere -> next boot "previous boot hung in the GPU probe (progress 0x6A) - skipping it".
+
+## Hazards (for the boot)
+- PMU writes (0x2380/0x2100 RMW, atomic-set 0x1586E120): plain MMIO per pmucal, PMU always on. 0x2380 bit0=0 at
+  step 3 powers the OUTER G3D domain off first (vendor order) - harmless only if nothing else uses it (domain was OFF).
+- PLL_G3D CON2/CON0 bit4 writes into CMU_TOP before the domain exists (vendor order); bit4 meaning UNVERIFIED.
+- SMC 0x82000410 into Samsung's EL3 monitor: first ever from our firmware with this id. Unknown id -> -1 (REFUSED path).
+  A monitor that faults/hangs on it is not recoverable by us -> 0x6A guard on the next boot.
+- ACPM FREQ_REQ G3D: APM sets PLL_G3D AND the G3D buck voltage (INFERENCE, g2g3 F5). Same channel/path as the
+  validated CPU requests; a wrong unit (Hz vs kHz, H3) would ask for 260 GHz/260 kHz - APM clamps to its table
+  (INFERENCE) - the reply word and the re-probed PLL M/P/S show what happened.
+- Leaving G3D on for Windows with no driver: idle power/heat; no thermal control (G9 row: stay at 260 MHz).
+- After the domain is on, the re-probe's first NS reads of CMU_G3D/GPU depend on the DTZPC restore having worked.

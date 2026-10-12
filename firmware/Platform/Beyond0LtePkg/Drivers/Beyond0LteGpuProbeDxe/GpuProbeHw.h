@@ -79,4 +79,26 @@
 #define GPU_ID_G76_MASK           0xF00Fu
 #define GPU_ID_G76_MODEL          0x7001u
 
+//
+// M16 G9 power-on / power-off values (notes/gpu-m16-g3don.md, g2g3 F3).
+// [SEQ] cal-if/exynos9820/flexpmu_cal_local_exynos9820.h: embedded_g3d_on :555-567, embedded_g3d_off :586-594
+// [RAE] cal-if/pmucal_rae.c: WAIT = 2000 x udelay(1) (:102-116), SET_BIT_ATOMIC = write value to off|0xC000 (:145-151)
+//
+#define PLL_G3D_CON2_ON_VALUE        0x30000003u   // [SEQ] :556 WRITE full mask
+#define PLL_G3D_CON2_OFF_VALUE       0x10000001u   // [SEQ] :593 WRITE full mask
+#define PLL_G3D_CON0_BIT4            (1u << 4)     // [SEQ] :557 set / :592 clear; meaning UNVERIFIED (g2g3 F3: MUX_SEL by analogy)
+#define PMU_G3D_ON_BIT               (1u << 0)     // [SEQ] :558-566 CONFIGURATION / STATUS bit0
+#define PMU_EMBEDDED_G3D_OUT_VALUE   0x2u          // [SEQ] :560 SET_BIT_ATOMIC value
+#define PMU_G3D_ON_DELAY_US          0x118u        // [SEQ] :561/:564 DELAY 0x118 = 280 us
+#define PMU_G3D_OFF_DELAY_US         0x8Au         // [SEQ] :590 DELAY 0x8A = 138 us
+#define PMU_WAIT_TIMEOUT_US          2000u         // [RAE] :111 (2000 polls of udelay(1))
+#define CMU_G3D_QCH_CON_BUSIF_HPMG3D 0x303Cu       // [SEQ] :587 off clears bit2 (CMU_G3D, skipped by our off path - see .c)
+
+//
+// ACPM DVFS request for the G3D (notes/gpu-m16-g3don.md H1-H3).
+//
+#define ACPM_DVFS_G3D_IDX            10u       // GET_IDX(ACPM_DVFS_G3D 0x0B04000A) = dvfs_g3d (cal_acpm_dvfs_exynos9820.h:13)
+#define ACPM_DVFS_G3D_START_KHZ      260000u   // mali DT gpu_dvfs_start_clock (exynos9820-mali_common.dtsi:45), kHz (H3)
+#define GPU_DVFS_SETTLE_US           10000u    // our choice (= TouchPower's validated post-FREQ_REQ settle); kernel waits none
+
 #endif // GPU_PROBE_HW_H_

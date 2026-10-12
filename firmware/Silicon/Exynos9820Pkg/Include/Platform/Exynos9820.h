@@ -775,6 +775,12 @@
 #define EXYNOS_CMU_G3D_SIZE       0x0000000000008000ULL   // SOURCE-ONLY (same SFR_BLOCK)
 #define EXYNOS_G3D_BASE           0x0000000018500000ULL   // SOURCE-ONLY (mali@18500000, exynos9820-mali_common.dtsi:14-16; G1 live read pending)
 #define EXYNOS_G3D_SIZE           0x0000000000005000ULL   // SOURCE-ONLY (same node, reg size 0x5000)
+// M16 G9 (UEFI G3D power-on, notes/gpu-m16-g3don.md H4): the DTZPC restore SMC pmucal issues after the
+// embedded_g3d on-sequence. The address is an SMC ARGUMENT only - the AP never maps or accesses it.
+#define EXYNOS_SMC_CMD_PREPARE_PD_ONOFF   0x82000410u   // SOURCE-ONLY (include/linux/smc.h:42 SMC_CMD_PREAPRE_PD_ONOFF)
+#define EXYNOS_SMC_WAKEUP_PD_DOWN         1u            // SOURCE-ONLY (exynos-el3_mon.h:24 EXYNOS_WAKEUP_PD_DOWN = restore)
+#define EXYNOS_SMC_RUNTIME_PM_TZPC_GROUP  2u            // SOURCE-ONLY (exynos-el3_mon.h:26)
+#define EXYNOS_G3D_DTZPC_NEED_SMC         0x18410204u   // SOURCE-ONLY (exynos9820-pm-domains.dtsi:81 pd-embedded_g3d need_smc)
 
 //
 // ---------------------------------------------------------------------------

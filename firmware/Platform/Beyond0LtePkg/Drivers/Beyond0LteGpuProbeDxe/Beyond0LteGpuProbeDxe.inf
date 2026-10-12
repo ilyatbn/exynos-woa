@@ -2,6 +2,8 @@
 #  M16 G3: READ-ONLY probe of the Mali-G76 (G3D) block - PMU G3D status, PLL_G3D, and only while the domain
 #  is on CMU_G3D and the GPU ID/feature registers - into UEFILOG ("GpuProbe:"). Guarded by boot progress
 #  code 0x6A. Recipe: notes/gpu-m16-g2g3.md. Not validated on an S10e yet.
+#  M16 G9: with BEYOND0LTE_GPU_POWER_ON 1 (default 0) it also powers the domain on if it is off (pmucal
+#  sequence, DTZPC restore SMC, ACPM FREQ_REQ 260 MHz) and leaves it on: notes/gpu-m16-g3don.md.
 #
 #  FILE_GUID 11111111-2222-3333-4444-555555555555 is this module's BUILD IDENTITY, not a hardware read.
 ##
@@ -17,6 +19,10 @@
 [Sources]
   Beyond0LteGpuProbeDxe.c
   GpuProbeHw.h
+  GpuPower.c
+  GpuPower.h
+  GpuAcpm.c
+  GpuAcpm.h
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -25,8 +31,11 @@
 [LibraryClasses]
   UefiDriverEntryPoint
   BaseLib
+  BaseMemoryLib
   DebugLib
   IoLib
+  ArmSmcLib                       ## G9: DTZPC restore SMC
+  TimerLib                        ## G9: MicroSecondDelay (the depex has no Metronome)
 
 [Depex]
   gEfiCpuArchProtocolGuid

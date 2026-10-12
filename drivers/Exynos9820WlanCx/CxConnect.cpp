@@ -359,9 +359,13 @@ CxSetAddKeys(PCX_DEVICE Dev, PCX_CMD Cmd, const UINT8 *Tlv, ULONG TlvLen)
             Status = STATUS_NOT_SUPPORTED;
             break;
         }
+        if (!Pairwise && !K->Optional.CipherKeyID_IsPresent) {
+            Status = STATUS_INVALID_PARAMETER;   /* a group key without its key id cannot be installed (no guess) */
+            break;
+        }
         /* RSC byte order: assumed = the EAPOL-Key RSC field (lowest PN octet first) that InstallKey expects;
            UNVERIFIED for WDI (WDI_TLV_RECEIVE_SEQUENCE_COUNT is "the initial 48-bit PN"). */
-        Rc = WlanMsgSetKey(&Dev->Msg, Dev->RunR, Pairwise ? 0 : (K->Optional.CipherKeyID_IsPresent ? K->CipherKeyID.CipherKeyID : 1),
+        Rc = WlanMsgSetKey(&Dev->Msg, Dev->RunR, Pairwise ? 0 : K->CipherKeyID.CipherKeyID,
                            K->CCMPKey.pElements,
                            Pairwise ? (K->Optional.PeerMacAddress_IsPresent ? K->PeerMacAddress.Address : Dev->Bssid) : NULL,
                            (!Pairwise && K->Optional.ReceiveSequenceCount_IsPresent) ? K->ReceiveSequenceCount.ReceiveSequenceCount : NULL);

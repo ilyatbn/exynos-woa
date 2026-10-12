@@ -230,3 +230,10 @@ Logs: Exynos9820WlanCx.txt (bring-up) + Exynos9820WlanCx-run.txt (runtime, rotat
   - Exynos9820WlanCx.inf   2601 B sha256 02E00A9055580E8F0C5CBDC6317DCE0E060BB2C8D63B2884C226D13A600BAEAE
   - exynos9820wlancx.cat   2538 B sha256 4FDE2B0DDD33870B9FBC8F97F270F428235233218C42AACB26E19EF994CC7587
   Not device-tested.
+- Review of b983875 (W4): checked every early return of CxTaskConnect frees P/C/A and sends exactly one M3; the
+  M4 is sent on every path after M3; ExSetTimerResolution set/release balanced by the Linked guard (also on D0
+  exit); LinkFn cannot fire inside WlanMsgConnect (Joining); association-result frame buffers sized 4/6 + 1024 B
+  match WLAN_ASSOC_IES_MAX. FOUND: a group key without a CipherKeyID was installed as key id 1 - a guessed
+  constant. Fixed in a follow-up commit (rejected with STATUS_INVALID_PARAMETER). Noted, not changed (W5): the
+  worker is blocked for up to 2 x 20 s during a connect (JOIN_TIMEOUT_MS) while WDI's normal connect time is 10 s,
+  and abort requests queue behind it.

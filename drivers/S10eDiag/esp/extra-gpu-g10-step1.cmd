@@ -17,6 +17,17 @@ call "%ESP%\S10EDIAG\gpu\extra-gpu-g10.cmd"
 rem The agent ends the session with a hard reset: force the SYSTEM hive to disk so next boot's Parameters survive
 rem (run g10s3a wrote GpuEnable 1, boot g10s3b still read 0 - the lazy hive flush was lost).
 powershell -NoProfile -Command "$k = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SYSTEM\CurrentControlSet\Services\MaliG76Wddm\Parameters'); if ($k) { $k.Flush(); $k.Close(); 'flushed' }" > "%G%\regflush.txt" 2>&1
+rem Even with the flush, boot g10s3d read GpuEnable 0 again. If this boot's mode differs from what the flags ask for,
+rem restart Windows CLEANLY once (marker C:\S10eTmp\gpumode.flg) so the new mode is live on the second pass.
+reg query "HKLM\SYSTEM\CurrentControlSet\Services\MaliG76Wddm\Parameters" /v GpuEnable > "%G%\gpuenable-now.txt" 2>&1
+findstr /c:"0x1" "%G%\parameters-this-boot.txt" > nul
+if errorlevel 1 if exist "%ESP%\S10EDIAG\gpu\gpu.flg" if not exist C:\S10eTmp\gpumode.flg (
+  echo restart > C:\S10eTmp\gpumode.flg
+  s10ediag mark g: mode change - clean restart
+  shutdown /r /t 0 /f
+  ping -n 120 127.0.0.1 > nul
+)
+if exist C:\S10eTmp\gpumode.flg del /f /q C:\S10eTmp\gpumode.flg
 if exist "%G%\m5test.txt" for /f "usebackq delims=" %%L in ("%G%\m5test.txt") do s10ediag mark "m5: %%L"
 for %%R in (trace trace-after-install) do if exist "%G%\%%R.reg" for /f "usebackq delims=" %%L in (`findstr /i "Mode Started Fail FbMatchesGop Presents CommitStatus" "%G%\%%R.reg"`) do s10ediag mark "%%R: %%L"
 for /f "usebackq delims=" %%L in (`findstr /i "Name Status Resolution" "%G%\video.txt"`) do s10ediag mark "v: %%L"

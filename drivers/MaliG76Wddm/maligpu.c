@@ -143,7 +143,7 @@ static BOOLEAN GpuPowerOn(MK_GPU *Gpu)
     MK_WR(Gpu, GPU_TILER_CONFIG, MK_RD(Gpu, GPU_TILER_CONFIG));
     MK_WR(Gpu, GPU_JM_CONFIG, JM_DEFAULT_IDVS_GROUP_SIZE << JM_IDVS_GROUP_SIZE_SHIFT);
 
-    /* G76: 20 ms for every domain, as panfrost's readl_relaxed_poll_timeout (the original gave the tiler 1 ms). */
+    /* L2 and shaders 20 ms, tiler 1 ms: the bounds of panfrost_gpu_power_on (panfrost_gpu.c:461-478) and the original. */
     MK_WR(Gpu, L2_PWRON_LO, (ULONG)f->L2Present);
     if (!Poll(Gpu, L2_READY_LO, 0xffffffff, (ULONG)f->L2Present, 20000))
         return FALSE;
@@ -151,7 +151,7 @@ static BOOLEAN GpuPowerOn(MK_GPU *Gpu)
     if (!Poll(Gpu, SHADER_READY_LO, 0xffffffff, (ULONG)f->ShaderPresent, 20000))
         return FALSE;
     MK_WR(Gpu, TILER_PWRON_LO, (ULONG)f->TilerPresent);
-    return Poll(Gpu, TILER_READY_LO, 0xffffffff, (ULONG)f->TilerPresent, 20000);
+    return Poll(Gpu, TILER_READY_LO, 0xffffffff, (ULONG)f->TilerPresent, 1000);
 }
 
 static BOOLEAN AsWaitReady(MK_GPU *Gpu)

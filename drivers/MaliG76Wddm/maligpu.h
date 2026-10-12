@@ -132,7 +132,8 @@
 #define MK_VA_PAGES             ((ULONG)((MK_VA_END - MK_VA_START) >> PAGE_SHIFT))
 #define MK_EXEC_WINDOW          0x1000000ULL            /* the PC is 24 bits */
 
-/* Mali LPAE page table entries (R10: the legacy format, as the original and mainline panfrost on this GPU). */
+/* Mali LPAE page table entries (R10: the legacy format of the original; mainline panfrost uses it on every SoC but
+ * MediaTek MT8188/8192/8370, panfrost_mmu.c:786-795 - whether the G76 accepts it is what G9b/G11 prove). */
 #define MK_PTE_TABLE            0x3ULL
 #define MK_PTE_PAGE             0x2C5ULL    /* block | ATTRINDX 1 | read | write | outer shareable */
 #define MK_PTE_XN               (1ULL << 54)

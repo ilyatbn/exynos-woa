@@ -130,3 +130,34 @@ screen - the state every boot so far had. Two firmware triggers:
   WDK 10.0.26100, WDM + displib.lib, /W4 /WX), Inf2Cat ok, signed. InfVerif /w /v: "INF is VALID", exit 0. Imports:
   ntoskrnl (Mm*/Zw*, incl. ZwLoadDriver/ZwUnloadDriver from displib's DxgkInitialize* stubs) + HAL. Package not
   final yet (README/NOTICE/ESP scripts next).
+
+## Review of 91cfc76 (MaliG76Wddm, adversarial)
+Checked mechanically:
+- `diff` of every ported file against the clone (CR stripped), code lines only: maligpu.c changes are exactly
+  PmuSaysGpuIsOn -> MkPowered (PMU page, 1 = on), MkGpuProbe (GPU_ID gate + PA bits), MkGpuQuiet, SoftReset masks
+  JOB/MMU too, SHADER_CONFIG quirk, the layout check, JobIntMask, power checks in Bringup/Stop/FlushRange/ISR, PA
+  limit in AllocTable/MapPages; display.c = maliwddm display.c + malidod's DOD pieces + VOT_INTERNAL + FbMatchesGop;
+  command.c/memory.c = include, node name, CollectDbgInfo prefix, SyncReset guard. ABI header byte-identical to the
+  upstream blob (LF). 9810 trees untouched (diff --stat empty).
+- panfrost facts re-read (local linux clone): hw_features_g76 has COHERENCY_REG + TLS_HASHING
+  (panfrost_features.h:84-96), hw_issues_g76 = 0 (panfrost_issues.h:259), init_quirks writes SHADER_CONFIG only when
+  quirks != 0 (panfrost_gpu.c:141-145), GPU_SHADER_CONFIG 0xF04 / SC_TLS_HASH_ENABLE BIT(17) (panfrost_regs.h:180,211).
+Found (fixed in the follow-up commit, not in 91cfc76):
+1. **False citation + changed timeout**: maligpu.c said "20 ms for every domain, as panfrost ... (the original gave the
+   tiler 1 ms)". panfrost_gpu_power_on polls the tiler with 1000 us (panfrost_gpu.c:476-478) - the original matched
+   panfrost. Tiler poll back to 1 ms, comment corrected. (MaliG76Probe's notes make the same "20 ms per poll" claim for
+   the tiler - G9b, recorded here, not changed: a longer upper bound is harmless there.)
+2. Three wrong line citations into malidod.c in display.c comments: FillSignal 126-140 -> 129-141, unspecified target
+   frequencies 487-495 -> 490-497, caps 331-366 -> 331-368, present 667-722 -> 667-720.
+3. maligpu.h claimed mainline panfrost uses Mali-LPAE "on this GPU": the Exynos 9820 is not a mainline panfrost SoC;
+   reworded to the R10 fact (every SoC but MT8188/8192/8370) and that G9b/G11 prove it on the G76.
+4. Notes Task B said the FullNoGpu mode writes "only its three INT_MASKs ... nothing else": it also READS GPU_ID and
+   MMU_FEATURES (MkGpuProbe) before masking. Corrected here (the notes line above is left as written).
+Accepted / open (recorded, not defects of the commit):
+- adapter.c DriverCaps comment and README/INF name an ESP script (`esp\extra-gpu-g10.cmd`) that sets
+  EnablePreemption 0 and the UMD name - it is written in the next task (must match that name).
+- KMDOD with interrupt resources in _CRS but no ISR: malidod's DSP0 test device is not shown to have had interrupts,
+  so whether dxgkrnl accepts a display-only adapter whose device lists 3 interrupts is UNVERIFIED (first boot answers
+  it: Started=1 or code 43 / Fail_* in the trace).
+- VOT_INTERNAL instead of the validated HDMI: UNVERIFIED for dxgkrnl acceptance (R14 says cosmetic, not proven).
+- Rebuild after the fixes: exit 0, MaliG76Wddm.sys sha256 4101B0A8... (scratchpad\mali-g10-try2; not the final package).

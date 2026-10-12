@@ -32,7 +32,7 @@ static void FillSourceMode(MW_ADAPTER *Dev, D3DKMDT_VIDPN_SOURCE_MODE *M)
 /* The timing. Nothing is programmed; the panel runs whatever sboot set.
  * Full adapter (maliwddm display.c:28-49): a full WDDM driver may not leave the frequencies unspecified (their
  * board run 4: STATUS_GRAPHICS_INVALID_FREQUENCY from pfnAddMode, Windows stopped at boot), so 60 Hz with
- * +280/+45 blanking is synthesised. Display-only (malidod.c:126-140): 60 Hz without blanking for the monitor
+ * +280/+45 blanking is synthesised. Display-only (malidod.c:129-141): 60 Hz without blanking for the monitor
  * mode; AddTargetMode then leaves the target's frequencies unspecified, as Basic Display does. */
 static void FillSignal(MW_ADAPTER *Dev, D3DKMDT_VIDEO_SIGNAL_INFO *S)
 {
@@ -120,7 +120,7 @@ NTSTATUS APIENTRY MwStopDeviceAndReleasePostDisplayOwnership(IN_CONST_PVOID Mini
     return STATUS_SUCCESS;
 }
 
-/* ---- the display-only adapter's caps (malidod.c:331-366) ---- */
+/* ---- the display-only adapter's caps (malidod.c:331-368) ---- */
 
 /* A field of a structure dxgkrnl sized for our interface version: write it
  * only if it lies wholly inside the buffer we were given. */
@@ -310,7 +310,7 @@ static NTSTATUS AddTargetMode(MW_ADAPTER *Dev, const DXGK_VIDPN_INTERFACE *VidPn
     if (NT_SUCCESS(st)) {
         FillSignal(Dev, &mode->VideoSignalInfo);
         if (Dev->Mode == MwModeDisplayOnly) {
-            /* malidod.c:487-495: a display-only driver neither knows nor sets the timing; its made-up 60 Hz
+            /* malidod.c:490-497: a display-only driver neither knows nor sets the timing; its made-up 60 Hz
              * timing got STATUS_GRAPHICS_INVALID_FREQUENCY here (M5.1 run 4). */
             mode->VideoSignalInfo.VSyncFreq.Numerator = D3DKMDT_FREQUENCY_NOTSPECIFIED;
             mode->VideoSignalInfo.VSyncFreq.Denominator = D3DKMDT_FREQUENCY_NOTSPECIFIED;
@@ -485,7 +485,7 @@ NTSTATUS APIENTRY MwQueryVidPnHWCapability(IN_CONST_HANDLE hAdapter,
     return STATUS_SUCCESS;
 }
 
-/* ---- display-only present: copy the changed rectangles into the framebuffer (malidod.c:667-722) ---- */
+/* ---- display-only present: copy the changed rectangles into the framebuffer (malidod.c:667-720) ---- */
 
 static void CopyRect(MW_ADAPTER *Dev, const UCHAR *Src, LONG SrcPitch, const RECT *R)
 {

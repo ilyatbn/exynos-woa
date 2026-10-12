@@ -109,6 +109,13 @@ typedef struct _MSG_STATE {
     ULONG               TxPosted, TxDone, TxErrors, RxFrames, RxEapol, RxBad, TxLogged, RxLogged;
     WLAN_RX_FN         *RxFn;
     PVOID               RxCtx;
+    /* M9 WiFiCx client hooks (WlanMsgSetCxHooks) */
+    WLAN_BSS_FN        *BssFn;
+    WLAN_LINK_FN       *LinkFn;
+    PVOID               CxCtx;
+    BOOLEAN             EapolToRx;      /* EAPOL frames go to RxFn (OS supplicant) instead of the M7b capture */
+    BOOLEAN             Connected;      /* WlanMsgConnect associated and no loss event since */
+    UCHAR               ConnBssid[6];   /* the BSS of the last WlanMsgConnect */
     /* EAPOL frame for the handshake (M7b): the latest one, copied out of its rx buffer */
     UCHAR               Eapol[512];
     ULONG               EapolLen;
@@ -341,6 +348,9 @@ EscanResult(_Inout_ PMSG_STATE S, _In_reads_bytes_(Len) const UCHAR *D, _In_ ULO
             ReportLine(S->R, "[scan] bss_info length %lu at %lu of %lu - stop parsing this event\r\n", BLen, Off, Len);
             return;
         }
+        if (S->BssFn != NULL) {
+            S->BssFn(S->CxCtx, B, BLen);   /* M9: the WiFiCx BSS list (every record, the client dedupes) */
+        }
         /* M7b: the join target's BSSID + RSN IE (strongest BSS with that SSID) */
         if (S->TargetSsidLen != 0 && SsidLen == S->TargetSsidLen &&
             RtlCompareMemory(B + BSS_SSID, S->TargetSsid, SsidLen) == SsidLen &&
@@ -399,7 +409,7 @@ EventPacket(_Inout_ PMSG_STATE S, _In_reads_bytes_(Len) const UCHAR *P, _In_ ULO
     if (DataLen > Len - EVT_DATA) {
         DataLen = Len - EVT_DATA;
     }
-    if ((S->Joining || S->Authorized) &&
+    if ((S->Joining || S->Authorized || S->Connected) &&
         (Type == WLC_E_SET_SSID || Type == WLC_E_AUTH || Type == WLC_E_ASSOC || Type == WLC_E_LINK ||
          Type == WLC_E_PSK_SUP || Type == WLC_E_DEAUTH_IND || Type == WLC_E_DISASSOC_IND)) {
         USHORT  Flags = (USHORT)((P[EVT_FLAGS] << 8) | P[EVT_FLAGS + 1]);
@@ -421,6 +431,12 @@ EventPacket(_Inout_ PMSG_STATE S, _In_reads_bytes_(Len) const UCHAR *P, _In_ ULO
             if (S->Authorized) {
                 S->Authorized = FALSE;   /* M7b: keys are gone with the association */
                 ReportLine(S->R, "[link] LOST after the handshake (event %lu reason %lu)\r\n", Type, Be32(P + EVT_REASON));
+            }
+            if (S->Connected && !S->Joining) {   /* M9: tell the WiFiCx client once per association */
+                S->Connected = FALSE;
+                if (S->LinkFn != NULL) {
+                    S->LinkFn(S->CxCtx, Type, Status, Be32(P + EVT_REASON));
+                }
             }
         }
         return;
@@ -548,7 +564,7 @@ RxComplete(_Inout_ PMSG_STATE S, _In_ PUCHAR It)
                        "%02X:%02X:%02X:%02X:%02X:%02X\r\n", S->RxFrames, Len, Off, It[MSGH_IFID], Type, F[6], F[7],
                        F[8], F[9], F[10], F[11], F[0], F[1], F[2], F[3], F[4], F[5]);
         }
-        if (Type == ETH_TYPE_EAPOL) {
+        if (Type == ETH_TYPE_EAPOL && !S->EapolToRx) {
             S->RxEapol++;
             if (Len <= sizeof(S->Eapol)) {
                 RtlCopyMemory(S->Eapol, F, Len);
@@ -2307,4 +2323,219 @@ Done:
         ReportLine(R, "JOIN %u: setup failed\r\n", JOIN_SETUP_FAILED);
     }
     return Result;
+}
+
+/* ---------------------------------------------------------------- M9: WiFiCx client API (notes/m12-wifi-wificx.md) */
+
+_Use_decl_annotations_
+VOID
+WlanMsgSetCxHooks(PWLAN_MSG_CTX M, WLAN_BSS_FN *BssFn, WLAN_LINK_FN *LinkFn, PVOID Ctx)
+{
+    PMSG_STATE S = (M->Resident && M->State != NULL) ? (PMSG_STATE)M->State : NULL;
+
+    if (S != NULL) {
+        S->BssFn     = BssFn;
+        S->LinkFn    = LinkFn;
+        S->CxCtx     = Ctx;
+        S->EapolToRx = TRUE;   /* the OS supplicant owns the 4-way handshake (WDI_SET_ADD_CIPHER_KEYS plumbs the keys) */
+    }
+}
+
+/* Join one BSS with the firmware (no host supplicant here: the OS answers EAPOL over the data path). Order as
+   WlanMsgJoin / fmac brcmf_cfg80211_connect (cfg80211.c:2440-2620) minus sup_wpa; SET_SSID carries the BSSID +
+   chanspec when the scan gave one (fmac fallback join cfg80211.c:2599-2615). After SET_SSID 0 the tx flowring is
+   opened (DA = AP) and the association IEs are read like fmac brcmf_get_assoc_ies (cfg80211.c:6344-6400). */
+_Use_decl_annotations_
+ULONG
+WlanMsgConnect(PWLAN_MSG_CTX M, PWLAN_REPORT R, const WLAN_CONNECT *C, PWLAN_ASSOC_INFO A)
+{
+    PMSG_STATE    S = Live(M, R);
+    UCHAR         Mask[WL_EVENTING_MASK_LEN];
+    UCHAR         Join[JOIN_PARAMS_BSSID_SIZE];
+    ULONG         One = 1, I, Ms, JoinLen, Result = JOIN_SETUP_FAILED;
+    LARGE_INTEGER Delay;
+    static const UCHAR Events[] = { WLC_E_SET_SSID, WLC_E_AUTH, WLC_E_DEAUTH_IND, WLC_E_ASSOC, WLC_E_DISASSOC_IND,
+                                    WLC_E_LINK };
+
+    RtlZeroMemory(A, sizeof(*A));
+    A->SetSsid = -1;
+    if (S == NULL) {
+        return JOIN_SETUP_FAILED;
+    }
+    if (C->SsidLen == 0 || C->SsidLen > 32) {
+        return JOIN_NOT_CONFIGURED;
+    }
+    ReportLine(R, "---- M9 connect \"%.*s\" %02X:%02X:%02X:%02X:%02X:%02X chanspec 0x%04X %s ----\r\n", (int)C->SsidLen,
+               (const char *)C->Ssid, C->Bssid[0], C->Bssid[1], C->Bssid[2], C->Bssid[3], C->Bssid[4], C->Bssid[5],
+               C->Chanspec, C->Rsn ? "WPA2-PSK/CCMP (OS supplicant)" : "open");
+    if (C->Rsn) {
+        if (C->ApRsnLen > RSN_IE_MAX) {
+            return JOIN_SETUP_FAILED;
+        }
+        RtlCopyMemory(S->ApRsn, C->ApRsn, C->ApRsnLen);
+        S->ApRsnLen = C->ApRsnLen;
+        if (!BuildOwnRsn(S)) {
+            ReportLine(R, "JOIN %u: AP security not supported (needs RSN v1, PSK, CCMP, no MFP)\r\n", JOIN_SETUP_FAILED);
+            return JOIN_SETUP_FAILED;
+        }
+    }
+    S->Connected   = FALSE;
+    RtlCopyMemory(S->ConnBssid, C->Bssid, 6);
+    S->Joining     = TRUE;
+    S->JoinSetSsid = -1;
+    S->JoinPskSup  = -1;
+    S->JoinLinkUp  = FALSE;
+    S->JoinLost    = FALSE;
+
+    if (IoctlVar(S, FALSE, "event_msgs", NULL, 0, WL_EVENTING_MASK_LEN) != MSG_OK || S->RespLen < WL_EVENTING_MASK_LEN) {
+        goto Done;
+    }
+    RtlCopyMemory(Mask, S->Resp, WL_EVENTING_MASK_LEN);
+    for (I = 0; I < ARRAYSIZE(Events); I++) {
+        Mask[Events[I] / 8] |= (UCHAR)(1 << (Events[I] % 8));
+    }
+    if (IoctlVar(S, TRUE, "event_msgs", Mask, WL_EVENTING_MASK_LEN, 0) != MSG_OK ||
+        Ioctl(S, WLC_SET_INFRA, &One, sizeof(One), 0, "SET_INFRA") != MSG_OK ||
+        SetInt(S, "wpa_auth", C->Rsn ? WPA2_AUTH_PSK : WPA_AUTH_DISABLED) != MSG_OK ||
+        SetInt(S, "auth", WL_AUTH_OPEN_SYSTEM) != MSG_OK ||
+        SetInt(S, "wsec", C->Rsn ? AES_ENABLED : WSEC_NONE) != MSG_OK) {
+        ReportLine(R, "[join] security setup refused (last status %ld)\r\n", S->RespStatus);
+        goto Done;
+    }
+    if (C->Rsn && IoctlVar(S, TRUE, "wpaie", S->OwnRsn, S->OwnRsnLen, 0) != MSG_OK) {
+        ReportLine(R, "[join] wpaie refused (status %ld) - the firmware builds its own RSN IE\r\n", S->RespStatus);
+    }
+    RtlZeroMemory(Join, sizeof(Join));
+    *(ULONG UNALIGNED *)Join = C->SsidLen;
+    RtlCopyMemory(Join + 4, C->Ssid, C->SsidLen);
+    JoinLen = JOIN_PARAMS_SIZE;
+    if (C->Chanspec != 0) {
+        RtlCopyMemory(Join + JOINP_BSSID, C->Bssid, 6);
+        *(LONG UNALIGNED *)(Join + JOINP_CHANSPEC_NUM) = 1;
+        *(USHORT UNALIGNED *)(Join + JOINP_CHANSPEC)   = C->Chanspec;
+        JoinLen = JOIN_PARAMS_BSSID_SIZE;
+    }
+    if (Ioctl(S, WLC_SET_SSID, Join, JoinLen, 0, "SET_SSID") != MSG_OK) {
+        ReportLine(R, "[join] SET_SSID refused (status %ld)\r\n", S->RespStatus);
+        goto Done;
+    }
+    Result = JOIN_TIMEOUT;
+    for (Ms = 0; Ms < JOIN_TIMEOUT_MS; Ms += 10) {
+        (VOID)D2hPollAll(S);
+        if (S->JoinSetSsid >= 0 || S->JoinLost) {
+            break;
+        }
+        Delay.QuadPart = -10000LL * 10;
+        KeDelayExecutionThread(KernelMode, FALSE, &Delay);
+    }
+    A->SetSsid = S->JoinSetSsid;
+    A->Ms      = Ms;
+    if (S->JoinSetSsid != 0 || S->JoinLost) {
+        Result = (S->JoinSetSsid > 0 || S->JoinLost) ? JOIN_FW_FAILED : JOIN_TIMEOUT;
+        goto Done;
+    }
+    A->FlowOpen = FlowRingCreate(S, C->Bssid);   /* once per device lifetime (no delete path yet, W5) */
+    if (IoctlVar(S, FALSE, "assoc_info", NULL, 0, AI_SIZE) == MSG_OK && S->RespLen >= AI_SIZE) {
+        ULONG ReqLen  = *(ULONG UNALIGNED *)(S->Resp + AI_REQ_LEN);
+        ULONG RespLen = *(ULONG UNALIGNED *)(S->Resp + AI_RESP_LEN);
+
+        A->Flags      = *(ULONG UNALIGNED *)(S->Resp + AI_FLAGS);
+        A->ReqCap     = *(USHORT UNALIGNED *)(S->Resp + AI_REQ_CAP);
+        A->ReqListen  = *(USHORT UNALIGNED *)(S->Resp + AI_REQ_LISTEN);
+        A->RespCap    = *(USHORT UNALIGNED *)(S->Resp + AI_RESP_CAP);
+        A->RespStatus = *(USHORT UNALIGNED *)(S->Resp + AI_RESP_STATUS);
+        A->RespAid    = *(USHORT UNALIGNED *)(S->Resp + AI_RESP_AID);
+        if (ReqLen != 0 && ReqLen <= WLAN_ASSOC_IES_MAX &&
+            IoctlVar(S, FALSE, "assoc_req_ies", NULL, 0, ReqLen) == MSG_OK && S->RespLen >= ReqLen) {
+            RtlCopyMemory(A->ReqIes, S->Resp, ReqLen);
+            A->ReqIesLen = ReqLen;
+        }
+        if (RespLen != 0 && RespLen <= WLAN_ASSOC_IES_MAX &&
+            IoctlVar(S, FALSE, "assoc_resp_ies", NULL, 0, RespLen) == MSG_OK && S->RespLen >= RespLen) {
+            RtlCopyMemory(A->RespIes, S->Resp, RespLen);
+            A->RespIesLen = RespLen;
+        }
+        ReportLine(R, "[join] assoc_info: req %lu B (cap 0x%04X listen %u) resp %lu B (cap 0x%04X status %u aid 0x%04X) "
+                   "flags 0x%lX; copied req %lu resp %lu\r\n", ReqLen, A->ReqCap, A->ReqListen, RespLen, A->RespCap,
+                   A->RespStatus, A->RespAid, A->Flags, A->ReqIesLen, A->RespIesLen);
+    } else {
+        ReportLine(R, "[join] assoc_info not read (status %ld) - the association result carries no frames\r\n",
+                   S->RespStatus);
+    }
+    S->Connected = TRUE;
+    Result = JOIN_OK;
+
+Done:
+    S->Joining = FALSE;
+    ReportLine(R, "CONNECT %lu: SET_SSID %ld, link %s%s, flowring %s, after %lu ms\r\n", Result, S->JoinSetSsid,
+               S->JoinLinkUp ? "up" : "not up", S->JoinLost ? ", lost" : "", A->FlowOpen ? "open" : "not open", A->Ms);
+    return Result;
+}
+
+/* WLC_DISASSOC with scb_val {reason, ea} as fmac brcmf_cfg80211_disconnect (cfg80211.c:2647-2650); reason 8 = leaving. */
+_Use_decl_annotations_
+ULONG
+WlanMsgDisconnect(PWLAN_MSG_CTX M, PWLAN_REPORT R)
+{
+    PMSG_STATE S = Live(M, R);
+    UCHAR      Scb[SCB_VAL_SIZE];
+    ULONG      Rc;
+
+    if (S == NULL) {
+        return MSG_SKIPPED;
+    }
+    RtlZeroMemory(Scb, sizeof(Scb));
+    *(ULONG UNALIGNED *)Scb = DOT11_RC_DISASSOC_LEAVING;
+    RtlCopyMemory(Scb + SCB_VAL_EA, S->ConnBssid, 6);
+    S->Connected = FALSE;   /* a host-initiated disassociation is not reported through LinkFn */
+    Rc = Ioctl(S, WLC_DISASSOC, Scb, sizeof(Scb), 0, "DISASSOC");
+    ReportLine(R, "[join] DISASSOC -> MSG %lu (status %ld)\r\n", Rc, S->RespStatus);
+    return Rc;
+}
+
+_Use_decl_annotations_
+ULONG
+WlanMsgSetKey(PWLAN_MSG_CTX M, PWLAN_REPORT R, ULONG Index, const UCHAR *Key, const UCHAR *Ea, const UCHAR *Rsc)
+{
+    PMSG_STATE S = Live(M, R);
+    ULONG      Rc;
+
+    if (S == NULL) {
+        return MSG_SKIPPED;
+    }
+    Rc = InstallKey(S, (Ea != NULL) ? 0 : Index, Key, Ea, Rsc);
+    ReportLine(R, "[key] %s key idx %lu%s -> MSG %lu (status %ld)\r\n", (Ea != NULL) ? "pairwise" : "group",
+               (Ea != NULL) ? 0 : Index, (Rsc != NULL) ? " with rsc" : "", Rc, S->RespStatus);
+    return Rc;
+}
+
+/* Polls the tx completion ring until no tx buffer is in flight (dhd_wait_pend8021x before a key, wl_cfg80211.c:
+   6903-6904) or Ms elapse. */
+_Use_decl_annotations_
+BOOLEAN
+WlanMsgWaitTxIdle(PWLAN_MSG_CTX M, PWLAN_REPORT R, ULONG Ms)
+{
+    PMSG_STATE    S = Live(M, R);
+    ULONG         T, I;
+    LARGE_INTEGER Delay;
+
+    if (S == NULL) {
+        return TRUE;
+    }
+    for (T = 0;; T += 5) {
+        for (I = 0; I < TX_BUF_COUNT && !S->TxBusy[I]; I++) {
+        }
+        if (I == TX_BUF_COUNT) {
+            return TRUE;
+        }
+        if (T >= Ms) {
+            ReportLine(R, "[tx] %lu ms: tx buffer %lu still in flight\r\n", Ms, I);
+            return FALSE;
+        }
+        if (S->DataOn) {
+            (VOID)D2hPoll(S, RING_D2H_TX_CPL);
+        }
+        Delay.QuadPart = -10000LL * 5;
+        KeDelayExecutionThread(KernelMode, FALSE, &Delay);
+    }
 }

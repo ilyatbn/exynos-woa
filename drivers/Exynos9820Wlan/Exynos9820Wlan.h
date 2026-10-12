@@ -676,4 +676,33 @@
 #define TX_BAD_LENGTH               3
 #define TX_RING_FULL                4
 
+/* ---- M9 (WiFiCx client, notes/m12-wifi-wificx.md): connect / disconnect without the host supplicant ---- */
+#define WLC_DISASSOC                52             /* dhd wlioctl_defs.h:657, fmac fwil.h:42 BRCMF_C_DISASSOC */
+#define WPA_AUTH_DISABLED           0x0000         /* dhd wlioctl_defs.h:545 */
+#define WSEC_NONE                   0x0000         /* dhd wlioctl_defs.h:486 */
+#define DOT11_RC_DISASSOC_LEAVING   8              /* dhd 802.11.h:1237 */
+#define SCB_VAL_SIZE                12             /* brcmf_scb_val_le {le32 val, u8 ea[6]} + pad (fmac fwil_types.h:602-605) */
+#define SCB_VAL_EA                  4
+/* wl_join_params with one chanspec: wlc_ssid (36) + assoc params {bssid[6], (pad/bssid_cnt u16), chanspec_num
+   le32 @44, chanspec_list[1] le16 @48} padded to 52 (fmac fwil_types.h:482-512, cfg80211.c:2599-2615; dhd
+   wlioctl.h:1096-1126) */
+#define JOINP_BSSID                 36
+#define JOINP_CHANSPEC_NUM          44
+#define JOINP_CHANSPEC              48
+#define JOIN_PARAMS_BSSID_SIZE      52
+/* "assoc_info" = wl_assoc_info_t (dhd wlioctl.h:1663-1671, dot11_assoc_req/resp 802.11.h:272-290; fmac reads it
+   with "assoc_req_ies" / "assoc_resp_ies", cfg80211.c:6344-6400) */
+#define AI_REQ_LEN                  0              /* u32: length of the request IEs */
+#define AI_RESP_LEN                 4              /* u32 */
+#define AI_FLAGS                    8              /* u32, WLC_ASSOC_REQ_IS_REASSOC 0x01 (wlioctl_defs.h:352) */
+#define AI_REQ_CAP                  12             /* u16 capability */
+#define AI_REQ_LISTEN               14             /* u16 listen interval */
+#define AI_RESP_CAP                 22             /* u16 */
+#define AI_RESP_STATUS              24             /* u16 */
+#define AI_RESP_AID                 26             /* u16 */
+#define AI_SIZE                     32
+#define WLAN_ASSOC_IES_MAX          1024           /* host choice: copy of the assoc req / resp IEs */
+#define BSS_BEACON_PERIOD           14             /* wl_bss_info_v109 u16 (dhd wlioctl.h:390) */
+#define BSS_CAPABILITY              16             /* u16 (:391) */
+
 #endif /* _EXYNOS9820_WLAN_H */

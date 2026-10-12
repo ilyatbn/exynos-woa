@@ -145,3 +145,12 @@ Logs: Exynos9820WlanCx.txt (bring-up) + Exynos9820WlanCx-run.txt (runtime, rotat
   dropped from the moved block is re-issued by WlanProbe.c on RESULT 0 (same order as before); registry
   report still written on every path. FOUND: WlanDl.h's file comment still says the report/registry live in
   WlanProbe.c. Fixed in a follow-up commit (comment only).
+- T3 (WlanMsg API for the Cx driver): WlanMsgSetCxHooks (BSS record hook from EscanResult, link-loss hook from
+  EventPacket once per association, EAPOL pass-through to RxFn), WlanMsgConnect (event mask, INFRA, wpa_auth
+  PSK|disabled, auth open, wsec AES|none, wpaie = BuildOwnRsn from the AP's RSN IE, SET_SSID with BSSID +
+  chanspec when known = fmac fallback join cfg80211.c:2599-2615 / fwil_types.h:482-512 (52 B), wait SET_SSID,
+  flowring, assoc_info + assoc_req_ies / assoc_resp_ies like fmac cfg80211.c:6344-6400), WlanMsgDisconnect
+  (WLC_DISASSOC 52 + scb_val {reason 8, ea}, fmac cfg80211.c:2647-2650), WlanMsgSetKey (InstallKey: pairwise idx 0
+  ea=peer / group idx primary + rsc), WlanMsgWaitTxIdle. New constants in Exynos9820Wlan.h "M9" block, each
+  cited. KMDF probe driver unaffected (hooks NULL, EapolToRx FALSE, Connected FALSE); build W4/WX clean (sys
+  CAF761AB84E0FA5A...).

@@ -1233,3 +1233,12 @@ s10ediag-m16, touch-t2\Exynos9820Hsi2c, touch-hold, touch-t2\wdktestcert.cer) ->
 (boot105-setup-nowdt-v2.img = main, WINDOWS_WATCHDOG 0) for Setup -> afterwards boot #101 (watchdog 1) + no stay.flg,
 drivers re-added one at a time via ESP \S10EDIAG\install (no NTFS writes from TWRP). ESP BCD currently = debug on +
 recoveryenabled No (s10e-artifacts? scratchpad bcdkd\BCD; original in bcdkd\BCD.before-kd).
+**§30 GPU addendum (2026-10-12 ~17:00, phone still unreachable since ~13:35).** GPU work merged on main
+(notes/gpu-panfrost-repos.md, gpu-odin-rom.md, gpu-windows-prior-art.md, gpu-wddm-mali-g52.md, gpu-m16-g2g3.md,
+gpu-m16-g3don.md, gpu-m16-g9b.md; clones in C:\Users\ilya\code\mali incl. wddm-mali-g52 + mesa-26.2). Prebuilt images:
+- boot105-setup-nowdt-v2.img: main@~14:30, WINDOWS_WATCHDOG 0, for Windows Setup after the reflash.
+- boot107-loop-v2.img (main HEAD, watchdog 1, read-only GPU probe G3 runs every boot, GPU0 hidden unless G3D on).
+- boot106-gpuon-v2.img (same + BEYOND0LTE_GPU_POWER_ON 1: pmucal G3D on + SMC 0x82000410 + ACPM 260 MHz, sha fc9f7c02…).
+Order after the phone is back + Windows reinstalled: #107 loop boot (read GPU probe lines) -> #106 (power-on lines,
+"ACPI GPU0 visible") -> install s10e-artifacts\mali-g9b via ESP \S10EDIAG\install (MaliG76Probe run log: RESULT PASS).
+Rescue for a GPU-driver boot hang: flash #107 (GPU0 hidden -> driver not loaded); no NTFS writes from TWRP.

@@ -178,3 +178,16 @@ Retarget per R-list:
   - MaliG76Probe.inf `4B606010D4A9906DBD20CBE99426C1A59FC27C64953DCAFDD4236BF649A8245D`
   - malig76probe.cat `73D881487956DC831CA6B9D2F9C03D649D6939D6F44B8B6DE47CA3286F1BE123`
   (the sha256 list under "Task 2 - implementation + build" is the superseded pre-fix package)
+
+## Review of 316a8e8 (review fix)
+- `git show 316a8e8 -- drivers`: JobBits is masked to JOB_INT_JS0 before use, so PASS == "only DONE(0) of JS0";
+  the counters reset happens before the log allocation and before any interrupt object exists (no ISR race);
+  the log text change is wording only. After a JS0 ERR the slot has stopped, so freeing without a soft reset is
+  unchanged behaviour (as m1probe). Rebuild exit 0 (above). No further defect.
+
+## Next (main session)
+1. Merge branch `worktree-agent-a6e14c0a6296725e6` (fast-forward on main e951137).
+2. Test image: `BEYOND0LTE_GPU_POWER_ON 1`, boot, check UEFILOG "GpuProbe: ACPI GPU0 visible (status word [4] =
+   30555047)", then in Windows `s10ediag peek 0x8FE0F010` and Device Manager ACPI\SAMS9828 with 2 memory + 3 IRQ.
+3. Install s10e-artifacts\mali-g9b (pnputil /add-driver MaliG76Probe.inf /install, test signing on), read
+   C:\Windows\System32\LogFiles\MaliG76Probe-run.txt. Have the R19 offline-disable path ready (IRQ storm hazard).

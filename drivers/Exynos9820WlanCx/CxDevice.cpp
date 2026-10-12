@@ -86,7 +86,7 @@ CxWorker(PVOID Context)
     while (InterlockedCompareExchange(&Dev->Stop, 0, 0) == 0) {
         PCX_CMD Cmd;
 
-        Timeout.QuadPart = -10000LL * CX_IDLE_WAIT_MS;
+        Timeout.QuadPart = -10000LL * (Dev->Linked ? CX_LINK_WAIT_MS : CX_IDLE_WAIT_MS);
         (VOID)KeWaitForSingleObject(&Dev->Wake, Executive, KernelMode, FALSE, &Timeout);
         if (InterlockedCompareExchange(&Dev->Stop, 0, 0) != 0) {
             break;
@@ -106,11 +106,27 @@ CxWorker(PVOID Context)
             ExFreePoolWithTag(Cmd, CX_POOL_TAG);
         }
         if (Dev->Msg.Resident && !Dev->Msg.Quiesced) {
-            Polled += WlanMsgPoll(&Dev->Msg, Dev->RunR);
+            CxTxDrain(Dev);                                   /* W3: queued tx frames -> flowring */
+            Polled += WlanMsgPoll(&Dev->Msg, Dev->RunR);      /* rx -> RxFifo, tx completions, events */
+            CxTxDrain(Dev);                                   /* frames that waited for a tx buffer */
+        }
+        if (Dev->TxLayoutLog != Dev->TxLayoutSeen) {
+            Dev->TxLayoutSeen = Dev->TxLayoutLog;
+            CxLog(Dev, "[tx] packet layout #%ld: layer2 type %u (%s), first bytes %02X:%02X:%02X:%02X:%02X:%02X "
+                  "%02X:%02X:%02X:%02X:%02X:%02X type %02X%02X\r\n", Dev->TxLayoutSeen, Dev->TxLayout[0],
+                  (Dev->TxLayout[0] == NetPacketLayer2TypeEthernet) ? "Ethernet" :
+                  (Dev->TxLayout[0] == NetPacketLayer2TypeIeee80211) ? "802.11, converted" : "unspecified",
+                  Dev->TxLayout[1], Dev->TxLayout[2], Dev->TxLayout[3], Dev->TxLayout[4], Dev->TxLayout[5],
+                  Dev->TxLayout[6], Dev->TxLayout[7], Dev->TxLayout[8], Dev->TxLayout[9], Dev->TxLayout[10],
+                  Dev->TxLayout[11], Dev->TxLayout[12], Dev->TxLayout[13], Dev->TxLayout[14]);
         }
         Ticks++;
         if (Dev->RunR != NULL && (Ticks % (60000 / CX_IDLE_WAIT_MS)) == 0) {
-            CxLog(Dev, "[cx] alive: %lu D2H items, %lu commands\r\n", Polled, Dev->Commands);
+            CxLog(Dev, "[cx] alive: %lu D2H items, %lu commands; rx fifo in %lu out %lu drop %lu; tx fifo in %lu out %lu "
+                  "drop %lu\r\n", Polled, Dev->Commands, Dev->RxFifo ? Dev->RxFifo->In : 0,
+                  Dev->RxFifo ? Dev->RxFifo->Out : 0, Dev->RxFifo ? Dev->RxFifo->Dropped : 0,
+                  Dev->TxFifo ? Dev->TxFifo->In : 0, Dev->TxFifo ? Dev->TxFifo->Out : 0,
+                  Dev->TxFifo ? Dev->TxFifo->Dropped : 0);
         }
         if (++FlushTicks >= 1000 / CX_IDLE_WAIT_MS) {
             FlushTicks = 0;
@@ -219,6 +235,7 @@ CxEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRESLIST Translated
                 Cfg      = NULL;
                 /* W2: escan records -> the WDI BSS list; EAPOL frames pass through to the data path */
                 WlanMsgSetCxHooks(&Dev->Msg, CxBssRecord, NULL, Dev);
+                WlanMsgSetRx(&Dev->Msg, CxRxFrame, Dev);   /* W3: received 802.3 frames -> RxFifo */
             }
         } else {
             ReportLine(R, "DL 2: BAR2 0x%08lX/0x%08lX is not a 64-bit BAR below 4 GB\r\n", P.Bar[2], P.Bar[3]);
@@ -362,6 +379,19 @@ CxEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
             RtlZeroMemory(Dev->Bss, CX_MAX_BSS * sizeof(CX_BSS));
         } else {
             Dev->Bss = NULL;   /* WDI_TASK_SCAN then fails with STATUS_INSUFFICIENT_RESOURCES */
+        }
+        /* W3 FIFOs (a failure leaves the data path off: tx dropped, nothing received) */
+        if (NT_SUCCESS(WdfMemoryCreate(&M, NonPagedPoolNx, CX_POOL_TAG, sizeof(CX_FIFO), &Mem, (PVOID *)&Dev->RxFifo))) {
+            RtlZeroMemory(Dev->RxFifo, sizeof(CX_FIFO));
+            KeInitializeSpinLock(&Dev->RxFifo->Lock);
+        } else {
+            Dev->RxFifo = NULL;
+        }
+        if (NT_SUCCESS(WdfMemoryCreate(&M, NonPagedPoolNx, CX_POOL_TAG, sizeof(CX_FIFO), &Mem, (PVOID *)&Dev->TxFifo))) {
+            RtlZeroMemory(Dev->TxFifo, sizeof(CX_FIFO));
+            KeInitializeSpinLock(&Dev->TxFifo->Lock);
+        } else {
+            Dev->TxFifo = NULL;
         }
     }
     KeInitializeSpinLock(&Dev->CmdLock);

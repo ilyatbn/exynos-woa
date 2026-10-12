@@ -67,6 +67,7 @@
     <ClCompile Include="CxAdapter.cpp" />
     <ClCompile Include="CxMem.cpp" />
     <ClCompile Include="CxScan.cpp" />
+    <ClCompile Include="CxData.cpp" />
     <ClCompile Include="..\Exynos9820Wlan\WlanCommon.c" />
     <ClCompile Include="..\Exynos9820Wlan\WlanDl.c" />
     <ClCompile Include="..\Exynos9820Wlan\WlanMsg.c" />

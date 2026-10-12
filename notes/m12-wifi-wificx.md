@@ -192,3 +192,16 @@ Logs: Exynos9820WlanCx.txt (bring-up) + Exynos9820WlanCx-run.txt (runtime, rotat
   link quality (linear -100..-50 dBm -> 0..100, host choice), channel + band (ch <= 14 -> 2.4 GHz else 5 GHz),
   age = KeQuerySystemTimePrecise; then M4 SCAN_COMPLETE (failure status only when the escan failed and nothing
   was found). Build W4/WX clean. Not device-tested. Known gaps: hidden SSIDs (directed probe), 6 GHz n/a.
+- Review of 523a50e (W2): bounds of the per-slot frame body (12 + IesLen <= 12 + 1400), ie_offset/ie_length
+  checks against the record length, BSSID upsert cap 64, the ArrayOfElements pointers detached before the
+  destructors run (SimpleAssign(NULL, 0)), SSID count read before CleanupParsed, M3 before the long escan, M4
+  after the BSS lists. No findings.
+- W3 (T6): CxData.cpp + CxAdapter.cpp queues. rx: WlanMsgSetRx(CxRxFrame) -> RxFifo (64 x 2 KB, spinlock) ->
+  NetRxQueueNotifyMoreReceivedPacketsAvailable when NetAdapterCx armed notification; rx Advance copies one frame
+  per OS fragment (system-managed 2 KB buffers), Layer2Type Ethernet; rx queue destroy clears the queue handle.
+  tx: tx Advance gathers each packet's fragments (virtual-address extension) into TxFifo and returns it at once
+  (drop + count when full / > 2 KB), Layer2Type IEEE 802.11 frames are converted to 802.3 (802.11-2016 address
+  table, RFC 1042 SNAP); worker CxTxDrain -> WlanMsgTx before and after each poll (no buffer / ring full = keep,
+  no flowring = drop). First 8 tx layouts recorded and logged by the worker ("[tx] packet layout #n: layer2 type
+  ..."): this is the device-side check of the UNVERIFIED frame format. Worker waits CX_LINK_WAIT_MS (5 ms) while
+  Dev->Linked (set in W4). Build W4/WX clean. Not device-tested.

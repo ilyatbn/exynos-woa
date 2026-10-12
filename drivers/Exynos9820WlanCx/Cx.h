@@ -12,6 +12,7 @@
 #include <ntintsafe.h>
 #include <netadaptercx.h>
 #include <netiodef.h>
+#include <net/virtualaddress.h>     /* NET_FRAGMENT_EXTENSION_VIRTUAL_ADDRESS_* */
 #include <wificx.h>
 #include <TlvGeneratorParser.hpp>
 
@@ -42,6 +43,19 @@ typedef struct _CX_BSS {
     UCHAR           Ies[CX_BSS_IES_MAX];
 } CX_BSS, *PCX_BSS;
 
+/* W3 data path: copy FIFOs between the NetAdapter queues and the worker (msgbuf owner). Frames are 802.3. */
+#define CX_FRAME_MAX            2048        /* = DATA_BUF_SIZE of WlanMsg.c (one rx/tx buffer) */
+#define CX_FIFO_SLOTS           64          /* host choice, per direction (64 x 2 KB) */
+
+typedef struct _CX_FIFO {
+    KSPIN_LOCK      Lock;
+    ULONG           Head;               /* next slot to read */
+    ULONG           Count;
+    ULONG           Len[CX_FIFO_SLOTS];
+    UCHAR           Data[CX_FIFO_SLOTS][CX_FRAME_MAX];
+    ULONG           In, Out, Dropped;   /* counters for the run log */
+} CX_FIFO, *PCX_FIFO;
+
 typedef struct _CX_CMD {
     LIST_ENTRY      Link;
     WIFIREQUEST     Request;
@@ -65,6 +79,17 @@ typedef struct _CX_DEVICE {
     PCX_BSS             Bss;            /* CX_MAX_BSS entries (WDF memory, child of the device) */
     ULONG               BssN;
     ULONG               BssRecords;     /* escan records seen in the current scan */
+
+    /* W3 data path */
+    PCX_FIFO            RxFifo;         /* worker (RxFn) -> rx queue */
+    PCX_FIFO            TxFifo;         /* tx queue -> worker (WlanMsgTx) */
+    NETPACKETQUEUE      RxQueue;        /* under RxFifo->Lock; NULL when the queue is gone */
+    BOOLEAN             RxNotify;       /* under RxFifo->Lock: NetAdapterCx asked to be told about new frames */
+    ULONG               TxLogged;
+    volatile LONG       TxLayoutLog;    /* tx packet layouts recorded (first 8), logged by the worker */
+    LONG                TxLayoutSeen;
+    UCHAR               TxLayout[15];   /* Layer2Type + first 14 bytes of the latest recorded tx packet */
+    BOOLEAN             Linked;         /* W4: associated (worker polls every CX_LINK_WAIT_MS) */
 
     /* worker */
     PKTHREAD            Thread;
@@ -106,6 +131,11 @@ _IRQL_requires_(PASSIVE_LEVEL) PCX_BSS CxFindBss(_In_ PCX_DEVICE Dev, _In_reads_
 VOID CxIndicate(_Inout_ PCX_DEVICE Dev, _In_ UINT16 MessageId, _In_opt_ const WDI_MESSAGE_HEADER *Req,
                 _In_ NDIS_STATUS Status, _In_reads_bytes_opt_(TlvLen) const UINT8 *Tlv, _In_ ULONG TlvLen);
 VOID CxM3(_Inout_ PCX_DEVICE Dev, _In_ PCX_CMD Cmd, _In_ NTSTATUS Status);
+
+/* CxData.cpp */
+BOOLEAN CxFifoPut(_Inout_ PCX_FIFO F, _In_reads_bytes_(Len) const UCHAR *Frame, _In_ ULONG Len);
+WLAN_RX_FN CxRxFrame;
+_IRQL_requires_(PASSIVE_LEVEL) VOID CxTxDrain(_Inout_ PCX_DEVICE Dev);
 
 /* CxAdapter.cpp */
 EVT_WIFI_DEVICE_CREATE_ADAPTER      CxEvtCreateAdapter;

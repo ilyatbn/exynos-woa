@@ -179,3 +179,11 @@ RDMA frame counter.
     C21AD006AD4FE68F1BE712EDF8D880B45FE6B9635C932C1B75C164F5AEDA9910  Exynos9820Audio.inf
     86039A10ABEE34F966EA31EDDFEE27963E5768A9423A9CA96F74F1A382A85CE9  exynos9820audio.cat
 - Review of A2 (DSDT) + A3 (INF): checked the INF reference string equals Render.c AudRenderCircuitName (Speaker0), the hardware ID equals the DSDT _HID (SAMS9827), the five Parameters names equal Driver.c AudReadConfig's list (AmpInit, AmpEnable, AboxEnable, HwVolume, Stereo; CacheMaint gone from both), KmdfLibraryVersion 1.31 equals the vcxproj KMDF_VERSION_MINOR; the DSDT comment's claims (non-cached ring, polled, no interrupt) hold in the code. No findings.
+- 2026-10-12 main session, run a1 (boot #100, full install, AmpInit/AmpEnable/AboxEnable 1): the phone ended
+  POWERED OFF (charging screen) during the extra step; nothing reached NTFS (no DriverStore entry, no run log).
+  Cause unknown -> staged bring-up (audio-stage-A..D.cmd pre-set the NOCLOBBER Parameters).
+- **Stage A (boot #101, AmpInit 0 AmpEnable 0 AboxEnable 0): Windows survived.** pnputil installed oem6.inf on
+  ACPI\SAMS9827\0, Status Started; AudioEndpoint "Speakers (Galaxy S10e Audio (ABOX + CS35L40))" Started; run log:
+  8 resources match, pd-aud on, IP "ABOX", audit identical to the UEFI audit, AmpInit skipped, D0Entry.
+  The tone test ran as SYSTEM (the cmd for /f user lookup returned nothing) and PlaySync returned in ~60 ms ->
+  no playback test. Fixed: run-as-user.ps1 (Register-ScheduledTask with the explorer owner, Interactive).

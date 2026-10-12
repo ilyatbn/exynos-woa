@@ -30,13 +30,9 @@ copy /y "%SystemRoot%\System32\LogFiles\Exynos9820Audio-run.txt" "%W%\run-before
 if "%PLAY%"=="0" goto noplay
 s10ediag mark a: user-session tone test
 del /q "%TMP%\audiotest.txt" > nul 2>&1
-for /f "usebackq delims=" %%U in (`powershell -NoProfile -Command "(Get-CimInstance Win32_Process -Filter \"name='explorer.exe'\" | Select-Object -First 1 | Invoke-CimMethod -MethodName GetOwner | ForEach-Object { $_.Domain + '\' + $_.User })"`) do set U=%%U
-echo user=%U% > "%W%\task.txt"
-schtasks /create /f /tn S10eAudioTest /tr "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\S10eTmp\audio-test.ps1" /sc once /st 23:59 /ru "%U%" /it >> "%W%\task.txt" 2>&1
-schtasks /run /tn S10eAudioTest >> "%W%\task.txt" 2>&1
-ping -n 45 127.0.0.1 > nul
+copy /y "%ESP%\S10EDIAG\run-as-user.ps1" "%TMP%\run-as-user.ps1" > nul
+powershell -NoProfile -ExecutionPolicy Bypass -File "%TMP%\run-as-user.ps1" -Script C:\S10eTmp\audio-test.ps1 -Wait 60 > "%W%\task.txt" 2>&1
 s10ediag mark a: tone test waited
-schtasks /delete /f /tn S10eAudioTest >> "%W%\task.txt" 2>&1
 copy /y "%TMP%\audiotest.txt" "%W%\audiotest.txt" > nul 2>&1
 :noplay
 copy /y "%SystemRoot%\System32\LogFiles\Exynos9820Audio-run.txt" "%W%\run.txt" > nul 2>&1

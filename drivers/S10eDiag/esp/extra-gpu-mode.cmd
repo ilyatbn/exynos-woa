@@ -1,0 +1,29 @@
+@echo off
+rem S10eAgent extra step (M16 G10 bisect): set the MaliG76Wddm mode for the next boot WHILE GPU0 IS HIDDEN (nogpu.flg
+rem on the ESP -> the driver is not loaded, so a hanging mode cannot run), then remove nogpu.flg and restart Windows
+rem cleanly; the second pass (marker C:\S10eTmp\gpumode2.flg) collects the driver state via gpu\extra-gpu-g10.cmd.
+rem Mode from the ESP: \S10EDIAG\gpu\full.flg -> FullAdapter 1 GpuEnable 0; gpu.flg -> GpuEnable 1; neither -> 0/0.
+set G=%L%\gpu
+mkdir "%G%" > nul 2>&1
+set KEY=HKLM\SYSTEM\CurrentControlSet\Services\MaliG76Wddm\Parameters
+if exist C:\S10eTmp\gpumode2.flg goto collect
+set FULL=0
+set GPU=0
+if exist "%ESP%\S10EDIAG\gpu\full.flg" set FULL=1
+if exist "%ESP%\S10EDIAG\gpu\gpu.flg" set GPU=1
+s10ediag mark "g: set mode full %FULL% gpu %GPU% (GPU0 hidden this boot)"
+reg add "%KEY%" /v GpuEnable /t REG_DWORD /d %GPU% /f > "%G%\set-mode.txt" 2>&1
+reg add "%KEY%" /v FullAdapter /t REG_DWORD /d %FULL% /f >> "%G%\set-mode.txt" 2>&1
+if exist "%ESP%\S10EDIAG\nogpu.flg" del /f /q "%ESP%\S10EDIAG\nogpu.flg"
+echo pass2 > C:\S10eTmp\gpumode2.flg
+s10ediag mark g: clean restart into the new mode
+shutdown /r /t 0 /f
+ping -n 120 127.0.0.1 > nul
+goto end
+:collect
+del /f /q C:\S10eTmp\gpumode2.flg
+s10ediag mark g: pass 2 - collect
+call "%ESP%\S10EDIAG\gpu\extra-gpu-g10.cmd"
+for %%R in (trace) do if exist "%G%\%%R.reg" for /f "usebackq delims=" %%L in (`findstr /i "Mode Started Fail Seen_Create GpuQuieted ResContract Presents" "%G%\%%R.reg"`) do s10ediag mark "t: %%L"
+:end
+s10ediag mark g: done

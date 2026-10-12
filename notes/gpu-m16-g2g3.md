@@ -21,6 +21,8 @@ Register offsets for the GPU itself: `notes/gpu-panfrost-repos.md` (panfrost_reg
 - 2026-10-12 read: mali node, pd-embedded_g3d, pmucal embedded_g3d on/off/save/status, kbase
   gpu_is_power_on, cal_pd_control, cal_dfs_set_rate, CMU_G3D/PLL_G3D SFRs -> F1-F6 below.
 - 2026-10-12 G2 done: F1-F6 written, MILESTONES G2 -> done; committed as the G2 commit.
+- 2026-10-12 coordinator: stock kernel uses bv_r32p1 + gpex glue (notes/gpu-odin-rom.md on main). Fetched
+  drivers/gpu/arm/exynos gpexbe_{pm,clock,smc,devicetree}.c, gpex_{pm,clock}.c, Kbuild + beyond0lte defconfig -> F7.
 
 ## Findings (G2)
 
@@ -117,6 +119,24 @@ PMU = 0x15860000 (EXYNOS_PMU_BASE, VERIFIED). CMU_CMU = 0x1A240000 (= EXYNOS_CMU
 - Residual hazard even with the domain on: the G3D D_TZPC state (if sboot/EL3 left it secure, a NS read of
   0x18500000 is an external abort). Not decidable from source; the progress word brackets each read.
 
+### F7 Addendum: the shipped kbase is bv_r32p1 + Samsung `gpex`/`gpexbe` glue (coordinator, notes/gpu-odin-rom.md on main)
+- Main session (stock ROM analysis, notes/gpu-odin-rom.md, commits e7913cb..d6cafa5): stock kernel 4.14.113 uses
+  `drivers/gpu/arm/bv_r32p1` ("K:r32p1-01bet2"), not b_r10p0; stock DT mali@18500000 size 0x5000, SPI 288/287/289
+  (GSIV 320/319/321), pd-embedded_g3d@15862100, no clocks/regulator/OPP, CAL id 0xb04000a, need_smc 0x18410204.
+  F1/F2/F5 agree with all of it. LineageOS beyond0lte_defconfig also selects `CONFIG_MALI_BIFROST_R32P1=y`
+  (`G\exynos9820_defconfig:3368`, b_r10p0..r26p0 "is not set" :3362-3367) — so F4's b_r10p0 call chain is
+  the older glue; the current one is `drivers/gpu/arm/exynos` (fetched as `G\gpex_*`):
+  - `gpexbe_pm_get_status` = exynos_pmu_read(DT gpu_pmu_status_reg_offset) & mask (`G\gpex_gpexbe_pm.c:68-78`) —
+    same PMU+0x2104 bit0 test; `gpexbe_pm_pd_control` = cal_pd_status / **cal_pd_control** / cal_pd_status
+    (`gpex_gpexbe_pm.c:96-125`) — same pmucal + need_smc path as F3. Clock = `cal_dfs_set_rate(cal_id, clk)`
+    (`G\gpex_gpexbe_clock.c:77`) — same ACPM path as F5.
+  - NEW vs b_r10p0: `gpex_pm_runtime_on_prepare` calls `gpexbe_smc_notify_power_on()` (`G\gpex_gpex_pm.c:308-317`)
+    = `exynos_smc(SMC_DRM_G3D_POWER_ON,0,0,0)` (`G\gpex_gpexbe_smc.c:107-110`, only under
+    CONFIG_MALI_EXYNOS_SECURE_SMC_NOTIFY_GPU) and is built only with CONFIG_EXYNOS_CONTENT_PATH_PROTECTION
+    (`G\gpex_Kbuild:93-97`, else the dummy). The LineageOS defconfig has no CONTENT_PATH_PROTECTION line
+    (grep) → dummy there; the stock config is UNVERIFIED (read `/proc/config.gz` or the stock boot.img's
+    ikconfig to close it). Either way it is one more SMC on the power-on path → F6 verdict unchanged.
+
 ## Review of 934d8ab (G2)
 - Checked mechanically (grep in `G`): every pmucal line range (555/569/586/596), pm-domains :77-83, mali dtsi
   :14-23/:40-47, cal-if.c :57-77/:106-116/:182-197, cmucal.h masks, dts :2072-2075 and :4865-4870, rae.c
@@ -125,3 +145,30 @@ PMU = 0x15860000 (EXYNOS_PMU_BASE, VERIFIED). CMU_CMU = 0x1A240000 (= EXYNOS_CMU
 - Found: (1) F4 stated the `exynos_bts_scitoken_setting` pre-hook as unconditional — it runs only when
   `devfreq_index >= 0` (`exynos-pd.c:64-71`); (2) "clk*1000" asserted the KHZ constant without a citation.
   Both fixed in the follow-up commit.
+
+## G3 design (Beyond0LteGpuProbeDxe)
+- Progress code: used codes found by grep over firmware/ (shim 0x51-0x56, SEC 0x60/0x61/0x63, 0x65 park,
+  0x66 touch, 0x67 USB, 0x68 PCIe, 0x69 audio, 0x70-0x72 BootLog, 0x80/0x81 ResetSystemLib) → **0x6A free**
+  (`rg -i "\b0x6a\b"` over firmware/tools/docs/notes: no hit).
+- GPU register offsets (`C:\Users\ilya\code\mali\linux\drivers\gpu\drm\panfrost\panfrost_regs.h`, tree b20a9b5f9):
+  GPU_ID 0x000 (:11), L2_FEATURES 0x004 (:12), CORE_FEATURES 0x008 (:13), TILER_FEATURES 0x00C (:14),
+  MEM_FEATURES 0x010 (:15), MMU_FEATURES 0x014 (:18), AS_PRESENT 0x018 (:21), JS_PRESENT 0x01C (:22),
+  GPU_INT_RAWSTAT 0x020 (:24), GPU_STATUS 0x034 (:56), GPU_FAULT_STATUS 0x03C (:63),
+  THREAD_MAX_THREADS 0x0A0 (:86), THREAD_FEATURES 0x0AC (:89), SHADER_PRESENT_LO/HI 0x100/0x104 (:97-98),
+  TILER_PRESENT_LO 0x110 (:99), L2_PRESENT_LO 0x120 (:102), SHADER/TILER/L2_READY_LO 0x140/0x150/0x160
+  (:118,121,124), COHERENCY_FEATURES 0x300 (:109), STACK_PRESENT_LO 0xE00 (:115), JOB_INT_RAWSTAT 0x1000
+  (:233), MMU_INT_RAWSTAT 0x2000 (:286), AS0_STATUS = 0x2400+0x28 (:302-304,327). All read-only ID/status
+  registers — the same set `panfrost_gpu_init_features` (panfrost_gpu.c:248-310) reads first after power-up.
+- GPU_ID decode: kbase `mali_kbase_gpu_id.h:51-65` (arch_major 31:28, arch_minor 27:24, arch_rev 23:20,
+  product_major 19:16, ver_major 15:12, ver_minor 11:4, status 3:0). G76 test: `(GPU_ID>>16) & 0xF00F == 0x7001`
+  (`panfrost_gpu.c:226` GPU_MODEL(g76, 0x7001) + mask in `panfrost_device.h:236` — NB gpu-panfrost-repos.md:86-88
+  cites the mask at panfrost_gpu.c:312-314; the mask itself is in panfrost_device.h:236).
+- Gate (F6): PMU 0x2104 bit0 AND 0x2384 bit0 → else stop after the PMU/CMU_CMU lines. Then CMU_G3D reads.
+  Then GPU reads only if GPU gate (CMU_G3D+0x2004) is not MANUAL=1/CG_VAL=0. First GPU read = GPU_ID alone;
+  if it is 0x00000000 or 0xFFFFFFFF stop (bus decode / secure-only canary, like AudioAbox's IP_INDEX).
+- MMIO map: CMU_TOP 0x1A240000+0x1000 is **not mapped today** — PlatformMemoryMapLib.c:79-80 claims it sits
+  inside CMU_BANK0 (0x1A200000+0x8000), but 0x1A200000+0x8000 = 0x1A208000 < 0x1A240000, so the comment is
+  wrong. Add CMU_TOP (VERIFIED base/size), CMU_G3D (SOURCE-ONLY 0x18400000+0x8000), G3D GPU (SOURCE-ONLY
+  0x18500000+0x5000) to mMmioRegions (boot #95 lesson: an unmapped region faults on the first access).
+- `BEYOND0LTE_GPU_POWER_ON` (default 0): **UNVERIFIED stub** — F6: the vendor power-on is pmucal MMIO + SMC
+  DTZPC restore (need_smc 0x18410204) + ACPM DVFS for clock/voltage. Setting it to 1 only logs the reason.

@@ -13,6 +13,10 @@
 ; System32 by the ESP script). The display-only mode is a KMDOD and is not expected to load a UMD (UNVERIFIED that
 ; dxgkrnl ignores the value for a KMDOD - the first display-only boot answers it). The system-wide
 ; EnablePreemption 0 the original INF set is written by the ESP script only for the full-adapter modes.
+; Switches (same key, DWORD, read at driver load; absent = default), notes/gpu-full-adapter-hang.md:
+;   PramTrace 1   DDI entry/exit trace into reserved RAM 0x8FE04000 (16 KiB), saved by the firmware as \WINPRAM.BIN
+;   SoftVsync 1   full adapter: software vsync (16 ms timer) while dxgkrnl enables CRTC_VSYNC (0 = never reported)
+;   FlipBlt   1   full adapter: a Flip present is a CPU copy into the GOP framebuffer (0 = flips dropped)
 ;
 ; SPDX-License-Identifier: GPL-2.0
 ;
@@ -22,7 +26,7 @@ Signature   = "$WINDOWS NT$"
 Class       = Display
 ClassGuid   = {4D36E968-E325-11CE-BFC1-08002BE10318}
 Provider    = %ProviderName%
-DriverVer   = 10/12/2026,1.0.10.1
+DriverVer   = 10/13/2026,1.0.13.1
 CatalogFile = MaliG76Wddm.cat
 PnpLockdown = 1
 

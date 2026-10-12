@@ -193,3 +193,8 @@ No code defect found in the F2 diff; nothing to fix.
 - Follow-up task: pass 2 (the boot in the new mode, if it gets that far) also saves the live PRAM slice:
   `s10ediag dumpram 0x8FE04000 0x4000 gpu\maliwddm-pram.bin` and a `peek` hex dump (dumpram uses MmCopyMemory
   physical, which may refuse firmware-reserved RAM - the peek is the fallback; both outputs kept).
+
+## INF 1.0.13.1
+- DriverVer 10/13/2026,1.0.13.1 (was 1.0.10.1): the phone has 1.0.10.1 installed; PnP ranks a same-version package
+  by date only, so the bump makes the new package win when GPU0 is next enumerated. Switches PramTrace / SoftVsync /
+  FlipBlt documented in the INF header (no AddReg: absent = default 1, so the install's MW_Parameters stays 0/0).

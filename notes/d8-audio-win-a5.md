@@ -121,3 +121,45 @@ Parameters AmpInit/AmpEnable/AboxEnable; no hardware constant changes.
    AllocateRtPackets 2 x 1920` (or similar), `stream: run at packet 0 ...`, `stream: released after N packets` with N
    ~200 per 2 s tone. Stage D adds `RDMA0 running (hardware clock)`, `amps 00000000`, and the mic hears A > B < C, D silent.
 - Review of T3 (package + test text): sha256 re-read from the files (Get-FileHash in build-package output) = notes; signer thumbprint of the .cat = 5DD5DEE1...; Finding R3: the expected run-log line `volume ch -1` assumed Windows assigns the master level with the all-channels id - unverified (it may set ch 0 and ch 1). Fixed in this commit (expectation widened). Also noted: ~100 key presses x 2 channels of volume lines (~10 KB) fit the 64 KB run log.
+
+## A6 (2026-10-13): device result of a5 + boot crash
+
+Device result (coordinator, runs in scratchpad\runs\audA5\last\audio, \audA5b, \audcrash):
+- Live install (stage A, 1.0.1.4): run.txt = render circuit with sw volume + mute; one probe round: stream created 16 bit
+  -> AllocateRtPackets 2 x 1920 -> GetHwLatency -> FreeRtPackets, same for 32 bit (2 x 3840); NOTHING afterwards (no
+  PrepareHardware/Run, no stream at test time). audiotest: GetMixFormat 0x80070032, **IAudioEndpointVolume Activate
+  0x80070032 too**, Initialize 0x80070032. => the elements/OEM format changed nothing; the a5 hypothesis is refuted.
+  audB4 (1.0.1.2, no elements) showed the identical probe pattern (two rounds).
+- Every later boot with the driver loaded at boot dies ~50 s after power-on. audA5b marks.txt (PRAM ring, boot after the
+  live install): "S10eDiag loaded" 23346 ms, **"BUGCHECK callback ... BC 00000000000000D1, BC P1 FFFF838715923000"** at
+  23627 ms. audcrash run.txt ends at "D0Entry from D4".
+
+### Boot crash root cause (code-proven, not device-proven)
+- 0xD1 DRIVER_IRQL_NOT_LESS_OR_EQUAL with a page-aligned P1 = a pageable page touched at DISPATCH_LEVEL.
+- RunLog.c AudLogFlush (unchanged since A1): `Copy = ExAllocatePool2(POOL_FLAG_PAGED, 64 KiB + 64)` then
+  `KeAcquireSpinLock(&Log->Lock)` (-> DISPATCH) and `RtlCopyMemory(Copy, Log->Text, Used)` = writes to fresh paged
+  pool at DISPATCH. A 64 KiB paged allocation is a big-pool allocation whose pages can be demand-zero (not resident);
+  the first touch then faults at DISPATCH -> 0xD1 with P1 = the first non-resident page (page aligned). Whether it
+  faults depends on pool state, which explains "live install fine, boot crashes" and also the audB2 0xD1 on
+  restart-device and the boot loops after audB5 that HANDOFF §30 put on NTFS corruption.
+- Same pattern in drivers/MaliG76Probe/MaliG76Probe.c:217-225 (paged Copy filled under C->Log->Lock) - reported to
+  the coordinator, not changed here (other driver).
+- Fix: non-paged snapshot buffer.
+
+### Endpoint rejection - new analysis
+- ACX version: the a1 note "No 1.1 runtime in 22621" (d8-audio-win-m1.md:21) has no evidence behind it (only the
+  file name Acx01000.sys, which is the major-1 runtime for every minor, like Wdf01000). MS doc "ACX version
+  information": 1.1 = "current ... recommended", supported from Windows 10 2004 (KMDF >= 1.31); **1.0 = "Pre-release
+  ... not recommended ... used in early development and testing"**. The ACX sample builds 1.1
+  (AudioCodec.vcxproj:35-38). We bind 1.0.
+- Header diff km\acx\km\1.0 vs 1.1 (WDK 26100): besides 11 new DDIs, **ACX_PIN_CONFIG gains `MaxStreams`** (1.1
+  ACX_PIN_CONFIG_INIT sets it to AcxInstanceIndeterminate) and ACX_PIN_CALLBACKS gains a callback. A 1.0-sized
+  ACX_PIN_CONFIG gives the runtime no MaxStreams; what it assumes for a pre-release client is unknown - if it is 0/1
+  instance, KSPROPERTY_PIN_CINSTANCES would tell AudioSrv the host pin cannot be opened by the engine, which fits
+  "AEB probe succeeds, every later AudioSrv use fails with NOT_SUPPORTED, no further pin create". UNVERIFIED.
+- Mounted the phone image (win-w5 vhdx, read-only): audiosrv/AudioEndpointBuilder/audiodg/AudioEng/AudioKSE/AudioSes/
+  MMDevAPI/AudioSrvPolicyManager present (22621.1/.2506), ks.inf/wdmaudio.inf present -> not a stripped audio stack.
+  No inbox driver binds ACX (no "Acx" bind string in System32\drivers\*.sys except Acx01000.sys itself).
+- Plan A6: (T5) RunLog non-paged flush; (T6) ACX 1.1 like the sample (+ build-package -AcxMinor so a 1.0 fallback
+  package can be built if 1.1 does not bind); (T7) log every KS request to the circuit and streams (ACX request
+  preprocess callbacks, set/id/verb/item + the dispatch status) and every ACX callback with its status; version 1.0.1.5.

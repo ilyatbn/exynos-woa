@@ -234,7 +234,7 @@ CxEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRESLIST Translated
                 Dev->Cfg = Cfg;    /* Msg.Bus.Cfg points into it: unmapped in ReleaseHardware */
                 Cfg      = NULL;
                 /* W2: escan records -> the WDI BSS list; EAPOL frames pass through to the data path */
-                WlanMsgSetCxHooks(&Dev->Msg, CxBssRecord, NULL, Dev);
+                WlanMsgSetCxHooks(&Dev->Msg, CxBssRecord, CxLinkLost, Dev);   /* W2 BSS list, W4 link loss */
                 WlanMsgSetRx(&Dev->Msg, CxRxFrame, Dev);   /* W3: received 802.3 frames -> RxFifo */
             }
         } else {
@@ -323,6 +323,7 @@ CxEvtD0Exit(WDFDEVICE Device, WDF_POWER_DEVICE_STATE TargetState)
     CxWorkerStop(Dev);
     if (Dev->RunR != NULL) {
         CxLog(Dev, "[cx] D0 exit to state %d\r\n", (int)TargetState);
+        CxSetLinked(Dev, FALSE);   /* releases the 1 ms timer resolution; the firmware is quiesced below */
         if (Dev->Msg.Resident && !Dev->Msg.Quiesced) {
             WlanMsgQuiesce(&Dev->Msg, Dev->RunR);
         }

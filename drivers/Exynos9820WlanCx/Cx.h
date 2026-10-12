@@ -90,6 +90,7 @@ typedef struct _CX_DEVICE {
     LONG                TxLayoutSeen;
     UCHAR               TxLayout[15];   /* Layer2Type + first 14 bytes of the latest recorded tx packet */
     BOOLEAN             Linked;         /* W4: associated (worker polls every CX_LINK_WAIT_MS) */
+    UCHAR               Bssid[6];       /* W4: the BSS of the current / last connect */
 
     /* worker */
     PKTHREAD            Thread;
@@ -136,6 +137,16 @@ VOID CxM3(_Inout_ PCX_DEVICE Dev, _In_ PCX_CMD Cmd, _In_ NTSTATUS Status);
 BOOLEAN CxFifoPut(_Inout_ PCX_FIFO F, _In_reads_bytes_(Len) const UCHAR *Frame, _In_ ULONG Len);
 WLAN_RX_FN CxRxFrame;
 _IRQL_requires_(PASSIVE_LEVEL) VOID CxTxDrain(_Inout_ PCX_DEVICE Dev);
+
+/* CxConnect.cpp */
+WLAN_LINK_FN CxLinkLost;
+_IRQL_requires_(PASSIVE_LEVEL) VOID CxSetLinked(_Inout_ PCX_DEVICE Dev, _In_ BOOLEAN Linked);
+_IRQL_requires_(PASSIVE_LEVEL) VOID CxDisconnect(_Inout_ PCX_DEVICE Dev, _In_ WDI_ASSOC_STATUS Reason);
+_IRQL_requires_(PASSIVE_LEVEL) VOID CxTaskConnect(_Inout_ PCX_DEVICE Dev, _In_ PCX_CMD Cmd, _In_ const WDI_MESSAGE_HEADER *H,
+                                                  _In_reads_bytes_(TlvLen) const UINT8 *Tlv, _In_ ULONG TlvLen);
+_IRQL_requires_(PASSIVE_LEVEL) VOID CxTaskDisconnect(_Inout_ PCX_DEVICE Dev, _In_ PCX_CMD Cmd, _In_ const WDI_MESSAGE_HEADER *H);
+_IRQL_requires_(PASSIVE_LEVEL) VOID CxSetAddKeys(_Inout_ PCX_DEVICE Dev, _In_ PCX_CMD Cmd,
+                                                 _In_reads_bytes_(TlvLen) const UINT8 *Tlv, _In_ ULONG TlvLen);
 
 /* CxAdapter.cpp */
 EVT_WIFI_DEVICE_CREATE_ADAPTER      CxEvtCreateAdapter;

@@ -211,3 +211,22 @@ Logs: Exynos9820WlanCx.txt (bring-up) + Exynos9820WlanCx-run.txt (runtime, rotat
   802.11->802.3 conversion offsets (A2 @10, A3 @16, QoS +2). FOUND: (1) tx Advance called CxFifoPut on a NULL
   TxFifo when the FIFO allocation failed (crash); (2) the tx layout log could print stale stack bytes for a
   packet shorter than 14 B. Fixed in a follow-up commit.
+- Review of e1eb9fa (W3 fixes): diff re-read; the NULL check precedes the FIFO call, the zeroing only touches the
+  14-byte header the log prints. No findings.
+- W4 (T7): CxConnect.cpp. TASK_CONNECT: parse; only OPEN/NONE or RSNA_PSK + CCMP/CCMP accepted (else M3
+  NOT_SUPPORTED, matching the station capabilities); M3; up to 2 host BSS entries in order: chanspec + IEs from
+  the scan cache (else the entry's probe-response / beacon body), RSN IE required for PSK; WlanMsgConnect;
+  ASSOCIATION_RESULT per attempt (status SUCCESS / NO_ASSOC_RESPONSE on timeout / ASSOC_FAILED_BY_PEER; on success
+  the association request body = cap + listen + req IEs, response body = cap + status + AID + resp IEs, beacon
+  body from the cache, PortAuthorized FALSE, DSInfo unknown); on success Linked (1 ms timer resolution, 5 ms worker
+  waits, NetAdapterSetLinkState connected) + LINK_STATE_CHANGE (speed 54000 placeholder, quality from RSSI); M4
+  CONNECT_COMPLETE. SET_ADD_CIPHER_KEYS: drain tx + WlanMsgWaitTxIdle(200 ms) first, then per CCMP key: pairwise
+  -> wsec_key idx 0 ea = peer, group -> idx = key id, primary, rsc (byte order UNVERIFIED). TASK_DISCONNECT and
+  DOT11_RESET -> WLC_DISASSOC + DISASSOCIATION (by host / by device reset). Firmware loss (WLAN_LINK_FN) ->
+  DISASSOCIATION (peer deauthenticated / disassociated / unable to maintain). SET_DELETE_CIPHER_KEYS accepted.
+  Build W4/WX clean. **Package s10e-artifacts\wifi-cx2 (W1-W4; inx 1.0.9.4, stampinf DriverVer
+  10/12/2026,23.32.47.394):**
+  - Exynos9820WlanCx.sys 216984 B sha256 692BD06A3EA5603C00F1842D2FB82286E87B91A4E278EDF382692C1F69ECB4EE
+  - Exynos9820WlanCx.inf   2601 B sha256 02E00A9055580E8F0C5CBDC6317DCE0E060BB2C8D63B2884C226D13A600BAEAE
+  - exynos9820wlancx.cat   2538 B sha256 4FDE2B0DDD33870B9FBC8F97F270F428235233218C42AACB26E19EF994CC7587
+  Not device-tested.

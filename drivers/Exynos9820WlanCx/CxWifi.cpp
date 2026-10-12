@@ -228,6 +228,7 @@ static const UINT16 CxAcceptedSets[] = {
     WDI_SET_RECEIVE_PACKET_FILTER, WDI_SET_RECEIVE_COALESCING, WDI_SET_AUTO_POWER_SAVE, WDI_SET_MULTICAST_LIST,
     WDI_SET_ADAPTER_CONFIGURATION, WDI_SET_CLEAR_RECEIVE_COALESCING, WDI_SET_ADVERTISEMENT_INFORMATION,
     WDI_SET_FLUSH_BSS_ENTRY, WDI_SET_END_DWELL_TIME, WDI_SET_LOCATION_PRIVACY,
+    WDI_SET_DELETE_CIPHER_KEYS,      /* W4: the firmware drops the keys with the association itself */
 };
 
 static BOOLEAN
@@ -282,6 +283,7 @@ CxTaskDot11Reset(PCX_DEVICE Dev, PCX_CMD Cmd, const WDI_MESSAGE_HEADER *H)
     WDI_MESSAGE_HEADER Copy = *H;
 
     CxM3(Dev, Cmd, STATUS_SUCCESS);
+    CxDisconnect(Dev, WDI_ASSOC_STATUS_DISASSOCIATE_BY_DEVICE_RESET);   /* W4: a reset ends the association */
     CxIndicate(Dev, WDI_INDICATION_DOT11_RESET_COMPLETE, &Copy, NDIS_STATUS_SUCCESS, NULL, 0);
 }
 
@@ -322,6 +324,15 @@ CxRunCommand(PCX_DEVICE Dev, PCX_CMD Cmd)
         break;
     case WDI_TASK_SCAN:
         CxTaskScan(Dev, Cmd, H, Tlv, TlvLen);   /* W2, CxScan.cpp */
+        break;
+    case WDI_TASK_CONNECT:
+        CxTaskConnect(Dev, Cmd, H, Tlv, TlvLen);   /* W4, CxConnect.cpp */
+        break;
+    case WDI_TASK_DISCONNECT:
+        CxTaskDisconnect(Dev, Cmd, H);
+        break;
+    case WDI_SET_ADD_CIPHER_KEYS:
+        CxSetAddKeys(Dev, Cmd, Tlv, TlvLen);
         break;
     default:
         if (CxIsAcceptedSet(Cmd->MessageId)) {

@@ -325,7 +325,7 @@ tree does not contain.
 | M9 W1: WiFiCx skeleton - adapter visible in Windows, MAC from the firmware, radio/reset/config commands, no traffic | doing | built + test-signed (`s10e-artifacts\wifi-cx1`, driver 1.0.9.1), not device-tested |
 | M9 W2: scan - WDI_TASK_SCAN -> escan -> BSS list in the Windows network flyout | doing | built (CxScan.cpp), not device-tested; broadcast scan only (no hidden SSIDs) |
 | M9 W3: data path - NetAdapter tx/rx queues over the msgbuf flowring / rx completions | doing | built (CxData.cpp + CxAdapter.cpp queues, 64-slot copy FIFOs), not device-tested; NetAdapter frame format for WiFiCx UNVERIFIED (Ethernet assumed, 802.11 tx converted, first layouts logged) |
-| M9 W4: connect - WDI_TASK_CONNECT (firmware join, OS supplicant over the data path), cipher keys, disconnect | todo | |
+| M9 W4: connect - WDI_TASK_CONNECT (firmware join, OS supplicant over the data path), cipher keys, disconnect | doing | built + test-signed (`s10e-artifacts\wifi-cx2`, W1-W4), not device-tested; open + WPA2-PSK CCMP/CCMP only |
 | M9 W5: power, roaming, interrupt instead of polling, flowring delete on disconnect | todo | |
 | Decide whether WiFi is required at all when LAN is available | **done** | **LAN-first**; if WiFi is genuinely needed, put a **USB WiFi adapter in the dock** (an ordinary Windows device once M10 works), not the phone's WLAN |
 

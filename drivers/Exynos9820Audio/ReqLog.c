@@ -331,7 +331,8 @@ static NTSTATUS AudIntersect(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ const ACX_REQ
     Cur = (const UCHAR *)(Item + 1);
     End = (const UCHAR *)Item + Item->Size;
     for (I = 0; I < Item->Count && Bits == 0; I++) {
-        if ((SIZE_T)(End - Cur) < sizeof(KSDATARANGE)) {
+        /* Cur may step past End by the 8-byte alignment of the last item: test before the subtraction (review R4). */
+        if (Cur >= End || (SIZE_T)(End - Cur) < sizeof(KSDATARANGE)) {
             break;
         }
         R = (const KSDATARANGE *)Cur;
@@ -342,7 +343,7 @@ static NTSTATUS AudIntersect(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ const ACX_REQ
         AudLog(Dev->Log, "ks: intersection range %lu: size %lu flags %lX sub {%08lX} spec {%08lX} -> %lu bit\r\n", I,
                R->FormatSize, R->Flags, R->SubFormat.Data1, R->Specifier.Data1, Bits);
         Cur += (R->FormatSize + 7u) & ~7u;
-        if ((R->Flags & KSDATARANGE_ATTRIBUTES) != 0 && (SIZE_T)(End - Cur) >= sizeof(KSMULTIPLE_ITEM)) {
+        if ((R->Flags & KSDATARANGE_ATTRIBUTES) != 0 && Cur < End && (SIZE_T)(End - Cur) >= sizeof(KSMULTIPLE_ITEM)) {
             const KSMULTIPLE_ITEM *Attr = (const KSMULTIPLE_ITEM *)Cur;   /* the range's attribute list */
 
             if (Attr->Size < sizeof(KSMULTIPLE_ITEM) || Attr->Size > (ULONG)(End - Cur)) {

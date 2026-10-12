@@ -266,3 +266,10 @@ proven). Still GetMixFormat / EndpointVolume Activate 0x80070032 (state 1).
   CircuitHelper.cpp:615-618; logged as `req c ... done <status> info <n>`. Sizes checked against the a6 log:
   sizeof(KSDATAFORMAT_WAVEFORMATEXTENSIBLE) = 104 (= ACX default-format get), KSDATARANGE_AUDIO 84 -> 88 aligned, 2
   ranges + header = 184 (= DATARANGES/intersection control). Build exit 0.
+- Review of T10 (adversarial). Checked: completion only on the two handled paths, every other path dispatches to ACX
+  exactly once; KsOverride/pin id/set GUID (full compare) gate; PROPOSE without a wave header -> ACX; output copy only
+  when ValueCb >= 104; NO_MATCH on no range. **Finding R4 (real):** the range walk advances Cur by the 8-byte-aligned
+  FormatSize, which can step up to 7 bytes past End on the last item; the next iteration's `(SIZE_T)(End - Cur)` then
+  wraps to a huge value and the loop would read a KSDATARANGE beyond the control buffer (Count larger than the real
+  number of ranges). Fixed in its own commit: `Cur >= End` tested before the subtraction (range and attribute-list
+  checks). Build exit 0.

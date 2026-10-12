@@ -37,6 +37,18 @@ del /f /q C:\S10eTmp\gpumode2.flg
 s10ediag mark g: pass 2 - collect
 rem MaliG76Wddm's PRAM DDI trace (WINPRAM + 0x4000, 16 KiB, drivers/MaliG76Wddm/pram.c) of THIS boot, live (peek only: dumpram uses MmCopyMemory, which failed with 59 on this RAM in run g13fullc).
 s10ediag peek 0x8FE04000 0x4000 > "%G%\maliwddm-pram-peek.txt" 2>&1
+rem G13: can the D3D runtimes create a device on the Mali adapter (DWM needs D3D11; maliumd.dll is Mesa d3d10umd
+rem built D3D10.0-only)? d3dprobe prints per adapter the UMD names for DX9/10/11, the WDDM version and the HRESULT of
+rem D3D11CreateDevice / D3D10CreateDevice; MALIKM_TRACE=1 adds the Mesa shim's trace (stderr) from inside the probe.
+s10ediag mark g: d3dprobe
+set MALIKM_TRACE=1
+if exist "%ESP%\S10EDIAG\gpu\d3dprobe.exe" "%ESP%\S10EDIAG\gpu\d3dprobe.exe" > "%G%\d3dprobe.txt" 2> "%G%\d3dprobe-stderr.txt"
+set MALIKM_TRACE=
+for /f "usebackq delims=" %%L in (`findstr /i "adapter D3D11CreateDevice D3D10CreateDevice UMD WDDM" "%G%\d3dprobe.txt"`) do s10ediag mark "d: %%L"
+s10ediag mark g: dxdiag
+dxdiag /whql:off /t "%G%\dxdiag.txt"
+ping -n 46 127.0.0.1 > nul
+for /f "usebackq delims=" %%L in (`findstr /i /c:"Card name" /c:"DDI Version" /c:"Feature Levels" /c:"Driver Model" /c:"User Mode Driver" "%G%\dxdiag.txt"`) do s10ediag mark "x: %%L"
 call "%ESP%\S10EDIAG\gpu\extra-gpu-g10.cmd"
 for %%R in (trace) do if exist "%G%\%%R.reg" for /f "usebackq delims=" %%L in (`findstr /i "Mode Started Fail Seen_Create GpuQuieted ResContract Presents" "%G%\%%R.reg"`) do s10ediag mark "t: %%L"
 :end

@@ -14,6 +14,9 @@ rem maliumd.dll (copied by extra-gpu-g10.cmd) imports libgallium_d3d10.dll (G12 
 if exist "%ESP%\S10EDIAG\gpu\vc_redist.arm64.exe" if not exist "%SystemRoot%\System32\vcruntime140.dll" "%ESP%\S10EDIAG\gpu\vc_redist.arm64.exe" /install /quiet /norestart > "%G%\vcredist.txt" 2>&1
 if exist "%ESP%\S10EDIAG\gpu\libgallium_d3d10.dll" copy /y "%ESP%\S10EDIAG\gpu\libgallium_d3d10.dll" "%SystemRoot%\System32\libgallium_d3d10.dll" > "%G%\gallium-copy.txt" 2>&1
 call "%ESP%\S10EDIAG\gpu\extra-gpu-g10.cmd"
+rem The agent ends the session with a hard reset: force the SYSTEM hive to disk so next boot's Parameters survive
+rem (run g10s3a wrote GpuEnable 1, boot g10s3b still read 0 - the lazy hive flush was lost).
+powershell -NoProfile -Command "$k = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SYSTEM\CurrentControlSet\Services\MaliG76Wddm\Parameters'); if ($k) { $k.Flush(); $k.Close(); 'flushed' }" > "%G%\regflush.txt" 2>&1
 if exist "%G%\m5test.txt" for /f "usebackq delims=" %%L in ("%G%\m5test.txt") do s10ediag mark "m5: %%L"
 for %%R in (trace trace-after-install) do if exist "%G%\%%R.reg" for /f "usebackq delims=" %%L in (`findstr /i "Mode Started Fail FbMatchesGop Presents CommitStatus" "%G%\%%R.reg"`) do s10ediag mark "%%R: %%L"
 for /f "usebackq delims=" %%L in (`findstr /i "Name Status Resolution" "%G%\video.txt"`) do s10ediag mark "v: %%L"

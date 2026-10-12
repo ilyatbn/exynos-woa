@@ -1200,3 +1200,25 @@ from TWRP: `umount /data` first (TWRP auto-mounts the Windows NTFS ro there), fs
      C:\Windows\System32\LogFiles\Exynos9820Wlan-run.txt for `JOIN 0`.
   4. WiFi M7 architecture: NDIS 802.3 adapter with a registry-configured network (fast) vs WDI/native WiFi.
 - Unattended mode again = WATCHDOG 1 build + remove stay.flg (+ `rm WINRUN.FLG` before every reboot).
+
+## 30. Restart point (2026-10-12 ~12:30, unattended session, user away)
+
+**Phone state.** BOOT = **boot #101** (s10e-artifacts\boot101-v2.img, 6d7baccc…): main + AUD0 DSDT (SAMS9827),
+UEFI tones OFF, BEYOND0LTE_WINDOWS_WATCHDOG 1, **BEYOND0LTE_CHARGER_BOOTS_ON 1** (a charger power-on boots on, so a
+phone that powered off unattended comes back; validated: power-off from TWRP -> Windows -> TWRP). ESP: no stay.flg
+(unattended loop), extra.cmd = extra-audio.cmd with audio-stage.cmd (staged audio bring-up). Battery 100 %.
+**Validated today:** loudspeaker path (UEFI m3, mic SNR 44-67 dB), headphone tone (user + mic), battery icon (user),
+charger boots on, RAM probe (all carved regions R/W from Windows; publishing them waits for the user - the edit was
+refused by the session's safety classifier).
+**In flight.**
+- Windows audio (notes/d8-audio-win-m1.md): driver Exynos9820Audio (ACX). Run a1 (all stages at once) powered the
+  phone off; stage A (no hardware) OK = endpoint "Speakers (Galaxy S10e Audio)" Started; restart-device crashed
+  (D1, circuit re-add after remove) -> fixed 1.0.1.1; WASAPI open failed 0x80070032 -> 1.0.1.2 + PreserveSig
+  diagnostics in audio-test.ps1 (stage B4 running). Next: stages C (amp init) and D (amps on) with the mic.
+- WiFi (worktree branch worktree-agent-ae72ee1a2b1f2e987, notes/m12-wifi-m7.md): M7a data path + M7b host 4-way
+  handshake (1.0.7.2) - associates with HomeX-5, but the firmware never completes rx (rx cpl w 0) -> rx-path audit
+  running (notes/m12-wifi-m7-rx-audit.md). wifi-connect app built (s10e-artifacts\wifi-connect, tools/wifi-connect).
+- CPU (notes/cpu-ram-plan-20261012.md): M4 cores differ in ID_AA64ISAR1 (no LRCPC) and MMFR1 (8-bit VMID) per
+  TWRP dmesg; next = KD run with the M4s offered.
+**Tooling.** scratchpad cycle.sh (flash optional, reboot, mic listen, wait TWRP, pull UEFILOG/last/WINPRAM marks),
+deploy.sh (DriverStore .sys swap), tools/audio-listen/listen.py (narrowband mic detector, raw WDM-KS pin).

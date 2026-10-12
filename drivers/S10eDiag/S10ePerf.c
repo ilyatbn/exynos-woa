@@ -6,11 +6,12 @@
  *   mem  - memcpy bandwidth over 64 MiB
  *   disk - sequential write/read of a 256 MiB unbuffered file, then 4 KiB random reads for 5 s
  *
- *   s10eperf [cpu] [mem] [disk <dir>] [raw <vol>] [sweep <vol>] [loop <vol> <s>] [adapter <dev>]   (no arguments = cpu mem)
+ *   s10eperf [cpu] [mem] [disk <dir>] [raw <vol>] [sweep <vol>] [loop <vol> <s>] [adapter <dev>] [vpd <dev> <hexpage>]   (no arguments = cpu mem)
  */
 
 #include <windows.h>
 #include <winioctl.h>
+#include <ntddscsi.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -295,6 +296,62 @@ Adapter(const char *Device)
     CloseHandle(File);
 }
 
+//
+// m15 u5 (read-only): INQUIRY EVPD page via IOCTL_SCSI_PASS_THROUGH_DIRECT - page 0x00 (supported list) and 0xB0
+// (Block Limits: MAXIMUM / OPTIMAL TRANSFER LENGTH, which classpnp honours when splitting).
+//
+typedef struct {
+    SCSI_PASS_THROUGH_DIRECT Spt;
+    UCHAR Sense[32];
+} S10E_SPTD;
+
+static void
+Vpd(const char *Device, int Page)
+{
+    HANDLE File = CreateFileA(Device, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                              OPEN_EXISTING, 0, NULL);
+    S10E_SPTD S;
+    UCHAR *Data = (UCHAR *)VirtualAlloc(NULL, 4096, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    DWORD Returned = 0;
+    DWORD I;
+
+    if (File == INVALID_HANDLE_VALUE || Data == NULL) {
+        printf("vpd: open %s failed %lu\n", Device, GetLastError());
+        return;
+    }
+    ZeroMemory(&S, sizeof(S));
+    S.Spt.Length = sizeof(SCSI_PASS_THROUGH_DIRECT);
+    S.Spt.CdbLength = 6;
+    S.Spt.SenseInfoLength = sizeof(S.Sense);
+    S.Spt.SenseInfoOffset = (ULONG)FIELD_OFFSET(S10E_SPTD, Sense);
+    S.Spt.DataIn = SCSI_IOCTL_DATA_IN;
+    S.Spt.DataTransferLength = 252;
+    S.Spt.DataBuffer = Data;
+    S.Spt.TimeOutValue = 5;
+    S.Spt.Cdb[0] = 0x12;
+    S.Spt.Cdb[1] = 0x01;
+    S.Spt.Cdb[2] = (UCHAR)Page;
+    S.Spt.Cdb[4] = 252;
+    if (!DeviceIoControl(File, IOCTL_SCSI_PASS_THROUGH_DIRECT, &S, sizeof(S), &S, sizeof(S), &Returned, NULL)) {
+        printf("vpd: %s page 0x%02x ioctl failed %lu\n", Device, Page, GetLastError());
+    } else {
+        printf("vpd: %s page 0x%02x scsi status 0x%02x xfer %lu sense %02x/%02x/%02x:", Device, Page,
+               S.Spt.ScsiStatus, S.Spt.DataTransferLength, S.Sense[2] & 0xF, S.Sense[12], S.Sense[13]);
+        for (I = 0; I < S.Spt.DataTransferLength && I < 64; I++) {
+            printf(" %02x", Data[I]);
+        }
+        printf("\n");
+        if (Page == 0xB0 && S.Spt.ScsiStatus == 0 && S.Spt.DataTransferLength >= 16) {
+            printf("vpd: B0 MAXIMUM TRANSFER LENGTH=%lu blocks OPTIMAL=%lu blocks GRANULARITY=%u blocks\n",
+                   ((DWORD)Data[8] << 24) | ((DWORD)Data[9] << 16) | ((DWORD)Data[10] << 8) | Data[11],
+                   ((DWORD)Data[12] << 24) | ((DWORD)Data[13] << 16) | ((DWORD)Data[14] << 8) | Data[15],
+                   ((unsigned)Data[6] << 8) | Data[7]);
+        }
+    }
+    CloseHandle(File);
+    VirtualFree(Data, 0, MEM_RELEASE);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -313,6 +370,9 @@ main(int argc, char **argv)
             Mem();
         } else if (strcmp(argv[I], "raw") == 0 && I + 1 < argc) {
             RawRead(argv[++I]);
+        } else if (strcmp(argv[I], "vpd") == 0 && I + 2 < argc) {
+            Vpd(argv[I + 1], (int)strtol(argv[I + 2], NULL, 16));
+            I += 2;
         } else if (strcmp(argv[I], "adapter") == 0 && I + 1 < argc) {
             Adapter(argv[++I]);
         } else if (strcmp(argv[I], "sweep") == 0 && I + 1 < argc) {

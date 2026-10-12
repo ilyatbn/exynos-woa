@@ -508,3 +508,17 @@ header VT_BLOB 0x41 + 1, also present on every PC entry; the payload `0A00 0000 
 - Next step must read those answers: a user-mode KS probe (run as SYSTEM) that opens the same filter, creates the
   same pin and issues the same RT properties, printing every status and output byte; plus filter-level DATARANGES,
   MODEDATAFORMATS, PROPOSEDATAFORMAT get, modes, CINSTANCES raw.
+- T23 tool drivers/S10eDiag/esp/ks-probe.ps1 (CRLF; params -Out, -Match (default sams9827), -NoRun): SetupDi on
+  KSCATEGORY_AUDIO -> CreateFile filter -> CTYPES, CINSTANCES/GLOBALCINSTANCES(pin 0), AUDIOSIGNALPROCESSING_MODES,
+  DATARANGES, MODEDATAFORMATS(RAW/DEFAULT), PROPOSEDATAFORMAT get - each as size query + sized read, status + hex;
+  then KsCreatePin (pin 0, 48k/16 and 32 EXT, LOOPED_STREAMING and STREAMING) -> the probe's RT properties
+  (QUERY_NOTIFICATION_SUPPORT, SETWRITEPACKET/PACKETCOUNT/PRESENTATION_POSITION/GETREADPACKET basic,
+  BUFFER_WITH_NOTIFICATION 2 x 10 ms, HWLATENCY, PACKETCOUNT) and, first pin only, STATE ACQUIRE/PAUSE/RUN 400 ms with
+  PRESENTATION_POSITION/PACKETCOUNT reads (zero buffer = silence) -> STOP -> close.
+  Host validation: struct layout checked with a cl-compiled offsetof program against the WDK ks.h (KSPIN_CONNECT 72,
+  PinId @48, PinToHandle @56, Priority @64, KSDATAFORMAT 64, KSPROPERTY 24 - matches the C# offsets). Filter-level
+  queries work on this PC (Realtek HAP filter: MODES 24 B = RAW, DATARANGES 96 B; Steam virtual speakers: DATARANGES 96
+  B, intersections 104/64 B). KsCreatePin returned 87 (ERROR_INVALID_PARAMETER) on every PC filter tried, even with the
+  filter's own intersection result as the format and with KsCreatePin2 - so the pin part is NOT validated on the host
+  (unprivileged session; Steam/HAP filters may refuse user pins); on the phone it runs as SYSTEM and logs the error if
+  it fails. The filter-level dumps alone show ACX's actual answers (MODEDATAFORMATS / default format / ranges).

@@ -43,6 +43,11 @@ del /q "%TMP%\audiotest.txt" > nul 2>&1
 powershell -NoProfile -ExecutionPolicy Bypass -File "%TMP%\run-as-user.ps1" -Script C:\S10eTmp\audio-test.ps1 -Wait 60 > "%W%\task.txt" 2>&1
 copy /y "%TMP%\audiotest.txt" "%W%\audiotest.txt" > nul 2>&1
 copy /y "%SystemRoot%\System32\LogFiles\Exynos9820Audio-run.txt" "%W%\run.txt" > nul 2>&1
+rem A11: user-mode KS probe of our filter as SYSTEM (ACX's own answers: ranges, mode formats, default format,
+rem RT buffer/latency/notification support of a pin like AudioSrv's format probe; 400 ms silent run)
+copy /y "%ESP%\S10EDIAG\ks-probe.ps1" "%TMP%\ks-probe.ps1" > nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -File "%TMP%\ks-probe.ps1" -Out "%W%\ksprobe.txt" > "%W%\ksprobe-ps.txt" 2>&1
+copy /y "%SystemRoot%\System32\LogFiles\Exynos9820Audio-run.txt" "%W%\run-after-probe.txt" > nul 2>&1
 rem A9: what AudioSrv / the endpoint builder stored and logged (same dumps as extra-audio.cmd, plus the System log
 rem entries of the AudioEndpointBuilder and Audiosrv services)
 reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render" /s > "%W%\mmdevices.txt" 2>&1

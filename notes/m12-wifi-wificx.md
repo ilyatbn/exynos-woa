@@ -372,3 +372,4 @@ What the logs must show (Exynos9820WlanCx.txt = bring-up, -run.txt = runtime):
   0000 888E"; then "[tx] packet layout #1" (EAPOL msg 2) and "[key] add". If still no tx: RxFormat 1 A/B is
   pointless (that was cx4); next suspects are a missing per-packet WiFi rx extension or the Protected/exemption
   rule.
+- Review of 24a7c8f: the W4 milestone row sed did not match again (backslash in the pattern); fixed in a follow-up commit with a script.

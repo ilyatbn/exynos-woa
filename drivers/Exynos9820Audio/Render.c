@@ -965,13 +965,15 @@ static NTSTATUS AudStreamPause(ACXSTREAM Stream)
 
 static NTSTATUS AudStreamGetHwLatency(ACXSTREAM Stream, ULONG *FifoSize, ULONG *Delay)
 {
-    PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
-
+    UNREFERENCED_PARAMETER(Stream);
     PAGED_CODE();
 
-    *FifoSize = 128;   /* sample value; the RDMA FIFO depth is unknown */
-    /* One period of ring lead (100 ns units) once the packet size is known. */
-    *Delay = (Ctx->BytesPerSec != 0) ? (ULONG)((ULONGLONG)Ctx->PacketSize * AUD_HNS_PER_SEC / Ctx->BytesPerSec) : 0;
+    /* A11: exactly the ACX sample's values (StreamEngine.cpp GetHWLatency: FifoSize 128, Delay 0). Until a10 Delay was
+       one period (100000 x 100 ns at 10 ms packets) for the DMA ring lead; it is answered in the endpoint's per-format
+       probe (HWLATENCY) that keeps failing, so it goes back to the sample's value. The lead is already excluded from
+       the reported position (AudUpdatePosition), so only the latency report loses 10 ms. */
+    *FifoSize = 128;
+    *Delay    = 0;
     return STATUS_SUCCESS;
 }
 

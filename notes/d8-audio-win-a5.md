@@ -528,3 +528,10 @@ header VT_BLOB 0x41 + 1, also present on every PC entry; the payload `0A00 0000 
   block below 4 GiB (only the separate non-cached DMA ring needs that, unchanged). Reason: BUFFER_WITH_NOTIFICATION is
   in the failing per-format probe and ACX maps these MDLs to user mode; this was the remaining difference from the
   sample in that path. Build exit 0.
+- T25: GetHwLatency = the sample's FifoSize 128 / Delay 0 (was Delay = one period, 100000 x 100 ns) - HWLATENCY is
+  in the failing probe too; the ring lead stays excluded from the position. Version 1.0.1.10 (INF + Driver.c; PnP
+  compares fields numerically, 10 > 9). Build exit 0.
+- Review of T23-T25: ks-probe pin-state writes only zeros (silence); the probe copies run.txt again afterwards
+  (run-after-probe.txt) so the driver side of the probe pin is captured; packet free path frees every allocated
+  PacketBuf[] even after a partial allocation (AudRingFree walks all AUD_MAX_PACKETS slots); AudPacketVa unchanged
+  semantics (packet 0 + offset); the DMA ring allocation is untouched. No findings.

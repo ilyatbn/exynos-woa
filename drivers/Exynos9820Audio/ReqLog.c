@@ -13,7 +13,7 @@
  *
  * Volume (A7): per request key (set, id, verb, item type, item id) the first AUD_REQKEY_FIRST occurrences are logged,
  * then every AUD_REQKEY_EVERY-th with its running count; the format carried by every PROPOSEDATAFORMAT set on a pin is
- * decoded (first AUD_FMTLOG_MAX). The file is flushed every AUD_REQLOG_FLUSH logged lines and after error statuses.
+ * decoded once per DISTINCT format (A8; up to AUD_FMTLOG_MAX distinct) with its verdict. The file is flushed every AUD_REQLOG_FLUSH logged lines and after error statuses.
  * A7 also answers two host-pin format properties itself (see "driver-completed host-pin format requests" below).
  * notes/d8-audio-win-a5.md.
  */
@@ -24,7 +24,7 @@
 #define AUD_REQLOG_FLUSH  32u
 #define AUD_REQKEY_FIRST  6u
 #define AUD_REQKEY_EVERY  100u
-#define AUD_FMTLOG_MAX    48u
+#define AUD_FMTLOG_MAX    AUD_FMTHASHES   /* distinct proposed formats decoded (Exynos9820Audio.h) */
 
 #define AUD_KSPROPERTY_PIN_PROPOSEDATAFORMAT  14u   /* ks.h KSPROPERTY_PIN_PROPOSEDATAFORMAT */
 
@@ -135,20 +135,47 @@ static ULONG AudReqKeyCount(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ const AUD_REQK
     return Count;
 }
 
-/* Decode the KSDATAFORMAT (+ WAVEFORMATEX[TENSIBLE]) of a PROPOSEDATAFORMAT set before ACX sees it. */
-static VOID AudLogProposedFormat(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ CHAR Who, _In_ const ACX_REQUEST_PARAMETERS *P)
+/* TRUE the first time this exact format (size + bytes, FNV-1a) is seen; FALSE afterwards or when the table is full. */
+static BOOLEAN AudFmtIsNew(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_reads_bytes_(Cb) const UCHAR *Data, _In_ ULONG Cb)
+{
+    ULONG   Hash = 2166136261u ^ Cb;
+    ULONG   I;
+    KIRQL   OldIrql;
+    BOOLEAN New = FALSE;
+
+    for (I = 0; I < Cb && I < 256u; I++) {
+        Hash = (Hash ^ Data[I]) * 16777619u;
+    }
+
+    KeAcquireSpinLock(&Dev->ReqLock, &OldIrql);
+    for (I = 0; I < Dev->FmtHashCount; I++) {
+        if (Dev->FmtHash[I] == Hash) {
+            break;
+        }
+    }
+    if (I == Dev->FmtHashCount && I < AUD_FMTHASHES) {
+        Dev->FmtHash[I] = Hash;
+        Dev->FmtHashCount++;
+        New = TRUE;
+    }
+    KeReleaseSpinLock(&Dev->ReqLock, OldIrql);
+    return New;
+}
+
+/* Decode the KSDATAFORMAT (+ WAVEFORMATEX[TENSIBLE]) of a PROPOSEDATAFORMAT set, once per distinct format, while the
+   buffer is still valid (before ACX or the driver completes the request). Verdict = who answers / what. */
+static VOID AudLogProposedFormat(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ CHAR Who, _In_ const ACX_REQUEST_PARAMETERS *P,
+                                 _In_ PCSTR Verdict)
 {
     const KSDATAFORMAT *F = (const KSDATAFORMAT *)P->Parameters.Property.Value;
     ULONG              Cb = P->Parameters.Property.ValueCb;
     ULONG              N;
 
-    if (F == NULL || Cb < sizeof(KSDATAFORMAT)) {
+    if (F == NULL || Cb < sizeof(KSDATAFORMAT) || !AudFmtIsNew(Dev, (const UCHAR *)F, Cb)) {
         return;
     }
     N = (ULONG)InterlockedIncrement(&Dev->FmtLogged);
-    if (N > AUD_FMTLOG_MAX) {
-        return;
-    }
+    AudLog(Dev->Log, "fmt %c #%lu verdict: %s\r\n", Who, N, Verdict);
 
     if (Cb >= sizeof(KSDATAFORMAT) + sizeof(WAVEFORMATEX)) {
         const WAVEFORMATEX *W = (const WAVEFORMATEX *)(F + 1);
@@ -245,7 +272,7 @@ static VOID AudReqInspect(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ CHAR Who, _In_ c
     if (Dev != NULL && P->Type == AcxRequestTypeProperty && P->Parameters.Property.Set.Data1 == 0x8C134960 &&
         P->Parameters.Property.Id == AUD_KSPROPERTY_PIN_PROPOSEDATAFORMAT &&
         P->Parameters.Property.Verb == AcxPropertyVerbSet && P->Parameters.Property.ItemType == AcxItemTypePin) {
-        AudLogProposedFormat(Dev, Who, P);
+        AudLogProposedFormat(Dev, Who, P, "to ACX (answer not visible)");
     }
 }
 
@@ -426,11 +453,12 @@ static BOOLEAN AudKsOverride(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ WDFREQUEST Re
         if (!AudPropose(P, &Status)) {
             return FALSE;
         }
+        AudLogProposedFormat(Dev, 'c', P, NT_SUCCESS(Status) ? "driver ACCEPTS" : "driver rejects (NO_MATCH)");
     } else {
         return FALSE;
     }
 
-    WdfRequestCompleteWithInformation(Request, Status, Info);
+    WdfRequestCompleteWithInformation(Request, Status, Info);   /* P's buffers are not touched after this */
     AudReqLog(Dev, 'c', P, "done", Status, Info);
     return TRUE;
 }
@@ -446,10 +474,10 @@ VOID NTAPI AudEvtCircuitRequestPreprocess(ACXOBJECT Object, ACXCONTEXT DriverCon
 
     ACX_REQUEST_PARAMETERS_INIT(&P);
     AcxRequestGetParameters(Request, &P);
-    AudReqInspect(Dev, 'C', &P);
     if (AudKsOverride(Dev, Request, &P)) {
         return;                                                            /* completed by the driver */
     }
+    AudReqInspect(Dev, 'C', &P);                                           /* still ours to read: ACX has not seen it */
     Status = AcxCircuitDispatchAcxRequest((ACXCIRCUIT)Object, Request);   /* the request belongs to ACX from here on */
     AudReqLog(Dev, 'C', &P, "disp", Status, 0);
 }

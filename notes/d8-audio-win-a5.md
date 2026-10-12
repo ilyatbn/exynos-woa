@@ -347,3 +347,10 @@ something after it still is.
   Windows\CurrentVersion\MMDevices\Audio\Render /s` -> audio\mmdevices.txt; `wevtutil el` filtered for audio ->
   evt-channels.txt; `wevtutil qe Microsoft-Windows-Audio/{Operational,PlaybackManager,Informational,GlitchDetection}
   /c:100 /rd:true /f:text` -> evt-audio-*.txt (a missing channel just leaves its error text in the file).
+- T15 driver 1.0.1.7: (a) at circuit creation `circuit: ACX default format <Hz> <ch> <bits>/<valid> align mask;
+  KSDATAFORMAT size flags samplesize sub spec` from AcxDataFormatListRetrieveDefaultDataFormat + AcxDataFormatGet* /
+  AcxDataFormatGetKsDataFormat - what ACX answers to PROPOSEDATAFORMAT get; (b) proposed formats decoded once per
+  DISTINCT format (FNV-1a of size + up to 256 bytes, 64-entry table under ReqLock) with a verdict line - "driver
+  ACCEPTS" / "driver rejects (NO_MATCH)" for the ones the driver answers (decoded BEFORE WdfRequestCompleteWithInformation,
+  the buffer is gone after it), "to ACX (answer not visible)" for the rest (decoded before the dispatch: the override
+  check now runs first, then the inspect). INF DriverVer 1.0.1.7. Build exit 0.

@@ -432,6 +432,24 @@ NTSTATUS AudRenderCircuitCreate(_In_ WDFDEVICE Device, _In_ PAUD_DEVICE_CONTEXT 
         return Status;
     }
 
+    {
+        /* A8: what ACX itself holds as the host pin's default (it answers PROPOSEDATAFORMAT get with it). */
+        ACXDATAFORMAT     Def = NULL;
+        NTSTATUS          DefStatus = AcxDataFormatListRetrieveDefaultDataFormat(List, &Def);
+        const KSDATAFORMAT *Ks = (NT_SUCCESS(DefStatus) && Def != NULL) ? (const KSDATAFORMAT *)AcxDataFormatGetKsDataFormat(Def)
+                                                                       : NULL;
+
+        if (Ks != NULL) {
+            AudLog(Dev->Log, "circuit: ACX default format %lu Hz %lu ch %lu/%lu bit align %lu mask %lX; KSDATAFORMAT size %lu flags %lX "
+                   "samplesize %lu sub {%08lX} spec {%08lX}\r\n", AcxDataFormatGetSampleRate(Def), AcxDataFormatGetChannelsCount(Def),
+                   AcxDataFormatGetBitsPerSample(Def), AcxDataFormatGetValidBitsPerSample(Def), AcxDataFormatGetBlockAlign(Def),
+                   AcxDataFormatGetChannelMask(Def), Ks->FormatSize, Ks->Flags, Ks->SampleSize, Ks->SubFormat.Data1,
+                   Ks->Specifier.Data1);
+        } else {
+            AudLog(Dev->Log, "circuit: ACX default format not retrievable %08lX\r\n", DefStatus);
+        }
+    }
+
     Status = AcxCircuitAddPins(Circuit, Pins, ARRAYSIZE(Pins));
     if (NT_SUCCESS(Status)) {
         Dev->Render    = Circuit;

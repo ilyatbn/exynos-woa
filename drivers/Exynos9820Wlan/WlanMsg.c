@@ -1326,8 +1326,8 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
 
     /* 5b. rx data buffers BEFORE the firmware's first UP (rx audit fix 1, notes/m12-wifi-m7-rx-audit.md; run
        1.0.7.3 showed a DOWN/UP bounce after the fact does not help). DHD posts them in dhd_sync_with_dongle ahead of
-       dhd_preinit_ioctls (dhd_msgbuf.c:4217-4220), after the ctrl buffers of dhd_prot_init; fmac at msgbuf attach
-       ahead of every ioctl (msgbuf.c:1655-1665). The tx flowring is still created after association. A failure
+       dhd_preinit_ioctls (dhd_msgbuf.c:4219 vs :4224), after the ctrl buffers of dhd_prot_init; fmac at msgbuf attach
+       ahead of every ioctl (msgbuf.c:1655-1665, fill at :1657). The tx flowring is still created after association. A failure
        leaves the control path without a data path (logged), as before. The buffer is in M->DataBuffer: freed by the
        Stop path below (after ARM halt + bus master off) or, once resident, by WlanMsgFree. */
     (VOID)DataInit(S, M);

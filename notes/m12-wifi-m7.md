@@ -179,3 +179,9 @@ Refs: scratchpad src/bcmdhd (LineageOS lineage-23.2) and src/brcmfmac (torvalds 
   8 ioctl-resp buffers, before cur_etheraddr / CLM / UP); the Stop path now deletes M->DataBuffer after ARM halt +
   BME off (WdfObjectDelete after the existing halt sequence); the 1.0.7.3 DOWN/UP bounce removed (join logs
   "rxpost host w/fw r before SET_SSID" instead). Build W4/WX clean (build-package.ps1 into scratchpad m7c-build).
+- Review of c98abe5 (adversarial): checked FwUp is called exactly once per WlanDlRun (WlanDl.c:943) and Msg is
+  zeroed before it (WlanProbe.c:432), so M->DataBuffer cannot be stale on the Stop path; DataInit only needs
+  step 1/2 state (MaxFlowrings, H2d bases, MdlAll) - all set before 5b; Stop order = halt, BME off, delete
+  control buffer, delete data buffer, free MDLs (same lifetime rule as the control buffer); no remaining WLC_DOWN
+  user (header define kept, cited). FOUND: the comment cited dhd_msgbuf.c:4217-4220 for "rx post ahead of preinit"
+  - the actual lines are 4219 (rxbuf_post) vs 4224 (preinit). Fixed in a follow-up commit.

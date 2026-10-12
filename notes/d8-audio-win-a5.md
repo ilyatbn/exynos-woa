@@ -354,3 +354,10 @@ something after it still is.
   ACCEPTS" / "driver rejects (NO_MATCH)" for the ones the driver answers (decoded BEFORE WdfRequestCompleteWithInformation,
   the buffer is gone after it), "to ACX (answer not visible)" for the rest (decoded before the dispatch: the override
   check now runs first, then the inspect). INF DriverVer 1.0.1.7. Build exit 0.
+- Review of T12-T15. T12: rg of every AmpInit/AmpEnable/AboxEnable default -> INF 0/0/0, Driver.c 0/0/0, header
+  comments say 0; stage scripts unchanged. T13: exclusive tone bypasses the engine but not our volume element (it is a
+  KS node on the pin path) and uses the same 0.03 amplitude; keys verified 2 % per press (this PC). T14: no control bytes.
+  T15: decode happens before completion/dispatch on both paths (order checked in AudEvtCircuitRequestPreprocess);
+  hash collisions only hide a format line. **Finding R6:** FmtHash[] was declared with a literal 64 next to an
+  AUD_FMTHASHES macro that the code bounds-checks with - a later edit of one would overflow. Fixed in its own commit
+  (array sized by the macro). Build exit 0.

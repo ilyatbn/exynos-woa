@@ -127,7 +127,7 @@ typedef struct _AUD_AMP {
 
 /* ReqLog.c: one KS request key and its running count (A7 log de-duplication). */
 #define AUD_REQKEYS 96u
-#define AUD_FMTHASHES 64u   /* must equal the FmtHash[] size below */
+#define AUD_FMTHASHES 64u   /* ReqLog.c distinct proposed-format table (FmtHash) */
 typedef struct _AUD_REQKEY {
     ULONG Data1;     /* set GUID Data1 */
     ULONG Id;
@@ -184,7 +184,7 @@ typedef struct _AUD_DEVICE_CONTEXT {
     volatile LONG ReqLogged;    /* ReqLog.c: KS request lines logged so far (capped) */
     volatile LONG FmtLogged;    /* ReqLog.c: distinct PROPOSEDATAFORMAT formats decoded so far */
     ULONG       FmtHashCount;   /* ReqLog.c: distinct proposed formats seen (FNV-1a of size + bytes), under ReqLock */
-    ULONG       FmtHash[64];
+    ULONG       FmtHash[AUD_FMTHASHES];
     KSPIN_LOCK  ReqLock;        /* ReqKeys / ReqKeyCount */
     ULONG       ReqKeyCount;
     AUD_REQKEY  ReqKeys[AUD_REQKEYS];

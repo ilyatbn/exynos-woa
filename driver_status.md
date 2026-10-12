@@ -21,7 +21,7 @@ As of 2026-10-12 evening. Windows was just reinstalled, so everything below desc
 | Headphone jack | 🟠 | detected, no sound |
 | Microphones | 🔴 | nothing yet |
 | WiFi | 🟠 | connects, no data |
-| Bluetooth | 🔴 | nothing yet |
+| Bluetooth | 🔴 | researched, driver skeleton only |
 | Cellular / SIM | 🔴 | nothing yet |
 | Cameras | 🔴 | nothing yet |
 | Fingerprint scanner | 🔴 | nothing yet |
@@ -46,4 +46,5 @@ As of 2026-10-12 evening. Windows was just reinstalled, so everything below desc
 - **GPU:** the drivers and graphics library are written and built, but haven't run on the phone yet. That's next after the storage tests. The S9+ developer showed it working on their phone, but never released code.
 - **Speaker / headphones:** sound already plays from both before Windows starts, so the hardware path is proven. In Windows the speaker shows up as a device, but playback fails to start. Volume keys come after that.
 - **WiFi:** connects to your network and logs in with the password. No data comes back from the WiFi chip yet. A fix is built but untested. A small app to type the network name and password is ready. The normal Windows WiFi menu comes later.
-- **Bluetooth, cellular, cameras, fingerprint, sensors, vibration, NFC, GPS, microphones, wireless charging:** not started.
+- **Bluetooth:** same Broadcom chip as WiFi, on a separate serial line. The research, design and an untested driver skeleton are done (parkinglot/bluetooth-d4c.md).
+- **Cellular, cameras, fingerprint, sensors, vibration, NFC, GPS, microphones, wireless charging:** not started.

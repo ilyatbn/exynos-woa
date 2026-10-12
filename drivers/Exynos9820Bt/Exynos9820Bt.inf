@@ -1,0 +1,59 @@
+;  Exynos9820Bt.inf — installs the S10e BCM4375 Bluetooth-over-UART transport.
+;  Binds the ACPI-described device published by our DSDT (Device (BTH0),
+;  _HID SAMS9826). Class=System like the WDK serialhcibus sample: this is a
+;  BthxDDI HCI transport, NOT a bthusb-style radio — bthport.sys binds the
+;  HCI function this driver enumerates (rung R4).
+;  Test-sign posture: same as the rest of the driver set (M7).
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider=%ProviderName%
+DriverVer=10/12/2026,1.0.0.0
+CatalogFile=Exynos9820Bt.cat
+PnpLockdown=1
+
+[Manufacturer]
+%ManufacturerName%=Standard,NTARM64
+
+[Standard.NTARM64]
+%DeviceDesc%=Bt_Install, ACPI\SAMS9826
+
+[ControlFlags]
+ExcludeFromSelect=*
+
+[Bt_Install.NT]
+CopyFiles=Bt_CopyFiles
+AddReg=Bt_AddReg
+
+[Bt_CopyFiles]
+Exynos9820Bt.sys
+
+[Bt_Install.NT.Services]
+AddService=Exynos9820Bt,%SPSVCINST_ASSOCSERVICE%,Bt_Service_Inst
+
+[Bt_Service_Inst]
+DisplayName=%ServiceDesc%
+ServiceType=%SERVICE_KERNEL_DRIVER%
+StartType=%SERVICE_DEMAND_START%
+ErrorControl=%SERVICE_ERROR_NORMAL%
+ServiceBinary=%12%\Exynos9820Bt.sys
+
+[Bt_AddReg]
+; Slice 1 stays at 115200 (design Q2). Baud switch is opt-in per device:
+HKR,Parameters,BaudRate,0x00010001,115200
+
+[DestinationDirs]
+DefaultDestDir=12
+Bt_CopyFiles=12
+
+[Strings]
+ProviderName="Galaxy S10e Windows Project"
+ManufacturerName="Samsung Electronics (port)"
+DeviceDesc="Samsung Exynos9820 BCM4375 Bluetooth Transport (WIP)"
+ServiceDesc="Exynos9820 BCM4375 Bluetooth UART Transport"
+SPSVCINST_ASSOCSERVICE=0x00000002
+SERVICE_KERNEL_DRIVER=1
+SERVICE_DEMAND_START=3
+SERVICE_ERROR_NORMAL=1

@@ -35,6 +35,7 @@ typedef struct _WLAN_DEVICE_CONTEXT {
     ULONG           Polled;     /* D2H items consumed at runtime */
     WLAN_JOIN_CONFIG Join;      /* milestone 6 target (Parameters\Ssid + Passphrase/Psk), PMK only */
     BOOLEAN         JoinTried;
+    volatile LONG   PollBusy;   /* one poller at a time: the timer re-enqueues the item while a rescan runs */
 } WLAN_DEVICE_CONTEXT, *PWLAN_DEVICE_CONTEXT;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(WLAN_DEVICE_CONTEXT, WlanGetContext)
 
@@ -493,6 +494,11 @@ WlanPollWork(_In_ WDFWORKITEM WorkItem)
     if (R == NULL || !Ctx->Msg.Resident || Ctx->Msg.Quiesced) {
         return;
     }
+    /* run m6-1: a second instance drained the D2H ring concurrently during the 2 s rescan (KMDF clears the
+       enqueued state before calling us, so the 100 ms timer queues it again) */
+    if (InterlockedCompareExchange(&Ctx->PollBusy, 1, 0) != 0) {
+        return;
+    }
     N = WlanMsgPoll(&Ctx->Msg, R);
     Ctx->Polled += N;
     Ctx->Ticks++;
@@ -514,6 +520,7 @@ WlanPollWork(_In_ WDFWORKITEM WorkItem)
         ReportLine(R, "[run] t=%lu s: alive, %lu D2H items polled\r\n", Ctx->Ticks * WLAN_POLL_MS / 1000, Ctx->Polled);
         ReportWriteFile(R);
     }
+    InterlockedExchange(&Ctx->PollBusy, 0);
 }
 
 NTSTATUS

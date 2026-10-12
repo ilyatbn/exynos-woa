@@ -51,3 +51,9 @@ Needs the user: SSID + passphrase of their network (never guessed, never committ
 - To test (user): `reg add HKLM\SYSTEM\CurrentControlSet\Services\Exynos9820Wlan\Parameters /v Ssid /t REG_SZ
   /d "<ssid>"` and `/v Passphrase /t REG_SZ /d "<passphrase>"`, reboot, read Exynos9820Wlan-run.txt
   (`JOIN 0` = associated + keyed). The passphrase sits in the registry in plain text: dev bring-up only.
+- Run m6-1 (03:14, 1.0.6.0): **PBKDF2 self-test PASS** (kernel CNG). The join is dormant (no Ssid).
+  PrepareHardware SCAN 0 (14 BSS) + RESIDENT; the t = 30 s rescan gave SCAN 0, 9 BSS.
+  - Again one "not synced" item whose log shows fw w == our position (42), as in m5-3. The loop only runs
+    while W != position, so a second consumer is the explanation: the timer re-enqueues the work item every
+    100 ms while the 2 s rescan runs inside it, and a second instance drains the same ring concurrently.
+  - 1.0.6.1: an interlocked PollBusy flag means only one poller runs at a time. Build wifi-m6b.

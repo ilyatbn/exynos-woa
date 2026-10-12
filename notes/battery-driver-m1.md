@@ -302,3 +302,7 @@ device-validated** — MILESTONES row stays `doing`; the device test procedure a
   - Charging after a later plug-in needs an attach-driven mode switch (OTG off -> CHG+BUCK). That is policy
     with hardware risk, so it goes to parkinglot/usb-host-hotplug-and-power.md.
 - Review of ed630ca: function citation was vague ('Max77705...OtgOn') -> fixed to Pmic.c:397 Max77705VbusOn. Mode values checked against UsbHw.h:320-321. BuildStatus: boost forces OnLine FALSE, so the existing else-if gives DISCHARGING (no new path).
+- 2026-10-12 (user, after battery-m4 / 1.0.0.3 was deployed): "the battery now changes. takes a few seconds to
+  refresh but thats okay for now." -> **device-validated**; MILESTONES row done. The delay matches the 20 s poll
+  timer (a plug event can take up to one period). Faster refresh would need the MAX77705 charger interrupt
+  (CHGIN change) - not wanted now ("okay for now").

@@ -51,7 +51,7 @@ ACPI/Windows half remains.
 | D4 | WiFi: USB adapter path chosen + validated (vendor bcmdhd stays closed) | **doing** | research + choice **done** (`notes/d4-usb-wifi.md`): no USB WiFi driver exists for ARM64 — decision is PicoPiFi (Pico W, driverless RNDIS) as the WiFi option, dock ethernet (M13) stays primary; device validation rides on D1/D3 |
 | D5 | GPU/display: framebuffer deliverable decided; Mali WDDM reopened as D5b | **doing** | research + verdict **done** (`notes/d5-gpu-display.md` + addendum): shipped-code deliverable is GOP + in-box BasicDisplay; acceleration reopened after the S9 WDDM report — kbase r10p0 source is already in the 9820 kernel, feasibility inventory (D5b) is next; fb handoff validation still **needs-boot** |
 | D6 | External display (DP alt mode over the combo PHY) — stretch | **doing** | research + hub ID + decision **done** (`notes/d6-external-display.md`): user's UGREEN HDMI = DP alt mode (no DisplayLink chip) -> dark under Windows until a display-only WDDM exists (D5b rung 1); DisplayLink adapter is the buy-it-now alternative; DeX-on-Android validation recorded |
-| D8a | Audio milestone 1: read the CS47L93 / CS35L40 IDs from our UEFI; milestone 2: codec tone on the jack | **doing** | m1/m1b device-validated (boot #92); m2 task list below (`notes/d8-audio-m1.md` §6) |
+| D8a | Audio milestone 1: read the CS47L93 / CS35L40 IDs from our UEFI; milestone 2: codec tone on the jack; milestone 3: tone on the loudspeaker (amps via ABOX UAIF1) | **doing** | m1/m1b/m2 device-validated (m2 heard by the user 2026-10-12); m3 research running (`notes/d8-audio-m3-abox.md`, `notes/d8-audio-m3-amp.md`). User requirement: speakers are the default output, the jack only when headphones are plugged in |
 
 ## Task list
 
@@ -161,7 +161,7 @@ Bar: UEFILOG proves FLL1 lock, SYSCLK on, tone -> OUT2 mixers, HP2 enable done, 
 | Research: jack output (OUT1 vs OUT2), SYSCLK source without AP clocks, FLLHJ values, HP enable sequence, patch | **done** | §6.1: HEADPHONE <- HPOUT2L/R (stock dtbo routing); FLL1 <- MCLK2 32 kHz (N 375, FB_DIV 4), fallback MCLK1 26 MHz; cs47l92 patch verbatim |
 | AudioProbeDxe: codec SPI write (16-bit + 32-bit regmap) and 32-bit read helpers | **done (code + build)** | `AudioCodec.h`: CodecWrite / CodecUpdate / CodecRead32 / CodecWrite32; build exit 0 (private workspace w8c) |
 | AudioProbeDxe: tone sequence (patch, 32k clk, FLL1, SYSCLK, tone1 -> OUT2 -> HPOUT2 2 s, teardown), flag `BEYOND0LTE_AUDIO_TONE` | **done (code + build)** | `AudioTone.c`; build exit 0, FD sha256 `4f3f0c9b…`; SPI writes to the codec only, no AP clock/PMIC/ABOX write |
-| Device test: UEFILOG lock/enable lines + tone heard | todo | **needs-boot** + the user's ears — procedure + expected lines in `notes/d8-audio-m1.md` §6.4 |
+| Device test: UEFILOG lock/enable lines + tone heard | **done (device-validated)** | boot #93 UEFILOG (FLL1 lock 3 ms, OUT_EN1 C, SC 0; HP2 EN_DONE read 0) + **the user heard the beep** in wired headphones 2026-10-12 (pitch "somewhere in the middle") |
 
 ## Working rules for this file
 

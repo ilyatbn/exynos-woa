@@ -837,3 +837,11 @@ proven and the problem is analogue (jack detect / HP stage) - say so in the resu
   OUT_EN1 C, RAW_OUT_STS1 C, TONE1 1, HP2 SC 0 at +12 ms and mid-tone; teardown clean; codec back to reset.
   **HP2 EN_DONE stayed 0** (expected C per §6.4) -> digital path proven, analog HP stage NOT proven by the log;
   the ear test (user, wired headphones) decides. Audio M2 stays `Guided` until heard.
+- 2026-10-12 **ear test (user, wired headphones, boot #94)**: "the sound beep works cant really tell you the pitch
+  its somewhere in the middle" -> milestone 2 **device-validated** (analog HP stage works although HP2 EN_DONE read
+  0; that status bit is not a reliable proof on this codec). `BEYOND0LTE_AUDIO_TONE` stays 1 for now: the speaker
+  milestone 3 extends the same boot tone; it is switched off when m3 is validated.
+- User requirement for the Windows design: **speakers are the default output**, the 3.5 mm jack only matters
+  while headphones are plugged in. Speaker path = ABOX UAIF1 -> CS35L40 x2 (DTBO uaif1 dai-link: dsp_a +
+  bitclock-inversion, codecs = both amps), it does not pass through the CS47L93 at all. M3 research:
+  `notes/d8-audio-m3-abox.md` (AP-only ABOX -> UAIF1), `notes/d8-audio-m3-amp.md` (CS35L40 without its DSP).

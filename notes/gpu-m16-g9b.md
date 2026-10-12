@@ -196,3 +196,14 @@ Retarget per R-list:
 - The case "flag 0 + sboot leaves it on -> visible" no longer holds: a `BEYOND0LTE_GPU_POWER_ON 0` image now always
   hides GPU0 (it is the rescue image), and `\S10EDIAG\nogpu.flg` on the ESP hides it on any image (word [4] = 'NOGP').
   For the G9b test use a flag-1 image without that file.
+
+## DEVICE RESULT (2026-10-12 ~23:30, boot #106 b0a7629d…, fresh Windows + UFS w37): **PASS**
+- UEFI: "power-on: G3D domain already ON at entry (EMBEDDED_G3D_STATUS 1 G3D_STATUS 1) - not touching it (no SMC,
+  no ACPM)"; "ACPI GPU0 visible (status word [4] = 30555047)". sboot leaves G3D on; PLL_G3D CON0 0x80600412.
+- MaliG76Probe (esp/extra-gpu-g9b.cmd): 5 resources (0x18500000+0x5000, PMU 0x15862000+0x1000, GSIV 320/319/321
+  level). GPU_ID 0x72110000 (G76 r0p0, 7201 match), SHADER_PRESENT 0x00770077 = 12 cores, L2/TILER 1, AS 0xFF,
+  JS 0x7, JS0_FEATURES 0x20E, COHERENCY_FEATURES 0. Soft reset RESET_COMPLETED; quirks SHADER_CONFIG 0x20000,
+  JM_CONFIG 0xF0000; power L2/TILER/SHADER ready 1/1/0x770077. 5 pages at PA 0x97DFBB000 (above 4 GB, limit 2^40),
+  AS0 TRANSTAB 0x9_7DFBB007 MEMATTR 0x00888D88 (Mali-LPAE). WRITE_VALUE c0ffee42 on JS0 -> **JS0 DONE, no MMU
+  fault, target c0ffee42**, exception status 1. IRQ: ISR saw JOB 1 on GSIV 320, empty 0 => **GSIV 320 Level/High
+  VERIFIED for the job line** (319 MMU / 321 GPU not exercised).

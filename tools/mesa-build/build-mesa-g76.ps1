@@ -15,7 +15,8 @@ Follows wddm-mali-g52 .github/workflows/mesa.yml (job `panfrost`), adapted to an
 Nothing of Mesa is vendored in this repo; all paths below are external.
 #>
 param(
-  [ValidateSet('all', 'source', 'libpan', 'host', 'cross', 'collect')]
+  # One or more of all, source, libpan, host, cross, collect. `powershell -File` passes "host,cross"
+  # as one string, so commas are split below.
   [string[]]$Stage = 'all',
   [string]$Mali = 'C:\Users\ilya\code\mali',
   [string]$Out = 'C:\Users\ilya\code\s10e-artifacts\mali-g12',
@@ -25,6 +26,11 @@ param(
 # Native tools write to stderr; PowerShell 5.1 turns that into errors under 'Stop'. Failures are
 # caught by Check (exit codes) instead.
 $ErrorActionPreference = 'Continue'
+
+$Stage = @($Stage | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+foreach ($s in $Stage) {
+  if ($s -notin 'all', 'source', 'libpan', 'host', 'cross', 'collect') { throw "unknown stage '$s'" }
+}
 
 $MesaOrig = Join-Path $Mali 'mesa-26.2'          # never modified
 $Mesa = Join-Path $Mali 'mesa-26.2-g76'          # patched working copy
@@ -40,8 +46,14 @@ function Want($s) { $Stage -contains 'all' -or $Stage -contains $s }
 function Check($what) { if ($LASTEXITCODE) { throw "$what failed ($LASTEXITCODE)" } }
 function ToWsl($p) { '/mnt/' + $p.Substring(0, 1).ToLower() + ($p.Substring(2) -replace '\\', '/') }
 
-# Import a vcvars environment into this process.
+# Import a vcvars environment into this process. The host (x64) and cross (ARM64) stages each need a
+# clean one: running vcvarsamd64_arm64 on top of vcvars64 would leave x64 INCLUDE/LIB/PATH entries
+# behind, so every call starts again from the environment the script was started with.
+$CleanEnv = @{}
+Get-ChildItem env: | ForEach-Object { $CleanEnv[$_.Name] = $_.Value }
 function Use-VcVars($bat) {
+  Get-ChildItem env: | Where-Object { -not $CleanEnv.ContainsKey($_.Name) } | ForEach-Object { Remove-Item "env:$($_.Name)" }
+  foreach ($k in $CleanEnv.Keys) { Set-Item -Path "env:$k" -Value $CleanEnv[$k] }
   # vcvars complains about vswhere.exe on stderr; harmless, but PowerShell 5.1 would make it fatal.
   $lines = cmd /c "`"$(Join-Path $VsBuild $bat)`" >nul 2>nul && set"
   Check $bat
@@ -98,8 +110,8 @@ if (Want 'libpan') {
 }
 
 if (Want 'host') {
+  Use-VcVars 'vcvars64.bat'   # first: it resets the environment
   Common-Tools
-  Use-VcVars 'vcvars64.bat'
   # Meson splits CC like a shell would; a path with a space breaks it, so put LLVM on PATH instead.
   $env:PATH = "$Llvm;$env:PATH"
   $env:CC = 'clang-cl'; $env:CXX = 'clang-cl'
@@ -110,8 +122,8 @@ if (Want 'host') {
 }
 
 if (Want 'cross') {
+  Use-VcVars 'vcvarsamd64_arm64.bat'   # first: it resets the environment
   Common-Tools
-  Use-VcVars 'vcvarsamd64_arm64.bat'
   Remove-Item env:CC, env:CXX -ErrorAction SilentlyContinue
   $env:PATH = "$HostBuild\src\panfrost\clc;$env:PATH"   # panfrost_compile.exe (x64, MSVC ABI)
   $cl = (Join-Path $Llvm 'clang-cl.exe') -replace '\\', '/'

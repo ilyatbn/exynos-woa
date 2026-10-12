@@ -191,6 +191,15 @@ STATIC CONST MMIO_REGION  mMmioRegions[] = {
   { EXYNOS_PERIC1_USI_SYSREG_BASE, EXYNOS_PERIC1_USI_SYSREG_SIZE, "PERIC1_USI" },
   { EXYNOS_PERIC1_GPIO_BASE,   EXYNOS_PERIC1_GPIO_SIZE,   "GPIO_PERIC1" },
   { EXYNOS_CMU_PERIC1_BASE,    EXYNOS_CMU_PERIC1_SIZE,    "CMU_PERIC1"  },
+  //
+  // D8a m3 (speaker path): the AUD block, read by AudioAbox.c only while PMU AUD_STATUS says pd-aud is on.
+  // Mapping is not an access; boot #95 took a translation fault on ABOX IP_INDEX because these were missing.
+  //
+  { EXYNOS_CMU_AUD_BASE,       EXYNOS_CMU_AUD_SIZE,       "CMU_AUD"     },
+  { EXYNOS_ABOX_SYSREG_BASE,   EXYNOS_ABOX_SYSREG_SIZE,   "SYSREG_AUD"  },
+  { EXYNOS_ABOX_IFR_BASE,      EXYNOS_ABOX_IFR_SIZE,      "ABOX_IFR"    },
+  { EXYNOS_PINCTRL_AUD_BASE,   EXYNOS_PINCTRL_AUD_SIZE,   "GPIO_AUD"    },
+  { EXYNOS_ABOX_SYSMMU_BASE,   EXYNOS_ABOX_SYSMMU_SIZE,   "SYSMMU_AUD"  },
 
   { EXYNOS_DECON_F_BASE,       EXYNOS_DECON_F_SIZE,       "DECON_F"     },
   { EXYNOS_DECON_T_BASE,       EXYNOS_DECON_T_SIZE,       "DECON_T"     },

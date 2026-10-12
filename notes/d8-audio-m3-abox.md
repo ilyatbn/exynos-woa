@@ -350,3 +350,11 @@ UAIF1 SPK (F12); needs UAIF0 configured as I2S master (same F4 rules) plus codec
   with AUD_STATUS bit0 = 1: IP_INDEX first (stops unless 0x41424F58), then the IFR/RDMA0/CMU_AUD/SYSREG/SysMMU/
   gpb1 list of the Stage 0 plan. New header constants are tagged SOURCE-ONLY until this read confirms them.
   Build exit 0, FVMAIN_COMPACT 360 B free. boot #95 = s10e-artifacts\boot95-v2.img sha256 ce0adb73…
+- boot #95 RESULT: "exception pre-boot" (user; too fast to read), no new UEFILOG (file still from 00:22).
+  Cause found in our code, not the hardware: the AUD block (CMU_AUD, SYSREG_AUD, ABOX IFR, GPIO_AUD, SysMMU) was
+  never in PlatformMemoryMapLib's mMmioRegions -> the first access (ABOX IP_INDEX, only reached when pd-aud
+  reads ON) is a translation fault. So pd-aud is very probably ON at DXE time (the PMU reads are mapped and come
+  first) - to be confirmed by the log.
+- boot #96: the five AUD regions added to mMmioRegions (+ SOURCE-ONLY sizes CMU_AUD 0x8000, GPIO_AUD 0x1000
+  from exynos9820.dts:1119-1121). Build exit 0, FVMAIN_COMPACT 392 B free; boot96-v2.img sha256 bd0c44f8…,
+  flashed + readback. The first boot after the fault may skip the whole audio probe (0x69 guard).

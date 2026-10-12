@@ -755,7 +755,9 @@
 #define EXYNOS_PMU_AUD_STATUS_OFFSET         0x1904u   // SOURCE-ONLY (pmucal aud_on waits bit0 == 1)
 #define EXYNOS_PMU_AUD_PAD_OFFSET            0x1920u   // SOURCE-ONLY (abox_pad_retention: bit11 = pad normal)
 #define EXYNOS_CMU_AUD_BASE       0x0000000018C00000ULL   // SOURCE-ONLY (cal-if SFR_BLOCK(CMU_AUD, 0x18c00000, 0x8000))
+#define EXYNOS_CMU_AUD_SIZE       0x0000000000008000ULL   // SOURCE-ONLY (same SFR_BLOCK)
 #define EXYNOS_PINCTRL_AUD_BASE   0x0000000018C60000ULL   // SOURCE-ONLY (pinctrl@18C60000 "AUD", bank gpb1 @+0x20)
+#define EXYNOS_PINCTRL_AUD_SIZE   0x0000000000001000ULL   // SOURCE-ONLY (exynos9820.dts:1119-1121 pinctrl_1 reg size)
 
 //
 // ---------------------------------------------------------------------------

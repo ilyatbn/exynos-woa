@@ -30,7 +30,11 @@ if exist "%ESP%\S10EDIAG\nogpu.flg" del /f /q "%ESP%\S10EDIAG\nogpu.flg"
 echo pass2 > C:\S10eTmp\gpumode2.flg
 s10ediag mark g: clean restart into the new mode
 shutdown /r /t 0 /f
-ping -n 120 127.0.0.1 > nul
+rem Never return to collect.cmd while Windows shuts down: a killed ping let collect.cmd write torecovery.flg
+rem before the restart, so the firmware went to TWRP instead of pass 2 (run g15full).
+:holdrestart
+ping -n 30 127.0.0.1 > nul
+goto holdrestart
 goto end
 :collect
 del /f /q C:\S10eTmp\gpumode2.flg

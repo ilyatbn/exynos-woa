@@ -96,23 +96,30 @@ SeqWait (
 }
 
 /**
-  embedded_g3d_off ([SEQ] :586-594) WITHOUT its two CMU_G3D writes (QCH_CON_BUSIF_HPMG3D bit2, and
-  MUX_CLKCMU_EMBEDDED_G3D_USER bit4): this runs after a failed step or a refused DTZPC restore, when an
-  NS access to CMU_G3D may be secure-only and abort (g2g3 F6). Also WITHOUT the exynos_pd_tz_save SMC that
-  pmucal_local_disable issues first (H4). G3D_CONFIGURATION (0x2380) is left as is - the vendor off
-  sequence never clears it either.
+  embedded_g3d_off ([SEQ] :586-594) WITHOUT its two CMU_G3D writes (CMU_G3D+0x303C QCH_CON_BUSIF_HPMG3D bit2,
+  :587, and CMU_G3D+0x100 MUX_CLKCMU_EMBEDDED_G3D_USER bit4, :591): this runs after a failed step or a refused
+  DTZPC restore, when an NS access to CMU_G3D may be secure-only and abort (g2g3 F6). Also WITHOUT the
+  exynos_pd_tz_save SMC that pmucal_local_disable issues first (H4).
+  The vendor off-sequence never touches the outer G3D_CONFIGURATION (0x2380); here it is put back to its
+  entry state - if it was off at entry, with the vendor's own step-3 operation (bit0 = 0, wait status 0).
+
+  @param[in] OuterWasOn  G3D_STATUS (0x2384) bit0 at entry.
 **/
 STATIC
 VOID
 PowerOffSafe (
-  VOID
+  IN BOOLEAN  OuterWasOn
   )
 {
   DEBUG ((DEBUG_WARN, "GpuProbe: powering the G3D domain back off (PMU + PLL only; CMU_G3D writes and the "
-                      "tz_save SMC skipped)\n"));
+                      "tz_save SMC skipped; outer G3D back to %a)\n", OuterWasOn ? "on" : "off"));
   SeqWrite ("off", "EMBEDDED_G3D_CONFIGURATION", PMU_EMB_CFG, PMU_G3D_ON_BIT, 0);
   (VOID)SeqWait ("off", "EMBEDDED_G3D_STATUS", PMU_EMB_ST, PMU_G3D_ON_BIT, 0);
   MicroSecondDelay (PMU_G3D_OFF_DELAY_US);
+  if (!OuterWasOn) {
+    SeqWrite ("off", "G3D_CONFIGURATION", PMU_G3D_CFG, PMU_G3D_ON_BIT, 0);
+    (VOID)SeqWait ("off", "G3D_STATUS", PMU_G3D_ST, PMU_G3D_ON_BIT, 0);
+  }
   SeqWrite ("off", "PLL_CON0_PLL_G3D", PLL_CON0, PLL_G3D_CON0_BIT4, 0);
   SeqWrite ("off", "PLL_CON2_PLL_G3D", PLL_CON2, MAX_UINT32, PLL_G3D_CON2_OFF_VALUE);
 }
@@ -124,24 +131,28 @@ GpuPowerOn (
 {
   UINT32        EmbSt;
   UINT32        G3dSt;
+  BOOLEAN       OuterWasOn;
   ARM_SMC_ARGS  Smc;
   UINT32        SmcRet;
   UINT32        Reply[4];
   EFI_STATUS    Status;
 
-  EmbSt = MmioRead32 (PMU_EMB_ST);
-  G3dSt = MmioRead32 (PMU_G3D_ST);
-  if (((EmbSt & PMU_G3D_ON_BIT) != 0) && ((G3dSt & PMU_G3D_ON_BIT) != 0)) {
-    DEBUG ((DEBUG_WARN, "GpuProbe: power-on: G3D domain already ON at entry - not touching it (no SMC, no ACPM)\n"));
-    return FALSE;
-  }
-  if (((EmbSt & PMU_G3D_ON_BIT) != 0) || ((G3dSt & PMU_G3D_ON_BIT) != 0)) {
-    DEBUG ((DEBUG_ERROR, "GpuProbe: power-on: inconsistent entry state (EMBEDDED_G3D_STATUS %x G3D_STATUS %x) - "
-                         "not touching it\n", EmbSt, G3dSt));
+  //
+  // The vendor's on/off decision is EMBEDDED_G3D_STATUS alone: gpexbe_pm_pd_control -> cal_pd_status ->
+  // embedded_g3d_status = PMU+0x2104 bit0 ([SEQ] :596-598). The outer G3D_STATUS is only logged; the
+  // on-sequence switches the outer domain off first anyway (step 3).
+  //
+  EmbSt      = MmioRead32 (PMU_EMB_ST);
+  G3dSt      = MmioRead32 (PMU_G3D_ST);
+  OuterWasOn = ((G3dSt & PMU_G3D_ON_BIT) != 0);
+  if ((EmbSt & PMU_G3D_ON_BIT) != 0) {
+    DEBUG ((DEBUG_WARN, "GpuProbe: power-on: G3D domain already ON at entry (EMBEDDED_G3D_STATUS %x G3D_STATUS %x) - "
+                        "not touching it (no SMC, no ACPM)\n", EmbSt, G3dSt));
     return FALSE;
   }
 
-  DEBUG ((DEBUG_WARN, "GpuProbe: power-on: G3D domain OFF at entry - running pmucal embedded_g3d_on\n"));
+  DEBUG ((DEBUG_WARN, "GpuProbe: power-on: G3D domain OFF at entry (EMBEDDED_G3D_STATUS %x G3D_STATUS %x) - running "
+                      "pmucal embedded_g3d_on\n", EmbSt, G3dSt));
 
   // 1-2. PLL_G3D (CMU_TOP, outside the domain)
   SeqWrite ("1", "PLL_CON2_PLL_G3D", PLL_CON2, MAX_UINT32, PLL_G3D_CON2_ON_VALUE);
@@ -212,7 +223,7 @@ GpuPowerOn (
   return TRUE;
 
 Fail:
-  PowerOffSafe ();
+  PowerOffSafe (OuterWasOn);
   DEBUG ((DEBUG_ERROR, "GpuProbe: power-on FAILED - domain powered back off, no ACPM request sent\n"));
   return FALSE;
 }

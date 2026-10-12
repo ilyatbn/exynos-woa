@@ -92,7 +92,6 @@
 #define PMU_G3D_ON_DELAY_US          0x118u        // [SEQ] :561/:564 DELAY 0x118 = 280 us
 #define PMU_G3D_OFF_DELAY_US         0x8Au         // [SEQ] :590 DELAY 0x8A = 138 us
 #define PMU_WAIT_TIMEOUT_US          2000u         // [RAE] :111 (2000 polls of udelay(1))
-#define CMU_G3D_QCH_CON_BUSIF_HPMG3D 0x303Cu       // [SEQ] :587 off clears bit2 (CMU_G3D, skipped by our off path - see .c)
 
 //
 // ACPM DVFS request for the G3D (notes/gpu-m16-g3don.md H1-H3).

@@ -92,13 +92,13 @@ files fetched for G2 (`notes/gpu-m16-g2g3.md`), copied into
   Follow-up (not done here): move the duplicated ACPM client into one library used by both drivers.
 - Entry flow: guard 0x6A (+dsb) -> as-found GpuProbe() -> if flag: GpuPowerOn(); if it powered the domain on ->
   GpuProbe() again -> restore guard (+dsb) -> "GpuProbe: done".
-- GpuPowerOn: both PMU status bits set -> "already ON - not touching"; exactly one set -> "inconsistent - not
-  touching"; both 0 -> steps 1-6 (each write logs before -> after, each wait logs value + poll count or TIMEOUT),
+- GpuPowerOn (as of the review fix, see "Review of f378180"): EMBEDDED_G3D_STATUS bit0 = 1 -> "already ON - not
+  touching"; = 0 -> steps 1-6 (outer G3D_STATUS only logged) (each write logs before -> after, each wait logs value + poll count or TIMEOUT),
   step 7 SMC (logs x0; low 32 bits != 0 -> REFUSED), step 9 ACPM FREQ_REQ (logs reply, "echo yes/NO" = reply word1
   == 260000; a FREQ_REQ reply echoed the request in m15 run 31), 10 ms settle. Step 8 (restore list) is absent by
   design (H5). Any wait timeout or a refused SMC -> PowerOffSafe (EMBEDDED_G3D_CONFIGURATION=0, wait, 138 us,
-  PLL_CON0 bit4=0, PLL_CON2=0x10000001; NO CMU_G3D writes, NO tz_save SMC, G3D_CONFIGURATION left as the vendor
-  off-sequence leaves it) and no ACPM request.
+  [outer G3D_CONFIGURATION bit0=0 + wait, only if it was off at entry], PLL_CON0 bit4=0, PLL_CON2=0x10000001;
+  NO CMU_G3D writes, NO tz_save SMC) and no ACPM request.
 - MMIO map: nothing new needed (H7).
 
 ## Build (2026-10-12)
@@ -118,7 +118,7 @@ GpuProbe: start (BEYOND0LTE_GPU_POWER_ON 1)
 GpuProbe: PMU EMBEDDED_G3D CONFIG .. STATUS .. OUT .. | G3D CONFIG .. STATUS .. (bit0 = on)     <- as found
 GpuProbe: PLL_G3D CON0 .. (ENABLE . STABLE . M . P . S .) CON2 .. LOCKTIME ..
 GpuProbe: G3D domain is OFF (...)            (or ON -> G3 probe lines, then "already ON - not touching it")
-GpuProbe: power-on: G3D domain OFF at entry - running pmucal embedded_g3d_on
+GpuProbe: power-on: G3D domain OFF at entry (EMBEDDED_G3D_STATUS .. G3D_STATUS ..) - running pmucal embedded_g3d_on
 GpuProbe: on[1] PLL_CON2_PLL_G3D [1a240148] x -> 30000003
 GpuProbe: on[2] PLL_CON0_PLL_G3D [1a240140] x -> x|10
 GpuProbe: on[3] G3D_CONFIGURATION [15862380] .. -> ..;  on[3] wait G3D_STATUS [15862384] = .. ok after N polls
@@ -152,3 +152,27 @@ GpuProbe: done
   (INFERENCE) - the reply word and the re-probed PLL M/P/S show what happened.
 - Leaving G3D on for Windows with no driver: idle power/heat; no thermal control (G9 row: stay at 260 MHz).
 - After the domain is on, the re-probe's first NS reads of CMU_G3D/GPU depend on the DTZPC restore having worked.
+
+## Review of f378180 (G9 UEFI half)
+- Checked mechanically: 9810 tree untouched (`git diff --stat 53e3587..HEAD -- firmware/Platform/Star2LtePkg
+  firmware/Silicon/Exynos9810Pkg` empty); every new constant has exactly one definition (rg); 0x3F7A0 = 260000;
+  `cal_acpm_dvfs_exynos9820.h:13` = dvfs_g3d; `exynos-smc.c:113` = `int32_t ret`; flag-0 .efi is byte-size identical
+  to G3's (14 336 B) and flag-1 .efi carries every new log string (tr/grep over the .efi); no new MMIO window needed.
+- Found:
+  1. **Entry decision too strict.** GpuPowerOn refused ("inconsistent") when EMBEDDED_G3D_STATUS = 0 but the outer
+     G3D_STATUS = 1. The vendor decides on 0x2104 alone: gpexbe_pm_pd_control (`S\gpex_gpexbe_pm.c:96-125`) ->
+     cal_pd_status -> embedded_g3d_status (= PMU+0x2104 bit0 only, `S\cal_flexpmu_cal_local_exynos9820.h:596-598`),
+     and the on-sequence itself switches the outer domain off first (step 3). An "outer on / embedded off" sboot
+     state would have cost a boot for nothing. Fix: OFF = 0x2104 bit0 == 0 -> run the sequence; ON = 0x2104 bit0
+     == 1 -> not touched (0x2384 logged either way).
+  2. **Failure path changes state it did not own.** PowerOffSafe left the outer G3D on (step 5 turned it on) even
+     when it was off at entry. Fix: restore the outer domain to its entry state (if it was off: the vendor's own
+     step-3 operation, G3D_CONFIGURATION bit0 = 0 + wait G3D_STATUS 0).
+  3. Dead constant `CMU_G3D_QCH_CON_BUSIF_HPMG3D` (defined, never used). Removed; the skipped write stays
+     documented in PowerOffSafe's comment.
+  4. MILESTONES G9 row and this note said "only if both PMU status bits are 0" - follows fix 1.
+  All four fixed in the follow-up commit (not folded into f378180).
+- Rebuild after the review fix: flag 0 **exit 0**, FVMAIN_COMPACT 774144 total / 2032 (0x7f0) free, FD sha256
+  `830941a125443c4f...`, GpuProbeDxe.efi 14 336 B; flag 1 (not committed) **exit 0**, FVMAIN_COMPACT 778240 total /
+  3952 (0xf70) free, FD 7 340 032 B sha256 `2eb3767214e41001...` -> `scratchpad\BEYOND0LTE_UEFI-g9-flag1.fd`
+  (replaces the pre-fix copy), .efi 31 232 B. Not packed, not flashed.

@@ -15,7 +15,7 @@
   BEYOND0LTE_GPU_POWER_ON (default 0; M16 G9, notes/gpu-m16-g3don.md): after the as-found probe, if the G3D
   domain is OFF, GpuPower.c runs the pmucal embedded_g3d_on sequence (PMU/CMU_TOP writes), the DTZPC restore
   SMC (0x82000410) and an ACPM DVFS FREQ_REQ for 260 MHz, leaves the domain ON for the OS, and probes again.
-  If the domain is already ON (or half on) it is not touched. With the flag 0 nothing is written anywhere.
+  If the domain is already ON (EMBEDDED_G3D_STATUS bit0, the vendor's test) it is not touched. With the flag 0 nothing is written anywhere.
 
   Guard: boot progress word 0x8FE0F000[1] = 0x6A while the probe AND the power-on run; a boot whose previous
   boot ended at 0x6A skips the whole driver (same self-healing shape as AudioProbeDxe's 0x69 / UsbHostDxe's 0x67).

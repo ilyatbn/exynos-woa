@@ -177,3 +177,10 @@ Logs: Exynos9820WlanCx.txt (bring-up) + Exynos9820WlanCx-run.txt (runtime, rotat
   - Exynos9820WlanCx.inf   2601 B sha256 B705E23906661B992B08E0DCEF1F386C40CAFB844F1032C563C5E4A10A30779D
   - exynos9820wlancx.cat   2538 B sha256 63BB0E63EAAAE3151116FBB1E93820150BCD9351AFE96E791AAB7270697D57B0
   Not device-tested.
+- Review of 5801d63 (W1): checked DeviceAdd order vs the sample, every command path ends in exactly one
+  WifiRequestComplete (dispatcher default, parse failure, queue-alloc failure, CxWorkerStop), tasks send M4 after
+  M3 with the copied header (the request buffer is not touched after M3), CreateAdapter does not write the run
+  log (the worker owns it), PrepareHardware fails start when the firmware is not resident. FOUND: (1) Dev->Adapter
+  was never cleared, so a second EvtWifiDeviceCreateAdapter (PnP stop/start) would be refused; (2) the run-log
+  header claimed a 5 ms "linked" poll that the worker does not do. Fixed in a follow-up commit (adapter cleanup
+  callback; header line). W1 package wifi-cx1 is superseded by the next package.

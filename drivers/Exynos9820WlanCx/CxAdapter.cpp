@@ -122,6 +122,18 @@ CxCreateRxQueue(NETADAPTER Adapter, NETRXQUEUE_INIT *Init)
 
 /* ---------------------------------------------------------------- adapter */
 
+/* The adapter object goes away with the device stack (or on a WiFiCx re-create): forget it so a later
+   EvtWifiDeviceCreateAdapter is accepted again. */
+static VOID
+CxAdapterCleanup(WDFOBJECT Object)
+{
+    PCX_DEVICE Dev = CxGetAdapter((NETADAPTER)Object)->Dev;
+
+    if (Dev != NULL && Dev->Adapter == (NETADAPTER)Object) {
+        Dev->Adapter = NULL;
+    }
+}
+
 _Use_decl_annotations_
 NTSTATUS
 CxEvtCreateAdapter(WDFDEVICE Device, NETADAPTER_INIT *AdapterInit)
@@ -145,6 +157,7 @@ CxEvtCreateAdapter(WDFDEVICE Device, NETADAPTER_INIT *AdapterInit)
     NET_ADAPTER_DATAPATH_CALLBACKS_INIT(&Dp, CxCreateTxQueue, CxCreateRxQueue);
     NetAdapterInitSetDatapathCallbacks(AdapterInit, &Dp);
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&Attr, CX_ADAPTER);
+    Attr.EvtCleanupCallback = CxAdapterCleanup;
     Status = NetAdapterCreate(AdapterInit, &Attr, &Adapter);
     if (!NT_SUCCESS(Status)) {
         return Status;

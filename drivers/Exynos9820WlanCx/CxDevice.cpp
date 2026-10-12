@@ -279,8 +279,7 @@ CxEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
             return STATUS_INSUFFICIENT_RESOURCES;
         }
         Dev->RunR->FileName = WLAN_RUN_REPORT_FILE;
-        ReportLine(Dev->RunR, "Exynos9820WlanCx run log (worker poll %u ms idle / %u ms linked)\r\n", CX_IDLE_WAIT_MS,
-                   CX_LINK_WAIT_MS);
+        ReportLine(Dev->RunR, "Exynos9820WlanCx run log (worker poll %u ms)\r\n", CX_IDLE_WAIT_MS);
     }
     CxLog(Dev, "[cx] D0 entry from D%d (resident %u quiesced %u)\r\n", (int)PreviousState - (int)WdfPowerDeviceD0,
           Dev->Msg.Resident, Dev->Msg.Quiesced);

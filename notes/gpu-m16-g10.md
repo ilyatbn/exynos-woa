@@ -219,3 +219,18 @@ sync; umount /tmp/esp` -> next boot GPU0 hidden, Basic Display back (or flash a 
    fault 0x0`, **irqs > 0** (else only the 1 ms poll completed it - R2 trigger question stays open). A deliberately
    bad job (TDR recovery) is a later step.
 4. Back to display-only: rm gpu.flg; boot once (writes 0/0 and deletes EnablePreemption).
+
+## Review of 28d6417 (package + ESP + m5test, adversarial)
+- Package INF sha256 == the committed working-copy INF (C0F1292E...); the .sys was built after the last code change
+  (a1dfc2d; 28d6417 changed only a header comment, INF, README) - consistent.
+- No GPU-register code touched in 28d6417 (diff: MaliG76Wddm.h comment line only).
+- m5test G76 gate: GPU_INFO Value[0] = f->Id = GPU_ID >> 16 (adapter.c GpuInfo), so `& 0xFF0F == 0x7201` is the same
+  test as the KMD's MkGpuProbe - consistent.
+- ESP script: no labels/goto, ERRORLEVEL in the m5test block deferred via `call`; `sc query` exits 1060 when the
+  service is absent -> install branch; `find "0x1"` only matches GpuEnable 0x1 (values are 0/1).
+Found (fixed here, artifact-only): the packaged `extra-gpu-g10.cmd` had LF line ends (working copy written by this
+session); every other ESP script is CRLF (collect.cmd checked). cmd.exe tolerates LF without labels, but the
+package copy is now CRLF to match: new sha256 `423B894CC765F444572761AE145F4A8BAD86FCF82007FFD4DC3B47B6DB730CEF`
+(supersedes 2B059377... in Task C). Repo copy unchanged (git normalises .cmd on checkout).
+Open (recorded): UserModeDriverName on a KMDOD (UNVERIFIED); KMDOD with 3 interrupts in _CRS (UNVERIFIED);
+VOT_INTERNAL (UNVERIFIED); rotation regression (follow-up task, not done in this session).

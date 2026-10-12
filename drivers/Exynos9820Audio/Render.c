@@ -415,6 +415,19 @@ static VOID AudRingFree(_Inout_ PAUD_STREAM_CONTEXT Ctx)
     Ctx->PacketCount = 0;
 }
 
+/* run audB4 (GetMixFormat 0x80070032, playback hung): one capped, flushed trace line per stream callback. */
+#define AUD_TRACE_MAX 60
+#define AUD_TRACE(Ctx, ...)                                                   \
+    do {                                                                      \
+        if ((Ctx)->Traces < AUD_TRACE_MAX) {                                  \
+            (Ctx)->Traces++;                                                  \
+            AudLog((Ctx)->Dev->Log, __VA_ARGS__);                             \
+            if (KeGetCurrentIrql() == PASSIVE_LEVEL) {                        \
+                AudLogFlush((Ctx)->Dev->Log);                                 \
+            }                                                                 \
+        }                                                                     \
+    } while (0)
+
 static ULONGLONG AudNowHns(_In_ PAUD_STREAM_CONTEXT Ctx)
 {
     return KSCONVERT_PERFORMANCE_TIME(Ctx->QpcFrequency.QuadPart, KeQueryPerformanceCounter(NULL));
@@ -513,6 +526,7 @@ NTSTATUS AudEvtStreamAllocateRtPackets(ACXSTREAM Stream, ULONG PacketCount, ULON
     ULONG               I;
 
     PAGED_CODE();
+    AUD_TRACE(Ctx, "trace AllocateRtPackets %lu x %lu\r\n", PacketCount, PacketSize);
 
     *Packets = NULL;
     if (PacketCount == 0 || PacketCount > AUD_MAX_PACKETS || PacketSize == 0 || PacketSize > (1u << 20) ||
@@ -583,6 +597,7 @@ VOID AudEvtStreamFreeRtPackets(ACXSTREAM Stream, PACX_RTPACKET Packets, ULONG Pa
 
     UNREFERENCED_PARAMETER(PacketCount);
     PAGED_CODE();
+    AUD_TRACE(Ctx, "trace FreeRtPackets\r\n");
 
     if (Ctx->HwStarted) {
         /* Never free memory a DMA may still read. */
@@ -606,6 +621,7 @@ NTSTATUS AudEvtStreamPrepareHardware(ACXSTREAM Stream)
     NTSTATUS              Status;
 
     PAGED_CODE();
+    AUD_TRACE(Ctx, "trace StreamPrepareHardware state %d\r\n", (int)Ctx->State);
 
     if (Ctx->State == AcxStreamStatePause) {
         return STATUS_SUCCESS;
@@ -647,6 +663,7 @@ NTSTATUS AudEvtStreamReleaseHardware(ACXSTREAM Stream)
     PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
 
     PAGED_CODE();
+    AUD_TRACE(Ctx, "trace StreamReleaseHardware state %d\r\n", (int)Ctx->State);
 
     if (Ctx->State == AcxStreamStateStop) {
         return STATUS_SUCCESS;
@@ -719,6 +736,7 @@ NTSTATUS AudEvtStreamRun(ACXSTREAM Stream)
     NTSTATUS            AmpStatus = STATUS_NOT_SUPPORTED;
 
     PAGED_CODE();
+    AUD_TRACE(Ctx, "trace Run state %d packets %lu\r\n", (int)Ctx->State, Ctx->PacketCount);
 
     if (Ctx->State == AcxStreamStateRun) {
         return STATUS_SUCCESS;
@@ -750,6 +768,7 @@ NTSTATUS AudEvtStreamPause(ACXSTREAM Stream)
     PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
 
     PAGED_CODE();
+    AUD_TRACE(Ctx, "trace Pause state %d\r\n", (int)Ctx->State);
 
     if (Ctx->State == AcxStreamStatePause) {
         return STATUS_SUCCESS;
@@ -775,6 +794,7 @@ NTSTATUS AudEvtStreamGetHwLatency(ACXSTREAM Stream, ULONG *FifoSize, ULONG *Dela
     PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
 
     PAGED_CODE();
+    AUD_TRACE(Ctx, "trace GetHwLatency\r\n");
 
     *FifoSize = 128;   /* sample value; the RDMA FIFO depth is unknown */
     /* One period of ring lead (100 ns units) once the packet size is known. */
@@ -791,6 +811,7 @@ NTSTATUS AudEvtStreamSetRenderPacket(ACXSTREAM Stream, ULONG Packet, ULONG Flags
     UNREFERENCED_PARAMETER(Flags);
     UNREFERENCED_PARAMETER(EosPacketLength);
     PAGED_CODE();
+    AUD_TRACE(Ctx, "trace SetRenderPacket %lu flags %lx eos %lu (current %ld)\r\n", Packet, Flags, EosPacketLength, Ctx->CurrentPacket);
 
     Current = (ULONG)InterlockedCompareExchange(&Ctx->CurrentPacket, -1, -1);
     if (Packet <= Current) {
@@ -810,6 +831,7 @@ NTSTATUS AudEvtStreamGetCurrentPacket(ACXSTREAM Stream, PULONG CurrentPacket)
     PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
 
     PAGED_CODE();
+    AUD_TRACE(Ctx, "trace GetCurrentPacket %ld\r\n", Ctx->CurrentPacket);
 
     *CurrentPacket = (ULONG)InterlockedCompareExchange(&Ctx->CurrentPacket, -1, -1);
     return STATUS_SUCCESS;
@@ -821,6 +843,7 @@ NTSTATUS AudEvtStreamGetPresentationPosition(ACXSTREAM Stream, PULONGLONG Positi
     PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
 
     PAGED_CODE();
+    AUD_TRACE(Ctx, "trace GetPresentationPosition pos %I64u\r\n", Ctx->Position);
 
     AudUpdatePosition(Ctx);
     *PositionInBlocks = Ctx->Position / Ctx->BlockAlign;

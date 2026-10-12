@@ -66,16 +66,25 @@ namespace S10e {
     public static string Tone(double hz, int ms) {
       string info; var d = Dev(out info); if (d == null) return info;
       Guid g = typeof(IAudioClient).GUID; object o; int hr = d.Activate(ref g, 23, IntPtr.Zero, out o); if (hr != 0) return "Activate 0x" + hr.ToString("X8");
-      var c = (IAudioClient)o; IntPtr f; c.GetMixFormat(out f);
+      var c = (IAudioClient)o; IntPtr f; int mhr = c.GetMixFormat(out f);
+      int iflags = 0;
+      if (mhr != 0) {   // run audB4: no mix format - ask for 48 kHz 16-bit stereo PCM with engine conversion
+        f = Marshal.AllocCoTaskMem(18); Marshal.WriteInt16(f, 0, 1); Marshal.WriteInt16(f, 2, 2);
+        Marshal.WriteInt32(f, 4, 48000); Marshal.WriteInt32(f, 8, 192000); Marshal.WriteInt16(f, 12, 4); Marshal.WriteInt16(f, 14, 16); Marshal.WriteInt16(f, 16, 0);
+        iflags = unchecked((int)0x88000000);   // AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | SRC_DEFAULT_QUALITY
+      }
       short tag = Marshal.ReadInt16(f, 0), ch = Marshal.ReadInt16(f, 2), bits = Marshal.ReadInt16(f, 14); int rate = Marshal.ReadInt32(f, 4);
       bool isFloat = tag == 3 || (tag == unchecked((short)0xFFFE) && bits == 32);
-      hr = c.Initialize(0, 0, 2000000, 0, f, IntPtr.Zero); if (hr != 0) return "Initialize 0x" + hr.ToString("X8");
+      hr = c.Initialize(0, iflags, 2000000, 0, f, IntPtr.Zero); if (hr != 0) return "Initialize 0x" + hr.ToString("X8") + " (mix format hr 0x" + mhr.ToString("X8") + ")";
       uint size; c.GetBufferSize(out size);
       Guid rg = typeof(IAudioRenderClient).GUID; object ro; hr = c.GetService(ref rg, out ro); if (hr != 0) return "GetService 0x" + hr.ToString("X8");
       var r = (IAudioRenderClient)ro; long total = (long)rate * ms / 1000, done = 0; double ph = 0, step = 2 * Math.PI * hz / rate;
       hr = c.Start(); if (hr != 0) return "Start 0x" + hr.ToString("X8");
+      var sw = System.Diagnostics.Stopwatch.StartNew(); long lastDone = -1, lastChange = 0; uint lastPad = 0;
       while (done < total) {
-        uint pad; c.GetCurrentPadding(out pad); uint n = size - pad; if (n > total - done) n = (uint)(total - done);
+        uint pad; c.GetCurrentPadding(out pad); lastPad = pad; uint n = size - pad; if (n > total - done) n = (uint)(total - done);
+        if (done != lastDone) { lastDone = done; lastChange = sw.ElapsedMilliseconds; }
+        else if (sw.ElapsedMilliseconds - lastChange > 3000) { c.Stop(); return "STALLED: " + done + "/" + total + " frames written, padding " + pad + " of " + size + " (the stream position does not advance)"; }
         if (n > 0) {
           IntPtr p; r.GetBuffer(n, out p);
           for (int i = 0; i < n; i++) { double v = 0.25 * Math.Sin(ph); ph += step;

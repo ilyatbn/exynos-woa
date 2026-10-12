@@ -221,6 +221,7 @@ typedef struct _AUD_STREAM_CONTEXT {
     ULONG            HwLast12;          /* last RDMA0 STATUS[11:0] */
     ULONG            Glitches;          /* timer passes that found more than one boundary */
     ULONG            LateWrites;
+    ULONG            Traces;         /* run audB4: callback trace lines written (capped) */
 
     BOOLEAN          HwStarted;         /* AboxStart succeeded for this run (amps may still have failed) */
 } AUD_STREAM_CONTEXT, *PAUD_STREAM_CONTEXT;

@@ -193,3 +193,10 @@ Refs: scratchpad src/bcmdhd (LineageOS lineage-23.2) and src/brcmfmac (torvalds 
   free buffers are reposted in one commit once RxPosted <= RxCount - 32 (msgbuf.c:58, :1029-1035; fmac checks per
   completion, ours per drain). Completion for a not-posted pktid is now rejected (no double free). JOIN-end dump
   adds "rx bufs posted/free/of/refills". Build W4/WX clean.
+- Review of e7900d3 (adversarial): checked DAT_DMA_SIZE_FOR(511) = 0x125800 -> 0x126000 (python); the initial fill
+  of 511 into the empty 512-item ring never hits H2dNext's full check ((w+1)%512 == r only for a 512th item);
+  free-stack pop order posts index 0 first (matches comment); RxOut[] guard stops a double push so RxFreeN <=
+  RxCount; refill condition RxPosted + 32 <= RxCount == fmac's rxbufpost <= max - 32; RX/TX pktid ranges disjoint
+  (0x3000+511 < 0x4000); only D2hPollAll drains the rx ring (rg D2hPoll). Ring-full during a refill is impossible
+  (fw-unread items <= RxPosted <= RxCount - 32 < 511). FOUND: RxComplete's header comment still said the buffer
+  "is reposted either way" (now: back to the free stack, reposted by RxRefill). Fixed in a follow-up commit.

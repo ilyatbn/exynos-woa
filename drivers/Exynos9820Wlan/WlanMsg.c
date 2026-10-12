@@ -506,7 +506,7 @@ RxFill(_Inout_ PMSG_STATE S)
 
 /* RX_CMPLT (host_rxbuf_cmpl_t, bcmmsgbuf.h:926-959): data at data_offset (or dma_rxoffset when 0, fmac
    msgbuf.c:1199-1203), data_len bytes; EAPOL frames are kept for the handshake, others go to RxFn. The
-   buffer is reposted either way (the frame is consumed during this call). */
+   buffer goes back to the free stack either way (the frame is consumed during this call; RxRefill reposts it). */
 static VOID
 RxComplete(_Inout_ PMSG_STATE S, _In_ PUCHAR It)
 {

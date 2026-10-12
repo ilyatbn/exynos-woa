@@ -201,3 +201,9 @@ No code defect found in the F2 diff; nothing to fix.
 - extra-gpu-mode.cmd pass 1 also stages \S10EDIAG\gpu\MaliG76Wddm\MaliG76Wddm.inf with `pnputil /add-driver ...
   /install` while GPU0 is hidden (no live swap of the running display driver); output gpu\pnputil-stage.txt. The
   existing extra-gpu-g10.cmd installs only when the service is absent, so without this the phone would keep 1.0.10.1.
+- Review of d5e6d28: whether PnP re-ranks an ALREADY-INSTALLED device (ACPI\SAMS9828\0 has 1.0.10.1) when it
+  reappears after a hidden boot is **UNVERIFIED** - pnputil's /install documents updating matching devices, a
+  non-present one may just keep its driver. Follow-up: drivers/S10eDiag/esp/extra-gpu-update.cmd - a live update in
+  display-only mode (GPU0 visible, the way the first install replaced Basic Display), recording the device's driver
+  before/after (pnputil /enum-devices /drivers) and a PRAM peek. The test steps run it first, so a full mode never
+  starts on the old build (that would hang again with no trace).

@@ -462,3 +462,6 @@ AudioSrv call still 0x88890008. Audio/Operational: only event 65 "device state c
 - T21 Parameters\DefaultMode (default 1): a DEFAULT-mode format list on the host pin (AcxDataFormatListCreate +
   AcxPinAssignModeDataFormatList, same two formats, 16-bit default) so the pin offers RAW + DEFAULT.
 - T22 version 1.0.1.9, package audio-a10.
+- T20: AudPropose answers header-only PROPOSEDATAFORMAT sets (ValueCb in [64, 64+18)) on the host pin: SUCCESS for
+  major AUDIO/wildcard + sub PCM/wildcard + specifier WAVEFORMATEX/wildcard/NONE (any Flags), else NO_MATCH (so 0x92
+  AC3-SPDIF, 0x164 WMA-SPDIF and the MUSIC/MIDI header get NO_MATCH). Decoded with verdict as before. Build exit 0.

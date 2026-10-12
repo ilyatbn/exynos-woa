@@ -397,7 +397,8 @@ static NTSTATUS AudIntersect(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ const ACX_REQ
     return STATUS_SUCCESS;
 }
 
-/* PROPOSEDATAFORMAT set: TRUE = handled (Status set), FALSE = not a wave format, leave it to ACX. */
+/* PROPOSEDATAFORMAT set: TRUE = handled (Status set), FALSE = a wave-format proposal whose specifier is not
+   WAVEFORMATEX (left to ACX). Header-only proposals (family probes) are handled since A10. */
 static BOOLEAN AudPropose(_In_ const ACX_REQUEST_PARAMETERS *P, _Out_ NTSTATUS *Status)
 {
     const KSDATAFORMAT *F = (const KSDATAFORMAT *)P->Parameters.Property.Value;
@@ -406,6 +407,21 @@ static BOOLEAN AudPropose(_In_ const ACX_REQUEST_PARAMETERS *P, _Out_ NTSTATUS *
     ULONG              Bits;
 
     *Status = STATUS_NO_MATCH;
+
+    /* A10: a bare KSDATAFORMAT (no wave format) is the format-FAMILY probe (runs audA7/A8: sub PCM, 0x92 AC3-SPDIF,
+       0x164 WMA-SPDIF at startup). ACX matches proposals against complete list entries, so the PCM family question
+       went unanswered/refused - the likely reason the endpoint's format cache {74E4357A},2 stays empty (notes A10).
+       Answer it from what the pin streams: integer PCM via a WAVEFORMATEX specifier (wildcards / NONE accepted). */
+    if (F != NULL && Cb >= sizeof(KSDATAFORMAT) && Cb < sizeof(KSDATAFORMAT) + sizeof(WAVEFORMATEX)) {
+        if (AudGuidIsOrWild(&F->MajorFormat, &KSDATAFORMAT_TYPE_AUDIO) &&
+            AudGuidIsOrWild(&F->SubFormat, &KSDATAFORMAT_SUBTYPE_PCM) &&
+            (AudGuidIsOrWild(&F->Specifier, &KSDATAFORMAT_SPECIFIER_WAVEFORMATEX) ||
+             AudGuidIs(&F->Specifier, &KSDATAFORMAT_SPECIFIER_NONE))) {
+            *Status = STATUS_SUCCESS;
+        }
+        return TRUE;
+    }
+
     if (F == NULL || Cb < sizeof(KSDATAFORMAT) + sizeof(WAVEFORMATEX) ||
         !AudGuidIs(&F->Specifier, &KSDATAFORMAT_SPECIFIER_WAVEFORMATEX)) {
         return FALSE;

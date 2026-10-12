@@ -1,0 +1,80 @@
+; Exynos9820WlanCx.inx - M12 M9: WiFiCx client for the S10e BCM4375 (notes/m12-wifi-wificx.md).
+; Binds the same ACPI device as the KMDF probe driver (Exynos9820Wlan, Class=System); this package is
+; Class=Net and newer, so PnP ranks it first once both are in the driver store.
+; Network keywords: WiFiCx doc "Develop a WiFiCx client driver" (INF section) and the WiFiCx sample
+; wificxsampleclientkm.inf.
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=Net
+ClassGuid={4D36E972-E325-11CE-BFC1-08002BE10318}
+Provider=%ProviderName%
+DriverVer=10/12/2026,1.0.9.1
+CatalogFile=Exynos9820WlanCx.cat
+PnpLockdown=1
+
+[DestinationDirs]
+DefaultDestDir=13
+
+[SourceDisksNames]
+1=%DiskName%,,,""
+
+[SourceDisksFiles]
+Exynos9820WlanCx.sys=1
+
+[Manufacturer]
+%ManufacturerName%=Models,NT$ARCH$.10.0...16299
+
+[Models.NT$ARCH$.10.0...16299]
+%DeviceDescription%=Device_Install,ACPI\SAMS9825
+
+[Device_Install.NT]
+CopyFiles=Driver_CopyFiles
+Characteristics=0x84            ; NCF_HAS_UI | NCF_PHYSICAL
+BusType=0                       ; Internal (an ACPI-described platform device)
+AddReg=Device_AddReg
+*IfType=71                      ; IF_TYPE_IEEE80211
+*MediaType=16                   ; NdisMediumNative802_11
+*PhysicalMediaType=9            ; NdisPhysicalMediumNative802_11
+*IfConnectorPresent=1
+*ConnectionType=1               ; NET_IF_CONNECTION_DEDICATED
+*DirectionType=0                ; NET_IF_DIRECTION_SENDRECEIVE
+*AccessType=2                   ; NET_IF_ACCESS_BROADCAST
+*HardwareLoopback=0
+
+[Driver_CopyFiles]
+Exynos9820WlanCx.sys
+
+[Device_AddReg]
+HKR, Ndi,                       Service,    0, "Exynos9820WlanCx"
+HKR, Ndi\Interfaces,            UpperRange, 0, "ndis5"
+HKR, Ndi\Interfaces,            LowerRange, 0, "wlan,ethernet"
+HKR, ,                          NumberOfNetworkInterfaces, 0x00010001, 1
+
+[Device_Install.NT.Services]
+AddService=Exynos9820WlanCx,0x00000002,Service_Install
+
+[Service_Install]
+DisplayName=%ServiceDescription%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%13%\Exynos9820WlanCx.sys
+AddReg=Service_AddReg
+
+[Service_AddReg]
+; WlanReadConfig settings (WlanCommon.c) live under Services\Exynos9820WlanCx\Parameters
+HKR,Parameters,,0x00000010
+
+[Device_Install.NT.Wdf]
+KmdfService=Exynos9820WlanCx,Wdf_Install
+
+[Wdf_Install]
+KmdfLibraryVersion=$KMDFVERSION$
+
+[Strings]
+ProviderName="Exynos9820 WOA Project"
+ManufacturerName="Samsung Electronics"
+DiskName="Exynos9820 WLAN WiFiCx Installation Disk"
+DeviceDescription="Samsung Exynos 9820 BCM4375 Wi-Fi"
+ServiceDescription="Exynos 9820 BCM4375 WiFiCx driver"

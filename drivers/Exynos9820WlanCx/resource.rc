@@ -1,0 +1,11 @@
+#include <windows.h>
+
+#include <ntverp.h>
+
+#define	VER_FILETYPE	VFT_DRV
+#define	VER_FILESUBTYPE	VFT2_DRV_NETWORK
+#define VER_FILEDESCRIPTION_STR     "Exynos 9820 BCM4375 WLAN WiFiCx driver (M12 M9)"
+#define VER_INTERNALNAME_STR        "Exynos9820WlanCx.sys"
+#define VER_ORIGINALFILENAME_STR    "Exynos9820WlanCx.sys"
+
+#include "common.ver"

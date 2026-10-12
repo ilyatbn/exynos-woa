@@ -160,3 +160,20 @@ Logs: Exynos9820WlanCx.txt (bring-up) + Exynos9820WlanCx-run.txt (runtime, rotat
   WaitTxIdle exits on the first all-idle scan. FOUND: a failed / timed-out WlanMsgConnect left the firmware
   pursuing the SET_SSID target (no disassoc). Fixed in a follow-up commit: DISASSOC (reason 8, AP) when SET_SSID
   was accepted but the connect did not succeed. Build clean (sys 2EDB158D5C3B0968...).
+- W1 (T4): drivers/Exynos9820WlanCx: Cx.h (device context, worker, command queue), CxDevice.cpp (DriverEntry,
+  DeviceAdd in the documented order, PrepareHardware = WlanProbeChip + WlanDlRun/WlanMsgRun with Resident
+  forced 1 and RescanSeconds 0, then WiFiCx capabilities; Release; D0Entry starts the worker, D0Exit stops it
+  and quiesces; run log Exynos9820WlanCx-run.txt rotated into -run.1..4.txt at 3/4 full), CxWifi.cpp
+  (capabilities: 2.4 GHz ch 1-13 HR-DSSS/ERP/HT, 5 GHz ch 36-165 OFDM/HT/VHT, 20 MHz, OPEN/NONE + RSNA_PSK/CCMP,
+  1x1 claim; dispatcher: TASK_SET_RADIO_STATE (M3, RADIO_STATUS if changed, M4), TASK_DOT11_RESET (M3, M4),
+  a list of WDI_SET_* accepted and logged, everything else NOT_SUPPORTED; every command's TLVs dumped with
+  DumpMessageTlvByteStream into the run log, max 400), CxAdapter.cpp (station NetAdapter, MAC = cur_etheraddr,
+  MTU 1500, 1 tx + 1 rx queue, system-managed 2 KB rx buffers; W1 queues drop tx / never fill rx), CxMem.cpp
+  (operator new/delete for the TLV library). INF Class=Net, *IfType 71, *MediaType 16, *PhysicalMediaType 9,
+  Characteristics 0x84, BusType 0, NumberOfNetworkInterfaces 1. Build W4/WX clean, links against
+  WificxTLVGenParse.lib + WifiCxStub (1.0) + NetAdapterCx 2.2; infverif /w: INF is VALID.
+  **Package s10e-artifacts\wifi-cx1 (1.0.9.1, stampinf date):**
+  - Exynos9820WlanCx.sys 188824 B sha256 95578A793B9BB0E86845D03249882145CF81C4072EF5EA8061B099960CEB98B4
+  - Exynos9820WlanCx.inf   2601 B sha256 B705E23906661B992B08E0DCEF1F386C40CAFB844F1032C563C5E4A10A30779D
+  - exynos9820wlancx.cat   2538 B sha256 63BB0E63EAAAE3151116FBB1E93820150BCD9351AFE96E791AAB7270697D57B0
+  Not device-tested.

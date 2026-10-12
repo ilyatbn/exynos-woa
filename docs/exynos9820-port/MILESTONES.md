@@ -322,7 +322,7 @@ tree does not contain.
 | Milestone 8: NDIS 802.3 adapter (Windows sees a wired NIC) + `wifi-connect` app that writes Ssid/Passphrase and restarts the driver (disable/enable) | todo | user's choice 2026-10-12: do this first (also gives a network for Windows debugging tools) |
 | Milestone 9: native Windows WiFi (WDI / WiFiCx: adapter in the network flyout, scan list, connect from the Windows UI) | doing | user's choice 2026-10-12 (after the 1.0.7.4 join): WiFiCx 1.0 + NetAdapterCx 2.2 client `drivers/Exynos9820WlanCx`, plan W1..W5 in `notes/m12-wifi-wificx.md` |
 | M9 T1: warm restart - D11 cores into reset before the firmware image write (fmac cr4_set_passive) | doing | built (shared WlanDl.c, both drivers; Parameters\D11Reset = 0 turns it off); does it cure "DL 6 TCM read-back mismatch" after a device restart? needs a device run (UNVERIFIED) |
-| M9 W1: WiFiCx skeleton - adapter visible in Windows, MAC from the firmware, radio/reset/config commands, no traffic | todo | |
+| M9 W1: WiFiCx skeleton - adapter visible in Windows, MAC from the firmware, radio/reset/config commands, no traffic | doing | built + test-signed (`s10e-artifacts\wifi-cx1`, driver 1.0.9.1), not device-tested |
 | M9 W2: scan - WDI_TASK_SCAN -> escan -> BSS list in the Windows network flyout | todo | |
 | M9 W3: data path - NetAdapter tx/rx queues over the msgbuf flowring / rx completions | todo | |
 | M9 W4: connect - WDI_TASK_CONNECT (firmware join, OS supplicant over the data path), cipher keys, disconnect | todo | |

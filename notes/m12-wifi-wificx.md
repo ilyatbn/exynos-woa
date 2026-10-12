@@ -321,3 +321,7 @@ What the logs must show (Exynos9820WlanCx.txt = bring-up, -run.txt = runtime):
   TlvGenerated_.hpp:5757-5769; BUFFER_OVERFLOW + bytes needed if the out buffer is short). ABORT_TASK answered
   success (commands are serialized: the named task has completed). A scan the firmware refuses with no records
   re-reports the previous list as cached information instead of failing.
+- T10 (shared WlanMsg.c): during a join, a WLC_E_LINK link-down with a zero address before this join's link-up is
+  logged "[join] link-down of the previous association ignored" instead of failing the join (run.2 CONNECT 3);
+  deauth / disassoc events and link-down naming a BSS still count; a real failure still ends via the SET_SSID
+  status. Both drivers build W4/WX clean.

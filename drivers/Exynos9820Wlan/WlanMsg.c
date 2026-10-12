@@ -426,6 +426,14 @@ EventPacket(_Inout_ PMSG_STATE S, _In_reads_bytes_(Len) const UCHAR *P, _In_ ULO
         } else if (Type == WLC_E_LINK && !Lost) {
             S->JoinLinkUp = TRUE;
         }
+        /* M9 (wifi-cx3 run.2): right after SET_SSID the firmware reports link-down with a zero address for the
+           association it is leaving; during a join that is not the new BSS failing (deauth / disassoc events
+           and a link-down naming a BSS still count) */
+        if (Lost && S->Joining && Type == WLC_E_LINK && !S->JoinLinkUp &&
+            (P[EVT_ADDR] | P[EVT_ADDR + 1] | P[EVT_ADDR + 2] | P[EVT_ADDR + 3] | P[EVT_ADDR + 4] | P[EVT_ADDR + 5]) == 0) {
+            ReportLine(S->R, "[join] link-down of the previous association ignored\r\n");
+            Lost = FALSE;
+        }
         if (Lost) {
             S->JoinLost = TRUE;
             if (S->Authorized) {

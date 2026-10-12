@@ -1242,3 +1242,16 @@ gpu-m16-g3don.md, gpu-m16-g9b.md; clones in C:\Users\ilya\code\mali incl. wddm-m
 Order after the phone is back + Windows reinstalled: #107 loop boot (read GPU probe lines) -> #106 (power-on lines,
 "ACPI GPU0 visible") -> install s10e-artifacts\mali-g9b via ESP \S10EDIAG\install (MaliG76Probe run log: RESULT PASS).
 Rescue for a GPU-driver boot hang: flash #107 (GPU0 hidden -> driver not loaded); no NTFS writes from TWRP.
+
+## 31. Restart point (2026-10-12, sub-agent worktree `worktree-agent-aaa55ccbfa329cc37`): M16 G10/G11 code + build, not booted
+
+**Committed on the worktree branch (fast-forward of main d9b8572):** (1) GPU rescue path in firmware - a
+`BEYOND0LTE_GPU_POWER_ON 0` image now ALWAYS hides DSDT GPU0, and ESP `\S10EDIAG\nogpu.flg` hides it on any image
+(BootLogDxe writes 'NOGP' to progress word [4] at ReadyToBoot); so boot #107-style images are guaranteed rescue
+images, and a GPU driver can be taken out of the boot from TWRP without NTFS writes. Firmware builds flag 0/1 exit 0,
+nothing packed or flashed (scratchpad\BEYOND0LTE_UEFI-g10-flag{0,1}.fd). Note: boot106/107 images predate this - #107
+hides GPU0 only if sboot leaves G3D off. (2) `drivers/MaliG76Wddm` (GPL-2.0, from wddm-mali-g52 maliwddm + malidod +
+maligpu): default display-only KMDOD on the GOP fb; `Parameters\FullAdapter` 1 = full WDDM 1.3 adapter; `GpuEnable` 1
+= + GPU half; INF UMD maliumd.dll. Package + m5test + ESP script in `s10e-artifacts\mali-g10` (sha256 in
+notes/gpu-m16-g10.md). **Next:** after G9/G9b on the phone, the 4-step validation procedure in notes/gpu-m16-g10.md
+(display-only first). Rotation is identity-only in this driver (follow-up).

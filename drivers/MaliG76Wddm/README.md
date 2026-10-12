@@ -19,9 +19,12 @@ read when the driver loads; the INF resets both to 0):
 | 0 | 1 | full WDDM 1.3 adapter, GPU half off (GPU interrupt outputs masked only) |
 | 1 | any | full WDDM 1.3 adapter + GPU half (aperture segment, Mali MMU, job chains) |
 
-The full adapter needs a UMD name in its class key (the ESP script writes
-`d3d10warp.dll`, the original's steps a/b); with it the desktop is expected to
-go black (the original's installed-Windows run 6) until the Mesa UMD (G12).
+The INF names `maliumd.dll` (x4) as the UMD, as the original; the full
+adapter needs it in System32 (the G12 Mesa d3d10umd + panfrost build; without
+a loadable UMD a full adapter fails with code 43). Whether DWM composes
+through it on installed Windows is G13 - the original never got that far (its
+WARP-UMD run 6 went black). The driver creates no device object or symbolic
+link: user mode reaches it only through D3DKMT / the D3D runtime.
 
 **What changed** (notes/gpu-wddm-mali-g52.md R1-R19, notes/gpu-m16-g10.md):
 binds `ACPI\SAMS9828` (DSDT `GPU0`) only; checks the `_CRS` contract (GPU

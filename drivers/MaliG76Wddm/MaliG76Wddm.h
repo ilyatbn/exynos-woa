@@ -11,7 +11,7 @@
  *   GpuEnable 0, FullAdapter 0 (default): display-only (KMDOD, malidod's DDI set). No interrupt routine, no GPU
  *       register access. Replaces Basic Display on the GOP framebuffer; DWM renders with Basic Render as today.
  *   FullAdapter 1, GpuEnable 0: the full WDDM 1.3 adapter (maliwddm) with its GPU half off; the GPU's interrupt
- *       outputs are only masked. Needs a UMD name in the adapter's key (the ESP script writes d3d10warp.dll).
+ *       outputs are only masked. The INF names maliumd.dll (G12 Mesa build) as the UMD.
  *   GpuEnable 1: the full adapter with the GPU half (maligpu.c, retargeted to the G76): aperture segment, Mali
  *       MMU, one job chain at a time, fences on the job interrupt plus a 1 ms poll.
  * Rescue: firmware hides DSDT GPU0 (BEYOND0LTE_GPU_POWER_ON 0 image, or ESP \S10EDIAG\nogpu.flg) - then this

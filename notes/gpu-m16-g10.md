@@ -161,3 +161,61 @@ Accepted / open (recorded, not defects of the commit):
   it: Started=1 or code 43 / Fail_* in the trace).
 - VOT_INTERNAL instead of the validated HDMI: UNVERIFIED for dxgkrnl acceptance (R14 says cosmetic, not proven).
 - Rebuild after the fixes: exit 0, MaliG76Wddm.sys sha256 4101B0A8... (scratchpad\mali-g10-try2; not the final package).
+
+## Task C - UMD name, device name, m5test, ESP procedure, package (2026-10-12)
+- Coordinator request (G12 Mesa build done: s10e-artifacts\mali-g12\maliumd.dll): keep `UserModeDriverName =
+  maliumd.dll` x4 in the INF (as W:maliwddm.inf MW_Settings) -> done (MW_Settings AddReg). This replaces my earlier
+  "no UMD name in the INF" choice; risk recorded: whether dxgkrnl ignores UserModeDriverName for a KMDOD (the
+  default display-only mode) is UNVERIFIED - malidod.inf had none. The full-adapter modes now get the real Mesa UMD
+  instead of WARP, so the full adapter is not necessarily black (run 6 was WARP); DWM on it is G13.
+- **Device / symbolic-link name: MaliG76Wddm creates none** (no IoCreateDevice/IoCreateSymbolicLink; maliwddm had
+  none either - the only `WdfDeviceCreateSymbolicLink` in the clone is drivers/malikm/device.c:253). `\\.\MaliG52`
+  (`MALIKM_USER_PATH`, W:include/malikm_ioctl.h:37-39) belongs to **malikm** (the KMDF test driver, backend A), which
+  is not ported. The shim tries it first and, when CreateFileW fails, falls back to the WDDM adapter through
+  D3DKMT (W:win32-compat/malikm_drm.c:66-83 `malikm_open` -> `wddm_init`), choosing the adapter whose
+  MW_ESCAPE_GPU_INFO answer has Count != 0 && Valid != 0 (malikm_drm.c:693-696; inside the runtime UMD
+  malikm_drm.c:989-990). MaliG76Wddm answers that escape exactly as maliwddm (Count 45, Valid = 0 unless the GPU
+  half is up) -> **no shim change is needed for the device name**; a rename would only change log strings. The
+  only G52-specific shim content is the MALIKM_FAKE table (PROD_ID 0x7402, malikm_drm.c:1271), CI-only.
+- m5test: `drivers/MaliG76Wddm/tools/m5test/m5test.c` (from W:tools/windows/m5test.c, user-mode D3DKMT test, GPL-2.0):
+  the adapter must answer GPU_INFO with Valid != 0 and (Value[0] & 0xFF0F) == 0x7201; still WRITE_VALUE on JS1, magic
+  0xC0FFEE52. build-m5test.cmd (vcvarsall x64_arm64, /W4 /WX, signed): M5TEST_BUILD_OK (plus a harmless "vswhere not
+  recognized" line from vcvarsall). Exit: 0 PASS, 1 no adapter, 2 step failed, 3 thunks missing.
+- ESP script `drivers/MaliG76Wddm/esp/extra-gpu-g10.cmd`: records the GPU0 word, pnp state, Parameters, the registry
+  trace (Enum\ACPI\SAMS9828\0\Device Parameters\MaliG76Wddm), Win32_VideoController; copies maliumd.dll to System32 if
+  on the ESP; installs the package once (pnputil, test cert); runs m5test when THIS boot is GpuEnable 1; then writes
+  the next boot's mode from \S10EDIAG\gpu\{full,gpu}.flg (EnablePreemption 0 only for the full modes, deleted
+  otherwise). %ERRORLEVEL% inside the m5test block deferred with `call` (block-parse expansion).
+- **Package** `C:\Users\ilya\code\s10e-artifacts\mali-g10` (build-package.ps1 -Build 2: exit 0; InfVerif /w exit 0):
+  - MaliG76Wddm\MaliG76Wddm.sys 54 168 B `4E1487E53A6712DF522DD30CF6C06EBEC0A4016C4F1BEC44D7D51B51350B08EA`
+  - MaliG76Wddm\MaliG76Wddm.inf `C0F1292EDA9EEDE3FE4E639CAF8C8A602BEC5A5E0EE84E3B71A75841B715F0AE`
+  - MaliG76Wddm\malig76wddm.cat `34FBB2A4DD1ECB24A96C0C2955DDEC65FEC76A627E42C11AE93E1474D0159576`
+  - m5test.exe 154 008 B `7B8C003F38A18556BD07DEF8F3ACBC72508667A95672E81796875C7B3AB60B42`
+  - extra-gpu-g10.cmd `2B05937748118804347BCB858AEA6AAD51FF2F5FEDBB373F0FDAFAAAB873D9ED`
+  Signed with the WDK test cert 5DD5DEE1... (as every package). Firmware: no boot image packed here - use a
+  BEYOND0LTE_GPU_POWER_ON 1 build of this branch (scratchpad\BEYOND0LTE_UEFI-g10-flag1.fd was built, not packed).
+
+## Validation procedure on the phone (needs-boot; nothing here was run)
+Prerequisites: G9 validated (UEFILOG "ACPI GPU0 visible", `s10ediag peek 0x8FE0F010` = 30555047, Device Manager
+ACPI\SAMS9828 with 2 memory + 3 IRQ) - ideally G9b PASS (MaliG76Probe) first, then **remove MaliG76Probe**
+(pnputil /delete-driver oemN.inf /uninstall): both bind ACPI\SAMS9828, only one may be installed.
+Rescue at every step: from TWRP `mount -t vfat /dev/block/by-name/cache /tmp/esp; touch /tmp/esp/S10EDIAG/nogpu.flg;
+sync; umount /tmp/esp` -> next boot GPU0 hidden, Basic Display back (or flash a GPU_POWER_ON 0 image, e.g. #107).
+1. **Display-only (G10 step 1).** ESP: s10e-artifacts\mali-g10\MaliG76Wddm\ -> \S10EDIAG\gpu\MaliG76Wddm\;
+   m5test.exe and mali-g12\maliumd.dll -> \S10EDIAG\gpu\; extra-gpu-g10.cmd as \S10EDIAG\extra.cmd (or call it); no
+   flag files; flag-1 image; stay.flg for the first try (user watches). Expected: out\last\gpu\pnputil-install.txt ok;
+   the screen flickers once (Basic Display -> MaliG76Wddm) and the desktop stays; trace.reg: Mode 0,
+   AcquirePostDisplay 0, FbWidth 0x438 FbHeight 0x8e8 FbPitch 0x10e0, FbPhysLo 0xca000000, **FbMatchesGop 1**,
+   Started 1, CommitStatus 0, Presents >= 1, no Fail_*; video.txt names "Arm Mali-G76 MP12 (Galaxy S10e, G10/G11)" at
+   1080x2280. Reboot 3x, desktop each time = G10 display PASS. Rotation (Bixby toggle) is refused (identity only) -
+   expected, not a failure.
+2. **Full adapter, GPU off (G10 step 2).** touch \S10EDIAG\gpu\full.flg; boot once (the script writes FullAdapter 1),
+   boot again. Expected trace: Mode 1, ResContract 1, GpuProbe 0, GpuQuieted 1, Started 1, QAI_* 0, Seen_CreateDevice
+   / Seen_CreateContext; the screen either composes through maliumd.dll or goes black (their run 6, with WARP) -
+   record which; the agent still collects and returns to TWRP. 3 boots without bugcheck.
+3. **GPU half (G11).** rm full.flg, touch gpu.flg; boot once (writes GpuEnable 1), boot again: trace Mode 2,
+   PmuEmbeddedG3dStatus/PmuG3dStatus bit0 1, GpuId 72?1????, PaBits, Step 6 (READY), L2Present one bit, GpuUp 1;
+   gpu\m5test.txt: "PASS: the Mali ran a job submitted through WDDM", exit 0, stats `jobs done 1 failed 0 timedout 0
+   fault 0x0`, **irqs > 0** (else only the 1 ms poll completed it - R2 trigger question stays open). A deliberately
+   bad job (TDR recovery) is a later step.
+4. Back to display-only: rm gpu.flg; boot once (writes 0/0 and deletes EnablePreemption).

@@ -87,3 +87,46 @@ screen - the state every boot so far had. Two firmware triggers:
   powered GPU, same as the G9 state before any driver is installed; recorded as a known cost of the ESP rescue.
 - Flag-0 image: GpuProbe still runs read-only (logs), only the hand-off is suppressed - log line names why.
 - Build evidence: both module strings present in the built .efi files (above). No defect found; nothing to fix.
+
+## Task B - drivers/MaliG76Wddm design (2026-10-12)
+- One .sys, mode chosen in DriverEntry from `HKLM\SYSTEM\CurrentControlSet\Services\MaliG76Wddm\Parameters`:
+  - default (GpuEnable 0, FullAdapter 0): **KMDOD** = malidod's DDI set (DxgkInitializeDisplayOnlyDriver, WIN8
+    interface, DRIVERCAPS WDDMv1_2 + SupportNonVGA + SupportSmoothRotation, target frequencies unspecified,
+    PresentDisplayOnly = CPU copy of dirty/move rects into the GOP fb). **No ISR, no GPU register access at all**
+    (malidod.c:870-872: no VSync -> ControlInterrupt/GetScanLine and with them ISR/DPC must stay NULL). Exactly the
+    configuration that gave a desktop on installed Windows (m5.1-board). = G10 validation step 1.
+  - FullAdapter 1, GpuEnable 0: maliwddm full WDDM 1.3 adapter, GPU half off (Kick completes every submission at
+    once, command.c:289-294). If the GPU is powered and answers as a G76, only its three INT_MASKs are written 0 (so a
+    level line left asserted by firmware cannot storm the connected ISR); nothing else. Needs a UMD name (code 43
+    otherwise) -> the ESP script writes `UserModeDriverName = d3d10warp.dll` (their steps a/b, maliwddm.inf:10-11)
+    into the adapter's class key. Expected: adapter Started, desktop BLACK (run 6). = G10 step 2 (DDI acceptance).
+  - GpuEnable 1: full adapter + GPU half (retargeted maligpu) = G11; m5test through D3DKMT.
+- Display (both modes): child `D3DKMDT_VOT_INTERNAL` (R14), always connected, no EDID; the fb from
+  DxgkCbAcquirePostDisplayOwnership is used as reported (it is what Basic Display uses) and compared with the
+  Exynos9820.h GOP values (0xCA000000, 1080x2280, pitch 4320) -> registry `FbMatchesGop` 1/0, mismatches logged not
+  fatal; only A8R8G8B8/X8R8G8B8 accepted (display.c:11-14). Rotation: identity only, as both references -
+  **regression vs Basic Display, which rotates today** (notes/d8-buttons-agent.md:47, m15-perf.md:112: Bixby
+  rotate toggle works on BasicDisplay) -> follow-up, recorded in MILESTONES G10.
+- Resource contract (as MaliG76Probe): translated list = memory 0x18500000/0x5000, memory 0x15862000/0x1000,
+  3 interrupts; otherwise the GPU half stays off (the display still starts).
+- GPU half retarget (maligpu.c/.h copied into the subtree): R4 PMU page from _CRS, both bits 1, re-checked in the ISR
+  before any GPU read; R5 ((id>>16)&0xFF0F)==0x7201; R6 SHADER_CONFIG = SC_TLS_HASH_ENABLE + TILER/JM as before;
+  R7 L2_PRESENT exactly 1 bit and no cores above bit 31 (else GPU half off, logged); R11 page tables and
+  HighestAcceptableAddress limited to min(40, MMU_FEATURES PA bits); polls 20 ms for L2/shader/tiler (panfrost);
+  JOB_INT_MASK limited to the JS_PRESENT slots 0-2. Single job chain at a time, 1 ms poll fallback, TDR =
+  re-bringup - unchanged.
+- Aperture segment: 1 GiB kept. It is a GPU-VA window that VidMm commits system pages into on demand (memory.c:1-9),
+  not a carve-out; Windows sees 5.24 GiB on the S10e (HANDOFF §25), DRAM PAs end at 0x980000000 (< 2^36). The VA
+  allocator spans 32 MB..4 GB (maligpu.h MK_VA_*), so the segment must stay <= 4 GB - 32 MB; 1 GiB leaves VidMm
+  CommitLimit at ~19 % of RAM. Raising it is a G12/G13 tuning question, not a hardware constant.
+- Names: service/sys `MaliG76Wddm`, trace subkey `Device Parameters\MaliG76Wddm`, node name "Mali-G76 job manager";
+  ABI header kept byte-identical (`maliwddm_abi.h`, MW_ABI_VERSION 1) so m5test and the Mesa shim stay compatible.
+- 2026-10-12 - written so far: LICENSE (= upstream LICENSE text, LF; sha256 edaef632... same as MaliG76Probe's, the
+  clone's CRLF working copy differs only in line ends), include/maliwddm_abi.h (upstream content, LF), maligpu.{h,c}
+  (G76 retarget), MaliG76Wddm.h, display.c (both modes), command.c/memory.c (ported by scratchpad\port_cm.py: include
+  + node name + CollectDbgInfo prefix; plus SyncReset re-bringup guarded by Gpu.Ready && mode FullGpu - in the
+  original it ran whenever Regs was mapped, which in our FullNoGpu mode would have powered the GPU up on a TDR).
+- 2026-10-12 - first build `build-package.ps1 -Out scratchpad\mali-g10-try1`: **exit 0** first try (VS18 MSBuild,
+  WDK 10.0.26100, WDM + displib.lib, /W4 /WX), Inf2Cat ok, signed. InfVerif /w /v: "INF is VALID", exit 0. Imports:
+  ntoskrnl (Mm*/Zw*, incl. ZwLoadDriver/ZwUnloadDriver from displib's DxgkInitialize* stubs) + HAL. Package not
+  final yet (README/NOTICE/ESP scripts next).

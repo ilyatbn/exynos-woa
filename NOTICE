@@ -83,6 +83,12 @@ gahingwoo — wddm-mali-g52 (https://github.com/gahingwoo/wddm-mali-g52)
   GPL-2.0, retargeted here to the Galaxy S10e's Mali-G76. The licence text is
   drivers/MaliG76Probe/LICENSE. Its register usage follows the Linux drm/panfrost
   driver (GPL-2.0).
+  drivers/MaliG76Wddm/ is derived from its drivers/maliwddm (WDDM 1.3 driver),
+  drivers/malidod (display-only driver), drivers/common/maligpu and
+  include/maliwddm_abi.h (commit 16f7e7c6),
+  GPL-2.0, retargeted to the Galaxy S10e's Mali-G76 and internal panel. The
+  licence text is drivers/MaliG76Wddm/LICENSE; maliwddm credits virtio-win's
+  viogpu3d (BSD-3) for its shape (design only).
 
 Microsoft Windows-driver-samples — SkeletonI2C
   The WDF/SpbCx framework scaffolding of drivers/Exynos9810Hsi2c/ comes from the

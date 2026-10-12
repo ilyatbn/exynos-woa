@@ -1,0 +1,70 @@
+;
+; MaliG76Wddm.inf - M16 G10/G11: display + GPU driver for the Galaxy S10e (Exynos 9820, Mali-G76).
+; Binds ONLY the DSDT device \_SB.GPU0 (ACPI\SAMS9828). GPU0 is present only when UEFI handed over a powered G76
+; and the rescue flags are clear (BEYOND0LTE_GPU_POWER_ON 1 image, no ESP \S10EDIAG\nogpu.flg); otherwise this
+; driver never loads and Basic Display keeps the screen. notes/gpu-m16-g10.md.
+; Derived from maliwddm.inf / malidod.inf of wddm-mali-g52 (https://github.com/gahingwoo/wddm-mali-g52), GPL-2.0.
+;
+; Mode (read at driver load from the service's Parameters key; the install resets both to 0):
+;   GpuEnable 0, FullAdapter 0  display-only (KMDOD), no GPU access - the default
+;   FullAdapter 1               full WDDM 1.3 adapter, GPU half off (needs a UMD name, see esp\extra-gpu-g10.cmd)
+;   GpuEnable 1                 full WDDM 1.3 adapter with the GPU half (G11)
+; No UserModeDriverName here: the display-only mode has no UMD (as malidod.inf); the full-adapter modes get one
+; from the ESP script, which also owns the system-wide EnablePreemption 0 the original INF set.
+;
+; SPDX-License-Identifier: GPL-2.0
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = Display
+ClassGuid   = {4D36E968-E325-11CE-BFC1-08002BE10318}
+Provider    = %ProviderName%
+DriverVer   = 10/12/2026,1.0.10.1
+CatalogFile = MaliG76Wddm.cat
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+MaliG76Wddm.sys = 1
+
+[Manufacturer]
+%ProviderName% = Standard,NTARM64.10.0...16299
+
+[Standard.NTARM64.10.0...16299]
+%MW.DeviceDesc% = MW_Inst,ACPI\SAMS9828
+
+[MW_Inst]
+FeatureScore = F9
+CopyFiles = MW_CopyFiles
+
+[MW_CopyFiles]
+MaliG76Wddm.sys
+
+[MW_Inst.Services]
+AddService = MaliG76Wddm,0x00000002,MW_Service
+
+[MW_Service]
+DisplayName    = %MW.SvcDesc%
+ServiceType    = 1 ; SERVICE_KERNEL_DRIVER
+StartType      = 3 ; SERVICE_DEMAND_START
+ErrorControl   = 0 ; SERVICE_ERROR_IGNORE
+ServiceBinary  = %13%\MaliG76Wddm.sys
+LoadOrderGroup = Video
+AddReg         = MW_Parameters
+
+[MW_Parameters]
+HKR,Parameters,GpuEnable,%REG_DWORD%,0
+HKR,Parameters,FullAdapter,%REG_DWORD%,0
+
+[Strings]
+ProviderName  = "exynos-woa"
+DiskName      = "Galaxy S10e Mali-G76 display driver"
+MW.DeviceDesc = "Arm Mali-G76 MP12 (Galaxy S10e, G10/G11)"
+MW.SvcDesc    = "Galaxy S10e Mali-G76 display driver"
+REG_DWORD     = 0x00010001

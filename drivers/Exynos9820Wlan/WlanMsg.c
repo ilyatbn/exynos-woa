@@ -94,6 +94,7 @@ typedef struct _MSG_STATE {
     ULONG               TxNext;
     ULONG               RxCount;        /* rx buffers this run owns (indices 0..RxCount-1 of the rx region) */
     ULONG               DatSize;        /* data common buffer size (DAT_DMA_SIZE_FOR(RxCount)) */
+    ULONG               RxBufLen;       /* data_buf_len of every rxpost item: fw "rxbufpost_sz" when 1..2048 */
     /* M7c rx accounting as fmac (msgbuf.c:1011-1035): RxPosted = buffers the firmware holds (rxbufpost); a
        completed buffer goes to the free stack and is reposted in bulk once RxPosted <= RxCount - threshold */
     BOOLEAN             RxOut[RX_BUF_COUNT];
@@ -479,7 +480,7 @@ RxPost(_Inout_ PMSG_STATE S, _In_ ULONG I)
         return FALSE;
     }
     *(USHORT UNALIGNED *)(It + RXP_META_LEN)      = 0;   /* no metadata (fmac rx_metadata_offset 0) */
-    *(USHORT UNALIGNED *)(It + RXP_DATA_LEN)      = DATA_BUF_SIZE;
+    *(USHORT UNALIGNED *)(It + RXP_DATA_LEN)      = (USHORT)S->RxBufLen;   /* dhd_msgbuf.c:4493/:4608 */
     *(ULONG UNALIGNED *)(It + RXP_DATA_ADDR)      = (ULONG)Ba;
     *(ULONG UNALIGNED *)(It + RXP_DATA_ADDR + 4)  = (ULONG)(Ba >> 32);
     S->RxOut[I] = TRUE;
@@ -979,6 +980,23 @@ DataInit(_Inout_ PMSG_STATE S, _Inout_ PWLAN_MSG_CTX M)
         !InRam(S, S->H2dRBase, RW_INDEX_SZ * (FLOWRING_FIRST_ID + 1))) {
         ReportLine(S->R, "DATA 1: no tx flowring available (max flowrings %lu)\r\n", S->MaxFlowrings);
         return FALSE;
+    }
+    /* rx buffer length the firmware wants (dhd_sync_with_dongle dhd_msgbuf.c:4199-4215: GET_VAR "rxbufpost_sz", u16,
+       queried before the first rx post; on error dhd keeps its default). dhd posts packets of exactly that size
+       (PKTGET(pktsz) :4508, data_buf_len = PKTLEN :4608); fmac posts 2048 (msgbuf.c:56). Ours: the fw value when
+       it fits our 2048 B buffers, else 2048. Run 1.0.7.3 read 1670. */
+    S->RxBufLen = DATA_BUF_SIZE;
+    if (IoctlVar(S, FALSE, "rxbufpost_sz", NULL, 0, sizeof(ULONG)) == MSG_OK && S->RespLen >= sizeof(USHORT)) {
+        ULONG Sz = *(USHORT UNALIGNED *)S->Resp;
+
+        if (Sz != 0 && Sz <= DATA_BUF_SIZE) {
+            S->RxBufLen = Sz;
+        }
+        ReportLine(S->R, "[data] firmware rxbufpost_sz %lu -> rx data_buf_len %lu (buffers %u B)\r\n", Sz, S->RxBufLen,
+                   DATA_BUF_SIZE);
+    } else {
+        ReportLine(S->R, "[data] rxbufpost_sz not answered (status %ld) -> rx data_buf_len %lu\r\n", S->RespStatus,
+                   S->RxBufLen);
     }
     /* rx buffer count: max_host_rxbufs (fmac pcie.c:1650-1653, 0 -> BRCMF_DEF_MAX_RXBUFPOST 255) capped at what
        the rxpost ring can hold (RX_BUF_COUNT). M7c: all of them, as fmac (msgbuf.c:1016) - was min(128, max). */
@@ -2082,10 +2100,6 @@ WlanMsgJoin(PWLAN_MSG_CTX M, PWLAN_REPORT R, const WLAN_JOIN_CONFIG *J)
        step 5b) */
     ReportLine(R, "[join] rxpost host w %lu fw r %u before SET_SSID\r\n", S->Ring[RING_H2D_RXPOST].Host,
                Tcm16(S, S->Ring[RING_H2D_RXPOST].RIdxAddr));
-    if (IoctlVar(S, FALSE, "rxbufpost_sz", NULL, 0, sizeof(ULONG)) == MSG_OK && S->RespLen >= 2) {
-        ReportLine(R, "[join] firmware rxbufpost_sz %u (our rx buffers are %u B)\r\n",
-                   *(USHORT UNALIGNED *)S->Resp, DATA_BUF_SIZE);
-    }
     S->Joining     = TRUE;
     S->JoinSetSsid = -1;
     S->JoinPskSup  = -1;

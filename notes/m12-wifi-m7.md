@@ -171,7 +171,7 @@ Refs: scratchpad src/bcmdhd (LineageOS lineage-23.2) and src/brcmfmac (torvalds 
   > DHD_FLOWRING_RX_BUFPOST_PKTSZ_MAX -> default) -> dhd_msgbuf_rxbuf_post -> dhd_preinit_ioctls.
 - fmac refill: rxbufpost -= 1 per RX_CMPLT, refill to max when rxbufpost <= max - 32
   (BRCMF_MSGBUF_RXBUFPOST_THRESHOLD msgbuf.c:58, :1029-1035). DHD bursts of 32 (RX_BUF_BURST dhd_msgbuf.c:102,
-  :4438-4475). dhd data_buf_len = PKTLEN of a rxbufpost_sz packet (dhd_msgbuf.c:4493, :4521, :4607).
+  :4438-4475). dhd data_buf_len = PKTLEN of a rxbufpost_sz packet (dhd_msgbuf.c:4493, PKTGET :4508, data_buf_len :4608).
 - fmac D2H mailbox (pcie.c:800-831): read shared d2h_mb_data (shared+44, pcie.c:232), write 0, DS_ENTER_REQ 0x2 ->
   send H2D_HOST_DS_ACK 0x2 (pcie.c:259-266, :763-795: h2d_mb_data word + config SBMBX write). PCIMailBoxInt rev>=64
   0xC30 (pcie.c:147).
@@ -200,3 +200,7 @@ Refs: scratchpad src/bcmdhd (LineageOS lineage-23.2) and src/brcmfmac (torvalds 
   (0x3000+511 < 0x4000); only D2hPollAll drains the rx ring (rg D2hPoll). Ring-full during a refill is impossible
   (fw-unread items <= RxPosted <= RxCount - 32 < 511). FOUND: RxComplete's header comment still said the buffer
   "is reposted either way" (now: back to the free stack, reposted by RxRefill). Fixed in a follow-up commit.
+- Task 3 (audit fix 3): GET_VAR "rxbufpost_sz" moved from the join into DataInit, before the first rx post (dhd
+  order dhd_msgbuf.c:4199-4219); RxBufLen = value when 1..2048 else 2048, written as data_buf_len of every rxpost
+  item (dhd PKTGET(rxbufpost_sz) :4508 -> data_buf_len :4608). Expected on this fw: 1670. Logged as "[data]
+  firmware rxbufpost_sz N -> rx data_buf_len N". Build W4/WX clean.

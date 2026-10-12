@@ -312,3 +312,18 @@ Logs: scratchpad\runs\g13fullc (marks.txt, last\gpu\*, WINPRAM.BIN, UEFILOG.TXT)
   Expected if the analysis holds: Mali adapter D3D11CreateDevice fails (E_FAIL / DXGI_ERROR_UNSUPPORTED or
   E_NOINTERFACE), D3D10CreateDevice S_OK (softpipe), shim stderr "no Mali"/Valid 0. If D3D11 SUCCEEDS on the Mali
   adapter, the analysis is wrong and DWM's failure is elsewhere (then the next tool is an ETW DWM/DxgKrnl trace).
+- Package **s10e-artifacts\mali-g15** = mali-g14's driver unchanged (sys 9CC99755..., inf 1.0.14.1 5DDB0F0B...,
+  cat 7A83B3D8...) + `d3dprobe.exe` 148 376 B `E5C5B4218CA9D658B8F1E443FEB699D494699912248D11D1F9BB88AF83BE236F`
+  (test-signed 5DD5DEE1...) + extra-gpu-mode.cmd (CRLF) `E71BD6CB0976FC52DCCE186BB23DF0053F239004D113F80EC9FEF0A8A7992886`
+  + extra-gpu-update.cmd / extra-gpu-g10.cmd / m5test.exe as before. Not run.
+- **Steps (one decisive run, unattended-safe: mode 1 reached the desktop on g13 with soft vsync):**
+  1. ESP: mali-g15\MaliG76Wddm\* -> \S10EDIAG\gpu\MaliG76Wddm\, d3dprobe.exe + extra-gpu-g10.cmd -> \S10EDIAG\gpu\,
+     extra-gpu-mode.cmd + extra-gpu-update.cmd -> \S10EDIAG\; wait.txt 300; no stage.flg.
+  2. Display-only boot, extra.cmd = extra-gpu-update.cmd: update-after.txt must name 1.0.14.1 (the PRAM peek's
+     first lines now include `Params ...` and `UnixTime ...`).
+  3. touch \S10EDIAG\gpu\full.flg + \S10EDIAG\nogpu.flg; extra.cmd = extra-gpu-mode.cmd -> pass 1 (mode write,
+     clean restart) -> pass 2 in mode 1 collects gpu\d3dprobe.txt, d3dprobe-stderr.txt, dxdiag.txt, PRAM peek
+     (marks "d:" / "x:" in the S10eDiag ring if files are lost). Pull WINPRAM-RESTART.BIN too.
+  4. Read: Mali adapter line - UMD DX9/DX10/DX11 names, D3D11CreateDevice hr (plain/bgra), D3D10CreateDevice hr;
+     dxdiag "DDI Version"/"Feature Levels" for the Mali card; stderr shim lines. Then rm full.flg, run
+     extra-gpu-mode.cmd once more to return to 0/0 (optional: the probe in mode 0 too, as a baseline).

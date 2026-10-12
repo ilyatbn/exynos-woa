@@ -82,3 +82,10 @@ Parameters AmpInit/AmpEnable/AboxEnable; no hardware constant changes.
   Note: the OEM format is written only when the endpoint is created; an endpoint left from 1.0.1.x keeps its property
   store - the test must remove the old device/driver first (pnputil /remove-device + /delete-driver) or the reflashed
   Windows starts clean.
+- Review of T2 (INF + version), adversarial. Checked: the 48 bytes decoded field by field against AudFormatPcm16
+  (Render.c:32-46) - equal; key GUID/pid copied from the doc's Strings section; REG_BINARY flag 0x00000001 (INF AddReg
+  FLG_ADDREG_BINVALUETYPE); version strings: only INF DriverVer and Driver.c AUD_DRIVER_VERSION carry it (resource.rc
+  uses common.ver) - both 1.0.1.4 (rg); InfVerif VALID. Finding R2: the T2 note stated as fact that the OEM format is
+  only applied at endpoint creation - that is an inference (the doc only says the INF loads it into the registry and
+  the engine uses it). Corrected here: INFERENCE, unverified. The INF AddReg on the interface key is re-run by
+  pnputil /add-driver /install of a newer version, so the value itself is current after the update.

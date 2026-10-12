@@ -94,3 +94,28 @@ Parameters AmpInit/AmpEnable/AboxEnable; no hardware constant changes.
   volume/mute/render circuit/version into the PRAM marks too. Both CRLF. Host check: the C# compiled with Add-Type on
   this PC and Vol() read the PC's default endpoint: "scalar 0.70 = -5.4 dB, mute 0, hw support 0x7, range -96.0..0.0
   step 0.13 (hr 0/0/0/0/0)" (read-only call; no playback, no Initialize on the PC).
+- Review of T4 (audio-test/extra-audio): Vol() vtable order re-checked against endpointvolume.h order (Register,
+  Unregister, GetChannelCount, SetMasterVolumeLevel, ...Scalar, GetMasterVolumeLevel, ...Scalar, SetChannelVolumeLevel,
+  ...Scalar, GetChannelVolumeLevel, ...Scalar, SetMute, GetMute, GetVolumeStepInfo, StepUp, StepDown,
+  QueryHardwareSupport, GetVolumeRange) - and proven by the host run returning sane values (range -96..0 matches that
+  PC's codec); both files CRLF (`file`); the findstr edit is the only extra-audio change (git diff). No findings.
+- T3 package (build-package.ps1 -Out s10e-artifacts\audio-a5): MSBuild exit 0, Inf2Cat 10_NI/10_GE ARM64, sys + cat
+  signed with WDK test cert 5DD5DEE1747244C5F5F66F41D94C0A59C4443E48 (signtool verify shows that signer; chain ends in
+  the untrusted test root on the host, same as audio-a4), sys = ARM64 (dumpbin), InfVerif /v VALID, DriverVer 1.0.1.4.
+    0763C1949AB21A9870DD125565ED8C44CC7FF87D4EE1A2C37FBFADF092B66136  Exynos9820Audio.sys
+    7C6D4273E82BA0608C47CFC42BC4017F88D7D7A57BBB7E3E127B1A308F029377  Exynos9820Audio.inf
+    DF9FD410D4E4D87A9645212E9004A6EAB3FE5E95D9EE632274897841ACF54F98  exynos9820audio.cat
+- Status: NOT device-validated (Guided). Windows was reflashed (HANDOFF §32), so the endpoint is created fresh.
+
+### Device test (for the main session)
+1. ESP \S10EDIAG\drivers\Exynos9820Audio\ = audio-a5 (3 files); \S10EDIAG\audio-test.ps1 + run-as-user.ps1 from
+   drivers/S10eDiag/esp; extra.cmd = extra-audio.cmd. Staged first: audio-stage-A.cmd as audio-stage.cmd (hardware off,
+   QPC clock) - proves the mix format / stream / volume independent of the hardware; then stage D (all on) with the mic.
+2. Success in audiotest.txt: `diag: ... mix format tag 0xFFFE 2 ch 48000 Hz 32 bit; Initialize hr 0x00000000`
+   (engine float mix of the 48k/16 device format); `vol: ... hw support 0x3, range -96.0..0.0 step 0.50` and the scalar
+   following the keys (~0.50 / ~0.30 / ~0.70, mute 1 after the mute key); `played 96000 frames at 48000 Hz (float, 2 ch)`
+   x4 (no STALLED/Initialize lines).
+3. Success in run.txt: `Exynos9820Audio 1.0.1.4`, `render circuit "Speaker0": 00000000 (volume + mute elements in
+   software)`, `volume ch -1 <- ...` / `mute ch -1 <- 1 (software)` lines matching the key steps, `trace
+   AllocateRtPackets 2 x 1920` (or similar), `stream: run at packet 0 ...`, `stream: released after N packets` with N
+   ~200 per 2 s tone. Stage D adds `RDMA0 running (hardware clock)`, `amps 00000000`, and the mic hears A > B < C, D silent.

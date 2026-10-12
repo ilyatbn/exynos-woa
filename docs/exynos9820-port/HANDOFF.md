@@ -1255,3 +1255,8 @@ maligpu): default display-only KMDOD on the GOP fb; `Parameters\FullAdapter` 1 =
 = + GPU half; INF UMD maliumd.dll. Package + m5test + ESP script in `s10e-artifacts\mali-g10` (sha256 in
 notes/gpu-m16-g10.md). **Next:** after G9/G9b on the phone, the 4-step validation procedure in notes/gpu-m16-g10.md
 (display-only first). Rotation is identity-only in this driver (follow-up).
+- (~19:00) G10/G11 merged (drivers/MaliG76Wddm, display-only by default; HANDOFF §31 by the G10 agent) and G12 (Mesa
+  26.2 maliumd.dll, s10e-artifacts\mali-g12). **boot106/107 REBUILT** from main 54c4f6e with the rescue path
+  (\S10EDIAG\nogpu.flg on the ESP hides GPU0 on any image; flag-0 images always hide it): boot107-loop-v2.img
+  sha 6f6396e2…, boot106-gpuon-v2.img sha b0a7629d…. Test order unchanged: reinstall -> #107 -> #106 -> mali-g9b
+  (G9b) -> remove MaliG76Probe -> mali-g10 display-only -> full.flg -> gpu.flg (m5test).

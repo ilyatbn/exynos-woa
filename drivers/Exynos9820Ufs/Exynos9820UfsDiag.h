@@ -80,6 +80,11 @@
 #define UFS_DMA64_WITH_RESERVED_WORKSPACE          1
 #endif
 
+/* m15 w36: zero the device's VPD 0xB0 OPTIMAL TRANSFER LENGTH (2 blocks) so classpnp stops splitting to 8 KiB. */
+#ifndef UFS_CLEAR_VPD_OPTIMAL_TRANSFER
+#define UFS_CLEAR_VPD_OPTIMAL_TRANSFER             1
+#endif
+
 #ifndef UFS_ZERO_BOUNCE_BEFORE_READ
 #define UFS_ZERO_BOUNCE_BEFORE_READ                0
 #endif

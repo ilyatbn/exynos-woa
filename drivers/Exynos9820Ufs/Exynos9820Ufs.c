@@ -7219,6 +7219,21 @@ UfsFinishScsiCommand(
                     ActualLength
                     );
             }
+#if UFS_CLEAR_VPD_OPTIMAL_TRANSFER
+            /*
+             * m15 w36: this device's Block Limits VPD (0xB0) reports OPTIMAL TRANSFER LENGTH = 2 blocks (8 KiB)
+             * and MAXIMUM TRANSFER LENGTH = 0 (m15 u5, s10eperf vpd). Windows' class driver splits every
+             * transfer to the optimal length (u3/u4: 64 KiB reads arrived as ~8 KiB commands); Linux only
+             * uses it as an io_opt hint. Report "not specified" (0) instead; the adapter's 64 KiB
+             * MaximumTransferLength still caps each SRB.
+             */
+            if ((Srb->Cdb[0] == SCSIOP_INQUIRY) &&
+                ((Srb->Cdb[1] & 0x01U) != 0) &&
+                (Srb->Cdb[2] == 0xB0U) &&
+                (ActualLength >= 16UL)) {
+                RtlZeroMemory((PUCHAR)Srb->DataBuffer + 12, 4);
+            }
+#endif
         }
     }
     Srb->DataTransferLength = ActualLength;

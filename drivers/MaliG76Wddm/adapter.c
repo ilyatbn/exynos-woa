@@ -633,6 +633,9 @@ static ULONG ReadParameter(HANDLE Params, PCWSTR Name, ULONG Default)
     return *(const ULONG *)v->Data;
 }
 
+/* Why the mode is what it is, for the PRAM trace: what was read (MwPramText "Params" line in DriverEntry). */
+static ULONG ParamGpu, ParamFull, ParamKeys;
+
 /* The mode, and the switches that are not modes (Parameters\PramTrace, default 1). */
 static MW_MODE ReadMode(PUNICODE_STRING RegistryPath, ULONG *PramTrace)
 {
@@ -649,6 +652,9 @@ static MW_MODE ReadMode(PUNICODE_STRING RegistryPath, ULONG *PramTrace)
     }
     gpu = ReadParameter(params, L"GpuEnable", 0);
     full = ReadParameter(params, L"FullAdapter", 0);
+    ParamGpu = gpu;
+    ParamFull = full;
+    ParamKeys = (svc != NULL ? 1u : 0u) | (params != NULL ? 2u : 0u);
     *PramTrace = ReadParameter(params, L"PramTrace", 1);
     MwSoftVsync = ReadParameter(params, L"SoftVsync", 1) != 0;
     MwFlipBlt = ReadParameter(params, L"FlipBlt", 1) != 0;
@@ -779,6 +785,18 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 
     MwMode = ReadMode(RegistryPath, &pram);
     MwPramInit(pram, (ULONG)MwMode, MW_BUILD);
+    {
+        /* The mode's reason: GpuEnable (bits 31..24, low byte of the value), FullAdapter (23..16), keys opened
+         * (15..8: 1 service key, 2 Parameters), SoftVsync (7..4), FlipBlt (3..0). The mode is 2 if GpuEnable is
+         * exactly 1, else 1 if FullAdapter is exactly 1, else 0 - read once here, nothing changes it later. */
+        LARGE_INTEGER now;
+        MwPramText(TRUE, "Params g.f.keys.vs.fb ", NULL,
+                   ((ParamGpu & 0xFF) << 24) | ((ParamFull & 0xFF) << 16) | (ParamKeys << 8) |
+                   ((MwSoftVsync & 0xF) << 4) | (MwFlipBlt & 0xF), TRUE);
+        /* Wall clock (Unix seconds), so a saved \WINPRAM.BIN can be matched to the boot that wrote it. */
+        KeQuerySystemTimePrecise(&now);
+        MwPramText(TRUE, "UnixTime ", NULL, (ULONG)(now.QuadPart / 10000000LL - 11644473600LL), TRUE);
+    }
     st = MwMode == MwModeDisplayOnly ? InitDisplayOnly(DriverObject, RegistryPath)
                                      : InitFull(DriverObject, RegistryPath);
     MwPramText(TRUE, "DxgkInitialize ", NULL, (ULONG)st, TRUE);

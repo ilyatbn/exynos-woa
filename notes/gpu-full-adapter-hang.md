@@ -251,3 +251,28 @@ Start state (HANDOFF §32): \S10EDIAG\nogpu.flg SET, MaliG76Wddm 1.0.10.1 instal
 - Packaged INF sha256 == repo INF (4AB4F4D1...); the .sys was built after the last code commit (F2) and the INF
   bump; signer thumbprint of sys and cat = 5DD5DEE1... (Get-AuthenticodeSignature; signtool verify /pa stops at the
   untrusted WDK test root on this PC, as expected). No defect.
+
+## Device run g13fullc (boot #114, coordinator) - analysis 2026-10-13
+Logs: scratchpad\runs\g13fullc (marks.txt, last\gpu\*, WINPRAM.BIN, UEFILOG.TXT).
+- **The mode was right; the WINPRAM.BIN was from another boot.** The live peek taken in pass 2
+  (last\gpu\maliwddm-pram-peek.txt, decoded) says `0000003066 000001 LOAD mode 1 build 0000000d new`, Mode 1 is also
+  the registry trace's latest value, and parameters-this-boot.txt = GpuEnable 0 FullAdapter 1. The saved
+  WINPRAM.BIN's slice (`LOAD mode 0 ... new` at 11.2 s, SetPowerState at 78 s, presents p49e) is an earlier
+  display-only boot: this run's clean restart was dumped by the firmware as \WINPRAM-RESTART.BIN (UEFILOG
+  "DUMP \WINPRAM-RESTART.BIN 0x8FE00000+0x10000 -> Success", Beyond0LteBootLogDxe.c:565 - the 0x80 restart-marker
+  path, which also does NOT zero the slice). Pull WINPRAM-RESTART.BIN for runs that end in a clean restart.
+  ReadMode is DriverEntry-only and nothing changes MwMode later (rg "MwMode =": adapter.c DriverEntry only);
+  StartDevice never falls back to display-only (ResContract/GpuProbe failures only leave the GPU half off).
+- **Mode 1 did NOT hang with mali-g13** (live trace): StartDevice ok at 11.5 s, QAI, GetNodeMetadata, CreateDevice/
+  CreateContext, BuildPagingBuffer, VidPN, Get/CreateAllocation (primary), CommitVidPn 401e0307
+  (STATUS_GRAPHICS_MODE_NOT_PINNED, informational), SetVidPnSourceVisibility, **ControlInterrupt + "Vsync on
+  00000001" at 17.1 s**, Escape 0, CreateDevice x3, DestroyDevice at 19.2/19.7 s; heartbeat at 319.6 s
+  `HB i0 d499d v499d s0 p0 f0` = 18 845 soft vsyncs in ~302 s (62/s), DPCs alive, **zero Render/Present/Submit**.
+  The desktop came up (explorer 30 s, agent ran). So the device after the fix shows what run 6 showed for the
+  original: DWM's device on maliumd.dll gives up after an Escape (DestroyDevice) and never presents; Windows composes
+  elsewhere (Basic Render, no output on our adapter) -> dark screen. The g10 hang with no vsync is consistent with
+  F1 being the fix (A/B: SoftVsync 0 on this build should reproduce the hang - one boot answers it).
+- s10ediag dumpram failed "ioctl 0x8d102000 failed: 59" (MmCopyMemory physical refuses this firmware-reserved RAM);
+  the peek worked -> dumpram line removed from extra-gpu-mode.cmd.
+- Added: DriverEntry PRAM lines `Params g.f.keys.vs.fb <hex>` (GpuEnable byte, FullAdapter byte, keys opened
+  1 = service 2 = Parameters, SoftVsync, FlipBlt) and `UnixTime <hex>` (wall clock, to match a dump to its boot).

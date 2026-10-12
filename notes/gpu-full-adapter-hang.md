@@ -134,3 +134,15 @@ never were.
    slow, not a deadlock. Kept; PRAM now precedes it.
 8. **DxgkCbSynchronizeExecution failing** (no interrupt connected for 3 line SPIs?) -> SubmitCommand returns
    STATUS_UNSUCCESSFUL -> VidSch bugcheck, not silent. Visible in PRAM as "<SubmitCommand c0000001".
+
+## F1 - software vsync (command.c, Parameters\SoftVsync default 1)
+- ControlInterrupt: non-CRTC_VSYNC -> STATUS_NOT_IMPLEMENTED (MS Learn); CRTC_VSYNC enable starts a periodic 16 ms
+  KTIMER (whole-ms resolution of KeSetTimerEx), disable cancels it; PRAM line "Vsync on/off <SoftVsync>".
+- Timer DPC -> DxgkCbSynchronizeExecution(SyncVsync): DxgkCbNotifyInterrupt(CRTC_VSYNC, target 0, PhysicalAddress =
+  last SetVidPnSourceAddress PrimaryAddress) + DxgkCbQueueDpc; VsyncTicks -> heartbeat "v". If the very first
+  SynchronizeExecution fails (no interrupt object) the timer stops and PRAM says "SoftVsync sync failed, stopped".
+- GetScanLine: line = phase of the interrupt clock in a 1/60 s frame of Height+45 lines; InVerticalBlank in the
+  last 45. SetVidPnSourceAddress keeps PrimaryAddress (a store, legal up to DIRQL).
+- MwCommandStop (StopDevice, full modes) clears VsEnabled, cancels the timer before KeFlushQueuedDpcs.
+- UNVERIFIED: the panel's real refresh (sboot's DECON timing) - 60 Hz is what the VidPN reports, not a register read.
+- Build 5: exit 0, sys sha256 047BA8E8...

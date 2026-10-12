@@ -57,6 +57,9 @@ typedef enum _MW_MODE {
 } MW_MODE;
 
 extern MW_MODE MwMode;          /* set once in DriverEntry */
+/* Parameters\SoftVsync (default 1): the full adapter reports a 60 Hz software vsync while dxgkrnl has it enabled
+ * (command.c); 0 = the original's behaviour (ControlInterrupt says yes, no vsync is ever reported). */
+extern ULONG MwSoftVsync;
 
 /* ---- objects ---- */
 
@@ -170,6 +173,12 @@ struct _MW_ADAPTER {
     KTIMER HbTimer;
     KDPC HbDpc;
     BOOLEAN HbArmed;
+
+    /* Software vsync (command.c, Parameters\SoftVsync): a 60 Hz timer while dxgkrnl has CRTC_VSYNC enabled. */
+    KTIMER VsTimer;
+    KDPC VsDpc;
+    volatile LONG VsEnabled;
+    PHYSICAL_ADDRESS ScanoutAddress;    /* the last SetVidPnSourceAddress PrimaryAddress, reported with each vsync */
     volatile LONG IsrCalls, DpcCalls, VsyncTicks;
 };
 

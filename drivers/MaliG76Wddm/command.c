@@ -437,11 +437,56 @@ void MwArmPoll(MW_ADAPTER *A)
     KeSetTimer(&A->PollTimer, due, &A->PollDpc);
 }
 
+/* ---- software vsync ----
+ * G76: the S10e's display (DECON) is the firmware's and this driver has no interrupt from it, but a full WDDM
+ * driver that is asked to enable DXGK_INTERRUPT_CRTC_VSYNC must report one every vertical retrace (MS Learn,
+ * DxgkDdiControlInterrupt remarks). The original answered "enabled" and never reported one, so every vblank wait in
+ * dxgkrnl (DWM pacing, sync-interval presents, flips) waited forever - the prime suspect for the full-adapter black
+ * screen (notes/gpu-full-adapter-hang.md). A periodic timer stands in: its DPC reports the vsync at the device's
+ * interrupt level through DxgkCbSynchronizeExecution and queues our DPC, as DxgkCbNotifyInterrupt requires. The
+ * panel's real refresh is whatever sboot programmed (60 Hz on this phone, UNVERIFIED by a register read); the timer
+ * runs at the 60 Hz the VidPN reports (display.c FillSignal) to the timer resolution (KeSetTimerEx: whole ms). */
+#define MW_VSYNC_PERIOD_MS      16
+#define MW_VSYNC_PERIOD_100NS   166667ULL       /* 1/60 s, for GetScanLine */
+
+static BOOLEAN SyncVsync(PVOID Context)
+{
+    MW_ADAPTER *a = (MW_ADAPTER *)Context;
+    DXGKARGCB_NOTIFY_INTERRUPT_DATA n = {0};
+
+    n.InterruptType = DXGK_INTERRUPT_CRTC_VSYNC;
+    n.CrtcVsync.VidPnTargetId = 0;
+    n.CrtcVsync.PhysicalAddress = a->ScanoutAddress;
+    a->Dxgk.DxgkCbNotifyInterrupt(a->Dxgk.DeviceHandle, &n);
+    a->Dxgk.DxgkCbQueueDpc(a->Dxgk.DeviceHandle);
+    return TRUE;
+}
+
+static VOID VsDpc(PKDPC Dpc, PVOID Context, PVOID Arg1, PVOID Arg2)
+{
+    MW_ADAPTER *a = (MW_ADAPTER *)Context;
+    UNREFERENCED_PARAMETER(Dpc);
+    UNREFERENCED_PARAMETER(Arg1);
+    UNREFERENCED_PARAMETER(Arg2);
+
+    if (a->Stopping || !a->VsEnabled)
+        return;
+    if (Synchronize(a, SyncVsync, a))
+        InterlockedIncrement(&a->VsyncTicks);
+    else if (a->VsyncTicks == 0 && InterlockedExchange(&a->VsEnabled, 0) != 0) {
+        /* No interrupt object to synchronize with: stop instead of retrying 60 times a second. */
+        KeCancelTimer(&a->VsTimer);
+        MwPramText(TRUE, "SoftVsync sync failed, stopped", NULL, 0, FALSE);
+    }
+}
+
 void MwCommandInit(MW_ADAPTER *A)
 {
     A->Stopping = FALSE;
     KeInitializeTimer(&A->PollTimer);
     KeInitializeDpc(&A->PollDpc, PollDpc, A);
+    KeInitializeTimer(&A->VsTimer);
+    KeInitializeDpc(&A->VsDpc, VsDpc, A);
 }
 
 void MwCommandStop(MW_ADAPTER *A)
@@ -449,6 +494,8 @@ void MwCommandStop(MW_ADAPTER *A)
     A->Stopping = TRUE;
     KeMemoryBarrier();
     KeCancelTimer(&A->PollTimer);
+    InterlockedExchange(&A->VsEnabled, 0);
+    KeCancelTimer(&A->VsTimer);
     KeFlushQueuedDpcs();
     InterlockedExchange(&A->PollArmed, 0);
 }
@@ -585,21 +632,46 @@ NTSTATUS APIENTRY MwCancelCommand(IN_CONST_HANDLE hAdapter, const DXGKARG_CANCEL
     return STATUS_SUCCESS;
 }
 
-/* No vsync interrupt yet (the VOP2 is not ours to touch). */
+/* G76: CRTC_VSYNC is the only type dxgkrnl passes; any other must be NOT_IMPLEMENTED (MS Learn). With SoftVsync the
+ * timer above runs while enabled; with SoftVsync 0 the original's answer (enabled, never reported). */
 NTSTATUS APIENTRY MwControlInterrupt(IN_CONST_HANDLE hAdapter, IN_CONST_DXGK_INTERRUPT_TYPE Type,
                                      IN_BOOLEAN Enable)
 {
-    UNREFERENCED_PARAMETER(hAdapter);
-    UNREFERENCED_PARAMETER(Type);
-    UNREFERENCED_PARAMETER(Enable);
+    MW_ADAPTER *a = (MW_ADAPTER *)hAdapter;
+
+    if (Type != DXGK_INTERRUPT_CRTC_VSYNC)
+        return STATUS_NOT_IMPLEMENTED;
+    MwPramText(FALSE, Enable ? "Vsync on " : "Vsync off ", NULL, MwSoftVsync, TRUE);
+    if (!MwSoftVsync || a->Stopping)
+        return STATUS_SUCCESS;
+    if (Enable) {
+        if (InterlockedExchange(&a->VsEnabled, 1) == 0) {
+            LARGE_INTEGER due;
+            due.QuadPart = -10000LL * MW_VSYNC_PERIOD_MS;
+            KeSetTimerEx(&a->VsTimer, due, MW_VSYNC_PERIOD_MS, &a->VsDpc);
+        }
+    } else if (InterlockedExchange(&a->VsEnabled, 0) != 0) {
+        KeCancelTimer(&a->VsTimer);
+    }
     return STATUS_SUCCESS;
 }
 
+/* G76: with SoftVsync, a scan position from the clock (one 60 Hz frame of Height + 45 lines, display.c FillSignal's
+ * blanking), so a poller waiting for the vertical blank sees one; the original always said line 0, never in blank. */
 NTSTATUS APIENTRY MwGetScanLine(IN_CONST_HANDLE hAdapter, DXGKARG_GETSCANLINE *Arg)
 {
-    UNREFERENCED_PARAMETER(hAdapter);
-    Arg->InVerticalBlank = FALSE;
-    Arg->ScanLine = 0;
+    MW_ADAPTER *a = (MW_ADAPTER *)hAdapter;
+    ULONG total = a->Fb.Height + 45;
+    ULONG line;
+
+    if (!MwSoftVsync || a->Fb.Height == 0) {
+        Arg->InVerticalBlank = FALSE;
+        Arg->ScanLine = 0;
+        return STATUS_SUCCESS;
+    }
+    line = (ULONG)((KeQueryInterruptTime() % MW_VSYNC_PERIOD_100NS) * total / MW_VSYNC_PERIOD_100NS);
+    Arg->InVerticalBlank = line >= a->Fb.Height;
+    Arg->ScanLine = Arg->InVerticalBlank ? 0 : line;
     return STATUS_SUCCESS;
 }
 

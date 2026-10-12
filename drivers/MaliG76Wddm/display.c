@@ -575,8 +575,9 @@ VOID APIENTRY MwSystemDisplayWrite(IN_CONST_PVOID MiniportDeviceContext, IN_CONS
 
 NTSTATUS APIENTRY MwSetVidPnSourceAddress(IN_CONST_HANDLE hAdapter, const DXGKARG_SETVIDPNSOURCEADDRESS *Arg)
 {
-    UNREFERENCED_PARAMETER(hAdapter);
-    UNREFERENCED_PARAMETER(Arg);
-    /* Step d of the original: flips are not handled; presents are CPU copies (command.c). */
+    MW_ADAPTER *dev = (MW_ADAPTER *)hAdapter;
+    /* Step d of the original: nothing is reprogrammed; presents are CPU copies (command.c). G76: the address is
+     * kept, the software vsync reports it as the one being scanned out (command.c SyncVsync). Up to DIRQL: a store. */
+    dev->ScanoutAddress = Arg->PrimaryAddress;
     return STATUS_SUCCESS;
 }

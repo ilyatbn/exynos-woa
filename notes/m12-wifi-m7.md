@@ -240,3 +240,17 @@ Refs: scratchpad src/bcmdhd (LineageOS lineage-23.2) and src/brcmfmac (torvalds 
   lineage-23.2 header, and nothing proves fw 18.41.117 uses that struct revision, yet the source/log presented the
   decode as fact. Fixed in a follow-up commit: header comment + log line mark the decode UNVERIFIED (hex = ground
   truth). Close it with the first join-end dump: the WLC tlv's rxframe/txframe must be plausible for the run.
+- Task 5 (other cited rx-path differences) - checked, nothing more changed in code:
+  - D2H mailbox: DHD dhdpcie_handle_mb_data (dhd_pcie.c:8146-8200) and fmac brcmf_pcie_handle_mb_data
+    (pcie.c:800-831) read + clear d2h_mb_data and answer DS_ENTER_REQ (0x2, bcmpcie.h:464) with H2D_HOST_DS_ACK
+    (0x2, :442). The two refs deliver the ack differently (DHD for shared rev >= 6: an H2D ctrl message,
+    dhd_pcie.c:7993-8004; fmac: h2d_mb_data word + config SBMBX 0x98 write, pcie.c:763-795, pcie_core.h:943), and
+    our host_cap carries DS_NO_OOB_DW, which DHD sets to "Disable DS altogether" (dhd_msgbuf.c:3092-3096). Not
+    implemented: the join-end "[diag] d2h_mb_data" value (deliberately not cleared) shows first whether the fw ever
+    asks. Next step if it reads 0x2.
+  - Ring geometry: fmac uses 1024-item rxpost / rx-cpl rings (msgbuf.h:11, :14), DHD 512 (bcmmsgbuf.h:62, :65);
+    both are host choices written to ring_mem; the fw console says 511 rxcplid buffers. Kept 512 (DHD = the vendor
+    driver for this chip); the join-end ring_mem read-back now shows what the fw holds.
+  - rxpost item flags (phase): DHD writes ring->current_phase, 0 for H2D rings (dhd_msgbuf.c:1354, :4606) -
+    identical to ours. Interrupt mask (fmac pcie.c:914-919 before hostready): polled driver, ctrl completions
+    already work without it; now logged (PCIMailBoxMask) instead of written.

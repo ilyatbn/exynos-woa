@@ -284,3 +284,7 @@ What the logs must show (Exynos9820WlanCx.txt = bring-up, -run.txt = runtime):
   sleep fails start: the firmware is quiesced at D0 exit and only PrepareHardware reloads it), interrupt instead of
   polling, flowring delete on disconnect (single flowring keeps the first AP's DA), TKIP group cipher, WPA3/SAE,
   abort of a running connect (worker blocked up to 2 x 20 s).
+- Review of e20e069 (script + notes): working copy CRLF, repo blob LF like extra-wifi-collect.cmd (same
+  attribute handling); findstr searches literal (/l: "[wdi]" etc. would otherwise be regex classes); only the
+  bring-up/run key lines become marks, the per-command [wdi] lines go to wdi.txt; no credentials anywhere; the
+  package's sha256 in the notes re-checked against s10e-artifacts\wifi-cx3. No findings.

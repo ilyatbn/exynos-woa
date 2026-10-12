@@ -3,17 +3,14 @@
  *
  * Shape: Microsoft Windows-driver-samples audio/Acx/Samples (tree 2dc3fd3a): Common/RenderCircuit.cpp
  * (circuit, host + bridge pin, jack, formats) and Common/StreamEngine.cpp (RT packets, one-shot high-resolution
- * WDF timer per packet, QPC position). Differences, each for a reason in notes/d8-audio-win-m1.md "Design":
- *   - the packets are carved from ONE physically contiguous allocation below 4 GiB, so the ring is a valid ABOX
- *     RDMA buffer (32-bit BUF_STR/END); packet 0 ends exactly where packet 1 starts;
- *   - cache maintenance (clean) on SetRenderPacket, Run and every packet tick: the ABOX DMA does not snoop
- *     (the m12-wifi-m5 lesson);
+ * WDF timer per packet). Differences, each for a reason in notes/d8-audio-win-m1.md:
+ *   - the endpoint is 48 kHz stereo 16/32-bit, but the validated UAIF1 frame is 4 x 32-bit slots, so the packet timer
+ *     expands each client packet into a separate non-cached DMA ring one period ahead of the RDMA (see "Stream");
+ *   - the packet clock is the RDMA frame counter while the hardware runs (QPC otherwise);
  *   - no volume/mute element unless Parameters\HwVolume = 1: without one, audiodg applies endpoint volume in
- *     software, which is what makes the volume keys and the slider work before the hardware path is proven;
- *   - the timer clock stays the stream clock; when the hardware runs, the RDMA offset is only logged next to it;
- *   - UpdatePosition subtracts the glitch time in time units (the sample subtracts HNS from a byte count).
+ *     software, which is what makes the volume keys and the slider work.
  *
- * NOT VALIDATED ON HARDWARE (stage Guided).
+ * The hardware sequence is device-validated in UEFI (boot #99); this driver is NOT VALIDATED UNDER WINDOWS.
  */
 
 #include "Exynos9820Audio.h"
@@ -330,22 +327,62 @@ NTSTATUS AudRenderCircuitCreate(_In_ WDFDEVICE Device, _In_ PAUD_DEVICE_CONTEXT 
 }
 
 /* ================================================================================================================
- * Stream: ring, clock, state.
+ * Stream: client packets, DMA ring, clock, state.
+ *
+ * Client side (what ACX maps to audiodg): <= 2 packets of 48 kHz stereo 16/32-bit, CPU-only memory.
+ * Hardware side: a NON-CACHED contiguous ring below 4 GiB of AUD_DMA_SLOTS periods, each period = one packet's
+ * frames x 16 bytes (UAIF1 frame: 4 x 32-bit slots, left-justified; slot 1 = loudspeaker amp, slot 0 = earpiece amp).
+ * Non-cached: the CPU writes it, only the RDMA reads it, so no cache maintenance and no aliasing with a user mapping.
+ *
+ * Timeline (per Run, j = periods elapsed, k0 = CurrentPacket at Run):
+ *   at Run       : ring slots zeroed, packet k0 expanded into slot 1, RDMA started at slot 0 (one period of silence);
+ *   boundary j>=1: packet k0+j-1 is complete (the RDMA is now playing it), CurrentPacket = k0+j, and packet k0+j
+ *                  (written by the client during the previous period) is expanded into slot (j+1) % AUD_DMA_SLOTS,
+ *                  one full period before the RDMA reaches it.
+ * Boundaries come from the RDMA frame counter (STATUS[11:0], 48 kHz mod 4096) while the hardware runs, so the client
+ * follows the audio PLL, not the QPC; without hardware (disabled or failed) the QPC drives the same timeline.
  * ================================================================================================================ */
 
-static VOID AudRingClean(_In_ PAUD_STREAM_CONTEXT Ctx, _In_ ULONG Packet)
+#define AUD_DMA_SLOTS        4u     /* periods in the DMA ring: reading j, writing j+1, two spare */
+
+static PUCHAR AudPacketVa(_In_ PAUD_STREAM_CONTEXT Ctx, _In_ ULONG Packet)
 {
-    if (Ctx->Dev->Cfg.CacheMaint && Packet < Ctx->PacketCount && Ctx->PacketMdl[Packet] != NULL) {
-        KeFlushIoBuffers(Ctx->PacketMdl[Packet], FALSE, TRUE);
-    }
+    ULONG Index = Packet % Ctx->PacketCount;
+
+    return Ctx->RingAlloc + (SIZE_T)Index * Ctx->AllocPerPacket + ((Index == 0) ? Ctx->FirstPacketOffset : 0);
 }
 
-static VOID AudRingCleanAll(_In_ PAUD_STREAM_CONTEXT Ctx)
+/* Fill one DMA slot. Explicit 32-bit volatile stores: the ring is non-cached (possibly Device memory on ARM64), where
+   the DC ZVA / unaligned accesses a memset/memcpy may emit would fault. */
+static VOID AudDmaFillSlot(_In_ PAUD_STREAM_CONTEXT Ctx, _In_ ULONG Slot, _In_opt_ PUCHAR Src)
 {
-    ULONG I;
+    volatile LONG *Dst = (volatile LONG *)(Ctx->DmaVa + (SIZE_T)(Slot % AUD_DMA_SLOTS) * Ctx->DmaSlotBytes);
+    ULONG          F;
+    LONG           L;
+    LONG           R;
 
-    for (I = 0; I < Ctx->PacketCount; I++) {
-        AudRingClean(Ctx, I);
+    for (F = 0; F < Ctx->FramesPerPacket; F++) {
+        L = 0;
+        R = 0;
+        if (Src != NULL) {
+            if (Ctx->BitsPerSample == 16) {
+                L = (LONG)((PSHORT)Src)[2 * F] * 65536;          /* left-justified in the 32-bit slot */
+                R = (LONG)((PSHORT)Src)[2 * F + 1] * 65536;
+            } else {
+                L = ((PLONG)Src)[2 * F];
+                R = ((PLONG)Src)[2 * F + 1];
+            }
+        }
+
+        if (Ctx->Dev->Cfg.Stereo) {
+            Dst[4 * F + 0] = L;                                  /* earpiece amp @0x41 */
+            Dst[4 * F + 1] = R;                                  /* loudspeaker amp @0x40 */
+        } else {
+            Dst[4 * F + 0] = 0;
+            Dst[4 * F + 1] = (L / 2) + (R / 2);                  /* mono mix on the loudspeaker */
+        }
+        Dst[4 * F + 2] = 0;
+        Dst[4 * F + 3] = 0;
     }
 }
 
@@ -365,9 +402,17 @@ static VOID AudRingFree(_Inout_ PAUD_STREAM_CONTEXT Ctx)
         Ctx->RingAlloc = NULL;
     }
 
+    if (Ctx->DmaVa != NULL) {
+        if (Ctx->Dev->AboxDmaStuck) {
+            /* The RDMA never reported idle: leaking 4 periods beats a DMA reading freed memory (UEFI :621-625). */
+            AudLog(Ctx->Dev->Log, "stream: RDMA0 still busy - DMA ring 0x%I64X leaked\r\n", Ctx->DmaPhys.QuadPart);
+        } else {
+            MmFreeContiguousMemory(Ctx->DmaVa);
+        }
+        Ctx->DmaVa = NULL;
+    }
+
     Ctx->PacketCount = 0;
-    Ctx->RingBytes   = 0;
-    Ctx->RingHwUsable = FALSE;
 }
 
 static ULONGLONG AudNowHns(_In_ PAUD_STREAM_CONTEXT Ctx)
@@ -375,59 +420,86 @@ static ULONGLONG AudNowHns(_In_ PAUD_STREAM_CONTEXT Ctx)
     return KSCONVERT_PERFORMANCE_TIME(Ctx->QpcFrequency.QuadPart, KeQueryPerformanceCounter(NULL));
 }
 
-/* Sample CStreamEngine::UpdatePosition, glitch time subtracted as time. */
+/* Frames since this Run: RDMA frame counter (accumulated mod 4096, must be sampled at least every 85 ms - the packet
+   timer does) while the hardware runs, else QPC. Callable at <= DISPATCH_LEVEL. */
+static ULONGLONG AudElapsedFrames(_Inout_ PAUD_STREAM_CONTEXT Ctx)
+{
+    ULONG     Count;
+    ULONGLONG Frames;
+    KIRQL     OldIrql;
+
+    if (!Ctx->HwStarted) {
+        return (AudNowHns(Ctx) - Ctx->StartTime) * AUD_RATE / AUD_HNS_PER_SEC;
+    }
+
+    KeAcquireSpinLock(&Ctx->HwLock, &OldIrql);
+    if (NT_SUCCESS(AboxFrameCount(Ctx->Dev, &Count))) {
+        Ctx->HwFrames += (Count - Ctx->HwLast12) & 0xFFFu;
+        Ctx->HwLast12  = Count;
+    }
+    Frames = Ctx->HwFrames;
+    KeReleaseSpinLock(&Ctx->HwLock, OldIrql);
+    return Frames;
+}
+
+/* Bytes the listener has heard since the stream started (the silent first period of a hardware run excluded). */
 static VOID AudUpdatePosition(_Inout_ PAUD_STREAM_CONTEXT Ctx)
 {
-    ULONGLONG Elapsed;
+    ULONGLONG Frames;
 
     if (Ctx->State != AcxStreamStateRun) {
         return;
     }
 
-    Elapsed = AudNowHns(Ctx) - Ctx->StartTime;
-    Elapsed = (Elapsed > Ctx->GlitchAdjust) ? Elapsed - Ctx->GlitchAdjust : 0;
-    Ctx->Position = Ctx->StartPosition + Elapsed * Ctx->BytesPerSec / AUD_HNS_PER_SEC;
+    Frames = AudElapsedFrames(Ctx);
+    if (Ctx->HwStarted) {
+        Frames = (Frames > Ctx->FramesPerPacket) ? Frames - Ctx->FramesPerPacket : 0;
+    }
+    Ctx->Position = Ctx->StartPosition + Frames * Ctx->BlockAlign;
 }
 
-/* Relative timer delay (negative HNS) until the current packet ends; >= 0 means the time already passed. */
-static LONGLONG AudNextDelay(_In_ PAUD_STREAM_CONTEXT Ctx)
+/* Relative timer due time (negative HNS) for the next boundary; never shorter than 1 ms. */
+static LONGLONG AudNextDue(_In_ PAUD_STREAM_CONTEXT Ctx, _In_ ULONGLONG Frames)
 {
-    ULONGLONG NextStart = ((ULONGLONG)(ULONG)Ctx->CurrentPacket + 1) * Ctx->PacketSize;
-    ULONGLONG FromPause = (NextStart > Ctx->StartPosition) ? NextStart - Ctx->StartPosition : 0;
-    ULONGLONG When      = Ctx->StartTime + Ctx->GlitchAdjust + FromPause * AUD_HNS_PER_SEC / Ctx->BytesPerSec;
+    ULONGLONG Next = ((ULONGLONG)Ctx->Periods + 1) * Ctx->FramesPerPacket;
+    ULONGLONG Hns  = (Next > Frames) ? (Next - Frames) * AUD_HNS_PER_SEC / AUD_RATE : 0;
 
-    return -(LONGLONG)(When - AudNowHns(Ctx));
+    if (Ctx->HwStarted) {
+        Hns += 5000;                                   /* 0.5 ms past the boundary: no wake-up just before it */
+    }
+    return -(LONGLONG)((Hns < 10000) ? 10000 : Hns);
 }
 
 _Use_decl_annotations_
 VOID AudEvtStreamTimer(WDFTIMER Timer)
 {
     PAUD_STREAM_CONTEXT Ctx = AudGetTimerContext(Timer)->Stream;
+    ULONGLONG           Frames;
+    ULONG               Done = 0;
     ULONG               Completed;
-    LONGLONG            Delay;
-    ULONG               HwOff;
 
-    for (;;) {
-        /* The packet the DMA moves to next was written by the client while this one played: push it to DRAM. */
-        AudRingCleanAll(Ctx);
-
+    Frames = AudElapsedFrames(Ctx);
+    while (Frames >= ((ULONGLONG)Ctx->Periods + 1) * Ctx->FramesPerPacket) {
+        Ctx->Periods++;
         Completed = (ULONG)InterlockedIncrement(&Ctx->CurrentPacket) - 1;
+        if (Ctx->HwStarted) {
+            AudDmaFillSlot(Ctx, Ctx->Periods + 1, AudPacketVa(Ctx, Completed + 1));
+            KeMemoryBarrier();
+        }
         (VOID)AcxRtStreamNotifyPacketComplete(Ctx->Stream, Completed, (ULONGLONG)KeQueryPerformanceCounter(NULL).QuadPart);
+        Done++;
 
-        if (Ctx->HwStarted && (Completed % AUD_HW_LOG_PACKETS) == 0 && NT_SUCCESS(AboxFrameCount(Ctx->Dev, &HwOff))) {
-            AudLog(Ctx->Dev->Log, "stream: packet %lu, RDMA0 frame counter 0x%03lX\r\n", Completed, HwOff);
+        if (Ctx->HwStarted && (Completed % AUD_HW_LOG_PACKETS) == 0) {
+            AudLog(Ctx->Dev->Log, "stream: packet %lu complete, RDMA frames %I64u (counter 0x%03lX)\r\n", Completed, Frames,
+                   Ctx->HwLast12);
         }
-
-        Delay = AudNextDelay(Ctx);
-        if (Delay < 0) {
-            (VOID)WdfTimerStart(Timer, Delay);
-            return;
-        }
-
-        /* Late (debugger, long DPC): absorb the lost time and complete the next packet now (sample glitch path). */
-        Ctx->GlitchAdjust += (ULONGLONG)Delay;
-        Ctx->Glitches++;
     }
+
+    if (Done > 1) {
+        Ctx->Glitches++;                               /* late wake-up: several boundaries in one pass */
+    }
+
+    (VOID)WdfTimerStart(Timer, AudNextDue(Ctx, Frames));
 }
 
 _Use_decl_annotations_
@@ -438,31 +510,39 @@ NTSTATUS AudEvtStreamAllocateRtPackets(ACXSTREAM Stream, ULONG PacketCount, ULON
     PHYSICAL_ADDRESS    High;
     PHYSICAL_ADDRESS    Skip;
     PACX_RTPACKET       P;
-    ULONG               AllocPer;
     ULONG               I;
 
     PAGED_CODE();
 
     *Packets = NULL;
-    if (PacketCount == 0 || PacketCount > AUD_MAX_PACKETS || PacketSize == 0 || PacketSize > (1u << 20)) {
+    if (PacketCount == 0 || PacketCount > AUD_MAX_PACKETS || PacketSize == 0 || PacketSize > (1u << 20) ||
+        (PacketSize % Ctx->BlockAlign) != 0) {
         return STATUS_INVALID_PARAMETER;
     }
-    if (Ctx->RingAlloc != NULL) {
+    if (Ctx->RingAlloc != NULL || Ctx->DmaVa != NULL) {
         return STATUS_INVALID_DEVICE_STATE;
     }
 
-    AllocPer = (ULONG)ROUND_TO_PAGES(PacketSize);
     Low.QuadPart  = 0;
-    High.QuadPart = 0xFFFFFFFFLL;   /* RDMA BUF_STR/BUF_END are 32-bit SFRs */
+    High.QuadPart = 0xFFFFFFFFLL;   /* RDMA BUF_STR/BUF_END are 32-bit SFRs (only the DMA ring needs it) */
     Skip.QuadPart = 0;
-    Ctx->RingAllocBytes = (SIZE_T)AllocPer * PacketCount;
-    Ctx->RingAlloc = (PUCHAR)MmAllocateContiguousNodeMemory(Ctx->RingAllocBytes, Low, High, Skip, PAGE_READWRITE,
-                                                            MM_ANY_NODE_OK);
+
+    /* Client packets: page-rounded, packet 0 ends where packet 1 starts (sample layout); CPU-only, cached. */
+    Ctx->AllocPerPacket = (ULONG)ROUND_TO_PAGES(PacketSize);
+    Ctx->RingAlloc = (PUCHAR)MmAllocateContiguousNodeMemory((SIZE_T)Ctx->AllocPerPacket * PacketCount, Low, High, Skip,
+                                                            PAGE_READWRITE, MM_ANY_NODE_OK);
     if (Ctx->RingAlloc == NULL) {
-        AudLog(Ctx->Dev->Log, "stream: no contiguous memory below 4 GiB for %lu x %lu B\r\n", PacketCount, PacketSize);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
-    RtlZeroMemory(Ctx->RingAlloc, Ctx->RingAllocBytes);
+    RtlZeroMemory(Ctx->RingAlloc, (SIZE_T)Ctx->AllocPerPacket * PacketCount);
+
+    /* DMA ring: AUD_DMA_SLOTS periods of 4 x 32-bit frames, non-cached. A failure only costs the hardware path. */
+    Ctx->FramesPerPacket = PacketSize / Ctx->BlockAlign;
+    Ctx->DmaSlotBytes    = Ctx->FramesPerPacket * AUD_HW_FRAME_BYTES;
+    Ctx->DmaBytes        = Ctx->DmaSlotBytes * AUD_DMA_SLOTS;
+    Ctx->DmaVa = (PUCHAR)MmAllocateContiguousNodeMemory(Ctx->DmaBytes, Low, High, Skip, PAGE_READWRITE | PAGE_NOCACHE,
+                                                        MM_ANY_NODE_OK);
+    Ctx->DmaPhys.QuadPart = (Ctx->DmaVa != NULL) ? MmGetPhysicalAddress(Ctx->DmaVa).QuadPart : 0;
 
     P = (PACX_RTPACKET)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(ACX_RTPACKET) * PacketCount, AUD_POOL_TAG);
     if (P == NULL) {
@@ -472,9 +552,10 @@ NTSTATUS AudEvtStreamAllocateRtPackets(ACXSTREAM Stream, ULONG PacketCount, ULON
 
     Ctx->PacketCount = PacketCount;
     Ctx->PacketSize  = PacketSize;
-    Ctx->FirstPacketOffset = AllocPer - PacketSize;
+    Ctx->FirstPacketOffset = Ctx->AllocPerPacket - PacketSize;
     for (I = 0; I < PacketCount; I++) {
-        Ctx->PacketMdl[I] = IoAllocateMdl(Ctx->RingAlloc + (SIZE_T)I * AllocPer, AllocPer, FALSE, FALSE, NULL);
+        Ctx->PacketMdl[I] = IoAllocateMdl(Ctx->RingAlloc + (SIZE_T)I * Ctx->AllocPerPacket, Ctx->AllocPerPacket, FALSE,
+                                          FALSE, NULL);
         if (Ctx->PacketMdl[I] == NULL) {
             ExFreePoolWithTag(P, AUD_POOL_TAG);
             AudRingFree(Ctx);
@@ -483,21 +564,14 @@ NTSTATUS AudEvtStreamAllocateRtPackets(ACXSTREAM Stream, ULONG PacketCount, ULON
         MmBuildMdlForNonPagedPool(Ctx->PacketMdl[I]);
 
         ACX_RTPACKET_INIT(&P[I]);
-        WDF_MEMORY_DESCRIPTOR_INIT_MDL(&P[I].RtPacketBuffer, Ctx->PacketMdl[I], AllocPer);
+        WDF_MEMORY_DESCRIPTOR_INIT_MDL(&P[I].RtPacketBuffer, Ctx->PacketMdl[I], Ctx->AllocPerPacket);
         P[I].RtPacketOffset = (I == 0) ? Ctx->FirstPacketOffset : 0;
         P[I].RtPacketSize   = PacketSize;
     }
 
-    Ctx->RingPhys = MmGetPhysicalAddress(Ctx->RingAlloc);
-    Ctx->RingPhys.QuadPart += Ctx->FirstPacketOffset;
-    Ctx->RingBytes    = PacketSize * PacketCount;
-    Ctx->RingHwUsable = ((ULONGLONG)Ctx->RingPhys.QuadPart + Ctx->RingBytes <= 0x100000000ULL) &&
-                        (Ctx->RingPhys.QuadPart % AUD_DMA_ALIGN) == 0 && (PacketSize % AUD_DMA_ALIGN) == 0;
-    AudRingCleanAll(Ctx);
-
-    AudLog(Ctx->Dev->Log, "stream: %lu packets x %lu B (%lu bit), ring phys 0x%I64X + 0x%lX, %s\r\n", PacketCount,
-           PacketSize, Ctx->BitsPerSample, Ctx->RingPhys.QuadPart, Ctx->RingBytes,
-           Ctx->RingHwUsable ? "RDMA-usable" : "NOT RDMA-usable (timer only)");
+    AudLog(Ctx->Dev->Log, "stream: %lu packets x %lu B (%lu frames, %lu bit); DMA ring %s 0x%I64X + 0x%lX (%u x 0x%lX)\r\n",
+           PacketCount, PacketSize, Ctx->FramesPerPacket, Ctx->BitsPerSample, (Ctx->DmaVa != NULL) ? "at" : "NOT allocated,",
+           Ctx->DmaPhys.QuadPart, Ctx->DmaBytes, AUD_DMA_SLOTS, Ctx->DmaSlotBytes);
     *Packets = P;
     return STATUS_SUCCESS;
 }
@@ -558,6 +632,15 @@ NTSTATUS AudEvtStreamPrepareHardware(ACXSTREAM Stream)
     return STATUS_SUCCESS;
 }
 
+static VOID AudHwStop(_Inout_ PAUD_STREAM_CONTEXT Ctx)
+{
+    if (Ctx->HwStarted) {
+        AmpPowerDown(Ctx->Dev);   /* amps first, with UAIF1 still clocked (AudioSpeaker.c :597-604) */
+        AboxStop(Ctx->Dev);
+        Ctx->HwStarted = FALSE;
+    }
+}
+
 _Use_decl_annotations_
 NTSTATUS AudEvtStreamReleaseHardware(ACXSTREAM Stream)
 {
@@ -575,17 +658,11 @@ NTSTATUS AudEvtStreamReleaseHardware(ACXSTREAM Stream)
         Ctx->Timer = NULL;
     }
     KeFlushQueuedDpcs();
+    AudHwStop(Ctx);
 
-    if (Ctx->HwStarted) {
-        AmpPowerDown(Ctx->Dev);
-        AboxStop(Ctx->Dev);
-        Ctx->HwStarted = FALSE;
-    }
-
-    AudLog(Ctx->Dev->Log, "stream: released after %lu packets, %lu glitches, %lu late writes\r\n",
+    AudLog(Ctx->Dev->Log, "stream: released after %lu packets, %lu late timer passes, %lu late writes\r\n",
            (ULONG)Ctx->CurrentPacket, Ctx->Glitches, Ctx->LateWrites);
     Ctx->Position      = 0;
-    Ctx->GlitchAdjust  = 0;
     Ctx->CurrentPacket = 0;
     Ctx->State         = AcxStreamStateStop;
     AudLogFlush(Ctx->Dev->Log);
@@ -593,48 +670,53 @@ NTSTATUS AudEvtStreamReleaseHardware(ACXSTREAM Stream)
 }
 
 /*
- * Hardware start for one Run. Order: stage-1 clocks (the amp PLL locks on BCLK, amp notes row 6.1), then the amps
- * (PUP_DONE poll, up to 100 ms), and the RDMA + SPK_ENABLE LAST, so the caller can take the timer start time right
- * after the DMA starts - the timer clock tells the client which packet to fill and must not lag the DMA.
- * Any failure leaves the timer-only stream running.
+ * Hardware start for one Run, in the boot #99 order: stage-1 clocks, then the RDMA with data (slot 0 silence, slot 1
+ * = the current packet), and only then - from AudEvtStreamRun, with the packet timer already running - the amps,
+ * which need data on UAIF1 for PUP_DONE. Any failure leaves the QPC-clocked stream running, silent.
  */
 static VOID AudHwStart(_Inout_ PAUD_STREAM_CONTEXT Ctx)
 {
     PAUD_DEVICE_CONTEXT Dev = Ctx->Dev;
     NTSTATUS            Status;
-    NTSTATUS            AmpStatus;
+    ULONG               Slot;
+    ULONG               Count = 0;
 
     if (!Dev->Cfg.AboxEnable) {
         return;
     }
-    if (!Ctx->RingHwUsable) {
-        AudLog(Dev->Log, "stream: ring not RDMA-usable - hardware not started\r\n");
+    if (Ctx->DmaVa == NULL) {
+        AudLog(Dev->Log, "stream: no DMA ring - hardware not started\r\n");
         return;
     }
 
     Status = AboxInit(Dev);
     if (!NT_SUCCESS(Status)) {
-        AudLog(Dev->Log, "stream: ABOX stage 1 not ready (%08lX) - timer-only\r\n", Status);
+        AudLog(Dev->Log, "stream: ABOX stage 1 not ready (%08lX) - silent\r\n", Status);
         return;
     }
 
-    AmpStatus = AmpPowerUp(Dev);
-    Status = AboxStart(Dev, Ctx->RingPhys, Ctx->RingBytes, Ctx->PacketSize, AUD_RATE, AUD_CHANNELS, Ctx->BitsPerSample);
+    for (Slot = 0; Slot < AUD_DMA_SLOTS; Slot++) {
+        AudDmaFillSlot(Ctx, Slot, (Slot == 1) ? AudPacketVa(Ctx, (ULONG)Ctx->CurrentPacket) : NULL);
+    }
+    KeMemoryBarrier();
+
+    Status = AboxStart(Dev, Ctx->DmaPhys, Ctx->DmaBytes, Ctx->DmaSlotBytes, AUD_RATE, AUD_HW_SLOTS, 32);
     if (!NT_SUCCESS(Status)) {
-        AudLog(Dev->Log, "stream: ABOX DMA not started (%08lX) - amps back off, timer-only\r\n", Status);
-        AmpPowerDown(Dev);
+        AudLog(Dev->Log, "stream: ABOX DMA not started (%08lX) - silent\r\n", Status);
         return;
     }
 
+    (VOID)AboxFrameCount(Dev, &Count);
+    Ctx->HwLast12  = Count;
+    Ctx->HwFrames  = 0;
     Ctx->HwStarted = TRUE;
-    AudLog(Dev->Log, "stream: ABOX running, amps %08lX\r\n", AmpStatus);
 }
 
 _Use_decl_annotations_
 NTSTATUS AudEvtStreamRun(ACXSTREAM Stream)
 {
     PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
-    LONGLONG            Delay;
+    NTSTATUS            AmpStatus = STATUS_NOT_SUPPORTED;
 
     PAGED_CODE();
 
@@ -645,18 +727,19 @@ NTSTATUS AudEvtStreamRun(ACXSTREAM Stream)
         return STATUS_INVALID_STATE_TRANSITION;
     }
 
-    AudRingCleanAll(Ctx);
-    AudHwStart(Ctx);
-
-    Ctx->StartTime     = AudNowHns(Ctx);
+    Ctx->Periods       = 0;
     Ctx->StartPosition = Ctx->Position;
-    Ctx->GlitchAdjust  = 0;
-    Ctx->State         = AcxStreamStateRun;
-    Delay = AudNextDelay(Ctx);
-    (VOID)WdfTimerStart(Ctx->Timer, (Delay < 0) ? Delay : -1);
+    AudHwStart(Ctx);
+    Ctx->StartTime = AudNowHns(Ctx);
+    Ctx->State     = AcxStreamStateRun;
+    (VOID)WdfTimerStart(Ctx->Timer, AudNextDue(Ctx, 0));
 
-    AudLog(Ctx->Dev->Log, "stream: run at packet %lu, position %I64u B, hardware %s\r\n", (ULONG)Ctx->CurrentPacket,
-           Ctx->Position, Ctx->HwStarted ? "on" : "off (timer clock only)");
+    if (Ctx->HwStarted) {
+        AmpStatus = AmpPowerUp(Ctx->Dev);
+    }
+
+    AudLog(Ctx->Dev->Log, "stream: run at packet %lu, position %I64u B, %s, amps %08lX\r\n", (ULONG)Ctx->CurrentPacket,
+           Ctx->Position, Ctx->HwStarted ? "RDMA0 running (hardware clock)" : "no hardware (QPC clock, silent)", AmpStatus);
     AudLogFlush(Ctx->Dev->Log);
     return STATUS_SUCCESS;
 }
@@ -678,16 +761,10 @@ NTSTATUS AudEvtStreamPause(ACXSTREAM Stream)
     WdfTimerStop(Ctx->Timer, TRUE);
     AudUpdatePosition(Ctx);
     Ctx->State = AcxStreamStatePause;
+    AudHwStop(Ctx);   /* the RDMA would loop over stale periods while paused; Run restarts it */
 
-    /* The RDMA would loop over stale packets while paused: stop the hardware, restart it on Run. */
-    if (Ctx->HwStarted) {
-        AmpPowerDown(Ctx->Dev);
-        AboxStop(Ctx->Dev);
-        Ctx->HwStarted = FALSE;
-    }
-
-    AudLog(Ctx->Dev->Log, "stream: pause at packet %lu, position %I64u B, %lu glitches\r\n", (ULONG)Ctx->CurrentPacket,
-           Ctx->Position, Ctx->Glitches);
+    AudLog(Ctx->Dev->Log, "stream: pause at packet %lu, position %I64u B, %lu late timer passes\r\n",
+           (ULONG)Ctx->CurrentPacket, Ctx->Position, Ctx->Glitches);
     AudLogFlush(Ctx->Dev->Log);
     return STATUS_SUCCESS;
 }
@@ -695,11 +772,13 @@ NTSTATUS AudEvtStreamPause(ACXSTREAM Stream)
 _Use_decl_annotations_
 NTSTATUS AudEvtStreamGetHwLatency(ACXSTREAM Stream, ULONG *FifoSize, ULONG *Delay)
 {
-    UNREFERENCED_PARAMETER(Stream);
+    PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
+
     PAGED_CODE();
 
-    *FifoSize = 128;   /* sample value; the RDMA FIFO depth is unknown (stage 2) */
-    *Delay    = 0;
+    *FifoSize = 128;   /* sample value; the RDMA FIFO depth is unknown */
+    /* One period of ring lead (100 ns units) once the packet size is known. */
+    *Delay = (Ctx->BytesPerSec != 0) ? (ULONG)((ULONGLONG)Ctx->PacketSize * AUD_HNS_PER_SEC / Ctx->BytesPerSec) : 0;
     return STATUS_SUCCESS;
 }
 
@@ -713,11 +792,6 @@ NTSTATUS AudEvtStreamSetRenderPacket(ACXSTREAM Stream, ULONG Packet, ULONG Flags
     UNREFERENCED_PARAMETER(EosPacketLength);
     PAGED_CODE();
 
-    if (Ctx->PacketCount == 0) {
-        return STATUS_INVALID_DEVICE_STATE;
-    }
-
-    AudRingClean(Ctx, Packet % Ctx->PacketCount);
     Current = (ULONG)InterlockedCompareExchange(&Ctx->CurrentPacket, -1, -1);
     if (Packet <= Current) {
         Ctx->LateWrites++;
@@ -760,12 +834,10 @@ VOID AudEvtStreamCleanup(WDFOBJECT Object)
     PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext((ACXSTREAM)Object);
 
     /* FreeRtPackets normally ran already; this only catches a stream torn down without it. */
-    if (Ctx->HwStarted) {
-        AmpPowerDown(Ctx->Dev);
-        AboxStop(Ctx->Dev);
-        Ctx->HwStarted = FALSE;
+    if (Ctx->Dev != NULL) {
+        AudHwStop(Ctx);
+        AudRingFree(Ctx);
     }
-    AudRingFree(Ctx);
 }
 
 _Use_decl_annotations_
@@ -826,10 +898,15 @@ NTSTATUS NTAPI AudEvtCircuitCreateStream(WDFDEVICE Device, ACXCIRCUIT Circuit, A
     Wfx = (PWAVEFORMATEXTENSIBLE)AcxDataFormatGetWaveFormatExtensible(StreamFormat);
     Ctx->BitsPerSample = (Wfx != NULL) ? Wfx->Format.wBitsPerSample : 0;
     Ctx->State = AcxStreamStateStop;
+    KeInitializeSpinLock(&Ctx->HwLock);
     KeQueryPerformanceCounter(&Ctx->QpcFrequency);
 
-    if (Ctx->BlockAlign == 0 || Ctx->BytesPerSec == 0) {
-        return STATUS_INVALID_PARAMETER;   /* the stream object is deleted by ACX on failure */
+    /* AudDmaFillSlot understands exactly the two formats of the pin's list. */
+    if (Ctx->BlockAlign != AUD_CHANNELS * (Ctx->BitsPerSample / 8) || (Ctx->BitsPerSample != 16 && Ctx->BitsPerSample != 32) ||
+        Ctx->BytesPerSec != AUD_RATE * Ctx->BlockAlign) {
+        AudLog(Ctx->Dev->Log, "stream: format %lu B/s block %lu %lu bit not supported\r\n", Ctx->BytesPerSec,
+               Ctx->BlockAlign, Ctx->BitsPerSample);
+        return STATUS_NOT_SUPPORTED;   /* the stream object is deleted by ACX on failure */
     }
 
     AudLog(Ctx->Dev->Log, "stream: created, %lu B/s, block %lu, %lu bit\r\n", Ctx->BytesPerSec, Ctx->BlockAlign,

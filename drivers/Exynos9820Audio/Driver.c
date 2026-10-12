@@ -23,7 +23,7 @@ EVT_WDF_DEVICE_D0_ENTRY           AudEvtD0Entry;
 EVT_WDF_DEVICE_D0_EXIT            AudEvtD0Exit;
 EVT_WDF_OBJECT_CONTEXT_CLEANUP    AudEvtDeviceCleanup;
 
-#define AUD_DRIVER_VERSION "1.0.0.1"
+#define AUD_DRIVER_VERSION "1.0.1.0"
 
 static AUD_CONFIG g_Cfg;
 
@@ -52,7 +52,6 @@ static VOID AudReadConfig(_In_ WDFDRIVER Driver)
         { L"AmpEnable",  FIELD_OFFSET(AUD_CONFIG, AmpEnable) },
         { L"AboxEnable", FIELD_OFFSET(AUD_CONFIG, AboxEnable) },
         { L"HwVolume",   FIELD_OFFSET(AUD_CONFIG, HwVolume) },
-        { L"CacheMaint", FIELD_OFFSET(AUD_CONFIG, CacheMaint) },
         { L"Stereo",     FIELD_OFFSET(AUD_CONFIG, Stereo) },
     };
     WDFKEY         Key;
@@ -61,10 +60,9 @@ static VOID AudReadConfig(_In_ WDFDRIVER Driver)
     ULONG          I;
 
     g_Cfg.AmpInit    = 1;
-    g_Cfg.AmpEnable  = 0;
-    g_Cfg.AboxEnable = 0;
+    g_Cfg.AmpEnable  = 1;
+    g_Cfg.AboxEnable = 1;
     g_Cfg.HwVolume   = 0;
-    g_Cfg.CacheMaint = 1;
     g_Cfg.Stereo     = 0;
 
     if (!NT_SUCCESS(WdfDriverOpenParametersRegistryKey(Driver, KEY_READ, WDF_NO_OBJECT_ATTRIBUTES, &Key))) {
@@ -155,8 +153,8 @@ NTSTATUS AudEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     Dev->VolumeLevel = -20 * 0x10000;
 
     AudLog(Dev->Log, "Exynos9820Audio %s (ACX 1.0, ACPI\\SAMS9827): AmpInit %lu AmpEnable %lu AboxEnable %lu HwVolume %lu "
-           "CacheMaint %lu Stereo %lu\r\n", AUD_DRIVER_VERSION, Dev->Cfg.AmpInit, Dev->Cfg.AmpEnable, Dev->Cfg.AboxEnable,
-           Dev->Cfg.HwVolume, Dev->Cfg.CacheMaint, Dev->Cfg.Stereo);
+           "Stereo %lu\r\n", AUD_DRIVER_VERSION, Dev->Cfg.AmpInit, Dev->Cfg.AmpEnable, Dev->Cfg.AboxEnable,
+           Dev->Cfg.HwVolume, Dev->Cfg.Stereo);
 
     Status = WdfWaitLockCreate(WDF_NO_OBJECT_ATTRIBUTES, &Dev->BusLock);
     if (!NT_SUCCESS(Status)) {

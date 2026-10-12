@@ -84,14 +84,13 @@ typedef enum _AUD_RES {
 
 /* ======================================================================
  * Registry: HKLM\SYSTEM\CurrentControlSet\Services\Exynos9820Audio\Parameters (REG_DWORD).
- * Defaults keep every unproven hardware write off; the endpoint still streams on the timer clock.
+ * Defaults = the path device-validated in UEFI (boot #99) on; set AboxEnable = 0 for a silent, QPC-clocked endpoint.
  * ====================================================================== */
 typedef struct _AUD_CONFIG {
     ULONG AmpInit;      /* 1 (default): bus up, amp reset release + ID read (UEFI m1b steps, device-proven) */
-    ULONG AmpEnable;    /* 0 (default): 1 = run the CS35L40 config/power table on stream start (UNVERIFIED) */
-    ULONG AboxEnable;   /* 0 (default): 1 = run the ABOX stage-1/2 hooks on stream start (TODO stubs) */
+    ULONG AmpEnable;    /* 1 (default): configure + power the CS35L40 on stream start (boot #99 sequence) */
+    ULONG AboxEnable;   /* 1 (default): ABOX stage 1 + RDMA0 on stream start (boot #99 sequence) */
     ULONG HwVolume;     /* 0 (default): 1 = ACX volume + mute elements on the amp; 0 = audiodg software volume */
-    ULONG CacheMaint;   /* 1 (default): clean the DMA ring around every packet (ABOX DMA does not snoop) */
     ULONG Stereo;       /* 0 (default): mono (L+R)/2 on the loudspeaker only; 1 = L on the earpiece amp (untested) */
 } AUD_CONFIG, *PAUD_CONFIG;
 
@@ -193,30 +192,37 @@ typedef struct _AUD_STREAM_CONTEXT {
     ULONG            BytesPerSec;
     ULONG            BitsPerSample;     /* container bits: 16 or 32 */
 
-    /* DMA ring: one contiguous allocation, one MDL per packet (Render.c AllocateRtPackets). */
-    PUCHAR           RingAlloc;         /* MmAllocateContiguousNodeMemory base */
-    SIZE_T           RingAllocBytes;
+    /* Client packets (mapped to audiodg): one contiguous cached allocation, one MDL per packet. */
+    PUCHAR           RingAlloc;
+    ULONG            AllocPerPacket;    /* page-rounded packet size */
     PMDL             PacketMdl[AUD_MAX_PACKETS];
     ULONG            PacketCount;
     ULONG            PacketSize;
     ULONG            FirstPacketOffset;
-    PHYSICAL_ADDRESS RingPhys;          /* first byte of packet 0 */
-    ULONG            RingBytes;         /* PacketCount * PacketSize, contiguous */
-    BOOLEAN          RingHwUsable;      /* below 4 GiB and 16-byte aligned */
+    ULONG            FramesPerPacket;
 
-    /* Timer clock (the ACX sample's StreamEngine, CStreamEngine::ScheduleNextPass / UpdatePosition). */
+    /* DMA ring the RDMA reads: non-cached, below 4 GiB, AUD_DMA_SLOTS periods of 4 x 32-bit frames. */
+    PUCHAR           DmaVa;
+    PHYSICAL_ADDRESS DmaPhys;
+    ULONG            DmaBytes;
+    ULONG            DmaSlotBytes;
+
+    /* Packet clock: RDMA frame counter while HwStarted, QPC otherwise. */
     WDFTIMER         Timer;
     ACX_STREAM_STATE State;
     volatile LONG    CurrentPacket;
-    ULONGLONG        Position;          /* bytes since stream start */
-    ULONGLONG        StartTime;         /* HNS */
+    ULONG            Periods;           /* packet boundaries since this Run */
+    ULONGLONG        Position;          /* bytes heard since the stream started */
+    ULONGLONG        StartTime;         /* HNS, QPC clock */
     ULONGLONG        StartPosition;
-    ULONGLONG        GlitchAdjust;
     LARGE_INTEGER    QpcFrequency;
-    ULONG            Glitches;
+    KSPIN_LOCK       HwLock;            /* HwFrames / HwLast12 (timer DPC vs position queries) */
+    ULONGLONG        HwFrames;          /* RDMA frames since this Run */
+    ULONG            HwLast12;          /* last RDMA0 STATUS[11:0] */
+    ULONG            Glitches;          /* timer passes that found more than one boundary */
     ULONG            LateWrites;
 
-    BOOLEAN          HwStarted;         /* AboxStart + AmpPowerUp succeeded for this run */
+    BOOLEAN          HwStarted;         /* AboxStart succeeded for this run (amps may still have failed) */
 } AUD_STREAM_CONTEXT, *PAUD_STREAM_CONTEXT;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(AUD_STREAM_CONTEXT, AudGetStreamContext)

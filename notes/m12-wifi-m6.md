@@ -64,3 +64,14 @@ Needs the user: SSID + passphrase of their network (never guessed, never committ
   set across teardown. No findings.
 - State: M6 code is complete and dormant. **Waiting for the user's SSID + passphrase** (registry, see above).
   The join is the only M6 step still to validate.
+- Run m6-3 (2026-10-12, user set Ssid/Passphrase, 1.0.6.1): t = 30 s rescan SCAN 0 (8 BSS, target "HomeX-5"
+  seen at 44:DF:65:D7:CD:41 ch 36 rssi -66). Join: event_msgs get/set, INFRA, wpa_auth, auth, wsec all status 0;
+  **"sup_wpa" = 1 -> CMPLT status -23 = BCME_UNSUPPORTED** (bcmdhd include/bcmutils.h:382). JOIN 1 (setup
+  failed), nothing sent to the AP; the firmware stayed alive (t = 180 s).
+  - Meaning: this firmware build (bcmdhd_sta.bin 18.41.117) has **no in-dongle supplicant**. The vendor driver
+    only uses sup_wpa under BCMSUP_4WAY_HANDSHAKE + dhd_use_idsup (dhd_linux.c:10670-10681); on Android the 4-way
+    handshake is done by the host wpa_supplicant over EAPOL frames on the data path.
+  - Consequence: WPA2 needs the **host-side 4-way handshake** (EAPOL rx/tx over the msgbuf data path = tx flowring
+    + rx completion, PTK via PRF-SHA1, MIC HMAC-SHA1, GTK AES key unwrap, keys installed with WLC_SET_KEY). The
+    data path is M7 work anyway, so M6 is re-scoped: association (SET_SSID status 0) + host handshake, done after
+    the M7 data path exists. The PMK derivation (self-test PASS) is reused.

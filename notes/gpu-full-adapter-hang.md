@@ -284,3 +284,31 @@ Logs: scratchpad\runs\g13fullc (marks.txt, last\gpu\*, WINPRAM.BIN, UEFILOG.TXT)
   m5test.exe unchanged from mali-g13. Not booted.
 - Review of the two commits above: Params/UnixTime lines are 49/35 chars (fit 63); KeQuerySystemTimePrecise is
   PASSIVE-safe (DriverEntry); the script edit removed exactly the dumpram line (diff: 1 line -, comment updated).
+
+## G13 UMD - why DWM's device on maliumd.dll gives up (2026-10-13, static + g13fullc logs)
+- **Root cause (static, high confidence): maliumd.dll cannot give DWM the device it asks for.** The G12 build of Mesa
+  d3d10umd has `SUPPORT_D3D10_1 0` and `SUPPORT_D3D11 0` (mali\mesa-26.2-g76 src/gallium/frontends/d3d10umd/
+  State.h:39-40), so GetSupportedVersions (Adapter.cpp:140-152) offers only the D3D10.0 DDI versions and OpenAdapter10
+  rejects 10.1/11 (Adapter.cpp:113-131); the D3D11 DDI function tables are not implemented at all in that frontend
+  (the flag only gates the version lists). It also exports no D3D9 `OpenAdapter` (mali-g12 dumpbin exports: only
+  OpenAdapter10, OpenAdapter10_2 + D3DKMT forwarders), and UserModeDriverName names maliumd.dll for all four slots.
+  DWM (Windows 8+) composes through Direct3D 11 (feature levels down to 9_x, which the D3D11 runtime reaches through
+  the D3D9 DDI) - neither path exists in this UMD. [DWM-uses-D3D11 is general Windows knowledge, not re-verified here;
+  the probe below measures it.]
+- In mode 1 the shim also finds no GPU: malikm_bind_d3dddi asks MW_ESCAPE_GPU_INFO and binds only if Valid != 0
+  (wddm-mali-g52 win32-compat/malikm_drm.c:977-990); MaliG76Wddm answers Valid = 0 while !GpuUp (adapter.c GpuInfo),
+  so d3d10umd falls back to softpipe on the GDI winsys (d3d10_gdi.c:203-247), whose present is StretchDIBits into a
+  window - not a WDDM present. Matches the trace: one known Escape (no EscapeUnknownCode in trace.reg), CreateDevice
+  x3 / DestroyDevice x2, no Render/Present/SubmitCommand ever. maliumd.dll WAS loaded (umd-copy.txt: "being used
+  by another process").
+- The original project never had DWM on its full adapter either: run 6 (WARP UMD) black, then render-only + Basic
+  Display; its composed desktops are all malidod (KMDOD) - the same as our mode 0 (W:docs/results).
+- **Nothing in the KMD can fix this**: without a UMD the full adapter is code 43 (maliwddm.inf:7-9), and Microsoft's
+  WARP UMD speaks Basic Render's private protocol (run 6). A composed desktop on the full adapter needs a D3D11 DDI
+  (or D3D9 DDI) in the UMD = Mesa d3d10umd D3D11 work (or a different UMD) - G13 proper, not one package.
+- One decisive run (mali-g15): tools/d3dprobe (d3dprobe.exe) in pass 2 of extra-gpu-mode.cmd, as SYSTEM, with
+  MALIKM_TRACE=1: per DXGI adapter the UMD file names the kernel reports for DX9/DX10/DX11, the WDDM version, and
+  HRESULT + feature level of D3D11CreateDevice (plain and BGRA, as DWM) and D3D10CreateDevice; plus `dxdiag /t`.
+  Expected if the analysis holds: Mali adapter D3D11CreateDevice fails (E_FAIL / DXGI_ERROR_UNSUPPORTED or
+  E_NOINTERFACE), D3D10CreateDevice S_OK (softpipe), shim stderr "no Mali"/Valid 0. If D3D11 SUCCEEDS on the Mali
+  adapter, the analysis is wrong and DWM's failure is elsewhere (then the next tool is an ETW DWM/DxgKrnl trace).

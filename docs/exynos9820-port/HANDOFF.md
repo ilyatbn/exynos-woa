@@ -1322,3 +1322,4 @@ ESP extra-gpu-update.cmd (live update in display-only mode). **Package:** s10e-a
 -> full.flg via extra-gpu-mode.cmd -> read the PRAM slice (last DDI without exit, heartbeat, vsync count) whether
 or not it is black. Open/UNVERIFIED: DMA-flip retirement vs the vsync's reported address; re-ranking of a hidden
 installed device (hence the live update step).
+**§32 audio addendum 3 (2026-10-13, agent).** a6: 0xD1 fixed (boots with the driver), endpoint still rejected; the a6 request log shows each endpoint-builder retry round ending in a host-pin DATAINTERSECTION size query with no follow-up (the log's statuses are dispatch returns, not completion). a7 (1.0.1.6, s10e-artifactsudio-a7, sys 4ebb8d0c…) answers host-pin DATAINTERSECTION + PROPOSEDATAFORMAT in the driver (Parameters\KsOverride 1; 0 = ACX as in a6) and de-duplicates the request log. Test: notes/d8-audio-win-a5.md "A7 device test".

@@ -273,3 +273,21 @@ proven). Still GetMixFormat / EndpointVolume Activate 0x80070032 (state 1).
   wraps to a huge value and the loop would read a KSDATARANGE beyond the control buffer (Count larger than the real
   number of ranges). Fixed in its own commit: `Cur >= End` tested before the subtraction (range and attribute-list
   checks). Build exit 0.
+- Review of T9 (log de-dup): key compare covers all six fields; full table (96) -> Count 0 -> logged (never silently
+  dropped); NT_ERROR always logged; decoded format reads stay inside ValueCb (KSDATAFORMAT 64 B checked, WAVEFORMATEX
+  after it, EXTENSIBLE only when ValueCb >= 104). No findings.
+- T11 package s10e-artifacts\audio-a7 (1.0.1.6, ACX 1.1 - bind info {1,1} 221; signed 5DD5DEE1... sys + cat;
+  InfVerif VALID; INF adds KsOverride NOCLOBBER 1):
+    4EBB8D0C428982DFC74045012210FC68B07EB90F966F94B13DEF1CA057312A61  Exynos9820Audio.sys
+    0B12D732B20F921C1BA398E17D0747580DC54810D855A3ED82B53A073CB9C6EE  Exynos9820Audio.inf
+    C0FDAC4BBB77A0ADE59F341EF7357E1D7DD7E1FC95B274EE5CCE62470F6338C7  exynos9820audio.cat
+
+### A7 device test
+Same swap as a6 (AUD0 hidden, delete old oemN, stage a7, unhide) + stage A Parameters; audio-test.ps1 unchanged.
+Expected in run.txt: `Exynos9820Audio 1.0.1.6 (ACX 1.1`, `circuit: host pin id 0, bridge pin id 1, KsOverride 1`,
+`fmt C #n set pin#0: ...` (what the endpoint builder proposes), `ks: intersection range 0: size 88 ... -> 16 bit`,
+`req c x1 prop Pin.4 get pin#0 ctl 184 val 0 ... done 80000005 info 104` followed by a sized
+`... val 104 ... done 00000000 info 104` (the follow-up a6 never got). Success: audiotest GetMixFormat hr 0 (tag 0xFFFE
+2 ch 48000 32-bit float mix), vol: hw support 0x3, `played 96000 frames`, run.txt `cb StreamPrepareHardware -> 0`,
+`cb Run -> 0`. If the round still repeats with the sized intersection answered: the next failing step is visible as the
+last request before the repeat. A/B: Parameters\KsOverride = 0 = a6 behaviour.

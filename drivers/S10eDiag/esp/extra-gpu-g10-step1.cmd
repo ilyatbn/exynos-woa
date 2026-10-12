@@ -10,7 +10,11 @@ for /f "usebackq delims=" %%O in ("%G%\probe-oem.txt") do (
   s10ediag mark "g: remove MaliG76Probe %%O"
   pnputil /delete-driver %%O /uninstall /force >> "%G%\probe-remove.txt" 2>&1
 )
+rem maliumd.dll (copied by extra-gpu-g10.cmd) imports libgallium_d3d10.dll (G12 Mesa build): place it next to it.
+if exist "%ESP%\S10EDIAG\gpu\vc_redist.arm64.exe" if not exist "%SystemRoot%\System32\vcruntime140.dll" "%ESP%\S10EDIAG\gpu\vc_redist.arm64.exe" /install /quiet /norestart > "%G%\vcredist.txt" 2>&1
+if exist "%ESP%\S10EDIAG\gpu\libgallium_d3d10.dll" copy /y "%ESP%\S10EDIAG\gpu\libgallium_d3d10.dll" "%SystemRoot%\System32\libgallium_d3d10.dll" > "%G%\gallium-copy.txt" 2>&1
 call "%ESP%\S10EDIAG\gpu\extra-gpu-g10.cmd"
+if exist "%G%\m5test.txt" for /f "usebackq delims=" %%L in ("%G%\m5test.txt") do s10ediag mark "m5: %%L"
 for %%R in (trace trace-after-install) do if exist "%G%\%%R.reg" for /f "usebackq delims=" %%L in (`findstr /i "Mode Started Fail FbMatchesGop Presents CommitStatus" "%G%\%%R.reg"`) do s10ediag mark "%%R: %%L"
 for /f "usebackq delims=" %%L in (`findstr /i "Name Status Resolution" "%G%\video.txt"`) do s10ediag mark "v: %%L"
 s10ediag mark g: step1 wrapper done

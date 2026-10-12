@@ -226,3 +226,9 @@ Refs: scratchpad src/bcmdhd (LineageOS lineage-23.2) and src/brcmfmac (torvalds 
   rxbadproto 108, rxbadsrcmac 112, rxbadda 116, rxfilter 120, rxoflo 124 (first array rxuflo[NFIFO] at 128);
   ge40/lt40/le10 macstat (256 B): rxdtucastmbss 100 (le10: rxdfrmucastmbss 100), rxf0ovfl 180; ge80 macstat:
   rxdtucastmbss 76, rxf0ovfl 256.
+- Task 4b (audit fix 4, diagnostics): DataPathDiag(when, hex) at "pre-join" (before SET_SSID, no hex) and "join end"
+  (after the rings line, hex): ring_mem of ring 1 (rxpost) and 4 (rx cpl) read back from TCM vs programmed
+  (max x len at base), their w/r slots; d2h_mb_data / h2d_mb_data words (pointer + value), PCIMailBoxInt /
+  PCIMailBoxMask (0xC30/0xC34 for PCIE2 rev >= 64; this chip's PCIE2 core 0x83C is rev 64 per the EROM log),
+  shared flags; GET_VAR "counters" -> version/datalen, hex (<= 2048 B), decoded "[cnt] ... wlc rxframe rxnobuf ..."
+  and "[cnt] ... macstat 0x4xx rxf0ovfl rxdtucastmbss". All read-only. Build W4/WX clean.

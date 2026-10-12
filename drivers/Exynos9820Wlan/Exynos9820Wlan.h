@@ -629,6 +629,37 @@
 #define HS_DONE                     2
 #define HS_FAILED                   3
 
+/* ---- M7c rx diagnostics (rx audit fix 4): GET_VAR "counters" (dhd wl_android.c:3856; layout notes/m12-wifi-m7.md
+   "Counters layout"; dhd include/wlioctl.h + bcmtlv.h), mailbox words, ring_mem read-back ---- */
+#define CNT_VERSION_XTLV            30             /* WL_CNT_VERSION_XTLV wlioctl.h:3479 */
+#define CNT_INFO_HDR                4              /* wl_cnt_info_t: u16 version, u16 datalen (wlioctl.h:3713-3723) */
+#define CNT_XTLV_HDR                4              /* bcm_xtlv_t: u16 id, u16 len (bcmtlv.h:137-141, :158) */
+#define CNT_XTLV_WLC                0x100          /* wlioctl.h:3499 */
+#define CNT_XTLV_LE10_UCODE         0x200          /* :3504 */
+#define CNT_XTLV_LT40_UCODE         0x300          /* :3505 */
+#define CNT_XTLV_GE40_UCODE         0x400          /* :3506 */
+#define CNT_XTLV_GE80_UCODE         0x900          /* :3508 */
+/* wl_cnt_wlc_t (wlioctl.h:3778-4005), all-uint32 prefix up to rxuflo[NFIFO] at 128 */
+#define CNTWLC_TXFRAME              0
+#define CNTWLC_RXFRAME              60
+#define CNTWLC_RXNOBUF              76             /* "rx out of buffers errors" wlioctl.h:3803 */
+#define CNTWLC_RXNOSCB              104
+#define CNTWLC_RXBADPROTO           108
+#define CNTWLC_RXBADSRCMAC          112
+#define CNTWLC_RXBADDA              116
+#define CNTWLC_RXFILTER             120
+#define CNTWLC_RXOFLO               124
+#define CNTWLC_MIN_LEN              128
+/* ucode macstat: wl_cnt_v_le10_mcst_t / wl_cnt_lt40mcst_v1_t / wl_cnt_ge40mcst_v1_t (256 B, wlioctl.h:4243-4326,
+   4329-4412, 4529-4614) and wl_cnt_ge80mcst_v1_t (4415-4520) */
+#define MCST_RXDTUCASTMBSS          100            /* le10: rxdfrmucastmbss, same offset */
+#define MCST_RXF0OVFL               180            /* "receive fifo 0 overflows" wlioctl.h:4299 */
+#define MCST80_RXDTUCASTMBSS        76
+#define MCST80_RXF0OVFL             256            /* wlioctl.h:4505 */
+#define CNT_HEX_MAX                 2048           /* host choice: hex dump cap (the run report is 32 KB) */
+#define PCIE2_MAILBOXMASK_REV64     0xC34          /* PCIMailBoxMask(rev >= 64), pcie_core.h:962 */
+#define PCIE2_MAILBOXMASK_OLD       0x4C
+
 /* WlanMsgTx results */
 #define TX_OK                       0
 #define TX_NO_FLOWRING              1

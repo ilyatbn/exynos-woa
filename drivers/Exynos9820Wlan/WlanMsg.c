@@ -82,6 +82,7 @@ typedef struct _MSG_STATE {
     PUCHAR              DVa;            /* data common buffer, DAT_OFF_* map */
     ULONGLONG           DLa;
     ULONG               H2dWBase;       /* ring_info h2d_w/r_idx_ptr: flowring slots continue after ring 1 */
+    ULONG               RingMem;        /* ring_info ringmem_ptr (M7c diagnostics read the ring_mem back) */
     ULONG               H2dRBase;
     ULONG               MaxFlowrings;   /* ring_info max_tx_flowrings */
     UCHAR               Mac[6];         /* cur_etheraddr (flowring SA) */
@@ -1281,6 +1282,7 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
         goto Stop;
     }
     S->H2dWBase     = H2dW;   /* M7a: flowring index slots continue these arrays (dhd_pcie.c:8914-8932) */
+    S->RingMem      = RingMem;
     S->H2dRBase     = H2dR;
     S->MaxFlowrings = Tcm16(S, Ri + RI_MAX_TX_FLOWRINGS);
 
@@ -2059,6 +2061,120 @@ SupEapol(_Inout_ PMSG_STATE S)
     ReportLine(S->R, "[sup] EAPOL-Key info 0x%04X not handled\r\n", Info);
 }
 
+/* ---------------------------------------------------------------- M7c rx diagnostics (rx audit fix 4) */
+
+static VOID
+HexDump(_Inout_ PMSG_STATE S, _In_z_ PCSTR Tag, _In_reads_bytes_(Len) const UCHAR *P, _In_ ULONG Len)
+{
+    static const CHAR Hx[] = "0123456789ABCDEF";
+    CHAR              Line[3 * 32 + 1];
+    ULONG             I, J;
+
+    for (I = 0; I < Len; I += 32) {
+        for (J = 0; J < 32 && I + J < Len; J++) {
+            Line[3 * J]     = Hx[P[I + J] >> 4];
+            Line[3 * J + 1] = Hx[P[I + J] & 0xF];
+            Line[3 * J + 2] = ' ';
+        }
+        Line[3 * J] = 0;
+        ReportLine(S->R, "%s %04lX: %s\r\n", Tag, I, Line);
+    }
+}
+
+static ULONG
+Le32At(_In_ const UCHAR *P, _In_ ULONG Off)
+{
+    return *(const ULONG UNALIGNED *)(P + Off);
+}
+
+/* GET_VAR "counters" (dhd wl_android.c:3856-3862): wl_cnt_info_t + 4-byte padded xtlvs; logs the WLC rx counters
+   (rxnobuf) and the ucode macstat rxf0ovfl / rxdtucastmbss when present, the raw reply as hex when Hex. */
+static VOID
+CountersDump(_Inout_ PMSG_STATE S, _In_z_ PCSTR When, _In_ BOOLEAN Hex)
+{
+    ULONG        Rc = IoctlVar(S, FALSE, "counters", NULL, 0, IOCTL_RESP_MAX_OUT);
+    const UCHAR *B  = S->Resp;
+    ULONG        Len = S->RespLen, End, Off, Id, L, Ver;
+
+    if (Rc != MSG_OK || Len < CNT_INFO_HDR) {
+        ReportLine(S->R, "[cnt] %s: counters not read (MSG %lu, status %ld, resp_len %lu)\r\n", When, Rc, S->RespStatus,
+                   Len);
+        return;
+    }
+    Ver = *(const USHORT UNALIGNED *)B;
+    End = CNT_INFO_HDR + *(const USHORT UNALIGNED *)(B + 2);
+    if (End > Len) {
+        End = Len;
+    }
+    ReportLine(S->R, "[cnt] %s: counters version %lu datalen %u (reply %lu B)\r\n", When, Ver,
+               *(const USHORT UNALIGNED *)(B + 2), Len);
+    if (Hex) {
+        HexDump(S, "[cnt]", B, (End < CNT_HEX_MAX) ? End : CNT_HEX_MAX);
+    }
+    if (Ver != CNT_VERSION_XTLV) {
+        ReportLine(S->R, "[cnt] %s: not the xtlv layout (version %u) - not decoded\r\n", When, CNT_VERSION_XTLV);
+        return;
+    }
+    for (Off = CNT_INFO_HDR; Off + CNT_XTLV_HDR <= End; Off += CNT_XTLV_HDR + ((L + 3) & ~3UL)) {
+        const UCHAR *D = B + Off + CNT_XTLV_HDR;
+
+        Id = *(const USHORT UNALIGNED *)(B + Off);
+        L  = *(const USHORT UNALIGNED *)(B + Off + 2);
+        if (L > End - Off - CNT_XTLV_HDR) {
+            ReportLine(S->R, "[cnt] %s: xtlv 0x%lX len %lu overruns the reply at %lu\r\n", When, Id, L, Off);
+            break;
+        }
+        if (Id == CNT_XTLV_WLC && L >= CNTWLC_MIN_LEN) {
+            ReportLine(S->R, "[cnt] %s: wlc rxframe %lu rxnobuf %lu rxnoscb %lu rxbadproto %lu rxbadsrcmac %lu rxbadda %lu "
+                       "rxfilter %lu rxoflo %lu (txframe %lu)\r\n", When, Le32At(D, CNTWLC_RXFRAME), Le32At(D, CNTWLC_RXNOBUF),
+                       Le32At(D, CNTWLC_RXNOSCB), Le32At(D, CNTWLC_RXBADPROTO), Le32At(D, CNTWLC_RXBADSRCMAC),
+                       Le32At(D, CNTWLC_RXBADDA), Le32At(D, CNTWLC_RXFILTER), Le32At(D, CNTWLC_RXOFLO),
+                       Le32At(D, CNTWLC_TXFRAME));
+        } else if ((Id == CNT_XTLV_LE10_UCODE || Id == CNT_XTLV_LT40_UCODE || Id == CNT_XTLV_GE40_UCODE) &&
+                   L >= MCST_RXF0OVFL + 4) {
+            ReportLine(S->R, "[cnt] %s: macstat 0x%lX rxf0ovfl %lu rxdtucastmbss %lu\r\n", When, Id,
+                       Le32At(D, MCST_RXF0OVFL), Le32At(D, MCST_RXDTUCASTMBSS));
+        } else if (Id == CNT_XTLV_GE80_UCODE && L >= MCST80_RXF0OVFL + 4) {
+            ReportLine(S->R, "[cnt] %s: macstat 0x%lX rxf0ovfl %lu rxdtucastmbss %lu\r\n", When, Id,
+                       Le32At(D, MCST80_RXF0OVFL), Le32At(D, MCST80_RXDTUCASTMBSS));
+        } else {
+            ReportLine(S->R, "[cnt] %s: xtlv 0x%lX len %lu (not decoded)\r\n", When, Id, L);
+        }
+    }
+}
+
+/* rx-path state the run cannot see otherwise: ring_mem of rxpost / rx cpl as the firmware holds it vs what step 3
+   programmed, the d2h/h2d mailbox data words (pcie_shared +0x2C/+0x28, fmac pcie.c:231-232, read by fmac
+   brcmf_pcie_handle_mb_data :800-831 - this driver never services them), PCIMailBoxInt/Mask (pcie_core.h:961-962),
+   then the counters. Read-only. */
+static VOID
+DataPathDiag(_Inout_ PMSG_STATE S, _In_z_ PCSTR When, _In_ BOOLEAN Hex)
+{
+    static const ULONG Rings[] = { RING_H2D_RXPOST, RING_D2H_RX_CPL };
+    ULONG              Shared = S->Bus->SharedAddr;
+    ULONG              D2hMb  = Tcm32(S, Shared + SH_D2H_MB_DATA_PTR);
+    ULONG              H2dMb  = Tcm32(S, Shared + SH_H2D_MB_DATA_PTR);
+    ULONG              MbInt  = (S->Bus->PcieRev >= 64) ? PCIE2_MAILBOXINT_REV64 : PCIE2_MAILBOXINT_OLD;
+    ULONG              MbMask = (S->Bus->PcieRev >= 64) ? PCIE2_MAILBOXMASK_REV64 : PCIE2_MAILBOXMASK_OLD;
+    ULONG              I;
+
+    for (I = 0; I < ARRAYSIZE(Rings); I++) {
+        PMSG_RING G  = &S->Ring[Rings[I]];
+        ULONG     Rm = S->RingMem + RM_SIZE * G->Id;
+
+        ReportLine(S->R, "[diag] %s: ring %lu ring_mem max %u len %u base 0x%08lX:%08lX (programmed %lu x %lu at 0x%I64X), "
+                   "w %u r %u\r\n", When, G->Id, Tcm16(S, Rm + RM_MAX_ITEM), Tcm16(S, Rm + RM_LEN_ITEMS),
+                   Tcm32(S, Rm + RM_BASE_ADDR + 4), Tcm32(S, Rm + RM_BASE_ADDR), G->MaxItem, G->ItemSize, S->La + G->Off,
+                   Tcm16(S, G->WIdxAddr), Tcm16(S, G->RIdxAddr));
+    }
+    ReportLine(S->R, "[diag] %s: d2h_mb_data [0x%08lX] = 0x%08lX, h2d_mb_data [0x%08lX] = 0x%08lX, PCIMailBoxInt 0x%lX = "
+               "0x%08lX, mask 0x%lX = 0x%08lX (pcie rev %lu), shared flags 0x%08lX\r\n", When, D2hMb,
+               InRam(S, D2hMb, 4) ? Tcm32(S, D2hMb) : 0xFFFFFFFFUL, H2dMb, InRam(S, H2dMb, 4) ? Tcm32(S, H2dMb) : 0xFFFFFFFFUL,
+               MbInt, WlanBusBpRd(S->Bus, S->Bus->PcieCoreBase + MbInt), MbMask,
+               WlanBusBpRd(S->Bus, S->Bus->PcieCoreBase + MbMask), S->Bus->PcieRev, Tcm32(S, Shared + SH_FLAGS));
+    CountersDump(S, When, Hex);
+}
+
 /* M7b join: the firmware associates (WPA2-PSK, CCMP, no in-dongle supplicant), the host runs the 4-way
    handshake over the data path. Order as fmac brcmf_cfg80211_connect (cfg80211.c:2440-2620) minus sup_wpa,
    plus the RSN IE of the association request set with "wpaie" (dhd wl_cfg80211.c:6244). */
@@ -2105,6 +2221,7 @@ WlanMsgJoin(PWLAN_MSG_CTX M, PWLAN_REPORT R, const WLAN_JOIN_CONFIG *J)
        step 5b) */
     ReportLine(R, "[join] rxpost host w %lu fw r %u before SET_SSID\r\n", S->Ring[RING_H2D_RXPOST].Host,
                Tcm16(S, S->Ring[RING_H2D_RXPOST].RIdxAddr));
+    DataPathDiag(S, "pre-join", FALSE);   /* M7c: counters baseline for the join-end delta */
     S->Joining     = TRUE;
     S->JoinSetSsid = -1;
     S->JoinPskSup  = -1;
@@ -2175,6 +2292,7 @@ WlanMsgJoin(PWLAN_MSG_CTX M, PWLAN_REPORT R, const WLAN_JOIN_CONFIG *J)
                Tcm16(S, S->Ring[RING_H2D_RXPOST].RIdxAddr), Tcm16(S, S->Ring[RING_D2H_RX_CPL].WIdxAddr),
                S->Ring[RING_D2H_RX_CPL].Host, Tcm16(S, S->Ring[RING_D2H_TX_CPL].WIdxAddr), S->RxFrames, S->RxBad,
                S->RxPosted, S->RxFreeN, S->RxCount, S->RxRefills, S->TxPosted, S->TxDone);
+    DataPathDiag(S, "join end", TRUE);   /* M7c (rx audit fix 4): rxnobuf / rxf0ovfl, mailbox, ring_mem read-back */
     if (Result != JOIN_OK) {
         WlanBusConsoleDump(R, S->Bus);
     }

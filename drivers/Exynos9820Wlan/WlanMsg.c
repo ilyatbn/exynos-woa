@@ -56,6 +56,9 @@ typedef struct _MSG_STATE {
     UCHAR               Bss[SCAN_MAX_BSS][6];
     UCHAR               VarBuf[IOCTL_REQ_MAX_INPUT];   /* iovar name + value (clmload chunks) */
     BOOLEAN             ScanV2;         /* escan params version chosen at milestone 4 */
+    PMDL                D2hMdl;         /* D2H ctrl ring, for KeFlushIoBuffers before reads (Parameters\D2hInvalidate) */
+    ULONG               LastUnsynced;   /* ring index + 1 of the last "not synced" report (log once per item) */
+    ULONG               Unsynced;       /* polls that stopped on an unsynced item */
 } MSG_STATE, *PMSG_STATE;
 
 static ULONG
@@ -269,13 +272,31 @@ D2hCtrlPoll(_Inout_ PMSG_STATE S)
         PUCHAR It = RingItem(S, G, G->Host);
         UCHAR  Type;
 
-        for (Tries = 0; Tries < 100 && !D2hItemReady(S, G, It); Tries++) {
+        for (Tries = 0; Tries < 100; Tries++) {
+            if (S->D2hMdl != NULL) {
+                KeFlushIoBuffers(S->D2hMdl, TRUE, TRUE);   /* run m5-1 experiment: stale line vs DMA */
+            }
+            if (D2hItemReady(S, G, It)) {
+                break;
+            }
             KeStallExecutionProcessor(10);
         }
         if (Tries == 100) {
-            ReportLine(S->R, "[msg] D2H item %lu not synced (epoch %u want %lu)\r\n", G->Host, It[MSGH_EPOCH],
-                       G->Seq % EPOCH_MODULO);
+            S->Unsynced++;
+            if (S->LastUnsynced != G->Host + 1) {
+                const ULONG *Wd = (const ULONG *)It;
+
+                S->LastUnsynced = G->Host + 1;
+                ReportLine(S->R, "[msg] D2H item %lu not synced (epoch %u want %lu; fw w %u r %u; invalidate %u): "
+                           "%08lX %08lX %08lX %08lX %08lX %08lX\r\n", G->Host, It[MSGH_EPOCH], G->Seq % EPOCH_MODULO,
+                           Tcm16(S, G->WIdxAddr), Tcm16(S, G->RIdxAddr), S->D2hMdl != NULL, Wd[0], Wd[1], Wd[2],
+                           Wd[3], Wd[4], Wd[5]);
+            }
             break;
+        }
+        if (S->LastUnsynced == G->Host + 1) {
+            ReportLine(S->R, "[msg] D2H item %lu synced after %lu stalled polls\r\n", G->Host, S->Unsynced);
+            S->LastUnsynced = 0;
         }
         Type = It[MSGH_TYPE];
         switch (Type) {
@@ -639,6 +660,14 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
     S->La = (ULONGLONG)WdfCommonBufferGetAlignedLogicalAddress(Cb).QuadPart;
     RtlZeroMemory(S->Va, MSG_DMA_SIZE);
     ReportLine(R, "[msg] common buffer 0x%X B at logical 0x%I64X\r\n", MSG_DMA_SIZE, S->La);
+    if (M->Config->D2hInvalidate) {
+        S->D2hMdl = IoAllocateMdl(S->Va + MSG_OFF_D2H_CTRL_CPL, D2H_CTRL_CPL_MAX_ITEM * D2H_CTRL_CPL_ITEMSIZE, FALSE,
+                                  FALSE, NULL);
+        if (S->D2hMdl != NULL) {
+            MmBuildMdlForNonPagedPool(S->D2hMdl);
+        }
+        ReportLine(R, "[msg] D2H ctrl ring invalidate before reads: %s\r\n", S->D2hMdl != NULL ? "on" : "MDL failed");
+    }
     if ((S->La >> 32) != 0 || (S->La & 0xFFF) != 0) {
         ReportLine(R, "MSG %u: common buffer not 4 KB aligned below 4 GB\r\n", MSG_NO_DMA);
         goto Stop;
@@ -834,6 +863,9 @@ Stop:
         WdfObjectDelete(Cb);
     }
     if (S != NULL) {
+        if (S->D2hMdl != NULL) {
+            IoFreeMdl(S->D2hMdl);
+        }
         ExFreePoolWithTag(S, 'mDlW');
     }
     ReportWriteFile(R);
@@ -921,6 +953,9 @@ WlanMsgFree(PWLAN_MSG_CTX M)
         M->CommonBuffer = NULL;
     }
     if (M->State != NULL) {
+        if (((PMSG_STATE)M->State)->D2hMdl != NULL) {
+            IoFreeMdl(((PMSG_STATE)M->State)->D2hMdl);
+        }
         ExFreePoolWithTag(M->State, 'mDlW');
         M->State = NULL;
     }

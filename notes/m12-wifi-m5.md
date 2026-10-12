@@ -23,3 +23,19 @@ one more escan proves the firmware is still alive and usable. Teardown: D0Exit (
   does not run and the firmware is still bus-mastering at reset. Expected safe: the SoC reset takes down the
   PCIe RC (no link = no DMA) and WLAN_REG_ON (GPIO back to its reset level), and UEFI M1 power-cycles the chip.
   Check after the run: the next boot's UEFILOG is complete and `debug_history` shows no new reset reason.
+- Run m5-1 (02:57, 1.0.5.0):
+  - PrepareHardware: SCAN 0 (9 BSS), then "RESIDENT: firmware kept running (buffer 0xEFF5E000)". Run log:
+    at t = 30 s the rescan with the resident firmware was accepted on the first attempt and returned BSS
+    lines, so **the firmware stays alive and usable after PrepareHardware**.
+  - Then the D2H ctrl ring stalled for good at lap-2 item 38: epoch 39 = its lap-1 value (lap 1: index i has
+    epoch i + 1; lap 2 wants (254 + 64 + 38) % 253 = 103). The log repeated every poll until the reset.
+  - The fw W index had passed 38, so the item content we read is stale. Re-reads 100 ms apart never change,
+    which points at a stale cache line, not DMA latency.
+  - Why lap 1 worked is open. _CCA 0 should give an uncached common buffer, but UEFI programs the PCIe
+    sharability bits (Dsdt.asl P5 note).
+- 1.0.5.1 experiment:
+  - Parameters\D2hInvalidate (default 1): MDL over the D2H ctrl ring + KeFlushIoBuffers(Mdl, TRUE, TRUE)
+    before each item read.
+  - The "not synced" line is now logged once per item, with fw w/r indices and the raw 24 B, plus a "synced
+    after N stalled polls" line.
+  - Build wifi-m5b, sys 4DADE1BC….

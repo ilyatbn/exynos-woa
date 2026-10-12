@@ -125,7 +125,7 @@ Paths relative to `C:\Users\ilya\code\mali\linux\drivers\gpu\drm\panfrost\`.
   (standard AArch64 4K stage-1 = Linux `io-pgtable-arm.c`) only with `GPU_QUIRK_FORCE_AARCH64_PGTABLE`
   (:786-795) — G76 *has* AARCH64_MMU so either works. AArch64 path (:221-243): TRANSTAB = ttbr,
   MEMATTR = MAIR translated by `mair_to_memattr` (:30-68), TRANSCFG = PTW_MEMATTR_WB | PTW_RA |
-  ADRMODE_AARCH64_4K (6) | INA_BITS(55-ias) [| PTW_SH_OS if coherent]. Enable (:177-189):
+  ADRMODE_AARCH64_4K (6) | INA_BITS(55-ias) [| PTW_SH_OS if coherent]. Enable (:167-189):
   FLUSH_MEM, write TRANSTAB/MEMATTR/TRANSCFG, `AS_COMMAND_UPDATE`. Lock region (:103-137):
   naturally aligned pow2 region, `width = log2-1`, min 32 KiB. Map/unmap uses 4K or 2M blocks
   (:362-380) then `AS_COMMAND_FLUSH_PT`. Faults: grow-on-GPU-fault heap in 2 MiB chunks (:585-613).
@@ -299,3 +299,14 @@ Checked mechanically (`sed -n` on every cited line range, `find | xargs cat | wc
   jobs → G12 UMD decision); inventory row done; DWM row kept. Intro paragraph gets a correction
   note (no Mesa D3D UMD). DRIVERS-MILESTONES D5b row annotated to point at M16 (state unchanged).
   G6 DONE code: `panfrost_device.h:260` `DRM_PANFROST_EXCEPTION_DONE = 0x01`.
+
+## Review of commit 7d919d5 (M16 ladder)
+
+Checked: 12 new `| G` rows added, each with 5 `|`-separated fields (same as the table header);
+D5b row still one 5-field row; JS1 error bit = `JOB_INT_MASK_ERR(1)` = bit 17 and done bit 1
+(`panfrost_regs.h` MK_JS_MASK); write-value type 6 = Immediate 32 (`v7.xml:1374`); "Mesa builds
+for Windows AArch64" re-checked in the clone (`mesa-upstream/docs/install.rst:34` "Visual Studio
+2022 version 17.9 or later for (ARM, AARCH64, ARM64EC, X86, X64)"); `panfrost_gpu.c` ranges in G4.
+Found: `panfrost_mmu.c:177-...` started mid-function — `panfrost_mmu_enable` begins at **:167**
+(same error in the notes' "Enable (:177-189)" from e45567b). Fixed in the follow-up commit to
+`:167-243` / `:167-189`.

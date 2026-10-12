@@ -116,7 +116,7 @@ the clone root unless prefixed `mesa:` (= `C:\Users\ilya\code\mali\mesa-26.2`) o
   faults 0x4002c3 per present.exe from immediate GEM_CLOSE destroy, fixed in 44de51c "not yet verified on
   hardware"). git log: last commit 16f7e7c 2026-10-03; step d user-mode half (DXGI pfnPresentCb -> KMD CPU blt)
   landed in 1a32790/50c947f with no result file -> **unverified**; step e (DWM) never attempted (M5-PLAN.md:95
-  "M5.5 DWM on the Mali" still a plan). Every hardware result after M4 is WinPE-only.
+  "M5.5 DWM on the Mali" still a plan). Every GPU-through-WDDM result (M5.2 b, c1, c2) is WinPE-only; M5.1 (malidod, display only) passed on installed Windows 11 23H2 (results/m5.1-board-2026-10-02.md:3-5).
 - 2026-10-12 — housekeeping: this file was first written in the main checkout; moved into the session worktree
   `.claude/worktrees/agent-a2e4467b6b5f2b792` after fast-forwarding its branch to main `7862134` (which adds
   G3 `Beyond0LteGpuProbeDxe` + notes/gpu-m16-g2g3.md). Commits go on the worktree branch, not on main.
@@ -125,7 +125,8 @@ the clone root unless prefixed `mesa:` (= `C:\Users\ilya\code\mali\mesa-26.2`) o
   Bifrost (panfrost_device.h:231-237); hw_features_g76 = g52's set **+ TLS_HASHING + 3BIT_EXT_RW_L2_MMU_CONFIG**
   (panfrost_features.h:73-97); hw_issues_g76 = hw_issues_g52 = 0 (panfrost_issues.h:248,259); TLS_HASHING ->
   `SC_TLS_HASH_ENABLE` BIT(17) in GPU_SHADER_CONFIG 0xF04 (panfrost_gpu.c:141-145; panfrost_regs.h:180,211);
-  3BIT_EXT_RW_L2_MMU_CONFIG is declared but **used nowhere** in drm/panfrost (grep: only panfrost_features.h:25);
+  3BIT_EXT_RW_L2_MMU_CONFIG is declared (panfrost_features.h:25), listed in two models' feature masks (:97 g76, :110) and the
+  GPU_L2_MMU_CONFIG 0xF0C fields are defined (panfrost_regs.h:182-203), but **no drm/panfrost .c file writes it** (grep);
   page-table format = ARM_MALI_LPAE (legacy) for every SoC except MediaTek MT8188/8192/8370 which force AArch64
   (panfrost_mmu.c:786-795; panfrost_drv.c:1126-1150) -> Mali-LPAE as in maligpu.c is the mainline default for G76
   too; coherency from DT `dma-coherent` (panfrost_drv.c:977) else COHERENCY_NONE (panfrost_gpu.c:276-277).
@@ -158,8 +159,9 @@ All `file:line` below are in `C:\Users\ilya\code\mali\wddm-mali-g52` @16f7e7c un
   results/m5.2-step-c2/README.md:3-20).
 - **Not done:** step (d) present/flip to the screen from a hardware device - code landed (commits 1a32790,
   50c947f) but no result file; step (e)/M5.5 **DWM on the Mali never attempted** (M5.2-PLAN.md:78-79,
-  M5-PLAN.md:95). Every hardware pass after M4 is **WinPE 22621**; on the installed Windows the full adapter
-  gave a **black screen** (results/m5.2-board-run6-2026-10-02.md:1-26). Repo quiet since 2026-10-03.
+  M5-PLAN.md:95). Every GPU-through-WDDM pass (M5.2 b/c1/c2) is **WinPE 22621** (M5.1 display-only passed on installed 23H2,
+  results/m5.1-board-2026-10-02.md:3-5); on the installed Windows the full adapter
+  gave a **black screen** (results/m5.2-board-run6-2026-10-02.md:1-26). Local clone HEAD is 2026-10-03.
 - Usability verdict (INFERENCE): a working, small, well-commented reference for (1) Mali JM bring-up on
   Windows (m1probe, maligpu), (2) a WDDM 1.3 aperture-segment KMD that dxgkrnl accepts, (3) the 19 Mesa
   patches + libdrm shim that make d3d10umd+panfrost a hardware UMD. It is **not** a desktop driver yet: no
@@ -322,7 +324,8 @@ name `\\.\MaliG52` (malikm_ioctl.h:37-39).
 
 ### I14. Licence implications for us (INFERENCE, not legal advice)
 - Everything in wddm-mali-g52 is GPL-2.0 (README.md:51-54; `SPDX-License-Identifier: GPL-2.0` at the top of
-  each source, e.g. maligpu.c:1, maliwddm.h:1) except code taken from Mesa (MIT). Reusing maligpu / maliwddm /
+  every .c/.h/.cpp and tools/m1 script, e.g. maligpu.c:1, maliwddm.h:1; the .cmd scripts and tools/etw/*.py carry
+  no SPDX line and fall under the repo LICENSE) except code taken from Mesa (MIT). Reusing maligpu / maliwddm /
   m1probe makes those drivers **GPL-2.0** in their own subtree with their own LICENSE, exactly like
   `drivers/S6SY761Touch/` (ours:README.md:23-30,212-217; ours:CONTRIBUTING.md:36-39). Our BSD-2-Clause-Patent
   firmware is unaffected as long as no GPL code is copied into `firmware/`.
@@ -354,7 +357,7 @@ device read yet (the read that closes it is named). "SOURCE-ONLY" = from stock D
 | R3 | ACPI hardware ID | `ACPI\RKCP7402` in every INF + comments (maliwddm.inf; malikm/device.c:3-6; m1probe.c:3); malidod DSP0 `RKCP7403` | RKCP7402 | new _HID in our namespace style (`EXYN9820`/`SAMS9820` precedents, ours:Dsdt.asl:219,251) - a naming decision for G9, not a hardware constant | INF `[Standard.NTARM64]` lines; malidod/DSP0 pairing not needed (render-only was refused anyway, maliwddm.h:24-34) |
 | R4 | "GPU is powered" check before the first GPU access | `PMU_PA 0x27380000`, STATUS0 0x230 bit25 == 0 && ACK0 0x120 bit0 == 0 (maligpu.h:16-18; maligpu.c:25-39; m1probe.c:15-17,115-126) | RK PMU, bit **clear** = on | PMU 0x15860000 (VERIFIED ours:Exynos9820.h:280) **+0x2104 EMBEDDED_G3D_STATUS bit0 == 1 and +0x2384 G3D_STATUS bit0 == 1**; then CMU_G3D 0x18400000 +0x2004 gate not forced off (MANUAL bit20 = 1 && CG_VAL bit21 = 0 means off) (notes/gpu-m16-g2g3.md F3, F5, F6; SOURCE-ONLY, G3 boot pending) | Rewrite `PmuSaysGpuIsOn` (polarity inverted, two bits, two blocks). CMU_G3D may only be read once both PMU bits are set (F3) |
 | R5 | GPU_ID gate | `(GPU_ID >> 16) != 0x7402` -> refuse (maligpu.c:152; m1probe.c:131); fake table PROD_ID 0x7402 (malikm_drm.c:1271) | 0x7402 = PAN_PROD_ID(7,4,2) "G52 r1" (mesa:pan_model.c:82) | **0x72?1** = PAN_PROD_ID(7,2,1) "G76" (mesa:pan_model.c:80; field layout pan_model.h:25-28,39-40); drm `GPU_MODEL(g76, 0x7001)` under mask 0xf00f (panfrost_gpu.c:226; panfrost_device.h:231-237). arch_rev nibble UNVERIFIED (G3 log) | compare `((id >> 16) & 0xF0FF) == 0x7201` |
-| R6 | Init quirks | TILER_CONFIG read-back + `JM_CONFIG = 0xF << 16`, "for a G52: no shader quirks" (maligpu.c:95-98) | none else | G76 = G52 features **+ TLS_HASHING + 3BIT_EXT_RW_L2_MMU_CONFIG** (drm panfrost_features.h:73-97), issues 0 for both (panfrost_issues.h:248,259) -> add **GPU_SHADER_CONFIG 0xF04 = SC_TLS_HASH_ENABLE BIT(17)** (panfrost_gpu.c:141-145; panfrost_regs.h:180,211). 3BIT_EXT_RW_L2_MMU_CONFIG is unused by drm/panfrost (only panfrost_features.h:25) - whether the vendor kbase programs L2_MMU_CONFIG on 9820 is UNVERIFIED (read kbase r32p1 `kbase_hw_set_issues`/L2_MMU_CONFIG path) | add one register write + define |
+| R6 | Init quirks | TILER_CONFIG read-back + `JM_CONFIG = 0xF << 16`, "for a G52: no shader quirks" (maligpu.c:95-98) | none else | G76 = G52 features **+ TLS_HASHING + 3BIT_EXT_RW_L2_MMU_CONFIG** (drm panfrost_features.h:73-97), issues 0 for both (panfrost_issues.h:248,259) -> add **GPU_SHADER_CONFIG 0xF04 = SC_TLS_HASH_ENABLE BIT(17)** (panfrost_gpu.c:141-145; panfrost_regs.h:180,211). 3BIT_EXT_RW_L2_MMU_CONFIG: no drm/panfrost .c writes GPU_L2_MMU_CONFIG 0xF0C (fields only defined, panfrost_regs.h:182-203) - whether the vendor kbase programs L2_MMU_CONFIG on 9820 is UNVERIFIED (read kbase r32p1 `kbase_hw_set_issues`/L2_MMU_CONFIG path) | add one register write + define |
 | R7 | Core power-up | `L2/SHADER/TILER_PWRON_LO = *_PRESENT`, poll READY_LO == PRESENT (maligpu.c:100-107) | SHADER_PRESENT 0x7, L2 0x1 (malikm_drm.c:1273-1275) | MP12 -> 12 bits set in SHADER_PRESENT (layout UNVERIFIED; G76 MP11 vs MP12 also open, MILESTONES G3); L2_PRESENT UNVERIFIED (panfrost powers only core group 0 when L2_PRESENT != 1) | none if L2_PRESENT == 1 and SHADER_PRESENT fits 32 bits; else restrict to core group 0 like panfrost |
 | R8 | Job affinity | `JS_AFFINITY_NEXT = SHADER_PRESENT` (maligpu.c:366-367; m1probe.c:205) | 0x7 | full mask if one core group (G3 read) | as R7 |
 | R9 | Job IRQ mask | `JOB_INT_MASK 0x00070007`, slots 0-2 (maligpu.c:140,169) | JS_PRESENT 0x7 (malikm_drm.c:1277) | JS_PRESENT UNVERIFIED (G3 log); only JS0/JS1 are ever used (command.c:107) | none expected |
@@ -391,3 +394,24 @@ DWM has never run on any Mali + d3d10umd stack (I13 items 1, 7, 10).
   then panfrost through the runtime callbacks (their c1/c2).
 - G13 (new): DWM on the Mali - panfrost default on the maliwddm runtime (gap 10), present path (their step d),
   then DWM composition measured.
+
+## Review of 3e73db6 (adversarial, 2026-10-12)
+Checked mechanically:
+- Register reach: every offset defined in maligpu.h is <= 0x2434 (AS0 + TRANSCFG_HI) except the RK PMU PA
+  (`grep 0x....` on maligpu.h) -> fits the G76's 0x5000 window (R1 holds).
+- "No patch is G52/RK specific": `grep -i '7402|g52|rk3576|rockchip' mesa-patches/*` hits only comments naming
+  wddm-mali-g52 and the `\.\MaliG52` string (0008:11, 0012:36, 0014:33,118,135, 0015:8) - holds.
+- Cited lines re-read with sed: malikm_drm.c GET_PARAM/CREATE_BO/WAIT_BO/SUBMIT/GEM_CLOSE/SYNCOBJ/fake table
+  (several were off by 4-10 lines in the first draft and were corrected before the commit), panfrost_gpu.c
+  141-145/226-227/276-277, panfrost_mmu.c 786-795, panfrost_drv.c 977, pan_model.h 25-28/39-40, d3d10_gdi.c 70-76,
+  m5-pe-test.cmd:87, gpu-odin-rom.md 38-39/44-47/168-171/253-261, MILESTONES:262.
+Found and fixed (this follow-up commit):
+1. "Every hardware pass after M4 is WinPE" was false: M5.1 (malidod) passed on installed Windows 11 23H2
+   (results/m5.1-board-2026-10-02.md:3-5). Reworded to "every GPU-through-WDDM pass".
+2. "3BIT_EXT_RW_L2_MMU_CONFIG used nowhere (only features.h:25)" was imprecise: it is also in the g76 mask (:97)
+   and :110, and the L2_MMU_CONFIG fields are defined (panfrost_regs.h:182-203); what holds is that no .c writes
+   the register.
+3. "SPDX GPL-2.0 at the top of each source" overstated: the 15 .cmd scripts and tools/etw/*.py have no SPDX line
+   (loop over `git ls-files`); they fall under the repo LICENSE.
+4. "Repo quiet since 2026-10-03" is only what the local clone shows -> "Local clone HEAD is 2026-10-03".
+Left as is (marked): interrupt delivery on their board UNVERIFIED (I8); GOP pixel-format mapping UNVERIFIED (R15).

@@ -7158,7 +7158,17 @@ UfsFinishScsiCommand(
     }
 
     if (ActualLength != 0) {
+#if UFS_BOUNCE_EVIDENCE_COMMANDS
+        /*
+         * m15 w37: the evidence walk reads the Device-memory bounce byte by byte (every byte of an all-zero
+         * 4 KiB granule) - ~1.6 ms per 64 KiB read in w36 counters. Boot-time evidence only.
+         */
+        if (Adapter->Diagnostic.StartIoRequests <= UFS_BOUNCE_EVIDENCE_COMMANDS) {
+            UfsCaptureBounceEvidence(Adapter, ActualLength);
+        }
+#else
         UfsCaptureBounceEvidence(Adapter, ActualLength);
+#endif
 
         /*
          * Copy back only for data-in. On a write the bounce holds a copy of the

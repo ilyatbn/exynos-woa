@@ -85,6 +85,11 @@
 #define UFS_CLEAR_VPD_OPTIMAL_TRANSFER             1
 #endif
 
+/* m15 w37: UfsCaptureBounceEvidence only for the first N StartIo requests (0 = every command, the old behaviour). */
+#ifndef UFS_BOUNCE_EVIDENCE_COMMANDS
+#define UFS_BOUNCE_EVIDENCE_COMMANDS               256
+#endif
+
 #ifndef UFS_ZERO_BOUNCE_BEFORE_READ
 #define UFS_ZERO_BOUNCE_BEFORE_READ                0
 #endif

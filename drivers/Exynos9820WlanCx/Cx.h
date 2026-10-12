@@ -92,6 +92,12 @@ typedef struct _CX_DEVICE {
     UCHAR               TxLayout[15];   /* Layer2Type + first 14 bytes of the latest recorded tx packet */
     BOOLEAN             Linked;         /* W4: associated (worker polls every CX_LINK_WAIT_MS) */
     UCHAR               Bssid[6];       /* W4: the BSS of the current / last connect */
+    BOOLEAN             KeysSet;        /* cx5: a pairwise key is installed (rx frames are marked Protected) */
+    BOOLEAN             RxDot11;        /* cx5: rx frames go up as 802.11 data frames (Parameters\RxFormat 0) */
+    volatile LONG       RxLayoutLog;    /* rx packets recorded as delivered (first 8), logged by the worker */
+    LONG                RxLayoutSeen;
+    UCHAR               RxLayout[4 + 32];   /* Layer2Type, Layer2HeaderLength, FragmentCount, Ignore + 32 bytes */
+    ULONG               RxLayoutLen;
 
     /* worker */
     PKTHREAD            Thread;

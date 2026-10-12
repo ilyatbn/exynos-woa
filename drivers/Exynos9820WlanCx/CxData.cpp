@@ -36,6 +36,32 @@ CxFifoPut(PCX_FIFO F, const UCHAR *Frame, ULONG Len)
     return Ok;
 }
 
+/* cx5 (wifi-cx4 run: 4 EAPOL msg 1 frames delivered as Ethernet II, the OS supplicant never answered): the adapter
+   is NdisMediumNative802_11 (INF *MediaType 16), whose receive path carries 802.11 data frames, not 802.3 (Native
+   802.11 = the medium WDI/WiFiCx sits on; NET_PACKET_LAYER2_TYPE has an Ieee80211 value for it, packet.h). The
+   firmware hands us 802.3, so it is re-framed: 802.11 data header FromDS (FC 08 02; A1 = DA, A2 = BSSID, A3 = SA,
+   802.11-2016 9.3.2.1 address table), sequence 0, then RFC 1042 LLC/SNAP AA AA 03 00 00 00 + EtherType + payload.
+   Protected (FC bit 14) is set once a pairwise key is installed: the firmware decrypted the frame, and a clear
+   frame would be dropped by the OS's ExcludeUnencrypted rule (WDI_TLV_CONNECTION_SETTINGS) - UNVERIFIED.
+   Parameters\RxFormat 1 restores the cx4 Ethernet II delivery for an A/B run. Returns the 802.11 length or 0. */
+static ULONG
+CxEthToDot11(PCX_DEVICE Dev, const UCHAR *E, ULONG Len, PUCHAR Out)
+{
+    if (Len < 14 || Len - 14 + 32 > CX_FRAME_MAX) {
+        return 0;
+    }
+    Out[0] = 0x08;                                  /* type data, subtype 0 */
+    Out[1] = (UCHAR)(0x02 | (Dev->KeysSet ? 0x40 : 0x00));   /* FromDS (+ Protected) */
+    Out[2] = Out[3] = 0;                            /* duration */
+    RtlCopyMemory(Out + 4, E, 6);                   /* A1 = DA */
+    RtlCopyMemory(Out + 10, Dev->Bssid, 6);         /* A2 = BSSID */
+    RtlCopyMemory(Out + 16, E + 6, 6);              /* A3 = SA */
+    Out[22] = Out[23] = 0;                          /* sequence control */
+    Out[24] = 0xAA; Out[25] = 0xAA; Out[26] = 0x03; Out[27] = Out[28] = Out[29] = 0;
+    RtlCopyMemory(Out + 30, E + 12, Len - 12);      /* EtherType + payload */
+    return Len - 14 + 32;
+}
+
 /* WLAN_RX_FN: one received 802.3 frame (EAPOL included: the OS supplicant needs it), on the worker thread. */
 _Use_decl_annotations_
 VOID
@@ -44,9 +70,18 @@ CxRxFrame(PVOID Ctx, const UCHAR *Frame, ULONG Len)
     PCX_DEVICE     Dev = (PCX_DEVICE)Ctx;
     KIRQL          Irql;
     NETPACKETQUEUE Q = NULL;
+    UCHAR          Dot11[CX_FRAME_MAX];
 
     if (Dev == NULL || Dev->RxFifo == NULL) {
         return;
+    }
+    if (Dev->RxDot11) {
+        Len = CxEthToDot11(Dev, Frame, Len, Dot11);
+        if (Len == 0) {
+            InterlockedIncrement((volatile LONG *)&Dev->RxFifo->Dropped);
+            return;
+        }
+        Frame = Dot11;
     }
     if (!CxFifoPut(Dev->RxFifo, Frame, Len)) {
         return;

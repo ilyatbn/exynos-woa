@@ -162,9 +162,19 @@ CxRxAdvance(NETPACKETQUEUE Queue)
             P->FragmentIndex = Fi;
             P->FragmentCount = 1;
             RtlZeroMemory(&P->Layout, sizeof(P->Layout));
-            P->Layout.Layer2Type = NetPacketLayer2TypeEthernet;
+            P->Layout.Layer2Type         = Dev->RxDot11 ? NetPacketLayer2TypeIeee80211 : NetPacketLayer2TypeEthernet;
+            P->Layout.Layer2HeaderLength = Dev->RxDot11 ? 24 : 14;
             P->Ignore = 0;
             F->Out++;
+            if (Dev->RxLayoutLog < 8) {   /* what NetAdapterCx gets, logged by the worker */
+                Dev->RxLayout[0] = (UCHAR)P->Layout.Layer2Type;
+                Dev->RxLayout[1] = (UCHAR)P->Layout.Layer2HeaderLength;
+                Dev->RxLayout[2] = (UCHAR)P->FragmentCount;
+                Dev->RxLayout[3] = (UCHAR)P->Ignore;
+                RtlCopyMemory(Dev->RxLayout + 4, Va + Fg->Offset, (Len < 32) ? Len : 32);
+                Dev->RxLayoutLen = (ULONG)Fg->ValidLength | ((ULONG)Fg->Offset << 16);
+                InterlockedIncrement(&Dev->RxLayoutLog);
+            }
         } else {
             Fg->ValidLength  = 0;
             P->FragmentIndex = Fi;

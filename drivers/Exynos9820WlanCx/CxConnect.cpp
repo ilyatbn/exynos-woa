@@ -40,6 +40,9 @@ CxSetLinked(PCX_DEVICE Dev, BOOLEAN Linked)
         return;
     }
     Dev->Linked = Linked;
+    if (!Linked) {
+        Dev->KeysSet = FALSE;   /* the firmware drops the keys with the association */
+    }
     /* 5 ms worker waits need a 1 ms system timer while associated (rx latency); released on disconnect */
     (VOID)ExSetTimerResolution(10000, Linked);
     if (Dev->Adapter != NULL) {
@@ -408,6 +411,8 @@ CxSetAddKeys(PCX_DEVICE Dev, PCX_CMD Cmd, const UINT8 *Tlv, ULONG TlvLen)
                            (!Pairwise && K->Optional.ReceiveSequenceCount_IsPresent) ? K->ReceiveSequenceCount.ReceiveSequenceCount : NULL);
         if (Rc != MSG_OK) {
             Status = STATUS_UNSUCCESSFUL;
+        } else if (Pairwise) {
+            Dev->KeysSet = TRUE;
         }
     }
     CleanupParsedWdiSetAddCipherKeys(P);

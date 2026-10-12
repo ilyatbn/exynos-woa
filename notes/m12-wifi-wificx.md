@@ -339,3 +339,23 @@ What the logs must show (Exynos9820WlanCx.txt = bring-up, -run.txt = runtime):
 - Review of bf2f260: the W4 milestone row was not updated (the sed pattern did not match the backslash) and the
   sub-rows were prefixed "M9", which clashes with the top-level M9 (Installer) row of MILESTONES.md. Fixed in a
   follow-up commit: rows renamed "M12 milestone 9 ...", W4 row text set.
+
+## Device run of wifi-cx4 (user, Home-X and the laptop hotspot "S10eTest"; logs scratchpad runs/cx4-user)
+- Fixed by cx4: "[join] association result: status 0, phy 7, wmm 1, req 178 B resp 159 B beacon 1" and "->
+  indication 76 ... 733 B"; id 34 answered. OS WDI version 0x00020003 (= WDI 2.0.3, probe.txt line 1).
+- Still failing: after CONNECT_COMPLETE four EAPOL msg 1 frames were delivered to the rx queue (rx fifo in 4 out 4)
+  but the OS never transmitted (tx fifo in 0); ~3 s later WDI id 8 DISCONNECT (reason 3) + id 7 DOT11_RESET. The
+  OS polls the rx queue (out == in) and the DA is the adapter's MAC (A8:DB:03:06:3C:EF = cur_etheraddr =
+  NetAdapter permanent/current address), so the frames arrive but are not taken as EAPOL.
+- Analysis: the INF declares *MediaType 16 NdisMediumNative802_11 / *PhysicalMediaType 9 (as the WiFiCx doc
+  requires); a Native 802.11 receive path carries 802.11 data frames with LLC/SNAP, not Ethernet II, and the
+  NetAdapterCx packet layout has a dedicated NetPacketLayer2TypeIeee80211 (packet.h:21-25) and the WiFi
+  ExemptionAction tx extension mirrors DOT11_EXTSTA_SEND_CONTEXT. So cx4 delivered the right bytes in the wrong
+  framing. (No Microsoft page found that states the WiFiCx rx frame format outright - UNVERIFIED, hence the
+  registry A/B switch.)
+- cx5 (T11): rx frames are re-framed to 802.11: FC 08 02 (data, FromDS) [+0x40 Protected once a pairwise key is
+  installed], A1 = DA, A2 = BSSID, A3 = SA, seq 0, LLC/SNAP AA AA 03 00 00 00 + EtherType + payload; NET_PACKET
+  Layout Layer2Type Ieee80211, Layer2HeaderLength 24. Parameters\RxFormat = 1 restores Ethernet II (cx4). The
+  first 8 delivered rx packets are logged by the worker: "[rx] delivered #n: layer2 type .. hdr .. frags ..
+  ignore .., valid .. offset ..: <first 32 bytes>". KeysSet cleared on disconnect. The tx side already converts
+  802.11 tx packets to 802.3 (W3), and "[tx] packet layout #1" will show what the OS sends.

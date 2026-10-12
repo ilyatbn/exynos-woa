@@ -110,6 +110,17 @@ CxWorker(PVOID Context)
             Polled += WlanMsgPoll(&Dev->Msg, Dev->RunR);      /* rx -> RxFifo, tx completions, events */
             CxTxDrain(Dev);                                   /* frames that waited for a tx buffer */
         }
+        if (Dev->RxLayoutLog != Dev->RxLayoutSeen) {
+            const UCHAR *L = Dev->RxLayout;
+
+            Dev->RxLayoutSeen = Dev->RxLayoutLog;
+            CxLog(Dev, "[rx] delivered #%ld: layer2 type %u hdr %u frags %u ignore %u, valid %lu offset %lu: "
+                  "%02X%02X %02X%02X %02X%02X%02X%02X%02X%02X %02X%02X%02X%02X%02X%02X %02X%02X%02X%02X%02X%02X "
+                  "%02X%02X %02X%02X%02X%02X%02X%02X %02X%02X\r\n", Dev->RxLayoutSeen, L[0], L[1], L[2], L[3],
+                  Dev->RxLayoutLen & 0xFFFF, Dev->RxLayoutLen >> 16, L[4], L[5], L[6], L[7], L[8], L[9], L[10], L[11],
+                  L[12], L[13], L[14], L[15], L[16], L[17], L[18], L[19], L[20], L[21], L[22], L[23], L[24], L[25],
+                  L[26], L[27], L[28], L[29], L[30], L[31], L[32], L[33], L[34], L[35]);
+        }
         if (Dev->TxLayoutLog != Dev->TxLayoutSeen) {
             Dev->TxLayoutSeen = Dev->TxLayoutLog;
             CxLog(Dev, "[tx] packet layout #%ld: layer2 type %u (%s), first bytes %02X:%02X:%02X:%02X:%02X:%02X "
@@ -223,6 +234,24 @@ CxEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRESLIST Translated
         if ((P.Bar[2] & EP_CFG_BAR_TYPE_MASK) == EP_CFG_BAR_TYPE_64 && P.Bar[3] == 0) {
             WlanReadConfig(WdfDeviceGetDriver(Device), &DlCfg);
             DlCfg.Resident      = 1;   /* the WiFiCx driver always keeps the firmware */
+            {
+                /* cx5: Parameters\RxFormat 0 (default) = 802.11 rx frames, 1 = Ethernet II (cx4 behaviour) */
+                WDFKEY         Key;
+                UNICODE_STRING Name;
+                ULONG          V = 0;
+
+                if (NT_SUCCESS(WdfDriverOpenParametersRegistryKey(WdfDeviceGetDriver(Device), KEY_READ,
+                                                                  WDF_NO_OBJECT_ATTRIBUTES, &Key))) {
+                    RtlInitUnicodeString(&Name, L"RxFormat");
+                    if (!NT_SUCCESS(WdfRegistryQueryULong(Key, &Name, &V))) {
+                        V = 0;
+                    }
+                    WdfRegistryClose(Key);
+                }
+                Dev->RxDot11 = (V == 0);
+                ReportLine(R, "[cx] rx frames to the OS as %s (Parameters\\RxFormat %lu)\r\n",
+                           Dev->RxDot11 ? "802.11 data + LLC/SNAP" : "Ethernet II", V);
+            }
             DlCfg.RescanSeconds = 0;   /* scans come from WDI_TASK_SCAN */
             RtlZeroMemory(&Dev->Msg, sizeof(Dev->Msg));
             Dev->Msg.DmaEnabler = Dev->DmaEnabler;

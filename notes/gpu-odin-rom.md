@@ -48,7 +48,7 @@ gpu_max_clock = gpu_max_clock_limit = 702000;  gpu_min_clock = 156000;  gpu_dvfs
 gpu_default_voltage = 800000 (0xc3500 uV);     gpu_voltage_offset_margin = 37500 (0x927c);
 gpu_temp_throttling = <650000 572000 455000 325000 260000 156000>;
 gpu_runtime_pm_delay_time = 50; gpu_dvfs_polling_time = 30; gpu_power_coeff = 625; gpu_bts_support = 1;
-gpu_pmqos_mif_max_clock = 2093000 (0x1ff3b0); gpu_boost_egl_min_lock = 1872000 (0x1c9080);
+gpu_pmqos_mif_max_clock = 2094000 (0x1ff3b0); gpu_boost_egl_min_lock = 1872000 (0x1c9080);
 gpu_vk_boost_max_lock = 325000; gpu_vk_boost_mif_min_lock = 1014000; gpu_ess_id_type = 0xe;
 ```
 
@@ -71,7 +71,7 @@ UNVERIFIED - read the Samsung `gpu_dvfs_table` parser, e.g. LineageOS `gpu_dvfs_
 | 702000 | 78 | 100 | 9 | 2093000 | 1456000 | 0 | 1820000 |
 | 650000 | 78 | 98 | 5 | 2093000 | 1456000 | 0 | 2080000 |
 | 572000 | 78 | 98 | 5 | 1794000 | 0 | 0 | 0 |
-| 432000 | 78 | 95 | 1 | 1352000 | 0 | 0 | 0 |
+| 433000 | 78 | 95 | 1 | 1352000 | 0 | 0 | 0 |
 | 377000 | 78 | 90 | 1 | 1352000 | 0 | 0 | 0 |
 | 325000 | 78 | 85 | 1 | 1014000 | 0 | 0 | 0 |
 | 260000 | 78 | 85 | 1 | 676000 | 0 | 0 | 0 |
@@ -79,7 +79,7 @@ UNVERIFIED - read the Samsung `gpu_dvfs_table` parser, e.g. LineageOS `gpu_dvfs_
 | 156000 | 0 | 85 | 1 | 676000 | 0 | 0 | 0 |
 
 No voltages in the DT: per-OPP voltage comes from ECT/ASV through ACPM (`ect { parameter_address = <0x95000000>;
-parameter_size = <0x3a000> }`, dt.img.0.dts:4685). `gpu_sustainable_info = <432000 95 949000 1690000 520000>`.
+parameter_size = <0x3a000> }`, dt.img.0.dts:4685). `gpu_sustainable_info = <433000 95 949000 1690000 520000>`.
 
 ### F3. G3D power domain (dt.img.0.dts:3517-3525, :4331-4338, :5290-5302)
 
@@ -258,10 +258,20 @@ final confirmation - but the values below are what Samsung's own kernel binds to
 | G2 | PMU G3D offsets | CONFIGURATION = PMU+0x2100 (0x15862100), STATUS = PMU+0x2104 (0x15862104), powered = bit 0 (`gpu_pmu_status_local_pwr_mask = 1`) | dt.img.0.dts:3519, :4638-4639 |
 | G2 | clock/voltage path | **no `clocks`/regulator in DT; GPU clock+voltage set via CAL-DFS id `0xb04000a` (ACPM)**, `set_clock_using_calapi`, ASV table from CAL IF | dt.img.0.dts:4628; kernel.img @0x17ef070, @0x17eef66 |
 | G2 | ACPM vs direct PMU | power-on = genpd `exynos-pd` (pmucal sequence, cal_id 0xb1380007) + `need_smc` 0x18410204 (D_TZPC_G3D) -> *direct PMU write possible but a secure SMC follows*; DVFS = ACPM | dt.img.0.dts:3517-3522; kernel.img @0x17b71f3 |
-| G2 | OPP table | 702/650/572/432/377/325/260/200/156 MHz; boot/start 260 MHz; default voltage 800 mV | F2 |
+| G2 | OPP table | 702/650/572/433/377/325/260/200/156 MHz; boot/start 260 MHz; default voltage 800 mV | F2 |
 | G3 | MP count hint | none in DT (no core mask property); G3 SHADER_PRESENT read remains the closer | F1 |
 | G5 | coherency | DT has **no `system-coherency`** -> kbase default (non-coherent, UNVERIFIED in kbase source) | F1, P8 |
 
 Still UNVERIFIED (not in the ROM data): the CONFIGURATION value that powers G3D on (generic exynos-pd uses 0xF),
 the pmucal sequence contents (pointer tables in the kernel, no kallsyms), the `need_smc` SMC id, CMU_G3D /
 EMBEDDED_CMU_G3D base addresses (not DT nodes), whether sboot leaves G3D powered.
+
+## Review of e7913cb (adversarial, AGENTS.md §4)
+
+Checked mechanically: every hex->decimal conversion re-computed with `python -c "print(0x..)"`; every
+`dt.img.0.dts:<line>` citation re-read with `sed -n`; `Exynos9820.h:280` PMU base re-grepped.
+Found and fixed in the follow-up commit:
+- `0x69b68` is **433000**, not 432000 (DVFS row 4, `gpu_sustainable_info[0]`, the G2 OPP list) - a 433 MHz OPP.
+- `gpu_pmqos_mif_max_clock = 0x1ff3b0` is **2094000**, not 2093000 (the table's MIF column 0x1fefc8 *is* 2093000).
+Everything else verified: IRQ cells 0x120/0x11f/0x121 = 288/287/289; ect node starts at dts:4685; pmucal dbg
+node at :4331-4338; dm_gpu at :8707-8712.

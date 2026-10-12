@@ -115,7 +115,7 @@ Retarget per R-list:
 [0.000] MaliG76Probe (M16 G9b) start - 5 resources
 [0.000] res 0: memory 0000000018500000 len 5000
 [0.000] res 1: memory 0000000015862000 len 1000
-[0.000] res 2: interrupt raw vector 320 (GSIV) level, translated vector .. level ..   (+ 319, 321)
+[0.000] res 2: interrupt raw vector 320 (expect the _CRS GSIV) level, translated vector .. level ..   (+ 319, 321)
 [0.000] G3D powered (EMBEDDED_G3D_STATUS ...1 G3D_STATUS ...1)
 [0.000] GPU_ID 72?1???? -> ((id >> 16) & ff0f) = 7201, G76 7201: yes
 [0.000] ready: 3 interrupts created; the run starts once they are connected
@@ -129,7 +129,7 @@ Retarget per R-list:
 [0.0xx] memory: 5 pages at PA 00000000........ (limit 2^NN)
 [0.0xx] AS0: TRANSTAB ..:.......7 MEMATTR 00888d88 TRANSCFG 00000000 (Mali-LPAE) - updated
 [0.0xx] job: WRITE_VALUE c0ffee42 -> GPU VA 2000100 submitted on JS0 (affinity ....)
-[0.0xx] job: completed; JOB_INT_RAWSTAT 00000000 (ISR cleared it) JS0_STATUS .. MMU_INT_RAWSTAT 00000000 AS0_FAULTSTATUS 00000000 ..
+[0.0xx] job: JS0 DONE (JOB_INT bit 0); JOB_INT_RAWSTAT 00000000 JS0_STATUS .. MMU_INT_RAWSTAT 00000000 AS0_FAULTSTATUS 00000000 ..
 [0.0xx] irq: ISR saw JOB 00000001 MMU 00000000 GPU 00000000; hits per line 1/0/0 (GSIV 320/319/321), empty 0
 [0.0xx] memory: job header word0 (exception status) 00000001, target c0ffee42 (want c0ffee42)
 [0.0xx] RESULT: PASS (the G76 wrote the value)
@@ -156,3 +156,25 @@ Retarget per R-list:
 - Clock: whatever UEFI's ACPM FREQ_REQ (260 MHz) left; no DVFS, no thermal under Windows. One short job only.
 - A bus fault on the first GPU read (DTZPC not restored in UEFI) would be an SError -> bugcheck at driver load.
   UEFI's own re-probe read GPU_ID before setting 'GPU0', so this should already have been caught there.
+
+## Review of 9caabb0 (G9b, adversarial)
+- Checked mechanically: 9810 trees untouched (diff --stat e951137..HEAD on Star2LtePkg, Exynos9810Pkg,
+  drivers/Exynos9810*: empty); page tables, job words, TRANSTAB |0x7, MEMATTR, JS_CONFIG byte-identical to
+  m1probe.c (grep of both files side by side); every register offset used vs panfrost_regs.h (grep: GPU_* 0x004-0x0A0,
+  PRESENT/READY/PWRON 0x100-0x1A0, JS 0x1800 + 0x24/0x40-0x60, MMU_BASE 0x2400 + AS 0x00-0x34) - all match;
+  LICENSE sha256 = upstream; InfVerif /w exit 0.
+- Found (fixed in the follow-up commit, not in 9caabb0):
+  1. "job: completed" took JOB_INT ERR (bit 16) as completion: a FAILED job would have been logged "completed"
+     (RESULT stayed FAIL only because the target would not match). Now the line says "JS0 DONE (JOB_INT bit 0)"
+     or "JS0 FAILED (JOB_INT ERR bit 16)", and PASS needs JobBits == 0x1 exactly.
+  2. PrepareHardware on a stop/restart re-used stale counters (IrqCount kept growing, ISR hits/bits not reset).
+     Now reset at entry.
+  3. The resource log line asserted "(GSIV)" for the raw interrupt vector; that the raw descriptor carries the GSIV
+     on ARM64/ACPI is not verified here -> "(expect the _CRS GSIV)".
+  4. This note's expected-log block carried an annotation "(ISR cleared it)" that the driver never prints - removed.
+- Accepted (recorded): JS0 instead of panfrost's JS1 (R17, m1probe-proven); exception-status value not asserted.
+- Rebuild after the fix: **exit 0**, sys 30 616 B. sha256 (FINAL package in s10e-artifacts\mali-g9b):
+  - MaliG76Probe.sys `244550B8AB7751B6D96023A749C27889AF1B4709C1142FB3272A2851DD7EA4C6`
+  - MaliG76Probe.inf `4B606010D4A9906DBD20CBE99426C1A59FC27C64953DCAFDD4236BF649A8245D`
+  - malig76probe.cat `73D881487956DC831CA6B9D2F9C03D649D6939D6F44B8B6DE47CA3286F1BE123`
+  (the sha256 list under "Task 2 - implementation + build" is the superseded pre-fix package)

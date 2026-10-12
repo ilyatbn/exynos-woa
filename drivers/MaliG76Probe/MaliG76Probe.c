@@ -315,6 +315,7 @@ static VOID MpRun(_In_ PDEVICE_CONTEXT C)
     ULONG L2, Shader, ShaderHi, Tiler, PaBits;
     ULONG64 Base = 0, Target;
     PUCHAR Mem = NULL;
+    ULONG JobBits = 0;
     BOOLEAN Done = FALSE, Fault = FALSE, Free = TRUE;
 
     MpLog(C, "run: start");
@@ -455,8 +456,9 @@ static VOID MpRun(_In_ PDEVICE_CONTEXT C)
         MpLog(C, "job: WRITE_VALUE %08lx -> GPU VA %llx submitted on JS0 (affinity %08lx)", MAGIC, Target, Shader);
 
         for (ULONG i = 0; i < 50000; i++) {       /* 500 ms */
-            if ((RD(Gpu, JOB_INT_RAWSTAT) | (ULONG)C->IsrJob) & JOB_INT_JS0) {
-                Done = TRUE;
+            JobBits = (RD(Gpu, JOB_INT_RAWSTAT) | (ULONG)C->IsrJob) & JOB_INT_JS0;
+            if (JobBits != 0) {
+                Done = TRUE;                      /* the slot finished: DONE bit 0 or ERR bit 16 */
                 break;
             }
             if ((RD(Gpu, MMU_INT_RAWSTAT) | (ULONG)C->IsrMmu) & MMU_INT_AS0) {
@@ -471,7 +473,9 @@ static VOID MpRun(_In_ PDEVICE_CONTEXT C)
 
         MpLog(C, "job: %s; JOB_INT_RAWSTAT %08lx JS0_STATUS %08lx MMU_INT_RAWSTAT %08lx AS0_FAULTSTATUS %08lx "
                  "AS0_FAULTADDRESS %08lx:%08lx",
-              Done ? "completed" : (Fault ? "MMU FAULT" : "TIMEOUT (500 ms)"), RD(Gpu, JOB_INT_RAWSTAT),
+              !Done ? (Fault ? "MMU FAULT" : "TIMEOUT (500 ms)") :
+                      ((JobBits & 0x00010000u) ? "JS0 FAILED (JOB_INT ERR bit 16)" : "JS0 DONE (JOB_INT bit 0)"),
+              RD(Gpu, JOB_INT_RAWSTAT),
               RD(Gpu, JS0 + JS_STATUS), RD(Gpu, MMU_INT_RAWSTAT), RD(Gpu, AS0 + AS_FAULTSTATUS),
               RD(Gpu, AS0 + AS_FAULTADDRESS_HI), RD(Gpu, AS0 + AS_FAULTADDRESS_LO));
         MpLog(C, "irq: ISR saw JOB %08lx MMU %08lx GPU %08lx; hits per line %ld/%ld/%ld (GSIV %lu/%lu/%lu), empty %ld",
@@ -480,7 +484,7 @@ static VOID MpRun(_In_ PDEVICE_CONTEXT C)
 
         V = Data[TARGET_OFFSET / 4];
         MpLog(C, "memory: job header word0 (exception status) %08lx, target %08lx (want %08lx)", Data[0], V, MAGIC);
-        MpLog(C, "RESULT: %s", (Done && V == MAGIC) ? "PASS (the G76 wrote the value)" : "FAIL");
+        MpLog(C, "RESULT: %s", (Done && JobBits == 0x1u && V == MAGIC) ? "PASS (the G76 wrote the value)" : "FAIL");
 
         WR(Gpu, JOB_INT_CLEAR, 0xFFFFFFFF);
         WR(Gpu, MMU_INT_CLEAR, 0xFFFFFFFF);
@@ -547,6 +551,16 @@ NTSTATUS MpEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRESLIST T
     ULONG MemCount = 0, IrqCount = 0, Emb, G3d, Id;
     NTSTATUS Status = STATUS_SUCCESS;
 
+    /* A stop/restart (rebalance) runs this again: start from clean counters (the run itself happens once). */
+    C->Usable   = FALSE;
+    C->IrqCount = 0;
+    C->IsrEmpty = 0;
+    C->IsrJob   = 0;
+    C->IsrMmu   = 0;
+    C->IsrGpu   = 0;
+    RtlZeroMemory((PVOID)C->IsrHits, sizeof(C->IsrHits));
+    RtlZeroMemory(C->IrqGsiv, sizeof(C->IrqGsiv));
+
     C->Log = (PMP_RUNLOG)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(MP_RUNLOG), MP_POOL_TAG);
     if (C->Log != NULL) {
         KeInitializeSpinLock(&C->Log->Lock);
@@ -564,7 +578,7 @@ NTSTATUS MpEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Raw, WDFCMRESLIST T
             }
             MemCount++;
         } else if (D->Type == CmResourceTypeInterrupt) {
-            MpLog(C, "res %lu: interrupt raw vector %lu (GSIV) %s, translated vector %lu level %lu", i,
+            MpLog(C, "res %lu: interrupt raw vector %lu (expect the _CRS GSIV) %s, translated vector %lu level %lu", i,
                   R->u.Interrupt.Vector, (R->Flags & CM_RESOURCE_INTERRUPT_LATCHED) ? "edge" : "level",
                   D->u.Interrupt.Vector, D->u.Interrupt.Level);
             if (IrqCount < MP_MAX_IRQ) {

@@ -14,6 +14,11 @@ if exist "%ESP%\S10EDIAG\gpu\gpu.flg" set GPU=1
 s10ediag mark "g: set mode full %FULL% gpu %GPU% (GPU0 hidden this boot)"
 reg add "%KEY%" /v GpuEnable /t REG_DWORD /d %GPU% /f > "%G%\set-mode.txt" 2>&1
 reg add "%KEY%" /v FullAdapter /t REG_DWORD /d %FULL% /f >> "%G%\set-mode.txt" 2>&1
+rem The full adapter's PreemptCommand never reports DMA_PREEMPTED (notes/gpu-full-adapter-hang.md suspect 5): turn
+rem preemption off BEFORE the first full-mode boot (extra-gpu-g10.cmd only did it one boot later).
+set /a ANYFULL=%GPU%+%FULL%
+if %ANYFULL% GTR 0 reg add "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\Scheduler" /v EnablePreemption /t REG_DWORD /d 0 /f >> "%G%\set-mode.txt" 2>&1
+if %ANYFULL% EQU 0 reg delete "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\Scheduler" /v EnablePreemption /f >> "%G%\set-mode.txt" 2>&1
 if exist "%ESP%\S10EDIAG\nogpu.flg" del /f /q "%ESP%\S10EDIAG\nogpu.flg"
 echo pass2 > C:\S10eTmp\gpumode2.flg
 s10ediag mark g: clean restart into the new mode

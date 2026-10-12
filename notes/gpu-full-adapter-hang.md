@@ -183,3 +183,8 @@ vsync slightly faster than the panel only shortens vblank waits, never blocks on
   with the heartbeat "p" counter stuck = flips not retiring -> next step is FlipOnVSyncMmIo (dxgkrnl then calls
   SetVidPnSourceAddress per flip and the vsync reports exactly that address).
 No code defect found in the F2 diff; nothing to fix.
+
+## F3 - EnablePreemption 0 before the first full-mode boot (drivers/S10eDiag/esp/extra-gpu-mode.cmd)
+- Pass 1 (GPU0 hidden) now writes GraphicsDrivers\Scheduler EnablePreemption 0 when full.flg or gpu.flg asks for a
+  full mode, deletes it for 0/0 - the same rule extra-gpu-g10.cmd applies, one boot earlier. Not inside a ( ) block,
+  so %ANYFULL% expands at the right time. CRLF kept (.gitattributes eol=crlf).

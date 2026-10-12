@@ -62,6 +62,32 @@ CodecTonePlay (
 #define BEYOND0LTE_AUDIO_ABOX_AUDIT  1
 #endif
 
+// D8a milestone 3 (AudioSpeaker.c): 1 = after both amps answered on resets this driver released, play a ~2 s
+// 1.5 kHz tone on the loudspeaker (ABOX RDMA0 -> UAIF1 -> CS35L40 @0x40, DSP bypass), then tear down.
+#ifndef BEYOND0LTE_AUDIO_SPEAKER_TONE
+#define BEYOND0LTE_AUDIO_SPEAKER_TONE  1
+#endif
+
+// hsi2c_38 amp access (Beyond0LteAudioProbeDxe.c), valid while AmpProbe has the bus up.
+EFI_STATUS
+AmpRead (
+  IN  UINT8   Slave,
+  IN  UINT32  Reg,
+  OUT UINT32  *Value
+  );
+
+EFI_STATUS
+AmpWrite (
+  IN UINT8   Slave,
+  IN UINT32  Reg,
+  IN UINT32  Value
+  );
+
+BOOLEAN
+SpeakerTonePlay (
+  VOID
+  );
+
 // Returns TRUE when pd-aud was on and the ABOX answered with its IP index.
 BOOLEAN
 AboxAudit (

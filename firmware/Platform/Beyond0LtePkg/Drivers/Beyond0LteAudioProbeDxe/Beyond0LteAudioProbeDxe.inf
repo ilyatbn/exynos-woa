@@ -19,6 +19,8 @@
   Beyond0LteAudioProbeDxe.c
   AudioTone.c
   AudioAbox.c
+  AudioSpeaker.c
+  AudioAmpOtp.h
   AudioProbeHw.h
   AudioCodec.h
 
@@ -32,6 +34,7 @@
   BaseLib
   DebugLib
   IoLib
+  CacheMaintenanceLib
 
 [Depex]
   gEfiCpuArchProtocolGuid

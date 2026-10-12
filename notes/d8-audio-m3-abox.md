@@ -387,3 +387,13 @@ UAIF1 SPK (F12); needs UAIF0 configured as I2S master (same F4 rules) plus codec
   SNR 16 dB over a -87 dBFS floor. => the m2 tone is **~1 kHz** (closes the UNVERIFIED pitch in §6.1 of
   d8-audio-m1.md) and plays ~31 s after the reboot command. (A 390 Hz burst at 1.8 s = room / PC noise, before
   the phone had even reset.) The earbud is quiet at the mic; the loudspeaker test will be much louder.
+- boot #97 (stages 1+2 in one image, unattended, judged by UEFILOG "AudioSpk:" + the PC mic):
+  AudioSpeaker.c SpeakerTonePlay inside AmpProbe (only on amps we released, both IDs OK): amp @40 table rows
+  0.2-5.7 (errata, OTP unpack of otp_map_2 = AudioAmpOtp.h generated verbatim, 99 fields / 688 bits, bypass trims,
+  6.144 MHz PLL code 0x28, DSP_A, RX slot 1, gain field 0x0A, muted); ABOX: DIV_UAIF1 95 (589.824 / 96 =
+  6.144 MHz, AUDIF left at the sboot /2), gpb1 func 2, MISC_CON 1, SYSPOWER_CTRL 1, QCH bit3, UAIF1 CTRL1
+  0x1B4DF7DF / CTRL0 0x01000014, SBANK_RDMA0 0x02000000, RDMA0 ring in DRAM (<4 GiB, cache written back,
+  4800 frames x 4 x 32 bit, 1.5 kHz -12 dBFS in slot 1), VOL 0x800000, CTRL0 0x00400000|0x1B00|EN, ROUTE 0x20,
+  SPK_EN; amp PLL lock / PUP_DONE / unmute -20 dB; 2 s; full teardown + restore. 1.5 kHz is chosen so the mic
+  can tell it from the 1 kHz headphone tone. Also BEYOND0LTE_WINDOWS_WATCHDOG 1 (unattended session).
+  Build exit 0, FVMAIN_COMPACT 1336 B free; boot97-v2.img sha256 1e71e6a0ab7c0095e0a061ed2e0b8a2ca862614bc970bcc4abfb3be3de7b2454.

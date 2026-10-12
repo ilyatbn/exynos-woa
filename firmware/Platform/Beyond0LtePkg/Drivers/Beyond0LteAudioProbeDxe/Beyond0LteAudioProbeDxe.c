@@ -284,7 +284,6 @@ I2cXfer (IN UINT8 Slave, IN BOOLEAN Read, IN OUT UINT8 *Data, IN UINTN Length, I
 
 // CS35L40 register read: 32-bit big-endian address (no stop), restart, 32-bit big-endian value
 // (cs35l41-i2c.c:25-30 regmap: reg_bits 32, val_bits 32, both REGMAP_ENDIAN_BIG).
-STATIC
 EFI_STATUS
 AmpRead (IN UINT8 Slave, IN UINT32 Reg, OUT UINT32 *Value)
 {
@@ -303,6 +302,24 @@ AmpRead (IN UINT8 Slave, IN UINT32 Reg, OUT UINT32 *Value)
 
   *Value = ((UINT32)Buf[0] << 24) | ((UINT32)Buf[1] << 16) | ((UINT32)Buf[2] << 8) | Buf[3];
   return Status;
+}
+
+// CS35L40 register write: 32-bit big-endian address + 32-bit big-endian value in one transfer with stop
+// (same regmap as AmpRead).
+EFI_STATUS
+AmpWrite (IN UINT8 Slave, IN UINT32 Reg, IN UINT32 Value)
+{
+  UINT8  Buf[8];
+
+  Buf[0] = (UINT8)(Reg >> 24);
+  Buf[1] = (UINT8)(Reg >> 16);
+  Buf[2] = (UINT8)(Reg >> 8);
+  Buf[3] = (UINT8)Reg;
+  Buf[4] = (UINT8)(Value >> 24);
+  Buf[5] = (UINT8)(Value >> 16);
+  Buf[6] = (UINT8)(Value >> 8);
+  Buf[7] = (UINT8)Value;
+  return I2cXfer (Slave, FALSE, Buf, 8, TRUE);
 }
 
 // One amp: DEVID/REVID/OTPID/IRQ1_STATUS4, verdict against cs35l41.c:2143-2149.
@@ -419,6 +436,11 @@ AmpProbe (VOID)
         if (!Ok[Index]) {
           Ok[Index] = AmpIdentify (Amps[Index].Addr, Amps[Index].Name);
         }
+      }
+
+      // D8a m3: only on amps this driver took out of reset itself (POR state); the release below wipes it.
+      if (Ok[0] && Ok[1] && BEYOND0LTE_AUDIO_SPEAKER_TONE) {
+        (VOID)SpeakerTonePlay ();   // AudioSpeaker.c
       }
     }
   }

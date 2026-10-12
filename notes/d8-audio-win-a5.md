@@ -89,3 +89,8 @@ Parameters AmpInit/AmpEnable/AboxEnable; no hardware constant changes.
   only applied at endpoint creation - that is an inference (the doc only says the INF loads it into the registry and
   the engine uses it). Corrected here: INFERENCE, unverified. The INF AddReg on the interface key is re-run by
   pnputil /add-driver /install of a newer version, so the value itself is current after the update.
+- T4 test scripts: audio-test.ps1 logs "vol: endpoint volume scalar/dB/mute/hw support/range" (IAudioEndpointVolume,
+  vtable order per endpointvolume.h) at start and after every key step; extra-audio.cmd mirrors driver lines with
+  volume/mute/render circuit/version into the PRAM marks too. Both CRLF. Host check: the C# compiled with Add-Type on
+  this PC and Vol() read the PC's default endpoint: "scalar 0.70 = -5.4 dB, mute 0, hw support 0x7, range -96.0..0.0
+  step 0.13 (hr 0/0/0/0/0)" (read-only call; no playback, no Initialize on the PC).

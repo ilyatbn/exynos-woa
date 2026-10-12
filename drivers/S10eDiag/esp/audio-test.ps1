@@ -2,6 +2,8 @@
 # 1) WASAPI diagnostics: default render endpoint, its state, mix format, IAudioClient.Initialize HRESULT.
 # 2) Plays 2 s tones through a WASAPI shared-mode stream on the default endpoint and changes the volume with injected
 #    volume keys in between, so the PC microphone (tools/audio-listen) sees playback and the level changes.
+# 3) A5: after every key step the endpoint volume (IAudioEndpointVolume: scalar, dB, mute, QueryHardwareSupport) is
+#    logged - with the driver's volume + mute elements, hw support must be 3 and the scalar must follow the keys.
 # Log: C:\S10eTmp\audiotest.txt
 $log = 'C:\S10eTmp\audiotest.txt'
 function L($m) { "{0:HH:mm:ss.fff} {1}" -f (Get-Date), $m | Out-File -Append -Encoding ascii $log }
@@ -39,6 +41,27 @@ namespace S10e {
     [PreserveSig] int SetEventHandle(IntPtr h);
     [PreserveSig] int GetService(ref Guid iid, [MarshalAs(UnmanagedType.IUnknown)] out object o);
   }
+  [Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  interface IAudioEndpointVolume {
+    [PreserveSig] int RegisterControlChangeNotify(IntPtr n);
+    [PreserveSig] int UnregisterControlChangeNotify(IntPtr n);
+    [PreserveSig] int GetChannelCount(out uint n);
+    [PreserveSig] int SetMasterVolumeLevel(float db, IntPtr ctx);
+    [PreserveSig] int SetMasterVolumeLevelScalar(float v, IntPtr ctx);
+    [PreserveSig] int GetMasterVolumeLevel(out float db);
+    [PreserveSig] int GetMasterVolumeLevelScalar(out float v);
+    [PreserveSig] int SetChannelVolumeLevel(uint ch, float db, IntPtr ctx);
+    [PreserveSig] int SetChannelVolumeLevelScalar(uint ch, float v, IntPtr ctx);
+    [PreserveSig] int GetChannelVolumeLevel(uint ch, out float db);
+    [PreserveSig] int GetChannelVolumeLevelScalar(uint ch, out float v);
+    [PreserveSig] int SetMute(int mute, IntPtr ctx);
+    [PreserveSig] int GetMute(out int mute);
+    [PreserveSig] int GetVolumeStepInfo(out uint step, out uint count);
+    [PreserveSig] int VolumeStepUp(IntPtr ctx);
+    [PreserveSig] int VolumeStepDown(IntPtr ctx);
+    [PreserveSig] int QueryHardwareSupport(out uint mask);
+    [PreserveSig] int GetVolumeRange(out float min, out float max, out float inc);
+  }
   [Guid("F294ACFC-3146-4483-A7BF-ADDCA7C260E2"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
   interface IAudioRenderClient {
     [PreserveSig] int GetBuffer(uint frames, out IntPtr data);
@@ -61,6 +84,18 @@ namespace S10e {
       short tag = Marshal.ReadInt16(f, 0), ch = Marshal.ReadInt16(f, 2), bits = Marshal.ReadInt16(f, 14); int rate = Marshal.ReadInt32(f, 4);
       hr = c.Initialize(0, 0, 2000000, 0, f, IntPtr.Zero);
       return info + "; mix format tag 0x" + tag.ToString("X") + " " + ch + " ch " + rate + " Hz " + bits + " bit; Initialize hr 0x" + hr.ToString("X8");
+    }
+    // A5: endpoint volume state (what the volume keys / flyout change). hw 3 = volume + mute on the driver's elements.
+    public static string Vol() {
+      string info; var d = Dev(out info); if (d == null) return info;
+      Guid g = typeof(IAudioEndpointVolume).GUID; object o; int hr = d.Activate(ref g, 23, IntPtr.Zero, out o);
+      if (hr != 0) return "endpoint volume Activate hr 0x" + hr.ToString("X8");
+      var v = (IAudioEndpointVolume)o; float sc, db, mn, mx, inc; int mute; uint hw;
+      int h1 = v.GetMasterVolumeLevelScalar(out sc), h2 = v.GetMasterVolumeLevel(out db), h3 = v.GetMute(out mute);
+      int h4 = v.QueryHardwareSupport(out hw), h5 = v.GetVolumeRange(out mn, out mx, out inc);
+      return "endpoint volume scalar " + sc.ToString("F2") + " = " + db.ToString("F1") + " dB, mute " + mute + ", hw support 0x" +
+        hw.ToString("X") + ", range " + mn.ToString("F1") + ".." + mx.ToString("F1") + " step " + inc.ToString("F2") +
+        " (hr " + h1.ToString("X") + "/" + h2.ToString("X") + "/" + h3.ToString("X") + "/" + h4.ToString("X") + "/" + h5.ToString("X") + ")";
     }
     // Shared-mode tone in the mix format (float or 16-bit), amplitude 0.25.
     public static string Tone(double hz, int ms) {
@@ -105,14 +140,15 @@ function Key($vk, $n) { for ($i = 0; $i -lt $n; $i++) { [W.K]::keybd_event($vk, 
 try {
   L "start user=$env:USERNAME"
   L ("diag: " + [S10e.Wasapi]::Diag())
-  Key 0xAE 50; Key 0xAF 25; L 'volume keys: 0 then +25 steps (~50%)'
+  L ("vol: " + [S10e.Wasapi]::Vol())
+  Key 0xAE 50; Key 0xAF 25; L 'volume keys: 0 then +25 steps (~50%)'; L ("vol: " + [S10e.Wasapi]::Vol())
   Start-Sleep 1; L 'play 1500 Hz A (50%)'; L ([S10e.Wasapi]::Tone(1500, 2000))
-  Start-Sleep 1; Key 0xAE 10; L 'volume down x10 (~30%)'
+  Start-Sleep 1; Key 0xAE 10; L 'volume down x10 (~30%)'; L ("vol: " + [S10e.Wasapi]::Vol())
   Start-Sleep 1; L 'play 1500 Hz B (30%)'; L ([S10e.Wasapi]::Tone(1500, 2000))
-  Start-Sleep 1; Key 0xAF 20; L 'volume up x20 (~70%)'
+  Start-Sleep 1; Key 0xAF 20; L 'volume up x20 (~70%)'; L ("vol: " + [S10e.Wasapi]::Vol())
   Start-Sleep 1; L 'play 2000 Hz C (70%)'; L ([S10e.Wasapi]::Tone(2000, 2000))
-  Start-Sleep 1; Key 0xAD 1; L 'mute key'
+  Start-Sleep 1; Key 0xAD 1; L 'mute key'; L ("vol: " + [S10e.Wasapi]::Vol())
   Start-Sleep 1; L 'play 2000 Hz D (muted)'; L ([S10e.Wasapi]::Tone(2000, 2000))
-  Key 0xAD 1; Key 0xAE 20; L 'unmuted, volume back to ~30%'
+  Key 0xAD 1; Key 0xAE 20; L 'unmuted, volume back to ~30%'; L ("vol: " + [S10e.Wasapi]::Vol())
 } catch { L "ERROR $_" }
 L 'end'

@@ -148,6 +148,9 @@ NTSTATUS AudEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     Dev->Amp[1].Addr = AUD_AMP_L_I2C_ADDR;
     Dev->Amp[1].ResetPin = AUD_AMP_L_RESET_PIN;
     Dev->Amp[1].Name = "L/rcv";
+    /* HwVolume = 1: until Windows assigns its persisted level, sit at the amp notes' first-test -20 dB, not at the
+       0 dB a zeroed context would mean (KS units, 1/65536 dB). */
+    Dev->VolumeLevel = -20 * 0x10000;
 
     AudLog(Dev->Log, "Exynos9820Audio %s (ACX 1.0, ACPI\\SAMS9827): AmpInit %lu AmpEnable %lu AboxEnable %lu HwVolume %lu "
            "CacheMaint %lu\r\n", AUD_DRIVER_VERSION, Dev->Cfg.AmpInit, Dev->Cfg.AmpEnable, Dev->Cfg.AboxEnable,

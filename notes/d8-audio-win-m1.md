@@ -108,3 +108,4 @@ Findings (each a follow-up commit):
   GlitchAdjust read is single-copy atomic on ARM64; the glitch loop terminates (next deadline = now + 1 packet);
   AudLog's RtlStringCbVPrintfA at DISPATCH is legal (no %ws/%wZ used anywhere).
 - R1 fixed: AudHwStart = AboxInit -> AmpPowerUp -> AboxStart (amps powered down again if the DMA start fails); Run still takes StartTime right after AudHwStart. Build exit 0 /W4 /WX.
+- R2 fixed: Dev->VolumeLevel starts at -20 dB (-20 * 0x10000 KS units = AmpTargetSteps -160 = the fixed level). Build exit 0.

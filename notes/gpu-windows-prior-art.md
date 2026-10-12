@@ -327,3 +327,13 @@ Concrete suggested changes to the G1-G12 ladder (MILESTONES.md:378-389) — sugg
 - https://forums.virtualbox.org/viewtopic.php?f=6&t=108585
 - https://github.com/doitsujin/dxvk/wiki/Windows
 - https://en.wikipedia.org/wiki/Desktop_Window_Manager
+
+## Review of 56dae44 (adversarial, 2026-10-12)
+- Checked mechanically: gahingwoo commit count = 153 (api.github.com `commits?per_page=1` Link rel="last"
+  page=153); `malikm_drm.c` = 43725 bytes and patches 0001-0019 (contents API listing); MILESTONES.md G1-G12 at
+  :378-389 and G10 says "render-only" (grep); `notes/d5-gpu-display.md:375-376` does say "S9+ Midgard ... Lima"
+  (sed); local Mesa clone 1b75efe has no `frontends/d3d10umd` (ls), consistent with MR 44717 merge 2026-09-30.
+- Weak points left as marked, not upgraded: the anonymix007 "DWM seems mostly fine with just D3D10" quote and
+  PR 943 dates come from a WebFetch summarizer, not a verbatim page read; "ntdevlabs = NTDEV" and "NTDEV uses
+  d3d10umd + panfrost" are inference; whether BasicRender disables transparency is unresolved (F5).
+- Follow-up for another task (not this file's scope): fix the G72 "Midgard/Lima" error in d5-gpu-display.md.

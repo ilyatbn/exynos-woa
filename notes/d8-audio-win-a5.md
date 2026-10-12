@@ -343,3 +343,7 @@ something after it still is.
   1600 1000 03000000 + PCM GUID), {3D6E1656},2/3/6/7 + {E4870E26},0 = 48k float32 EXT (the mix formats), {1DA5D803},8 =
   KSNODETYPE_SPEAKER, ,2 = KSNODETYPE_ANY, ,7 = 1 (event driven). On the phone the same dump shows which of these
   AudioSrv failed to write.
+- T14 extra-audio.cmd (CRLF, no control bytes - grep): after the test, as SYSTEM: `reg query HKLM\SOFTWARE\Microsoft\
+  Windows\CurrentVersion\MMDevices\Audio\Render /s` -> audio\mmdevices.txt; `wevtutil el` filtered for audio ->
+  evt-channels.txt; `wevtutil qe Microsoft-Windows-Audio/{Operational,PlaybackManager,Informational,GlitchDetection}
+  /c:100 /rd:true /f:text` -> evt-audio-*.txt (a missing channel just leaves its error text in the file).

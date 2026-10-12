@@ -39,6 +39,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%TMP%\run-as-user.ps1" -Scr
 s10ediag mark a: tone test waited
 copy /y "%TMP%\audiotest.txt" "%W%\audiotest.txt" > nul 2>&1
 :noplay
+rem A8: what AudioSrv stored for the endpoint (DeviceFormat {f19f064d...},0 / OEMFormat {e4870e26...},3) and why it refused it
+reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render" /s > "%W%\mmdevices.txt" 2>&1
+wevtutil el > "%TMP%\evt-all.txt" 2>&1
+findstr /i "audio" "%TMP%\evt-all.txt" > "%W%\evt-channels.txt" 2>&1
+for %%C in (Operational PlaybackManager Informational GlitchDetection) do wevtutil qe "Microsoft-Windows-Audio/%%C" /c:100 /rd:true /f:text > "%W%\evt-audio-%%C.txt" 2>&1
 copy /y "%SystemRoot%\System32\LogFiles\Exynos9820Audio-run.txt" "%W%\run.txt" > nul 2>&1
 rem run audB5: the ESP copy was lost when the restart did not flush - mirror the key lines into the PRAM mark ring
 for /f "usebackq delims=" %%L in ("%TMP%\audiotest.txt") do s10ediag mark "t: %%L"

@@ -276,3 +276,11 @@ Logs: scratchpad\runs\g13fullc (marks.txt, last\gpu\*, WINPRAM.BIN, UEFILOG.TXT)
   the peek worked -> dumpram line removed from extra-gpu-mode.cmd.
 - Added: DriverEntry PRAM lines `Params g.f.keys.vs.fb <hex>` (GpuEnable byte, FullAdapter byte, keys opened
   1 = service 2 = Parameters, SoftVsync, FlipBlt) and `UnixTime <hex>` (wall clock, to match a dump to its boot).
+- Package **s10e-artifacts\mali-g14** (build 14, INF 1.0.14.1 so it outranks 1.0.13.1; InfVerif /w exit 0; signer
+  5DD5DEE1...): sys `9CC997557ACBCAD4652029BF3260B52CC71278DF5AC624AC7B31C6B4C7580FCA`, inf
+  `5DDB0F0BC8722CE5E6B09ED636B8DBD606144A9F47CEF517DD0BAE2E44243852`, cat
+  `7A83B3D80A8A8D6FEBDA8A29F00F1660FC6251E1F2A15A9046A6A0EA5FFA6229`, extra-gpu-mode.cmd (CRLF)
+  `31BE3A58153482D56633D1DE81B9CEC67A0F0A2275B82F6B655C791E31DAB7BC`, extra-gpu-update.cmd / extra-gpu-g10.cmd /
+  m5test.exe unchanged from mali-g13. Not booted.
+- Review of the two commits above: Params/UnixTime lines are 49/35 chars (fit 63); KeQuerySystemTimePrecise is
+  PASSIVE-safe (DriverEntry); the script edit removed exactly the dumpram line (diff: 1 line -, comment updated).

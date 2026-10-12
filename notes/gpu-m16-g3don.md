@@ -176,3 +176,17 @@ GpuProbe: done
   `830941a125443c4f...`, GpuProbeDxe.efi 14 336 B; flag 1 (not committed) **exit 0**, FVMAIN_COMPACT 778240 total /
   3952 (0xf70) free, FD 7 340 032 B sha256 `2eb3767214e41001...` -> `scratchpad\BEYOND0LTE_UEFI-g9-flag1.fd`
   (replaces the pre-fix copy), .efi 31 232 B. Not packed, not flashed.
+
+## Review of 1343212 (review fix)
+- Checked: `git show 1343212` - entry test now `EmbSt & 1` only; OuterWasOn captured before any write and passed on
+  the single `Fail:` path; QCH constant gone (rg: 0 hits); flag back to 0 in the staged diff; both builds exit 0.
+- Found: PowerOffSafe(OuterWasOn = TRUE) logged "outer G3D back to on" but did nothing - if the outer domain was on
+  at entry and a wait failed between step 3 (outer off) and step 5 (outer on), it stayed OFF, contradicting the
+  log and the commit message. Fixed in the follow-up commit: re-enable it with the vendor's step-5 operation when
+  it was on at entry and reads off now.
+- Rebuild after this fix (the FINAL numbers): flag 0 (committed) **exit 0**, FVMAIN_COMPACT 774144 total / 2024
+  (0x7e8) free, GpuProbeDxe.efi 14 336 B; flag 1 (not committed) **exit 0**, FVMAIN_COMPACT 778240 total / 3928
+  (0xf58) free, FD 7 340 032 B sha256 `13b5a67e54bba0bf...` -> `scratchpad\BEYOND0LTE_UEFI-g9-flag1.fd`, .efi 31 232 B.
+- Next (main session): set `BEYOND0LTE_GPU_POWER_ON 1` for the test image, boot, read the "GpuProbe:" lines
+  (expected shape above); then the ACPI half of G9 (Device GPU0). Follow-up task: one shared ACPM IPC library for
+  TouchPowerDxe + GpuProbeDxe (today a verbatim copy).

@@ -101,7 +101,8 @@ SeqWait (
   DTZPC restore, when an NS access to CMU_G3D may be secure-only and abort (g2g3 F6). Also WITHOUT the
   exynos_pd_tz_save SMC that pmucal_local_disable issues first (H4).
   The vendor off-sequence never touches the outer G3D_CONFIGURATION (0x2380); here it is put back to its
-  entry state - if it was off at entry, with the vendor's own step-3 operation (bit0 = 0, wait status 0).
+  entry state: off -> the vendor's step-3 operation (bit0 = 0, wait status 0); on but now off (failure between
+  steps 3 and 5) -> the vendor's step-5 operation (bit0 = 1, wait status 1).
 
   @param[in] OuterWasOn  G3D_STATUS (0x2384) bit0 at entry.
 **/
@@ -119,6 +120,10 @@ PowerOffSafe (
   if (!OuterWasOn) {
     SeqWrite ("off", "G3D_CONFIGURATION", PMU_G3D_CFG, PMU_G3D_ON_BIT, 0);
     (VOID)SeqWait ("off", "G3D_STATUS", PMU_G3D_ST, PMU_G3D_ON_BIT, 0);
+  } else if ((MmioRead32 (PMU_G3D_ST) & PMU_G3D_ON_BIT) == 0) {
+    // on at entry, switched off by step 3, failure before step 5 completed: the vendor's step-5 operation
+    SeqWrite ("off", "G3D_CONFIGURATION", PMU_G3D_CFG, PMU_G3D_ON_BIT, PMU_G3D_ON_BIT);
+    (VOID)SeqWait ("off", "G3D_STATUS", PMU_G3D_ST, PMU_G3D_ON_BIT, PMU_G3D_ON_BIT);
   }
   SeqWrite ("off", "PLL_CON0_PLL_G3D", PLL_CON0, PLL_G3D_CON0_BIT4, 0);
   SeqWrite ("off", "PLL_CON2_PLL_G3D", PLL_CON2, MAX_UINT32, PLL_G3D_CON2_OFF_VALUE);

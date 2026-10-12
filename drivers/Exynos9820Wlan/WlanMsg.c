@@ -8,6 +8,7 @@
       3. host_cap, the five common rings' ring_mem (base / max_item / len_items), indices zeroed, scratch buffer
       4. EP bus mastering on, hostready doorbell (DB1)
       5. 8 ioctl-response buffers posted on the H2D control ring (DB0)
+     5b. M7c: data common buffer + rx data buffers posted on the H2D rxpost ring, before any wl ioctl / UP
       6. GET_VAR "cur_etheraddr" and "ver" (IOCTLPTR_REQ), completions polled on the D2H control-complete ring
          with the XOR checksum + epoch check
       7. always: ARM halted, 1 ms, EP bus mastering off, then the common buffer is freed (no DMA into freed memory)
@@ -1323,6 +1324,15 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
     WlanBusConsoleDump(R, Bus);
     ReportWriteFile(R);
 
+    /* 5b. rx data buffers BEFORE the firmware's first UP (rx audit fix 1, notes/m12-wifi-m7-rx-audit.md; run
+       1.0.7.3 showed a DOWN/UP bounce after the fact does not help). DHD posts them in dhd_sync_with_dongle ahead of
+       dhd_preinit_ioctls (dhd_msgbuf.c:4217-4220), after the ctrl buffers of dhd_prot_init; fmac at msgbuf attach
+       ahead of every ioctl (msgbuf.c:1655-1665). The tx flowring is still created after association. A failure
+       leaves the control path without a data path (logged), as before. The buffer is in M->DataBuffer: freed by the
+       Stop path below (after ARM halt + bus master off) or, once resident, by WlanMsgFree. */
+    (VOID)DataInit(S, M);
+    ReportWriteFile(R);
+
     /* 6. first ioctls */
     M->Result = IoctlVar(S, FALSE, "cur_etheraddr", NULL, 0, 32);
     if (M->Result == MSG_OK && S->RespLen >= 6) {
@@ -1420,7 +1430,6 @@ ScanEnd:
         M->Resident     = TRUE;
         M->Quiesced     = FALSE;
         M->Config       = NULL;   /* points at PrepareHardware's stack */
-        (VOID)DataInit(S, M);     /* milestone 7a; a failure leaves the control path resident without data */
         ReportLine(R, "RESIDENT: firmware kept running (ARM up, bus master on, buffer 0x%I64X, rings live)\r\n", S->La);
         ReportWriteFile(R);
         return;
@@ -1437,6 +1446,10 @@ Stop:
     ReportLine(R, "[msg] stop: ARM halted, EP COMMAND 0x%08lX\r\n", READ_REGISTER_ULONG((volatile ULONG *)(Bus->Cfg + EP_CFG_COMMAND)));
     if (Cb != NULL) {
         WdfObjectDelete(Cb);
+    }
+    if (M->DataBuffer != NULL) {   /* M7c: posted at step 5b, so it can exist on every path that reaches here */
+        WdfObjectDelete(M->DataBuffer);
+        M->DataBuffer = NULL;
     }
     if (S != NULL) {
         RegionMdlsFree(S);
@@ -2016,20 +2029,13 @@ WlanMsgJoin(PWLAN_MSG_CTX M, PWLAN_REPORT R, const WLAN_JOIN_CONFIG *J)
         ReportLine(R, "JOIN %u: AP security not supported (needs RSN v1, PSK, CCMP, no MFP)\r\n", JOIN_SETUP_FAILED);
         return JOIN_SETUP_FAILED;
     }
-    /* rx audit (notes/m12-wifi-m7-rx-audit.md fix 1): DHD and brcmfmac post the rx data buffers BEFORE the
-       firmware is brought up; ours were posted after WLC_UP (run: fw r 128, rx cpl w 0). Bounce the interface so
-       the firmware's UP sees the posted buffers. */
-    {
-        ULONG Zero = 0;
-        ULONG Rd = Ioctl(S, WLC_DOWN, &Zero, sizeof(Zero), 0, "DOWN");
-        ULONG Ru = Ioctl(S, WLC_UP, &One, sizeof(One), 0, "UP");
-
-        ReportLine(R, "[join] interface bounce: DOWN %lu UP %lu (rxpost host w %lu fw r %u)\r\n", Rd, Ru,
-                   S->Ring[RING_H2D_RXPOST].Host, Tcm16(S, S->Ring[RING_H2D_RXPOST].RIdxAddr));
-        if (IoctlVar(S, FALSE, "rxbufpost_sz", NULL, 0, sizeof(ULONG)) == MSG_OK && S->RespLen >= 2) {
-            ReportLine(R, "[join] firmware rxbufpost_sz %u (our rx buffers are %u B)\r\n",
-                       *(USHORT UNALIGNED *)S->Resp, DATA_BUF_SIZE);
-        }
+    /* (1.0.7.3's DOWN/UP bounce is gone: since 1.0.7.4 the rx buffers are posted before the first UP, WlanMsgRun
+       step 5b) */
+    ReportLine(R, "[join] rxpost host w %lu fw r %u before SET_SSID\r\n", S->Ring[RING_H2D_RXPOST].Host,
+               Tcm16(S, S->Ring[RING_H2D_RXPOST].RIdxAddr));
+    if (IoctlVar(S, FALSE, "rxbufpost_sz", NULL, 0, sizeof(ULONG)) == MSG_OK && S->RespLen >= 2) {
+        ReportLine(R, "[join] firmware rxbufpost_sz %u (our rx buffers are %u B)\r\n",
+                   *(USHORT UNALIGNED *)S->Resp, DATA_BUF_SIZE);
     }
     S->Joining     = TRUE;
     S->JoinSetSsid = -1;

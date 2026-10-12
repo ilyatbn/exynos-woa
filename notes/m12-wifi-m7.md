@@ -156,3 +156,26 @@ fwil_types.h). Line numbers are of those copies.
   **rx cpl fw w 0** (never completed one), tx cpl w 0, rx frames 0. Firmware console: only "EL: 30 6c50" once a
   second. => the firmware holds received frames; something in our data-path setup differs from DHD. Audit
   delegated (notes/m12-wifi-m7-rx-audit.md).
+- **Run with 1.0.7.3 (2026-10-12 evening, wifi-m7b3, log scratchpad runs/wifi-rx2/last/wifi/Exynos9820Wlan.txt):**
+  fw console at boot: "allocating a max of 511 rxcplid buffers", "SPLITRX_MODE: 4 tcmsegsize 0 d11rxoffset 0";
+  shared max_host_rxbufs 511, dma_rxoffset 0; DATA 0 posted 128 (fw r 0 at that moment). DOWN 0 / UP 0 bounce
+  before the join -> rxpost host w 128 fw r 128; rxbufpost_sz = **1670**; SET_SSID -> AUTH/LINK/ASSOC/SET_SSID 0,
+  flowring open in 10 ms, DEAUTH_IND reason 15 after 2680 ms; JOIN end: rx cpl fw w 0, rx frames 0, console empty.
+  => audit fix 1 as an A/B bounce did NOT help.
+
+### M7c rx-path work (1.0.7.4, package s10e-artifacts\wifi-m7c) - 2026-10-12, no device access in this session
+Refs: scratchpad src/bcmdhd (LineageOS lineage-23.2) and src/brcmfmac (torvalds master), as in the audit.
+- fmac attach order (msgbuf.c:1650-1665): rxbuf_data_fill (all max_rxbufpost, up to 10 x 10 ms retries) ->
+  event bufs -> ioctlresp bufs; hostready only later from brcmf_pcie_preinit (pcie.c:1460-1468, also enables
+  the mailbox interrupt mask first). DHD dhd_sync_with_dongle (dhd_msgbuf.c:4199-4220): GET rxbufpost_sz (u16,
+  > DHD_FLOWRING_RX_BUFPOST_PKTSZ_MAX -> default) -> dhd_msgbuf_rxbuf_post -> dhd_preinit_ioctls.
+- fmac refill: rxbufpost -= 1 per RX_CMPLT, refill to max when rxbufpost <= max - 32
+  (BRCMF_MSGBUF_RXBUFPOST_THRESHOLD msgbuf.c:58, :1029-1035). DHD bursts of 32 (RX_BUF_BURST dhd_msgbuf.c:102,
+  :4438-4475). dhd data_buf_len = PKTLEN of a rxbufpost_sz packet (dhd_msgbuf.c:4493, :4521, :4607).
+- fmac D2H mailbox (pcie.c:800-831): read shared d2h_mb_data (shared+44, pcie.c:232), write 0, DS_ENTER_REQ 0x2 ->
+  send H2D_HOST_DS_ACK 0x2 (pcie.c:259-266, :763-795: h2d_mb_data word + config SBMBX write). PCIMailBoxInt rev>=64
+  0xC30 (pcie.c:147).
+- Task 1 (reorder, 1.0.7.4): DataInit moved from the resident hand-over to WlanMsgRun step 5b (right after the
+  8 ioctl-resp buffers, before cur_etheraddr / CLM / UP); the Stop path now deletes M->DataBuffer after ARM halt +
+  BME off (WdfObjectDelete after the existing halt sequence); the 1.0.7.3 DOWN/UP bounce removed (join logs
+  "rxpost host w/fw r before SET_SSID" instead). Build W4/WX clean (build-package.ps1 into scratchpad m7c-build).

@@ -376,3 +376,9 @@ UAIF1 SPK (F12); needs UAIF0 configured as I2S master (same F4 rules) plus codec
   - So: everything stage 1 needs is powered and reachable; stage 1 writes are only inside the AUD block
     (DIV_AUDIF/DIV_UAIF1 for the BCLK rate, gpb1 func 2, QCHANNEL_DISABLE bit3, UAIF1 CTRL1/CTRL0) plus the amp
     I2C sequence. No PMU/SMC write needed.
+- 2026-10-12 **PC microphone as an unattended audio detector** (user's idea): the PC's Windows mic endpoint is
+  muted (MME / DirectSound / WASAPI give exact digital silence, -96.7 / -240 dBFS); the raw WDM-KS pin
+  "Microphone Array (Realtek HD Audio Mic input)" still carries the hardware signal (-68 dBFS room). Self-test:
+  a 1 kHz tone on the PC speakers reads -31 dBFS over a -83..-100 dBFS floor (SNR ~52 dB).
+  Tool: `tools/audio-listen/listen.py SECONDS [--selftest]` (scratchpad venv: sounddevice + numpy; run with -I);
+  prints only the detected bursts (start, duration, dominant Hz, level), saves no audio.

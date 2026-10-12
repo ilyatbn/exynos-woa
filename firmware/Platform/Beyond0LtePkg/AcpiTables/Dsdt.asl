@@ -444,5 +444,41 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
             })
             Method (_STA, 0, NotSerialized) { Return (0x0F) }
         }
+
+        // M16 G9 (notes/gpu-m16-g9b.md): the Mali-G76 ("G3D") for drivers/MaliG76Probe (G9b) and later the
+        // reused wddm-mali-g52 KMD (G10/G11). _CRS ORDER IS A BINDING CONTRACT: the GPU register block must be
+        // the FIRST memory descriptor (m1probe.c:231-238, malikm/device.c:43-48 and maliwddm/adapter.c:106-126
+        // all keep the first CmResourceTypeMemory). Second: the PMU page holding EMBEDDED_G3D_STATUS (+0x2104)
+        // and G3D_STATUS (+0x2384), so MaliG76Probe re-checks the power state before its first GPU access (an
+        // access to the unpowered domain is a bus fault). Interrupts in DT order JOB, MMU, GPU (stock dt.img,
+        // notes/gpu-odin-rom.md:55-56); the reused ISR reads all three INT_STAT blocks, so the order is free
+        // (malikm/device.c:49-59, maligpu.c:373-424). Trigger: the DT flags cell is 0; Level/ActiveHigh follows
+        // this DSDT's convention and is UNVERIFIED for these lines. _CCA 0: no `system-coherency` in the stock
+        // DT, the reused KMD is non-coherent (notes/gpu-wddm-mali-g52.md R12).
+        // Present only when Beyond0LteGpuProbeDxe saw the G3D domain ON at the end of its run (both PMU status
+        // bits, GPU clock not gated off, GPU_ID = G76): it writes 'GPU0' (0x30555047) to the progress page
+        // word [4], 0x8FE0F010; SEC clears it. With BEYOND0LTE_GPU_POWER_ON 0 and sboot leaving the domain off,
+        // the device stays hidden and no Windows driver can touch an unpowered GPU.
+        Device (GPU0)
+        {
+            Name (_HID, "SAMS9828")  // project-local ID (9820 I2C, 9821 UFN0, 9822 GPIO plan, 9823/9824 audio plan, 9825-9827 taken)
+            Name (_UID, Zero)
+            Name (_CCA, Zero)
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, 0x18500000, 0x00005000)  // EXYNOS_G3D_BASE / _SIZE (Exynos9820.h, mali@18500000)
+                Memory32Fixed (ReadWrite, 0x15862000, 0x00001000)  // EXYNOS_PMU_BASE + 0x2000 (EMBEDDED_G3D_STATUS 0x2104, G3D_STATUS 0x2384)
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 320 }  // JOB: SPI 288 + 32
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 319 }  // MMU: SPI 287 + 32
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 321 }  // GPU: SPI 289 + 32
+            })
+            OperationRegion (GPST, SystemMemory, 0x8FE0F010, 4)
+            Field (GPST, DWordAcc, NoLock, Preserve) { GPUS, 32 }
+            Method (_STA, 0, NotSerialized)
+            {
+                If (LEqual (GPUS, 0x30555047)) { Return (0x0F) }
+                Return (Zero)
+            }
+        }
     }
 }

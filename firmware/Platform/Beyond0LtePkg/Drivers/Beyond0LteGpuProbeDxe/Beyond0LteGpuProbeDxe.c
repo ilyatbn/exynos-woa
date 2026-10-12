@@ -20,6 +20,10 @@
   Guard: boot progress word 0x8FE0F000[1] = 0x6A while the probe AND the power-on run; a boot whose previous
   boot ended at 0x6A skips the whole driver (same self-healing shape as AudioProbeDxe's 0x69 / UsbHostDxe's 0x67).
 
+  M16 G9 ACPI hand-off: progress page word [4] (0x8FE0F010) = 'GPU0' (0x30555047) only when the LAST probe of
+  this run saw the GPU usable (both PMU status bits 1, GPU clock not manually gated off, GPU_ID = G76); it is
+  0 otherwise (cleared at entry here and in SEC). DSDT GPU0._STA reads it, so Windows only sees a powered GPU.
+
   NOT VALIDATED ON HARDWARE (stage Guided).
 **/
 
@@ -45,6 +49,8 @@
 #endif
 
 #define GPU_PROGRESS_TRYING  0x6Au
+#define GPU_STATUS_WORD      4u            // 0x8FE0F010 (DSDT GPU0 OperationRegion GPST)
+#define GPU_STATUS_READY     0x30555047u   // 'GPU0' little-endian (DSDT GPU0._STA compares it)
 STATIC volatile UINT32  *CONST  mProgress = (volatile UINT32 *)(UINTN)0x8FE0F000ULL;
 
 #define PMU     ((UINTN)EXYNOS_PMU_BASE)
@@ -127,8 +133,10 @@ PopCount32 (
   return N;
 }
 
+// TRUE when an OS driver may use the GPU: both PMU status bits set, GPU clock not manually gated off,
+// GPU_ID neither 0 nor ~0 and a G76 (the same conditions under which every GPU register below is read).
 STATIC
-VOID
+BOOLEAN
 GpuProbe (
   VOID
   )
@@ -159,7 +167,7 @@ GpuProbe (
   if (((EmbSt & 1u) == 0) || ((G3dSt & 1u) == 0)) {
     DEBUG ((DEBUG_WARN, "GpuProbe: G3D domain is OFF (EMBEDDED_G3D_STATUS bit0 %u, G3D_STATUS bit0 %u) - "
                         "nothing in CMU_G3D / GPU is read\n", EmbSt & 1u, G3dSt & 1u));
-    return;
+    return FALSE;
   }
 
   // 3. CMU_G3D - inside the domain, read only now.
@@ -171,7 +179,7 @@ GpuProbe (
           (Gate & CMU_GATE_CG_VAL) ? 1 : 0));
   if (((Gate & CMU_GATE_MANUAL) != 0) && ((Gate & CMU_GATE_CG_VAL) == 0)) {
     DEBUG ((DEBUG_WARN, "GpuProbe: GPU clock is manually gated off - no GPU register is read\n"));
-    return;
+    return FALSE;
   }
 
   // 4. One GPU read first: a secure-only (D_TZPC) or undecoded window would fault or read 0 / ~0 here.
@@ -183,7 +191,7 @@ GpuProbe (
           (((Id >> 16) & GPU_ID_G76_MASK) == GPU_ID_G76_MODEL) ? "yes" : "NO"));
   if ((Id == 0) || (Id == MAX_UINT32)) {
     DEBUG ((DEBUG_WARN, "GpuProbe: GPU_ID is %x - stopping (no further GPU reads)\n", Id));
-    return;
+    return FALSE;
   }
 
   DumpRegs ("GPU", mGpuRegs, ARRAY_SIZE (mGpuRegs));
@@ -192,6 +200,8 @@ GpuProbe (
                       "AS = %u, JS = %u\n",
           PopCount32 (Shader), PopCount32 (MmioRead32 (GPU + GPU_L2_PRESENT_LO)),
           PopCount32 (MmioRead32 (GPU + GPU_AS_PRESENT)), PopCount32 (MmioRead32 (GPU + GPU_JS_PRESENT))));
+
+  return (BOOLEAN)(((Id >> 16) & GPU_ID_G76_MASK) == GPU_ID_G76_MODEL);
 }
 
 EFI_STATUS
@@ -201,7 +211,10 @@ Beyond0LteGpuProbeEntry (
   IN EFI_SYSTEM_TABLE  *SystemTable
   )
 {
-  UINT32  Saved;
+  UINT32   Saved;
+  BOOLEAN  Usable;
+
+  mProgress[GPU_STATUS_WORD] = 0;   // DSDT GPU0 hidden unless this run proves the GPU usable (SEC cleared it too)
 
   if (!BEYOND0LTE_GPU_PROBE) {
     DEBUG ((DEBUG_WARN, "GpuProbe: disabled (BEYOND0LTE_GPU_PROBE 0)\n"));
@@ -218,13 +231,17 @@ Beyond0LteGpuProbeEntry (
   mProgress[1] = GPU_PROGRESS_TRYING;
   __asm__ __volatile__ ("dsb sy" ::: "memory");   // guard word out before the first risky access
 
-  GpuProbe ();
+  Usable = GpuProbe ();
 
   if (BEYOND0LTE_GPU_POWER_ON) {
     if (GpuPowerOn ()) {
-      GpuProbe ();     // after power-on: PLL_G3D (STABLE = lock), CMU_G3D gate, GPU_ID ...
+      Usable = GpuProbe ();     // after power-on: PLL_G3D (STABLE = lock), CMU_G3D gate, GPU_ID ...
     }
   }
+
+  mProgress[GPU_STATUS_WORD] = Usable ? GPU_STATUS_READY : 0u;
+  DEBUG ((DEBUG_WARN, "GpuProbe: ACPI GPU0 %a (status word [%u] = %x)\n", Usable ? "visible" : "hidden",
+          GPU_STATUS_WORD, mProgress[GPU_STATUS_WORD]));
 
   mProgress[1] = Saved;
   __asm__ __volatile__ ("dsb sy" ::: "memory");

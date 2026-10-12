@@ -316,7 +316,7 @@ tree does not contain.
 | Milestone 2: BCM4375 firmware download + ARM start from the Windows probe (no NDIS, no DMA) | **done** | device-validated 2026-10-12: fw 18.41.117 runs, pcie_shared v7 after 180 ms (`notes/m12-wifi-m2.md`) |
 | Milestone 3: msgbuf common rings + bus mastering (polled) + first firmware ioctl (`cur_etheraddr`, `ver`) | **done** | device-validated 2026-10-12 (boot #93, driver 1.0.3.0): both GET_VARs CMPLT status 0, MAC A8:DB:03:06:3C:EF, `ver` 18.41.117 FWID 01-1b4772fd (`notes/m12-wifi-m3.md`) |
 | Milestone 4: CLM blob + events + UP + escan (firmware still torn down after PrepareHardware) | **done** | device-validated 2026-10-12 (driver 1.0.4.3): clmload 29232 B, escan v2, 8 BSS on 2.4 + 5 GHz in 1.7 s (`notes/m12-wifi-m4.md`) |
-| Milestone 5: firmware resident for the device lifetime (DMA + rings in device context, ReleaseHardware teardown, interrupt or poll thread) | doing | prerequisite for any Windows WLAN interface |
+| Milestone 5: firmware resident for the device lifetime (DMA + rings in device context, ReleaseHardware teardown, interrupt or poll thread) | **done** | device-validated 2026-10-12 (1.0.5.2): resident fw rescans at t=30 s (SCAN 0, 10 BSS), 100 ms poll, common-buffer cache maintenance required (cached buffer, non-snooping device writes) - `notes/m12-wifi-m5.md` |
 | Decide whether WiFi is required at all when LAN is available | **done** | **LAN-first**; if WiFi is genuinely needed, put a **USB WiFi adapter in the dock** (an ordinary Windows device once M10 works), not the phone's WLAN |
 
 ### M13 — LAN through the dock

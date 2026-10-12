@@ -53,3 +53,19 @@ one more escan proves the firmware is still alive and usable. Teardown: D0Exit (
   - Invalidate the D2H rings and the response/event buffers before reading.
   - Clean the whole buffer once after zeroing.
   - The CPU never writes device-written regions after that clean, so invalidate cannot drop data.
+- **Run m5-3 (03:07, 1.0.5.2, full cache maintenance): milestone 5 validated.**
+  - PrepareHardware: "cache maintenance on", MSG 0, SCAN 0 (11 BSS, 32 escan events), RESIDENT.
+  - Run log: the t = 30 s rescan was accepted on attempt 1 and gave SCAN 0, 10 BSS, 28 escan events, 61 events
+    total.
+  - One transient: "D2H item 43 not synced (epoch 103 want 108; fw w 43 r 43)", then "synced after 1 stalled
+    polls". That is in-flight DMA, which the XORCSUM/epoch sync exists for.
+  - Unexplained: the fw W index read back as 43 (= our position) at log time, although the poll loop had seen
+    W != 43. Possibly a torn or early W read. Watch it; a re-read of W before giving up would show more.
+- Review of eb964fd:
+  - Region MDLs match the carve-out: H2D 0..0x5000, request 0x11000 + 2 KB, D2H 0x5000..0x11000, buffers
+    0x13000..0x27000. Scratch 0x12000 is only device-written and never read, so the initial clean is enough.
+  - The CPU never writes D2H or buffer regions after the initial clean (RtlZeroMemory precedes it), so
+    invalidate cannot drop CPU data.
+  - Every CacheMaint-off path leaves the MDLs NULL, and the helpers accept NULL.
+  - MDL failure -> MSG_NO_DMA before BME is on.
+  - No findings.

@@ -98,7 +98,7 @@ typedef struct _AUD_CONFIG {
  * Run log (RunLog.c). Appending is legal up to DISPATCH_LEVEL; the file is (re)written only at PASSIVE_LEVEL.
  * ====================================================================== */
 #define AUD_RUNLOG_FILE  L"\\SystemRoot\\System32\\LogFiles\\Exynos9820Audio-run.txt"
-#define AUD_RUNLOG_MAX   (64u * 1024u)
+#define AUD_RUNLOG_MAX   (256u * 1024u)   /* A6: room for the KS request log (ReqLog.c) */
 
 typedef struct _AUD_RUNLOG {
     KSPIN_LOCK Lock;
@@ -164,6 +164,8 @@ typedef struct _AUD_DEVICE_CONTEXT {
 
     ACXCIRCUIT  Render;
     BOOLEAN     CircuitAdded;
+
+    volatile LONG ReqLogged;    /* ReqLog.c: KS requests logged so far (capped) */
 } AUD_DEVICE_CONTEXT, *PAUD_DEVICE_CONTEXT;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(AUD_DEVICE_CONTEXT, AudGetDeviceContext)
@@ -255,6 +257,10 @@ _IRQL_requires_(PASSIVE_LEVEL) VOID AudLogFlush(_In_opt_ PAUD_RUNLOG Log);
 /* Render.c */
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS AudRenderCircuitCreate(_In_ WDFDEVICE Device, _In_ PAUD_DEVICE_CONTEXT Dev);
 VOID AudSwVolumeInit(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ LONG LevelKs);
+
+/* ReqLog.c */
+EVT_ACX_OBJECT_PREPROCESS_REQUEST AudEvtCircuitRequestPreprocess;
+EVT_ACX_OBJECT_PREPROCESS_REQUEST AudEvtStreamRequestPreprocess;
 
 /* AboxHw.c */
 _IRQL_requires_(PASSIVE_LEVEL) BOOLEAN AboxAudit(_Inout_ PAUD_DEVICE_CONTEXT Dev);

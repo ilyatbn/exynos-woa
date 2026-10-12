@@ -173,3 +173,13 @@ Device result (coordinator, runs in scratchpad\runs\audA5\last\audio, \audA5b, \
 - Review of T5: rg POOL_FLAG_PAGED in the driver -> none left; every other buffer touched at DISPATCH (stream context,
   packets: MmAllocateContiguousNodeMemory, DMA ring, run log) is non-paged; no #pragma alloc_text/PAGE sections in the
   driver (PAGED_CODE() asserts only) -> no paged code either. No findings.
+- T7 diagnostics: ReqLog.c (new) - ACX request preprocess hooks on the circuit (AcxCircuitInitAssignAcxRequestPreprocessCallback,
+  AcxRequestTypeAny, Set NULL, AcxItemIdNone) and on every stream (AcxStreamInitAssignAcxRequestPreprocessCallback);
+  each hook copies ACX_REQUEST_PARAMETERS (AcxRequestGetParameters), hands the request back with
+  Acx{Circuit,Stream}DispatchAcxRequest exactly once and logs `req C|S #n prop <Set>.<Id> <verb> <pin|elem|obj>#<id> ctl
+  <cb> val <cb> {Data1-Data2-Data3} -> <status>` (method/event/create variants); cap 2000 lines, flush every 32 lines
+  and after every NT_ERROR status. A refused hook is logged ("circuit: request preprocess hook <status>") and the
+  driver continues. Every stream callback is now an entry point that calls the implementation and traces
+  `cb <Name>(args) -> <status>` (cap 400/stream; rare callbacks flushed always, frequent ones every 16th line or on
+  error); CreateStream traced with pin/format/mode/status; circuit PowerUp/PowerDown callbacks registered (as the sample)
+  and logged. Run log 64 -> 256 KiB. Builds: ACX 1.1 exit 0, ACX 1.0 (-AcxMinor 0) exit 0.

@@ -78,6 +78,8 @@ EVT_ACX_VOLUME_RETRIEVE_LEVEL        AudEvtVolumeRetrieveLevel;
 EVT_ACX_MUTE_ASSIGN_STATE            AudEvtMuteAssignState;
 EVT_ACX_MUTE_RETRIEVE_STATE          AudEvtMuteRetrieveState;
 EVT_WDF_TIMER                        AudEvtStreamTimer;
+EVT_ACX_CIRCUIT_POWER_UP             AudEvtCircuitPowerUp;
+EVT_ACX_CIRCUIT_POWER_DOWN           AudEvtCircuitPowerDown;
 EVT_WDF_OBJECT_CONTEXT_CLEANUP       AudEvtStreamCleanup;
 
 /* ================================================================================================================
@@ -327,6 +329,8 @@ NTSTATUS AudRenderCircuitCreate(_In_ WDFDEVICE Device, _In_ PAUD_DEVICE_CONTEXT 
     ACX_JACK_CONFIG       JackCfg;
     ACXJACK               Jack;
     ACXDATAFORMATLIST     List;
+    ACX_CIRCUIT_PNPPOWER_CALLBACKS PowerCb;
+    NTSTATUS              PreStatus;
 
     PAGED_CODE();
 
@@ -339,12 +343,22 @@ NTSTATUS AudRenderCircuitCreate(_In_ WDFDEVICE Device, _In_ PAUD_DEVICE_CONTEXT 
     Status = AcxCircuitInitAssignName(Init, &AudRenderCircuitName);
     if (NT_SUCCESS(Status)) {
         AcxCircuitInitSetCircuitType(Init, AcxCircuitTypeRender);
+        ACX_CIRCUIT_PNPPOWER_CALLBACKS_INIT(&PowerCb);
+        PowerCb.EvtAcxCircuitPowerUp   = AudEvtCircuitPowerUp;
+        PowerCb.EvtAcxCircuitPowerDown = AudEvtCircuitPowerDown;
+        AcxCircuitInitSetAcxCircuitPnpPowerCallbacks(Init, &PowerCb);
         Status = AcxCircuitInitAssignAcxCreateStreamCallback(Init, AudEvtCircuitCreateStream);
     }
     if (!NT_SUCCESS(Status)) {
         AcxCircuitInitFree(Init);
         return Status;
     }
+
+    /* A6 diagnostics: every KS request on the circuit (filter + pin factories + elements; ReqLog.c). A refusal only
+       costs the log. */
+    PreStatus = AcxCircuitInitAssignAcxRequestPreprocessCallback(Init, AudEvtCircuitRequestPreprocess, (ACXCONTEXT)Dev,
+                                                                 AcxRequestTypeAny, NULL, AcxItemIdNone);
+    AudLog(Dev->Log, "circuit: request preprocess hook %08lX\r\n", PreStatus);
 
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&Attr, AUD_CIRCUIT_CONTEXT);
     Status = AcxCircuitCreate(Device, &Attr, &Init, &Circuit);
@@ -525,17 +539,19 @@ static VOID AudRingFree(_Inout_ PAUD_STREAM_CONTEXT Ctx)
     Ctx->PacketCount = 0;
 }
 
-/* run audB4 (GetMixFormat 0x80070032, playback hung): one capped, flushed trace line per stream callback. */
-#define AUD_TRACE_MAX 60
-#define AUD_TRACE(Ctx, ...)                                                   \
-    do {                                                                      \
-        if ((Ctx)->Traces < AUD_TRACE_MAX) {                                  \
-            (Ctx)->Traces++;                                                  \
-            AudLog((Ctx)->Dev->Log, __VA_ARGS__);                             \
-            if (KeGetCurrentIrql() == PASSIVE_LEVEL) {                        \
-                AudLogFlush((Ctx)->Dev->Log);                                 \
-            }                                                                 \
-        }                                                                     \
+/* Callback trace (runs audB4, A6): one line per stream callback with its result, capped per stream. Flushed when Flush is
+   set (rare callbacks), on an error status, and every 16th line - frequent position/packet callbacks stay cheap. */
+#define AUD_TRACE_MAX 400
+#define AUD_TRACE(Ctx, Flush, Status, ...)                                                        \
+    do {                                                                                          \
+        if ((Ctx)->Traces < AUD_TRACE_MAX) {                                                      \
+            (Ctx)->Traces++;                                                                      \
+            AudLog((Ctx)->Dev->Log, __VA_ARGS__);                                                 \
+            if (KeGetCurrentIrql() == PASSIVE_LEVEL &&                                            \
+                ((Flush) || NT_ERROR(Status) || ((Ctx)->Traces % 16) == 0)) {                     \
+                AudLogFlush((Ctx)->Dev->Log);                                                     \
+            }                                                                                     \
+        }                                                                                         \
     } while (0)
 
 static ULONGLONG AudNowHns(_In_ PAUD_STREAM_CONTEXT Ctx)
@@ -625,8 +641,7 @@ VOID AudEvtStreamTimer(WDFTIMER Timer)
     (VOID)WdfTimerStart(Timer, AudNextDue(Ctx, Frames));
 }
 
-_Use_decl_annotations_
-NTSTATUS AudEvtStreamAllocateRtPackets(ACXSTREAM Stream, ULONG PacketCount, ULONG PacketSize, PACX_RTPACKET *Packets)
+static NTSTATUS AudStreamAllocateRtPackets(ACXSTREAM Stream, ULONG PacketCount, ULONG PacketSize, PACX_RTPACKET *Packets)
 {
     PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
     PHYSICAL_ADDRESS    Low;
@@ -636,7 +651,6 @@ NTSTATUS AudEvtStreamAllocateRtPackets(ACXSTREAM Stream, ULONG PacketCount, ULON
     ULONG               I;
 
     PAGED_CODE();
-    AUD_TRACE(Ctx, "trace AllocateRtPackets %lu x %lu\r\n", PacketCount, PacketSize);
 
     *Packets = NULL;
     if (PacketCount == 0 || PacketCount > AUD_MAX_PACKETS || PacketSize == 0 || PacketSize > (1u << 20) ||
@@ -700,14 +714,12 @@ NTSTATUS AudEvtStreamAllocateRtPackets(ACXSTREAM Stream, ULONG PacketCount, ULON
     return STATUS_SUCCESS;
 }
 
-_Use_decl_annotations_
-VOID AudEvtStreamFreeRtPackets(ACXSTREAM Stream, PACX_RTPACKET Packets, ULONG PacketCount)
+static VOID AudStreamFreeRtPackets(ACXSTREAM Stream, PACX_RTPACKET Packets, ULONG PacketCount)
 {
     PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
 
     UNREFERENCED_PARAMETER(PacketCount);
     PAGED_CODE();
-    AUD_TRACE(Ctx, "trace FreeRtPackets\r\n");
 
     if (Ctx->HwStarted) {
         /* Never free memory a DMA may still read. */
@@ -722,8 +734,7 @@ VOID AudEvtStreamFreeRtPackets(ACXSTREAM Stream, PACX_RTPACKET Packets, ULONG Pa
     }
 }
 
-_Use_decl_annotations_
-NTSTATUS AudEvtStreamPrepareHardware(ACXSTREAM Stream)
+static NTSTATUS AudStreamPrepareHardware(ACXSTREAM Stream)
 {
     PAUD_STREAM_CONTEXT   Ctx = AudGetStreamContext(Stream);
     WDF_TIMER_CONFIG      TimerCfg;
@@ -731,7 +742,6 @@ NTSTATUS AudEvtStreamPrepareHardware(ACXSTREAM Stream)
     NTSTATUS              Status;
 
     PAGED_CODE();
-    AUD_TRACE(Ctx, "trace StreamPrepareHardware state %d\r\n", (int)Ctx->State);
 
     if (Ctx->State == AcxStreamStatePause) {
         return STATUS_SUCCESS;
@@ -767,13 +777,11 @@ static VOID AudHwStop(_Inout_ PAUD_STREAM_CONTEXT Ctx)
     }
 }
 
-_Use_decl_annotations_
-NTSTATUS AudEvtStreamReleaseHardware(ACXSTREAM Stream)
+static NTSTATUS AudStreamReleaseHardware(ACXSTREAM Stream)
 {
     PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
 
     PAGED_CODE();
-    AUD_TRACE(Ctx, "trace StreamReleaseHardware state %d\r\n", (int)Ctx->State);
 
     if (Ctx->State == AcxStreamStateStop) {
         return STATUS_SUCCESS;
@@ -839,14 +847,12 @@ static VOID AudHwStart(_Inout_ PAUD_STREAM_CONTEXT Ctx)
     Ctx->HwStarted = TRUE;
 }
 
-_Use_decl_annotations_
-NTSTATUS AudEvtStreamRun(ACXSTREAM Stream)
+static NTSTATUS AudStreamRun(ACXSTREAM Stream)
 {
     PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
     NTSTATUS            AmpStatus = STATUS_NOT_SUPPORTED;
 
     PAGED_CODE();
-    AUD_TRACE(Ctx, "trace Run state %d packets %lu\r\n", (int)Ctx->State, Ctx->PacketCount);
 
     if (Ctx->State == AcxStreamStateRun) {
         return STATUS_SUCCESS;
@@ -872,13 +878,11 @@ NTSTATUS AudEvtStreamRun(ACXSTREAM Stream)
     return STATUS_SUCCESS;
 }
 
-_Use_decl_annotations_
-NTSTATUS AudEvtStreamPause(ACXSTREAM Stream)
+static NTSTATUS AudStreamPause(ACXSTREAM Stream)
 {
     PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
 
     PAGED_CODE();
-    AUD_TRACE(Ctx, "trace Pause state %d\r\n", (int)Ctx->State);
 
     if (Ctx->State == AcxStreamStatePause) {
         return STATUS_SUCCESS;
@@ -898,13 +902,11 @@ NTSTATUS AudEvtStreamPause(ACXSTREAM Stream)
     return STATUS_SUCCESS;
 }
 
-_Use_decl_annotations_
-NTSTATUS AudEvtStreamGetHwLatency(ACXSTREAM Stream, ULONG *FifoSize, ULONG *Delay)
+static NTSTATUS AudStreamGetHwLatency(ACXSTREAM Stream, ULONG *FifoSize, ULONG *Delay)
 {
     PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
 
     PAGED_CODE();
-    AUD_TRACE(Ctx, "trace GetHwLatency\r\n");
 
     *FifoSize = 128;   /* sample value; the RDMA FIFO depth is unknown */
     /* One period of ring lead (100 ns units) once the packet size is known. */
@@ -912,8 +914,7 @@ NTSTATUS AudEvtStreamGetHwLatency(ACXSTREAM Stream, ULONG *FifoSize, ULONG *Dela
     return STATUS_SUCCESS;
 }
 
-_Use_decl_annotations_
-NTSTATUS AudEvtStreamSetRenderPacket(ACXSTREAM Stream, ULONG Packet, ULONG Flags, ULONG EosPacketLength)
+static NTSTATUS AudStreamSetRenderPacket(ACXSTREAM Stream, ULONG Packet, ULONG Flags, ULONG EosPacketLength)
 {
     PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
     ULONG               Current;
@@ -921,7 +922,6 @@ NTSTATUS AudEvtStreamSetRenderPacket(ACXSTREAM Stream, ULONG Packet, ULONG Flags
     UNREFERENCED_PARAMETER(Flags);
     UNREFERENCED_PARAMETER(EosPacketLength);
     PAGED_CODE();
-    AUD_TRACE(Ctx, "trace SetRenderPacket %lu flags %lx eos %lu (current %ld)\r\n", Packet, Flags, EosPacketLength, Ctx->CurrentPacket);
 
     Current = (ULONG)InterlockedCompareExchange(&Ctx->CurrentPacket, -1, -1);
     if (Packet <= Current) {
@@ -935,30 +935,130 @@ NTSTATUS AudEvtStreamSetRenderPacket(ACXSTREAM Stream, ULONG Packet, ULONG Flags
     return STATUS_SUCCESS;
 }
 
-_Use_decl_annotations_
-NTSTATUS AudEvtStreamGetCurrentPacket(ACXSTREAM Stream, PULONG CurrentPacket)
+static NTSTATUS AudStreamGetCurrentPacket(ACXSTREAM Stream, PULONG CurrentPacket)
 {
     PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
 
     PAGED_CODE();
-    AUD_TRACE(Ctx, "trace GetCurrentPacket %ld\r\n", Ctx->CurrentPacket);
 
     *CurrentPacket = (ULONG)InterlockedCompareExchange(&Ctx->CurrentPacket, -1, -1);
     return STATUS_SUCCESS;
+}
+
+static NTSTATUS AudStreamGetPresentationPosition(ACXSTREAM Stream, PULONGLONG PositionInBlocks, PULONGLONG QPCPosition)
+{
+    PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
+
+    PAGED_CODE();
+
+    AudUpdatePosition(Ctx);
+    *PositionInBlocks = Ctx->Position / Ctx->BlockAlign;
+    *QPCPosition      = (ULONGLONG)KeQueryPerformanceCounter(NULL).QuadPart;
+    return STATUS_SUCCESS;
+}
+
+/* ================================================================================================================
+ * ACX entry points: each calls the implementation above and traces the call with its result (A6 diagnostics).
+ * ================================================================================================================ */
+
+_Use_decl_annotations_
+NTSTATUS AudEvtStreamAllocateRtPackets(ACXSTREAM Stream, ULONG PacketCount, ULONG PacketSize, PACX_RTPACKET *Packets)
+{
+    PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
+    NTSTATUS            Status = AudStreamAllocateRtPackets(Stream, PacketCount, PacketSize, Packets);
+
+    AUD_TRACE(Ctx, TRUE, Status, "cb AllocateRtPackets(%lu x %lu) -> %08lX\r\n", PacketCount, PacketSize, Status);
+    return Status;
+}
+
+_Use_decl_annotations_
+VOID AudEvtStreamFreeRtPackets(ACXSTREAM Stream, PACX_RTPACKET Packets, ULONG PacketCount)
+{
+    PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
+
+    AudStreamFreeRtPackets(Stream, Packets, PacketCount);
+    AUD_TRACE(Ctx, TRUE, STATUS_SUCCESS, "cb FreeRtPackets(%lu)\r\n", PacketCount);
+}
+
+_Use_decl_annotations_
+NTSTATUS AudEvtStreamPrepareHardware(ACXSTREAM Stream)
+{
+    PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
+    NTSTATUS            Status = AudStreamPrepareHardware(Stream);
+
+    AUD_TRACE(Ctx, TRUE, Status, "cb StreamPrepareHardware -> %08lX (state %d)\r\n", Status, (int)Ctx->State);
+    return Status;
+}
+
+_Use_decl_annotations_
+NTSTATUS AudEvtStreamReleaseHardware(ACXSTREAM Stream)
+{
+    PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
+    NTSTATUS            Status = AudStreamReleaseHardware(Stream);
+
+    AUD_TRACE(Ctx, TRUE, Status, "cb StreamReleaseHardware -> %08lX (state %d)\r\n", Status, (int)Ctx->State);
+    return Status;
+}
+
+_Use_decl_annotations_
+NTSTATUS AudEvtStreamRun(ACXSTREAM Stream)
+{
+    PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
+    NTSTATUS            Status = AudStreamRun(Stream);
+
+    AUD_TRACE(Ctx, TRUE, Status, "cb Run -> %08lX (state %d, packets %lu)\r\n", Status, (int)Ctx->State, Ctx->PacketCount);
+    return Status;
+}
+
+_Use_decl_annotations_
+NTSTATUS AudEvtStreamPause(ACXSTREAM Stream)
+{
+    PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
+    NTSTATUS            Status = AudStreamPause(Stream);
+
+    AUD_TRACE(Ctx, TRUE, Status, "cb Pause -> %08lX (state %d)\r\n", Status, (int)Ctx->State);
+    return Status;
+}
+
+_Use_decl_annotations_
+NTSTATUS AudEvtStreamGetHwLatency(ACXSTREAM Stream, ULONG *FifoSize, ULONG *Delay)
+{
+    PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
+    NTSTATUS            Status = AudStreamGetHwLatency(Stream, FifoSize, Delay);
+
+    AUD_TRACE(Ctx, TRUE, Status, "cb GetHwLatency -> %08lX (fifo %lu, delay %lu)\r\n", Status, *FifoSize, *Delay);
+    return Status;
+}
+
+_Use_decl_annotations_
+NTSTATUS AudEvtStreamSetRenderPacket(ACXSTREAM Stream, ULONG Packet, ULONG Flags, ULONG EosPacketLength)
+{
+    PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
+    NTSTATUS            Status = AudStreamSetRenderPacket(Stream, Packet, Flags, EosPacketLength);
+
+    AUD_TRACE(Ctx, FALSE, Status, "cb SetRenderPacket(%lu, flags %lX, eos %lu) -> %08lX (current %ld)\r\n", Packet, Flags,
+              EosPacketLength, Status, Ctx->CurrentPacket);
+    return Status;
+}
+
+_Use_decl_annotations_
+NTSTATUS AudEvtStreamGetCurrentPacket(ACXSTREAM Stream, PULONG CurrentPacket)
+{
+    PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
+    NTSTATUS            Status = AudStreamGetCurrentPacket(Stream, CurrentPacket);
+
+    AUD_TRACE(Ctx, FALSE, Status, "cb GetCurrentPacket -> %08lX (%lu)\r\n", Status, *CurrentPacket);
+    return Status;
 }
 
 _Use_decl_annotations_
 NTSTATUS AudEvtStreamGetPresentationPosition(ACXSTREAM Stream, PULONGLONG PositionInBlocks, PULONGLONG QPCPosition)
 {
     PAUD_STREAM_CONTEXT Ctx = AudGetStreamContext(Stream);
+    NTSTATUS            Status = AudStreamGetPresentationPosition(Stream, PositionInBlocks, QPCPosition);
 
-    PAGED_CODE();
-    AUD_TRACE(Ctx, "trace GetPresentationPosition pos %I64u\r\n", Ctx->Position);
-
-    AudUpdatePosition(Ctx);
-    *PositionInBlocks = Ctx->Position / Ctx->BlockAlign;
-    *QPCPosition      = (ULONGLONG)KeQueryPerformanceCounter(NULL).QuadPart;
-    return STATUS_SUCCESS;
+    AUD_TRACE(Ctx, FALSE, Status, "cb GetPresentationPosition -> %08lX (%I64u blocks)\r\n", Status, *PositionInBlocks);
+    return Status;
 }
 
 _Use_decl_annotations_
@@ -973,10 +1073,9 @@ VOID AudEvtStreamCleanup(WDFOBJECT Object)
     }
 }
 
-_Use_decl_annotations_
-NTSTATUS NTAPI AudEvtCircuitCreateStream(WDFDEVICE Device, ACXCIRCUIT Circuit, ACXPIN Pin, PACXSTREAM_INIT StreamInit,
-                                         ACXDATAFORMAT StreamFormat, const GUID *SignalProcessingMode,
-                                         ACXOBJECTBAG VarArguments)
+static NTSTATUS AudCircuitCreateStream(_In_ WDFDEVICE Device, _In_ ACXCIRCUIT Circuit, _In_ ACXPIN Pin,
+                                       _In_ PACXSTREAM_INIT StreamInit, _In_ ACXDATAFORMAT StreamFormat,
+                                       _In_ const GUID *SignalProcessingMode, _In_ ACXOBJECTBAG VarArguments)
 {
     NTSTATUS                Status;
     ACX_STREAM_CALLBACKS    Cb;
@@ -1015,6 +1114,14 @@ NTSTATUS NTAPI AudEvtCircuitCreateStream(WDFDEVICE Device, ACXCIRCUIT Circuit, A
 
     AcxStreamInitSetAcxRtStreamSupportsNotifications(StreamInit);
 
+    /* A6 diagnostics: every KS request on this stream (ReqLog.c). A refusal only costs the log. */
+    Status = AcxStreamInitAssignAcxRequestPreprocessCallback(StreamInit, AudEvtStreamRequestPreprocess,
+                                                             (ACXCONTEXT)AudGetCircuitContext(Circuit)->Dev,
+                                                             AcxRequestTypeAny, NULL, AcxItemIdNone);
+    if (!NT_SUCCESS(Status)) {
+        AudLog(AudGetCircuitContext(Circuit)->Dev->Log, "stream: request preprocess hook refused %08lX\r\n", Status);
+    }
+
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&Attr, AUD_STREAM_CONTEXT);
     Attr.EvtCleanupCallback = AudEvtStreamCleanup;
     Status = AcxRtStreamCreate(Device, Circuit, &Attr, &StreamInit, &Stream);
@@ -1046,5 +1153,47 @@ NTSTATUS NTAPI AudEvtCircuitCreateStream(WDFDEVICE Device, ACXCIRCUIT Circuit, A
     AudLog(Ctx->Dev->Log, "stream: created, %lu B/s, block %lu, %lu bit\r\n", Ctx->BytesPerSec, Ctx->BlockAlign,
            Ctx->BitsPerSample);
     AudLogFlush(Ctx->Dev->Log);
+    return STATUS_SUCCESS;
+}
+
+_Use_decl_annotations_
+NTSTATUS NTAPI AudEvtCircuitCreateStream(WDFDEVICE Device, ACXCIRCUIT Circuit, ACXPIN Pin, PACXSTREAM_INIT StreamInit,
+                                         ACXDATAFORMAT StreamFormat, const GUID *SignalProcessingMode,
+                                         ACXOBJECTBAG VarArguments)
+{
+    PAUD_DEVICE_CONTEXT Dev = AudGetCircuitContext(Circuit)->Dev;
+    NTSTATUS            Status;
+
+    PAGED_CODE();
+
+    Status = AudCircuitCreateStream(Device, Circuit, Pin, StreamInit, StreamFormat, SignalProcessingMode, VarArguments);
+    AudLog(Dev->Log, "cb CreateStream(pin %lu, %lu Hz %lu ch %lu bit, mode {%08lX}) -> %08lX\r\n", AcxPinGetId(Pin),
+           AcxDataFormatGetSampleRate(StreamFormat), AcxDataFormatGetChannelsCount(StreamFormat),
+           AcxDataFormatGetBitsPerSample(StreamFormat), (SignalProcessingMode != NULL) ? SignalProcessingMode->Data1 : 0,
+           Status);
+    AudLogFlush(Dev->Log);
+    return Status;
+}
+
+/* Circuit power callbacks (the sample registers them too): logged only. */
+_Use_decl_annotations_
+NTSTATUS AudEvtCircuitPowerUp(WDFDEVICE Device, ACXCIRCUIT Circuit, WDF_POWER_DEVICE_STATE PreviousState)
+{
+    UNREFERENCED_PARAMETER(Device);
+    PAGED_CODE();
+
+    AudLog(AudGetCircuitContext(Circuit)->Dev->Log, "cb CircuitPowerUp from D%d\r\n", (int)PreviousState - (int)WdfPowerDeviceD0);
+    AudLogFlush(AudGetCircuitContext(Circuit)->Dev->Log);
+    return STATUS_SUCCESS;
+}
+
+_Use_decl_annotations_
+NTSTATUS AudEvtCircuitPowerDown(WDFDEVICE Device, ACXCIRCUIT Circuit, WDF_POWER_DEVICE_STATE TargetState)
+{
+    UNREFERENCED_PARAMETER(Device);
+    PAGED_CODE();
+
+    AudLog(AudGetCircuitContext(Circuit)->Dev->Log, "cb CircuitPowerDown to D%d\r\n", (int)TargetState - (int)WdfPowerDeviceD0);
+    AudLogFlush(AudGetCircuitContext(Circuit)->Dev->Log);
     return STATUS_SUCCESS;
 }

@@ -123,6 +123,18 @@ typedef struct _AUD_AMP {
     ULONG    OtpId;
 } AUD_AMP, *PAUD_AMP;
 
+/* ReqLog.c: one KS request key and its running count (A7 log de-duplication). */
+#define AUD_REQKEYS 96u
+typedef struct _AUD_REQKEY {
+    ULONG Data1;     /* set GUID Data1 */
+    ULONG Id;
+    ULONG ItemId;
+    ULONG Count;
+    UCHAR Type;      /* ACX_REQUEST_TYPE */
+    UCHAR Verb;
+    UCHAR Item;      /* ACX_ITEM_TYPE */
+} AUD_REQKEY, *PAUD_REQKEY;
+
 typedef struct _AUD_DEVICE_CONTEXT {
     WDFDEVICE   Device;
     AUD_CONFIG  Cfg;
@@ -165,7 +177,11 @@ typedef struct _AUD_DEVICE_CONTEXT {
     ACXCIRCUIT  Render;
     BOOLEAN     CircuitAdded;
 
-    volatile LONG ReqLogged;    /* ReqLog.c: KS requests logged so far (capped) */
+    volatile LONG ReqLogged;    /* ReqLog.c: KS request lines logged so far (capped) */
+    volatile LONG FmtLogged;    /* ReqLog.c: PROPOSEDATAFORMAT formats decoded so far (capped) */
+    KSPIN_LOCK  ReqLock;        /* ReqKeys / ReqKeyCount */
+    ULONG       ReqKeyCount;
+    AUD_REQKEY  ReqKeys[AUD_REQKEYS];
 } AUD_DEVICE_CONTEXT, *PAUD_DEVICE_CONTEXT;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(AUD_DEVICE_CONTEXT, AudGetDeviceContext)

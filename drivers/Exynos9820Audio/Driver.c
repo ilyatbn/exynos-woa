@@ -142,6 +142,7 @@ NTSTATUS AudEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     Dev->Device = Device;
     Dev->Cfg    = g_Cfg;
     Dev->Log    = AudLogCreate();
+    KeInitializeSpinLock(&Dev->ReqLock);
     Dev->Amp[0].Addr = AUD_AMP_R_I2C_ADDR;
     Dev->Amp[0].ResetPin = AUD_AMP_R_RESET_PIN;
     Dev->Amp[0].Name = "R/bot";

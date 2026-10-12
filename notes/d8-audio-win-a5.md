@@ -250,3 +250,8 @@ proven). Still GetMixFormat / EndpointVolume Activate 0x80070032 (state 1).
   PROPOSEDATAFORMAT set on the host pin for WAVEFORMATEX/EXTENSIBLE formats (SUCCESS for exactly our two formats, else
   STATUS_NO_MATCH); everything else still goes to ACX. KsOverride = 0 restores the a6 behaviour (pure ACX).
 - T11 version 1.0.1.6, package audio-a7.
+- T9 (log): ReqLog.c - per-key counters (96 keys: set Data1, id, verb, item type/id; spin lock), each key logged for
+  its first 6 occurrences and then every 100th with "x<count>", NT_ERROR always; the request status is now tagged
+  "disp" (dispatch return, not completion); every Pin.14 PROPOSEDATAFORMAT set on a pin is decoded before ACX gets it
+  (`fmt C #n set pin#k: size .. flags .. sub {..} spec {..} EXT ch Hz bits/valid align avg mask sub` or the
+  WAVEFORMATEX / no-wave variants; first 48). Build exit 0.

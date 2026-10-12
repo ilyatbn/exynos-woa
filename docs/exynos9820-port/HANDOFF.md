@@ -1305,3 +1305,20 @@ MaliG76Wddm works (Started, FbMatchesGop, Presents); FullAdapter 1 (GPU half off
 with a black screen and the 82 s watchdog does not fire; \S10EDIAG\nogpu.flg currently SET. (4) WiFi: 1.0.7.4 joined
 the user's WPA2 network; WiFiCx driver (drivers/Exynos9820WlanCx, s10e-artifacts\wifi-cx3, HANDOFF §33) next.
 **§32 audio addendum 2 (2026-10-13, agent, no phone access).** a5 refuted (same 0x80070032, endpoint volume too). Boot crash = 0xD1 from the run-log flush (64 KiB PAGED snapshot filled under a spin lock; audA5b PRAM BC D1, P1 page aligned) - fixed in 1.0.1.5; the same bug is in drivers/MaliG76Probe (MaliG76Probe.c:217-225), not fixed. 1.0.1.5 binds ACX 1.1 like the sample (1.0 = pre-release DDI) and logs every KS request + callback status. Packages s10e-artifactsudio-a6 (ACX 1.1) and audio-a6-acx10 (fallback); test order in notes/d8-audio-win-a5.md "A6 device test".
+
+## 34. Restart point (2026-10-13, sub-agent, no phone access): MaliG76Wddm full-adapter hang - trace + fixes built
+
+**Committed (main, 7eee385..HEAD, notes/gpu-full-adapter-hang.md):** PRAM DDI trace in MaliG76Wddm (every DDI
+entry/exit, registry trace values, 1 Hz heartbeat into WINPRAM+0x4000, 16 KiB, a slice nothing else uses - layout
+inventory in the notes; saved by the firmware as part of \WINPRAM.BIN); static ranking of the hang: #1 ControlInterrupt
+promised CRTC_VSYNC and nothing ever reported one (every vblank wait in dxgkrnl/DWM blocks forever: a live system,
+WDT still petted, black screen - same shape as the original's run 6); #2 nothing could reach the panel (flips dropped,
+and with the GPU half off MAP_APERTURE_SEGMENT never recorded the MDL, so every present was skipped); #3 the agent's
+default 1800 s desktop wait makes a DWM failure look like a dead system. Fixes, each behind a Parameters switch
+(default 1): SoftVsync (16 ms timer -> DxgkCbNotifyInterrupt via SynchronizeExecution), FlipBlt (flip = CPU blt into
+the GOP fb), PramTrace; EnablePreemption 0 now set with the mode (extra-gpu-mode.cmd pass 1); INF 1.0.13.1;
+ESP extra-gpu-update.cmd (live update in display-only mode). **Package:** s10e-artifacts\mali-g13 (sys 453C653A…).
+**Next order:** the notes' "Device test steps": wait.txt 300 -> update live in display-only (must show 1.0.13.1)
+-> full.flg via extra-gpu-mode.cmd -> read the PRAM slice (last DDI without exit, heartbeat, vsync count) whether
+or not it is black. Open/UNVERIFIED: DMA-flip retirement vs the vsync's reported address; re-ranking of a hidden
+installed device (hence the live update step).

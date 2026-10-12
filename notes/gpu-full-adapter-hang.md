@@ -207,3 +207,42 @@ No code defect found in the F2 diff; nothing to fix.
   display-only mode (GPU0 visible, the way the first install replaced Basic Display), recording the device's driver
   before/after (pnputil /enum-devices /drivers) and a PRAM peek. The test steps run it first, so a full mode never
   starts on the old build (that would hang again with no trace).
+
+## Package s10e-artifacts\mali-g13 (build 13, 2026-10-13; build-package.ps1 -Build 13, InfVerif /w "INF is VALID"
+exit 0, sys + cat signed by the WDK test cert 5DD5DEE1747244C5F5F66F41D94C0A59C4443E48, as mali-g10)
+- MaliG76Wddm\MaliG76Wddm.sys 64 920 B `453C653A8D64F1D5FCD569069197E69759201E55EEA0D0353D85070C0FA76F2D`
+- MaliG76Wddm\MaliG76Wddm.inf (1.0.13.1) `4AB4F4D106316CBD084ED3379405B7CD22AD4D42B2E33267A38406BA17F3773F`
+- MaliG76Wddm\malig76wddm.cat `62C3B7AD4EC9FF82E688B249C2A6C7CE481B78E6DD86AB501D59E3EA4FAF869B`
+- extra-gpu-update.cmd `025CE1FD2EE4BC3EE0EC424164E7820ABBDEAF6FECF30390C18C72A42C702318`
+- extra-gpu-mode.cmd `0F49038DBEF66DC7E2EB1BF9F99A52B6F21FA026F4E14EE6858FB7EEF85B12ED`
+- extra-gpu-g10.cmd (unchanged, CRLF) `423B894CC765F444572761AE145F4A8BAD86FCF82007FFD4DC3B47B6DB730CEF`
+- m5test.exe (from mali-g10, unchanged) `7B8C003F38A18556BD07DEF8F3ACBC72508667A95672E81796875C7B3AB60B42`
+NOTHING here ran on the phone.
+
+## Device test steps (needs-boot; any GPU_POWER_ON 1 image with the nogpu.flg path, e.g. boot #113)
+Start state (HANDOFF §32): \S10EDIAG\nogpu.flg SET, MaliG76Wddm 1.0.10.1 installed, Parameters 0/0.
+0. ESP (TWRP, `mount -t vfat /dev/block/by-name/cache /tmp/esp`): copy mali-g13\MaliG76Wddm\* ->
+   \S10EDIAG\gpu\MaliG76Wddm\ (replace), extra-gpu-g10.cmd -> \S10EDIAG\gpu\, extra-gpu-mode.cmd +
+   extra-gpu-update.cmd -> \S10EDIAG\ ; **\S10EDIAG\wait.txt = 300** (the agent otherwise waits up to 1800 s for a
+   desktop that a broken DWM never shows, S10eAgent.c DEFAULT_WAIT_S); no full.flg / gpu.flg in \S10EDIAG\gpu.
+1. Update in display-only mode: `rm /tmp/esp/S10EDIAG/nogpu.flg`; extra.cmd = `call "%ESP%\S10EDIAG\extra-gpu-update.cmd"`.
+   Boot. Expect: desktop as before; out\last\gpu\update-after.txt names malig76wddm.inf version 1.0.13.1, Started;
+   update-pram-peek.txt holds "MALIG76T" and lines (">StartDevice", "<CommitVidPn 00000000", heartbeat "HB ...").
+   If update-after still says 1.0.10.1: stop, record, do not go on (a full mode on the old build = blind hang).
+2. Full adapter, GPU off: touch \S10EDIAG\gpu\full.flg and \S10EDIAG\nogpu.flg; extra.cmd =
+   `call "%ESP%\S10EDIAG\extra-gpu-mode.cmd"`. Boot: pass 1 sets FullAdapter 1 + EnablePreemption 0, removes
+   nogpu.flg, clean restart -> the full-mode boot.
+   a) Desktop appears / agent runs: pass 2 collects gpu\maliwddm-pram.bin + -peek.txt, trace.reg, video.txt.
+   b) Black again: wait 6 min (wait.txt 300 + collect). If no return to TWRP: force reset (Vol Down + Power ~10 s)
+      and let it boot on - the next UEFI boot finds WINRUN.FLG, saves \WINPRAM.BIN (64 KiB incl. our slice at
+      +0x4000) and goes to TWRP (unattended, no stay.flg). Then IMMEDIATELY `touch /tmp/esp/S10EDIAG/nogpu.flg`
+      (rescue) and pull \WINPRAM.BIN + out\.
+   Read: slice 0x4000..0x7FFF (python one-liner in T1). Questions it answers: last DDI entered without exit (= the
+   blocking call); heartbeat uptime still advancing at the reset? (DPCs alive = thread-level hang); "v" counter > 0
+   (soft vsync running) and "Vsync on 00000001" present; "p"/"s" counters and Present/SubmitCommand lines (did DWM
+   present at all; flips?); "SoftVsync sync failed" (no interrupt object); R CommitStatus. Also the S10eDiag ring
+   (+0xA000) "waiting: LogonUI=.. explorer=.." lines from S10eAgent.
+3. A/B if step 2 is still black with presents arriving: Parameters\FlipBlt 0 or SoftVsync 0 (reg add in pass 1 by
+   hand, same key) to see which switch changes the PRAM picture.
+4. GpuEnable 1 only after mode 1 gives a desktop or a trace that explains it: rm full.flg, touch gpu.flg, step 2 again.
+5. Back to display-only: rm the flags, extra-gpu-mode.cmd once (writes 0/0, deletes EnablePreemption).

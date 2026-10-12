@@ -374,3 +374,25 @@ what blob; OEMFormat {E4870E26},3; any {3D6E1656} mix-format keys - compare with
 `formats:` (shared IsFormatSupported hr per format), `exclusive ...` line (played = the KS/stream path works without
 the engine); audio\mmdevices.txt (same store, raw); evt-audio-*.txt (AudioSrv's own reason); run.txt `circuit: ACX
 default format ...` and the `fmt ... verdict:` lines.
+
+## A9 (2026-10-13): a8 device result
+
+Run audA8 (silent, run.txt AmpInit/AmpEnable/AboxEnable 0/0/0; installed by extra-audio-swap.cmd, whose pass 2 does not
+run extra-audio.cmd -> no mmdevices/evt dumps). New endpoint {97b9a239-...} state 1, 55 properties.
+- props (phone) vs the working PC endpoint (T13 reference), engine/endpoint keys:
+  phone: {1DA5D803},0 = 1, ,2 = KSNODETYPE_ANY, ,4 = id, ,7 = 1, ,8 = KSNODETYPE_SPEAKER; {E4870E26},3 = our INF OEMFormat
+  (48k/16 EXT) - **and nothing else**.
+  PC: the same plus **{F19F064D},0 PKEY_AudioEngine_DeviceFormat** (= OEMFormat), {E4870E26},0/1/8, {3D6E1656},2/3/6/7
+  (48k float mix formats) and **{1DA5D803},3 = 3 and ,6 = 3** (PKEY_AudioEndpoint_PhysicalSpeakers /
+  PKEY_AudioEndpoint_FullRangeSpeakers = KSAUDIO_SPEAKER_STEREO).
+  (Correction to the coordinator's reading: {E4870E26},3 is OEMFormat from our INF, not DeviceFormat; DeviceFormat is
+  {F19F064D},0 and is MISSING on the phone.)
+- Every AudioSrv call on the endpoint (GetMixFormat, endpoint volume, IsFormatSupported shared, GetDevicePeriod,
+  exclusive Initialize) returns 0x88890008 without a KS pin create -> the endpoint's engine state was never
+  initialised: no device format was ever chosen/stored, no speaker configuration was stored.
+- run.txt: ACX default format 48000 Hz 2 ch 16/16; only the two boot probe streams (16/32 bit; create, RT buffer, HW
+  latency, free).
+- T17 extra-audio-swap.cmd pass 2 (CRLF, no control bytes): the extra-audio.cmd dumps (MMDevices Render /s,
+  evt-channels, Microsoft-Windows-Audio/{Operational,PlaybackManager,Informational,GlitchDetection}) + System log
+  entries of AudioEndpointBuilder / Audiosrv / Microsoft-Windows-Audio (XPath tested on this PC through a .cmd: rc 0).
+  Stale comment about INF defaults 1 corrected.

@@ -22,8 +22,8 @@ for /f "usebackq delims=" %%O in ("%W%\old-oem.txt") do (
   pnputil /delete-driver %%O /uninstall /force >> "%W%\pnputil-delete.txt" 2>&1
 )
 pnputil /add-driver "%D%\Exynos9820Audio.inf" > "%W%\pnputil-add.txt" 2>&1
-rem Stage Parameters AFTER the delete/add: deleting the old package removed earlier values, and the INF AddReg defaults
-rem are AmpInit/AmpEnable/AboxEnable 1 (run audA7 ran with the amps enabled). NOCLOBBER keeps these values at install.
+rem Stage Parameters AFTER the delete/add: deleting the old package removed earlier values (run audA7 ran with the amps
+rem enabled by the then INF defaults of 1; since 1.0.1.7 the defaults are 0). NOCLOBBER keeps these values at install.
 if exist "%ESP%\S10EDIAG\audio-stage.cmd" call "%ESP%\S10EDIAG\audio-stage.cmd"
 pnputil /enum-drivers > "%W%\enum-drivers.txt" 2>&1
 if exist "%ESP%\S10EDIAG\noaudio.flg" del /f /q "%ESP%\S10EDIAG\noaudio.flg"
@@ -43,6 +43,13 @@ del /q "%TMP%\audiotest.txt" > nul 2>&1
 powershell -NoProfile -ExecutionPolicy Bypass -File "%TMP%\run-as-user.ps1" -Script C:\S10eTmp\audio-test.ps1 -Wait 60 > "%W%\task.txt" 2>&1
 copy /y "%TMP%\audiotest.txt" "%W%\audiotest.txt" > nul 2>&1
 copy /y "%SystemRoot%\System32\LogFiles\Exynos9820Audio-run.txt" "%W%\run.txt" > nul 2>&1
+rem A9: what AudioSrv / the endpoint builder stored and logged (same dumps as extra-audio.cmd, plus the System log
+rem entries of the AudioEndpointBuilder and Audiosrv services)
+reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render" /s > "%W%\mmdevices.txt" 2>&1
+wevtutil el > "%TMP%\evt-all.txt" 2>&1
+findstr /i "audio" "%TMP%\evt-all.txt" > "%W%\evt-channels.txt" 2>&1
+for %%C in (Operational PlaybackManager Informational GlitchDetection) do wevtutil qe "Microsoft-Windows-Audio/%%C" /c:100 /rd:true /f:text > "%W%\evt-audio-%%C.txt" 2>&1
+wevtutil qe System "/q:*[System[Provider[@Name='AudioEndpointBuilder' or @Name='Audiosrv' or @Name='Microsoft-Windows-Audio']]]" /c:100 /rd:true /f:text > "%W%\evt-system-audio.txt" 2>&1
 for /f "usebackq delims=" %%L in ("%TMP%\audiotest.txt") do s10ediag mark "t: %%L"
 :end
 s10ediag mark a: done

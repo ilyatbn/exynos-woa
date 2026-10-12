@@ -125,10 +125,10 @@ PMU = 0x15860000 (EXYNOS_PMU_BASE, VERIFIED). CMU_CMU = 0x1A240000 (= EXYNOS_CMU
   (GSIV 320/319/321), pd-embedded_g3d@15862100, no clocks/regulator/OPP, CAL id 0xb04000a, need_smc 0x18410204.
   F1/F2/F5 agree with all of it. LineageOS beyond0lte_defconfig also selects `CONFIG_MALI_BIFROST_R32P1=y`
   (`G\exynos9820_defconfig:3368`, b_r10p0..r26p0 "is not set" :3362-3367) — so F4's b_r10p0 call chain is
-  the older glue; the current one is `drivers/gpu/arm/exynos` (fetched as `G\gpex_*`):
+  the older glue; the current one is `drivers/gpu/arm/exynos` (fetched as `G\gpex_*`; the defconfig is `arch/arm64/configs/exynos9820-beyond0lte_defconfig`, saved as `G\exynos9820_defconfig`):
   - `gpexbe_pm_get_status` = exynos_pmu_read(DT gpu_pmu_status_reg_offset) & mask (`G\gpex_gpexbe_pm.c:68-78`) —
     same PMU+0x2104 bit0 test; `gpexbe_pm_pd_control` = cal_pd_status / **cal_pd_control** / cal_pd_status
-    (`gpex_gpexbe_pm.c:96-125`) — same pmucal + need_smc path as F3. Clock = `cal_dfs_set_rate(cal_id, clk)`
+    (`G\gpex_gpexbe_pm.c:96-125`) — same pmucal + need_smc path as F3. Clock = `cal_dfs_set_rate(cal_id, clk)`
     (`G\gpex_gpexbe_clock.c:77`) — same ACPM path as F5.
   - NEW vs b_r10p0: `gpex_pm_runtime_on_prepare` calls `gpexbe_smc_notify_power_on()` (`G\gpex_gpex_pm.c:308-317`)
     = `exynos_smc(SMC_DRM_G3D_POWER_ON,0,0,0)` (`G\gpex_gpexbe_smc.c:107-110`, only under
@@ -172,3 +172,9 @@ PMU = 0x15860000 (EXYNOS_PMU_BASE, VERIFIED). CMU_CMU = 0x1A240000 (= EXYNOS_CMU
   0x18500000+0x5000) to mMmioRegions (boot #95 lesson: an unmapped region faults on the first access).
 - `BEYOND0LTE_GPU_POWER_ON` (default 0): **UNVERIFIED stub** — F6: the vendor power-on is pmucal MMIO + SMC
   DTZPC restore (need_smc 0x18410204) + ACPM DVFS for clock/voltage. Setting it to 1 only logs the reason.
+
+## Review of 2c87cd0 (G2 addendum)
+- Checked by grep in `G`: gpex_gpexbe_pm.c :68 get_status / :96 pd_control, gpex_gpex_pm.c :308 on_prepare,
+  gpexbe_smc.c :98 config guard / :107 notify, Kbuild :93-97, defconfig :3362-3368.
+- Found: (1) the defconfig's real repo path was not recorded (saved under a different name) — added;
+  (2) one cite lacked the `G\` prefix. Fixed in the follow-up commit.

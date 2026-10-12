@@ -410,3 +410,10 @@ UAIF1 SPK (F12); needs UAIF0 configured as I2S master (same F4 rules) plus codec
   ABOX SRAM by physical address 3 kHz, ABOX SRAM by DSP offset 0x10000 6 kHz (abox.c:249-262); amp digital
   volume -10 dB; RDMA0 STATUS sampled every 5 ms after each enable. ABOX SRAM added to the UEFI MMIO map.
   Build exit 0, FVMAIN_COMPACT 1000 B free, boot98-v2.img sha256 34ea311d….
+- **boot #98 RESULT (run b98):** mic heard the headphone tone (1000 Hz, t = 31.6 s, 2.0 s, SNR 19 dB) - the
+  narrowband detector works. Speaker: amp PLL_LOCK not within 20 ms and **PUP_DONE timed out (101 ms,
+  IRQ1_STATUS1 0x400000)** -> no unmute, no variants. Difference to b97 (PUP_DONE in 1 ms): there RDMA0 was
+  already enabled when UAIF1 SPK_EN was set and the amp powered up; here RDMA0 was off. Inference: UAIF1 only
+  drives BCLK/LRCLK while SIFS1 has data, and PUP_DONE needs the amp clock.
+- boot #99: variant 0 (DRAM) is started before the amp power-up, PLL_LOCK poll 100 ms; later variants switch
+  the DMA buffer (RDMA0 disable / reprogram / enable). sha256 51a9e405….

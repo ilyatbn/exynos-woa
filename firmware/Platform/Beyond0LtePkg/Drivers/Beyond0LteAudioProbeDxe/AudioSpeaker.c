@@ -406,15 +406,15 @@ STATIC CONST TONE_VARIANT  mVariants[] = {
   { "SRAM offset 0x10000, 6 kHz",   2, 4 },
 };
 
+// Fill the variant's buffer, program RDMA0 and enable it (UAIF1 only clocks while the DMA feeds it: run b98).
 STATIC
-BOOLEAN
-PlayVariant (IN CONST TONE_VARIANT *T, IN UINTN Rdma, IN EFI_PHYSICAL_ADDRESS DramBuf)
+VOID
+VariantStart (IN CONST TONE_VARIANT *T, IN UINTN Rdma, IN EFI_PHYSICAL_ADDRESS DramBuf)
 {
   volatile INT32  *Pcm;
   UINT32          Dma;
   UINT32          St[8];
   UINTN           I;
-  UINT32          V;
 
   if (T->Kind == 0) {
     Pcm = (volatile INT32 *)(UINTN)DramBuf;
@@ -449,6 +449,17 @@ PlayVariant (IN CONST TONE_VARIANT *T, IN UINTN Rdma, IN EFI_PHYSICAL_ADDRESS Dr
 
   DEBUG ((DEBUG_WARN, "AudioSpk: variant \"%a\": DMA %x, RDMA0 STATUS every 5 ms: %x %x %x %x %x %x %x %x | UAIF1 STATUS %x\n",
           T->Name, Dma, St[0], St[1], St[2], St[3], St[4], St[5], St[6], St[7], MmioRead32 (IFR + X_UAIF1_STATUS)));
+}
+
+// Hold the running variant for TONE_HOLD_MS (amp error bits checked every 250 ms), then disable RDMA0.
+STATIC
+BOOLEAN
+VariantHoldStop (IN CONST TONE_VARIANT *T, IN UINTN Rdma)
+{
+  UINTN   I;
+  UINT32  V;
+
+  V = 0;
   for (I = 0; I < TONE_HOLD_MS / 250; I++) {
     gBS->Stall (250 * 1000);
     V = ARd (A_IRQ1_STATUS1);
@@ -552,7 +563,8 @@ SpeakerTonePlay (
   LogState ("UAIF1 SPK on", Rdma);
 
   // Amp power-up (rows 6.2-7.2) with the bit clock running.
-  Ms = APoll (A_IRQ1_STATUS3, A_PLL_LOCK, 20, &V);
+  VariantStart (&mVariants[0], Rdma, Buf);   // data must flow before the amp PLL can lock (b98: no lock, no PUP_DONE)
+  Ms = APoll (A_IRQ1_STATUS3, A_PLL_LOCK, 100, &V);
   DEBUG ((DEBUG_WARN, "AudioSpk: amp PLL_LOCK after %u ms (IRQ1_STATUS3 %x)\n", (UINT32)Ms, V));
   AWr (A_IRQ1_STATUS3, A_PLL_LOCK);
   AWr (A_SP_ENABLES, 0x00010000);
@@ -570,8 +582,11 @@ SpeakerTonePlay (
     ARmw (A_AMP_DIG_VOL, 0x3FF8u, AMP_VOL_M10DB << 3);
     Played = TRUE;
     for (Variant = 0; Variant < ARRAY_SIZE (mVariants) && Played; Variant++) {
-      Played = PlayVariant (&mVariants[Variant], Rdma, Buf);
-      gBS->Stall (500 * 1000);
+      if (Variant != 0) {
+        VariantStart (&mVariants[Variant], Rdma, Buf);
+      }
+
+      Played = VariantHoldStop (&mVariants[Variant], Rdma);
     }
 
     LogState ("tones end", Rdma);

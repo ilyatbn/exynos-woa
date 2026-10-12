@@ -95,8 +95,8 @@ system-controller@15860000 { compatible = "samsung,exynos9820-pmu", "syscon"; re
   `gpu_pmu_status_reg_offset = 0x2104` with `local_pwr_mask = 0x1` names the same register: status bit 0
   = powered). G3D_OPTION/EMUL at +0x210c. Value to write to CONFIGURATION for on/off is not in the DT
   (generic exynos-pd: 0xF on / 0x0 off - UNVERIFIED for 9820, cal-if pmucal sequence `cal_id 0xb1380007`).
-- `need_smc = 0x18410204`: every pd has one of the form `<blk SYSREG>+0x204` (g2d 0x18a10204, mfc 0x18820204,
-  dpu 0x191b0204 ...). In Samsung's exynos-pd.c this address is handed to EL3 by SMC after power-on to
+- `need_smc = 0x18410204`: 14 of the 15 `need_smc` values (16 pd nodes; pd-fsys0a has none) end in `0x...0204` (g2d 0x18a10204, mfc 0x18820204; pd-aud is the exception, 0x18c62000; that it is a block SYSREG/TZPC register is UNVERIFIED;
+  dpu 0x191b0204 ...). In Samsung's exynos-pd.c (from memory, UNVERIFIED - not re-read) this address is handed to EL3 by SMC after power-on to
   restore secure (TZPC) state of the block -> **G3D likely needs an SMC after power-up** before non-secure
   access (UNVERIFIED: the SMC id + whether the GPU regs fault without it; read exynos-pd.c `need_smc`).
 - GPU DVFS domain in exynos-dm: `dvfs_gpu { dm-index 0xd; available = "false"; cal_id 0xb04000a; dm_type_name "dm_gpu" }`
@@ -257,7 +257,7 @@ final confirmation - but the values below are what Samsung's own kernel binds to
 | G1 | kbase version (CORRECTION) | stock Android 12 kernel = **`bv_r32p1`, `K:r32p1-01bet2(GPL)`**, not `b_r10p0` (that is the LineageOS/older tree) | kernel.img @0x17ea842, kernel.config:3377 |
 | G2 | PMU G3D offsets | CONFIGURATION = PMU+0x2100 (0x15862100), STATUS = PMU+0x2104 (0x15862104), powered = bit 0 (`gpu_pmu_status_local_pwr_mask = 1`) | dt.img.0.dts:3519, :4638-4639 |
 | G2 | clock/voltage path | **no `clocks`/regulator in DT; GPU clock+voltage set via CAL-DFS id `0xb04000a` (ACPM)**, `set_clock_using_calapi`, ASV table from CAL IF | dt.img.0.dts:4628; kernel.img @0x17ef070, @0x17eef66 |
-| G2 | ACPM vs direct PMU | power-on = genpd `exynos-pd` (pmucal sequence, cal_id 0xb1380007) + `need_smc` 0x18410204 (D_TZPC_G3D) -> *direct PMU write possible but a secure SMC follows*; DVFS = ACPM | dt.img.0.dts:3517-3522; kernel.img @0x17b71f3 |
+| G2 | ACPM vs direct PMU | power-on = genpd `exynos-pd` (pmucal sequence, cal_id 0xb1380007) + `need_smc` 0x18410204 (target register UNVERIFIED; a `D_TZPC_G3D` QCH exists, kernel.img @0x17b71f3) -> *direct PMU write possible but a secure SMC follows*; DVFS = ACPM | dt.img.0.dts:3517-3522; kernel.img @0x17b71f3 |
 | G2 | OPP table | 702/650/572/433/377/325/260/200/156 MHz; boot/start 260 MHz; default voltage 800 mV | F2 |
 | G3 | MP count hint | none in DT (no core mask property); G3 SHADER_PRESENT read remains the closer | F1 |
 | G5 | coherency | DT has **no `system-coherency`** -> kbase default (non-coherent, UNVERIFIED in kbase source) | F1, P8 |
@@ -275,3 +275,11 @@ Found and fixed in the follow-up commit:
 - `gpu_pmqos_mif_max_clock = 0x1ff3b0` is **2094000**, not 2093000 (the table's MIF column 0x1fefc8 *is* 2093000).
 Everything else verified: IRQ cells 0x120/0x11f/0x121 = 288/287/289; ect node starts at dts:4685; pmucal dbg
 node at :4331-4338; dm_gpu at :8707-8712.
+
+## Review of 4e7bff1 `M16 G1/G2 rows` (adversarial)
+
+- Flagged: the MILESTONES G2 text and notes F3/G2-table called `need_smc` 0x18410204 "D_TZPC_G3D" as fact, and F3
+  claimed *every* pd has a `<SYSREG>+0x204` value. `grep -n need_smc dt.img.0.dts` shows 15 values, pd-aud's is
+  0x18c62000 (not +0x204), and nothing in the ROM names the register at 0x18410204. Both reworded to UNVERIFIED
+  in the follow-up commit.
+- Verified: G1 row figures match F1 (SPI 288/287/289, reg 0x5000), kbase string at kernel.img @0x17ea842.

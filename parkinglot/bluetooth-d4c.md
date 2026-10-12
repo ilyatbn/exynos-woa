@@ -26,3 +26,12 @@ These change the UEFI image, so they wait until the m15 UFS / GPU test images ar
 2. Firmware half: `Beyond0LteBtUartDxe` (CMU_PERIC1 QCH + ungates 0x22a/0x23c, gpq0 fn2 mux, USI mode=1), then
    R1 UART loopback and R2 `HCI_READ_LOCAL_VERSION` in UEFILOG. This also closes `BT_UART_SRC_CLK_HZ` (UNVERIFIED).
 3. Build `drivers\Exynos9820Bt` (ARM64 Release), then patchram (R3), then the Windows R4 layers.
+
+## Q1 closed (2026-10-12, TWRP root, this S10e: androidboot.revision=26, dtbo_idx=6)
+`/proc/device-tree/bluetooth` (compatible samsung,bcm43xx, status okay) gpios = <0xa9 0 0>, <0x96 0 0>, <0x136 3 0xf>.
+Phandles resolved via /sys/firmware/devicetree/base/**/phandle: 0xa9 = pinctrl@15C30000/gpm8, 0x96 =
+pinctrl@10430000/gpg2, 0x136 = pinctrl@15850000/gpa2. So bt_en = **gpm8-0** (CMGP; the rev-25+ variant, NOT the
+PCAL6524 expander), bt_wake = gpg2-0, bt_hostwake = gpa2-3 (flags 0xf). pinctrl-0 = phandles 0x312/0x313/0x314.
+Vendor blobs (/vendor/firmware, mounted ro): bcm4375B0_{murata,semco}.hcd, bcm4375B1_{murata,semco}.hcd,
+bcm4375B1_semco_sem.hcd (+ WiFi bcmdhd_*.bin_b1, nvram.txt_CS01_semco_b1). The module is SEMCO, chip rev B1 (per
+the WiFi nvram choice); which B1 semco .hcd Android picks is still to read (it's a vendor-property choice).

@@ -109,3 +109,26 @@ Findings (each a follow-up commit):
   AudLog's RtlStringCbVPrintfA at DISPATCH is legal (no %ws/%wZ used anywhere).
 - R1 fixed: AudHwStart = AboxInit -> AmpPowerUp -> AboxStart (amps powered down again if the DMA start fails); Run still takes StartTime right after AudHwStart. Build exit 0 /W4 /WX.
 - R2 fixed: Dev->VolumeLevel starts at -20 dB (-20 * 0x10000 KS units = AmpTargetSteps -160 = the fixed level). Build exit 0.
+
+## 2026-10-12 message from the main session: loudspeaker path DEVICE-VALIDATED (boot #99, PC mic SNR 44-51 dB)
+
+Source of truth: main-branch Beyond0LteAudioProbeDxe/AudioSpeaker.c (+ AudioAmpOtp.h), notes/d8-audio-m3-abox.md
+"boot #99 RESULT". Facts as relayed (to be checked against the code before porting):
+- RDMA addresses are PHYSICAL (AUD SysMMU disabled at boot); contiguous DRAM below 4 GiB works; CPU must write back
+  caches.
+- ABOX: CMU_AUD DIV_UAIF1 (+0x1830, low 9 bits) = 95 with AUDIF left at sboot /2 -> 6.144 MHz BCLK, poll BUSY bit16;
+  gpb1 CON (GPIO_AUD+0x20) low 16 bits = 0x2222; SYSREG MISC_CON (+0x504) = 1; IFR+0x10 SYSPOWER_CTRL = 1;
+  IFR+0x38 |= bit3; UAIF1 CTRL1 = 0x1B4DF7DF; CTRL0 = 0x01000014 then |= 1; IFR+0x220 = 0x02000000;
+  IFR+0x40 = 0x20; RDMA0 BUF_STR +8, BUF_END +0xC = STR+bytes, BUF_OFFSET +0x10 = period, STR_POINT +0x14 = STR,
+  VOL_FACTOR +0x18 = 0x800000, CTRL0 = 0x00400000 | (0x1B<<8) | 1. STATUS +0x30: bit31 progress, bits 11:0 =
+  frame counter mod 4096 at 48 kHz (position source).
+- Data: 4 interleaved 32-bit slots per frame, left-justified; slot 1 = speaker @0x40, slot 0 = earpiece @0x41
+  (@41 untested).
+- ORDER: SPK_EN + RDMA0 running with data BEFORE amp power-up (PUP_DONE times out otherwise; arrives in ~1 ms).
+  PLL_LOCK bit never reads set - ignore. Amp: errata, OTP unpack (AudioAmpOtp.h), bypass trims, PLL code 0x28,
+  SP_FORMAT 0x20200040, DAC src 0x08, gain 0x0A, digital volume -10 dB.
+- Teardown: amp mute + GLOBAL_EN off + PDN_DONE, then SPK_EN off, RDMA0 CTRL0 = 0x00400000.
+- In Windows: AUD domain still on; amps left in reset by UEFI (gph1-1/2 low) -> driver releases them; gph0-6/7 -> fn 3.
+Consequences for the driver: the stream format becomes 4x32 slots in the ring (driver must expand the 2ch client
+format), R1's order (amps before DMA) is WRONG for this hardware and must be reversed, timer clock could become the
+RDMA frame counter.

@@ -39,4 +39,8 @@ s10ediag mark a: tone test waited
 copy /y "%TMP%\audiotest.txt" "%W%\audiotest.txt" > nul 2>&1
 :noplay
 copy /y "%SystemRoot%\System32\LogFiles\Exynos9820Audio-run.txt" "%W%\run.txt" > nul 2>&1
+rem run audB5: the ESP copy was lost when the restart did not flush - mirror the key lines into the PRAM mark ring
+for /f "usebackq delims=" %%L in ("%TMP%\audiotest.txt") do s10ediag mark "t: %%L"
+findstr /c:"stream" /c:"trace" /c:"Abox" /c:"Amp" "%SystemRoot%\System32\LogFiles\Exynos9820Audio-run.txt" > "%TMP%\runkey.txt" 2>nul
+for /f "usebackq delims=" %%L in ("%TMP%\runkey.txt") do s10ediag mark "r: %%L"
 s10ediag mark a: done

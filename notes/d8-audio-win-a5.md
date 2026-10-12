@@ -416,3 +416,16 @@ run extra-audio.cmd -> no mmdevices/evt dumps). New endpoint {97b9a239-...} stat
   CHANNEL_CONFIG gate hard-coded element id 0 (true in run audA7 by creation order, but an ACX-assigned id) - fixed in its
   own commit: AudCreateElements stores AcxElementGetId(volume) in Dev->VolumeElementId, the gate uses it, and the
   "circuit: host pin id .." line now also prints the volume element id. Build exit 0.
+- T19 package s10e-artifacts\audio-a9 (1.0.1.8, ACX 1.1, signed 5DD5DEE1... sys + cat, InfVerif VALID, hardware defaults
+  0/0/0, KsOverride 1):
+    BCEDF29E8FA7AA1BD9A9129DB91A301933732BD501E241139287CFF9ADB0B7C9  Exynos9820Audio.sys
+    AD1BED3327292A456F7CBC8F22648E339A81D39AAF8A6BABACA709F477A2AAB4  Exynos9820Audio.inf
+    378AE9F55B1F7E77FFF2BBA7388ABE67B0BE7DFAA7077390DCE49E50881A86C8  exynos9820audio.cat
+
+### A9 device test
+extra-audio-swap.cmd (new version on the ESP) with audio-a9; stage A. Expect in run.txt `circuit: host pin id 0, bridge
+pin id 1, volume element id 0, KsOverride 1` and `req c ... prop Audio.3 basic elem#0 ... done 00000000 info 40` (then
+a `get` -> info 4, maybe `ks: CHANNEL_CONFIG set 3`). In audiotest `props:` look for {1DA5D803},3/,6 = 3 (INF or
+builder) and above all {F19F064D},0 DeviceFormat; success = GetMixFormat 0. New audio\mmdevices.txt / evt-*.txt give
+AudioSrv's own reason if it still fails. NOTE: the endpoint id changes with each package swap, so the builder starts from
+an empty store every time.

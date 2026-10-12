@@ -110,12 +110,12 @@ DumpRegs (
 }
 
 STATIC
-UINTN
+UINT32
 PopCount32 (
   IN UINT32  V
   )
 {
-  UINTN  N;
+  UINT32  N;   // printed with %u: must stay 32-bit
 
   for (N = 0; V != 0; V &= V - 1) {
     N++;

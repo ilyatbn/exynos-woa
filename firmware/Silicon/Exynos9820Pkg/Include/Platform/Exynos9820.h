@@ -356,7 +356,8 @@
 //                    0x0 0x1bf00000 0x8000>
 //   cmu_ewf  reg = <0x0 0x1a240000 0x1000>
 //
-// So 0x1A240000 is still inside the 0x1A200000 bank, and the 9810's CMU_FSYS0
+// 0x1A240000 is NOT inside the 0x1A200000 +0x8000 bank (that ends at 0x1A208000;
+// corrected M16 G3 review - it is mapped as its own window now), and the 9810's CMU_FSYS0
 // at 0x11000000 does not exist on this SoC at all. RESOLVED 2026-10-09: the
 // DT's five-window `cmu` node is NOT the whole CMU set. Samsung's own
 // calibration table (drivers/soc/samsung/cal-if/exynos9820/cmucal-sfr.c, the

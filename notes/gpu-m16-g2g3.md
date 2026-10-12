@@ -200,3 +200,17 @@ GpuProbe: PLL_G3D CON0 <x> (ENABLE . STABLE . M . P . S .) CON2 <x> LOCKTIME <x>
           24 "GpuProbe:   GPU ..." lines, shader/L2/AS/JS popcount line, GpuProbe: done
 ```
 - A hang/abort after the PMU line with no "done" → next boot logs "previous boot hung in the GPU probe (progress 0x6A)".
+
+## Review of f3d45fc (G3)
+- Checked: 9810 tree untouched (`git diff --stat 97cf148..HEAD -- firmware/Platform/Star2LtePkg firmware/Silicon/Exynos9810Pkg`
+  empty); every new header constant greps to exactly one definition and no prior user; GUID ...5555 unique; 0x6A
+  unused elsewhere; new mMmioRegions windows overlap nothing (CMU_TOP 0x1A240000-0x1A241000, CMU_G3D
+  0x18400000-0x18408000, G3D 0x18500000-0x18505000); build exit 0.
+- Found: (1) `PopCount32` returned UINTN (64-bit) but is printed with `%u` (PrintLib reads 32 bits) - return type
+  now UINT32; (2) `Exynos9820.h:359` repeated the false "0x1A240000 is inside the 0x1A200000 bank" claim
+  (same error as the memmap comment fixed in f3d45fc) - corrected; (3) MILESTONES G3 state "needs-boot" is not a
+  repo state - now `**doing** (built; NOT booted - needs-boot)`. Fixed in the follow-up commit.
+- Residual hazards (not fixable from source, for the boot): first-ever NS read of CMU_TOP (PLL_G3D, outside the
+  domain gate) and, if the domain is on, of CMU_G3D/GPU while the G3D D_TZPC state is unknown - either could be an
+  external abort; the 0x6A guard then skips the probe on the next boot and the last UEFILOG line names the step.
+- Rebuild after the fix: exit 0, FVMAIN_COMPACT 2080 (0x820) B free, FD 7 340 032 B sha256 `ab180dfc4ebab722...`.

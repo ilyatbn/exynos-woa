@@ -325,3 +325,14 @@ What the logs must show (Exynos9820WlanCx.txt = bring-up, -run.txt = runtime):
   logged "[join] link-down of the previous association ignored" instead of failing the join (run.2 CONNECT 3);
   deauth / disassoc events and link-down naming a BSS still count; a real failure still ends via the SET_SSID
   status. Both drivers build W4/WX clean.
+- Review of 80ef3f2 + 5539202: the PHY list points at a stack local and is detached before delete[]; statistics
+  arrays detached before the destructor; the out-buffer copy keeps the request header and returns header + TLVs;
+  the cached scan path only restores the count when no record arrived (no entry was overwritten); the link-down
+  exemption only applies while Joining, before this join's link-up, zero address. No findings.
+- **Package s10e-artifacts\wifi-cx4 (inx 1.0.9.5, stampinf DriverVer 10/13/2026,0.26.42.245), supersedes cx3:**
+  - Exynos9820WlanCx.sys 219032 B sha256 446547B6A82CB8826F63F8047BD1FA4A7E0C1A30E7DCAE4601B496D6439C1D02
+  - Exynos9820WlanCx.inf   2600 B sha256 96036B35DBFE09210B0CEB5C070F84E26174774644B57777E2208DD101544BBA
+  - exynos9820wlancx.cat   2538 B sha256 076FEAE266101FD83BC870816F39AE72C6D0B734DB900EBBC412ABE72282BFA7
+  + extra-wifi-cx.cmd. Not device-tested. Expect on connect: "[join] association result: status 0, phy 7/8, wmm 1,
+  req 164 B resp 219 B beacon 1" then "-> indication 76", EAPOL tx ("[tx] packet layout #1", tx fifo in > 0),
+  "[key] add ..." lines; if instead "association result generation failed: NDIS 0x...", that status is the next lead.

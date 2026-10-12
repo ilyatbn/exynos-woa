@@ -84,12 +84,13 @@ typedef enum _AUD_RES {
 
 /* ======================================================================
  * Registry: HKLM\SYSTEM\CurrentControlSet\Services\Exynos9820Audio\Parameters (REG_DWORD).
- * Defaults = the path device-validated in UEFI (boot #99) on; set AboxEnable = 0 for a silent, QPC-clocked endpoint.
+ * Defaults (A8, user safety): every hardware stage OFF - a fresh install (or a package swap that drops the staged
+ * values) gives a silent, QPC-clocked endpoint; the tester enables AmpInit / AmpEnable / AboxEnable explicitly.
  * ====================================================================== */
 typedef struct _AUD_CONFIG {
-    ULONG AmpInit;      /* 1 (default): bus up, amp reset release + ID read (UEFI m1b steps, device-proven) */
-    ULONG AmpEnable;    /* 1 (default): configure + power the CS35L40 on stream start (boot #99 sequence) */
-    ULONG AboxEnable;   /* 1 (default): ABOX stage 1 + RDMA0 on stream start (boot #99 sequence) */
+    ULONG AmpInit;      /* 0 (default): 1 = bus up, amp reset release + ID read (UEFI m1b steps, device-proven) */
+    ULONG AmpEnable;    /* 0 (default): 1 = configure + power the CS35L40 on stream start (boot #99 sequence) */
+    ULONG AboxEnable;   /* 0 (default): 1 = ABOX stage 1 + RDMA0 on stream start (boot #99 sequence) */
     ULONG HwVolume;     /* 0 (default): volume + mute elements applied in software by the driver; 1 = on the amp registers */
     ULONG Stereo;       /* 0 (default): mono (L+R)/2 on the loudspeaker only; 1 = L on the earpiece amp (untested) */
     ULONG KsOverride;   /* 1 (default, A7): the driver answers host-pin DATAINTERSECTION / PROPOSEDATAFORMAT (ReqLog.c) */

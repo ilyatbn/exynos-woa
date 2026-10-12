@@ -60,9 +60,9 @@ static VOID AudReadConfig(_In_ WDFDRIVER Driver)
     ULONG          V;
     ULONG          I;
 
-    g_Cfg.AmpInit    = 1;
-    g_Cfg.AmpEnable  = 1;
-    g_Cfg.AboxEnable = 1;
+    g_Cfg.AmpInit    = 0;   /* A8: hardware stages off unless the tester sets them (Exynos9820Audio.h AUD_CONFIG) */
+    g_Cfg.AmpEnable  = 0;
+    g_Cfg.AboxEnable = 0;
     g_Cfg.HwVolume   = 0;
     g_Cfg.Stereo     = 0;
     g_Cfg.KsOverride = 1;

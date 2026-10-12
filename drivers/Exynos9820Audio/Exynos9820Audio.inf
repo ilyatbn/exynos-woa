@@ -48,11 +48,12 @@ ServiceBinary = %13%\Exynos9820Audio.sys
 AddReg        = Audio_Service_AddReg
 
 ; Parameters (Exynos9820Audio.h AUD_CONFIG). FLG_ADDREG_NOCLOBBER | REG_DWORD (0x00010003): a value the tester
-; changed survives a driver update.
+; changed survives a driver update. A8 (user safety): the hardware stages default to OFF (silent endpoint); a package
+; swap that deletes the old package also deletes the staged values, so the defaults are what runs.
 [Audio_Service_AddReg]
-HKR,Parameters,AmpInit,0x00010003,1
-HKR,Parameters,AmpEnable,0x00010003,1
-HKR,Parameters,AboxEnable,0x00010003,1
+HKR,Parameters,AmpInit,0x00010003,0
+HKR,Parameters,AmpEnable,0x00010003,0
+HKR,Parameters,AboxEnable,0x00010003,0
 HKR,Parameters,HwVolume,0x00010003,0
 HKR,Parameters,Stereo,0x00010003,0
 HKR,Parameters,KsOverride,0x00010003,1

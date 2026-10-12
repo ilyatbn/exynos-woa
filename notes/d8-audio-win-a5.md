@@ -330,3 +330,6 @@ something after it still is.
 - T15 driver: log ACX's own default + list formats at circuit creation; decode each DISTINCT proposed format (not just
   the first 48) with our verdict; version 1.0.1.7.
 - T16 package audio-a8.
+- T12: hardware-stage defaults OFF everywhere: INF AddReg AmpInit/AmpEnable/AboxEnable 0 (NOCLOBBER kept),
+  Driver.c AudReadConfig defaults 0, header comments; HwVolume 0 / Stereo 0 / KsOverride 1 unchanged. Build exit 0,
+  InfVerif VALID. The staged scripts (audio-stage-A..D.cmd) still set every value explicitly.

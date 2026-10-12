@@ -284,3 +284,9 @@ Refs: scratchpad src/bcmdhd (LineageOS lineage-23.2) and src/brcmfmac (torvalds 
   Previous run on the same boot as the pnputil install failed: a device restart while the firmware runs gives
   "DL 6: TCM read-back mismatch" (28 mismatches) - the warm reload needs a chip reset first (open; reboot works).
   Next: the user enters the real credentials with tools/wifi-connect on the phone (never stored in the repo).
+- **USER RUN (2026-10-12 ~23:00, 1.0.7.4, credentials typed by the user in wifi-connect on the phone, never seen
+  here): WPA2-PSK JOIN SUCCEEDED** on the user's "Home-X" (60:38:E0:0E:D3:40, rssi -57, AP RSN IE 26 B): "[sup] msg
+  3/4 MIC ok, GTK idx 2 (16 B) -> msg 4/4 sent, keys installed (codes 0x000000)", "JOIN 0: SET_SSID 0, handshake
+  state 2, link up, eapol rx 2 tx 2 after 340 ms". (Log read read-only from the NTFS LogFiles.) No NDIS/NetAdapter
+  interface yet, so ipconfig shows no usable adapter. **M7b done on device.** User decision: from the connected
+  stage on, go to native Windows WiFi (WiFiCx) instead of the Ethernet-style adapter (M7c dropped).

@@ -19,3 +19,7 @@
 ## Progress log
 - 2026-10-11: milestone M16 opened in MILESTONES.md with the task ladder; nothing researched yet. USB (M10)
   stays the active task; M16 starts after it.
+- 2026-10-12: repo inventory done -> `notes/gpu-panfrost-repos.md` (22 group projects cloned to
+  `C:\Users\ilya\code\mali`, register map / power / MMU / job formats with file:line citations, reuse + risks).
+  Key corrections: G76 = "Norr"/tNOx (Gondul is G52); Bifrost JM needs no GPU firmware; Mesa has no D3D UMD
+  frontend today (WGL/GL only); G76 is untested upstream (no SoC in mainline DT, no Mesa CI job).

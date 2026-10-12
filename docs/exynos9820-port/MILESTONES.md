@@ -367,7 +367,7 @@ gallium driver behind Mesa's Windows D3D UMD frontend.
 
 | Task | State | Notes |
 |------|-------|-------|
-| Inventory the Panfrost repos: what supports Mali-G76 / Bifrost v7 (Mesa gallium, kernel `drm/panfrost`, docs, test tools) | todo | `notes/gpu-panfrost.md`; verify G76 support status, not assume it |
+| Inventory the Panfrost repos: what supports Mali-G76 / Bifrost v7 (Mesa gallium, kernel `drm/panfrost`, docs, test tools) | **done** | `notes/gpu-panfrost-repos.md`: all 22 group projects cloned to `C:\Users\ilya\code\mali`; G76 = "Norr"/tNOx, `GPU_MODEL(g76, 0x7001)` exists in drm/panfrost but no mainline SoC or Mesa CI job uses it (G52, same arch 7.2, is the proxy) |
 | Device facts for `mali@18500000`: IRQs, clocks, G3D power domain, regulator, GPU_ID | todo | DT reads from TWRP are safe; reading GPU registers needs the G3D domain powered (ACPM) — hazard, plan first |
 | G3D power + clock bring-up path (ACPM, like the M15 CPU/INT DVFS work) | todo | Windows driver cannot touch the GPU until this exists |
 | Mesa on Windows ARM64: does Mesa's D3D UMD frontend + Panfrost build for Windows ARM64? | todo | build-only investigation |

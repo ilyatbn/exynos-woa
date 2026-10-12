@@ -429,3 +429,36 @@ a `get` -> info 4, maybe `ks: CHANNEL_CONFIG set 3`). In audiotest `props:` look
 builder) and above all {F19F064D},0 DeviceFormat; success = GetMixFormat 0. New audio\mmdevices.txt / evt-*.txt give
 AudioSrv's own reason if it still fails. NOTE: the endpoint id changes with each package swap, so the builder starts from
 an empty store every time.
+
+## A10 (2026-10-13): a9 device result
+
+Run audA9 (silent 0/0/0; scratchpad\runs\audA9\last\audio incl. mmdevices.txt + evt-*). Endpoint {8bfa438f-...}:
+{1DA5D803},3 = 3 and ,6 = 3 now present (INF values reached the store), {F19F064D},0 DeviceFormat still absent, every
+AudioSrv call still 0x88890008. Audio/Operational: only event 65 "device state changed"; System: no audio events.
+- **Key find - the endpoint's supported-format cache.** {74E4357A-7959-47A4-A8B2-FEB2FFD48427},2 in the store:
+  phone = `0A00 0000 0000 0000 0000` = version 10, **0 sample rates, 0 bit depths, 0 channel sets** - AudioSrv found the
+  pin supports NOTHING. This PC's endpoints (reg query MMDevices\Audio\Render /s, read-only): HDA = 14 rates
+  (48000, 8000, 11025, 16000, 22050, 24000, 32000, 44100, 88200, 96000, 176400, 192000, 352800, 384000) + bit pairs
+  (10/10, 08/08, 18/18, 20/18, 20/20) + channel masks; a USB dock "DL-DK001" = `0A00 0100 80BB0000 0100 1010 0500 ...
+  {9E90EA20} (RAW)` = 1 rate 48000, 1 bit pair 16/16, modes incl. RAW; endpoints whose format cache is empty
+  (`0A000000...`: Steam streaming, an unused "Digital Output") are exactly the ones without a working engine.
+  Every working endpoint also has {F19F064D},0 = OEMFormat, the mix formats {E4870E26},0 / {3D6E1656},2/3 and
+  {E4870E26},1 = 0x186A0 (100000 = 10 ms period).
+- So the failing step is AudioSrv's format-support enumeration of the host pin, which yields an empty set even though
+  our driver accepts 48k/2ch/16 and 32 in the 12-proposal rounds. Requests in a7/a8 that we did NOT answer and that
+  bear on "is PCM supported at all": the startup PROPOSEDATAFORMAT sets of **64-byte KSDATAFORMAT headers (no wave
+  format)** with sub PCM / 0x92 / 0x164 (format-family probes), passed to ACX. ACX compares proposals against its
+  complete formats; a header-only PCM proposal is not equal to any list entry -> almost certainly NO_MATCH -> "PCM not
+  supported" -> empty cache -> no device format -> AUDCLNT_E_UNSUPPORTED_FORMAT. (Inference: ACX's answer is not
+  visible, see A7 notes; but every other request now succeeds and this is the only family-level PCM question asked.)
+- Modes: the pin reports one signal-processing mode (AudioSignalProc.0 = 24 B = KSMULTIPLE_ITEM + 1 GUID; streams are
+  created with {9E90EA20} = RAW). The ACX sample also builds only the RAW list (RenderCircuit.cpp
+  Render_AllocateSupportedFormats; its DSP helper CircuitHelper.cpp:99-100 lists RAW + DEFAULT for stream bridges).
+  This PC's caches show RAW-only endpoints working, so DEFAULT is not proven necessary; added as a switchable extra.
+
+### Plan A10
+- T20 PROPOSEDATAFORMAT header-only proposals (no wave format) on the host pin answered by the driver: SUCCESS when
+  major = AUDIO, sub = PCM (or wildcard) and specifier = WAVEFORMATEX / wildcard / none, else NO_MATCH (AC3/WMA SPDIF).
+- T21 Parameters\DefaultMode (default 1): a DEFAULT-mode format list on the host pin (AcxDataFormatListCreate +
+  AcxPinAssignModeDataFormatList, same two formats, 16-bit default) so the pin offers RAW + DEFAULT.
+- T22 version 1.0.1.9, package audio-a10.

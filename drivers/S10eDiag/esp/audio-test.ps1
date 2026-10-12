@@ -14,35 +14,35 @@ namespace S10e {
   [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] class MMDeviceEnumeratorCo {}
   [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
   interface IMMDeviceEnumerator {
-    int EnumAudioEndpoints(int flow, int mask, out IntPtr devs);
-    int GetDefaultAudioEndpoint(int flow, int role, out IMMDevice dev);
+    [PreserveSig] int EnumAudioEndpoints(int flow, int mask, out IntPtr devs);
+    [PreserveSig] int GetDefaultAudioEndpoint(int flow, int role, out IMMDevice dev);
   }
   [Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
   interface IMMDevice {
-    int Activate(ref Guid iid, int ctx, IntPtr p, [MarshalAs(UnmanagedType.IUnknown)] out object o);
-    int OpenPropertyStore(int access, out IntPtr store);
-    int GetId([MarshalAs(UnmanagedType.LPWStr)] out string id);
-    int GetState(out int state);
+    [PreserveSig] int Activate(ref Guid iid, int ctx, IntPtr p, [MarshalAs(UnmanagedType.IUnknown)] out object o);
+    [PreserveSig] int OpenPropertyStore(int access, out IntPtr store);
+    [PreserveSig] int GetId([MarshalAs(UnmanagedType.LPWStr)] out string id);
+    [PreserveSig] int GetState(out int state);
   }
   [Guid("1CB9AD4C-DBFA-4c32-B178-C2F568A703B2"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
   interface IAudioClient {
-    int Initialize(int share, int flags, long dur, long period, IntPtr fmt, IntPtr session);
-    int GetBufferSize(out uint frames);
-    int GetStreamLatency(out long lat);
-    int GetCurrentPadding(out uint pad);
-    int IsFormatSupported(int share, IntPtr fmt, out IntPtr closest);
-    int GetMixFormat(out IntPtr fmt);
-    int GetDevicePeriod(out long def, out long min);
-    int Start();
-    int Stop();
-    int Reset();
-    int SetEventHandle(IntPtr h);
-    int GetService(ref Guid iid, [MarshalAs(UnmanagedType.IUnknown)] out object o);
+    [PreserveSig] int Initialize(int share, int flags, long dur, long period, IntPtr fmt, IntPtr session);
+    [PreserveSig] int GetBufferSize(out uint frames);
+    [PreserveSig] int GetStreamLatency(out long lat);
+    [PreserveSig] int GetCurrentPadding(out uint pad);
+    [PreserveSig] int IsFormatSupported(int share, IntPtr fmt, out IntPtr closest);
+    [PreserveSig] int GetMixFormat(out IntPtr fmt);
+    [PreserveSig] int GetDevicePeriod(out long def, out long min);
+    [PreserveSig] int Start();
+    [PreserveSig] int Stop();
+    [PreserveSig] int Reset();
+    [PreserveSig] int SetEventHandle(IntPtr h);
+    [PreserveSig] int GetService(ref Guid iid, [MarshalAs(UnmanagedType.IUnknown)] out object o);
   }
   [Guid("F294ACFC-3146-4483-A7BF-ADDCA7C260E2"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
   interface IAudioRenderClient {
-    int GetBuffer(uint frames, out IntPtr data);
-    int ReleaseBuffer(uint frames, int flags);
+    [PreserveSig] int GetBuffer(uint frames, out IntPtr data);
+    [PreserveSig] int ReleaseBuffer(uint frames, int flags);
   }
   public static class Wasapi {
     static IMMDevice Dev(out string info) {

@@ -906,10 +906,12 @@ NTSTATUS NTAPI AudEvtCircuitCreateStream(WDFDEVICE Device, ACXCIRCUIT Circuit, A
         Ctx->BytesPerSec != AUD_RATE * Ctx->BlockAlign) {
         AudLog(Ctx->Dev->Log, "stream: format %lu B/s block %lu %lu bit not supported\r\n", Ctx->BytesPerSec,
                Ctx->BlockAlign, Ctx->BitsPerSample);
+        AudLogFlush(Ctx->Dev->Log);
         return STATUS_NOT_SUPPORTED;   /* the stream object is deleted by ACX on failure */
     }
 
     AudLog(Ctx->Dev->Log, "stream: created, %lu B/s, block %lu, %lu bit\r\n", Ctx->BytesPerSec, Ctx->BlockAlign,
            Ctx->BitsPerSample);
+    AudLogFlush(Ctx->Dev->Log);
     return STATUS_SUCCESS;
 }

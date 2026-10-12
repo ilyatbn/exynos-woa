@@ -382,3 +382,8 @@ UAIF1 SPK (F12); needs UAIF0 configured as I2S master (same F4 rules) plus codec
   a 1 kHz tone on the PC speakers reads -31 dBFS over a -83..-100 dBFS floor (SNR ~52 dB).
   Tool: `tools/audio-listen/listen.py SECONDS [--selftest]` (scratchpad venv: sounddevice + numpy; run with -I);
   prints only the detected bursts (start, duration, dominant Hz, level), saves no audio.
+- 2026-10-12 10:09 **mic run 1 (boot #96, headphones lying near the PC, adb reboot from TWRP at t=0):** a
+  ~1000 Hz tone at t = 31.4-33.3 s (two bursts 0.8 + 1.0 s, one dip below the 15 dB threshold), peak -72 dBFS,
+  SNR 16 dB over a -87 dBFS floor. => the m2 tone is **~1 kHz** (closes the UNVERIFIED pitch in §6.1 of
+  d8-audio-m1.md) and plays ~31 s after the reboot command. (A 390 Hz burst at 1.8 s = room / PC noise, before
+  the phone had even reset.) The earbud is quiet at the mic; the loudspeaker test will be much louder.

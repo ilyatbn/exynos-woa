@@ -434,7 +434,7 @@ static BOOLEAN AudPropose(_In_ const ACX_REQUEST_PARAMETERS *P, _Out_ NTSTATUS *
 }
 
 /*
- * A9: KSPROPERTY_AUDIO_CHANNEL_CONFIG on the volume element (element 0 = the first element of AudCreateElements).
+ * A9: KSPROPERTY_AUDIO_CHANNEL_CONFIG on the volume element (its ACX id, Dev->VolumeElementId; 0 in run audA7).
  * Run audA8: the endpoint's property store lacks PKEY_AudioEndpoint_PhysicalSpeakers / FullRangeSpeakers and the
  * engine DeviceFormat, which a working endpoint has (notes/d8-audio-win-a5.md A9); the endpoint builder searches the
  * endpoint path for a node with KSPROPERTY_AUDIO_CHANNEL_CONFIG (basic-support queries on both elements in every log)
@@ -444,7 +444,6 @@ static BOOLEAN AudPropose(_In_ const ACX_REQUEST_PARAMETERS *P, _Out_ NTSTATUS *
  * STATUS_INVALID_PARAMETER (the hardware is one mono speaker fed from a stereo stream).
  */
 #define AUD_KSPROPERTY_AUDIO_CHANNEL_CONFIG  3u   /* ksmedia.h KSPROPERTY_AUDIO_CHANNEL_CONFIG */
-#define AUD_VOLUME_ELEMENT_ID                0u   /* AudCreateElements: Elements[0] = volume */
 
 static NTSTATUS AudChannelConfig(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ const ACX_REQUEST_PARAMETERS *P, _Out_ PULONG_PTR Info)
 {
@@ -508,7 +507,7 @@ static BOOLEAN AudKsOverride(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ WDFREQUEST Re
 
     /* A9: speaker configuration on the volume element. */
     if (P->Parameters.Property.Set.Data1 == 0x45FFAAA0 && P->Parameters.Property.Id == AUD_KSPROPERTY_AUDIO_CHANNEL_CONFIG &&
-        P->Parameters.Property.ItemType == AcxItemTypeElement && P->Parameters.Property.ItemId == AUD_VOLUME_ELEMENT_ID &&
+        P->Parameters.Property.ItemType == AcxItemTypeElement && P->Parameters.Property.ItemId == Dev->VolumeElementId &&
         AudGuidIs(&P->Parameters.Property.Set, &KSPROPSETID_Audio)) {
         Status = AudChannelConfig(Dev, P, &Info);
         WdfRequestCompleteWithInformation(Request, Status, Info);

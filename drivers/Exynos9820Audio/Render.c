@@ -290,7 +290,11 @@ static NTSTATUS AudCreateElements(_In_ ACXCIRCUIT Circuit, _In_ PAUD_DEVICE_CONT
     }
     AudGetElementContext(Elements[1])->Dev = Dev;
 
-    return AcxCircuitAddElements(Circuit, Elements, ARRAYSIZE(Elements));
+    Status = AcxCircuitAddElements(Circuit, Elements, ARRAYSIZE(Elements));
+    if (NT_SUCCESS(Status)) {
+        Dev->VolumeElementId = AcxElementGetId(Elements[0]);   /* ReqLog.c CHANNEL_CONFIG target (review R7) */
+    }
+    return Status;
 }
 
 /* ================================================================================================================
@@ -454,8 +458,8 @@ NTSTATUS AudRenderCircuitCreate(_In_ WDFDEVICE Device, _In_ PAUD_DEVICE_CONTEXT 
     if (NT_SUCCESS(Status)) {
         Dev->Render    = Circuit;
         Dev->HostPinId = AcxPinGetId(Pins[0]);
-        AudLog(Dev->Log, "circuit: host pin id %lu, bridge pin id %lu, KsOverride %lu\r\n", Dev->HostPinId,
-               AcxPinGetId(Pins[1]), Dev->Cfg.KsOverride);
+        AudLog(Dev->Log, "circuit: host pin id %lu, bridge pin id %lu, volume element id %lu, KsOverride %lu\r\n",
+               Dev->HostPinId, AcxPinGetId(Pins[1]), Dev->VolumeElementId, Dev->Cfg.KsOverride);
     }
 
     return Status;

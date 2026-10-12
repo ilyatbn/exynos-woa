@@ -182,6 +182,7 @@ typedef struct _AUD_DEVICE_CONTEXT {
     BOOLEAN     CircuitAdded;
     ULONG       HostPinId;      /* ACX id of the streaming (host) pin, set when the circuit is built */
     LONG        SpeakerConfig;  /* ReqLog.c KSPROPERTY_AUDIO_CHANNEL_CONFIG (A9): KSAUDIO_SPEAKER_STEREO */
+    ULONG       VolumeElementId;/* ACX id of the volume element (Render.c AudCreateElements) */
 
     volatile LONG ReqLogged;    /* ReqLog.c: KS request lines logged so far (capped) */
     volatile LONG FmtLogged;    /* ReqLog.c: distinct PROPOSEDATAFORMAT formats decoded so far */

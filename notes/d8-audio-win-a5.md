@@ -411,3 +411,8 @@ run extra-audio.cmd -> no mmdevices/evt dumps). New endpoint {97b9a239-...} stat
   ULONG access flags (size-query convention of the sample), get -> KSAUDIO_SPEAKER_STEREO, set -> stereo accepted (logged
   "ks: CHANNEL_CONFIG set <mask>"), other masks STATUS_INVALID_PARAMETER; (b) INF EP\0 PKEY_AudioEndpoint_PhysicalSpeakers
   {1DA5D803},3 and FullRangeSpeakers ,6 = 3 (REG_DWORD; pids checked in um\mmdeviceapi.h). Build exit 0, InfVerif VALID.
+- Review of T17/T18: T17 checked (dumps after the run-log copy, CRLF, XPath ran). T18: element/pin gates use full GUID
+  compares; size-query conventions match the sample; every handled path completes exactly once. **Finding R7:** the
+  CHANNEL_CONFIG gate hard-coded element id 0 (true in run audA7 by creation order, but an ACX-assigned id) - fixed in its
+  own commit: AudCreateElements stores AcxElementGetId(volume) in Dev->VolumeElementId, the gate uses it, and the
+  "circuit: host pin id .." line now also prints the volume element id. Build exit 0.

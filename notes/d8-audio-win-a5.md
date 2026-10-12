@@ -116,6 +116,8 @@ Parameters AmpInit/AmpEnable/AboxEnable; no hardware constant changes.
    following the keys (~0.50 / ~0.30 / ~0.70, mute 1 after the mute key); `played 96000 frames at 48000 Hz (float, 2 ch)`
    x4 (no STALLED/Initialize lines).
 3. Success in run.txt: `Exynos9820Audio 1.0.1.4`, `render circuit "Speaker0": 00000000 (volume + mute elements in
-   software)`, `volume ch -1 <- ...` / `mute ch -1 <- 1 (software)` lines matching the key steps, `trace
+   software)`, `volume ch <n> <- ...` / `mute ch <n> <- 1 (software)` lines matching the key steps (n = 0/1 per channel or -1 =
+   all channels - which one Windows uses is not known), `trace
    AllocateRtPackets 2 x 1920` (or similar), `stream: run at packet 0 ...`, `stream: released after N packets` with N
    ~200 per 2 s tone. Stage D adds `RDMA0 running (hardware clock)`, `amps 00000000`, and the mic hears A > B < C, D silent.
+- Review of T3 (package + test text): sha256 re-read from the files (Get-FileHash in build-package output) = notes; signer thumbprint of the .cat = 5DD5DEE1...; Finding R3: the expected run-log line `volume ch -1` assumed Windows assigns the master level with the all-channels id - unverified (it may set ch 0 and ch 1). Fixed in this commit (expectation widened). Also noted: ~100 key presses x 2 channels of volume lines (~10 KB) fit the 64 KB run log.

@@ -7,8 +7,8 @@
  *   - the endpoint is 48 kHz stereo 16/32-bit, but the validated UAIF1 frame is 4 x 32-bit slots, so the packet timer
  *     expands each client packet into a separate non-cached DMA ring one period ahead of the RDMA (see "Stream");
  *   - the packet clock is the RDMA frame counter while the hardware runs (QPC otherwise);
- *   - volume + mute elements always (the sample's topology; A5: with zero elements the endpoint had no mix format,
- *     notes/d8-audio-win-a5.md). Endpoint volume (slider, flyout, volume keys) lands on them: HwVolume = 0 (default)
+ *   - volume + mute elements always (the sample's topology; A5: the zero-element circuit is the suspected cause of the
+ *     missing mix format - not device-proven, notes/d8-audio-win-a5.md). Endpoint volume (slider, flyout, volume keys) lands on them: HwVolume = 0 (default)
  *     applies it in software while expanding packets into the DMA ring, HwVolume = 1 on the amp registers.
  *
  * The hardware sequence is device-validated in UEFI (boot #99); this driver is NOT VALIDATED UNDER WINDOWS.
@@ -354,7 +354,8 @@ NTSTATUS AudRenderCircuitCreate(_In_ WDFDEVICE Device, _In_ PAUD_DEVICE_CONTEXT 
     }
     AudGetCircuitContext(Circuit)->Dev = Dev;
 
-    /* Always (A5): the elements put the host pin on the endpoint's KS path and carry the endpoint volume / mute. */
+    /* Always (A5): the sample's topology (suspected: the host pin must reach the bridge pin through elements for the
+       endpoint to get a format) and the carrier of the endpoint volume / mute. */
     Status = AudCreateElements(Circuit, Dev);
     if (!NT_SUCCESS(Status)) {
         return Status;

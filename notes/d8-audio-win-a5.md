@@ -66,3 +66,13 @@ Parameters AmpInit/AmpEnable/AboxEnable; no hardware constant changes.
   0.1000) and SwMuted; AudDmaFillSlot samples the gains once per period and multiplies (64-bit, >> 30), mute = silence;
   HwVolume = 1 path unchanged (amp). Format list: 48k/16 via AcxDataFormatListAssignDefaultDataFormat (default), 48k/32
   added. Driver.c: AudSwVolumeInit(-20 dB) at device add. Build (VS18 MSBuild, ARM64 Release, /W4 /WX): exit 0.
+- Review of T1 (48422d9), adversarial. Checked: element creation order = sample (AcxCircuitAddElements before
+  AcxCircuitAddPins, RenderCircuit.cpp); restart path (Driver.c:267 re-create) rebuilds the elements, SwLevel lives in
+  the device context so the level survives; overflow: 16-bit path |L| <= 2^31, gain <= 2^30 -> product < 2^61 in
+  LONGLONG; gain applied only inside `if (Src != NULL)`; mute -> Src = NULL -> zeros in slots 0/1; Steps for an exact
+  -0.5n dB level = n (python check of the table: n=0 1073741824, n=12 0.50119, n=40 0.10000, n=192 17018 = -96 dB);
+  HwVolume = 0 never writes Dev->Muted, so AmpPowerUp's AmpMuteLocked(Dev->Muted) stays unmuted and AmpTargetSteps stays
+  fixed -10 dB (AmpI2c.c:703, :799); AcxDataFormatListAssignDefaultDataFormat is in the km\1.0 header (table index 63),
+  build links against 1.0. Finding R1: comments in Render.c (header + AudRenderCircuitCreate) and Exynos9820Audio.h
+  stated the zero-element circuit as the proven cause ("the endpoint had no mix format", "needed for the endpoint's
+  format") - it is a suspicion, not device-proven. Fixed in its own commit (wording only).

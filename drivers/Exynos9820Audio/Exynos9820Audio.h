@@ -154,9 +154,9 @@ typedef struct _AUD_DEVICE_CONTEXT {
     LONG        VolumeLevel;
     ULONG       Muted;
 
-    /* Endpoint volume when Cfg.HwVolume = 0 (default): the volume + mute elements still exist (sample topology, needed
-       for the endpoint's format - notes/d8-audio-win-a5.md) and are applied in software by AudDmaFillSlot while it
-       expands client packets into the DMA ring. Gain Q30 per client channel; written at PASSIVE, read in the timer DPC
+    /* Endpoint volume when Cfg.HwVolume = 0 (default): the volume + mute elements still exist (sample topology; their
+       absence is the suspected cause of the missing mix format, notes/d8-audio-win-a5.md) and are applied in
+       software by AudDmaFillSlot while it expands client packets into the DMA ring. Gain Q30 per client channel; written at PASSIVE, read in the timer DPC
        (aligned 32-bit, single-copy atomic). The amps stay at their fixed level and are never muted by this path. */
     LONG        SwLevel[2];       /* KS units, per client channel */
     volatile LONG SwGainQ30[2];   /* 1.0 = 1 << 30 */

@@ -973,7 +973,7 @@ DataInit(_Inout_ PMSG_STATE S, _Inout_ PWLAN_MSG_CTX M)
 {
     WDFCOMMONBUFFER Db = NULL;
     NTSTATUS        Status;
-    ULONG           I, Max, Want;
+    ULONG           I, Max, Want, Rc;
 
     ReportLine(S->R, "---- milestone 7a: msgbuf data path ----\r\n");
     if (S->MaxFlowrings == 0 || !InRam(S, S->H2dWBase, RW_INDEX_SZ * (FLOWRING_FIRST_ID + 1)) ||
@@ -986,7 +986,8 @@ DataInit(_Inout_ PMSG_STATE S, _Inout_ PWLAN_MSG_CTX M)
        (PKTGET(pktsz) :4508, data_buf_len = PKTLEN :4608); fmac posts 2048 (msgbuf.c:56). Ours: the fw value when
        it fits our 2048 B buffers, else 2048. Run 1.0.7.3 read 1670. */
     S->RxBufLen = DATA_BUF_SIZE;
-    if (IoctlVar(S, FALSE, "rxbufpost_sz", NULL, 0, sizeof(ULONG)) == MSG_OK && S->RespLen >= sizeof(USHORT)) {
+    Rc = IoctlVar(S, FALSE, "rxbufpost_sz", NULL, 0, sizeof(ULONG));
+    if (Rc == MSG_OK && S->RespLen >= sizeof(USHORT)) {
         ULONG Sz = *(USHORT UNALIGNED *)S->Resp;
 
         if (Sz != 0 && Sz <= DATA_BUF_SIZE) {
@@ -995,8 +996,9 @@ DataInit(_Inout_ PMSG_STATE S, _Inout_ PWLAN_MSG_CTX M)
         ReportLine(S->R, "[data] firmware rxbufpost_sz %lu -> rx data_buf_len %lu (buffers %u B)\r\n", Sz, S->RxBufLen,
                    DATA_BUF_SIZE);
     } else {
-        ReportLine(S->R, "[data] rxbufpost_sz not answered (status %ld) -> rx data_buf_len %lu\r\n", S->RespStatus,
-                   S->RxBufLen);
+        /* status is only meaningful for MSG_IOCTL_ERROR (a timeout leaves the previous ioctl's status) */
+        ReportLine(S->R, "[data] rxbufpost_sz not answered (MSG %lu, status %ld, resp_len %lu) -> rx data_buf_len %lu\r\n",
+                   Rc, S->RespStatus, S->RespLen, S->RxBufLen);
     }
     /* rx buffer count: max_host_rxbufs (fmac pcie.c:1650-1653, 0 -> BRCMF_DEF_MAX_RXBUFPOST 255) capped at what
        the rxpost ring can hold (RX_BUF_COUNT). M7c: all of them, as fmac (msgbuf.c:1016) - was min(128, max). */

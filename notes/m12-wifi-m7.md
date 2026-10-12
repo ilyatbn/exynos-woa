@@ -204,3 +204,8 @@ Refs: scratchpad src/bcmdhd (LineageOS lineage-23.2) and src/brcmfmac (torvalds 
   order dhd_msgbuf.c:4199-4219); RxBufLen = value when 1..2048 else 2048, written as data_buf_len of every rxpost
   item (dhd PKTGET(rxbufpost_sz) :4508 -> data_buf_len :4608). Expected on this fw: 1670. Logged as "[data]
   firmware rxbufpost_sz N -> rx data_buf_len N". Build W4/WX clean.
+- Review of 456fff4 (adversarial): checked the rxbufpost_sz ioctl runs after the ioctl-resp buffers (step 5) and
+  before DataOn (only the ctrl ring is polled); u16 read at Resp+0 is what 1.0.7.3 decoded as 1670; bound 1..2048
+  keeps every posted length inside our 2048 B buffer; citations verified by rg (4204 default, 4493 pktsz, 4508
+  PKTGET, 4608 data_buf_len). FOUND: the failure log printed S->RespStatus, which Ioctl() does not reset, so a
+  timeout would show the previous ioctl's status. Fixed in a follow-up commit (logs the MSG_* code + resp_len too).

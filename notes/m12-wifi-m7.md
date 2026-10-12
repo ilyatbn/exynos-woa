@@ -185,3 +185,11 @@ Refs: scratchpad src/bcmdhd (LineageOS lineage-23.2) and src/brcmfmac (torvalds 
   control buffer, delete data buffer, free MDLs (same lifetime rule as the control buffer); no remaining WLC_DOWN
   user (header define kept, cited). FOUND: the comment cited dhd_msgbuf.c:4217-4220 for "rx post ahead of preinit"
   - the actual lines are 4219 (rxbuf_post) vs 4224 (preinit). Fixed in a follow-up commit.
+- Task 2 (audit fix 2): RX_BUF_COUNT 128 -> 511 = H2D_RXPOST_MAX_ITEM - 1 (ring capacity; this fw's max_host_rxbufs
+  is 511, so the count comes from the shared value, as fmac pcie.c:1650-1653 with 0 -> 255 pcie.c:250). Data buffer
+  sized per count: DAT_DMA_SIZE_FOR(511) = 0x26000 + 511 x 2048 -> 0x126000 (1.15 MB, one WDF common buffer); if
+  that allocation fails, one retry with the old 128 (logged "[data] ... retrying with 128"). Rx accounting as fmac:
+  RxOut[] per buffer, RxPosted, free stack; RX_CMPLT no longer reposts immediately - after each rx-cpl drain the
+  free buffers are reposted in one commit once RxPosted <= RxCount - 32 (msgbuf.c:58, :1029-1035; fmac checks per
+  completion, ours per drain). Completion for a not-posted pktid is now rejected (no double free). JOIN-end dump
+  adds "rx bufs posted/free/of/refills". Build W4/WX clean.

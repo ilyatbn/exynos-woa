@@ -92,11 +92,19 @@ typedef struct _MSG_STATE {
     UCHAR               FlowDa[6];
     BOOLEAN             TxBusy[TX_BUF_COUNT];
     ULONG               TxNext;
-    ULONG               RxCount;        /* rx buffers in use (posted once at start, reposted on completion) */
+    ULONG               RxCount;        /* rx buffers this run owns (indices 0..RxCount-1 of the rx region) */
+    ULONG               DatSize;        /* data common buffer size (DAT_DMA_SIZE_FOR(RxCount)) */
+    /* M7c rx accounting as fmac (msgbuf.c:1011-1035): RxPosted = buffers the firmware holds (rxbufpost); a
+       completed buffer goes to the free stack and is reposted in bulk once RxPosted <= RxCount - threshold */
+    BOOLEAN             RxOut[RX_BUF_COUNT];
+    ULONG               RxFree[RX_BUF_COUNT];
+    ULONG               RxFreeN;
+    ULONG               RxPosted;
+    ULONG               RxRefills;
     PMDL                MdlData;        /* whole data buffer: one clean after zeroing */
     PMDL                MdlTx[TX_BUF_COUNT];
     PMDL                MdlRx[RX_BUF_COUNT];
-    ULONG               TxPosted, TxDone, TxErrors, RxFrames, RxEapol, RxBad, RxLost, TxLogged, RxLogged;
+    ULONG               TxPosted, TxDone, TxErrors, RxFrames, RxEapol, RxBad, TxLogged, RxLogged;
     WLAN_RX_FN         *RxFn;
     PVOID               RxCtx;
     /* EAPOL frame for the handshake (M7b): the latest one, copied out of its rx buffer */
@@ -474,14 +482,33 @@ RxPost(_Inout_ PMSG_STATE S, _In_ ULONG I)
     *(USHORT UNALIGNED *)(It + RXP_DATA_LEN)      = DATA_BUF_SIZE;
     *(ULONG UNALIGNED *)(It + RXP_DATA_ADDR)      = (ULONG)Ba;
     *(ULONG UNALIGNED *)(It + RXP_DATA_ADDR + 4)  = (ULONG)(Ba >> 32);
+    S->RxOut[I] = TRUE;
+    S->RxPosted++;
     return TRUE;
+}
+
+/* Post every free rx buffer (fmac brcmf_msgbuf_rxbuf_data_fill msgbuf.c:1011-1025), one commit + doorbell.
+   A buffer that does not fit (ring full) stays on the free stack for the next fill. Returns the number posted. */
+static ULONG
+RxFill(_Inout_ PMSG_STATE S)
+{
+    ULONG N = 0;
+
+    while (S->RxFreeN != 0 && RxPost(S, S->RxFree[S->RxFreeN - 1])) {
+        S->RxFreeN--;
+        N++;
+    }
+    if (N != 0) {
+        H2dCommit(S, &S->Ring[RING_H2D_RXPOST], S->MdlH2d);
+    }
+    return N;
 }
 
 /* RX_CMPLT (host_rxbuf_cmpl_t, bcmmsgbuf.h:926-959): data at data_offset (or dma_rxoffset when 0, fmac
    msgbuf.c:1199-1203), data_len bytes; EAPOL frames are kept for the handshake, others go to RxFn. The
    buffer is reposted either way (the frame is consumed during this call). */
 static VOID
-RxComplete(_Inout_ PMSG_STATE S, _In_ PUCHAR It, _Inout_ PBOOLEAN Repost)
+RxComplete(_Inout_ PMSG_STATE S, _In_ PUCHAR It)
 {
     ULONG  Pkt   = *(ULONG UNALIGNED *)(It + MSGH_REQUEST_ID);
     ULONG  I     = Pkt - RX_PKTID0;
@@ -492,11 +519,13 @@ RxComplete(_Inout_ PMSG_STATE S, _In_ PUCHAR It, _Inout_ PBOOLEAN Repost)
     PUCHAR F;
     ULONG  Type;
 
-    if (Pkt < RX_PKTID0 || I >= S->RxCount) {
+    if (Pkt < RX_PKTID0 || I >= S->RxCount || !S->RxOut[I]) {
         S->RxBad++;
-        ReportLine(S->R, "[rx] completion for unknown pktid 0x%lX (status %ld)\r\n", Pkt, St);
+        ReportLine(S->R, "[rx] completion for unknown or not-posted pktid 0x%lX (status %ld)\r\n", Pkt, St);
         return;
     }
+    S->RxOut[I] = FALSE;   /* fmac brcmf_msgbuf_update_rxbufpost_count(msgbuf, 1) */
+    S->RxPosted--;
     if (Off == 0) {
         Off = S->RxOffset;
     }
@@ -530,13 +559,20 @@ RxComplete(_Inout_ PMSG_STATE S, _In_ PUCHAR It, _Inout_ PBOOLEAN Repost)
             S->RxFn(S->RxCtx, F, Len);
         }
     }
-    if (RxPost(S, I)) {
-        *Repost = TRUE;
-    } else {
-        /* cannot happen with <= 128 buffers on a 512-item ring; the buffer stays out of circulation (its
-           pktid stays valid, so a late completion for it is still recognised) */
-        S->RxLost++;
-        ReportLine(S->R, "[rx] repost of buffer %lu failed - %lu rx buffers lost\r\n", I, S->RxLost);
+    S->RxFree[S->RxFreeN++] = I;   /* reposted by RxRefill (the frame was consumed during this call) */
+}
+
+/* After an rx-completion drain: refill once the firmware holds <= RxCount - RX_REFILL_THRESHOLD buffers (fmac
+   msgbuf.c:1029-1035 checks per completion; once per drain here). With fewer than 2 x threshold buffers (fallback
+   counts) every free buffer is reposted at once. */
+static VOID
+RxRefill(_Inout_ PMSG_STATE S)
+{
+    ULONG Thr = (S->RxCount >= 2 * RX_REFILL_THRESHOLD) ? RX_REFILL_THRESHOLD : 1;
+
+    if (S->RxFreeN != 0 && S->RxPosted + Thr <= S->RxCount) {
+        S->RxRefills++;
+        (VOID)RxFill(S);
     }
 }
 
@@ -571,7 +607,7 @@ D2hPoll(_Inout_ PMSG_STATE S, _In_ ULONG Ring)
 {
     PMSG_RING G = &S->Ring[Ring];
     ULONG     W, Count = 0, Tries;
-    BOOLEAN   Repost = FALSE, RxRepost = FALSE;
+    BOOLEAN   Repost = FALSE;
 
     KeMemoryBarrier();
     W = Tcm16(S, G->WIdxAddr);
@@ -669,7 +705,7 @@ D2hPoll(_Inout_ PMSG_STATE S, _In_ ULONG Ring)
             TxStatus(S, It);
             break;
         case MSG_TYPE_RX_CMPLT:
-            RxComplete(S, It, &RxRepost);
+            RxComplete(S, It);
             break;
         case MSG_TYPE_GEN_STATUS:
         case MSG_TYPE_RING_STATUS:
@@ -691,8 +727,8 @@ D2hPoll(_Inout_ PMSG_STATE S, _In_ ULONG Ring)
     if (Repost) {
         H2dCtrlCommit(S);
     }
-    if (RxRepost) {
-        H2dCommit(S, &S->Ring[RING_H2D_RXPOST], S->MdlH2d);
+    if (Ring == RING_D2H_RX_CPL && Count != 0) {
+        RxRefill(S);
     }
     return Count;
 }
@@ -936,7 +972,7 @@ DataInit(_Inout_ PMSG_STATE S, _Inout_ PWLAN_MSG_CTX M)
 {
     WDFCOMMONBUFFER Db = NULL;
     NTSTATUS        Status;
-    ULONG           I, Max;
+    ULONG           I, Max, Want;
 
     ReportLine(S->R, "---- milestone 7a: msgbuf data path ----\r\n");
     if (S->MaxFlowrings == 0 || !InRam(S, S->H2dWBase, RW_INDEX_SZ * (FLOWRING_FIRST_ID + 1)) ||
@@ -944,9 +980,23 @@ DataInit(_Inout_ PMSG_STATE S, _Inout_ PWLAN_MSG_CTX M)
         ReportLine(S->R, "DATA 1: no tx flowring available (max flowrings %lu)\r\n", S->MaxFlowrings);
         return FALSE;
     }
-    Status = WdfCommonBufferCreate(M->DmaEnabler, DAT_DMA_SIZE, WDF_NO_OBJECT_ATTRIBUTES, &Db);
+    /* rx buffer count: max_host_rxbufs (fmac pcie.c:1650-1653, 0 -> BRCMF_DEF_MAX_RXBUFPOST 255) capped at what
+       the rxpost ring can hold (RX_BUF_COUNT). M7c: all of them, as fmac (msgbuf.c:1016) - was min(128, max). */
+    Max  = Tcm16(S, S->Bus->SharedAddr + SH_MAX_HOST_RXBUFS);
+    Want = (Max == 0) ? RX_DEF_MAX_RXBUFPOST : Max;
+    S->RxCount = (Want < RX_BUF_COUNT) ? Want : RX_BUF_COUNT;
+    S->DatSize = DAT_DMA_SIZE_FOR(S->RxCount);
+    Status = WdfCommonBufferCreate(M->DmaEnabler, S->DatSize, WDF_NO_OBJECT_ATTRIBUTES, &Db);
+    if (!NT_SUCCESS(Status) && S->RxCount > RX_BUF_COUNT_FALLBACK) {
+        ReportLine(S->R, "[data] WdfCommonBufferCreate(0x%lX) for %lu rx buffers 0x%08lX - retrying with %u\r\n",
+                   S->DatSize, S->RxCount, Status, RX_BUF_COUNT_FALLBACK);
+        S->RxCount = RX_BUF_COUNT_FALLBACK;
+        S->DatSize = DAT_DMA_SIZE_FOR(S->RxCount);
+        Status = WdfCommonBufferCreate(M->DmaEnabler, S->DatSize, WDF_NO_OBJECT_ATTRIBUTES, &Db);
+    }
     if (!NT_SUCCESS(Status)) {
-        ReportLine(S->R, "DATA 2: WdfCommonBufferCreate(0x%X) 0x%08lX\r\n", DAT_DMA_SIZE, Status);
+        ReportLine(S->R, "DATA 2: WdfCommonBufferCreate(0x%lX) 0x%08lX\r\n", S->DatSize, Status);
+        S->RxCount = 0;
         return FALSE;
     }
     S->DVa = (PUCHAR)WdfCommonBufferGetAlignedVirtualAddress(Db);
@@ -955,14 +1005,14 @@ DataInit(_Inout_ PMSG_STATE S, _Inout_ PWLAN_MSG_CTX M)
         ReportLine(S->R, "DATA 2: data buffer 0x%I64X not 4 KB aligned below 4 GB\r\n", S->DLa);
         goto Fail;
     }
-    RtlZeroMemory(S->DVa, DAT_DMA_SIZE);
+    RtlZeroMemory(S->DVa, S->DatSize);
     if (S->MdlAll != NULL) {   /* cache maintenance on (Parameters\CacheMaint): MDLs as for the control buffer */
-        S->MdlData  = DataMdl(S, 0, DAT_DMA_SIZE);
+        S->MdlData  = DataMdl(S, 0, S->DatSize);
         S->Flow.Mdl = DataMdl(S, DAT_OFF_FLOWRING, H2D_TXPOST_MAX_ITEM * H2D_TXPOST_ITEMSIZE);
         for (I = 0; I < TX_BUF_COUNT; I++) {
             S->MdlTx[I] = DataMdl(S, DAT_OFF_TXBUF + I * DATA_BUF_SIZE, DATA_BUF_SIZE);
         }
-        for (I = 0; I < RX_BUF_COUNT; I++) {
+        for (I = 0; I < S->RxCount; I++) {
             S->MdlRx[I] = DataMdl(S, DAT_OFF_RXBUF + I * DATA_BUF_SIZE, DATA_BUF_SIZE);
         }
         if (S->MdlData == NULL || S->Flow.Mdl == NULL) {
@@ -975,7 +1025,7 @@ DataInit(_Inout_ PMSG_STATE S, _Inout_ PWLAN_MSG_CTX M)
                 goto Fail;
             }
         }
-        for (I = 0; I < RX_BUF_COUNT; I++) {
+        for (I = 0; I < S->RxCount; I++) {
             if (S->MdlRx[I] == NULL) {
                 ReportLine(S->R, "DATA 2: data MDLs not allocated\r\n");
                 goto Fail;
@@ -995,22 +1045,20 @@ DataInit(_Inout_ PMSG_STATE S, _Inout_ PWLAN_MSG_CTX M)
     S->Flow.Host     = 0;
     S->FlowStatus    = -1;
 
-    /* rx buffers: min(RX_BUF_COUNT, max_host_rxbufs) (fmac pcie.c:1651 max_rxbufpost) */
-    Max = Tcm16(S, S->Bus->SharedAddr + SH_MAX_HOST_RXBUFS);
-    S->RxCount = (Max != 0 && Max < RX_BUF_COUNT) ? Max : RX_BUF_COUNT;
-    for (I = 0; I < S->RxCount; I++) {
-        if (!RxPost(S, I)) {
-            S->RxCount = I;
-            break;
-        }
+    /* all rx buffers start free; the first fill posts them in index order (the stack top is the lowest index).
+       fmac retries a short fill 10 x 10 ms (msgbuf.c:1654-1663); the rxpost ring is empty here, so one fill
+       posts all RxCount <= ring capacity. */
+    S->RxFreeN = 0;
+    for (I = S->RxCount; I-- > 0;) {
+        S->RxFree[S->RxFreeN++] = I;
     }
-    H2dCommit(S, &S->Ring[RING_H2D_RXPOST], S->MdlH2d);
-    M->DataBuffer = Db;
+    (VOID)RxFill(S);
+    M->DataBuffer = Db;   /* from here on the device has addresses in it: freed only after ARM halt + BME off */
     S->DataOn     = TRUE;
-    ReportLine(S->R, "DATA 0: buffer 0x%X B at 0x%I64X; %lu rx buffers posted (max_host_rxbufs %lu), rxpost w %lu fw r %u; "
-               "flowring %u slots w 0x%08lX r 0x%08lX (max flowrings %lu)\r\n", DAT_DMA_SIZE, S->DLa, S->RxCount, Max,
-               S->Ring[RING_H2D_RXPOST].Host, Tcm16(S, S->Ring[RING_H2D_RXPOST].RIdxAddr), FLOWRING_FIRST_ID,
-               S->Flow.WIdxAddr, S->Flow.RIdxAddr, S->MaxFlowrings);
+    ReportLine(S->R, "DATA 0: buffer 0x%lX B at 0x%I64X; %lu of %lu rx buffers posted (max_host_rxbufs %lu), rxpost w %lu "
+               "fw r %u; flowring %u slots w 0x%08lX r 0x%08lX (max flowrings %lu)\r\n", S->DatSize, S->DLa, S->RxPosted,
+               S->RxCount, Max, S->Ring[RING_H2D_RXPOST].Host, Tcm16(S, S->Ring[RING_H2D_RXPOST].RIdxAddr),
+               FLOWRING_FIRST_ID, S->Flow.WIdxAddr, S->Flow.RIdxAddr, S->MaxFlowrings);
     return TRUE;
 
 Fail:
@@ -1023,8 +1071,9 @@ Fail:
         MdlFree(&S->MdlRx[I]);
     }
     WdfObjectDelete(Db);   /* nothing was posted yet: the device has no address in it */
-    S->DVa = NULL;
-    S->DLa = 0;
+    S->DVa     = NULL;
+    S->DLa     = 0;
+    S->RxCount = 0;
     return FALSE;
 }
 
@@ -2103,9 +2152,10 @@ WlanMsgJoin(PWLAN_MSG_CTX M, PWLAN_REPORT R, const WLAN_JOIN_CONFIG *J)
                S->JoinSetSsid, S->Hs, S->JoinLinkUp ? "up" : "not up", S->JoinLost ? ", lost" : "", S->RxEapol, S->TxPosted, Ms);
     /* run w7b: no EAPOL arrived - show where the rx path stands and what the firmware says */
     ReportLine(R, "[join] rings: rxpost host w %lu fw r %u | rx cpl fw w %u host r %lu | tx cpl fw w %u | rx frames %lu bad %lu, "
-               "tx posted %lu done %lu\r\n", S->Ring[RING_H2D_RXPOST].Host, Tcm16(S, S->Ring[RING_H2D_RXPOST].RIdxAddr),
-               Tcm16(S, S->Ring[RING_D2H_RX_CPL].WIdxAddr), S->Ring[RING_D2H_RX_CPL].Host,
-               Tcm16(S, S->Ring[RING_D2H_TX_CPL].WIdxAddr), S->RxFrames, S->RxBad, S->TxPosted, S->TxDone);
+               "rx bufs posted %lu free %lu of %lu (%lu refills), tx posted %lu done %lu\r\n", S->Ring[RING_H2D_RXPOST].Host,
+               Tcm16(S, S->Ring[RING_H2D_RXPOST].RIdxAddr), Tcm16(S, S->Ring[RING_D2H_RX_CPL].WIdxAddr),
+               S->Ring[RING_D2H_RX_CPL].Host, Tcm16(S, S->Ring[RING_D2H_TX_CPL].WIdxAddr), S->RxFrames, S->RxBad,
+               S->RxPosted, S->RxFreeN, S->RxCount, S->RxRefills, S->TxPosted, S->TxDone);
     if (Result != JOIN_OK) {
         WlanBusConsoleDump(R, S->Bus);
     }

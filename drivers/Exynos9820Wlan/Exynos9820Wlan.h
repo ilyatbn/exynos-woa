@@ -553,18 +553,23 @@
 #define RXC_FLAGS                   18             /* u16 */
 #define ETH_HLEN                    14             /* ETHER_HDR_LEN */
 #define ETH_TYPE_EAPOL              0x888E         /* ETHER_TYPE_802_1X, dhd include/ethernet.h:87 */
-/* Host data buffers: one 2 KB buffer per packet (fmac BRCMF_MSGBUF_MAX_PKT_SIZE msgbuf.c:56). Counts are
-   host choices: 64 tx, 128 rx (fewer when pcie_shared max_host_rxbufs says so). */
+/* Host data buffers: one 2 KB buffer per packet (fmac BRCMF_MSGBUF_MAX_PKT_SIZE msgbuf.c:56). 64 tx is a host
+   choice. M7c rx: pcie_shared max_host_rxbufs of them, as fmac (pcie.c:1650-1653, msgbuf.c:1016), capped at the
+   rxpost ring's capacity (512 items, one always empty: H2dNext's full check). This fw reports 511 (run 1.0.7.3:
+   shared max_host_rxbufs 511, console "allocating a max of 511 rxcplid buffers"), so the cap is not hit. */
 #define DATA_BUF_SIZE               2048
 #define TX_BUF_COUNT                64
-#define RX_BUF_COUNT                128
+#define RX_BUF_COUNT                (H2D_RXPOST_MAX_ITEM - 1)   /* 511 */
+#define RX_BUF_COUNT_FALLBACK       128            /* 1.0.7.0-1.0.7.3 count: used only if the big buffer fails */
+#define RX_DEF_MAX_RXBUFPOST        255            /* fmac BRCMF_DEF_MAX_RXBUFPOST pcie.c:250 (shared value 0) */
+#define RX_REFILL_THRESHOLD         32             /* fmac BRCMF_MSGBUF_RXBUFPOST_THRESHOLD msgbuf.c:58 */
 #define RX_PKTID0                   0x3000         /* host-chosen ids, distinct from the M3/M4 ranges */
-#define TX_PKTID0                   0x4000
+#define TX_PKTID0                   0x4000         /* (RX_PKTID0 + 511 < TX_PKTID0: no overlap) */
 /* Second common buffer (data path), 4 KB aligned regions */
 #define DAT_OFF_FLOWRING            0x00000        /* 512 x 48 = 0x6000 */
 #define DAT_OFF_TXBUF               0x06000        /* 64 x 2048 = 0x20000 */
-#define DAT_OFF_RXBUF               0x26000        /* 128 x 2048 = 0x40000 */
-#define DAT_DMA_SIZE                0x66000
+#define DAT_OFF_RXBUF               0x26000        /* n x 2048 (511 -> 0xFF800) */
+#define DAT_DMA_SIZE_FOR(n)         ((DAT_OFF_RXBUF + (ULONG)(n) * DATA_BUF_SIZE + 0xFFFUL) & ~0xFFFUL)   /* 511 -> 0x126000 */
 #define FLOW_CREATE_TIMEOUT_MS      2000
 /* ---- milestone 7b: host WPA2-PSK 4-way handshake (notes/m12-wifi-m7.md "Protocol facts - M7b";
    hostap = wpa_supplicant src/common/wpa_common.h, dhd = bcmdhd) ---- */

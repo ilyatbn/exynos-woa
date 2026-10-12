@@ -15,7 +15,9 @@ rem Stage the MaliG76Wddm package on the ESP into the driver store while GPU0 is
 rem picks the higher DriverVer when GPU0 is enumerated on the next boot. BEFORE the mode is written: the INF's
 rem MW_Parameters AddReg resets GpuEnable/FullAdapter to 0 on every install (run g13full ran display-only because the
 rem install came after the reg add).
-if exist "%ESP%\S10EDIAG\gpu\MaliG76Wddm\MaliG76Wddm.inf" pnputil /add-driver "%ESP%\S10EDIAG\gpu\MaliG76Wddm\MaliG76Wddm.inf" /install > "%G%\pnputil-stage.txt" 2>&1
+rem Opt-in only (\S10EDIAG\gpu\stage.flg): run g13fullb showed the staged install completes when GPU0 reappears on the
+rem next boot and resets the mode to 0/0 again, so a mode test must not stage a package.
+if exist "%ESP%\S10EDIAG\gpu\stage.flg" if exist "%ESP%\S10EDIAG\gpu\MaliG76Wddm\MaliG76Wddm.inf" pnputil /add-driver "%ESP%\S10EDIAG\gpu\MaliG76Wddm\MaliG76Wddm.inf" /install > "%G%\pnputil-stage.txt" 2>&1
 s10ediag mark "g: set mode full %FULL% gpu %GPU% (GPU0 hidden this boot)"
 reg add "%KEY%" /v GpuEnable /t REG_DWORD /d %GPU% /f > "%G%\set-mode.txt" 2>&1
 reg add "%KEY%" /v FullAdapter /t REG_DWORD /d %FULL% /f >> "%G%\set-mode.txt" 2>&1

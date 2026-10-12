@@ -470,3 +470,19 @@ AudioSrv call still 0x88890008. Audio/Operational: only event 65 "device state c
   B7D1-1EEF228D2AF3}, local GUID copy checked against ksmedia.h:8424), status logged "circuit: DEFAULT-mode format list
   on the host pin: <status>"; failure leaves RAW only. Version 1.0.1.9 (INF + Driver.c) bumped in the same commit
   (the package step T22 only builds). Build exit 0, InfVerif VALID.
+- Review of T20/T21: header-only range [64, 82) cannot overlap the wave-format path (>= 82); MUSIC/MIDI header ->
+  NO_MATCH (major mismatch), SPDIF subtypes -> NO_MATCH; accepting a bare PCM header never creates a pin (creation
+  needs a full format, validated by ACX). DEFAULT list: objects parented to the circuit / host pin, created again on the
+  PrepareHardware re-create path; failure non-fatal and logged. No findings.
+- T22 package s10e-artifacts\audio-a10 (1.0.1.9, ACX 1.1, signed 5DD5DEE1... sys + cat, InfVerif VALID, hardware 0/0/0,
+  KsOverride 1, DefaultMode 1):
+    22F6196EFEDC11689C5C1EE6C023CB34F0B06258B7345E47DD69EEC4DD3DAC88  Exynos9820Audio.sys
+    918E63485B5FBBA18102F4BD84B74A560579E62C3A5BE366F5F362DF0857FFDF  Exynos9820Audio.inf
+    588C18BC19787DF27A63586596AFAD95A392808C4DB2AA3B8BC6CC82D2DFD68B  exynos9820audio.cat
+
+### A10 device test
+extra-audio-swap.cmd + audio-a10, stage A. run.txt: `circuit: DEFAULT-mode format list on the host pin: 00000000`;
+`fmt c #n verdict: driver ACCEPTS` for the 64-byte sub {00000001} header (and rejects for 0x92 / 0x164 / MIDI).
+audiotest `props:` (blob dump) / mmdevices.txt: **{74E4357A},2 must no longer be `0A00 0000...`** (rates/bits/modes
+filled), then {F19F064D},0 appears and GetMixFormat returns 0. If the cache is still empty with the family probe
+accepted, run once with Parameters\DefaultMode = 0 to separate the two changes.

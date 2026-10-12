@@ -248,9 +248,29 @@ Refs: scratchpad src/bcmdhd (LineageOS lineage-23.2) and src/brcmfmac (torvalds 
     our host_cap carries DS_NO_OOB_DW, which DHD sets to "Disable DS altogether" (dhd_msgbuf.c:3092-3096). Not
     implemented: the join-end "[diag] d2h_mb_data" value (deliberately not cleared) shows first whether the fw ever
     asks. Next step if it reads 0x2.
-  - Ring geometry: fmac uses 1024-item rxpost / rx-cpl rings (msgbuf.h:11, :14), DHD 512 (bcmmsgbuf.h:62, :65);
+  - Ring geometry: fmac uses 1024-item rxpost / rx-cpl rings (msgbuf.h:11, :14), DHD 512 (bcmmsgbuf.h:64, :67);
     both are host choices written to ring_mem; the fw console says 511 rxcplid buffers. Kept 512 (DHD = the vendor
     driver for this chip); the join-end ring_mem read-back now shows what the fw holds.
   - rxpost item flags (phase): DHD writes ring->current_phase, 0 for H2D rings (dhd_msgbuf.c:1354, :4606) -
     identical to ours. Interrupt mask (fmac pcie.c:914-919 before hostready): polled driver, ctrl completions
     already work without it; now logged (PCIMailBoxMask) instead of written.
+- **Package 1.0.7.4 = C:\Users\ilya\code\s10e-artifacts\wifi-m7c** (build-package.ps1, test-signed with the WDK
+  test cert 5DD5DEE1...4E48, Inf2Cat 10_RS3/NI/GE_ARM64; built from 1 commit before this notes commit, W4/WX clean):
+  - Exynos9820Wlan.sys 78232 B  sha256 E766DE6D606BB128ED0366A38EA53820F970AF7445118CD26DA68574BC1FEBC1
+  - Exynos9820Wlan.inf  1841 B  sha256 362ECC88E38BC8D7EE5D40AA169808ACE079BF3A87510999F2DA53874350BFB9
+  - exynos9820wlan.cat  2522 B  sha256 C6E1956883C8ED67C5EA9C1E0B25541D98E85525A97E33EA5A0D231E8EFB7F3D
+  - The packaged INF's DriverVer is stampinf's time stamp "10/12/2026,21.42.28.469" (same mechanism as wifi-m7b*:
+    12.11.49.740 for m7b3), so it ranks above m7b3; the .inx says 1.0.7.4. signtool verify /pa fails only on the
+    untrusted test root (expected; the phone runs with testsigning).
+  - Not device-tested (no phone in this session). Install exactly like wifi-m7b3 (same extra-wifi-rx.cmd flow).
+- **What the run log must show** (Exynos9820Wlan.txt + run log):
+  - PrepareHardware: "[data] firmware rxbufpost_sz 1670 -> rx data_buf_len 1670" then "DATA 0: buffer 0x126000 B ...;
+    511 of 511 rx buffers posted (max_host_rxbufs 511)" BEFORE "[msg] cur_etheraddr" (= before the first UP).
+    "retrying with 128" = the 1.2 MB buffer was refused (then 128 posted, still pre-UP).
+  - Join: "[join] rxpost host w 511 fw r 511 before SET_SSID", "[diag] pre-join" + "[cnt] pre-join" lines.
+  - **Success:** "[rx] #1 ... type 0x888E" lines, then "JOIN ... eapol rx N" with N > 0 (JOIN 0 with the right
+    passphrase; JOIN 5 handshake failed with the deliberately wrong one - msg 1 arrived, which is the point).
+  - **Failure (same as before):** "eapol rx 0", "[join] rings: ... rx cpl fw w 0"; then read "[cnt] join end: wlc
+    rxframe / rxnobuf" (rxnobuf rising vs pre-join = fw has no host buffer), "macstat ... rxf0ovfl" (rising = d11 rx
+    FIFO 0 starved), "[diag] join end: d2h_mb_data [..] = 0x..." (0x2 = deep-sleep request never acked -> implement
+    the DS ack next), ring 4 ring_mem read-back != programmed (fw lost the rx cpl ring config).

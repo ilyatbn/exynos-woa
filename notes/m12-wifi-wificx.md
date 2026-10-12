@@ -336,3 +336,6 @@ What the logs must show (Exynos9820WlanCx.txt = bring-up, -run.txt = runtime):
   + extra-wifi-cx.cmd. Not device-tested. Expect on connect: "[join] association result: status 0, phy 7/8, wmm 1,
   req 164 B resp 219 B beacon 1" then "-> indication 76", EAPOL tx ("[tx] packet layout #1", tx fifo in > 0),
   "[key] add ..." lines; if instead "association result generation failed: NDIS 0x...", that status is the next lead.
+- Review of bf2f260: the W4 milestone row was not updated (the sed pattern did not match the backslash) and the
+  sub-rows were prefixed "M9", which clashes with the top-level M9 (Installer) row of MILESTONES.md. Fixed in a
+  follow-up commit: rows renamed "M12 milestone 9 ...", W4 row text set.

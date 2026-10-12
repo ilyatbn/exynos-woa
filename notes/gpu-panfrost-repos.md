@@ -292,3 +292,10 @@ Checked mechanically (`sed -n` on every cited line range, `find | xargs cat | wc
   `0x72?1` derived later. `panfrost_gpu.c:117-176/428-450/483-506` ranges are ±1 line (blank
   lines at the edges) — accepted, not wrong.
 - Fixed in the follow-up commit (this one): all four corrected in place above.
+- 2026-10-12 — MILESTONES M16: rows "Device facts", "G3D power", "Mesa D3D UMD", "KMD skeleton",
+  "First job" replaced by the ordered ladder **G1-G12** (G1 device DT facts → G2 G3D power recipe →
+  G3 UEFI GPU_ID probe → G4 reset+power-on → G5 MMU AS0 → G6 write-value job → G7 fragment clear →
+  G8 compute with Mesa-compiled shader → G9 ACPI device → G10 DXGK render-only skeleton → G11 KMD
+  jobs → G12 UMD decision); inventory row done; DWM row kept. Intro paragraph gets a correction
+  note (no Mesa D3D UMD). DRIVERS-MILESTONES D5b row annotated to point at M16 (state unchanged).
+  G6 DONE code: `panfrost_device.h:260` `DRM_PANFROST_EXCEPTION_DONE = 0x01`.

@@ -95,7 +95,7 @@ errors.
 | M13 | LAN through the dock | todo | M10 |
 | M14 | Stay powered and cool while docked | todo | M8 |
 | M15 | The assembled donation build (repeatable, serviceable) | todo | M9–M14 |
-| M16 | GPU acceleration: Mali-G76 (Bifrost) on Windows via **Panfrost** — WDDM kernel driver + Mesa user-mode driver | todo | M8 — `notes/gpu-panfrost.md`; supersedes the 2026-10-10 "not feasible" verdict |
+| M16 | GPU acceleration: Mali-G76 (Bifrost) on Windows via **Panfrost** — WDDM kernel driver + Mesa user-mode driver | todo | M8 — `notes/gpu-panfrost.md`, `notes/gpu-panfrost-repos.md`; supersedes the 2026-10-10 "not feasible" verdict; ladder G1-G12 (UEFI probe → write-value job → KMD) |
 
 ## Task list
 
@@ -365,14 +365,28 @@ verdict (`notes/d5-gpu-display.md`) said no Mali WDDM exists; that is still true
 Panfrost/kbase kernel side (job submission, GPU MMU, power) + a user-mode driver built from Mesa's Panfrost
 gallium driver behind Mesa's Windows D3D UMD frontend.
 
+Correction 2026-10-12 (`notes/gpu-panfrost-repos.md`): current Mesa has **no D3D UMD frontend** (Windows
+frontend = WGL/OpenGL only), so the Mesa path gives GL/Vulkan apps, not DWM; the G76 is **"Norr"/tNOx**
+(Gondul = G52); Bifrost job-manager GPUs need **no GPU firmware**. Register offsets below come from
+`drm/panfrost` `panfrost_regs.h` and are generic Mali; every **9820-specific** value (G3D PMU/CMU offsets,
+GPU_ID, core masks, coherency) is **UNVERIFIED** until the named device read. GPU MMIO base `0x18500000`
+is DT-only today (not yet in `Exynos9820.h`). Ladder: UEFI first (shortest debug loop, no WDDM), KMD after.
+
 | Task | State | Notes |
 |------|-------|-------|
 | Inventory the Panfrost repos: what supports Mali-G76 / Bifrost v7 (Mesa gallium, kernel `drm/panfrost`, docs, test tools) | **done** | `notes/gpu-panfrost-repos.md`: all 22 group projects cloned to `C:\Users\ilya\code\mali`; G76 = "Norr"/tNOx, `GPU_MODEL(g76, 0x7001)` exists in drm/panfrost but no mainline SoC or Mesa CI job uses it (G52, same arch 7.2, is the proxy) |
-| Device facts for `mali@18500000`: IRQs, clocks, G3D power domain, regulator, GPU_ID | todo | DT reads from TWRP are safe; reading GPU registers needs the G3D domain powered (ACPM) — hazard, plan first |
-| G3D power + clock bring-up path (ACPM, like the M15 CPU/INT DVFS work) | todo | Windows driver cannot touch the GPU until this exists |
-| Mesa on Windows ARM64: does Mesa's D3D UMD frontend + Panfrost build for Windows ARM64? | todo | build-only investigation |
-| WDDM KMD skeleton for an MMIO GPU (ACPI device, DXGK callbacks, no display) | todo | BasicDisplay keeps driving the panel |
-| First job: a Panfrost-compiled compute or clear job submitted from the KMD, result checked | todo | the "it works" gate |
+| G1. Device facts, read-only from Android/TWRP: `/proc/device-tree` mali node name + `interrupt-names` + `samsung,power-domain` target, `pd_embedded_g3d` node name; LineageOS 9820 kernel: `grep request_firmware drivers/gpu/arm/b_r10p0` | todo | no MMIO, no flashing. Validates: `mali@18500000` present → add `EXYNOS9820_G3D_BASE` to `Exynos9820.h` (rule 6) in the same commit; confirms "no G76 firmware" (UNVERIFIED for Samsung's kbase) |
+| G2. G3D power-domain + clock recipe from source: PMU G3D CONFIGURATION/STATUS offsets (`pd_embedded_g3d`, cal-if pmucal), CMU_G3D gate/mux, whether ACPM must be asked (vs direct PMU write), regulator (buck for G3D) | todo | source research only; every offset stays `UNVERIFIED` in notes with the read that closes it; also decide whether sboot leaves G3D on (a read of the PMU status bit, not of GPU MMIO) |
+| G3. UEFI `Beyond0LteGpuProbeDxe` (feature-flagged, self-healing guard like USB 0x67): power G3D per G2, then read GPU_ID, L2/SHADER/TILER/AS/JS_PRESENT, MMU_FEATURES, COHERENCY_FEATURES into the PRAM log | todo | **first GPU MMIO touch** — only after G2 proves the domain-on status bit, else bus hang. Device validation: log shows `GPU_ID[31:16]` = `0x72?1` (pan_model `PAN_PROD_ID(7,2,1)`), popcount(SHADER_PRESENT) closes MP11-vs-MP12, AS/JS counts; Windows still boots |
+| G4. UEFI: soft reset (`GPU_CMD=1`, poll RAWSTAT bit 8) + G76 quirks (SHADER_CONFIG TLS_HASH, JM_CONFIG IDVS 0xF) + L2 → shader → tiler power-on with *_READY polls (`panfrost_gpu.c:62-104,117-174,452-481`) | todo | validation: logged READY bitmaps == PRESENT (first core group only if `L2_PRESENT != 1`), no GPU_FAULT, boot unaffected |
+| G5. UEFI: AS0 with an AArch64-4K page table mapping one 2 MiB scratch buffer (TRANSCFG ADRMODE 6, MEMATTR from MAIR, `AS_COMMAND_UPDATE`, `panfrost_mmu.c:177-243`) | todo | validation: `AS_STATUS` not stuck ACTIVE, `MMU_INT_RAWSTAT` 0, readback of TRANSTAB; coherency mode chosen from G3's COHERENCY_FEATURES (UNVERIFIED) |
+| G6. UEFI: first job — a hand-built **Write Value** job (genxml `v7.xml:1334-1399`, type 2, Immediate32 `0xC0FFEE00`) on **JS1**, chain of one, header index 1 | todo | the "GPU executes" gate, zero shaders. Validation: `JOB_INT_RAWSTAT` done bit 1, no error bit 17, value present in the scratch buffer, `JS_STATUS` = DONE 0x01 (`panfrost_device.h:260`; same code expected in the job header exception status — UNVERIFIED); chain pre-checked on the PC with pandecode |
+| G7. UEFI: **Fragment** job clearing a small render target (hand-built framebuffer descriptor + RT clear colour, `v7.xml` Framebuffer/RT structs) then CPU-blit to the GOP fb | todo | first visible GPU output — validation: photo of a solid rectangle in the expected colour; tiler heap/context requirements for a fragment-only job UNVERIFIED |
+| G8. UEFI: **Compute** job running a Bifrost shader compiled on the PC by Mesa's `compiler/bifrost/cmdline.c` (`G76` target) — e.g. fill a buffer with `gid*4` | todo | validation: buffer contents match; proves shader descriptors + compiler output on real G76 (first use of the Mesa compiler) |
+| G9. ACPI: GPU device in the DSDT (MMIO 0x18500000/0x5000, job/mmu/gpu IRQs from G1) + G3D power left on by UEFI (or a PEP/ACPM path) | todo | validation: Device Manager shows the ACPI device with resources; BasicDisplay still drives the panel |
+| G10. WDDM render-only KMD skeleton (DXGK, `DXGK_DRIVERCAPS` render-only, no display) that maps MMIO, reads GPU_ID, handles the 3 IRQs | todo | **needs-windows** to build; validation: driver starts (Code 0), GPU_ID in the driver's log, no bugcheck across 3 boots |
+| G11. KMD: port G4-G6 (power, MMU per process via DXGK GPU VA, write-value job via `DxgkDdiSubmitCommand`/escape from a test app) | todo | validation: test app gets the written value back; TDR path exercised by a deliberately bad job |
+| G12. UMD decision + spike: Mesa `pan_kmod` D3DKMT backend (+ the direct `DRM_IOCTL_PANFROST_*`/syncobj sites) with WGL/PanVK on top, vs a D3D path for DWM (no Mesa D3D frontend exists) | todo | research + build-only first (Mesa builds for Windows AArch64 with MSVC); `drm-shim`-style noop backend to run the compiler on Windows before G11 |
 | DWM acceleration (the user-visible goal) | todo | Guided only after device validation |
 
 ## What is blocked on the user right now

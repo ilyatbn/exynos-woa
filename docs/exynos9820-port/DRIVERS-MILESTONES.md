@@ -163,6 +163,19 @@ Bar: UEFILOG proves FLL1 lock, SYSCLK on, tone -> OUT2 mixers, HP2 enable done, 
 | AudioProbeDxe: tone sequence (patch, 32k clk, FLL1, SYSCLK, tone1 -> OUT2 -> HPOUT2 2 s, teardown), flag `BEYOND0LTE_AUDIO_TONE` | **done (code + build)** | `AudioTone.c`; build exit 0, FD sha256 `4f3f0c9b…`; SPI writes to the codec only, no AP clock/PMIC/ABOX write |
 | Device test: UEFILOG lock/enable lines + tone heard | **done (device-validated)** | boot #93 UEFILOG (FLL1 lock 3 ms, OUT_EN1 C, SC 0; HP2 EN_DONE read 0) + **the user heard the beep** in wired headphones 2026-10-12 (pitch "somewhere in the middle") |
 
+### D8 audio — Windows driver M1: loudspeaker render endpoint + volume (`notes/d8-audio-win-m1.md`)
+
+Bar: Windows shows a "Speaker" endpoint bound to `ACPI\SAMS9827`, the volume keys and slider move its volume,
+streams run (timer clock) and the run log shows the ABOX audit + amp IDs; sound itself waits on the stage-1/2
+sequences from the UEFI m3 work, which plug into `AboxHw.c` / `AmpI2c.c`.
+
+| Task | State | Notes |
+|------|-------|-------|
+| A1: `drivers/Exynos9820Audio` ACX 1.0 skeleton: render circuit `Speaker0`, 48 kHz 16/32-bit stereo, contiguous cached ring + clean, timer clock, run log, ABOX/amp layers with stage TODO stubs | **done (code + build; device run pending)** | build exit 0 /W4 /WX; ACX 1.0 because the phone's 22621 image ships only `Acx01000.sys`; no volume node by default (audiodg software volume = keys work) |
+| B: port the boot #99 validated speaker sequence (`AboxHw.c`, `AmpI2c.c`) + 4 x 32-bit DMA ring expanded from the stereo packets, RDMA frame-counter clock (`Render.c`) | **done (code + build; device run pending)** | B1/B2/B3 commits; order RDMA-with-data before amp power-up; mono on the loudspeaker by default (`Parameters\Stereo`) |
+| A2: DSDT `Device (AUD0)` `SAMS9827` with the eight-window `_CRS` | **done (iasl 20260408: 0 errors/warnings; firmware build + boot pending)** | no overlap with any other DSDT window (scripted check); hsi2c_38 claimed by nobody else |
+| A3: INF (Class MEDIA, KS interfaces) + test-signed package `s10e-artifacts\audio-a1` | **done (package built + InfVerif VALID; install on the device pending)** | driver 1.0.1.0, sys sha256 `5BD4A3E2…`; needs firmware with A2 |
+
 ## Working rules for this file
 
 - Same ground rules as `MILESTONES.md`: one commit per task, `todo → doing → done`

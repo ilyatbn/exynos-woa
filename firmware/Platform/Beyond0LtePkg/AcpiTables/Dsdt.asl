@@ -416,5 +416,33 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
             })
             Method (_STA, 0, NotSerialized) { Return (0x0F) }
         }
+
+        // Audio (notes/d8-audio-win-m1.md): loudspeaker path ABOX RDMA0 -> UAIF1 -> CS35L40 @0x40/@0x41 on hsi2c_38,
+        // device-validated from UEFI at boot #99 (AudioSpeaker.c). drivers/Exynos9820Audio (ACX 1.0) binds this ID,
+        // drives the ABOX SFRs directly (DSP held off) and owns hsi2c_38 polled, so no SpbCx/I2C device claims that
+        // block. _CRS ORDER IS A BINDING CONTRACT (Exynos9820Audio.h AUD_RES_*; the driver refuses to map anything
+        // on a mismatch): ABOX IFR, SYSREG_AUD, CMU_AUD, GPIO_AUD, HSI2C38, ABOX SRAM, the PMU page holding
+        // AUD_CONFIGURATION/STATUS/PAD (0x15861900/04/20: every AUD access is gated on AUD_STATUS bit0), and the
+        // PERIC1 pin page (gph0-6/7 = hsi2c_38 SCL/SDA, gph1-1/2 = amp resets). All from Exynos9820.h; CMU_AUD and
+        // GPIO_AUD are SOURCE-ONLY there but were read live at boot #96. No interrupt (polled, timer-clocked).
+        // _CCA 0: the RDMA does not snoop; the driver uses a non-cached ring.
+        Device (AUD0)
+        {
+            Name (_HID, "SAMS9827")  // project-local ID (SAMS9820 I2C, 9821 UFN0, 9825 WLAN, 9826 BAT0 are taken)
+            Name (_UID, Zero)
+            Name (_CCA, Zero)
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, 0x18C50000, 0x00010000)  // EXYNOS_ABOX_IFR_BASE / _SIZE
+                Memory32Fixed (ReadWrite, 0x18C10000, 0x00010000)  // EXYNOS_ABOX_SYSREG_BASE / _SIZE
+                Memory32Fixed (ReadWrite, 0x18C00000, 0x00008000)  // EXYNOS_CMU_AUD_BASE / _SIZE
+                Memory32Fixed (ReadWrite, 0x18C60000, 0x00001000)  // EXYNOS_PINCTRL_AUD_BASE / _SIZE
+                Memory32Fixed (ReadWrite, 0x109A0000, 0x00001000)  // EXYNOS_AUDIO_HSI2C_BASE / _SIZE (hsi2c_38)
+                Memory32Fixed (ReadWrite, 0x18D00000, 0x00059000)  // EXYNOS_ABOX_SRAM_BASE / _SIZE
+                Memory32Fixed (ReadWrite, 0x15861000, 0x00001000)  // EXYNOS_PMU_BASE + 0x1000 (AUD_* offsets 0x19xx)
+                Memory32Fixed (ReadWrite, 0x10830000, 0x00001000)  // EXYNOS_PERIC1_GPIO_BASE / _SIZE
+            })
+            Method (_STA, 0, NotSerialized) { Return (0x0F) }
+        }
     }
 }

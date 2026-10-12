@@ -75,3 +75,7 @@ Needs the user: SSID + passphrase of their network (never guessed, never committ
     + rx completion, PTK via PRF-SHA1, MIC HMAC-SHA1, GTK AES key unwrap, keys installed with WLC_SET_KEY). The
     data path is M7 work anyway, so M6 is re-scoped: association (SET_SSID status 0) + host handshake, done after
     the M7 data path exists. The PMK derivation (self-test PASS) is reused.
+- 2026-10-12 user decision on the Windows interface: **both**. First (M8) the NDIS 802.3 adapter plus a
+  `wifi-connect` app to set SSID/password, which restarts the driver so it picks them up; this also gives a network
+  for Windows debugging tools. Then (M9) native Windows WiFi (adapter + network list in the Windows UI). Common
+  prerequisite M7: msgbuf data path + host 4-way handshake.

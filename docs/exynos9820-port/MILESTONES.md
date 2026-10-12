@@ -318,7 +318,9 @@ tree does not contain.
 | Milestone 4: CLM blob + events + UP + escan (firmware still torn down after PrepareHardware) | **done** | device-validated 2026-10-12 (driver 1.0.4.3): clmload 29232 B, escan v2, 8 BSS on 2.4 + 5 GHz in 1.7 s (`notes/m12-wifi-m4.md`) |
 | Milestone 5: firmware resident for the device lifetime (DMA + rings in device context, ReleaseHardware teardown, interrupt or poll thread) | **done** | device-validated 2026-10-12 (1.0.5.2): resident fw rescans at t=30 s (SCAN 0, 10 BSS), 100 ms poll, common-buffer cache maintenance required (cached buffer, non-snooping device writes) - `notes/m12-wifi-m5.md` |
 | Milestone 6: WPA2-PSK join (SET_SSID + 4-way handshake) | doing | run m6-3 with the user's network: firmware refuses `sup_wpa` (-23 BCME_UNSUPPORTED) = **no in-dongle supplicant** in this build; the 4-way handshake must run on the host over EAPOL frames, so it needs the M7 data path first. PBKDF2 PMK (self-test PASS) is reused - `notes/m12-wifi-m6.md` |
-| Milestone 7: Windows network interface (NDIS miniport: data path = flowrings + rx/tx) | todo | architecture choice for the user: NDIS 802.3 adapter with registry-configured network (fast) vs WDI/native WiFi (Windows UI, much larger) |
+| Milestone 7: msgbuf data path (tx flowring + rx completion) + host WPA2 4-way handshake (EAPOL) | todo | needed by both interfaces below; closes M6's join |
+| Milestone 8: NDIS 802.3 adapter (Windows sees a wired NIC) + `wifi-connect` app that writes Ssid/Passphrase and restarts the driver (disable/enable) | todo | user's choice 2026-10-12: do this first (also gives a network for Windows debugging tools) |
+| Milestone 9: native Windows WiFi (WDI / WiFiCx: adapter in the network flyout, scan list, connect from the Windows UI) | todo | user's choice 2026-10-12: wanted after M8 |
 | Decide whether WiFi is required at all when LAN is available | **done** | **LAN-first**; if WiFi is genuinely needed, put a **USB WiFi adapter in the dock** (an ordinary Windows device once M10 works), not the phone's WLAN |
 
 ### M13 — LAN through the dock

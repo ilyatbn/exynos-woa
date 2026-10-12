@@ -70,8 +70,21 @@ if exist %ESP%\S10EDIAG\stay.flg (
 
 echo --- back to TWRP
 s10ediag mark c: restart to TWRP
-rem m14 run 18-20: a clean "shutdown /r" restarts fine but sboot boots UEFI again (endless loop), so return the
-rem proven way: flush every volume's cache, then S10eDiag's hard reset to recovery.
+rem 2026-10-12: CLEAN restart - %ESP%\S10EDIAG\torecovery.flg + shutdown /r; BootLogDxe (boot #113+) sees the OS
+rem restart marker + the flag and goes to TWRP. The hard reset lost unflushed registry changes (driver installs,
+rem MaliG76Wddm Parameters). Loop guard: a flag still present here means the firmware did not consume it (an older
+rem image continues into Windows after an OS restart) -> delete it and use the old flush + hard reset.
 s10ediag info
+if exist %ESP%\S10EDIAG\torecovery.flg (
+  del /f /q %ESP%\S10EDIAG\torecovery.flg
+  s10ediag mark c: torecovery.flg not consumed - hard reset
+  s10ediag flushreset
+  exit /b 0
+)
+echo recovery > %ESP%\S10EDIAG\torecovery.flg
+s10ediag mark c: clean restart (torecovery.flg)
+shutdown /r /t 0 /f
+ping -n 180 127.0.0.1 > nul
+s10ediag mark c: clean restart did not happen - hard reset
 s10ediag flushreset
 exit /b 0

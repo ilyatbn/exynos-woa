@@ -538,7 +538,28 @@ OnReadyToBoot (
           // W31: the previous Windows run ended with an OS-requested reset (Beyond0LteResetSystemLib
           // stored 0x80) - e.g. Setup rebooting between passes. Keep its evidence but let it go on.
           //
+          EFI_FILE_PROTOCOL  *ToRecovery;
+
           Flag->Close (Flag);
+          //
+          // 2026-10-12: \S10EDIAG\torecovery.flg = the agent's CLEAN return to TWRP (collect.cmd writes it, then
+          // `shutdown /r`). A clean restart writes the registry hives and file caches to disk; the old hard reset
+          // (s10ediag flushreset) lost unflushed SYSTEM-hive changes (driver installs, MaliG76Wddm Parameters).
+          //
+          if (!EFI_ERROR (Root->Open (Root, &ToRecovery, L"\\S10EDIAG\\torecovery.flg", EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE, 0))) {
+            ToRecovery->Delete (ToRecovery);
+            if (!EFI_ERROR (Root->Open (Root, &Flag, L"\\WINRUN.FLG", EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE, 0))) {
+              Flag->Delete (Flag);
+            }
+
+            Root->Close (Root);
+            DEBUG ((DEBUG_ERROR, "BootLog: clean Windows restart with torecovery.flg - saving its PRAM, then recovery\n"));
+            DumpMemoryToEsp (L"\\WINPRAM.BIN", (UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);
+            ZeroMem ((VOID *)(UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);
+            FlushBootLog ("after-windows");
+            RebootToRecovery ();
+          }
+
           Root->Close (Root);
           DEBUG ((DEBUG_ERROR, "BootLog: Windows asked for this restart - saving its PRAM and continuing\n"));
           DumpMemoryToEsp (L"\\WINPRAM-RESTART.BIN", (UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);

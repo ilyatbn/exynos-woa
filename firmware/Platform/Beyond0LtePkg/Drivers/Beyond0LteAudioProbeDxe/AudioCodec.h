@@ -47,7 +47,7 @@ CodecWrite32 (
 // hard reset, play the codec's tone generator on HPOUT2 (3.5 mm jack) for ~2 s, then tear down. Set to 0
 // once the ear test has validated it (notes/d8-audio-m1.md §6).
 #ifndef BEYOND0LTE_AUDIO_TONE
-#define BEYOND0LTE_AUDIO_TONE  1
+#define BEYOND0LTE_AUDIO_TONE  0
 #endif
 
 // Returns TRUE when the outputs were up for the whole hold. Leaves outputs, tone, SYSCLK and FLL1 off.
@@ -65,7 +65,7 @@ CodecTonePlay (
 // D8a milestone 3 (AudioSpeaker.c): 1 = after both amps answered on resets this driver released, play a ~2 s
 // 1.5 kHz tone on the loudspeaker (ABOX RDMA0 -> UAIF1 -> CS35L40 @0x40, DSP bypass), then tear down.
 #ifndef BEYOND0LTE_AUDIO_SPEAKER_TONE
-#define BEYOND0LTE_AUDIO_SPEAKER_TONE  1
+#define BEYOND0LTE_AUDIO_SPEAKER_TONE  0
 #endif
 
 // hsi2c_38 amp access (Beyond0LteAudioProbeDxe.c), valid while AmpProbe has the bus up.

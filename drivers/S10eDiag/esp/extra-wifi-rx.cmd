@@ -11,6 +11,9 @@ mkdir "%W%"
 set D=%TMP%\s10e-wlan
 if exist "%D%" rd /s /q "%D%"
 xcopy /e /i /y "%ESP%\S10EDIAG\drivers\Exynos9820Wlan" "%D%" > "%W%\xcopy.txt" 2>&1
+rem Firmware + nvram + CLM (device-copied blobs, never in git): WlanDl.c reads \SystemRoot\System32\drivers\bcm4375\.
+if not exist "%SystemRoot%\System32\drivers\bcm4375" mkdir "%SystemRoot%\System32\drivers\bcm4375"
+xcopy /y "%ESP%\S10EDIAG\bcm4375\*" "%SystemRoot%\System32\drivers\bcm4375\" > "%W%\xcopy-fw.txt" 2>&1
 reg add HKLM\SYSTEM\CurrentControlSet\Services\Exynos9820Wlan\Parameters /v Ssid /t REG_SZ /d HomeX-5 /f > "%W%\reg.txt" 2>&1
 reg add HKLM\SYSTEM\CurrentControlSet\Services\Exynos9820Wlan\Parameters /v Passphrase /t REG_SZ /d rx-test-wrong-passphrase /f >> "%W%\reg.txt" 2>&1
 s10ediag mark f: pnputil add wlan

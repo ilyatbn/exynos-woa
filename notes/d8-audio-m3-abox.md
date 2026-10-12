@@ -358,3 +358,21 @@ UAIF1 SPK (F12); needs UAIF0 configured as I2S master (same F4 rules) plus codec
 - boot #96: the five AUD regions added to mMmioRegions (+ SOURCE-ONLY sizes CMU_AUD 0x8000, GPIO_AUD 0x1000
   from exynos9820.dts:1119-1121). Build exit 0, FVMAIN_COMPACT 392 B free; boot96-v2.img sha256 bd0c44f8…,
   flashed + readback. The first boot after the fault may skip the whole audio probe (0x69 guard).
+- **boot #96 RESULT (second boot; the first one skipped audio via the 0x69 guard as designed), stage 0 log:**
+  - pd-aud CONFIGURATION 1 STATUS 1 = **ON at DXE time**; pad 0x860 (bit11 = normal, retention already released).
+  - ABOX IP_INDEX 0x41424F58 = "ABOX" -> **non-secure AP access works** (no TZPC SMC needed). VERSION 0x02000100
+    (= 2.0.1, matches F1). SYSPOWER_STATUS 0, QCHANNEL_DISABLE 0, ROUTE_CTRL0 0, SPUS_CTRL0/1 0, SBANK_RDMA0 0
+    (= reg_defaults_9820 -> the driver's defaults are the silicon reset values for these).
+  - UAIF1 CTRL0 0x01000010 (= the reset value in F10), CTRL1 0, STATUS 0. RDMA0 CTRL0 0x00400000 (BURST_LEN
+    field 22:19 = 8), the rest 0.
+  - CMU_AUD: PLL_AUD0_CON0 0xA02D0110 = ENABLE(31) + STABLE(29), M 0x2D = 45, P 1, S 0; CON3 K 0x5EFF = 24319 ->
+    26 MHz x (45 + 24319/65536) / 1 = 1179.65 MHz = the 1179648040 Hz table rate (expressed with P 1 here, not the
+    M181 P4 row of the research table: same frequency). DIV_AUDIF 1 (/2 -> 589.8 MHz), DIV_BUS 6 (/7),
+    DIV_UAIF1 5 (/6 -> 98.3 MHz), MUX_UAIF1 0 (internal divider). Gates ACLK / BCLK_UAIF1 = 0x200000 (bit21
+    CG_VAL set, MANUAL 0 = hardware q-channel control).
+  - SYSREG_AUD MISC_CON 0 (vendor writes 1). SysMMU CTRL 4 (bit0 enable = 0 -> translation off, bypass
+    INFERENCE), CFG 0x20000, VERSION 0x70600000 (7.6).
+  - gpb1 CON 0 (all inputs - the UAIF1 pins are NOT muxed yet), PUD 0x11111111.
+  - So: everything stage 1 needs is powered and reachable; stage 1 writes are only inside the AUD block
+    (DIV_AUDIF/DIV_UAIF1 for the BCLK rate, gpb1 func 2, QCHANNEL_DISABLE bit3, UAIF1 CTRL1/CTRL0) plus the amp
+    I2C sequence. No PMU/SMC write needed.

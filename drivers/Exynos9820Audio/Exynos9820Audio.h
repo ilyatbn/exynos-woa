@@ -90,7 +90,7 @@ typedef struct _AUD_CONFIG {
     ULONG AmpInit;      /* 1 (default): bus up, amp reset release + ID read (UEFI m1b steps, device-proven) */
     ULONG AmpEnable;    /* 1 (default): configure + power the CS35L40 on stream start (boot #99 sequence) */
     ULONG AboxEnable;   /* 1 (default): ABOX stage 1 + RDMA0 on stream start (boot #99 sequence) */
-    ULONG HwVolume;     /* 0 (default): 1 = ACX volume + mute elements on the amp; 0 = audiodg software volume */
+    ULONG HwVolume;     /* 0 (default): volume + mute elements applied in software by the driver; 1 = on the amp registers */
     ULONG Stereo;       /* 0 (default): mono (L+R)/2 on the loudspeaker only; 1 = L on the earpiece amp (untested) */
 } AUD_CONFIG, *PAUD_CONFIG;
 
@@ -150,9 +150,17 @@ typedef struct _AUD_DEVICE_CONTEXT {
     BOOLEAN     BusSaved;
     AUD_AMP     Amp[2];         /* [0] = R/bot @0x40 (speaker), [1] = L/rcv @0x41 (earpiece) */
 
-    /* Endpoint volume when Cfg.HwVolume = 1 (KS units: 1/65536 dB). */
+    /* Endpoint volume when Cfg.HwVolume = 1 (KS units: 1/65536 dB), applied on the amps. */
     LONG        VolumeLevel;
     ULONG       Muted;
+
+    /* Endpoint volume when Cfg.HwVolume = 0 (default): the volume + mute elements still exist (sample topology, needed
+       for the endpoint's format - notes/d8-audio-win-a5.md) and are applied in software by AudDmaFillSlot while it
+       expands client packets into the DMA ring. Gain Q30 per client channel; written at PASSIVE, read in the timer DPC
+       (aligned 32-bit, single-copy atomic). The amps stay at their fixed level and are never muted by this path. */
+    LONG        SwLevel[2];       /* KS units, per client channel */
+    volatile LONG SwGainQ30[2];   /* 1.0 = 1 << 30 */
+    volatile LONG SwMuted;
 
     ACXCIRCUIT  Render;
     BOOLEAN     CircuitAdded;
@@ -246,6 +254,7 @@ _IRQL_requires_(PASSIVE_LEVEL) VOID AudLogFlush(_In_opt_ PAUD_RUNLOG Log);
 
 /* Render.c */
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS AudRenderCircuitCreate(_In_ WDFDEVICE Device, _In_ PAUD_DEVICE_CONTEXT Dev);
+VOID AudSwVolumeInit(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ LONG LevelKs);
 
 /* AboxHw.c */
 _IRQL_requires_(PASSIVE_LEVEL) BOOLEAN AboxAudit(_Inout_ PAUD_DEVICE_CONTEXT Dev);

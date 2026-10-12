@@ -61,3 +61,8 @@ Parameters AmpInit/AmpEnable/AboxEnable; no hardware constant changes.
 - T2 INF: PKEY_AudioEngine_OEMFormat (48k/16 stereo) + version 1.0.1.4 (INF + Driver.c AUD_DRIVER_VERSION).
 - T3 build + sign -> s10e-artifacts\audio-a5, sha256 here; test script changes only if needed.
 - Review each; fixes as separate commits.
+- T1 code: Render.c - volume + mute elements always (AudCreateElements unconditional); HwVolume = 0: AssignLevel/Mute
+  store per-channel level -> Q30 gain (193-entry 0.5 dB table, round(2^30*10^(-n/40)), checked n=12 -> 0.501, n=40 ->
+  0.1000) and SwMuted; AudDmaFillSlot samples the gains once per period and multiplies (64-bit, >> 30), mute = silence;
+  HwVolume = 1 path unchanged (amp). Format list: 48k/16 via AcxDataFormatListAssignDefaultDataFormat (default), 48k/32
+  added. Driver.c: AudSwVolumeInit(-20 dB) at device add. Build (VS18 MSBuild, ARM64 Release, /W4 /WX): exit 0.

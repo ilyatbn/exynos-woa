@@ -7,8 +7,9 @@
  *   - the endpoint is 48 kHz stereo 16/32-bit, but the validated UAIF1 frame is 4 x 32-bit slots, so the packet timer
  *     expands each client packet into a separate non-cached DMA ring one period ahead of the RDMA (see "Stream");
  *   - the packet clock is the RDMA frame counter while the hardware runs (QPC otherwise);
- *   - no volume/mute element unless Parameters\HwVolume = 1: without one, audiodg applies endpoint volume in
- *     software, which is what makes the volume keys and the slider work.
+ *   - volume + mute elements always (the sample's topology; A5: with zero elements the endpoint had no mix format,
+ *     notes/d8-audio-win-a5.md). Endpoint volume (slider, flyout, volume keys) lands on them: HwVolume = 0 (default)
+ *     applies it in software while expanding packets into the DMA ring, HwVolume = 1 on the amp registers.
  *
  * The hardware sequence is device-validated in UEFI (boot #99); this driver is NOT VALIDATED UNDER WINDOWS.
  */
@@ -80,14 +81,84 @@ EVT_WDF_TIMER                        AudEvtStreamTimer;
 EVT_WDF_OBJECT_CONTEXT_CLEANUP       AudEvtStreamCleanup;
 
 /* ================================================================================================================
- * Volume / mute elements (Parameters\HwVolume = 1 only).
+ * Volume / mute elements. HwVolume = 1: the CS35L40 digital volume / mute (AmpI2c.c). HwVolume = 0 (default): the
+ * driver's software gain (AudDmaFillSlot); the amps stay at their fixed level and unmuted.
  * ================================================================================================================ */
+
+/* Q30 gain for 0 .. -96 dB in AUD_VOLUME_STEP (0.5 dB) steps: round(2^30 * 10^(-n/40)), n = 0..192 (computed, not a
+   hardware value). */
+#define AUD_SW_GAIN_STEPS  193u
+static const LONG AudGainQ30[AUD_SW_GAIN_STEPS] = {
+    1073741824, 1013677647, 956973408, 903441154, 852903448, 805192776, 760150998, 717628817,
+    677485290, 639587356, 603809400, 570032831, 538145694, 508042296, 479622855, 452793173,
+    427464319, 403552340, 380977976, 359666402, 339546978, 320553018, 302621563, 285693178,
+    269711752, 254624313, 240380852, 226934158, 214239660, 202255281, 190941298, 180260209,
+    170176611, 160657080, 151670064, 143185773, 135176087, 127614455, 120475814, 113736503,
+    107374182, 101367765, 95697341, 90344115, 85290345, 80519278, 76015100, 71762882,
+    67748529, 63958736, 60380940, 57003283, 53814569, 50804230, 47962285, 45279317,
+    42746432, 40355234, 38097798, 35966640, 33954698, 32055302, 30262156, 28569318,
+    26971175, 25462431, 24038085, 22693416, 21423966, 20225528, 19094130, 18026021,
+    17017661, 16065708, 15167006, 14318577, 13517609, 12761445, 12047581, 11373650,
+    10737418, 10136776, 9569734, 9034412, 8529034, 8051928, 7601510, 7176288,
+    6774853, 6395874, 6038094, 5700328, 5381457, 5080423, 4796229, 4527932,
+    4274643, 4035523, 3809780, 3596664, 3395470, 3205530, 3026216, 2856932,
+    2697118, 2546243, 2403809, 2269342, 2142397, 2022553, 1909413, 1802602,
+    1701766, 1606571, 1516701, 1431858, 1351761, 1276145, 1204758, 1137365,
+    1073742, 1013678, 956973, 903441, 852903, 805193, 760151, 717629,
+    677485, 639587, 603809, 570033, 538146, 508042, 479623, 452793,
+    427464, 403552, 380978, 359666, 339547, 320553, 302622, 285693,
+    269712, 254624, 240381, 226934, 214240, 202255, 190941, 180260,
+    170177, 160657, 151670, 143186, 135176, 127614, 120476, 113737,
+    107374, 101368, 95697, 90344, 85290, 80519, 76015, 71763,
+    67749, 63959, 60381, 57003, 53815, 50804, 47962, 45279,
+    42746, 40355, 38098, 35967, 33955, 32055, 30262, 28569,
+    26971, 25462, 24038, 22693, 21424, 20226, 19094, 18026,
+    17018
+};
+
+static LONG AudSwGainForLevel(_In_ LONG LevelKs)
+{
+    LONG Steps;
+
+    if (LevelKs >= AUD_VOLUME_MAX) {
+        return AudGainQ30[0];
+    }
+    if (LevelKs <= AUD_VOLUME_MIN) {
+        return AudGainQ30[AUD_SW_GAIN_STEPS - 1];
+    }
+    Steps = (-LevelKs + AUD_VOLUME_STEP / 2) / AUD_VOLUME_STEP;   /* nearest 0.5 dB */
+    return AudGainQ30[(Steps < (LONG)AUD_SW_GAIN_STEPS) ? Steps : (LONG)AUD_SW_GAIN_STEPS - 1];
+}
+
+static VOID AudSwSetLevel(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ ULONG Channel, _In_ LONG LevelKs)
+{
+    if (LevelKs > AUD_VOLUME_MAX) {
+        LevelKs = AUD_VOLUME_MAX;
+    }
+    if (LevelKs < AUD_VOLUME_MIN) {
+        LevelKs = AUD_VOLUME_MIN;
+    }
+    Dev->SwLevel[Channel] = LevelKs;
+    InterlockedExchange(&Dev->SwGainQ30[Channel], AudSwGainForLevel(LevelKs));
+}
+
+/* Device creation: both channels at LevelKs until Windows assigns the endpoint's persisted level; unmuted. */
+VOID AudSwVolumeInit(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ LONG LevelKs)
+{
+    ULONG Ch;
+
+    for (Ch = 0; Ch < AUD_CHANNELS; Ch++) {
+        AudSwSetLevel(Dev, Ch, LevelKs);
+    }
+    InterlockedExchange(&Dev->SwMuted, 0);
+}
 
 _Use_decl_annotations_
 NTSTATUS NTAPI AudEvtVolumeAssignLevel(ACXVOLUME Volume, ULONG Channel, LONG VolumeLevel, ACX_VOLUME_CURVE_TYPE CurveType,
                                        ULONGLONG CurveDuration)
 {
     PAUD_DEVICE_CONTEXT Dev = AudGetElementContext(Volume)->Dev;
+    ULONG               Ch;
 
     UNREFERENCED_PARAMETER(CurveType);
     UNREFERENCED_PARAMETER(CurveDuration);
@@ -97,9 +168,19 @@ NTSTATUS NTAPI AudEvtVolumeAssignLevel(ACXVOLUME Volume, ULONG Channel, LONG Vol
         return STATUS_INVALID_PARAMETER;
     }
 
-    /* One level for both amps (each amp plays one slot of the stereo frame); the last assignment wins. */
-    AudLog(Dev->Log, "volume ch %ld <- %ld/65536 dB\r\n", (LONG)Channel, VolumeLevel);
-    return AmpSetVolume(Dev, VolumeLevel);
+    AudLog(Dev->Log, "volume ch %ld <- %ld/65536 dB (%s)\r\n", (LONG)Channel, VolumeLevel,
+           Dev->Cfg.HwVolume ? "amp" : "software");
+    if (Dev->Cfg.HwVolume) {
+        /* One level for both amps (each amp plays one slot of the stereo frame); the last assignment wins. */
+        return AmpSetVolume(Dev, VolumeLevel);
+    }
+
+    for (Ch = 0; Ch < AUD_CHANNELS; Ch++) {
+        if (Channel == AUD_ALL_CHANNELS || Channel == Ch) {
+            AudSwSetLevel(Dev, Ch, VolumeLevel);
+        }
+    }
+    return STATUS_SUCCESS;
 }
 
 _Use_decl_annotations_
@@ -113,7 +194,11 @@ NTSTATUS NTAPI AudEvtVolumeRetrieveLevel(ACXVOLUME Volume, ULONG Channel, LONG *
         return STATUS_INVALID_PARAMETER;
     }
 
-    *VolumeLevel = Dev->VolumeLevel;
+    if (Dev->Cfg.HwVolume) {
+        *VolumeLevel = Dev->VolumeLevel;
+    } else {
+        *VolumeLevel = Dev->SwLevel[(Channel == AUD_ALL_CHANNELS) ? 0 : Channel];   /* sample: channel 0 for "all" */
+    }
     return STATUS_SUCCESS;
 }
 
@@ -128,9 +213,15 @@ NTSTATUS NTAPI AudEvtMuteAssignState(ACXMUTE Mute, ULONG Channel, ULONG State)
         return STATUS_INVALID_PARAMETER;
     }
 
-    Dev->Muted = (State != 0) ? 1 : 0;
-    AudLog(Dev->Log, "mute ch %ld <- %lu\r\n", (LONG)Channel, State);
-    return AmpMute(Dev, State != 0);
+    /* One mute state for the endpoint (the endpoint mute is not per channel); the last assignment wins. */
+    AudLog(Dev->Log, "mute ch %ld <- %lu (%s)\r\n", (LONG)Channel, State, Dev->Cfg.HwVolume ? "amp" : "software");
+    if (Dev->Cfg.HwVolume) {
+        Dev->Muted = (State != 0) ? 1 : 0;
+        return AmpMute(Dev, State != 0);
+    }
+
+    InterlockedExchange(&Dev->SwMuted, (State != 0) ? 1 : 0);
+    return STATUS_SUCCESS;
 }
 
 _Use_decl_annotations_
@@ -144,7 +235,7 @@ NTSTATUS NTAPI AudEvtMuteRetrieveState(ACXMUTE Mute, ULONG Channel, ULONG *State
         return STATUS_INVALID_PARAMETER;
     }
 
-    *State = Dev->Muted;
+    *State = Dev->Cfg.HwVolume ? Dev->Muted : (ULONG)Dev->SwMuted;
     return STATUS_SUCCESS;
 }
 
@@ -199,7 +290,7 @@ static NTSTATUS AudCreateElements(_In_ ACXCIRCUIT Circuit, _In_ PAUD_DEVICE_CONT
  * ================================================================================================================ */
 
 static NTSTATUS AudAddFormat(_In_ WDFDEVICE Device, _In_ ACXCIRCUIT Circuit, _In_ ACXDATAFORMATLIST List,
-                             _In_ PKSDATAFORMAT_WAVEFORMATEXTENSIBLE Wave)
+                             _In_ PKSDATAFORMAT_WAVEFORMATEXTENSIBLE Wave, _In_ BOOLEAN Default)
 {
     NTSTATUS              Status;
     WDF_OBJECT_ATTRIBUTES Attr;
@@ -214,12 +305,15 @@ static NTSTATUS AudAddFormat(_In_ WDFDEVICE Device, _In_ ACXCIRCUIT Circuit, _In
         return Status;
     }
 
-    return AcxDataFormatListAddDataFormat(List, Format);
+    /* AcxDataFormatListAssignDefaultDataFormat adds the format and makes it the default ("The default format must be
+       present in the list, else it will be added", MS doc "ACX audio data formats"). */
+    return Default ? AcxDataFormatListAssignDefaultDataFormat(List, Format) : AcxDataFormatListAddDataFormat(List, Format);
 }
 
 /*
- * Host pin (sink, streaming) -> [volume -> mute, HwVolume = 1 only] -> bridge pin (source, KSNODETYPE_SPEAKER,
- * integrated jack). Created in EvtDeviceAdd, added to the device in PrepareHardware (the sample's split).
+ * Host pin (sink, streaming) -> volume -> mute -> bridge pin (source, KSNODETYPE_SPEAKER, integrated jack): exactly the
+ * ACX AudioCodec sample (Common/RenderCircuit.cpp CodecR_CreateRenderCircuit), connections by ACX's default chain.
+ * Created in EvtDeviceAdd, added to the device in PrepareHardware (the sample's split).
  */
 _IRQL_requires_(PASSIVE_LEVEL)
 NTSTATUS AudRenderCircuitCreate(_In_ WDFDEVICE Device, _In_ PAUD_DEVICE_CONTEXT Dev)
@@ -260,11 +354,10 @@ NTSTATUS AudRenderCircuitCreate(_In_ WDFDEVICE Device, _In_ PAUD_DEVICE_CONTEXT 
     }
     AudGetCircuitContext(Circuit)->Dev = Dev;
 
-    if (Dev->Cfg.HwVolume) {
-        Status = AudCreateElements(Circuit, Dev);
-        if (!NT_SUCCESS(Status)) {
-            return Status;
-        }
+    /* Always (A5): the elements put the host pin on the endpoint's KS path and carry the endpoint volume / mute. */
+    Status = AudCreateElements(Circuit, Dev);
+    if (!NT_SUCCESS(Status)) {
+        return Status;
     }
 
     ACX_PIN_CONFIG_INIT(&PinCfg);
@@ -310,9 +403,9 @@ NTSTATUS AudRenderCircuitCreate(_In_ WDFDEVICE Device, _In_ PAUD_DEVICE_CONTEXT 
     if (List == NULL) {
         return STATUS_INSUFFICIENT_RESOURCES;
     }
-    Status = AudAddFormat(Device, Circuit, List, &AudFormatPcm16);
+    Status = AudAddFormat(Device, Circuit, List, &AudFormatPcm16, TRUE);   /* default; = INF PKEY_AudioEngine_OEMFormat */
     if (NT_SUCCESS(Status)) {
-        Status = AudAddFormat(Device, Circuit, List, &AudFormatPcm32);
+        Status = AudAddFormat(Device, Circuit, List, &AudFormatPcm32, FALSE);
     }
     if (!NT_SUCCESS(Status)) {
         return Status;
@@ -357,9 +450,22 @@ static PUCHAR AudPacketVa(_In_ PAUD_STREAM_CONTEXT Ctx, _In_ ULONG Packet)
 static VOID AudDmaFillSlot(_In_ PAUD_STREAM_CONTEXT Ctx, _In_ ULONG Slot, _In_opt_ PUCHAR Src)
 {
     volatile LONG *Dst = (volatile LONG *)(Ctx->DmaVa + (SIZE_T)(Slot % AUD_DMA_SLOTS) * Ctx->DmaSlotBytes);
+    PAUD_DEVICE_CONTEXT Dev = Ctx->Dev;
     ULONG          F;
     LONG           L;
     LONG           R;
+    LONG           GainL = 1 << 30;
+    LONG           GainR = 1 << 30;
+
+    /* Endpoint volume / mute in software (HwVolume = 0), sampled once per period. */
+    if (!Dev->Cfg.HwVolume) {
+        if (Dev->SwMuted) {
+            Src = NULL;
+        } else {
+            GainL = Dev->SwGainQ30[0];
+            GainR = Dev->SwGainQ30[1];
+        }
+    }
 
     for (F = 0; F < Ctx->FramesPerPacket; F++) {
         L = 0;
@@ -372,6 +478,9 @@ static VOID AudDmaFillSlot(_In_ PAUD_STREAM_CONTEXT Ctx, _In_ ULONG Slot, _In_op
                 L = ((PLONG)Src)[2 * F];
                 R = ((PLONG)Src)[2 * F + 1];
             }
+            /* Q30 gain <= 1.0: |result| <= |sample|, no overflow; arithmetic shift of the 64-bit product. */
+            L = (LONG)(((LONGLONG)L * GainL) >> 30);
+            R = (LONG)(((LONGLONG)R * GainR) >> 30);
         }
 
         if (Ctx->Dev->Cfg.Stereo) {

@@ -151,6 +151,7 @@ NTSTATUS AudEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     /* HwVolume = 1: until Windows assigns its persisted level, sit at the amp notes' first-test -20 dB, not at the
        0 dB a zeroed context would mean (KS units, 1/65536 dB). */
     Dev->VolumeLevel = -20 * 0x10000;
+    AudSwVolumeInit(Dev, -20 * 0x10000);   /* HwVolume = 0: same starting level, applied in software */
 
     AudLog(Dev->Log, "Exynos9820Audio %s (ACX 1.0, ACPI\\SAMS9827): AmpInit %lu AmpEnable %lu AboxEnable %lu HwVolume %lu "
            "Stereo %lu\r\n", AUD_DRIVER_VERSION, Dev->Cfg.AmpInit, Dev->Cfg.AmpEnable, Dev->Cfg.AboxEnable,
@@ -170,7 +171,7 @@ NTSTATUS AudEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 
     Status = AudRenderCircuitCreate(Device, Dev);
     AudLog(Dev->Log, "render circuit \"Speaker0\": %08lX%s\r\n", Status,
-           Dev->Cfg.HwVolume ? " (volume + mute elements on the amps)" : " (no volume node: audiodg software volume)");
+           Dev->Cfg.HwVolume ? " (volume + mute elements on the amps)" : " (volume + mute elements in software)");
     return Status;
 }
 

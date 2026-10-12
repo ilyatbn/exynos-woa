@@ -194,3 +194,28 @@ Device result (coordinator, runs in scratchpad\runs\audA5\last\audio, \audA5b, \
   PASSIVE (KeGetCurrentIrql check in AUD_TRACE; hooks are PASSIVE by contract). Cost noted: an NT_ERROR status flushes the
   whole log (<= 256 KiB, write-through) - the endpoint builder's unsupported-property probes each cause one; accepted
   for a diagnostic build. No findings.
+- extra-audio.cmd: findstr also mirrors "cb Create/Alloc/Stream/Run/Pause/Free/GetHw/Circuit", "hook" and "-> C"
+  (error statuses) into the PRAM marks; CRLF kept. The full run.txt is still copied to the ESP.
+- T8 packages (1.0.1.5, INF DriverVer 10/13/2026; signed 5DD5DEE1... on sys + cat; InfVerif VALID; bind info read from
+  each .sys: a6 = ACX {1,1} 221 functions, a6-acx10 = ACX {1,0} 210):
+  s10e-artifacts\audio-a6 (ACX 1.1 - test this first):
+    1FC04A57F382F04DD823B98F91B38DC77BEBF5E7A8D7F0A07F6DBE3FD46DDC0D  Exynos9820Audio.sys
+    65D8D9EF59072BD94E335BA442F0238CB15765AF5C2687EF5C73362D9E87016D  Exynos9820Audio.inf
+    83EE6527BF6C96D9D37D344F4FC6BAF3AC83714E5B9FFA80DA9D4934EC307B76  exynos9820audio.cat
+  s10e-artifacts\audio-a6-acx10 (same source, ACX 1.0 binding - only if a6 does not start, e.g. Code 10/31 because the
+  22621 runtime refuses minor 1):
+    F9BB94ED76ECF017C125D7497F7F82B98B089EEFB204E9B6E3FC68F115DD0293  Exynos9820Audio.sys
+    65D8D9EF59072BD94E335BA442F0238CB15765AF5C2687EF5C73362D9E87016D  Exynos9820Audio.inf
+    EE5DF629459F0175B9FB28467C276B66AE3EFEB0F822690ECAC0D45EF0F96B52  exynos9820audio.cat
+
+### A6 device test
+1. Stage A (hardware off) live install of audio-a6 + audio-test.ps1 (unchanged from a5). Then reboot with the driver
+   loaded at boot (no noaudio.flg) - the 0xD1 fix is proven when Windows reaches the desktop and run.txt continues past
+   "D0Entry from D4" (and the PRAM marks have no "BC 00000000000000D1").
+2. If the device shows a problem code and run.txt has no "Exynos9820Audio 1.0.1.5 (ACX 1.1" line: ACX 1.1 did not bind ->
+   repeat with audio-a6-acx10 (the log line then says ACX 1.0).
+3. Read run.txt: "circuit: request preprocess hook 00000000"; the `req C ...` lines before and after the probe streams
+   (`cb CreateStream ... -> 00000000`, `cb AllocateRtPackets`, `cb GetHwLatency`, `cb FreeRtPackets`) and every
+   `-> C00000BB` (NOT_SUPPORTED) / other error line around the time of the WASAPI test are the evidence for the
+   0x80070032; success = GetMixFormat 0 in audiotest.txt and `cb StreamPrepareHardware -> 00000000`, `cb Run -> 00000000`
+   in run.txt.

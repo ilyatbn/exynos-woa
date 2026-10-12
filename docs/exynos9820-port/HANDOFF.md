@@ -1282,3 +1282,15 @@ esp/extra-ufsswap.cmd (TWRP ntfs-3g refuses rw on the flushreset-dirty volume; n
 cleared. BT Q1 closed (parkinglot/bluetooth-d4c.md). Next: GPU order (#106, mali-g9b...), then drivers back one at
 a time (battery-m4, WLAN 1.0.7.3, audio); UFS follow-ups (copy-back, >64 KiB transfers, writes) are lower priority.
 **§32 audio addendum (2026-10-12 ~23:10, agent, no phone access).** Exynos9820Audio **1.0.1.4** packaged in s10e-artifactsudio-a5 (sys sha 0763c194…; notes/d8-audio-win-a5.md). Suspected cause of GetMixFormat 0x80070032: the default (HwVolume 0) circuit had zero elements, unlike every ACX sample; now host -> volume -> mute -> bridge always, endpoint volume/mute applied in software in the DMA expansion (volume keys land on the element), 48k/16 default format + INF PKEY_AudioEngine_OEMFormat. Not device-validated. Test: notes/d8-audio-win-a5.md "Device test" (stage A first).
+
+## 33. Restart point (2026-10-12 ~23:40, sub-agent, no phone access): M12 M9 WiFiCx client built
+
+**Committed (main, ab86145..HEAD):** notes/m12-wifi-wificx.md (research, plan W1..W5, reviews, ESP test);
+T1 shared WlanDl.c holds the D11 cores in reset before the firmware image write (warm-restart DL 6 candidate fix,
+Parameters\D11Reset); T2 WlanCommon.c (report/settings/chip probe shared); T3 WlanMsg.c WiFiCx API (hooks, connect,
+disconnect, keys); **drivers/Exynos9820WlanCx** (WiFiCx 1.0 + NetAdapterCx 2.2 + KMDF 1.33): W1 skeleton, W2 scan,
+W3 data path, W4 connect/keys/disconnect; drivers/S10eDiag/esp/extra-wifi-cx.cmd. KMDF Exynos9820Wlan still builds.
+**Package:** s10e-artifacts\wifi-cx3 (sys sha DD9A5148…, inf 8C081CEE…, cat B214EFB1…) - nothing device-tested.
+**Next order:** notes/m12-wifi-wificx.md "ESP test" (install via extra-wifi-cx.cmd; reboot once if DL 6), user
+connects from the flyout, collect; then fix the "M3 ... NOT_SUPPORTED" ids and the UNVERIFIED items the log
+resolves (tx layout line, WDI version), then W5 (power/D3, roaming, interrupt, flowring delete).

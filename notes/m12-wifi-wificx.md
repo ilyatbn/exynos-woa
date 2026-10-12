@@ -237,3 +237,50 @@ Logs: Exynos9820WlanCx.txt (bring-up) + Exynos9820WlanCx-run.txt (runtime, rotat
   constant. Fixed in a follow-up commit (rejected with STATUS_INVALID_PARAMETER). Noted, not changed (W5): the
   worker is blocked for up to 2 x 20 s during a connect (JOIN_TIMEOUT_MS) while WDI's normal connect time is 10 s,
   and abort requests queue behind it.
+- Review of b473ae3 (W4 fix): the group-key path now refuses a missing key id before WlanMsgSetKey; the pairwise
+  path is unchanged. No findings.
+- **Final package s10e-artifacts\wifi-cx3 (W1-W4 + review fixes; inx 1.0.9.4, stampinf DriverVer
+  10/12/2026,23.34.53.127), supersedes wifi-cx1 / wifi-cx2:**
+  - Exynos9820WlanCx.sys 216984 B sha256 DD9A51480207BB3E3E05842C6B6756D90DDD39C57AA2090E18C7584CAB5E6C26
+  - Exynos9820WlanCx.inf   2601 B sha256 8C081CEE7D00D6E0F75BF77831B6339B9F7E9C85A98E28420219F862FCBF5778
+  - exynos9820wlancx.cat   2538 B sha256 B214EFB186A7A93D21F289B5B41840AF80612B2C8EF396B8A35089D38734BBE9
+  - extra-wifi-cx.cmd (copy of drivers/S10eDiag/esp/extra-wifi-cx.cmd) sha256 598c3ff71033b6d0...
+  signtool verify /pa stops only at the untrusted WDK test root (expected; the phone runs testsigning with
+  wdktestcert installed).
+
+## ESP test (device run, not done in this session)
+1. ESP: package -> `\S10EDIAG\drivers\Exynos9820WlanCx\` (sys, inf, cat), blobs already in `\S10EDIAG\bcm4375\`,
+   `extra-wifi-cx.cmd` -> `\S10EDIAG\extra.cmd`. Boot Windows (S10eAgent runs it). Results in out\last\wificx\.
+2. If key.txt shows "DL 6" / "mismatch" (warm restart while the KMDF driver's firmware ran): reboot once with
+   extra-wifi-cx.cmd again (cold load of the Cx driver).
+3. User, at the phone: open the network flyout -> Wi-Fi list -> pick the home SSID -> type the password -> connect;
+   then `ipconfig`, open a web page. Afterwards collect again (re-run extra-wifi-cx.cmd: it reinstalls the same
+   package = no-op install, then collects; or extra-wifi-collect-style copy of the two LogFiles).
+What the logs must show (Exynos9820WlanCx.txt = bring-up, -run.txt = runtime):
+- Bring-up: "[dl] D11 core @... resetctrl", "pass 1 ... 0 mismatches", "DL 0", "MSG 0", "SCAN 0", "RESIDENT",
+  "CX 0: WiFiCx capabilities 0x00000000; MAC A8:DB:03:06:3C:EF" (first line names the OS WDI version).
+  "CX 1" = firmware not resident (device fails start); "CX 2" = a capability call was refused (status printed).
+- Run log: "[cx] D0 entry", "[cx] worker started", then "[wdi] <- id N" for each WiFiCx command with its TLV dump;
+  expected early ids 85 (SET_ADAPTER_CONFIGURATION), 11 (TASK_SET_RADIO_STATE), 7 (DOT11_RESET), 4 (TASK_SCAN). Any
+  "M3 id N status 0xC00000BB" = a command we answer NOT_SUPPORTED - the list is the input for the next round.
+- Scan: "[scan] WDI scan ... SCAN 0, n records -> m BSS", one line per BSS, "-> indication 62" and "-> indication 60
+  (M4 ...)". Windows side: netsh-networks.txt lists the SSIDs; the flyout shows them.
+- Connect (after the user picks the network): "[join] WDI connect: k BSS entries, auth 7 unicast 4 multicast 4",
+  "CONNECT 0 ... flowring open", "[join] assoc_info: req ...", "-> indication 76", "[link] connected", "-> indication
+  53", "-> indication 64 (M4 ...)". Then EAPOL through the data path: "[tx] packet layout #1: layer2 type ..."
+  (tells the NetAdapter frame format: Ethernet expected), WlanMsg "[rx] ... type 0x888E" / "[tx] post ... type
+  0x888E", then "[key] add: type 1 algo 4 ... ccmp 16 B" + "[key] pairwise key idx 0 -> MSG 0" and the group key.
+  netsh-interfaces.txt "State : connected", ipconfig shows an IPv4 lease on the Wi-Fi adapter.
+- Failure signatures: no indication 62 / empty list -> scan path or BSS TLV format; CONNECT 3 -> firmware join
+  refused; connected but no "[key]" -> the OS supplicant did not get EAPOL (check rx "type 0x888E" lines and the
+  tx layout line); keys installed but no DHCP -> data frame format (layout line) or rx delivery (alive line rx fifo
+  in/out counters).
+
+## Untested / known gaps (W5 and later)
+- Everything above is device-unvalidated. UNVERIFIED in particular: wificx.sys present in 22631 (doc says yes);
+  OS acceptance of WDI_VERSION_LATEST; NetAdapter frame format (Ethernet assumed); WDI RSC byte order; whether
+  WiFiCx expects the client to call NetAdapterSetLinkState (done on connect / loss); link speed unit.
+- Not implemented: radio off (state only), hidden-SSID directed scan, roaming, power save / D3 (a resume from
+  sleep fails start: the firmware is quiesced at D0 exit and only PrepareHardware reloads it), interrupt instead of
+  polling, flowring delete on disconnect (single flowring keeps the first AP's DA), TKIP group cipher, WPA3/SAE,
+  abort of a running connect (worker blocked up to 2 x 20 s).

@@ -209,3 +209,7 @@ list); the cross build re-runs meson whenever the cross file is rewritten (harml
 - c1 on the S10e: needs Windows booted + our KMD exposing the malikm uAPI as `\\.\MaliG52` (or a shim
   rename), `vc_redist.arm64.exe`, and `tests/d3d11-triangle` built for ARM64 (not built here).
 - Refresh the `MALIKM_FAKE` GET_PARAM table to G76 values from the G3 log (separate task, Mesa-side).
+- 16. MILESTONES G12 row -> **doing (built, NOT run - needs-boot)**. Not done from the row's first step:
+  the reference CI's `MALIKM_FAKE` / softpipe smoke runs (`triangle.exe`, `present.exe`) - they need an
+  ARM64 Windows machine to execute the DLL and this host is x64 (no ARM64 emulation for us here);
+  `tests/d3d11-triangle` was not built either. First chance to run them is the S10e itself.

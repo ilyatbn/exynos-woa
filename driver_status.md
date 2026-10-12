@@ -9,7 +9,7 @@ As of 2026-10-12 evening. Windows was just reinstalled, so everything below desc
 | Booting Windows | 🟡 | boots, sometimes hangs |
 | CPU | 🟡 | 6 of 8 cores |
 | RAM | 🟡 | 5.2 of 6 GB |
-| Storage (UFS) | 🟡 | works, very slow |
+| Storage (UFS) | 🟡 | works, 6x faster today |
 | Display | 🟡 | works, basic driver only |
 | Screen rotation | 🟡 | manual only (Bixby hold) |
 | Touch | 🟡 | sometimes double taps |
@@ -36,7 +36,7 @@ As of 2026-10-12 evening. Windows was just reinstalled, so everything below desc
 - **Booting:** Windows reaches the desktop in about 80 seconds. Before today's reinstall, every boot hung for about 2 minutes. Most likely the disk was damaged by edits made from TWRP. The phone also once powered itself off with a power-chip overload warning. We'll watch whether either comes back on the fresh install.
 - **CPU:** 6 of the 8 cores work. The 2 big Samsung-designed cores aren't used because they lack a couple of features the other cores have, and Windows refuses them. Next step is to look at it with the kernel debugger, which hasn't managed to connect yet.
 - **RAM:** Windows sees 5.2 GB of 6 GB. About 0.1 GB doesn't exist even for Android. The rest is set aside for things like the modem and logs. I tested it and up to about 0.5 GB of that could be given back to Windows, but we agreed to discuss that first.
-- **Storage:** works and is safe, but reads at about 25 MB/s, where Android on the same phone reads over 600 MB/s. It's not the connection to the chip. The likely causes are a few settings copied from the older S9 chip. Tests to find out are ready.
+- **Storage:** works and is safe. Today it went from about 20 MB/s to about 117 MB/s for large reads, after fixing two problems in our driver: the chip asked Windows to split reads into tiny 8 KB pieces, and a leftover debug check was re-reading every block byte by byte. Android still reads faster (about 600 MB/s), so there is more to gain; writes have not been re-measured yet.
 - **Display:** shows the desktop through Windows' basic display driver, so there's no graphics acceleration and no brightness control.
 - **Screen rotation:** holding Bixby switches between portrait and landscape. Automatic rotation needs the motion sensor, which has no driver yet.
 - **Touch:** works, including right-click by holding. A single tap sometimes registers as a double click.

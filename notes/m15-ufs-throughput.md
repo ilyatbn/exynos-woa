@@ -194,3 +194,15 @@ C. PMA (needs HCI_CLKSTOP_CTRL 0x13D611B0 bit3 MPHY_APBCLK_STOP CLEAR during the
   StartIo-entry-to-completion counter or a KD/ETW trace); (2) copy-back 274 us per 64 KiB (DC CIVAC over 1024 lines +
   memcpy) - DMA straight into the SRB buffer would remove it; (3) raise MaximumTransferLength past 64 KiB (UCD/PRDT
   region); (4) UEFI vs Linux gap (UEFI 733 us per 64 KiB vs Windows device 128 us - UEFI has its own overheads).
+- _CCA A/B (boot #111 = UFS0 _CCA One, sha 7da88ccf…, not committed as a change): no effect (C: loop 5016 x 64 KiB
+  in 10 s, raw 1 MiB 50.9 MB/s) => HAL cache maintenance on SRB buffers is not the ~1.6 ms. Reverted to #107.
+- ROOT CAUSE #2: UfsCaptureBounceEvidence (Exynos9820Ufs.c ~6613) ran on EVERY read and walked each 4 KiB granule of
+  the bounce through the Device-memory (MmNonCached) view byte by byte until a non-zero byte; an all-zero granule
+  costs 4096 uncached byte loads. Diagnostics/PRAM-only consumers. Explains the size-dependent overhead outside the
+  device+copy counters, and why PhysicalDrive0 (zero-heavy start of disk) was slower than C:.
+- w37 = w36 + UFS_BOUNCE_EVIDENCE_COMMANDS 256 (evidence only for the first 256 StartIo requests), sha 7f4f1bcd….
+  Swapped in by extra-ufsswap.cmd on boot #107 (6f6396e2…). Results: C: 64 KiB loop 12403 in 10 s = 81 MB/s
+  (w34 18 MB/s), PhysicalDrive0 12648 in 10 s = 83 MB/s (w36 9.3), raw C: 4 KiB 346 us, 64 KiB 988 us (66 MB/s),
+  1 MiB 117.4 MB/s (w34 19.7, UEFI 94). Per 64 KiB command: DEVICE ~123 us, copy-back ~317 us, ~370 us elsewhere.
+- Next levers: copy-back (DMA straight into the SRB buffer, or a faster cached copy), MaximumTransferLength > 64 KiB
+  (UCD PRDT region), queue depth > 1, then writes (s10eperf disk) - writes still stage through the Device view.

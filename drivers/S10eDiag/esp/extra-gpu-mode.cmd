@@ -28,6 +28,9 @@ goto end
 :collect
 del /f /q C:\S10eTmp\gpumode2.flg
 s10ediag mark g: pass 2 - collect
+rem MaliG76Wddm's PRAM DDI trace (WINPRAM + 0x4000, 16 KiB, drivers/MaliG76Wddm/pram.c) of THIS boot, live.
+s10ediag dumpram 0x8FE04000 0x4000 "%G%\maliwddm-pram.bin" > "%G%\maliwddm-pram.txt" 2>&1
+s10ediag peek 0x8FE04000 0x4000 > "%G%\maliwddm-pram-peek.txt" 2>&1
 call "%ESP%\S10EDIAG\gpu\extra-gpu-g10.cmd"
 for %%R in (trace) do if exist "%G%\%%R.reg" for /f "usebackq delims=" %%L in (`findstr /i "Mode Started Fail Seen_Create GpuQuieted ResContract Presents" "%G%\%%R.reg"`) do s10ediag mark "t: %%L"
 :end

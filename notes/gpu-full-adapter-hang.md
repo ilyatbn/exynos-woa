@@ -188,3 +188,8 @@ No code defect found in the F2 diff; nothing to fix.
 - Pass 1 (GPU0 hidden) now writes GraphicsDrivers\Scheduler EnablePreemption 0 when full.flg or gpu.flg asks for a
   full mode, deletes it for 0/0 - the same rule extra-gpu-g10.cmd applies, one boot earlier. Not inside a ( ) block,
   so %ANYFULL% expands at the right time. CRLF kept (.gitattributes eol=crlf).
+- Review of 00f8f74: GPU/FULL are always set (0 defaults) before the new lines; `reg delete` of an absent value only
+  prints an error into set-mode.txt; the scheduler key path matches extra-gpu-g10.cmd's. No defect.
+- Follow-up task: pass 2 (the boot in the new mode, if it gets that far) also saves the live PRAM slice:
+  `s10ediag dumpram 0x8FE04000 0x4000 gpu\maliwddm-pram.bin` and a `peek` hex dump (dumpram uses MmCopyMemory
+  physical, which may refuse firmware-reserved RAM - the peek is the fallback; both outputs kept).

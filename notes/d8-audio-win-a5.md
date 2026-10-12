@@ -219,3 +219,34 @@ Device result (coordinator, runs in scratchpad\runs\audA5\last\audio, \audA5b, \
    `-> C00000BB` (NOT_SUPPORTED) / other error line around the time of the WASAPI test are the evidence for the
    0x80070032; success = GetMixFormat 0 in audiotest.txt and `cb StreamPrepareHardware -> 00000000`, `cb Run -> 00000000`
    in run.txt.
+
+## A7 (2026-10-13): a6 device result and the request log
+
+Runs audA6s/t/u (scratchpad\runs\audA6u\last\audio\run.txt): 1.0.1.5 ACX 1.1 binds and loads at boot, no 0xD1 (T5
+proven). Still GetMixFormat / EndpointVolume Activate 0x80070032 (state 1).
+- **Limit of the a6 log: "-> 00000000" on every req is the return of Acx{Circuit,Stream}DispatchAcxRequest = the
+  dispatch was accepted, NOT the request's completion status** - proof: size queries (val 0) such as Pin.3/Topology.1
+  normally complete STATUS_BUFFER_OVERFLOW and are followed by a sized query, and those show "-> 00000000" too.
+- KS sizes on ARM64: KSDATAFORMAT 64 B, +WAVEFORMATEXTENSIBLE 40 = 104 (= ACX's default format, Pin.14 get val 104),
+  KSDATARANGE_AUDIO 84 -> 88 aligned, 2 ranges + KSMULTIPLE_ITEM = 184 (= Pin.3 val 184).
+- One endpoint-builder round (#341-#357, repeated ~83 times in 32 s, i.e. a retry loop): Pin.14
+  PROPOSEDATAFORMAT get (size, then 104 B = our default) -> 12 x Pin.14 set (104 B variants) -> Pin.3 DATARANGES (size,
+  184 B) -> **Pin.4 DATAINTERSECTION get, Control = our own 184 B range list, Value 0 (size query) and never a sized
+  follow-up** -> next round. Every other sized query in the log is followed by its data query, so the intersection
+  size query is the step that fails, and it ends every round. A failed intersection = the engine cannot derive a
+  device format from the pin = no mix format = AudioSrv refuses the endpoint (GetMixFormat/Activate 0x80070032).
+- The probe streams (16/32 bit create, RT buffer, latency) succeed once at 1.08 s, before the first round; the rounds
+  never reach a pin create again.
+- Why ACX fails its own ranges is unknown (no ACX symbols/source); the fix does not depend on it: KS defines the
+  intersection precisely (DATAINTERSECTION: input KSMULTIPLE_ITEM of KSDATARANGEs, output one KSDATAFORMAT; size query
+  = STATUS_BUFFER_OVERFLOW + Information), and the ACX sample's CircuitHelper.cpp:483-620 shows the driver completing a
+  property in the preprocess hook itself (WdfRequestCompleteWithInformation, BUFFER_OVERFLOW size convention).
+
+### Plan A7
+- T9 log: per-key (set, id, verb, item type, item id) counters - first 6 of each logged, then every 100th, plus a
+  closing histogram; the format of every Pin.14 set is decoded into the log (first 48).
+- T10 Parameters\KsOverride (default 1): the hook completes Pin.4 DATAINTERSECTION on the host pin itself (first range
+  that admits 48 kHz / 2 ch / 16 (else 32) bit PCM -> AudFormatPcm16/32, KS size-query convention) and Pin.14
+  PROPOSEDATAFORMAT set on the host pin for WAVEFORMATEX/EXTENSIBLE formats (SUCCESS for exactly our two formats, else
+  STATUS_NO_MATCH); everything else still goes to ACX. KsOverride = 0 restores the a6 behaviour (pure ACX).
+- T11 version 1.0.1.6, package audio-a7.

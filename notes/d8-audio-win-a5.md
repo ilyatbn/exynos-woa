@@ -294,3 +294,39 @@ last request before the repeat. A/B: Parameters\KsOverride = 0 = a6 behaviour.
 - Review of T11 / earlier HANDOFF commits: finding R5 - the three HANDOFF §32 audio addenda (a5, a6, a7) were written
   through a Python string where "\a" in "s10e-artifacts\audio-aN" became a BEL byte (0x07): the package paths read
   "s10e-artifacts<BEL>udio-aN". Fixed in its own commit (byte replace, 0 BEL bytes left; notes file checked: none).
+
+## A8 (2026-10-13): a7 device result
+
+Run audA7 (scratchpad\runs\audA7\last\audio): 1.0.1.6 loads at boot; KsOverride works - host-pin DATAINTERSECTION now
+completes (size query `done 80000005 info 104`, sized `done 00000000 info 104`, `ks: intersection range 0: size 88 ...
+-> 16 bit`). New endpoint {2b1f414a-...} state 1. WASAPI error changed: **0x88890008 AUDCLNT_E_UNSUPPORTED_FORMAT** on
+GetMixFormat, IAudioEndpointVolume Activate and Initialize (a6: 0x80070032) - the intersection was a real blocker,
+something after it still is.
+- Key maxima (de-dup counters): Pin.14 set (ours) 2047, Pin.14 get / Pin.3 get / Pin.4 get 300 each, everything else
+  <= 6. One round (repeats ~150 times, ~0.17 s apart, from 1.2 s to the 87 s log end, also without WASAPI calls):
+  Pin.14 get default (ACX, size + 104 B) -> 12 Pin.14 sets (ours) -> Pin.3 DATARANGES (size + 184 B) -> Pin.4
+  intersection (ours, size + 104 B) -> next round. So the decision that fails is taken in user mode after a round
+  whose every answer is now well-formed.
+- Decoded proposals (rounds 1-4 identical, #9-#20): 2 ch 48 kHz 32/24/16, 2 ch 44.1 kHz 32/24/16, 6 ch (mask 3F)
+  44.1/48 kHz 32/24/16 - all EXTENSIBLE PCM, valid = container. Accepted: 2 ch 48 kHz 32/32 and 16/16 (no NO_MATCH line
+  for #9/#11); the other 10 -> C0000272 (correct for our pin).
+- Startup only (once, to ACX): 64-byte KSDATAFORMAT headers (specifier WAVEFORMATEX, no wave data) with subtypes PCM,
+  0x92 (AC3-over-SPDIF) and 0x164 (WMA-SPDIF); one with flags 0x760065; one MUSIC/MIDI {E725D360}/{1D262760} probe whose
+  intersection we answered NO_MATCH (correct, not audio). ACX's answers to the 64-byte ones are not visible.
+- Not determinable from the KS log: which device format AudioSrv stored/chose and why it calls it unsupported. Next
+  data must come from user mode: the endpoint property store (PKEY_AudioEngine_DeviceFormat {F19F064D-082C-4E27-BC73-
+  6882A1BB8E4C},0 / OEMFormat {E4870E26-...},3, under HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\
+  Render\{id}\Properties), the Microsoft-Windows-Audio event channels, IsFormatSupported, and an EXCLUSIVE-mode open
+  (bypasses the engine's device format entirely).
+- Safety (user): run audA7 ran with AmpInit/AmpEnable/AboxEnable = 1 because deleting the old package wiped the staged
+  values and the INF defaults were 1 (nothing played: no stream ran). INF + driver defaults go to 0; test tone 0.25 ->
+  0.03 amplitude, key steps ~10 % / ~6 % / ~16 %.
+
+### Plan A8 (one commit each)
+- T12 defaults AmpInit/AmpEnable/AboxEnable = 0 (INF AddReg + Driver.c AudReadConfig + header comments).
+- T13 audio-test.ps1: amplitude 0.03, key steps 10/6/16 %; dump the endpoint property store format keys; IsFormatSupported
+  (shared) for 48k/16 PCM, 48k/16 EXT, 48k float; one exclusive-mode 48 kHz 16-bit tone (quiet) before the shared tones.
+- T14 extra-audio.cmd: MMDevices Render registry dump + Microsoft-Windows-Audio/* event channels.
+- T15 driver: log ACX's own default + list formats at circuit creation; decode each DISTINCT proposed format (not just
+  the first 48) with our verdict; version 1.0.1.7.
+- T16 package audio-a8.

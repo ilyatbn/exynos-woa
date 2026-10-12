@@ -187,3 +187,8 @@ RDMA frame counter.
   8 resources match, pd-aud on, IP "ABOX", audit identical to the UEFI audit, AmpInit skipped, D0Entry.
   The tone test ran as SYSTEM (the cmd for /f user lookup returned nothing) and PlaySync returned in ~60 ms ->
   no playback test. Fixed: run-as-user.ps1 (Register-ScheduledTask with the explorer owner, Interactive).
+- Runs audB4-B6: streams are created (16 + 32 bit probing) but WASAPI GetMixFormat fails 0x80070032 and the tone
+  hangs; B5/B6 results never reached the ESP / NTFS. Phone System.evtx: **Ntfs event 55 "corruption discovered" on
+  C:** + "requires an Online Scan". Cause (inference): the TWRP-side DriverStore swaps (deploy.sh) ran fsck.ntfs on
+  the dirty volume and wrote to it. **Rule from now on: no NTFS writes from TWRP**; drivers are installed by Windows
+  (install-drivers.cmd: pnputil every package under ESP \S10EDIAG\install\). Windows' own online scan repairs C:.

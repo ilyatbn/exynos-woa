@@ -13,6 +13,7 @@ set D=%TMP%\s10e-audio
 if exist "%D%" rd /s /q "%D%"
 xcopy /e /i /y "%ESP%\S10EDIAG\drivers\Exynos9820Audio" "%D%" > "%W%\xcopy.txt" 2>&1
 copy /y "%ESP%\S10EDIAG\audio-test.ps1" "%TMP%\audio-test.ps1" > nul
+if exist "%ESP%\S10EDIAG\install-drivers.cmd" call "%ESP%\S10EDIAG\install-drivers.cmd"
 set PLAY=1
 if exist "%ESP%\S10EDIAG\audio-stage.cmd" call "%ESP%\S10EDIAG\audio-stage.cmd"
 reg query "HKLM\SYSTEM\CurrentControlSet\Services\Exynos9820Audio\Parameters" > "%W%\params.txt" 2>&1

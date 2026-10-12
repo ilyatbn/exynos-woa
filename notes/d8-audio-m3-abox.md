@@ -417,3 +417,17 @@ UAIF1 SPK (F12); needs UAIF0 configured as I2S master (same F4 rules) plus codec
   drives BCLK/LRCLK while SIFS1 has data, and PUP_DONE needs the amp clock.
 - boot #99: variant 0 (DRAM) is started before the amp power-up, PLL_LOCK poll 100 ms; later variants switch
   the DMA buffer (RDMA0 disable / reprogram / enable). sha256 51a9e405….
+- **boot #99 RESULT (run b99, ~10:55): LOUDSPEAKER SOUND, proven by the PC mic.**
+  - Mic (narrowband): 1500 Hz at t = 17.8 s for 2.1 s, peak -50 dBFS, **SNR 44 dB** (variant DRAM physical);
+    3000 Hz at t = 19.8 s for 2.2 s, peak -46 dBFS, **SNR 51 dB** (variant SRAM physical 0x18D10000);
+    6000 Hz: nothing (variant SRAM by DSP offset 0x10000). Headphone tone 1000 Hz at t = 37.6 s as before.
+  - => **RDMA addresses are PHYSICAL** (AUD SysMMU disabled = bypass): both DRAM (0xEFFED000) and ABOX SRAM by
+    physical address play; the DSP-offset form does not. The RDMA0 FORMAT field at bits 12:8 (0x1B = 4 x 32)
+    and VOL_FACTOR 0x800000 give correct audio (2.1 layout holds on 2.0.1).
+  - RDMA0 STATUS bits 11:0 advance 0xF0 = 240 per 5 ms = **48 kHz frames** (RBUF_CNT counts frames, mod 4096);
+    PROGRESS bit31 set while running; bits 27:12 stayed 0 (not the read offset on this version, or needs more).
+  - Amp: PLL_LOCK bit still not seen within 100 ms of polling IRQ1_STATUS3 (reads 0x20000000), yet PUP_DONE came
+    after 1 ms and the tone plays: the lock bit is probably latched only as an IRQ status after unmask, ignore.
+  - Order that works: UAIF1 SPK_EN, RDMA0 enabled with data, then amp power-up (PUP_DONE), unmute, volume.
+    Without data on RDMA0, PUP_DONE times out (b98).
+  - m3 is **device-validated** (loudspeaker tone from the AP alone: no ABOX DSP, no amp DSP).

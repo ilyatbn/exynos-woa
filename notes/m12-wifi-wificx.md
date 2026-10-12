@@ -288,3 +288,11 @@ What the logs must show (Exynos9820WlanCx.txt = bring-up, -run.txt = runtime):
   attribute handling); findstr searches literal (/l: "[wdi]" etc. would otherwise be regex classes); only the
   bring-up/run key lines become marks, the per-command [wdi] lines go to wdi.txt; no credentials anywhere; the
   package's sha256 in the notes re-checked against s10e-artifacts\wifi-cx3. No findings.
+
+## DEVICE RUN cx1 (2026-10-12 ~20:50 device time, boot #113, wifi-cx3, audio/GPU hidden)
+- pnputil oem9.inf installed on ACPI\SAMS9825 (outranks the KMDF Exynos9820Wlan). OS WDI version 0x00020003.
+- T1 warm-restart fix WORKS: "[dl] D11 core ... resetctrl -> 0x1" both cores, image written pass 1 with **0 mismatches**,
+  DL 0 firmware running (this is a device restart while the KMDF driver's firmware was running).
+- CX 0: MAC A8:DB:03:06:3C:EF. **netsh wlan show interfaces: interface "WiFi", "Samsung Exynos 9820 BCM4375 Wi-Fi",
+  Radio Hardware On / Software On, State disconnected.** WDI scans: SCAN 0, 31-34 records -> 10-14 BSS each.
+- Next: the user connects through the Windows flyout (password typed by the user), then ipconfig + a web page.

@@ -1326,3 +1326,16 @@ installed device (hence the live update step).
 **§32 audio addendum 4 (2026-10-13, agent).** a7: intersection fixed, error now AUDCLNT_E_UNSUPPORTED_FORMAT (endpoint-builder rounds keep repeating). a8 = s10e-artifacts\audio-a8 (1.0.1.7, sys 35b16cdc...): hardware stages default OFF in INF + driver (user safety), quiet audio-test (0.03, ~10/6/16 %), user-mode diagnostics (endpoint property store formats, IsFormatSupported, one exclusive-mode tone, MMDevices registry + Audio event channels), ACX default-format and distinct-proposal logging. Test: notes/d8-audio-win-a5.md "A8 device test".
 **§32 audio addendum 5 (2026-10-13, agent).** a8: the endpoint store lacks the engine DeviceFormat {F19F064D},0 and PhysicalSpeakers/FullRangeSpeakers that a working endpoint has; every AudioSrv call 0x88890008 without a pin create. a9 = s10e-artifacts\audio-a9 (1.0.1.8, sys bcedf29e...): KSPROPERTY_AUDIO_CHANNEL_CONFIG (stereo) on the volume element + INF PhysicalSpeakers/FullRangeSpeakers = 3; extra-audio-swap pass 2 now dumps MMDevices + audio event logs. Test: notes/d8-audio-win-a5.md "A9 device test".
 **§32 audio addendum 6 (2026-10-13, agent).** a9: speaker keys reached the store, DeviceFormat still absent; the endpoint's format cache {74E4357A},2 is EMPTY (0 rates) on the phone vs filled on every working PC endpoint. a10 = s10e-artifacts\audio-a10 (1.0.1.9, sys 22f6196e...): driver answers the header-only PCM family probe (PROPOSEDATAFORMAT, 64 B) and offers DEFAULT mode besides RAW (Parameters\DefaultMode). Test: notes/d8-audio-win-a5.md "A10 device test".
+
+## 35. Restart point (2026-10-13 ~02:30 local, unattended; device clock 23:30 GMT)
+**Phone:** BOOT = #114 (boot114-gpuon-cleanret-v2.img, 85e4e0c5…: main + GPU_POWER_ON 1 + clean return + noaudio/nogpu
+switches). ESP flags: none set except as noted per run (nogpu.flg / noaudio.flg hide GPU0 / AUD0). Windows drivers:
+UFS w37, WiFiCx cx5 (**WiFi works**, user-confirmed on the laptop hotspot S10eTest, phone 192.168.137.90, TCP 135/445
+answer, ping ~58 ms), battery (322ca95…), audio a10 1.0.1.9 (loads at boot, no crash; still 0x88890008 - endpoint
+format cache partly filled, agent on a11), MaliG76Wddm 1.0.13.1 (display-only: desktop visible on webcam; FullAdapter
+1: no hang any more (software vsync), screen dark because DWM drops its maliumd.dll device - agent on G13/UMD).
+**Tooling learned today:** unattended runs end with a clean restart (torecovery.flg, #113+); driver swaps for
+boot-loaded drivers go through hide-flag + pnputil stage + unhide (extra-audio-swap.cmd, extra-gpu-mode.cmd with
+gpu\stage.flg); clean-restart runs save PRAM to \WINPRAM-RESTART.BIN (not WINPRAM.BIN); marker files in C:\S10eTmp
+(audswap.flg, gpumode2.flg) survive a crashed pass and make the next run skip pass 1 - check marks first.
+**In flight:** audio a11, GPU G13 (mali-g15), remote-control channel (S10eAgent outbound HTTP poll to the laptop).

@@ -26,6 +26,15 @@
 #define CHG_HOLD_MS           1000
 #define CHG_UNPLUG_MS         2000
 
+//
+// User 2026-10-12 (unattended sessions): 1 = a charger power-on (sboot lpcharge) does NOT stay in the battery
+// screen but boots on like a normal power-on (the pre-11f7c38 behaviour), so a phone that powered off during an
+// unattended run comes back by itself while the cable is in. 0 = off-mode charging loop (interactive default).
+//
+#ifndef BEYOND0LTE_CHARGER_BOOTS_ON
+#define BEYOND0LTE_CHARGER_BOOTS_ON  1
+#endif
+
 STATIC
 BOOLEAN
 ChargerFlagInBootargs (
@@ -164,6 +173,11 @@ ChargerModeCheckAndRun (VOID)
   BOOLEAN    WasPressed;
 
   if (!ChargerFlagInBootargs (Args, sizeof (Args))) {
+    return;
+  }
+
+  if (BEYOND0LTE_CHARGER_BOOTS_ON) {
+    DEBUG ((DEBUG_WARN, "ChargerMode: charger power-on - BEYOND0LTE_CHARGER_BOOTS_ON 1, booting on (no charging screen)\n"));
     return;
   }
 

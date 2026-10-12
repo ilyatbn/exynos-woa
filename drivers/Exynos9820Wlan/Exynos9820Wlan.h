@@ -451,6 +451,37 @@
 #define DLOAD_LEN                   4              /* u32 */
 #define DLOAD_CRC                   8              /* u32 */
 #define DLOAD_HDR_SIZE              12
+/* ---- milestone 6: WPA2-PSK join with the firmware supplicant (notes/m12-wifi-m6.md) ---- */
+#define WLC_SET_INFRA               20             /* fmac fwil.h:20, dhd wlioctl_defs.h:622 */
+#define WLC_SET_SSID                26             /* fmac fwil.h:25, dhd wlioctl_defs.h:628 */
+#define WLC_SET_WSEC_PMK            268            /* fmac fwil.h:82, dhd wlioctl_defs.h:875 */
+#define WPA2_AUTH_PSK               0x0080         /* dhd wlioctl_defs.h:555 */
+#define AES_ENABLED                 0x0004         /* dhd wlioctl_defs.h:489 */
+#define WL_AUTH_OPEN_SYSTEM         0              /* dhd wlioctl_defs.h:999 */
+#define WSEC_PASSPHRASE             1              /* dhd wlioctl.h:1543 */
+#define WSEC_MIN_PSK_LEN            8              /* dhd wlioctl.h:1536 */
+#define WSEC_MAX_PSK_LEN            64             /* dhd wlioctl.h:1538 */
+#define WSEC_PMK_SIZE               260            /* wsec_pmk_t: u16 len, u16 flags, key[256] (dhd wlioctl.h:1540-1552) */
+#define JOIN_PARAMS_SIZE            36             /* wlc_ssid {u32 len, 32 B} (fmac cfg80211.c:2600-2617) */
+#define PMK_LEN                     32
+#define PBKDF2_ITERATIONS           4096           /* IEEE 802.11i PSK mapping */
+#define WLC_E_SET_SSID              0              /* dhd bcmevent.h:117 */
+#define WLC_E_AUTH                  3              /* :120 */
+#define WLC_E_DEAUTH_IND            6              /* :123 */
+#define WLC_E_ASSOC                 7              /* :124 */
+#define WLC_E_DISASSOC_IND          12             /* :129 */
+#define WLC_E_LINK                  16             /* :133 */
+#define WLC_E_PSK_SUP               46             /* :162 */
+#define WLC_EVENT_MSG_LINK          0x01           /* bcmevent.h:55, event flags */
+#define WLC_SUP_KEYED               6              /* dhd wlioctl.h:1497 = fmac BRCMF_E_STATUS_FWSUP_COMPLETED fweh.h:138 */
+#define EVT_FLAGS                   26             /* be16 */
+#define EVT_ADDR                    48             /* 6 B */
+#define JOIN_TIMEOUT_MS             20000
+#define JOIN_OK                     0
+#define JOIN_SETUP_FAILED           1
+#define JOIN_TIMEOUT                2
+#define JOIN_FW_FAILED              3              /* SET_SSID status != 0, PSK_SUP != KEYED, deauth/disassoc */
+#define JOIN_NOT_CONFIGURED         4
 #define WLC_VER_SIZE                16             /* wl_wlc_version_t, dhd wlioctl.h:14092-14104 (8 x u16) */
 #define WLC_VER_MAJOR               12             /* wlc_ver_major u16 (version, length, 4 x epi, major, minor) */
 #define DOT11_BSSTYPE_ANY           2              /* fmac fwil_types.h:72 */

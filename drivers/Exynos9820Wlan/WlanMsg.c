@@ -18,6 +18,7 @@
 #include <ntddk.h>
 #include <wdf.h>
 #include <ntstrsafe.h>
+#include <bcrypt.h>
 #include "WlanDl.h"
 #include "WlanMsg.h"
 
@@ -56,6 +57,12 @@ typedef struct _MSG_STATE {
     UCHAR               Bss[SCAN_MAX_BSS][6];
     UCHAR               VarBuf[IOCTL_REQ_MAX_INPUT];   /* iovar name + value (clmload chunks) */
     BOOLEAN             ScanV2;         /* escan params version chosen at milestone 4 */
+    /* milestone 6 join tracking (EventPacket) */
+    BOOLEAN             Joining;
+    LONG                JoinSetSsid;    /* SET_SSID status, -1 = none yet */
+    LONG                JoinPskSup;     /* PSK_SUP status, -1 = none yet */
+    BOOLEAN             JoinLinkUp;
+    BOOLEAN             JoinLost;       /* deauth / disassoc / link down while joining */
     /* Cache maintenance (Parameters\CacheMaint, run m5-2): the WDF common buffer is CPU-cached and device
        writes do not update CPU caches. Clean = KeFlushIoBuffers(Mdl, FALSE, TRUE) for regions the CPU writes
        and the device reads; invalidate = KeFlushIoBuffers(Mdl, TRUE, TRUE) for regions only the device writes
@@ -272,6 +279,28 @@ EventPacket(_Inout_ PMSG_STATE S, _In_reads_bytes_(Len) const UCHAR *P, _In_ ULO
     DataLen = Be32(P + EVT_DATALEN);
     if (DataLen > Len - EVT_DATA) {
         DataLen = Len - EVT_DATA;
+    }
+    if (S->Joining && (Type == WLC_E_SET_SSID || Type == WLC_E_AUTH || Type == WLC_E_ASSOC || Type == WLC_E_LINK ||
+                       Type == WLC_E_PSK_SUP || Type == WLC_E_DEAUTH_IND || Type == WLC_E_DISASSOC_IND)) {
+        USHORT Flags = (USHORT)((P[EVT_FLAGS] << 8) | P[EVT_FLAGS + 1]);
+
+        ReportLine(S->R, "[join] event %lu status %lu reason %lu flags 0x%04X addr %02X:%02X:%02X:%02X:%02X:%02X\r\n",
+                   Type, Status, Be32(P + EVT_REASON), Flags, P[EVT_ADDR], P[EVT_ADDR + 1], P[EVT_ADDR + 2],
+                   P[EVT_ADDR + 3], P[EVT_ADDR + 4], P[EVT_ADDR + 5]);
+        if (Type == WLC_E_SET_SSID) {
+            S->JoinSetSsid = (LONG)Status;
+        } else if (Type == WLC_E_PSK_SUP) {
+            S->JoinPskSup = (LONG)Status;
+        } else if (Type == WLC_E_LINK) {
+            if ((Flags & WLC_EVENT_MSG_LINK) != 0) {
+                S->JoinLinkUp = TRUE;
+            } else {
+                S->JoinLost = TRUE;
+            }
+        } else if (Type == WLC_E_DEAUTH_IND || Type == WLC_E_DISASSOC_IND) {
+            S->JoinLost = TRUE;
+        }
+        return;
     }
     if (Type == WLC_E_ESCAN_RESULT) {
         S->ScanEvents++;
@@ -1015,4 +1044,221 @@ WlanMsgFree(PWLAN_MSG_CTX M)
     }
     WlanDlRelease(&M->Bus);
     M->Resident = FALSE;
+}
+
+/* ---------------------------------------------------------------- milestone 6: WPA2-PSK join */
+
+static BOOLEAN
+AsciiFromUnicode(_In_ PCUNICODE_STRING U, _Out_writes_(Max) PCHAR Out, _In_ ULONG Max, _Out_ PULONG Len)
+{
+    ULONG I, N = U->Length / sizeof(WCHAR);
+
+    *Len = 0;
+    if (N > Max) {
+        return FALSE;
+    }
+    for (I = 0; I < N; I++) {
+        if (U->Buffer[I] < 0x20 || U->Buffer[I] >= 0x7F) {
+            return FALSE;   /* printable ASCII only for now */
+        }
+        Out[I] = (CHAR)U->Buffer[I];
+    }
+    *Len = N;
+    return TRUE;
+}
+
+static LONG
+HexNibble(_In_ WCHAR C)
+{
+    if (C >= L'0' && C <= L'9') {
+        return C - L'0';
+    }
+    if (C >= L'a' && C <= L'f') {
+        return C - L'a' + 10;
+    }
+    if (C >= L'A' && C <= L'F') {
+        return C - L'A' + 10;
+    }
+    return -1;
+}
+
+_Use_decl_annotations_
+NTSTATUS
+WlanJoinPrepare(PCUNICODE_STRING Ssid, PCUNICODE_STRING Passphrase, PCUNICODE_STRING Psk, PWLAN_JOIN_CONFIG J,
+                PWLAN_REPORT R)
+{
+    CHAR              Pass[WSEC_MAX_PSK_LEN];
+    ULONG             SsidLen, PassLen, I;
+    BCRYPT_ALG_HANDLE Alg = NULL;
+    NTSTATUS          Status;
+
+    RtlZeroMemory(J, sizeof(*J));
+    if (Ssid->Length == 0) {
+        return STATUS_NOT_FOUND;   /* not configured: milestone 6 dormant */
+    }
+    if (!AsciiFromUnicode(Ssid, J->Ssid, sizeof(J->Ssid), &SsidLen) || SsidLen == 0) {
+        ReportLine(R, "[join] Parameters\\Ssid must be 1..32 printable ASCII characters\r\n");
+        return STATUS_INVALID_PARAMETER;
+    }
+    J->SsidLen = (UCHAR)SsidLen;
+    if (Psk->Length == 2 * PMK_LEN * sizeof(WCHAR)) {
+        for (I = 0; I < PMK_LEN; I++) {
+            LONG Hi = HexNibble(Psk->Buffer[2 * I]), Lo = HexNibble(Psk->Buffer[2 * I + 1]);
+
+            if (Hi < 0 || Lo < 0) {
+                ReportLine(R, "[join] Parameters\\Psk must be 64 hex characters\r\n");
+                return STATUS_INVALID_PARAMETER;
+            }
+            J->Pmk[I] = (UCHAR)((Hi << 4) | Lo);
+        }
+        J->Valid = TRUE;
+        ReportLine(R, "[join] target \"%.*s\", PMK from Parameters\\Psk\r\n", (int)SsidLen, J->Ssid);
+        return STATUS_SUCCESS;
+    }
+    if (!AsciiFromUnicode(Passphrase, Pass, sizeof(Pass) - 1, &PassLen) || PassLen < WSEC_MIN_PSK_LEN) {
+        ReportLine(R, "[join] Parameters\\Passphrase must be 8..63 printable ASCII characters (or set Psk)\r\n");
+        RtlSecureZeroMemory(Pass, sizeof(Pass));
+        return STATUS_INVALID_PARAMETER;
+    }
+    Status = BCryptOpenAlgorithmProvider(&Alg, BCRYPT_SHA1_ALGORITHM, NULL, BCRYPT_ALG_HANDLE_HMAC_FLAG);
+    if (NT_SUCCESS(Status)) {
+        Status = BCryptDeriveKeyPBKDF2(Alg, (PUCHAR)Pass, PassLen, (PUCHAR)J->Ssid, SsidLen, PBKDF2_ITERATIONS, J->Pmk,
+                                       PMK_LEN, 0);
+        BCryptCloseAlgorithmProvider(Alg, 0);
+    }
+    RtlSecureZeroMemory(Pass, sizeof(Pass));
+    if (!NT_SUCCESS(Status)) {
+        ReportLine(R, "[join] PBKDF2 failed 0x%08lX\r\n", Status);
+        RtlSecureZeroMemory(J, sizeof(*J));
+        return Status;
+    }
+    J->Valid = TRUE;
+    ReportLine(R, "[join] target \"%.*s\", PMK derived from the passphrase (PBKDF2-HMAC-SHA1, %u)\r\n", (int)SsidLen,
+               J->Ssid, PBKDF2_ITERATIONS);
+    return STATUS_SUCCESS;
+}
+
+/* IEEE 802.11i-2004 H.4.1 test vector: passphrase "password", SSID "IEEE". Proves the kernel CNG PBKDF2 path
+   without real credentials. */
+_Use_decl_annotations_
+BOOLEAN
+WlanJoinSelfTest(PWLAN_REPORT R)
+{
+    static const UCHAR Want[PMK_LEN] = {
+        0xf4, 0x2c, 0x6f, 0xc5, 0x2d, 0xf0, 0xeb, 0xef, 0x9e, 0xbb, 0x4b, 0x90, 0xb3, 0x8a, 0x5f, 0x90,
+        0x2e, 0x83, 0xfe, 0x1b, 0x13, 0x5a, 0x70, 0xe2, 0x3a, 0xed, 0x76, 0x2e, 0x97, 0x10, 0xa1, 0x2e };
+    UNICODE_STRING   Ssid, Pass, Psk;
+    WLAN_JOIN_CONFIG J;
+    WLAN_REPORT     *Quiet;
+    BOOLEAN          Ok;
+
+    Quiet = (WLAN_REPORT *)ExAllocatePool2(POOL_FLAG_PAGED, sizeof(*Quiet), 'tlWE');   /* swallow its lines */
+    if (Quiet == NULL) {
+        return FALSE;
+    }
+    RtlInitUnicodeString(&Ssid, L"IEEE");
+    RtlInitUnicodeString(&Pass, L"password");
+    RtlInitUnicodeString(&Psk, NULL);
+    Ok = NT_SUCCESS(WlanJoinPrepare(&Ssid, &Pass, &Psk, &J, Quiet)) && RtlCompareMemory(J.Pmk, Want, PMK_LEN) == PMK_LEN;
+    ExFreePoolWithTag(Quiet, 'tlWE');
+    ReportLine(R, "[join] PBKDF2 self-test (IEEE 802.11i H.4.1): %s\r\n", Ok ? "PASS" : "FAIL");
+    RtlSecureZeroMemory(&J, sizeof(J));
+    return Ok;
+}
+
+static ULONG
+SetInt(_Inout_ PMSG_STATE S, _In_z_ PCSTR Name, _In_ ULONG Value)
+{
+    return IoctlVar(S, TRUE, Name, &Value, sizeof(Value), 0);
+}
+
+/* fmac brcmf_cfg80211_connect order (cfg80211.c:2440-2620) with the firmware supplicant; PMK as dhd sends it
+   (wl_cfg80211.c:7100-7127: 64 hex chars, flags WSEC_PASSPHRASE, sizeof(wsec_pmk_t) 260). */
+_Use_decl_annotations_
+ULONG
+WlanMsgJoin(PWLAN_MSG_CTX M, PWLAN_REPORT R, const WLAN_JOIN_CONFIG *J)
+{
+    PMSG_STATE    S = Live(M, R);
+    UCHAR         Mask[WL_EVENTING_MASK_LEN];
+    UCHAR         Pmk[WSEC_PMK_SIZE];
+    UCHAR         Join[JOIN_PARAMS_SIZE];
+    ULONG         One = 1, I, Ms, Result = JOIN_SETUP_FAILED;
+    LARGE_INTEGER Delay;
+    static const UCHAR Events[] = { WLC_E_SET_SSID, WLC_E_AUTH, WLC_E_DEAUTH_IND, WLC_E_ASSOC, WLC_E_DISASSOC_IND,
+                                    WLC_E_LINK, WLC_E_PSK_SUP };
+    static const CHAR  Hex[] = "0123456789abcdef";
+
+    if (S == NULL) {
+        return JOIN_SETUP_FAILED;
+    }
+    if (!J->Valid) {
+        return JOIN_NOT_CONFIGURED;
+    }
+    ReportLine(R, "---- milestone 6: join \"%.*s\" (WPA2-PSK, firmware supplicant) ----\r\n", (int)J->SsidLen, J->Ssid);
+    S->Joining     = TRUE;
+    S->JoinSetSsid = -1;
+    S->JoinPskSup  = -1;
+    S->JoinLinkUp  = FALSE;
+    S->JoinLost    = FALSE;
+
+    if (IoctlVar(S, FALSE, "event_msgs", NULL, 0, WL_EVENTING_MASK_LEN) != MSG_OK || S->RespLen < WL_EVENTING_MASK_LEN) {
+        goto Done;
+    }
+    RtlCopyMemory(Mask, S->Resp, WL_EVENTING_MASK_LEN);
+    for (I = 0; I < ARRAYSIZE(Events); I++) {
+        Mask[Events[I] / 8] |= (UCHAR)(1 << (Events[I] % 8));
+    }
+    if (IoctlVar(S, TRUE, "event_msgs", Mask, WL_EVENTING_MASK_LEN, 0) != MSG_OK ||
+        Ioctl(S, WLC_SET_INFRA, &One, sizeof(One), 0, "SET_INFRA") != MSG_OK ||
+        SetInt(S, "wpa_auth", WPA2_AUTH_PSK) != MSG_OK ||
+        SetInt(S, "auth", WL_AUTH_OPEN_SYSTEM) != MSG_OK ||
+        SetInt(S, "wsec", AES_ENABLED) != MSG_OK ||
+        SetInt(S, "sup_wpa", 1) != MSG_OK) {
+        ReportLine(R, "[join] security setup refused (last status %ld)\r\n", S->RespStatus);
+        goto Done;
+    }
+    RtlZeroMemory(Pmk, sizeof(Pmk));
+    *(USHORT UNALIGNED *)(Pmk + 0) = 2 * PMK_LEN;
+    *(USHORT UNALIGNED *)(Pmk + 2) = WSEC_PASSPHRASE;
+    for (I = 0; I < PMK_LEN; I++) {
+        Pmk[4 + 2 * I]     = (UCHAR)Hex[J->Pmk[I] >> 4];
+        Pmk[4 + 2 * I + 1] = (UCHAR)Hex[J->Pmk[I] & 0xF];
+    }
+    I = Ioctl(S, WLC_SET_WSEC_PMK, Pmk, sizeof(Pmk), 0, "SET_WSEC_PMK");
+    RtlSecureZeroMemory(Pmk, sizeof(Pmk));
+    RtlSecureZeroMemory(S->Va + MSG_OFF_IOCTL_REQ, IOCTL_REQ_BUF_SIZE);   /* the request buffer held the key */
+    RtlSecureZeroMemory(S->VarBuf, sizeof(S->VarBuf));
+    if (I != MSG_OK) {
+        ReportLine(R, "[join] SET_WSEC_PMK refused (status %ld)\r\n", S->RespStatus);
+        goto Done;
+    }
+    RtlZeroMemory(Join, sizeof(Join));
+    *(ULONG UNALIGNED *)Join = J->SsidLen;
+    RtlCopyMemory(Join + 4, J->Ssid, J->SsidLen);
+    if (Ioctl(S, WLC_SET_SSID, Join, sizeof(Join), 0, "SET_SSID") != MSG_OK) {
+        ReportLine(R, "[join] SET_SSID refused (status %ld)\r\n", S->RespStatus);
+        goto Done;
+    }
+    Result = JOIN_TIMEOUT;
+    for (Ms = 0; Ms < JOIN_TIMEOUT_MS; Ms += 20) {
+        (VOID)D2hCtrlPoll(S);
+        if ((S->JoinSetSsid > 0) || (S->JoinPskSup >= 0 && S->JoinPskSup != WLC_SUP_KEYED) || S->JoinLost) {
+            Result = JOIN_FW_FAILED;
+            break;
+        }
+        if (S->JoinSetSsid == 0 && S->JoinPskSup == WLC_SUP_KEYED) {
+            Result = JOIN_OK;
+            break;
+        }
+        Delay.QuadPart = -10000LL * 20;
+        KeDelayExecutionThread(KernelMode, FALSE, &Delay);
+    }
+    ReportLine(R, "JOIN %lu: SET_SSID %ld, PSK_SUP %ld, link %s%s after %lu ms\r\n", Result, S->JoinSetSsid,
+               S->JoinPskSup, S->JoinLinkUp ? "up" : "not up", S->JoinLost ? ", lost" : "", Ms);
+Done:
+    S->Joining = FALSE;
+    if (Result == JOIN_SETUP_FAILED) {
+        ReportLine(R, "JOIN %u: setup failed\r\n", JOIN_SETUP_FAILED);
+    }
+    return Result;
 }

@@ -35,3 +35,19 @@ Needs the user: SSID + passphrase of their network (never guessed, never committ
   (assoc OK) AND PSK_SUP status 6 = BRCMF_E_STATUS_FWSUP_COMPLETED (fweh.h:138) = WLC_SUP_KEYED (dhd
   wlioctl.h:1491-1497 enum: DISCONNECTED 0 .. KEYXCHANGE 5, KEYED 6, TIMEOUT 7). PSK_SUP with any other status
   = handshake failure (:6184-6189).
+- Code 1.0.6.0 (WlanMsg.c, WlanProbe.c, ksecdd.lib):
+  - WlanJoinPrepare: Ssid 1..32 printable ASCII; Psk = 64 hex chars, or Passphrase 8..63 -> kernel CNG
+    BCryptDeriveKeyPBKDF2(HMAC-SHA1, SSID, 4096, 32); passphrase buffers wiped.
+  - WlanJoinSelfTest: 802.11i H.4.1 vector ("password"/"IEEE" -> f42c6fc5…9710a12e, cross-checked on the PC
+    with Python hashlib), logged every start.
+  - WlanMsgJoin:
+    - event_msgs += SET_SSID/AUTH/DEAUTH_IND/ASSOC/DISASSOC_IND/LINK/PSK_SUP; INFRA 1, wpa_auth 0x80, auth 0,
+      wsec 4, sup_wpa 1;
+    - SET_WSEC_PMK 260 B (64 hex, flags 1), then the PMK copy, the DMA request buffer and VarBuf are wiped;
+    - SET_SSID 36 B; poll up to 20 s.
+    - Result JOIN_OK = SET_SSID 0 && PSK_SUP 6; JOIN_FW_FAILED on SET_SSID != 0, another PSK_SUP status, or
+      deauth/disassoc/link-down.
+  - Runs once after the t = 30 s rescan when Ctx->Join.Valid. Build wifi-m6, sys 11A3BC9F….
+- To test (user): `reg add HKLM\SYSTEM\CurrentControlSet\Services\Exynos9820Wlan\Parameters /v Ssid /t REG_SZ
+  /d "<ssid>"` and `/v Passphrase /t REG_SZ /d "<passphrase>"`, reboot, read Exynos9820Wlan-run.txt
+  (`JOIN 0` = associated + keyed). The passphrase sits in the registry in plain text: dev bring-up only.

@@ -4,7 +4,7 @@
 
 #define	VER_FILETYPE	VFT_DRV
 #define	VER_FILESUBTYPE	VFT2_DRV_SYSTEM
-#define VER_FILEDESCRIPTION_STR     "Exynos 9820 BCM4375 WLAN driver (M12 milestone 5)"
+#define VER_FILEDESCRIPTION_STR     "Exynos 9820 BCM4375 WLAN driver (M12 milestone 6)"
 #define VER_INTERNALNAME_STR        "Exynos9820Wlan.sys"
 #define VER_ORIGINALFILENAME_STR    "Exynos9820Wlan.sys"
 

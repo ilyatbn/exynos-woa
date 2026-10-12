@@ -33,6 +33,8 @@ typedef struct _WLAN_DEVICE_CONTEXT {
     ULONG           Ticks;
     ULONG           RescanTicks;
     ULONG           Polled;     /* D2H items consumed at runtime */
+    WLAN_JOIN_CONFIG Join;      /* milestone 6 target (Parameters\Ssid + Passphrase/Psk), PMK only */
+    BOOLEAN         JoinTried;
 } WLAN_DEVICE_CONTEXT, *PWLAN_DEVICE_CONTEXT;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(WLAN_DEVICE_CONTEXT, WlanGetContext)
 
@@ -238,6 +240,47 @@ WlanReadConfig(_In_ WDFDRIVER Driver, _Out_ PWLAN_DL_CONFIG DlCfg)
     WdfRegistryClose(Key);
 }
 
+/* Milestone 6 target from Parameters: Ssid, Passphrase (or Psk). The passphrase buffer is wiped after use. */
+static VOID
+WlanReadJoin(_In_ WDFDRIVER Driver, _Out_ PWLAN_JOIN_CONFIG J, _Inout_ PWLAN_REPORT R)
+{
+    WDFKEY         Key;
+    WCHAR          SsidBuf[40], PassBuf[72], PskBuf[72];
+    UNICODE_STRING Name, Ssid, Pass, Psk;
+    struct { PCWSTR Name; PUNICODE_STRING Value; PWCHAR Buf; USHORT Size; } Items[] = {
+        { L"Ssid", &Ssid, SsidBuf, sizeof(SsidBuf) },
+        { L"Passphrase", &Pass, PassBuf, sizeof(PassBuf) },
+        { L"Psk", &Psk, PskBuf, sizeof(PskBuf) },
+    };
+    ULONG I;
+
+    RtlZeroMemory(J, sizeof(*J));
+    (VOID)WlanJoinSelfTest(R);
+    for (I = 0; I < ARRAYSIZE(Items); I++) {
+        Items[I].Value->Buffer        = Items[I].Buf;
+        Items[I].Value->Length        = 0;
+        Items[I].Value->MaximumLength = Items[I].Size;
+    }
+    if (!NT_SUCCESS(WdfDriverOpenParametersRegistryKey(Driver, KEY_READ, WDF_NO_OBJECT_ATTRIBUTES, &Key))) {
+        return;
+    }
+    for (I = 0; I < ARRAYSIZE(Items); I++) {
+        RtlInitUnicodeString(&Name, Items[I].Name);
+        if (!NT_SUCCESS(WdfRegistryQueryUnicodeString(Key, &Name, NULL, Items[I].Value))) {
+            Items[I].Value->Length = 0;
+        }
+        /* REG_SZ values may carry their terminating NUL in Length */
+        while (Items[I].Value->Length >= sizeof(WCHAR) &&
+               Items[I].Value->Buffer[Items[I].Value->Length / sizeof(WCHAR) - 1] == 0) {
+            Items[I].Value->Length -= sizeof(WCHAR);
+        }
+    }
+    WdfRegistryClose(Key);
+    (VOID)WlanJoinPrepare(&Ssid, &Pass, &Psk, J, R);
+    RtlSecureZeroMemory(PassBuf, sizeof(PassBuf));
+    RtlSecureZeroMemory(PskBuf, sizeof(PskBuf));
+}
+
 static ULONG
 CfgRead(_In_ volatile UCHAR *Cfg, _In_ ULONG Offset)
 {
@@ -383,6 +426,7 @@ WlanEvtPrepareHardware(_In_ WDFDEVICE Device, _In_ WDFCMRESLIST Raw, _In_ WDFCMR
         /* Milestone 2 (notes/m12-wifi-m2.md): firmware download + ARM start. BAR2 = 64-bit TCM window. */
         if ((P.Bar[2] & EP_CFG_BAR_TYPE_MASK) == EP_CFG_BAR_TYPE_64 && P.Bar[3] == 0) {
             WlanReadConfig(WdfDeviceGetDriver(Device), &DlCfg);
+            WlanReadJoin(WdfDeviceGetDriver(Device), &Ctx->Join, R);
             RtlZeroMemory(Msg, sizeof(*Msg));
             Msg->DmaEnabler = Ctx->DmaEnabler;
             Msg->Config     = &DlCfg;
@@ -460,6 +504,11 @@ WlanPollWork(_In_ WDFWORKITEM WorkItem)
                    Ctx->Ticks * WLAN_POLL_MS / 1000, Ctx->Polled);
         (VOID)WlanMsgRescan(&Ctx->Msg, R);
         ReportWriteFile(R);
+        if (Ctx->Join.Valid && !Ctx->JoinTried) {
+            Ctx->JoinTried = TRUE;
+            (VOID)WlanMsgJoin(&Ctx->Msg, R, &Ctx->Join);
+            ReportWriteFile(R);
+        }
     }
     if ((Ctx->Ticks % (60000 / WLAN_POLL_MS)) == 0) {
         ReportLine(R, "[run] t=%lu s: alive, %lu D2H items polled\r\n", Ctx->Ticks * WLAN_POLL_MS / 1000, Ctx->Polled);

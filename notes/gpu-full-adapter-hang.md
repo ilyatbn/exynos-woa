@@ -86,3 +86,51 @@ Found:
 3. Behaviour change accepted: StopDeviceAndReleasePostDisplayOwnership, GetNodeMetadata, QueryDependentEngineGroup and
    RenderKm now also write the registry trace on their first call / on failure (all PASSIVE DDIs per d3dkmddi.h).
 Rebuild after fix 1: exit 0, sys sha256 94656DC0... (scratchpad\mali-t1b).
+
+## T2 - static hunt: ranked suspects (FullAdapter 1 and GpuEnable 1 both black, no bugcheck, WDT quiet)
+Sources: d3dkmddi.h (WDK 10.0.26100 shared/): DXGKDDI_SUBMITCOMMAND `_IRQL_requires_(DISPATCH_LEVEL)` (:4382-4390),
+DXGKDDI_SETVIDPNSOURCEADDRESS PASSIVE..PROFILE_LEVEL-1 (:6385-6394), DXGKDDI_CONTROLINTERRUPT / GETSCANLINE /
+PRESENT PASSIVE. MS Learn DxgkDdiControlInterrupt (2024-03): "A call to DxgkDdiControlInterrupt to enable the
+specified interrupt type indicates that the operating system requires that the driver call DxgkCbNotifyInterrupt
+... to report when the interrupt type is triggered ... During every vertical retrace period ... the interrupt should
+be triggered and reported" and "The driver must return STATUS_NOT_IMPLEMENTED if an interrupt type other than
+DXGK_INTERRUPT_CRTC_VSYNC is supplied." MS Learn DxgkCbNotifyInterrupt: callers run at DIRQL; must DxgkCbQueueDpc
+after it; the page's own example calls it from a DxgkCbSynchronizeExecution routine (software engine).
+Reference: the original's installed-Windows full adapter, run 6 (W:docs/results/m5.2-board-run6-2026-10-02.md):
+"No bugcheck. The local screen went black, and an RDP session connected but was black too" - Windows ALIVE, the
+same symptom as ours; ControlInterrupt was called (order 29), Render/Present/SubmitCommand/SetVidPnSourceAddress
+never were.
+
+1. **VSync promised, never delivered** (command.c:588-596): MwControlInterrupt answers STATUS_SUCCESS to
+   DXGK_INTERRUPT_CRTC_VSYNC enable and nothing ever calls DxgkCbNotifyInterrupt(CRTC_VSYNC) - the S10e has no DECON
+   interrupt in this driver. Everything in dxgkrnl that waits for a vertical blank (D3DKMTWaitForVerticalBlankEvent -
+   DWM frame pacing, DXGI sync-interval presents, flip retirement) waits forever: a thread-level hang, DPCs alive
+   (WDT petted), no bugcheck, black screen - matches every observation. Same in mode 1 and mode 2 (the GPU half is
+   not involved) - matches "same with GpuEnable 1". Also wrong for other types (must be NOT_IMPLEMENTED).
+   MwGetScanLine (command.c:598-604) always InVerticalBlank FALSE / ScanLine 0: a D3DKMTGetScanLine poller waiting
+   for the blank spins forever. -> **Fix F1: software vsync** (60 Hz KTIMER -> DPC -> DxgkCbSynchronizeExecution ->
+   DxgkCbNotifyInterrupt(CRTC_VSYNC) + DxgkCbQueueDpc, only while enabled; GetScanLine derived from its phase),
+   Parameters\SoftVsync (default 1).
+2. **Nothing the compositor draws can reach the panel**: MwPresent (command.c:132-171) handles Blt/ColorFill only -
+   a Flip present (pAllocationList[SOURCE] = the new primary, no destination) becomes an empty op;
+   MwSetVidPnSourceAddress (display.c:576-582) is a no-op; SetVidPnSourceVisibility(FALSE) zeroes the GOP fb
+   (display.c:406-408). The firmware scan-out keeps showing 0xCA000000, which then stays black even if DWM runs.
+   -> **Fix F2**: Flip present = CPU blt of the source allocation into the GOP fb at SubmitCommand (DISPATCH, the
+   existing DoPresent path); SetVidPnSourceAddress records the address for the vsync report.
+3. **Agent artefact** (see agent reading above): the 15 min "agent never runs" is what a stuck DWM looks like with
+   the default 1800 s wait; not proof of a kernel hang. -> procedure: wait.txt 300 on the ESP for GPU runs.
+4. **UMD**: DWM's device on maliumd.dll (Mesa d3d10umd, D3D10 DDI) - in mode 1 GPU_INFO Valid = 0; run 6 shows a
+   UMD that gives up leaves a black, live system. Not fixable in the KMD; the PRAM trace shows whether
+   CreateDevice/Render/Present ever come (G13 work).
+5. **Preemption**: PreemptionAware 1 (adapter.c DriverCaps) with a no-op MwPreemptCommand (never reports
+   DMA_PREEMPTED); extra-gpu-mode.cmd sets the mode but NOT EnablePreemption 0 (only extra-gpu-g10.cmd does, one boot
+   later). Mode 1 completes every submission inside SubmitCommand, so nothing is ever preemptable; mode 2 would
+   TDR -> 0x116/0x117 after repeats, not a silent hang. -> **Fix F3**: extra-gpu-mode.cmd writes EnablePreemption 0
+   for the full modes too.
+6. **Level-line storm** (adapter.c MwInterruptRoutine returns FALSE whenever !GpuUp): only if a line is asserted
+   while unmasked (GpuProbe failed -> no MkGpuQuiet). Would stop the WDT pets or end in 0x133 -> contradicted.
+   Low; the heartbeat's isr count shows it (thousands per second).
+7. **ZwFlushKey per traced value inside DDIs** (adapter.c MwLog): synchronous hive writes under dxgkrnl's locks,
+   slow, not a deadlock. Kept; PRAM now precedes it.
+8. **DxgkCbSynchronizeExecution failing** (no interrupt connected for 3 line SPIs?) -> SubmitCommand returns
+   STATUS_UNSUCCESSFUL -> VidSch bugcheck, not silent. Visible in PRAM as "<SubmitCommand c0000001".

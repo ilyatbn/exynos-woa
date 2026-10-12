@@ -56,18 +56,22 @@ static void Ch(PRAM_TEXT *T, CHAR C)
         T->B[T->N++] = (C >= 0x20 && C < 0x7F) ? C : '.';
 }
 
-static void Str(PRAM_TEXT *T, const CHAR *S)
+/* Room left on the line after keeping Keep characters for what follows (a " <8 hex digits>" value). */
+static ULONG Room(const PRAM_TEXT *T, ULONG Keep)
 {
-    while (S != NULL && *S != '\0')
+    return (T->N + Keep < PRAM_LINE - 1) ? PRAM_LINE - 1 - Keep - T->N : 0;
+}
+
+static void Str(PRAM_TEXT *T, const CHAR *S, ULONG Keep)
+{
+    for (ULONG n = Room(T, Keep); S != NULL && *S != '\0' && n > 0; n--)
         Ch(T, *S++);
 }
 
-static void WStr(PRAM_TEXT *T, PCWSTR S)
+static void WStr(PRAM_TEXT *T, PCWSTR S, ULONG Keep)
 {
-    while (S != NULL && *S != L'\0') {
+    for (ULONG n = Room(T, Keep); S != NULL && *S != L'\0' && n > 0; n--, S++)
         Ch(T, (*S < 0x80) ? (CHAR)*S : '?');
-        S++;
-    }
 }
 
 static void Hex(PRAM_TEXT *T, ULONG V, ULONG Digits)
@@ -163,11 +167,11 @@ void MwPramInit(ULONG Enable, ULONG Mode, ULONG Build)
     }
     Header();
     Begin(&t, (ULONG)InterlockedIncrement(&PramSeq));
-    Str(&t, "LOAD mode ");
+    Str(&t, "LOAD mode ", 0);
     Hex(&t, Mode, 1);
-    Str(&t, " build ");
+    Str(&t, " build ", 0);
     Hex(&t, Build, 8);
-    Str(&t, ours ? " cont" : " new");
+    Str(&t, ours ? " cont" : " new", 0);
     Emit(&t, TRUE);
 }
 
@@ -189,8 +193,9 @@ void MwPramText(BOOLEAN First, const CHAR *Tag, PCWSTR Name, ULONG Value, BOOLEA
     if (Pram == NULL)
         return;
     Begin(&t, (ULONG)InterlockedIncrement(&PramSeq));
-    Str(&t, Tag);
-    WStr(&t, Name);
+    /* A long name is cut, never the value after it (e.g. Order_GetStandardAllocationDriverData). */
+    Str(&t, Tag, HasValue ? 9 : 0);
+    WStr(&t, Name, HasValue ? 9 : 0);
     if (HasValue) {
         Ch(&t, ' ');
         Hex(&t, Value, 8);
@@ -206,7 +211,7 @@ void MwPramDdi(BOOLEAN First, BOOLEAN Exit, const CHAR *Name, NTSTATUS Status)
         return;
     Begin(&t, (ULONG)InterlockedIncrement(&PramSeq));
     Ch(&t, Exit ? '<' : '>');
-    Str(&t, Name);
+    Str(&t, Name, Exit ? 9 : 0);    /* StopDeviceAndReleasePostDisplayOwnership is 40 characters */
     if (Exit) {
         Ch(&t, ' ');
         Hex(&t, (ULONG)Status, 8);
@@ -223,17 +228,17 @@ void MwPramHeartbeat(ULONG Isr, ULONG Dpc, ULONG Vsync, ULONG Submits, ULONG Pre
     if (Pram == NULL)
         return;
     Begin(&t, ~0u);
-    Str(&t, "HB i");
+    Str(&t, "HB i", 0);
     Hex(&t, Isr, 6);
-    Str(&t, " d");
+    Str(&t, " d", 0);
     Hex(&t, Dpc, 6);
-    Str(&t, " v");
+    Str(&t, " v", 0);
     Hex(&t, Vsync, 6);
-    Str(&t, " s");
+    Str(&t, " s", 0);
     Hex(&t, Submits, 6);
-    Str(&t, " p");
+    Str(&t, " p", 0);
     Hex(&t, Presents, 6);
-    Str(&t, " f");
+    Str(&t, " f", 0);
     Hex(&t, Fence, 6);
     Store(PRAM_HB_LINE, &t);
     KeMemoryBarrier();

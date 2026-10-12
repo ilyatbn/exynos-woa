@@ -68,3 +68,21 @@ Device facts this starts from (HANDOFF §32 update, coordinator):
 - Reading it (PC side, after pulling WINPRAM.BIN from the ESP):
   `python -c "d=open('WINPRAM.BIN','rb').read()[0x4000:0x8000];print(d[:8],int.from_bytes(d[8:12],'little'),int.from_bytes(d[12:16],'little'));[print(d[i*64:i*64+63].decode('ascii','replace').rstrip()) for i in range(1,256)]"`
   (lines 112..255 are a ring: start reading at the line number in header +8.)
+
+## Review of 7eee385 (PRAM trace, adversarial)
+Checked: every DDI pointer in both init tables now goes through a T_ wrapper or an explicit PRAM line (rg
+"init.DxgkDdi" adapter.c: only MwAddDevice/MwStartDevice/MwRemoveDevice/MwResetDevice/MwUnload/MwInterruptRoutine/
+MwDpcRoutine/MwSystemDisplayWrite are direct - the first five trace themselves, ISR/DPC are heartbeat counters,
+SystemDisplayWrite is per bugcheck-screen blit and stays silent); HbStop runs before the adapter is freed on both
+StopDevice and RemoveDevice (a StopDeviceAndReleasePostDisplayOwnership + RemoveDevice sequence is covered by the
+latter); KeFlushQueuedDpcs only at PASSIVE (Stop/Remove); a failed DriverEntry unmaps (no Unload follows).
+Line arithmetic: Begin = 18 chars (10 ms + ' ' + 6 seq + ' '), 63 printable per line.
+Found:
+1. **Value cut off after long names** (fixed in the follow-up commit): "<StopDeviceAndReleasePostDisplayOwnership" =
+   18+1+40 = 59, the status (9 more) did not fit; "R Order_GetStandardAllocationDriverData" the same. Str/WStr now
+   keep room for the value and cut the name instead.
+2. Header +8 can lag by a line when two writers race (each stores its own snapshot of the counter): the reading
+   rule is "sort the rolling lines by the 6-hex sequence", not "start at header +8" (instruction corrected here).
+3. Behaviour change accepted: StopDeviceAndReleasePostDisplayOwnership, GetNodeMetadata, QueryDependentEngineGroup and
+   RenderKm now also write the registry trace on their first call / on failure (all PASSIVE DDIs per d3dkmddi.h).
+Rebuild after fix 1: exit 0, sys sha256 94656DC0... (scratchpad\mali-t1b).

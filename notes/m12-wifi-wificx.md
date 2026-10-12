@@ -25,10 +25,10 @@ Base: main ba1820e. Existing driver: drivers/Exynos9820Wlan (KMDF, ACPI\SAMS9825
 - WiFiCx sample: microsoft/Windows-driver-samples network/wlan/wificx (cloned 2026-10-12 to scratchpad
   ref/wds, HEAD 2dc3fd3a, MS-PL; read, nothing copied verbatim). Facts used:
   - DeviceAdd order: NetDeviceInitConfig -> WifiDeviceInitConfig -> WdfDeviceCreate -> WifiDeviceInitialize
-    (driver.cpp:96-151), TlvContext.PeerVersion = WifiDeviceGetOsWdiVersion (driver.cpp:166).
+    (driver.cpp:99-161), TlvContext.PeerVersion = WifiDeviceGetOsWdiVersion (driver.cpp:180).
   - Capabilities set from EvtDevicePrepareHardware (device.cpp:9-20 -> wifihal.cpp:76-500).
   - EvtWifiDeviceCreateAdapter: WifiAdapterInitGetType must be EXTENSIBLE_STATION, datapath callbacks,
-    NetAdapterCreate, WifiAdapterInitialize, caps, NetAdapterStart (device.cpp:35-94, adapter.cpp:22-63).
+    NetAdapterCreate, WifiAdapterInitialize, caps, NetAdapterStart (device.cpp:34-94, adapter.cpp:22-63).
   - Command flow: EvtWifiDeviceSendCommand -> WifiRequestGetInOutBuffer/GetMessageId; M3 = WifiRequestComplete;
     task M4 = WifiDeviceReceiveIndication(completion indication id, header with the request's TransactionId);
     unsolicited indications use TransactionId 0 (wifirequest.cpp:34-97, wifitransition.cpp:179-216).
@@ -113,3 +113,10 @@ Logs: Exynos9820WlanCx.txt (bring-up) + Exynos9820WlanCx-run.txt (runtime, rotat
   SET_ADD/DELETE_CIPHER_KEYS -> wsec_key; TASK_DISCONNECT and firmware deauth/link-down -> DISASSOCIATION.
 - W5 power / roam / interrupt / flowring delete on disconnect: not this session (todo row).
 - T8 ESP install/collect script drivers/S10eDiag/esp/extra-wifi-cx.cmd.
+
+## Reviews
+- Review of ab86145 (T0, notes only): re-checked every cited line with grep. FOUND: sample citations
+  driver.cpp:96-151 / :166 were off (actual NetDeviceInitConfig :99, WifiDeviceInitialize :161, PeerVersion
+  :180) and device.cpp:35 (actual :34). Fixed in a follow-up commit. dhd wl_cfg80211.c:6903-6904,
+  dot11wificxintf.h:1403, CX.Default.props:80-90, m2 notes:144, fmac chip.c:81-82/350-382/1323-1337,
+  pcie.c:656-708, dhd_pcie.c:1328-1350/4906-5000, pcie_core.c:52-115 verified.

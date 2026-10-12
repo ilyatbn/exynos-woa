@@ -1,5 +1,5 @@
-/*  WlanDl.h - milestone-2 BCM4375 firmware download/start: interface between WlanProbe.c (report,
-    resources, registry) and WlanDl.c (backplane, EROM, ARM CR4, TCM). notes/m12-wifi-m2.md.
+/*  WlanDl.h - milestone-2 BCM4375 firmware download/start: interface between the drivers (WlanProbe.c, the WiFiCx
+    client), WlanCommon.c (report, settings, chip probe) and WlanDl.c (backplane, EROM, ARM CR4, TCM). m12-wifi-m2.md.
 */
 
 #ifndef _WLAN_DL_H

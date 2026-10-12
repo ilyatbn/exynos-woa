@@ -140,3 +140,8 @@ Logs: Exynos9820WlanCx.txt (bring-up) + Exynos9820WlanCx-run.txt (runtime, rotat
   name its own logs. Mechanical check: every line removed from WlanProbe.c exists verbatim in WlanCommon.c /
   WlanProbe.c / WlanDl.h except "ULONG Bar0Lo;" (now "= 0"). KMDF build W4/WX clean (scratchpad cx\t2-kmdf,
   sys D5C5CB84C886F90C...).
+- Review of e8fc3fb (T2): read WlanCommon.c's WlanProbeChip against the old PrepareHardware: every goto still
+  reaches the Bar0 unmap; *Out/*CfgOut/*Bar0LoOut are written on every path; the only ReportWriteFile
+  dropped from the moved block is re-issued by WlanProbe.c on RESULT 0 (same order as before); registry
+  report still written on every path. FOUND: WlanDl.h's file comment still says the report/registry live in
+  WlanProbe.c. Fixed in a follow-up commit (comment only).

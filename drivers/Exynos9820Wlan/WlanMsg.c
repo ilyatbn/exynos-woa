@@ -56,7 +56,15 @@ typedef struct _MSG_STATE {
     UCHAR               Bss[SCAN_MAX_BSS][6];
     UCHAR               VarBuf[IOCTL_REQ_MAX_INPUT];   /* iovar name + value (clmload chunks) */
     BOOLEAN             ScanV2;         /* escan params version chosen at milestone 4 */
-    PMDL                D2hMdl;         /* D2H ctrl ring, for KeFlushIoBuffers before reads (Parameters\D2hInvalidate) */
+    /* Cache maintenance (Parameters\CacheMaint, run m5-2): the WDF common buffer is CPU-cached and device
+       writes do not update CPU caches. Clean = KeFlushIoBuffers(Mdl, FALSE, TRUE) for regions the CPU writes
+       and the device reads; invalidate = KeFlushIoBuffers(Mdl, TRUE, TRUE) for regions only the device writes
+       (the CPU never dirties them after the initial clean, so nothing CPU-written can be dropped). */
+    PMDL                MdlAll;         /* whole buffer: one clean after zeroing */
+    PMDL                MdlH2d;         /* H2D ctrl + rxpost rings (clean before a doorbell) */
+    PMDL                MdlReq;         /* ioctl request buffer (clean before a doorbell) */
+    PMDL                MdlD2h;         /* D2H ctrl/tx/rx completion rings (invalidate before reading) */
+    PMDL                MdlBufs;        /* ioctl response + event buffers (invalidate before reading) */
     ULONG               LastUnsynced;   /* ring index + 1 of the last "not synced" report (log once per item) */
     ULONG               Unsynced;       /* polls that stopped on an unsynced item */
 } MSG_STATE, *PMSG_STATE;
@@ -98,6 +106,47 @@ Doorbell(_In_ PMSG_STATE S, _In_ ULONG Reg)
     WlanBusBpWr(S->Bus, S->Bus->PcieCoreBase + Reg, PCIE2_DOORBELL_VALUE);
 }
 
+static VOID
+CacheClean(_In_opt_ PMDL Mdl)
+{
+    if (Mdl != NULL) {
+        KeFlushIoBuffers(Mdl, FALSE, TRUE);
+    }
+}
+
+static VOID
+CacheInvalidate(_In_opt_ PMDL Mdl)
+{
+    if (Mdl != NULL) {
+        KeFlushIoBuffers(Mdl, TRUE, TRUE);
+    }
+}
+
+static PMDL
+RegionMdl(_In_ PMSG_STATE S, _In_ ULONG Off, _In_ ULONG Len)
+{
+    PMDL Mdl = IoAllocateMdl(S->Va + Off, Len, FALSE, FALSE, NULL);
+
+    if (Mdl != NULL) {
+        MmBuildMdlForNonPagedPool(Mdl);
+    }
+    return Mdl;
+}
+
+static VOID
+RegionMdlsFree(_Inout_ PMSG_STATE S)
+{
+    PMDL *All[] = { &S->MdlAll, &S->MdlH2d, &S->MdlReq, &S->MdlD2h, &S->MdlBufs };
+    ULONG I;
+
+    for (I = 0; I < ARRAYSIZE(All); I++) {
+        if (*All[I] != NULL) {
+            IoFreeMdl(*All[I]);
+            *All[I] = NULL;
+        }
+    }
+}
+
 static PUCHAR
 RingItem(_In_ PMSG_STATE S, _In_ PMSG_RING G, _In_ ULONG Index)
 {
@@ -137,6 +186,8 @@ H2dCtrlCommit(_Inout_ PMSG_STATE S)
 {
     PMSG_RING G = &S->Ring[RING_H2D_CTRL];
 
+    CacheClean(S->MdlH2d);
+    CacheClean(S->MdlReq);
     KeMemoryBarrier();
     TcmW16(S, G->WIdxAddr, (USHORT)G->Host);
     Doorbell(S, S->Db0);
@@ -273,9 +324,7 @@ D2hCtrlPoll(_Inout_ PMSG_STATE S)
         UCHAR  Type;
 
         for (Tries = 0; Tries < 100; Tries++) {
-            if (S->D2hMdl != NULL) {
-                KeFlushIoBuffers(S->D2hMdl, TRUE, TRUE);   /* run m5-1 experiment: stale line vs DMA */
-            }
+            CacheInvalidate(S->MdlD2h);
             if (D2hItemReady(S, G, It)) {
                 break;
             }
@@ -287,9 +336,9 @@ D2hCtrlPoll(_Inout_ PMSG_STATE S)
                 const ULONG *Wd = (const ULONG *)It;
 
                 S->LastUnsynced = G->Host + 1;
-                ReportLine(S->R, "[msg] D2H item %lu not synced (epoch %u want %lu; fw w %u r %u; invalidate %u): "
+                ReportLine(S->R, "[msg] D2H item %lu not synced (epoch %u want %lu; fw w %u r %u; cache maint %u): "
                            "%08lX %08lX %08lX %08lX %08lX %08lX\r\n", G->Host, It[MSGH_EPOCH], G->Seq % EPOCH_MODULO,
-                           Tcm16(S, G->WIdxAddr), Tcm16(S, G->RIdxAddr), S->D2hMdl != NULL, Wd[0], Wd[1], Wd[2],
+                           Tcm16(S, G->WIdxAddr), Tcm16(S, G->RIdxAddr), S->MdlD2h != NULL, Wd[0], Wd[1], Wd[2],
                            Wd[3], Wd[4], Wd[5]);
             }
             break;
@@ -318,6 +367,7 @@ D2hCtrlPoll(_Inout_ PMSG_STATE S)
                 ULONG Copy = (Len < sizeof(S->Resp)) ? Len : sizeof(S->Resp);
                 ULONG Off  = MSG_OFF_IOCTL_RESP + (Pkt - IOCTL_RESP_PKTID0) * IOCTL_RESP_BUF_SIZE;
 
+                CacheInvalidate(S->MdlBufs);
                 RtlCopyMemory(S->Resp, S->Va + Off, Copy);
                 S->RespLen = Copy;
                 Repost |= BufPost(S, MSG_TYPE_IOCTLRESP_BUF_POST, Pkt, Off, IOCTL_RESP_BUF_SIZE);   /* fmac reposts too */
@@ -333,6 +383,7 @@ D2hCtrlPoll(_Inout_ PMSG_STATE S)
                 ULONG Off = MSG_OFF_EVENT_BUF + (Pkt - EVENT_BUF_PKTID0) * EVENT_BUF_SIZE;
 
                 if (S->RxOffset < EVENT_BUF_SIZE && Len <= EVENT_BUF_SIZE - S->RxOffset) {
+                    CacheInvalidate(S->MdlBufs);
                     EventPacket(S, S->Va + Off + S->RxOffset, Len);
                 } else {
                     ReportLine(S->R, "[evt] length %lu + rxoffset %lu exceeds the buffer\r\n", Len, S->RxOffset);
@@ -660,13 +711,20 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
     S->La = (ULONGLONG)WdfCommonBufferGetAlignedLogicalAddress(Cb).QuadPart;
     RtlZeroMemory(S->Va, MSG_DMA_SIZE);
     ReportLine(R, "[msg] common buffer 0x%X B at logical 0x%I64X\r\n", MSG_DMA_SIZE, S->La);
-    if (M->Config->D2hInvalidate) {
-        S->D2hMdl = IoAllocateMdl(S->Va + MSG_OFF_D2H_CTRL_CPL, D2H_CTRL_CPL_MAX_ITEM * D2H_CTRL_CPL_ITEMSIZE, FALSE,
-                                  FALSE, NULL);
-        if (S->D2hMdl != NULL) {
-            MmBuildMdlForNonPagedPool(S->D2hMdl);
+    if (M->Config->CacheMaint) {
+        S->MdlAll  = RegionMdl(S, 0, MSG_DMA_SIZE);
+        S->MdlH2d  = RegionMdl(S, MSG_OFF_H2D_CTRL, MSG_OFF_D2H_CTRL_CPL - MSG_OFF_H2D_CTRL);
+        S->MdlReq  = RegionMdl(S, MSG_OFF_IOCTL_REQ, IOCTL_REQ_BUF_SIZE);
+        S->MdlD2h  = RegionMdl(S, MSG_OFF_D2H_CTRL_CPL, MSG_OFF_IOCTL_REQ - MSG_OFF_D2H_CTRL_CPL);
+        S->MdlBufs = RegionMdl(S, MSG_OFF_IOCTL_RESP, MSG_DMA_SIZE - MSG_OFF_IOCTL_RESP);
+        if (S->MdlAll == NULL || S->MdlH2d == NULL || S->MdlReq == NULL || S->MdlD2h == NULL || S->MdlBufs == NULL) {
+            ReportLine(R, "MSG %u: cache-maintenance MDLs not allocated\r\n", MSG_NO_DMA);
+            goto Stop;
         }
-        ReportLine(R, "[msg] D2H ctrl ring invalidate before reads: %s\r\n", S->D2hMdl != NULL ? "on" : "MDL failed");
+        CacheClean(S->MdlAll);   /* the zeroing above must reach memory before the device reads it */
+        ReportLine(R, "[msg] cache maintenance on (clean H2D + request before doorbells, invalidate D2H + buffers before reads)\r\n");
+    } else {
+        ReportLine(R, "[msg] cache maintenance OFF (Parameters\\CacheMaint = 0)\r\n");
     }
     if ((S->La >> 32) != 0 || (S->La & 0xFFF) != 0) {
         ReportLine(R, "MSG %u: common buffer not 4 KB aligned below 4 GB\r\n", MSG_NO_DMA);
@@ -863,9 +921,7 @@ Stop:
         WdfObjectDelete(Cb);
     }
     if (S != NULL) {
-        if (S->D2hMdl != NULL) {
-            IoFreeMdl(S->D2hMdl);
-        }
+        RegionMdlsFree(S);
         ExFreePoolWithTag(S, 'mDlW');
     }
     ReportWriteFile(R);
@@ -953,9 +1009,7 @@ WlanMsgFree(PWLAN_MSG_CTX M)
         M->CommonBuffer = NULL;
     }
     if (M->State != NULL) {
-        if (((PMSG_STATE)M->State)->D2hMdl != NULL) {
-            IoFreeMdl(((PMSG_STATE)M->State)->D2hMdl);
-        }
+        RegionMdlsFree((PMSG_STATE)M->State);
         ExFreePoolWithTag(M->State, 'mDlW');
         M->State = NULL;
     }

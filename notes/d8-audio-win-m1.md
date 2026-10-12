@@ -87,3 +87,24 @@ Tasks: A1 driver skeleton (ACX or portcls), A2 DSDT Device (AUD0), A3 INF + buil
   sha256 60415DD47420CEEA59A3E9BFD6170C94005CEB7A47CB9B6081E7D6F9590B2105 (unsigned work build, not a package).
 - AmpI2c error-mask self-check while writing: bits 31/17/15/8/7/6 = 0x800281C0 (first draft had 0x8002A1C0, fixed
   before the build).
+
+## Review of A1 (469ed1b)
+
+Checked mechanically: every Exynos9820.h line cited in Exynos9820Audio.h (280, 688, 737-742, 754-760, 792-793,
+798-811) holds the named define with the copied value; the UEFI line refs in AmpI2c.c (157, 177, 285, 395-424)
+point at I2cReset / I2cXfer / AmpRead / the reset release; every amp-table constant (11 sampled) appears in
+d8-audio-m3-amp.md; computed masks: STATUS1 errors 0x800281C0, -20 dB field 0x760, mute 0x4CF, cap trim 0xF80,
+gain 0x0A<<5 = 0x140 - all match the code. Build already exit 0 at /W4 /WX.
+
+Findings (each a follow-up commit):
+- R1 (real, latent): AudHwStart runs AboxStart (DMA + SPK_ENABLE) BEFORE AmpPowerUp, whose PUP_DONE poll can take
+  up to 100 ms, and Run takes StartTime only after both. Once stage 2 works, the RDMA would run up to ~100 ms ahead
+  of the timer clock that tells the client which packet to fill -> it would play packets not written yet. Order must
+  be AboxInit (stage-1 clocks, needed by the amp PLL) -> AmpPowerUp -> AboxStart -> StartTime, so DMA start and
+  clock start are back to back.
+- R2 (real, HwVolume = 1 only): Dev->VolumeLevel starts at 0 (zeroed context) = 0 dB, the loudest allowed amp level,
+  until Windows assigns its persisted volume. Start at the fixed safe level (-20 dB) instead.
+- Not findings (checked): clean (not invalidate) on a packet the client may be writing cannot lose data; 64-bit
+  GlitchAdjust read is single-copy atomic on ARM64; the glitch loop terminates (next deadline = now + 1 packet);
+  AudLog's RtlStringCbVPrintfA at DISPATCH is legal (no %ws/%wZ used anywhere).
+- R1 fixed: AudHwStart = AboxInit -> AmpPowerUp -> AboxStart (amps powered down again if the DMA start fails); Run still takes StartTime right after AudHwStart. Build exit 0 /W4 /WX.

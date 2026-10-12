@@ -593,11 +593,17 @@ NTSTATUS AudEvtStreamReleaseHardware(ACXSTREAM Stream)
     return STATUS_SUCCESS;
 }
 
-/* Hardware start for one Run: ABOX stage 1 + 2, then the amps. Any failure leaves the timer-only stream running. */
+/*
+ * Hardware start for one Run. Order: stage-1 clocks (the amp PLL locks on BCLK, amp notes row 6.1), then the amps
+ * (PUP_DONE poll, up to 100 ms), and the RDMA + SPK_ENABLE LAST, so the caller can take the timer start time right
+ * after the DMA starts - the timer clock tells the client which packet to fill and must not lag the DMA.
+ * Any failure leaves the timer-only stream running.
+ */
 static VOID AudHwStart(_Inout_ PAUD_STREAM_CONTEXT Ctx)
 {
     PAUD_DEVICE_CONTEXT Dev = Ctx->Dev;
     NTSTATUS            Status;
+    NTSTATUS            AmpStatus;
 
     if (!Dev->Cfg.AboxEnable) {
         return;
@@ -608,18 +614,21 @@ static VOID AudHwStart(_Inout_ PAUD_STREAM_CONTEXT Ctx)
     }
 
     Status = AboxInit(Dev);
-    if (NT_SUCCESS(Status)) {
-        Status = AboxStart(Dev, Ctx->RingPhys, Ctx->RingBytes, Ctx->PacketSize, AUD_RATE, AUD_CHANNELS,
-                           Ctx->BitsPerSample);
-    }
     if (!NT_SUCCESS(Status)) {
-        AudLog(Dev->Log, "stream: ABOX not started (%08lX) - timer-only\r\n", Status);
+        AudLog(Dev->Log, "stream: ABOX stage 1 not ready (%08lX) - timer-only\r\n", Status);
+        return;
+    }
+
+    AmpStatus = AmpPowerUp(Dev);
+    Status = AboxStart(Dev, Ctx->RingPhys, Ctx->RingBytes, Ctx->PacketSize, AUD_RATE, AUD_CHANNELS, Ctx->BitsPerSample);
+    if (!NT_SUCCESS(Status)) {
+        AudLog(Dev->Log, "stream: ABOX DMA not started (%08lX) - amps back off, timer-only\r\n", Status);
+        AmpPowerDown(Dev);
         return;
     }
 
     Ctx->HwStarted = TRUE;
-    Status = AmpPowerUp(Dev);
-    AudLog(Dev->Log, "stream: ABOX running, amps %08lX\r\n", Status);
+    AudLog(Dev->Log, "stream: ABOX running, amps %08lX\r\n", AmpStatus);
 }
 
 _Use_decl_annotations_

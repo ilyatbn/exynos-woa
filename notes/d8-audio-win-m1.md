@@ -178,3 +178,4 @@ RDMA frame counter.
     5BD4A3E248F89A6D5D777950805AA937FC58C24D384761452AAFBEBB06315039  Exynos9820Audio.sys
     C21AD006AD4FE68F1BE712EDF8D880B45FE6B9635C932C1B75C164F5AEDA9910  Exynos9820Audio.inf
     86039A10ABEE34F966EA31EDDFEE27963E5768A9423A9CA96F74F1A382A85CE9  exynos9820audio.cat
+- Review of A2 (DSDT) + A3 (INF): checked the INF reference string equals Render.c AudRenderCircuitName (Speaker0), the hardware ID equals the DSDT _HID (SAMS9827), the five Parameters names equal Driver.c AudReadConfig's list (AmpInit, AmpEnable, AboxEnable, HwVolume, Stereo; CacheMaint gone from both), KmdfLibraryVersion 1.31 equals the vcxproj KMDF_VERSION_MINOR; the DSDT comment's claims (non-cached ring, polled, no interrupt) hold in the code. No findings.

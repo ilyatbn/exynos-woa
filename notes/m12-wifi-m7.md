@@ -151,3 +151,8 @@ fwil_types.h). Line numbers are of those copies.
   data path delivers nothing (or msg 1 is dropped before RxComplete).
 - 1.0.7.2 (wifi-m7b2): diagnostics only - at JOIN end the rxpost/rx-cpl/tx-cpl ring indices, rx/tx counters and
   the firmware console dump.
+- **Run with 1.0.7.2 (boot #101, audB3 cycle):** same as w7b (associated, flowring open in 10 ms, DEAUTH reason
+  15 after 2.7 s). Ring indices at JOIN end: **rxpost host w 128 / fw r 128** (firmware took every rx buffer),
+  **rx cpl fw w 0** (never completed one), tx cpl w 0, rx frames 0. Firmware console: only "EL: 30 6c50" once a
+  second. => the firmware holds received frames; something in our data-path setup differs from DHD. Audit
+  delegated (notes/m12-wifi-m7-rx-audit.md).

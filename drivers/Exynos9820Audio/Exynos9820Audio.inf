@@ -11,7 +11,7 @@ Signature   = "$WINDOWS NT$"
 Class       = MEDIA
 ClassGuid   = {4d36e96c-e325-11ce-bfc1-08002be10318}
 Provider    = %ProviderString%
-DriverVer   = 10/13/2026,1.0.1.7
+DriverVer   = 10/13/2026,1.0.1.8
 CatalogFile = Exynos9820Audio.cat
 PnpLockdown = 1
 
@@ -78,6 +78,10 @@ HKR,EP\0,%PKEY_AudioEndpoint_Supports_EventDriven_Mode%,0x00010001,0x1
 ; Default (shared-mode device) format: 48 kHz 16-bit stereo WAVEFORMATEXTENSIBLE serialized as a PROPVARIANT - the exact
 ; bytes of the MS doc "PKEY_AudioEngine_OEMFormat" example, identical to Render.c AudFormatPcm16 (the pin's ACX default).
 ; A5: the engine gets its format without topology probing (notes/d8-audio-win-a5.md).
+; A9: speaker layout of the endpoint (a working endpoint's store has both = 3, KSAUDIO_SPEAKER_STEREO; ours had
+; neither): PKEY_AudioEndpoint_PhysicalSpeakers / PKEY_AudioEndpoint_FullRangeSpeakers, REG_DWORD.
+HKR,EP\0,%PKEY_AudioEndpoint_PhysicalSpeakers%,0x00010001,0x3
+HKR,EP\0,%PKEY_AudioEndpoint_FullRangeSpeakers%,0x00010001,0x3
 HKR,EP\0,%PKEY_AudioEngine_OEMFormat%,%REG_BINARY%,41,00,00,00,28,00,00,00,FE,FF,02,00,80,BB,00,00,00,EE,02,00,04,00,10,00,16,00,10,00,03,00,00,00,01,00,00,00,00,00,10,00,80,00,00,AA,00,38,9B,71
 
 [Audio_Device.NT.Interfaces]
@@ -97,6 +101,8 @@ KSNODETYPE_ANY         = "{00000000-0000-0000-0000-000000000000}"
 PKEY_AudioEndpoint_Association               = "{1DA5D803-D492-4EDD-8C23-E0C0FFEE7F0E},2"
 PKEY_AudioEndpoint_Supports_EventDriven_Mode = "{1DA5D803-D492-4EDD-8C23-E0C0FFEE7F0E},7"
 PKEY_AudioEngine_OEMFormat                   = "{E4870E26-3CC5-4CD2-BA46-CA0A9A70ED04},3"
+PKEY_AudioEndpoint_PhysicalSpeakers          = "{1DA5D803-D492-4EDD-8C23-E0C0FFEE7F0E},3"
+PKEY_AudioEndpoint_FullRangeSpeakers         = "{1DA5D803-D492-4EDD-8C23-E0C0FFEE7F0E},6"
 REG_BINARY             = 0x00000001
 
 ; localizable

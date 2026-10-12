@@ -396,3 +396,18 @@ run extra-audio.cmd -> no mmdevices/evt dumps). New endpoint {97b9a239-...} stat
   evt-channels, Microsoft-Windows-Audio/{Operational,PlaybackManager,Informational,GlitchDetection}) + System log
   entries of AudioEndpointBuilder / Audiosrv / Microsoft-Windows-Audio (XPath tested on this PC through a .cmd: rc 0).
   Stale comment about INF defaults 1 corrected.
+- Probe review vs the ACX sample (task 2): the sample's RT stream implements exactly our six RT callbacks
+  (GetHwLatency, Allocate/FreeRtPackets, SetRenderPacket, GetCurrentPacket, GetPresentationPosition;
+  RenderCircuit.cpp CodecR_EvtCircuitCreateStream) and the four stream callbacks; AcxStreamInitSetAcxRtStreamSupportsNotifications
+  set in both. The boot probe asks QUERY_NOTIFICATION_SUPPORT (RtAudio.8), basic support of SETWRITEPACKET (12) and
+  PACKETCOUNT (9), BUFFER_WITH_NOTIFICATION (5 -> AllocateRtPackets 2 x 10 ms), HWLATENCY (2), close - all ACX-handled,
+  same as for the sample. Only difference: GetHwLatency Delay = 100000 (one 10 ms period of DMA lead) vs the
+  sample's 0 - a real value, not a format input; kept. No missing callback found.
+- The concrete gap is the speaker layout: the a7 log shows the endpoint builder asking KSPROPERTY_AUDIO_CHANNEL_CONFIG
+  basic support (Audio.3) on both elements in every enumeration, ACX's volume/mute elements do not implement it, and
+  the phone's store lacks PhysicalSpeakers/FullRangeSpeakers (+ DeviceFormat) that the working endpoint has.
+- T18 driver 1.0.1.8 + INF: (a) ReqLog.c answers KSPROPERTY_AUDIO_CHANNEL_CONFIG on element 0 (volume) when
+  KsOverride = 1: basic support -> KSPROPERTY_DESCRIPTION (GET|SET|BASICSUPPORT, KSPROPTYPESETID_General VT_I4) or the
+  ULONG access flags (size-query convention of the sample), get -> KSAUDIO_SPEAKER_STEREO, set -> stereo accepted (logged
+  "ks: CHANNEL_CONFIG set <mask>"), other masks STATUS_INVALID_PARAMETER; (b) INF EP\0 PKEY_AudioEndpoint_PhysicalSpeakers
+  {1DA5D803},3 and FullRangeSpeakers ,6 = 3 (REG_DWORD; pids checked in um\mmdeviceapi.h). Build exit 0, InfVerif VALID.

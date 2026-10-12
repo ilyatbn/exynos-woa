@@ -93,7 +93,8 @@ typedef struct _AUD_CONFIG {
     ULONG AboxEnable;   /* 0 (default): 1 = ABOX stage 1 + RDMA0 on stream start (boot #99 sequence) */
     ULONG HwVolume;     /* 0 (default): volume + mute elements applied in software by the driver; 1 = on the amp registers */
     ULONG Stereo;       /* 0 (default): mono (L+R)/2 on the loudspeaker only; 1 = L on the earpiece amp (untested) */
-    ULONG KsOverride;   /* 1 (default, A7): the driver answers host-pin DATAINTERSECTION / PROPOSEDATAFORMAT (ReqLog.c) */
+    ULONG KsOverride;   /* 1 (default): the driver answers host-pin DATAINTERSECTION / PROPOSEDATAFORMAT (A7) and the
+                           volume element's CHANNEL_CONFIG (A9) itself (ReqLog.c); 0 = ACX only */
 } AUD_CONFIG, *PAUD_CONFIG;
 
 /* ======================================================================
@@ -180,6 +181,7 @@ typedef struct _AUD_DEVICE_CONTEXT {
     ACXCIRCUIT  Render;
     BOOLEAN     CircuitAdded;
     ULONG       HostPinId;      /* ACX id of the streaming (host) pin, set when the circuit is built */
+    LONG        SpeakerConfig;  /* ReqLog.c KSPROPERTY_AUDIO_CHANNEL_CONFIG (A9): KSAUDIO_SPEAKER_STEREO */
 
     volatile LONG ReqLogged;    /* ReqLog.c: KS request lines logged so far (capped) */
     volatile LONG FmtLogged;    /* ReqLog.c: distinct PROPOSEDATAFORMAT formats decoded so far */

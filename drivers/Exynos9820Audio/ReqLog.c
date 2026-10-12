@@ -433,14 +433,90 @@ static BOOLEAN AudPropose(_In_ const ACX_REQUEST_PARAMETERS *P, _Out_ NTSTATUS *
     return TRUE;
 }
 
+/*
+ * A9: KSPROPERTY_AUDIO_CHANNEL_CONFIG on the volume element (element 0 = the first element of AudCreateElements).
+ * Run audA8: the endpoint's property store lacks PKEY_AudioEndpoint_PhysicalSpeakers / FullRangeSpeakers and the
+ * engine DeviceFormat, which a working endpoint has (notes/d8-audio-win-a5.md A9); the endpoint builder searches the
+ * endpoint path for a node with KSPROPERTY_AUDIO_CHANNEL_CONFIG (basic-support queries on both elements in every log)
+ * and ACX's volume/mute elements do not implement it. Contract (ksmedia.h KSAUDIO_CHANNEL_CONFIG, the basic-support
+ * conventions of the ACX sample's CircuitHelper.cpp:560-605): basic support -> KSPROPERTY_DESCRIPTION (GET|SET|BASIC,
+ * VT_I4) or the access flags in a ULONG; get -> the current speaker mask; set -> stereo accepted, anything else
+ * STATUS_INVALID_PARAMETER (the hardware is one mono speaker fed from a stereo stream).
+ */
+#define AUD_KSPROPERTY_AUDIO_CHANNEL_CONFIG  3u   /* ksmedia.h KSPROPERTY_AUDIO_CHANNEL_CONFIG */
+#define AUD_VOLUME_ELEMENT_ID                0u   /* AudCreateElements: Elements[0] = volume */
+
+static NTSTATUS AudChannelConfig(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ const ACX_REQUEST_PARAMETERS *P, _Out_ PULONG_PTR Info)
+{
+    PVOID Value = P->Parameters.Property.Value;
+    ULONG Cb    = P->Parameters.Property.ValueCb;
+    ULONG Flags = KSPROPERTY_TYPE_BASICSUPPORT | KSPROPERTY_TYPE_GET | KSPROPERTY_TYPE_SET;
+
+    *Info = 0;
+    switch (P->Parameters.Property.Verb) {
+    case AcxPropertyVerbBasicSupport:
+        if (Value != NULL && Cb >= sizeof(KSPROPERTY_DESCRIPTION)) {
+            PKSPROPERTY_DESCRIPTION D = (PKSPROPERTY_DESCRIPTION)Value;
+
+            RtlZeroMemory(D, sizeof(*D));
+            D->AccessFlags      = Flags;
+            D->DescriptionSize  = sizeof(KSPROPERTY_DESCRIPTION);
+            D->PropTypeSet.Set  = KSPROPTYPESETID_General;
+            D->PropTypeSet.Id   = VT_I4;
+            *Info = sizeof(KSPROPERTY_DESCRIPTION);
+            return STATUS_SUCCESS;
+        }
+        if (Value != NULL && Cb >= sizeof(ULONG)) {
+            *(PULONG)Value = Flags;
+            *Info = sizeof(ULONG);
+            return STATUS_SUCCESS;
+        }
+        *Info = sizeof(ULONG);
+        return (Cb == 0) ? STATUS_BUFFER_OVERFLOW : STATUS_BUFFER_TOO_SMALL;
+    case AcxPropertyVerbGet:
+        if (Value == NULL || Cb < sizeof(KSAUDIO_CHANNEL_CONFIG)) {
+            *Info = sizeof(KSAUDIO_CHANNEL_CONFIG);
+            return (Cb == 0) ? STATUS_BUFFER_OVERFLOW : STATUS_BUFFER_TOO_SMALL;
+        }
+        ((PKSAUDIO_CHANNEL_CONFIG)Value)->ActiveSpeakerPositions = Dev->SpeakerConfig;
+        *Info = sizeof(KSAUDIO_CHANNEL_CONFIG);
+        return STATUS_SUCCESS;
+    case AcxPropertyVerbSet:
+        if (Value == NULL || Cb < sizeof(KSAUDIO_CHANNEL_CONFIG)) {
+            return STATUS_BUFFER_TOO_SMALL;
+        }
+        AudLog(Dev->Log, "ks: CHANNEL_CONFIG set %lX\r\n", (ULONG)((PKSAUDIO_CHANNEL_CONFIG)Value)->ActiveSpeakerPositions);
+        if (((PKSAUDIO_CHANNEL_CONFIG)Value)->ActiveSpeakerPositions != KSAUDIO_SPEAKER_STEREO) {
+            return STATUS_INVALID_PARAMETER;
+        }
+        Dev->SpeakerConfig = KSAUDIO_SPEAKER_STEREO;
+        return STATUS_SUCCESS;
+    default:
+        return STATUS_NOT_SUPPORTED;
+    }
+}
+
 /* TRUE = the driver completed the request. */
 static BOOLEAN AudKsOverride(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ WDFREQUEST Request, _In_ const ACX_REQUEST_PARAMETERS *P)
 {
     NTSTATUS  Status;
     ULONG_PTR Info = 0;
 
-    if (Dev == NULL || !Dev->Cfg.KsOverride || P->Type != AcxRequestTypeProperty ||
-        P->Parameters.Property.Set.Data1 != 0x8C134960 || P->Parameters.Property.ItemType != AcxItemTypePin ||
+    if (Dev == NULL || !Dev->Cfg.KsOverride || P->Type != AcxRequestTypeProperty) {
+        return FALSE;
+    }
+
+    /* A9: speaker configuration on the volume element. */
+    if (P->Parameters.Property.Set.Data1 == 0x45FFAAA0 && P->Parameters.Property.Id == AUD_KSPROPERTY_AUDIO_CHANNEL_CONFIG &&
+        P->Parameters.Property.ItemType == AcxItemTypeElement && P->Parameters.Property.ItemId == AUD_VOLUME_ELEMENT_ID &&
+        AudGuidIs(&P->Parameters.Property.Set, &KSPROPSETID_Audio)) {
+        Status = AudChannelConfig(Dev, P, &Info);
+        WdfRequestCompleteWithInformation(Request, Status, Info);
+        AudReqLog(Dev, 'c', P, "done", Status, Info);
+        return TRUE;
+    }
+
+    if (P->Parameters.Property.Set.Data1 != 0x8C134960 || P->Parameters.Property.ItemType != AcxItemTypePin ||
         P->Parameters.Property.ItemId != Dev->HostPinId ||
         !AudGuidIs(&P->Parameters.Property.Set, &KSPROPSETID_Pin)) {
         return FALSE;

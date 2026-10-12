@@ -23,7 +23,7 @@ EVT_WDF_DEVICE_D0_ENTRY           AudEvtD0Entry;
 EVT_WDF_DEVICE_D0_EXIT            AudEvtD0Exit;
 EVT_WDF_OBJECT_CONTEXT_CLEANUP    AudEvtDeviceCleanup;
 
-#define AUD_DRIVER_VERSION "1.0.1.7"
+#define AUD_DRIVER_VERSION "1.0.1.8"
 
 static AUD_CONFIG g_Cfg;
 
@@ -145,6 +145,7 @@ NTSTATUS AudEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     Dev->Cfg    = g_Cfg;
     Dev->Log    = AudLogCreate();
     KeInitializeSpinLock(&Dev->ReqLock);
+    Dev->SpeakerConfig = KSAUDIO_SPEAKER_STEREO;
     Dev->Amp[0].Addr = AUD_AMP_R_I2C_ADDR;
     Dev->Amp[0].ResetPin = AUD_AMP_R_RESET_PIN;
     Dev->Amp[0].Name = "R/bot";

@@ -162,6 +162,21 @@ STATIC VOID Beyond0LteCrumb (IN CONST CHAR8 *Tag);
 #define BEYOND0LTE_UFS_PHY_ISO  0ULL  // UNVERIFIED on 9820: PMU base 0x15860000 is a read, the intra-block phy-isolation offset was never read -> 0 skips the read
 
 //
+// UFS IO-coherency field in SYSREG_FSYS1+0x700 (EXYNOS_UFS_IOCOH_BASE). 0 = the carried 9810 mask BIT8|BIT9
+// (on the 9820 those are the PCIe ch0 sharability bits, so UFS DMA stays non-shareable; live readback 0x311).
+// 1 = the 9820 DT ufs-io-coherency mask/bits 0x00C00000 (BIT22|BIT23; live DT exynos9820.dts:1069-1078,
+// notes/m15-ufs-research-clocks.md suspect 1) and bits 8/9 left at sboot's value. m15 A/B switch, not validated.
+//
+#ifndef BEYOND0LTE_UFS_IOCOH_9820
+#define BEYOND0LTE_UFS_IOCOH_9820  0
+#endif
+#if BEYOND0LTE_UFS_IOCOH_9820
+#define BEYOND0LTE_UFS_IOCOH_MASK  0x00C00000u
+#else
+#define BEYOND0LTE_UFS_IOCOH_MASK  0x00000300u
+#endif
+
+//
 // Vendor-specific Interrupt Status (HCI_VENDOR_SPECIFIC_IS). bit20 = UFS idle
 // indicator, asserted when the UFS link is reset; the reference clears it (W1C)
 // during host reset. Offset within the VS block (0x11121100).
@@ -480,7 +495,7 @@ Beyond0LteUfspConfig (
     // variable vs A103). iocoh readback panel "ioco" should now be 0x00000311. Test the READ BUFFER probe: r6/o1
     // EFIst 00 => iocoh-ON was the wall (then chase any WC-vs-coherent buffer nuance); still 07 => iocoh exonerated.
     //
-    MmioWrite32 (EXYNOS_UFS_IOCOH_BASE, IoCoh | 0x00000300u);   // A112: iocoh ON (BIT8|BIT9) - kernel-faithful coherent UFS DMA
+    MmioWrite32 (EXYNOS_UFS_IOCOH_BASE, IoCoh | BEYOND0LTE_UFS_IOCOH_MASK);   // A112: iocoh ON (9810 BIT8|BIT9, or the 9820 UFS BIT22|BIT23 with BEYOND0LTE_UFS_IOCOH_9820)
     __asm__ __volatile__ ("dsb sy" ::: "memory");
     UfsHcDiagSet (14, MmioRead32 (EXYNOS_UFS_IOCOH_BASE));
   }
@@ -670,7 +685,7 @@ Beyond0LteHostReset (
   //
   {
     volatile UINT32  *IoCoh = (volatile UINT32 *)(UINTN)EXYNOS_UFS_IOCOH_BASE;
-    *IoCoh = (*IoCoh & ~0x00000300u);   // *** A103: iocoh OFF (revert A101) - DESCTYPE-3 + WC non-coherent model
+    *IoCoh = (*IoCoh & ~BEYOND0LTE_UFS_IOCOH_MASK);   // *** A103: iocoh OFF (revert A101) - DESCTYPE-3 + WC non-coherent model
     __asm__ __volatile__ ("dsb sy" ::: "memory");
   }
 

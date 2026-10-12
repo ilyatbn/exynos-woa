@@ -138,6 +138,9 @@ typedef struct _AUD_DEVICE_CONTEXT {
     BOOLEAN     AboxAlive;      /* IP_INDEX read "ABOX" */
     BOOLEAN     AboxReady;      /* AboxInit succeeded (stage 1 done) */
     BOOLEAN     AboxRunning;    /* AboxStart succeeded */
+    ULONG       AboxSaved[16];  /* register values before the stage-1 writes, restored by AboxRelease */
+    ULONG       AboxSavedCount;
+    BOOLEAN     AboxDmaStuck;   /* RDMA0 progress bit never cleared after a stop: ring memory must be leaked */
 
     /* Amp state (AmpI2c.c). BusLock serialises every hsi2c_38 transfer (PASSIVE_LEVEL only). */
     WDFWAITLOCK BusLock;
@@ -176,7 +179,9 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(AUD_ELEMENT_CONTEXT, AudGetElementContext)
 #define AUD_MAX_PACKETS      2u          /* ACX RT packet count limit (sample MAX_PACKET_COUNT) */
 #define AUD_DMA_ALIGN        16u         /* RDMA BUF_STR/END/OFFSET fields are 31:4 (notes F11, 2.1 layout; UNVERIFIED on 2.0.1) */
 #define AUD_RATE             48000u
-#define AUD_CHANNELS         2u
+#define AUD_CHANNELS         2u          /* endpoint (client) channels */
+#define AUD_HW_SLOTS         4u          /* UAIF1 frame: 4 x 32-bit slots, slot 1 = speaker @0x40, slot 0 = earpiece @0x41 */
+#define AUD_HW_FRAME_BYTES   (AUD_HW_SLOTS * 4u)
 #define AUD_HNS_PER_SEC      10000000ULL
 
 typedef struct _AUD_STREAM_CONTEXT {
@@ -241,7 +246,8 @@ _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS AboxStart(_Inout_ PAUD_DEVICE_CONTEXT De
                                                   _In_ ULONG Bytes, _In_ ULONG PeriodBytes, _In_ ULONG Rate,
                                                   _In_ ULONG Channels, _In_ ULONG Bits);
 _IRQL_requires_(PASSIVE_LEVEL) VOID AboxStop(_Inout_ PAUD_DEVICE_CONTEXT Dev);
-_IRQL_requires_max_(DISPATCH_LEVEL) NTSTATUS AboxPosition(_In_ PAUD_DEVICE_CONTEXT Dev, _Out_ PULONG RingOffset);
+_IRQL_requires_(PASSIVE_LEVEL) VOID AboxRelease(_Inout_ PAUD_DEVICE_CONTEXT Dev);
+_IRQL_requires_max_(DISPATCH_LEVEL) NTSTATUS AboxFrameCount(_In_ PAUD_DEVICE_CONTEXT Dev, _Out_ PULONG Count12);
 
 /* AmpI2c.c - all PASSIVE_LEVEL, BusLock taken inside. */
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS AmpInit(_Inout_ PAUD_DEVICE_CONTEXT Dev);

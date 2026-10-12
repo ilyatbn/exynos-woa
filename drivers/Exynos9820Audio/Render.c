@@ -414,9 +414,8 @@ VOID AudEvtStreamTimer(WDFTIMER Timer)
         Completed = (ULONG)InterlockedIncrement(&Ctx->CurrentPacket) - 1;
         (VOID)AcxRtStreamNotifyPacketComplete(Ctx->Stream, Completed, (ULONGLONG)KeQueryPerformanceCounter(NULL).QuadPart);
 
-        if (Ctx->HwStarted && (Completed % AUD_HW_LOG_PACKETS) == 0 && NT_SUCCESS(AboxPosition(Ctx->Dev, &HwOff))) {
-            AudLog(Ctx->Dev->Log, "stream: packet %lu, RDMA ring offset 0x%lX, timer ring offset 0x%lX\r\n", Completed,
-                   HwOff, ((Completed + 1) % Ctx->PacketCount) * Ctx->PacketSize);
+        if (Ctx->HwStarted && (Completed % AUD_HW_LOG_PACKETS) == 0 && NT_SUCCESS(AboxFrameCount(Ctx->Dev, &HwOff))) {
+            AudLog(Ctx->Dev->Log, "stream: packet %lu, RDMA0 frame counter 0x%03lX\r\n", Completed, HwOff);
         }
 
         Delay = AudNextDelay(Ctx);

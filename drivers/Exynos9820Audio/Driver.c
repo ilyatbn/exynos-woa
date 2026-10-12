@@ -285,9 +285,9 @@ NTSTATUS AudEvtReleaseHardware(WDFDEVICE Device, WDFCMRESLIST Translated)
         Dev->CircuitAdded = FALSE;
     }
 
-    AboxStop(Dev);
     if (Dev->Mapped) {
-        AmpRelease(Dev);
+        AmpRelease(Dev);    /* amps off before their clocks go */
+        AboxRelease(Dev);   /* stop + restore every stage-1 register */
     }
     AudUnmap(Dev);
     Dev->AboxReady = FALSE;

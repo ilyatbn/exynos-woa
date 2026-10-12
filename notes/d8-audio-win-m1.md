@@ -132,3 +132,28 @@ Source of truth: main-branch Beyond0LteAudioProbeDxe/AudioSpeaker.c (+ AudioAmpO
 Consequences for the driver: the stream format becomes 4x32 slots in the ring (driver must expand the 2ch client
 format), R1's order (amps before DMA) is WRONG for this hardware and must be reversed, timer clock could become the
 RDMA frame counter.
+- Read main 24fb796 AudioSpeaker.c (the validated code) + AudioAmpOtp.h (otp_map_2, 99 entries) + abox notes boot
+  #99 RESULT. Differences from my A1 tables: pup/pdn patch keys are 0x5555/0xAAAA + 0xCCCC/0x3333 (AUnlock/ALock),
+  not 0x55/0xAA/0xCC/0x33 (amp notes 6.6/8.5); power-down = DIG_VOL mute, 2 ms, OUT_MUTE, GLOBAL_EN off, PDN_DONE,
+  W1C, pdn patch, SP_ENABLES 0, PWR_CTRL2 0; volume -10 dB (0x7B0); PLL_LOCK poll dropped; RDMA STATUS 27:12 stays
+  0 -> AboxPosition's RBUF_OFFSET decode is wrong, the position source is STATUS[11:0] frames mod 4096.
+  Stage-1 writes: DIV_UAIF1 (CMU+0x1830 & 0x1FF) = 95 + BUSY(bit16) poll, gpb1 CON & 0xFFFF = 0x2222,
+  MISC_CON = 1, SYSPOWER_CTRL = 1, QCH |= bit3, UAIF1 CTRL1 0x1B4DF7DF, CTRL0 0x01000014, SBANK_RDMA0 0x02000000,
+  ROUTE_CTRL0 0x20. Stage 2: SPK_EN, RDMA0 BUF_STR/END/OFFSET/STR_POINT, VOL 0x800000, CTRL0 0x00401B01.
+  Teardown: SPK_EN off, CTRL0 0x00400000, wait STATUS bit31 clear (<= 50 ms); UEFI restores every saved register.
+
+### Plan B (port the validated sequence; one commit each)
+- B1 AboxHw.c: stage-1 table filled with the validated rows (saved + restored on release: AboxRelease), AboxStart =
+  SPK_EN + RDMA0 program/enable, AboxStop = SPK off + RDMA reset + progress poll, AboxFrameCount = STATUS[11:0].
+- B2 AmpI2c.c: OTP unpack (AmpOtpMap.h = copy of AudioAmpOtp.h with NT types), pup/pdn keys 0x5555/0xAAAA, the
+  validated power-down order, fixed digital volume -10 dB, earpiece amp only with Parameters\Stereo = 1.
+- B3 Render.c: the hardware frame is 4 x 32-bit slots (slot 1 speaker, slot 0 earpiece) but the endpoint stays
+  48 kHz stereo 16/32-bit -> a separate NON-CACHED contiguous DMA ring (4 periods x frames x 16 B, below 4 GiB;
+  no CPU cache maintenance needed, no user mapping of it) filled by the packet DPC one period ahead of the DMA:
+  at boundary j the DPC completes packet k0+j-1 and expands packet k0+j into slot (j+1)%4 (slot 0 = silence at
+  start, so 1 period of added latency). Mono default (Stereo = 0): slot 1 = (L+R)/2, slot 0 = 0. Boundaries come
+  from the RDMA frame counter when the hardware runs (no QPC/PLL drift), else from QPC as before. Order: AboxInit
+  -> AboxStart (data flowing) -> timer running -> AmpPowerUp (reverses R1: the amp needs data on UAIF1 for
+  PUP_DONE). Defaults AboxEnable = AmpEnable = 1 now that the path is device-validated in UEFI.
+  Rejected: a 4-channel endpoint (zero-copy) - the user would see a quad-speaker device and 16-bit would go.
+- B1 code: AboxHw.c = validated stage 1 (table, saved/restored), AboxStart (SPK_EN, RDMA0 phys ring, VOL 0x800000, CTRL0 0x00401B01; refuses anything but 48 kHz 4 x 32), AboxStop (+ AboxDmaStuck if progress never clears), AboxRelease, AboxFrameCount (STATUS[11:0]); AboxPosition (wrong RBUF_OFFSET decode) removed. ReleaseHardware: AmpRelease then AboxRelease. Self-check vs AudioSpeaker.c :541-604: same writes, same order. Build exit 0.

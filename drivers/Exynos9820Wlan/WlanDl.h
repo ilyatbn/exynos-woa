@@ -5,6 +5,7 @@
 #ifndef _WLAN_DL_H
 #define _WLAN_DL_H
 
+#include <wdf.h>                /* M9 T2: WDFDRIVER / WDFCMRESLIST in the shared declarations below */
 #include "Exynos9820Wlan.h"
 
 typedef struct _WLAN_REPORT {
@@ -33,6 +34,32 @@ typedef struct _WLAN_DL_CONFIG {
     ULONG   CacheMaint;                 /* 1 (default) = clean/invalidate the common buffer around DMA (run m5-2) */
     ULONG   D11Reset;                   /* M9 T1: 1 (default) = D11 cores into reset before the image write */
 } WLAN_DL_CONFIG, *PWLAN_DL_CONFIG;
+
+/* M9 T2 (WlanCommon.c, shared with drivers/Exynos9820WlanCx): settings + read-only chip probe, moved out of
+   WlanProbe.c verbatim. */
+VOID WlanReadConfig(_In_ WDFDRIVER Driver, _Out_ PWLAN_DL_CONFIG DlCfg);
+
+typedef struct _WLAN_PROBE {
+    ULONG   VendorDevice;
+    ULONG   Command;
+    ULONG   ClassRev;
+    ULONG   Subsystem;
+    ULONG   Bar[EP_CFG_BAR_COUNT];
+    ULONG   ChipId;          /* 0 = not read */
+    ULONG   Result;          /* 0 = chip id matched 0x4375; see WLAN_RESULT_* */
+} WLAN_PROBE, *PWLAN_PROBE;
+
+#define WLAN_RESULT_OK              0
+#define WLAN_RESULT_NO_RESOURCES    1
+#define WLAN_RESULT_MAP_FAILED      2
+#define WLAN_RESULT_CFG_DEAD        3
+#define WLAN_RESULT_NOT_BROADCOM    4
+#define WLAN_RESULT_BAR0_UNUSABLE   5
+#define WLAN_RESULT_CHIPID_MISMATCH 6
+
+_IRQL_requires_(PASSIVE_LEVEL)
+NTSTATUS WlanProbeChip(_In_ WDFCMRESLIST Translated, _Inout_ PWLAN_REPORT R, _Out_ PWLAN_PROBE Out,
+                       _Outptr_result_maybenull_ volatile UCHAR **CfgOut, _Out_ PULONG Bar0LoOut);
 
 /* What the download did; also kept in the device context for EvtDeviceReleaseHardware. */
 typedef struct _WLAN_DL_RESULT {

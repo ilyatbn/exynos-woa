@@ -56,9 +56,13 @@
 
 /* Report sinks (README.md "Reading the result"). */
 /* Not Windows\Temp: that directory's index was corrupt on this unit (notes/m12-touch.md run 6). */
+#ifndef WLAN_REPORT_FILE           /* M9 T2: the WiFiCx project defines its own file names */
 #define WLAN_REPORT_FILE            L"\\SystemRoot\\System32\\LogFiles\\Exynos9820Wlan.txt"
+#endif
 #define WLAN_REPORT_MAX             32766          /* M7: was 16384; x2 as UTF-16 must stay <= 65535 B (Report REG_SZ) */
+#ifndef WLAN_RUN_REPORT_FILE
 #define WLAN_RUN_REPORT_FILE        L"\\SystemRoot\\System32\\LogFiles\\Exynos9820Wlan-run.txt"
+#endif
 #define WLAN_POLL_MS                100            /* milestone 5 D2H poll period (no interrupt yet) */
 
 /* ======================================================================

@@ -133,3 +133,10 @@ Logs: Exynos9820WlanCx.txt (bring-up) + Exynos9820WlanCx-run.txt (runtime, rotat
   the firmware to bring up (fmac comment chip.c:1328-1330); retry loop rewrites the same seed; Bad is reset per
   pass; BadNote bounded by DL_BAD_LOG. FOUND: WlanProbe.c's "Parameters key settings" comment lists neither
   D11Reset nor (already before) CacheMaint. Fixed in a follow-up commit.
+- T2 (refactor): ReportLine / ReportWriteFile / WlanReadConfig / CfgRead + the chip-probe half of
+  WlanEvtPrepareHardware moved from WlanProbe.c into new WlanCommon.c (WlanProbeChip); WLAN_PROBE +
+  WLAN_RESULT_* and the prototypes moved to WlanDl.h (which now includes wdf.h itself: WlanSup.c includes
+  WlanDl.h without wdf.h); WLAN_REPORT_FILE / WLAN_RUN_REPORT_FILE are #ifndef-guarded so the Cx project can
+  name its own logs. Mechanical check: every line removed from WlanProbe.c exists verbatim in WlanCommon.c /
+  WlanProbe.c / WlanDl.h except "ULONG Bar0Lo;" (now "= 0"). KMDF build W4/WX clean (scratchpad cx\t2-kmdf,
+  sys D5C5CB84C886F90C...).

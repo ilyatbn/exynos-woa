@@ -31,6 +31,7 @@ typedef struct _WLAN_DL_CONFIG {
     ULONG   Resident;                   /* milestone 5: 1 (default) = keep the fw running after PrepareHardware */
     ULONG   RescanSeconds;              /* milestone 5: escan this long after start (default 30, 0 = never) */
     ULONG   CacheMaint;                 /* 1 (default) = clean/invalidate the common buffer around DMA (run m5-2) */
+    ULONG   D11Reset;                   /* M9 T1: 1 (default) = D11 cores into reset before the image write */
 } WLAN_DL_CONFIG, *PWLAN_DL_CONFIG;
 
 /* What the download did; also kept in the device context for EvtDeviceReleaseHardware. */

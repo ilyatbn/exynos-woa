@@ -149,6 +149,9 @@
 #define SICF_CLOCK_EN               0x0001UL
 #define SICF_FGC                    0x0002UL
 #define SICF_CPUHALT                0x0020UL
+/* M9 T1: D11 (802.11 MAC) core ioctrl bits held during the download (fmac chip.c:81-82 D11_BCMA_IOCTL_*) */
+#define D11_IOCTL_PHYCLOCKEN        0x0004UL
+#define D11_IOCTL_PHYRESET          0x0008UL
 
 /* ARM CR4 core registers (dhd siutils.h:201-215 == fmac chip.c:205-217). */
 #define ARMCR4_CAP                  0x04

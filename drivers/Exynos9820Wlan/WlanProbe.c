@@ -185,6 +185,7 @@ WlanReadConfig(_In_ WDFDRIVER Driver, _Out_ PWLAN_DL_CONFIG DlCfg)
     DlCfg->Resident = 1;
     DlCfg->RescanSeconds = 30;
     DlCfg->CacheMaint = 1;
+    DlCfg->D11Reset   = 1;
     if (!NT_SUCCESS(WdfDriverOpenParametersRegistryKey(Driver, KEY_READ, WDF_NO_OBJECT_ATTRIBUTES, &Key))) {
         return;
     }
@@ -219,6 +220,10 @@ WlanReadConfig(_In_ WDFDRIVER Driver, _Out_ PWLAN_DL_CONFIG DlCfg)
     RtlInitUnicodeString(&Name, L"CacheMaint");
     if (NT_SUCCESS(WdfRegistryQueryULong(Key, &Name, &V))) {
         DlCfg->CacheMaint = V;
+    }
+    RtlInitUnicodeString(&Name, L"D11Reset");
+    if (NT_SUCCESS(WdfRegistryQueryULong(Key, &Name, &V))) {
+        DlCfg->D11Reset = V;
     }
     RtlInitUnicodeString(&Name, L"DoorbellDar");
     if (NT_SUCCESS(WdfRegistryQueryULong(Key, &Name, &V))) {

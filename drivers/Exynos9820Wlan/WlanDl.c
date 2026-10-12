@@ -120,10 +120,33 @@ TcmWr32(_In_ PBCM_CHIP C, _In_ ULONG Addr, _In_ ULONG Val)
     WRITE_REGISTER_ULONG((volatile ULONG *)(C->Tcm + Addr), Val);
 }
 
+/* M9 T1: the first mismatching addresses of an image write, for the DL 6 report line. */
+#define DL_BAD_LOG      4
+
+typedef struct _DL_BAD {
+    ULONG   N;                  /* entries used in Addr/Got/Want */
+    ULONG   Addr[DL_BAD_LOG];
+    ULONG   Got[DL_BAD_LOG];
+    ULONG   Want[DL_BAD_LOG];
+} DL_BAD, *PDL_BAD;
+
+static VOID
+BadNote(_Inout_opt_ PDL_BAD B, _In_ ULONG Addr, _In_ ULONG Got, _In_ ULONG Want)
+{
+    if (B != NULL && B->N < DL_BAD_LOG) {
+        B->Addr[B->N] = Addr;
+        B->Got[B->N]  = Got;
+        B->Want[B->N] = Want;
+        B->N++;
+    }
+}
+
 /* Write Len bytes at Addr (4-byte aligned), 32-bit accesses then byte accesses for the tail
-   (dhd dhdpcie_bus_membytes). Returns the number of 32-bit/byte units that read back wrong. */
+   (dhd dhdpcie_bus_membytes). Returns the number of 32-bit/byte units that read back wrong; the first
+   DL_BAD_LOG of them are noted in B. */
 static ULONG
-TcmWriteVerify(_In_ PBCM_CHIP C, _In_ ULONG Addr, _In_reads_bytes_(Len) const UCHAR *Data, _In_ ULONG Len)
+TcmWriteVerify(_In_ PBCM_CHIP C, _In_ ULONG Addr, _In_reads_bytes_(Len) const UCHAR *Data, _In_ ULONG Len,
+               _Inout_opt_ PDL_BAD B)
 {
     ULONG I;
     ULONG Bad = 0;
@@ -141,12 +164,18 @@ TcmWriteVerify(_In_ PBCM_CHIP C, _In_ ULONG Addr, _In_reads_bytes_(Len) const UC
     for (I = 0; I < Words; I++) {
         ULONG V = (ULONG)Data[4 * I] | ((ULONG)Data[4 * I + 1] << 8) | ((ULONG)Data[4 * I + 2] << 16) |
                   ((ULONG)Data[4 * I + 3] << 24);
-        if (TcmRd32(C, Addr + 4 * I) != V) {
+        ULONG G = TcmRd32(C, Addr + 4 * I);
+
+        if (G != V) {
+            BadNote(B, Addr + 4 * I, G, V);
             Bad++;
         }
     }
     for (I = 4 * Words; I < Len; I++) {
-        if (READ_REGISTER_UCHAR((volatile UCHAR *)(C->Tcm + Addr + I)) != Data[I]) {
+        UCHAR G = READ_REGISTER_UCHAR((volatile UCHAR *)(C->Tcm + Addr + I));
+
+        if (G != Data[I]) {
+            BadNote(B, Addr + I, G, Data[I]);
             Bad++;
         }
     }
@@ -374,6 +403,47 @@ WrapReset(_Inout_ PBCM_CHIP C, _In_ ULONG Wrap, _In_ ULONG Bits, _In_ ULONG Rese
     BpWr(C, Wrap + AI_IOCTRL, Bits | SICF_CLOCK_EN);
     (VOID)BpRd(C, Wrap + AI_IOCTRL);
     KeStallExecutionProcessor(1);
+}
+
+/* M9 T1: fmac brcmf_chip_ai_coredisable (chip.c:350-382): leave a core held in reset with the given IOCTL bits.
+   Already in reset -> only the in-reset IOCTL write. */
+static ULONG
+CoreDisable(_Inout_ PBCM_CHIP C, _In_ ULONG Wrap, _In_ ULONG PreReset, _In_ ULONG Reset)
+{
+    ULONG I, Before = BpRd(C, Wrap + AI_RESETCTRL);
+
+    if ((Before & AIRC_RESET) == 0) {
+        BpWr(C, Wrap + AI_IOCTRL, PreReset | SICF_FGC | SICF_CLOCK_EN);
+        (VOID)BpRd(C, Wrap + AI_IOCTRL);
+        BpWr(C, Wrap + AI_RESETCTRL, AIRC_RESET);
+        KeStallExecutionProcessor(10);
+        for (I = 0; I < 300 && BpRd(C, Wrap + AI_RESETCTRL) != AIRC_RESET; I++) {   /* fmac SPINWAIT(.., 300) us */
+            KeStallExecutionProcessor(1);
+        }
+    }
+    BpWr(C, Wrap + AI_IOCTRL, Reset | SICF_FGC | SICF_CLOCK_EN);
+    (VOID)BpRd(C, Wrap + AI_IOCTRL);
+    return Before;
+}
+
+/* M9 T1 (notes/m12-wifi-wificx.md "Warm restart"): every D11 core into reset before the image is written, as fmac
+   brcmf_chip_cr4_set_passive does before each download (chip.c:1323-1337). A firmware left running by an earlier
+   driver instance has only its ARM halted by our quiesce; its MAC may still DMA received frames into TCM (the
+   suspected cause of "DL 6" after a device restart, UNVERIFIED). Logged per core. */
+static VOID
+D11Disable(_Inout_ PBCM_CHIP C)
+{
+    ULONG I, Before;
+
+    for (I = 0; I < C->NumCores; I++) {
+        if (C->Core[I].Id != CORE_ID_D11 || C->Core[I].Wrap[0] == 0) {
+            continue;
+        }
+        Before = CoreDisable(C, C->Core[I].Wrap[0], D11_IOCTL_PHYRESET | D11_IOCTL_PHYCLOCKEN, D11_IOCTL_PHYCLOCKEN);
+        ReportLine(C->R, "[dl] D11 core @0x%08lX (wrap 0x%08lX): resetctrl 0x%lX -> 0x%lX, ioctrl 0x%lX\r\n",
+                   C->Core[I].Base, C->Core[I].Wrap[0], Before, BpRd(C, C->Core[I].Wrap[0] + AI_RESETCTRL),
+                   BpRd(C, C->Core[I].Wrap[0] + AI_IOCTRL));
+    }
 }
 
 /* dhd ai_core_reset: secondary wrappers first, then the primary one. */
@@ -853,22 +923,43 @@ WlanDlRun(PWLAN_REPORT R, volatile UCHAR *Cfg, ULONG Bar0Lo, ULONG Bar2Lo, ULONG
         goto Halt;
     }
 
-    /* 7. image */
+    /* 7. image. M9 T1: D11 cores held in reset first (fmac cr4_set_passive); a write that still reads back wrong is
+       logged (first DL_BAD_LOG addresses) and done once more before DL 6 is reported. */
     Out->DlResult = DL_VERIFY;
-    TcmWr32(C, RamEnd - 4, 0);
-    Bad = TcmWriteVerify(C, RamBase, Fw, FwLen);
-    VarAddr = RamEnd - NvLen;
-    Bad += TcmWriteVerify(C, VarAddr, Nv, NvLen);
-    RandomFill(Seed, sizeof(Seed));
-    TcmWr32(C, VarAddr - 8, BCM_ENTROPY_HOST_NBYTES);
-    TcmWr32(C, VarAddr - 4, BCM_NVRAM_RNG_SIGNATURE);
-    Bad += TcmWriteVerify(C, VarAddr - 8 - BCM_ENTROPY_HOST_NBYTES, Seed, sizeof(Seed));
-    TcmWr32(C, 0, *(ULONG UNALIGNED *)Fw);
-    if (TcmRd32(C, 0) != *(ULONG UNALIGNED *)Fw) {
-        Bad++;
+    if (Config->D11Reset) {
+        D11Disable(C);
     }
-    ReportLine(R, "[dl] image written: fw @0x%08lX, nvram @0x%08lX, seed @0x%08lX, last word 0x%08lX; %lu mismatches\r\n",
-               RamBase, VarAddr, VarAddr - 8 - BCM_ENTROPY_HOST_NBYTES, TcmRd32(C, RamEnd - 4), Bad);
+    VarAddr = RamEnd - NvLen;
+    RandomFill(Seed, sizeof(Seed));
+    for (I = 0; I < 2; I++) {
+        DL_BAD B;
+
+        RtlZeroMemory(&B, sizeof(B));
+        TcmWr32(C, RamEnd - 4, 0);
+        Bad = TcmWriteVerify(C, RamBase, Fw, FwLen, &B);
+        Bad += TcmWriteVerify(C, VarAddr, Nv, NvLen, &B);
+        TcmWr32(C, VarAddr - 8, BCM_ENTROPY_HOST_NBYTES);
+        TcmWr32(C, VarAddr - 4, BCM_NVRAM_RNG_SIGNATURE);
+        Bad += TcmWriteVerify(C, VarAddr - 8 - BCM_ENTROPY_HOST_NBYTES, Seed, sizeof(Seed), &B);
+        TcmWr32(C, 0, *(ULONG UNALIGNED *)Fw);
+        if (TcmRd32(C, 0) != *(ULONG UNALIGNED *)Fw) {
+            BadNote(&B, 0, TcmRd32(C, 0), *(ULONG UNALIGNED *)Fw);
+            Bad++;
+        }
+        ReportLine(R, "[dl] image written (pass %lu): fw @0x%08lX, nvram @0x%08lX, seed @0x%08lX, last word 0x%08lX; "
+                   "%lu mismatches\r\n", I + 1, RamBase, VarAddr, VarAddr - 8 - BCM_ENTROPY_HOST_NBYTES,
+                   TcmRd32(C, RamEnd - 4), Bad);
+        if (Bad == 0) {
+            break;
+        }
+        {
+            ULONG K;
+
+            for (K = 0; K < B.N; K++) {
+                ReportLine(R, "[dl]   mismatch @0x%08lX read 0x%08lX want 0x%08lX\r\n", B.Addr[K], B.Got[K], B.Want[K]);
+            }
+        }
+    }
     ReportWriteFile(R);
     if (Bad != 0) {
         ReportLine(R, "DL %u: TCM read-back mismatch - ARM left halted\r\n", DL_VERIFY);

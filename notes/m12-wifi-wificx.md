@@ -120,3 +120,10 @@ Logs: Exynos9820WlanCx.txt (bring-up) + Exynos9820WlanCx-run.txt (runtime, rotat
   :180) and device.cpp:35 (actual :34). Fixed in a follow-up commit. dhd wl_cfg80211.c:6903-6904,
   dot11wificxintf.h:1403, CX.Default.props:80-90, m2 notes:144, fmac chip.c:81-82/350-382/1323-1337,
   pcie.c:656-708, dhd_pcie.c:1328-1350/4906-5000, pcie_core.c:52-115 verified.
+- T1 (warm restart): WlanDl.c CoreDisable (fmac ai_coredisable chip.c:350-382) + D11Disable over every EROM
+  core 0x812 (Wrap[0]) with prereset PHYRESET|PHYCLOCKEN, reset PHYCLOCKEN (Exynos9820Wlan.h D11_IOCTL_*, fmac
+  chip.c:81-82) right before the image write; image write+verify now notes the first 4 mismatches
+  ("[dl]   mismatch @addr read want") and is done twice before DL 6. Parameters\D11Reset (default 1) = A/B
+  switch. KMDF Exynos9820Wlan build W4/WX clean (scratchpad cx\t1-kmdf, sys 2D4CEFCD2C924575...). Device
+  expectation: cold boot "[dl] D11 core ... resetctrl 0x1 -> 0x1" (already in reset) or 0x0 -> 0x1; after
+  a device restart "pass 1 ... 0 mismatches" = cured; mismatch addresses = where the writer is.

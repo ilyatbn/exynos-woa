@@ -76,3 +76,9 @@ Parameters AmpInit/AmpEnable/AboxEnable; no hardware constant changes.
   build links against 1.0. Finding R1: comments in Render.c (header + AudRenderCircuitCreate) and Exynos9820Audio.h
   stated the zero-element circuit as the proven cause ("the endpoint had no mix format", "needed for the endpoint's
   format") - it is a suspicion, not device-proven. Fixed in its own commit (wording only).
+- T2: INF EP\0 PKEY_AudioEngine_OEMFormat {E4870E26-3CC5-4CD2-BA46-CA0A9A70ED04},3 REG_BINARY = the doc's 48-byte
+  value (decoded: VT_BLOB 0x41, 40 B, tag FFFE, 2 ch, 48000, 192000 B/s, align 4, 16 bit, cbSize 22, valid 16, mask 3,
+  SUBTYPE_PCM) = AudFormatPcm16. Version 1.0.1.4 (INF DriverVer + Driver.c AUD_DRIVER_VERSION). InfVerif /v: INF is VALID.
+  Note: the OEM format is written only when the endpoint is created; an endpoint left from 1.0.1.x keeps its property
+  store - the test must remove the old device/driver first (pnputil /remove-device + /delete-driver) or the reflashed
+  Windows starts clean.

@@ -2353,6 +2353,7 @@ WlanMsgConnect(PWLAN_MSG_CTX M, PWLAN_REPORT R, const WLAN_CONNECT *C, PWLAN_ASS
     UCHAR         Mask[WL_EVENTING_MASK_LEN];
     UCHAR         Join[JOIN_PARAMS_BSSID_SIZE];
     ULONG         One = 1, I, Ms, JoinLen, Result = JOIN_SETUP_FAILED;
+    BOOLEAN       Sent = FALSE;
     LARGE_INTEGER Delay;
     static const UCHAR Events[] = { WLC_E_SET_SSID, WLC_E_AUTH, WLC_E_DEAUTH_IND, WLC_E_ASSOC, WLC_E_DISASSOC_IND,
                                     WLC_E_LINK };
@@ -2420,6 +2421,7 @@ WlanMsgConnect(PWLAN_MSG_CTX M, PWLAN_REPORT R, const WLAN_CONNECT *C, PWLAN_ASS
         goto Done;
     }
     Result = JOIN_TIMEOUT;
+    Sent   = TRUE;
     for (Ms = 0; Ms < JOIN_TIMEOUT_MS; Ms += 10) {
         (VOID)D2hPollAll(S);
         if (S->JoinSetSsid >= 0 || S->JoinLost) {
@@ -2467,6 +2469,15 @@ WlanMsgConnect(PWLAN_MSG_CTX M, PWLAN_REPORT R, const WLAN_CONNECT *C, PWLAN_ASS
 
 Done:
     S->Joining = FALSE;
+    if (Result != JOIN_OK && Sent) {
+        UCHAR Scb[SCB_VAL_SIZE];
+
+        /* stop a join the firmware may still be pursuing (cfg80211 issues a disconnect after a failed connect) */
+        RtlZeroMemory(Scb, sizeof(Scb));
+        *(ULONG UNALIGNED *)Scb = DOT11_RC_DISASSOC_LEAVING;
+        RtlCopyMemory(Scb + SCB_VAL_EA, C->Bssid, 6);
+        (VOID)Ioctl(S, WLC_DISASSOC, Scb, sizeof(Scb), 0, "DISASSOC");
+    }
     ReportLine(R, "CONNECT %lu: SET_SSID %ld, link %s%s, flowring %s, after %lu ms\r\n", Result, S->JoinSetSsid,
                S->JoinLinkUp ? "up" : "not up", S->JoinLost ? ", lost" : "", A->FlowOpen ? "open" : "not open", A->Ms);
     return Result;

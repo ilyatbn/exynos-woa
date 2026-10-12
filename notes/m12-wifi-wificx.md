@@ -154,3 +154,9 @@ Logs: Exynos9820WlanCx.txt (bring-up) + Exynos9820WlanCx-run.txt (runtime, rotat
   ea=peer / group idx primary + rsc), WlanMsgWaitTxIdle. New constants in Exynos9820Wlan.h "M9" block, each
   cited. KMDF probe driver unaffected (hooks NULL, EapolToRx FALSE, Connected FALSE); build W4/WX clean (sys
   CAF761AB84E0FA5A...).
+- Review of 1415eef (T3): checked RxComplete routes EAPOL to RxFn only when EapolToRx (KMDF driver keeps the
+  M7b capture); LinkFn fires once (Connected cleared first) and not for host DISASSOC; assoc IE copies bounded by
+  WLAN_ASSOC_IES_MAX and RespLen; 52 B join layout vs fmac fwil_types.h:482-512 (chanspec_num @44, list @48);
+  WaitTxIdle exits on the first all-idle scan. FOUND: a failed / timed-out WlanMsgConnect left the firmware
+  pursuing the SET_SSID target (no disassoc). Fixed in a follow-up commit: DISASSOC (reason 8, AP) when SET_SSID
+  was accepted but the connect did not succeed. Build clean (sys 2EDB158D5C3B0968...).

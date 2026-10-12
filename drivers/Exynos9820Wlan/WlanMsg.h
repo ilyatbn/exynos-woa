@@ -20,7 +20,13 @@ typedef struct _WLAN_MSG_CTX {
     PVOID                 State;        /* WlanMsg.c MSG_STATE */
     WDFCOMMONBUFFER       CommonBuffer;
     WLAN_BUS              Bus;          /* kept copy; owns BAR0/BAR2 + chip until WlanMsgFree */
+    /* milestone 7a: data path (tx flowring + tx/rx buffers), NULL when its allocation failed */
+    WDFCOMMONBUFFER       DataBuffer;
 } WLAN_MSG_CTX, *PWLAN_MSG_CTX;
+
+/* Milestone 7a receive hook: one 802.3 frame (not EAPOL - those go to the handshake), called from the poll
+   path at PASSIVE_LEVEL with the msgbuf state held; Frame is valid only during the call. */
+typedef VOID WLAN_RX_FN(_In_opt_ PVOID Ctx, _In_reads_bytes_(Len) const UCHAR *Frame, _In_ ULONG Len);
 
 /* Milestone 6 join target, prepared at PrepareHardware from the registry (the passphrase is not kept). */
 typedef struct _WLAN_JOIN_CONFIG {
@@ -44,7 +50,12 @@ WLAN_FW_UP_FN WlanMsgRun;
 
 /* Resident-firmware runtime (all PASSIVE_LEVEL, serialized by the caller; no-ops unless Resident). */
 _IRQL_requires_(PASSIVE_LEVEL)
-ULONG WlanMsgPoll(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R);      /* drain D2H control completions */
+ULONG WlanMsgPoll(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R);      /* drain the 3 D2H completion rings */
+_IRQL_requires_(PASSIVE_LEVEL)
+ULONG WlanMsgTx(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_reads_bytes_(Len) const UCHAR *Frame,
+                _In_ ULONG Len);                                           /* one 802.3 frame, TX_* */
+_IRQL_requires_(PASSIVE_LEVEL)
+VOID  WlanMsgSetRx(_Inout_ PWLAN_MSG_CTX M, _In_opt_ WLAN_RX_FN *Fn, _In_opt_ PVOID Ctx);
 _IRQL_requires_(PASSIVE_LEVEL)
 ULONG WlanMsgRescan(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R);    /* one more escan, SCAN_* */
 _IRQL_requires_(PASSIVE_LEVEL)

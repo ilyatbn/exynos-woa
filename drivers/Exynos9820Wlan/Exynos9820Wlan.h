@@ -57,7 +57,7 @@
 /* Report sinks (README.md "Reading the result"). */
 /* Not Windows\Temp: that directory's index was corrupt on this unit (notes/m12-touch.md run 6). */
 #define WLAN_REPORT_FILE            L"\\SystemRoot\\System32\\LogFiles\\Exynos9820Wlan.txt"
-#define WLAN_REPORT_MAX             16384
+#define WLAN_REPORT_MAX             32766          /* M7: was 16384; x2 as UTF-16 must stay <= 65535 B (Report REG_SZ) */
 #define WLAN_RUN_REPORT_FILE        L"\\SystemRoot\\System32\\LogFiles\\Exynos9820Wlan-run.txt"
 #define WLAN_POLL_MS                100            /* milestone 5 D2H poll period (no interrupt yet) */
 
@@ -504,5 +504,71 @@
 #define SCAN_TIMEOUT                2
 #define SCAN_SKIPPED                3
 #define SCAN_FW_STATUS              4
+
+/* ---- milestone 7a: msgbuf data path (notes/m12-wifi-m7.md "Protocol facts - M7a"; dhd = bcmdhd
+   include/bcmmsgbuf.h + dhd_msgbuf.c, fmac = brcmfmac msgbuf.c) ---- */
+#define MSG_TYPE_FLOW_RING_CREATE       0x03       /* bcmmsgbuf.h:162 */
+#define MSG_TYPE_FLOW_RING_CREATE_CMPLT 0x04       /* :163 */
+#define MSG_TYPE_TX_POST                0x0F       /* :178 */
+#define MSG_TYPE_TX_STATUS              0x10       /* :179 */
+#define MSG_TYPE_RXBUF_POST             0x11       /* :180 */
+#define MSG_TYPE_RX_CMPLT               0x12       /* :181 */
+/* tx_flowring_create_request_t (bcmmsgbuf.h:439-455), 40 B on the H2D control ring */
+#define FLOWC_DA                    8              /* u8[6] */
+#define FLOWC_SA                    14             /* u8[6] */
+#define FLOWC_TID                   20
+#define FLOWC_IF_FLAGS              21
+#define FLOWC_RING_ID               22             /* u16 = flowid */
+#define FLOWC_TC                    24
+#define FLOWC_MAX_ITEMS             28             /* u16 */
+#define FLOWC_LEN_ITEM              30             /* u16 */
+#define FLOWC_RING_PTR              32             /* bcm_addr64_t */
+#define FLOWRING_FIRST_ID           2              /* DHD_FLOWRING_START_FLOWID dhd_msgbuf.c:260 */
+#define H2D_TXPOST_ITEMSIZE         48             /* H2DRING_TXPOST_ITEMSIZE bcmmsgbuf.h:47 */
+#define H2D_TXPOST_MAX_ITEM         512            /* H2DRING_TXPOST_MAX_ITEM bcmmsgbuf.h:63, dhd_msgbuf.c:438 */
+/* host_txbuf_post_t (bcmmsgbuf.h:966-997), 48 B */
+#define TXP_ETHHDR                  8              /* txhdr[ETHER_HDR_LEN] */
+#define TXP_FLAGS                   22
+#define TXP_SEG_CNT                 23
+#define TXP_META_ADDR               24             /* bcm_addr64_t */
+#define TXP_DATA_ADDR               32             /* bcm_addr64_t: payload after the 14 B header */
+#define TXP_META_LEN                40             /* u16 */
+#define TXP_DATA_LEN                42             /* u16 */
+#define PKT_FLAGS_FRAME_802_3       0x01           /* BCMPCIE_PKT_FLAGS_FRAME_802_3 bcmmsgbuf.h:999 */
+#define PKT_FLAGS_FRAME_MASK        0x07           /* fmac msgbuf.c:64 */
+#define PKT_FLAGS_PRIO_SHIFT        5              /* bcmmsgbuf.h:1019 */
+/* host_txbuf_cmpl_t (bcmmsgbuf.h:1046-1080), 24 B: status @8 (CPL_STATUS), flowring @10 */
+#define TXC_TX_STATUS               14             /* u16 */
+/* host_rxbuf_post_t (bcmmsgbuf.h:905-918), 32 B */
+#define RXP_META_LEN                8              /* u16 */
+#define RXP_DATA_LEN                10             /* u16 */
+#define RXP_META_ADDR               16             /* bcm_addr64_t */
+#define RXP_DATA_ADDR               24             /* bcm_addr64_t */
+/* host_rxbuf_cmpl_t (bcmmsgbuf.h:926-959), 40 B: status @8, ring id @10 */
+#define RXC_META_LEN                12             /* u16 */
+#define RXC_DATA_LEN                14             /* u16 */
+#define RXC_DATA_OFFSET             16             /* u16 */
+#define RXC_FLAGS                   18             /* u16 */
+#define ETH_HLEN                    14             /* ETHER_HDR_LEN */
+#define ETH_TYPE_EAPOL              0x888E         /* ETHER_TYPE_802_1X, dhd include/ethernet.h:87 */
+/* Host data buffers: one 2 KB buffer per packet (fmac BRCMF_MSGBUF_MAX_PKT_SIZE msgbuf.c:56). Counts are
+   host choices: 64 tx, 128 rx (fewer when pcie_shared max_host_rxbufs says so). */
+#define DATA_BUF_SIZE               2048
+#define TX_BUF_COUNT                64
+#define RX_BUF_COUNT                128
+#define RX_PKTID0                   0x3000         /* host-chosen ids, distinct from the M3/M4 ranges */
+#define TX_PKTID0                   0x4000
+/* Second common buffer (data path), 4 KB aligned regions */
+#define DAT_OFF_FLOWRING            0x00000        /* 512 x 48 = 0x6000 */
+#define DAT_OFF_TXBUF               0x06000        /* 64 x 2048 = 0x20000 */
+#define DAT_OFF_RXBUF               0x26000        /* 128 x 2048 = 0x40000 */
+#define DAT_DMA_SIZE                0x66000
+#define FLOW_CREATE_TIMEOUT_MS      2000
+/* WlanMsgTx results */
+#define TX_OK                       0
+#define TX_NO_FLOWRING              1
+#define TX_NO_BUFFER                2
+#define TX_BAD_LENGTH               3
+#define TX_RING_FULL                4
 
 #endif /* _EXYNOS9820_WLAN_H */

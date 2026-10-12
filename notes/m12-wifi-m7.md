@@ -1,0 +1,105 @@
+# M12 WiFi milestone 7 (+ M8 adapter/app) — msgbuf data path, host WPA2 4-way handshake, NetAdapterCx, wifi-connect
+
+Tasks (one commit each, agent worktree branch; device runs by the main session):
+- M7a msgbuf data path: tx flowring create, txpost, tx completion, rxpost + rx completion, pktid tables, cache maint.
+- M7b host WPA2-PSK 4-way handshake (EAPOL over the data path), PRF/PTK/MIC/key-unwrap via CNG, WLC_SET_KEY.
+- M7c NetAdapterCx client (Class=Net), link state from the handshake, tx/rx queues on the data path.
+- M8 tools/wifi-connect GUI (Ssid/Passphrase registry + device restart + run-log tail).
+
+Sources: dhd = vendor bcmdhd (scratchpad src/bcmdhd: dhd_msgbuf.c, include/bcmmsgbuf.h, wlioctl.h,
+wlioctl_defs.h, 802.11.h, ethernet.h), fmac = brcmfmac master (src/brcmfmac: msgbuf.c, commonring.c,
+fwil_types.h). Line numbers are of those copies.
+
+## Progress log
+- 2026-10-12: worktree fast-forwarded a8d8a62 -> main 8efa319 (it was created from an old commit; the WLAN
+  driver did not exist on it). Read m5/m6 notes, design doc, WlanMsg.c / WlanProbe.c / headers.
+
+### Protocol facts — M7a data path (dhd include/bcmmsgbuf.h; fmac msgbuf.c)
+- Msg types (bcmmsgbuf.h:160-181): FLOW_RING_CREATE 0x03, FLOW_RING_CREATE_CMPLT 0x04, TX_POST 0x0F,
+  TX_STATUS 0x10, RXBUF_POST 0x11, RX_CMPLT 0x12.
+- tx_flowring_create_request_t (bcmmsgbuf.h:439-455 == fmac msgbuf.c:181-194), 40 B on the H2D ctrl ring:
+  hdr 0..7, da[6] 8, sa[6] 14, tid 20, if_flags 21, flow_ring_id u16 22, tc 24, priority_ifrmmask 25,
+  int_vector u16 26, max_items u16 28, len_item u16 30, flow_ring_ptr (addr64) 32.
+- Completion ring_create_response_t (:758-764): hdr, compl_msg_hdr {status s16 @8, flow_ring_id u16 @10}.
+- Ring ids (dhd_msgbuf.c:210-273): flowid 2 = first flowring = ringid 5; create request carries the
+  flowid (dhd_msgbuf.c:9334 flow_ring_id = flowid; fmac :650 flowid + BRCMF_H2D_MSGRING_FLOWRING_IDSTART 2).
+- Flowring TCM index slots (dhd_pcie.c:8889-8932): after the 2 H2D common rings the H2D w/r index arrays
+  continue for the flowrings -> flowid F's slots = h2d_w_idx_ptr + RW_INDEX_SZ * F (same for r).
+- Flowring geometry: max_items = h2d_max_txpost = H2DRING_TXPOST_MAX_ITEM 512 (dhd_msgbuf.c:438, :9340;
+  fmac msgbuf.h:15), len_item = H2DRING_TXPOST_ITEMSIZE 48 (bcmmsgbuf.h:47; fmac msgbuf.h:24). Memory is
+  host-allocated, address in the request (dhd :9338, fmac :654).
+- host_txbuf_post_t (bcmmsgbuf.h:966-997), 48 B: hdr 0..7 (request_id = pktid), txhdr[14] 8 (the 802.3
+  header), flags 22 (BCMPCIE_PKT_FLAGS_FRAME_802_3 0x01 | prio << 5, :999/:1019), seg_cnt 23 (1),
+  metadata_buf_addr 24, data_buf_addr 32 (payload AFTER the 14 B header), metadata_buf_len u16 40,
+  data_len u16 42 (payload length = frame - 14, fmac :763), ext/marker 44. fmac uses request_id = pktid + 1
+  (msgbuf.c:752, :892) so 0 is never a pktid.
+- host_txbuf_cmpl_t (:1046-1080), 24 B: hdr (request_id = pktid), status s16 @8, flowring id @10,
+  metadata_len @12, tx_status u16 @14.
+- host_rxbuf_post_t (:905-918), 32 B: hdr (request_id = pktid), metadata_buf_len u16 8, data_buf_len u16 10,
+  rsvd 12, metadata_buf_addr 16, data_buf_addr 24. Buffers 2048 B (fmac BRCMF_MSGBUF_MAX_PKT_SIZE msgbuf.c:56,
+  dhd DHD_FLOWRING_RX_BUFPOST_PKTSZ); no metadata (fmac rx_metadata_offset 0).
+- host_rxbuf_cmpl_t (:926-959), 40 B: hdr (request_id = pktid, if_id = ifidx), status @8, ring id @10,
+  metadata_len @12, data_len u16 @14, data_offset u16 @16, flags u16 @18 (FRAME_802_3 vs 802_11 in bits 0-2,
+  fmac :1210), rx_status_0/1 @20/@24. Data starts at data_offset, or rx_dataoffset (shared dma_rxoffset, 0
+  on this fw per m4-1) when data_offset == 0 (fmac :1199-1203, dhd same).
+- XORCSUM sync applies to every D2H ring item (dhd d2h_sync_cb on rx cpl dhd_msgbuf.c:5592, and generic
+  :5992), so D2hItemReady + epoch is reused for the tx/rx completion rings.
+- max rx buffers: shared max_host_rxbufs (fmac pcie.c:1651, default BRCMF_DEF_MAX_RXBUFPOST 255 when 0).
+
+### Protocol facts — M7b handshake / keys
+- Firmware has no supplicant (m6-3: sup_wpa -> -23). dhd host-supplicant path: set "wpaie" = the RSN IE the
+  supplicant put in the assoc request (wl_cfg80211.c:6230-6257; fmac cfg80211.c:2420-2434), then SET_SSID.
+  After assoc, dhd reads "assoc_info" (wl_assoc_info_t req_len/resp_len/flags, wlioctl.h:1663-1671) and
+  "assoc_req_ies" (the IEs only, wl_cfg80211.c:15040-15077) - we use that to get the RSN IE actually sent.
+- Keys: iovar "wsec_key" with wl_wsec_key_t (dhd wl_cfg80211.c:6906 / fmac cfg80211.c:558; the iovar form
+  of WLC_SET_KEY 45, fwil.h:36). wl_wsec_key_t (wlioctl.h:1513-1533), 164 B: index u32 0, len u32 4,
+  data[32] 8, pad_1[18] 40, algo u32 112, flags u32 116, pad_2[2] 120, pad_3 128, iv_initialized 132,
+  pad_4 136, rxiv.hi u32 140, rxiv.lo u16 144, PAD 146, pad_5[2] 148, ea[6] 156, PAD 162.
+  - Pairwise (wl_add_keyext :6853-6907): index 0, ea = AP MAC, flags 0, algo CRYPTO_ALGO_AES_CCM 4
+    (wlioctl_defs.h:420), len 16 (TK).
+  - Group (wl_cfg80211_add_key :7065-7074): index = GTK key id, ea 0, flags WL_PRIMARY_KEY 2
+    (wlioctl_defs.h:473), algo 4, rxiv from the msg-3 Key RSC (hi = rsc[5..2], lo = rsc[1..0],
+    iv_initialized 1; :6886-6895).
+  - "need to guarantee EAPOL 4/4 send out before set key" (dhd_wait_pend8021x, :6903-6904): wait for msg 4's
+    TX_STATUS before installing the pairwise key.
+- No "authorize" ioctl in the STA host-supplicant path (fmac/dhd add_key only), so none is sent.
+- PRF self-test vectors (IEEE 802.11i-2004 H.3 cases 1-2), recomputed on the PC with Python hmac/hashlib
+  (scratchpad py/prf.py), PRF(K, A, B, 64):
+  - K = 0x0b x 20, A "prefix", B "Hi There" -> bcd4c650b30b9684951829e0d75f9d54b862175e...8356cf5a
+  - K "Jefe", A "prefix", B "what do ya want for nothing?" -> 51f4de5b33f249adf81aeb713a3c20f4...9092b8fc
+  (both equal the standard's published values as I recall them; my recollection of case 3 did NOT match
+  the computation, so case 3 is not used.)
+- AES key wrap: RFC 3394 4.1 (KEK 000102..0F, data 00112233..EEFF -> 1FA68B0A8112B447 AEF34BD8FB5A7B82
+  9D3E862371D2CFE5), recomputed with Python cryptography aes_key_wrap/unwrap.
+
+### NetAdapterCx version (M7c) - checked 2026-10-12
+- Installed WDK 10.0.26100.0 ships KMDF NetAdapterCx headers/stub libs 2.0..2.5
+  (Include\10.0.26100.0\km\netcx\kmdf\adapter\2.x, Lib\...\km\arm64\netcx\kmdf\adapter\2.x\netadaptercxstub.lib);
+  msbuild default for KMDF is 2.4 (build\10.0.26100.0\WindowsDriver.KernelMode.CX.Default.props:29-30),
+  selected with <NetAdapterDriver>true</NetAdapterDriver> + NETADAPTER_VERSION_MINOR.
+- Microsoft "NetAdapterCx version overview" (learn.microsoft.com, fetched 2026-10-12): Win11 24H2 = 2.5,
+  Server 2022 23H2 = 2.4, **Win11 22H2 = 2.3**, 21H2 = 2.2, Win10 2004 = 2.0 (KMDF 1.33 from 21H2 on).
+- The phone's image is Windows 11 23H2 22631.2861 ARM64 (notes/m10-windows-deploy-plan.md:43), which is the
+  22H2 servicing branch (22621 base) -> **target NetAdapterCx 2.3** (2.4 = WDK default would not bind on
+  22631). UNVERIFIED on the device: the main session should confirm `ver` = 22631 before installing M7c.
+
+## M7a code (1.0.7.0)
+- WlanMsg.c:
+  - H2dNext/H2dCommit generalise the ctrl-ring writer to any H2D ring (rxpost, flowring).
+  - D2hPoll(ring) drains any completion ring; new cases FLOW_RING_CREATE_CMPLT, TX_STATUS, RX_CMPLT.
+    D2hPollAll = rx, tx, ctrl (fmac rx_trigger order). WlanMsgPoll now drains all three.
+  - Per-ring MDLs replace the single MdlD2h (a ctrl poll no longer invalidates 48 KB of tx/rx rings); the
+    "not synced" bookkeeping moved into MSG_RING (the log line now names the ring).
+  - DataInit at the resident hand-over: 2nd common buffer 0x66000 B (flowring 512x48, 64 tx + 128 rx 2 KB
+    buffers, one MDL each), zeroed + cleaned, rx buffers posted (min(128, max_host_rxbufs)). Logged as
+    "DATA 0: ..." in the PrepareHardware report (Exynos9820Wlan.txt).
+  - FlowRingCreate(Da): flowid 2, tid 0, SA = cur_etheraddr, DA = AP, TCM w index 0 first; waits 2 s for the
+    completion; "FLOW 0/1" line. Not called yet (M7b calls it after association).
+  - TxFrame: 14 B header in the item, payload in a tx buffer (clean), flowring item (clean), w index + DB0.
+    RxComplete: invalidate the buffer, EAPOL (0x888E) copied for the handshake, other frames -> RxFn hook;
+    buffer reposted, rxpost committed once per drain.
+  - API: WlanMsgTx, WlanMsgSetRx. WLAN_REPORT_MAX 16384 -> 32766 (more log lines per run).
+- Build s10e-artifacts\wifi-m7a, sys BC8CBEE32177E076F6C4D19CE88DC3F8C2BF6E138D975F9E002F44F1496505DD
+  (W4/WX clean, first try).
+- Not device-tested on its own: the first observable is "DATA 0" + the rxpost fw r index; flowring/tx/rx are
+  exercised by M7b's join, so the device test is planned with the M7b build.

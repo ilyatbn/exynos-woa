@@ -31,6 +31,9 @@ typedef struct _MSG_RING {
     ULONG   RIdxAddr;       /* TCM address of the read index slot */
     ULONG   Host;           /* host-side index: write index (H2D) / read index (D2H) */
     ULONG   Seq;            /* epoch sequence */
+    PMDL    Mdl;            /* M7a: D2H ring = invalidate before reads; flowring = clean before the doorbell */
+    ULONG   LastUnsynced;   /* ring index + 1 of the last "not synced" report (log once per item) */
+    ULONG   Unsynced;       /* polls that stopped on an unsynced item */
 } MSG_RING, *PMSG_RING;
 
 typedef struct _MSG_STATE {
@@ -70,10 +73,34 @@ typedef struct _MSG_STATE {
     PMDL                MdlAll;         /* whole buffer: one clean after zeroing */
     PMDL                MdlH2d;         /* H2D ctrl + rxpost rings (clean before a doorbell) */
     PMDL                MdlReq;         /* ioctl request buffer (clean before a doorbell) */
-    PMDL                MdlD2h;         /* D2H ctrl/tx/rx completion rings (invalidate before reading) */
     PMDL                MdlBufs;        /* ioctl response + event buffers (invalidate before reading) */
-    ULONG               LastUnsynced;   /* ring index + 1 of the last "not synced" report (log once per item) */
-    ULONG               Unsynced;       /* polls that stopped on an unsynced item */
+    /* (M7a: the D2H completion rings each carry their own MDL in MSG_RING.Mdl instead of one MdlD2h) */
+    /* ---- milestone 7a data path (notes/m12-wifi-m7.md); valid when DataOn ---- */
+    BOOLEAN             DataOn;         /* second common buffer mapped, rx buffers posted */
+    PUCHAR              DVa;            /* data common buffer, DAT_OFF_* map */
+    ULONGLONG           DLa;
+    ULONG               H2dWBase;       /* ring_info h2d_w/r_idx_ptr: flowring slots continue after ring 1 */
+    ULONG               H2dRBase;
+    ULONG               MaxFlowrings;   /* ring_info max_tx_flowrings */
+    UCHAR               Mac[6];         /* cur_etheraddr (flowring SA) */
+    MSG_RING            Flow;           /* the one tx flowring (flowid FLOWRING_FIRST_ID), when FlowOpen */
+    BOOLEAN             FlowRequested;
+    BOOLEAN             FlowOpen;
+    LONG                FlowStatus;     /* FLOW_RING_CREATE_CMPLT status, -1 = none yet */
+    UCHAR               FlowDa[6];
+    BOOLEAN             TxBusy[TX_BUF_COUNT];
+    ULONG               TxNext;
+    ULONG               RxCount;        /* rx buffers in use (posted once at start, reposted on completion) */
+    PMDL                MdlData;        /* whole data buffer: one clean after zeroing */
+    PMDL                MdlTx[TX_BUF_COUNT];
+    PMDL                MdlRx[RX_BUF_COUNT];
+    ULONG               TxPosted, TxDone, TxErrors, RxFrames, RxEapol, RxBad, TxLogged, RxLogged;
+    WLAN_RX_FN         *RxFn;
+    PVOID               RxCtx;
+    /* EAPOL frame for the handshake (M7b): the latest one, copied out of its rx buffer */
+    UCHAR               Eapol[512];
+    ULONG               EapolLen;
+    BOOLEAN             EapolPending;
 } MSG_STATE, *PMSG_STATE;
 
 static ULONG
@@ -141,17 +168,44 @@ RegionMdl(_In_ PMSG_STATE S, _In_ ULONG Off, _In_ ULONG Len)
 }
 
 static VOID
+MdlFree(_Inout_ PMDL *Mdl)
+{
+    if (*Mdl != NULL) {
+        IoFreeMdl(*Mdl);
+        *Mdl = NULL;
+    }
+}
+
+static VOID
 RegionMdlsFree(_Inout_ PMSG_STATE S)
 {
-    PMDL *All[] = { &S->MdlAll, &S->MdlH2d, &S->MdlReq, &S->MdlD2h, &S->MdlBufs };
+    PMDL *All[] = { &S->MdlAll, &S->MdlH2d, &S->MdlReq, &S->MdlBufs, &S->MdlData, &S->Flow.Mdl };
     ULONG I;
 
     for (I = 0; I < ARRAYSIZE(All); I++) {
-        if (*All[I] != NULL) {
-            IoFreeMdl(*All[I]);
-            *All[I] = NULL;
-        }
+        MdlFree(All[I]);
     }
+    for (I = 0; I < RING_COMMON_COUNT; I++) {
+        MdlFree(&S->Ring[I].Mdl);
+    }
+    for (I = 0; I < TX_BUF_COUNT; I++) {
+        MdlFree(&S->MdlTx[I]);
+    }
+    for (I = 0; I < RX_BUF_COUNT; I++) {
+        MdlFree(&S->MdlRx[I]);
+    }
+}
+
+/* MDL over Len bytes of the data common buffer (RegionMdl is over the control buffer). */
+static PMDL
+DataMdl(_In_ PMSG_STATE S, _In_ ULONG Off, _In_ ULONG Len)
+{
+    PMDL Mdl = IoAllocateMdl(S->DVa + Off, Len, FALSE, FALSE, NULL);
+
+    if (Mdl != NULL) {
+        MmBuildMdlForNonPagedPool(Mdl);
+    }
+    return Mdl;
 }
 
 static PUCHAR
@@ -160,32 +214,40 @@ RingItem(_In_ PMSG_STATE S, _In_ PMSG_RING G, _In_ ULONG Index)
     return S->Va + G->Off + Index * G->ItemSize;
 }
 
-/* Fill the next H2D control item (40 B) and advance the host write index (written to TCM by the caller).
-   NULL when the ring stays full for 100 ms (the firmware has not consumed what was posted). */
+/* Fill the next item of an H2D ring and advance the host write index (written to TCM by the commit).
+   Base = the buffer the ring lives in (control buffer, or the data buffer for the flowring). NULL when the
+   ring stays full for MaxWaitMs (the firmware has not consumed what was posted). */
 static PUCHAR
-H2dCtrlNext(_Inout_ PMSG_STATE S, _In_ UCHAR Type, _In_ ULONG RequestId)
+H2dNext(_Inout_ PMSG_STATE S, _Inout_ PMSG_RING G, _In_ PUCHAR Base, _In_ UCHAR Type, _In_ ULONG RequestId,
+        _In_ ULONG MaxWaitMs)
 {
-    PMSG_RING G = &S->Ring[RING_H2D_CTRL];
-    PUCHAR    It;
-    ULONG     Tries;
+    PUCHAR It;
+    ULONG  Tries;
 
     for (Tries = 0; ((G->Host + 1) % G->MaxItem) == Tcm16(S, G->RIdxAddr); Tries++) {
-        if (Tries == 100) {
-            ReportLine(S->R, "[msg] H2D ctrl ring full (w %lu r %u)\r\n", G->Host, Tcm16(S, G->RIdxAddr));
+        if (Tries >= MaxWaitMs) {
+            ReportLine(S->R, "[msg] H2D ring %lu full (w %lu r %u)\r\n", G->Id, G->Host, Tcm16(S, G->RIdxAddr));
             return NULL;
         }
         KeStallExecutionProcessor(1000);
     }
-    It = RingItem(S, G, G->Host);
+    It = Base + G->Off + G->Host * G->ItemSize;
     RtlZeroMemory(It, G->ItemSize);
     It[MSGH_TYPE]  = Type;
     It[MSGH_IFID]  = 0;
     It[MSGH_FLAGS] = 0;   /* no phase bit, as fmac brcmf_msgbuf_tx_ioctl: wrapping needs only the full check */
-    It[MSGH_EPOCH] = (UCHAR)(G->Seq % EPOCH_MODULO);
+    It[MSGH_EPOCH] = (UCHAR)(G->Seq % EPOCH_MODULO);   /* dhd :9329 / txpost the same */
     G->Seq++;
     *(ULONG UNALIGNED *)(It + MSGH_REQUEST_ID) = RequestId;
     G->Host = (G->Host + 1) % G->MaxItem;
     return It;
+}
+
+/* Fill the next H2D control item (40 B). */
+static PUCHAR
+H2dCtrlNext(_Inout_ PMSG_STATE S, _In_ UCHAR Type, _In_ ULONG RequestId)
+{
+    return H2dNext(S, &S->Ring[RING_H2D_CTRL], S->Va, Type, RequestId, 100);
 }
 
 static VOID
@@ -334,18 +396,134 @@ D2hItemReady(_In_ PMSG_STATE S, _In_ PMSG_RING G, _In_ PUCHAR It)
     return X == 0;
 }
 
-/* Drain the D2H control-complete ring once; returns the number of items consumed. */
-static ULONG
-D2hCtrlPoll(_Inout_ PMSG_STATE S)
+/* ---------------------------------------------------------------- milestone 7a: data path helpers */
+
+/* Write the host write index of an H2D ring to TCM and ring DB0 (dhd ringbell is the same for every H2D
+   ring, dhd_pcie.c:7786). Mdl = the region the CPU wrote (cleaned first). */
+static VOID
+H2dCommit(_Inout_ PMSG_STATE S, _In_ PMSG_RING G, _In_opt_ PMDL Mdl)
 {
-    PMSG_RING G = &S->Ring[RING_D2H_CTRL_CPL];
+    CacheClean(Mdl);
+    KeMemoryBarrier();
+    TcmW16(S, G->WIdxAddr, (USHORT)G->Host);
+    Doorbell(S, S->Db0);
+}
+
+/* RXBUF_POST (host_rxbuf_post_t, bcmmsgbuf.h:905-918) for data buffer I, no commit. */
+static BOOLEAN
+RxPost(_Inout_ PMSG_STATE S, _In_ ULONG I)
+{
+    PUCHAR    It = H2dNext(S, &S->Ring[RING_H2D_RXPOST], S->Va, MSG_TYPE_RXBUF_POST, RX_PKTID0 + I, 10);
+    ULONGLONG Ba = S->DLa + DAT_OFF_RXBUF + (ULONGLONG)I * DATA_BUF_SIZE;
+
+    if (It == NULL) {
+        return FALSE;
+    }
+    *(USHORT UNALIGNED *)(It + RXP_META_LEN)      = 0;   /* no metadata (fmac rx_metadata_offset 0) */
+    *(USHORT UNALIGNED *)(It + RXP_DATA_LEN)      = DATA_BUF_SIZE;
+    *(ULONG UNALIGNED *)(It + RXP_DATA_ADDR)      = (ULONG)Ba;
+    *(ULONG UNALIGNED *)(It + RXP_DATA_ADDR + 4)  = (ULONG)(Ba >> 32);
+    return TRUE;
+}
+
+/* RX_CMPLT (host_rxbuf_cmpl_t, bcmmsgbuf.h:926-959): data at data_offset (or dma_rxoffset when 0, fmac
+   msgbuf.c:1199-1203), data_len bytes; EAPOL frames are kept for the handshake, others go to RxFn. The
+   buffer is reposted either way (the frame is consumed during this call). */
+static VOID
+RxComplete(_Inout_ PMSG_STATE S, _In_ PUCHAR It, _Inout_ PBOOLEAN Repost)
+{
+    ULONG  Pkt   = *(ULONG UNALIGNED *)(It + MSGH_REQUEST_ID);
+    ULONG  I     = Pkt - RX_PKTID0;
+    ULONG  Len   = *(USHORT UNALIGNED *)(It + RXC_DATA_LEN);
+    ULONG  Off   = *(USHORT UNALIGNED *)(It + RXC_DATA_OFFSET);
+    ULONG  Flags = *(USHORT UNALIGNED *)(It + RXC_FLAGS);
+    LONG   St    = *(SHORT UNALIGNED *)(It + CPL_STATUS);
+    PUCHAR F;
+    ULONG  Type;
+
+    if (Pkt < RX_PKTID0 || I >= S->RxCount) {
+        S->RxBad++;
+        ReportLine(S->R, "[rx] completion for unknown pktid 0x%lX (status %ld)\r\n", Pkt, St);
+        return;
+    }
+    if (Off == 0) {
+        Off = S->RxOffset;
+    }
+    if (Off >= DATA_BUF_SIZE || Len > DATA_BUF_SIZE - Off || Len < ETH_HLEN ||
+        (Flags & PKT_FLAGS_FRAME_MASK) == 0x02 /* 802.11 = monitor frame, fmac :1205 */) {
+        S->RxBad++;
+        if (S->RxLogged++ < 16) {
+            ReportLine(S->R, "[rx] pktid 0x%lX dropped: len %lu offset %lu flags 0x%04lX status %ld\r\n", Pkt, Len, Off,
+                       Flags, St);
+        }
+    } else {
+        CacheInvalidate(S->MdlRx[I]);
+        F    = S->DVa + DAT_OFF_RXBUF + I * DATA_BUF_SIZE + Off;
+        Type = ((ULONG)F[12] << 8) | F[13];
+        S->RxFrames++;
+        if (S->RxLogged++ < 16) {
+            ReportLine(S->R, "[rx] #%lu len %lu off %lu if %u type 0x%04lX %02X:%02X:%02X:%02X:%02X:%02X -> "
+                       "%02X:%02X:%02X:%02X:%02X:%02X\r\n", S->RxFrames, Len, Off, It[MSGH_IFID], Type, F[6], F[7],
+                       F[8], F[9], F[10], F[11], F[0], F[1], F[2], F[3], F[4], F[5]);
+        }
+        if (Type == ETH_TYPE_EAPOL) {
+            S->RxEapol++;
+            if (Len <= sizeof(S->Eapol)) {
+                RtlCopyMemory(S->Eapol, F, Len);
+                S->EapolLen     = Len;
+                S->EapolPending = TRUE;
+            } else {
+                ReportLine(S->R, "[rx] EAPOL frame of %lu B exceeds %u - dropped\r\n", Len, (ULONG)sizeof(S->Eapol));
+            }
+        } else if (S->RxFn != NULL) {
+            S->RxFn(S->RxCtx, F, Len);
+        }
+    }
+    if (RxPost(S, I)) {
+        *Repost = TRUE;
+    } else {
+        S->RxCount = I;   /* never happens with 128 buffers on a 512-item ring; stop using the tail */
+        ReportLine(S->R, "[rx] repost of buffer %lu failed - rx buffers reduced to %lu\r\n", I, S->RxCount);
+    }
+}
+
+/* TX_STATUS (host_txbuf_cmpl_t, bcmmsgbuf.h:1046-1080): the tx buffer is free again. */
+static VOID
+TxStatus(_Inout_ PMSG_STATE S, _In_ PUCHAR It)
+{
+    ULONG Pkt = *(ULONG UNALIGNED *)(It + MSGH_REQUEST_ID);
+    ULONG I   = Pkt - TX_PKTID0;
+    LONG  St  = *(SHORT UNALIGNED *)(It + CPL_STATUS);
+
+    if (Pkt < TX_PKTID0 || I >= TX_BUF_COUNT || !S->TxBusy[I]) {
+        ReportLine(S->R, "[tx] status for unknown pktid 0x%lX (status %ld)\r\n", Pkt, St);
+        return;
+    }
+    S->TxBusy[I] = FALSE;
+    S->TxDone++;
+    if (St != 0) {
+        S->TxErrors++;
+    }
+    if (S->TxLogged < 32 || St != 0) {
+        S->TxLogged++;
+        ReportLine(S->R, "[tx] done pktid 0x%lX status %ld tx_status 0x%04X flowring %u (%lu done, %lu errors)\r\n",
+                   Pkt, St, *(USHORT UNALIGNED *)(It + TXC_TX_STATUS), *(USHORT UNALIGNED *)(It + CPL_RING_ID),
+                   S->TxDone, S->TxErrors);
+    }
+}
+
+/* Drain one D2H completion ring once (dhd dhd_prot_process_msgtype); returns the number of items consumed. */
+static ULONG
+D2hPoll(_Inout_ PMSG_STATE S, _In_ ULONG Ring)
+{
+    PMSG_RING G = &S->Ring[Ring];
     ULONG     W, Count = 0, Tries;
-    BOOLEAN   Repost = FALSE;
+    BOOLEAN   Repost = FALSE, RxRepost = FALSE;
 
     KeMemoryBarrier();
     W = Tcm16(S, G->WIdxAddr);
     if (W >= G->MaxItem) {
-        ReportLine(S->R, "[msg] D2H ctrl write index %lu out of range\r\n", W);
+        ReportLine(S->R, "[msg] D2H ring %lu write index %lu out of range\r\n", Ring, W);
         return 0;
     }
     while (G->Host != W) {
@@ -353,28 +531,28 @@ D2hCtrlPoll(_Inout_ PMSG_STATE S)
         UCHAR  Type;
 
         for (Tries = 0; Tries < 100; Tries++) {
-            CacheInvalidate(S->MdlD2h);
+            CacheInvalidate(G->Mdl);
             if (D2hItemReady(S, G, It)) {
                 break;
             }
             KeStallExecutionProcessor(10);
         }
         if (Tries == 100) {
-            S->Unsynced++;
-            if (S->LastUnsynced != G->Host + 1) {
+            G->Unsynced++;
+            if (G->LastUnsynced != G->Host + 1) {
                 const ULONG *Wd = (const ULONG *)It;
 
-                S->LastUnsynced = G->Host + 1;
-                ReportLine(S->R, "[msg] D2H item %lu not synced (epoch %u want %lu; fw w %u r %u; cache maint %u): "
-                           "%08lX %08lX %08lX %08lX %08lX %08lX\r\n", G->Host, It[MSGH_EPOCH], G->Seq % EPOCH_MODULO,
-                           Tcm16(S, G->WIdxAddr), Tcm16(S, G->RIdxAddr), S->MdlD2h != NULL, Wd[0], Wd[1], Wd[2],
+                G->LastUnsynced = G->Host + 1;
+                ReportLine(S->R, "[msg] D2H ring %lu item %lu not synced (epoch %u want %lu; fw w %u r %u; cache maint %u): "
+                           "%08lX %08lX %08lX %08lX %08lX %08lX\r\n", Ring, G->Host, It[MSGH_EPOCH], G->Seq % EPOCH_MODULO,
+                           Tcm16(S, G->WIdxAddr), Tcm16(S, G->RIdxAddr), G->Mdl != NULL, Wd[0], Wd[1], Wd[2],
                            Wd[3], Wd[4], Wd[5]);
             }
             break;
         }
-        if (S->LastUnsynced == G->Host + 1) {
-            ReportLine(S->R, "[msg] D2H item %lu synced after %lu stalled polls\r\n", G->Host, S->Unsynced);
-            S->LastUnsynced = 0;
+        if (G->LastUnsynced == G->Host + 1) {
+            ReportLine(S->R, "[msg] D2H ring %lu item %lu synced after %lu stalled polls\r\n", Ring, G->Host, G->Unsynced);
+            G->LastUnsynced = 0;
         }
         Type = It[MSGH_TYPE];
         switch (Type) {
@@ -423,13 +601,30 @@ D2hCtrlPoll(_Inout_ PMSG_STATE S)
             }
             break;
         }
+        case MSG_TYPE_FLOW_RING_CREATE_CMPLT: {   /* ring_create_response_t bcmmsgbuf.h:758-764 */
+            LONG  St = *(SHORT UNALIGNED *)(It + CPL_STATUS);
+            ULONG Id = *(USHORT UNALIGNED *)(It + CPL_RING_ID);
+
+            ReportLine(S->R, "[flow] FLOW_RING_CREATE_CMPLT status %ld flowid %lu\r\n", St, Id);
+            if (Id == FLOWRING_FIRST_ID) {
+                S->FlowStatus = St;
+                S->FlowOpen   = (St == 0);
+            }
+            break;
+        }
+        case MSG_TYPE_TX_STATUS:
+            TxStatus(S, It);
+            break;
+        case MSG_TYPE_RX_CMPLT:
+            RxComplete(S, It, &RxRepost);
+            break;
         case MSG_TYPE_GEN_STATUS:
         case MSG_TYPE_RING_STATUS:
             ReportLine(S->R, "[msg] %s status %d ring %u\r\n", (Type == MSG_TYPE_GEN_STATUS) ? "GEN" : "RING",
                        *(SHORT UNALIGNED *)(It + CPL_STATUS), *(USHORT UNALIGNED *)(It + CPL_RING_ID));
             break;
         default:
-            ReportLine(S->R, "[msg] D2H ctrl item type 0x%02X\r\n", Type);
+            ReportLine(S->R, "[msg] D2H ring %lu item type 0x%02X\r\n", Ring, Type);
             break;
         }
         G->Seq++;
@@ -443,7 +638,31 @@ D2hCtrlPoll(_Inout_ PMSG_STATE S)
     if (Repost) {
         H2dCtrlCommit(S);
     }
+    if (RxRepost) {
+        H2dCommit(S, &S->Ring[RING_H2D_RXPOST], S->MdlH2d);
+    }
     return Count;
+}
+
+/* The control-complete ring only (ioctl waits, escan, M3/M4 bring-up). */
+static ULONG
+D2hCtrlPoll(_Inout_ PMSG_STATE S)
+{
+    return D2hPoll(S, RING_D2H_CTRL_CPL);
+}
+
+/* All three completion rings (fmac brcmf_proto_msgbuf_rx_trigger order: rx, tx, ctrl). The data rings are
+   only drained once the data path is on (before that nothing is posted that could complete there). */
+static ULONG
+D2hPollAll(_Inout_ PMSG_STATE S)
+{
+    ULONG N = 0;
+
+    if (S->DataOn) {
+        N += D2hPoll(S, RING_D2H_RX_CPL);
+        N += D2hPoll(S, RING_D2H_TX_CPL);
+    }
+    return N + D2hPoll(S, RING_D2H_CTRL_CPL);
 }
 
 /* One IOCTLPTR_REQ (fmac brcmf_msgbuf_tx_ioctl: get and set differ only by Cmd): In[InLen] is copied to the
@@ -657,6 +876,214 @@ EscanRun(_Inout_ PMSG_STATE S)
     return Result;
 }
 
+/* Milestone 7a: second common buffer (tx flowring + tx/rx packet buffers), MDLs, rx buffers posted on the
+   H2D rxpost ring. FALSE = no data path (logged); the control path is unaffected. */
+static BOOLEAN
+DataInit(_Inout_ PMSG_STATE S, _Inout_ PWLAN_MSG_CTX M)
+{
+    WDFCOMMONBUFFER Db = NULL;
+    NTSTATUS        Status;
+    ULONG           I, Max;
+
+    ReportLine(S->R, "---- milestone 7a: msgbuf data path ----\r\n");
+    if (S->MaxFlowrings == 0 || !InRam(S, S->H2dWBase, RW_INDEX_SZ * (FLOWRING_FIRST_ID + 1)) ||
+        !InRam(S, S->H2dRBase, RW_INDEX_SZ * (FLOWRING_FIRST_ID + 1))) {
+        ReportLine(S->R, "DATA 1: no tx flowring available (max flowrings %lu)\r\n", S->MaxFlowrings);
+        return FALSE;
+    }
+    Status = WdfCommonBufferCreate(M->DmaEnabler, DAT_DMA_SIZE, WDF_NO_OBJECT_ATTRIBUTES, &Db);
+    if (!NT_SUCCESS(Status)) {
+        ReportLine(S->R, "DATA 2: WdfCommonBufferCreate(0x%X) 0x%08lX\r\n", DAT_DMA_SIZE, Status);
+        return FALSE;
+    }
+    S->DVa = (PUCHAR)WdfCommonBufferGetAlignedVirtualAddress(Db);
+    S->DLa = (ULONGLONG)WdfCommonBufferGetAlignedLogicalAddress(Db).QuadPart;
+    if ((S->DLa >> 32) != 0 || (S->DLa & 0xFFF) != 0) {
+        ReportLine(S->R, "DATA 2: data buffer 0x%I64X not 4 KB aligned below 4 GB\r\n", S->DLa);
+        goto Fail;
+    }
+    RtlZeroMemory(S->DVa, DAT_DMA_SIZE);
+    if (S->MdlAll != NULL) {   /* cache maintenance on (Parameters\CacheMaint): MDLs as for the control buffer */
+        S->MdlData  = DataMdl(S, 0, DAT_DMA_SIZE);
+        S->Flow.Mdl = DataMdl(S, DAT_OFF_FLOWRING, H2D_TXPOST_MAX_ITEM * H2D_TXPOST_ITEMSIZE);
+        for (I = 0; I < TX_BUF_COUNT; I++) {
+            S->MdlTx[I] = DataMdl(S, DAT_OFF_TXBUF + I * DATA_BUF_SIZE, DATA_BUF_SIZE);
+        }
+        for (I = 0; I < RX_BUF_COUNT; I++) {
+            S->MdlRx[I] = DataMdl(S, DAT_OFF_RXBUF + I * DATA_BUF_SIZE, DATA_BUF_SIZE);
+        }
+        if (S->MdlData == NULL || S->Flow.Mdl == NULL) {
+            ReportLine(S->R, "DATA 2: data MDLs not allocated\r\n");
+            goto Fail;
+        }
+        for (I = 0; I < TX_BUF_COUNT; I++) {
+            if (S->MdlTx[I] == NULL) {
+                ReportLine(S->R, "DATA 2: data MDLs not allocated\r\n");
+                goto Fail;
+            }
+        }
+        for (I = 0; I < RX_BUF_COUNT; I++) {
+            if (S->MdlRx[I] == NULL) {
+                ReportLine(S->R, "DATA 2: data MDLs not allocated\r\n");
+                goto Fail;
+            }
+        }
+        CacheClean(S->MdlData);   /* zeroed flowring + buffers reach memory before the device reads them */
+    }
+
+    /* tx flowring geometry (dhd_prot_flow_ring_create :9338-9341); created after association (FlowRingCreate) */
+    S->Flow.Id       = FLOWRING_FIRST_ID;
+    S->Flow.ItemSize = H2D_TXPOST_ITEMSIZE;
+    S->Flow.MaxItem  = H2D_TXPOST_MAX_ITEM;
+    S->Flow.Off      = DAT_OFF_FLOWRING;
+    S->Flow.WIdxAddr = S->H2dWBase + RW_INDEX_SZ * FLOWRING_FIRST_ID;
+    S->Flow.RIdxAddr = S->H2dRBase + RW_INDEX_SZ * FLOWRING_FIRST_ID;
+    S->Flow.Seq      = EPOCH_INIT_VAL;
+    S->Flow.Host     = 0;
+    S->FlowStatus    = -1;
+
+    /* rx buffers: min(RX_BUF_COUNT, max_host_rxbufs) (fmac pcie.c:1651 max_rxbufpost) */
+    Max = Tcm16(S, S->Bus->SharedAddr + SH_MAX_HOST_RXBUFS);
+    S->RxCount = (Max != 0 && Max < RX_BUF_COUNT) ? Max : RX_BUF_COUNT;
+    for (I = 0; I < S->RxCount; I++) {
+        if (!RxPost(S, I)) {
+            S->RxCount = I;
+            break;
+        }
+    }
+    H2dCommit(S, &S->Ring[RING_H2D_RXPOST], S->MdlH2d);
+    M->DataBuffer = Db;
+    S->DataOn     = TRUE;
+    ReportLine(S->R, "DATA 0: buffer 0x%X B at 0x%I64X; %lu rx buffers posted (max_host_rxbufs %lu), rxpost w %lu fw r %u; "
+               "flowring %u slots w 0x%08lX r 0x%08lX (max flowrings %lu)\r\n", DAT_DMA_SIZE, S->DLa, S->RxCount, Max,
+               S->Ring[RING_H2D_RXPOST].Host, Tcm16(S, S->Ring[RING_H2D_RXPOST].RIdxAddr), FLOWRING_FIRST_ID,
+               S->Flow.WIdxAddr, S->Flow.RIdxAddr, S->MaxFlowrings);
+    return TRUE;
+
+Fail:
+    MdlFree(&S->MdlData);
+    MdlFree(&S->Flow.Mdl);
+    for (I = 0; I < TX_BUF_COUNT; I++) {
+        MdlFree(&S->MdlTx[I]);
+    }
+    for (I = 0; I < RX_BUF_COUNT; I++) {
+        MdlFree(&S->MdlRx[I]);
+    }
+    WdfObjectDelete(Db);   /* nothing was posted yet: the device has no address in it */
+    S->DVa = NULL;
+    S->DLa = 0;
+    return FALSE;
+}
+
+/* MSG_TYPE_FLOW_RING_CREATE (tx_flowring_create_request_t, dhd_prot_flow_ring_create dhd_msgbuf.c:9289-9392)
+   for the one STA flowring: ifidx 0, tid 0, SA = our MAC, DA = the AP. The flowring write index is written
+   to TCM first (dhd :9382). Waits for FLOW_RING_CREATE_CMPLT. TRUE = open. */
+static BOOLEAN
+FlowRingCreate(_Inout_ PMSG_STATE S, _In_reads_(6) const UCHAR *Da)
+{
+    PUCHAR        It;
+    ULONGLONG     Ba = S->DLa + DAT_OFF_FLOWRING;
+    ULONG         Ms;
+    LARGE_INTEGER Delay;
+
+    if (!S->DataOn) {
+        return FALSE;
+    }
+    if (S->FlowOpen || S->FlowRequested) {
+        return S->FlowOpen;   /* one create per device lifetime (no delete path yet) */
+    }
+    RtlCopyMemory(S->FlowDa, Da, 6);
+    TcmW16(S, S->Flow.WIdxAddr, 0);
+    It = H2dCtrlNext(S, MSG_TYPE_FLOW_RING_CREATE, 0);   /* request_id 0 as dhd :9326 */
+    if (It == NULL) {
+        return FALSE;
+    }
+    RtlCopyMemory(It + FLOWC_DA, Da, 6);
+    RtlCopyMemory(It + FLOWC_SA, S->Mac, 6);
+    It[FLOWC_TID]      = 0;
+    It[FLOWC_IF_FLAGS] = 0;
+    *(USHORT UNALIGNED *)(It + FLOWC_RING_ID)      = FLOWRING_FIRST_ID;
+    *(USHORT UNALIGNED *)(It + FLOWC_MAX_ITEMS)    = H2D_TXPOST_MAX_ITEM;
+    *(USHORT UNALIGNED *)(It + FLOWC_LEN_ITEM)     = H2D_TXPOST_ITEMSIZE;
+    *(ULONG UNALIGNED *)(It + FLOWC_RING_PTR)      = (ULONG)Ba;
+    *(ULONG UNALIGNED *)(It + FLOWC_RING_PTR + 4)  = (ULONG)(Ba >> 32);
+    S->FlowRequested = TRUE;
+    S->FlowStatus    = -1;
+    H2dCtrlCommit(S);
+    ReportLine(S->R, "[flow] FLOW_RING_CREATE flowid %u da %02X:%02X:%02X:%02X:%02X:%02X sa %02X:%02X:%02X:%02X:%02X:%02X "
+               "ring 0x%I64X %u x %u\r\n", FLOWRING_FIRST_ID, Da[0], Da[1], Da[2], Da[3], Da[4], Da[5], S->Mac[0], S->Mac[1],
+               S->Mac[2], S->Mac[3], S->Mac[4], S->Mac[5], Ba, H2D_TXPOST_MAX_ITEM, H2D_TXPOST_ITEMSIZE);
+    for (Ms = 0; Ms < FLOW_CREATE_TIMEOUT_MS && S->FlowStatus < 0; Ms += 10) {
+        (VOID)D2hPollAll(S);
+        if (S->FlowStatus >= 0) {
+            break;
+        }
+        Delay.QuadPart = -10000LL * 10;
+        KeDelayExecutionThread(KernelMode, FALSE, &Delay);
+    }
+    ReportLine(S->R, "FLOW %lu: flowring %u %s (status %ld) after %lu ms\r\n", S->FlowOpen ? 0UL : 1UL,
+               FLOWRING_FIRST_ID, S->FlowOpen ? "open" : "NOT open", S->FlowStatus, Ms);
+    return S->FlowOpen;
+}
+
+/* One 802.3 frame on the flowring (host_txbuf_post_t, fmac brcmf_msgbuf_txflow msgbuf.c:721-792): the 14 B
+   header goes in the item, the payload is copied to a tx buffer, data_len = payload length. */
+static ULONG
+TxFrame(_Inout_ PMSG_STATE S, _In_reads_bytes_(Len) const UCHAR *Frame, _In_ ULONG Len)
+{
+    PUCHAR    It;
+    ULONG     I = 0, J;
+    ULONGLONG Ba;
+
+    if (!S->FlowOpen) {
+        return TX_NO_FLOWRING;
+    }
+    if (Len < ETH_HLEN || Len - ETH_HLEN > DATA_BUF_SIZE) {
+        return TX_BAD_LENGTH;
+    }
+    for (J = 0; J < TX_BUF_COUNT; J++) {
+        I = (S->TxNext + J) % TX_BUF_COUNT;
+        if (!S->TxBusy[I]) {
+            break;
+        }
+    }
+    if (J == TX_BUF_COUNT) {
+        (VOID)D2hPoll(S, RING_D2H_TX_CPL);   /* reclaim, then try once more */
+        for (J = 0; J < TX_BUF_COUNT; J++) {
+            I = (S->TxNext + J) % TX_BUF_COUNT;
+            if (!S->TxBusy[I]) {
+                break;
+            }
+        }
+        if (J == TX_BUF_COUNT) {
+            return TX_NO_BUFFER;
+        }
+    }
+    It = H2dNext(S, &S->Flow, S->DVa, MSG_TYPE_TX_POST, TX_PKTID0 + I, 0);
+    if (It == NULL) {
+        return TX_RING_FULL;
+    }
+    Ba = S->DLa + DAT_OFF_TXBUF + (ULONGLONG)I * DATA_BUF_SIZE;
+    RtlCopyMemory(S->DVa + DAT_OFF_TXBUF + I * DATA_BUF_SIZE, Frame + ETH_HLEN, Len - ETH_HLEN);
+    RtlCopyMemory(It + TXP_ETHHDR, Frame, ETH_HLEN);
+    It[TXP_FLAGS]   = PKT_FLAGS_FRAME_802_3;   /* priority 0 (best effort) on the tid-0 flowring */
+    It[TXP_SEG_CNT] = 1;
+    *(ULONG UNALIGNED *)(It + TXP_DATA_ADDR)     = (ULONG)Ba;
+    *(ULONG UNALIGNED *)(It + TXP_DATA_ADDR + 4) = (ULONG)(Ba >> 32);
+    *(USHORT UNALIGNED *)(It + TXP_DATA_LEN)     = (USHORT)(Len - ETH_HLEN);
+    S->TxBusy[I] = TRUE;
+    S->TxNext    = (I + 1) % TX_BUF_COUNT;
+    S->TxPosted++;
+    CacheClean(S->MdlTx[I]);
+    H2dCommit(S, &S->Flow, S->Flow.Mdl);
+    if (S->TxLogged < 32) {
+        ReportLine(S->R, "[tx] post #%lu pktid 0x%lX len %lu type 0x%04X -> %02X:%02X:%02X:%02X:%02X:%02X, flowring w %lu r %u\r\n",
+                   S->TxPosted, TX_PKTID0 + I, Len, (USHORT)((Frame[12] << 8) | Frame[13]), Frame[0], Frame[1], Frame[2],
+                   Frame[3], Frame[4], Frame[5], S->Flow.Host, Tcm16(S, S->Flow.RIdxAddr));
+    }
+    return TX_OK;
+}
+
 _Use_decl_annotations_
 VOID
 WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
@@ -727,6 +1154,9 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
         ReportLine(R, "MSG %u: ring_info pointers/maxima not usable\r\n", MSG_BAD_SHARED);
         goto Stop;
     }
+    S->H2dWBase     = H2dW;   /* M7a: flowring index slots continue these arrays (dhd_pcie.c:8914-8932) */
+    S->H2dRBase     = H2dR;
+    S->MaxFlowrings = Tcm16(S, Ri + RI_MAX_TX_FLOWRINGS);
 
     /* 2. DMA memory */
     M->Result = MSG_NO_DMA;
@@ -744,9 +1174,13 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
         S->MdlAll  = RegionMdl(S, 0, MSG_DMA_SIZE);
         S->MdlH2d  = RegionMdl(S, MSG_OFF_H2D_CTRL, MSG_OFF_D2H_CTRL_CPL - MSG_OFF_H2D_CTRL);
         S->MdlReq  = RegionMdl(S, MSG_OFF_IOCTL_REQ, IOCTL_REQ_BUF_SIZE);
-        S->MdlD2h  = RegionMdl(S, MSG_OFF_D2H_CTRL_CPL, MSG_OFF_IOCTL_REQ - MSG_OFF_D2H_CTRL_CPL);
+        /* M7a: one MDL per completion ring, so a poll invalidates only the ring it reads */
+        S->Ring[RING_D2H_CTRL_CPL].Mdl = RegionMdl(S, MSG_OFF_D2H_CTRL_CPL, D2H_CTRL_CPL_MAX_ITEM * D2H_CTRL_CPL_ITEMSIZE);
+        S->Ring[RING_D2H_TX_CPL].Mdl   = RegionMdl(S, MSG_OFF_D2H_TX_CPL, D2H_TX_CPL_MAX_ITEM * D2H_TX_CPL_ITEMSIZE);
+        S->Ring[RING_D2H_RX_CPL].Mdl   = RegionMdl(S, MSG_OFF_D2H_RX_CPL, D2H_RX_CPL_MAX_ITEM * D2H_RX_CPL_ITEMSIZE);
         S->MdlBufs = RegionMdl(S, MSG_OFF_IOCTL_RESP, MSG_DMA_SIZE - MSG_OFF_IOCTL_RESP);
-        if (S->MdlAll == NULL || S->MdlH2d == NULL || S->MdlReq == NULL || S->MdlD2h == NULL || S->MdlBufs == NULL) {
+        if (S->MdlAll == NULL || S->MdlH2d == NULL || S->MdlReq == NULL || S->Ring[RING_D2H_CTRL_CPL].Mdl == NULL ||
+            S->Ring[RING_D2H_TX_CPL].Mdl == NULL || S->Ring[RING_D2H_RX_CPL].Mdl == NULL || S->MdlBufs == NULL) {
             ReportLine(R, "MSG %u: cache-maintenance MDLs not allocated\r\n", MSG_NO_DMA);
             goto Stop;
         }
@@ -840,6 +1274,7 @@ WlanMsgRun(PWLAN_REPORT R, PWLAN_BUS Bus, PVOID Ctx)
     M->Result = IoctlVar(S, FALSE, "cur_etheraddr", NULL, 0, 32);
     if (M->Result == MSG_OK && S->RespLen >= 6) {
         RtlCopyMemory(M->Mac, S->Resp, 6);
+        RtlCopyMemory(S->Mac, S->Resp, 6);
         M->MacValid = TRUE;
         ReportLine(R, "[msg] cur_etheraddr = %02X:%02X:%02X:%02X:%02X:%02X\r\n", S->Resp[0], S->Resp[1], S->Resp[2],
                    S->Resp[3], S->Resp[4], S->Resp[5]);
@@ -932,6 +1367,7 @@ ScanEnd:
         M->Resident     = TRUE;
         M->Quiesced     = FALSE;
         M->Config       = NULL;   /* points at PrepareHardware's stack */
+        (VOID)DataInit(S, M);     /* milestone 7a; a failure leaves the control path resident without data */
         ReportLine(R, "RESIDENT: firmware kept running (ARM up, bus master on, buffer 0x%I64X, rings live)\r\n", S->La);
         ReportWriteFile(R);
         return;
@@ -988,7 +1424,31 @@ WlanMsgPoll(PWLAN_MSG_CTX M, PWLAN_REPORT R)
         WlanMsgQuiesce(M, R);
         return 0;
     }
-    return D2hCtrlPoll(S);
+    return D2hPollAll(S);
+}
+
+_Use_decl_annotations_
+ULONG
+WlanMsgTx(PWLAN_MSG_CTX M, PWLAN_REPORT R, const UCHAR *Frame, ULONG Len)
+{
+    PMSG_STATE S = Live(M, R);
+
+    if (S == NULL || !S->DataOn) {
+        return TX_NO_FLOWRING;
+    }
+    return TxFrame(S, Frame, Len);
+}
+
+_Use_decl_annotations_
+VOID
+WlanMsgSetRx(PWLAN_MSG_CTX M, WLAN_RX_FN *Fn, PVOID Ctx)
+{
+    PMSG_STATE S = (M->Resident && M->State != NULL) ? (PMSG_STATE)M->State : NULL;
+
+    if (S != NULL) {
+        S->RxFn  = Fn;
+        S->RxCtx = Ctx;
+    }
 }
 
 _Use_decl_annotations_
@@ -1036,6 +1496,10 @@ WlanMsgFree(PWLAN_MSG_CTX M)
     if (M->CommonBuffer != NULL) {
         WdfObjectDelete(M->CommonBuffer);
         M->CommonBuffer = NULL;
+    }
+    if (M->DataBuffer != NULL) {
+        WdfObjectDelete(M->DataBuffer);
+        M->DataBuffer = NULL;
     }
     if (M->State != NULL) {
         RegionMdlsFree((PMSG_STATE)M->State);

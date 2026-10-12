@@ -274,3 +274,13 @@ Refs: scratchpad src/bcmdhd (LineageOS lineage-23.2) and src/brcmfmac (torvalds 
     rxframe / rxnobuf" (rxnobuf rising vs pre-join = fw has no host buffer), "macstat ... rxf0ovfl" (rising = d11 rx
     FIFO 0 starved), "[diag] join end: d2h_mb_data [..] = 0x..." (0x2 = deep-sleep request never acked -> implement
     the DS ack next), ring 4 ring_mem read-back != programmed (fw lost the rx cpl ring config).
+- **DEVICE RUN 1.0.7.4 (2026-10-12 ~22:30, run wifi-m7c2, collect-only boot; HomeX-5 with a deliberately WRONG
+  placeholder passphrase): RX PATH WORKS.** "rxpost host w 511 fw r 511 before SET_SSID"; ring 1/4 read-back =
+  programmed (512 x 32 @0xEFFA2000, 512 x 40 @0xEFFAD000); pre-join counters wlc rxnobuf 4, rxf0ovfl 0; mailbox
+  d2h 0, PCIMailBoxInt 1. After SET_SSID: **[rx] #1..#4 len 113 type 0x888E** from the AP (EAPOL msg 1, the AP
+  retrying), flowring 2 opened in 10 ms, **[tx] msg 2 x4 done status 0**; JOIN 3 "handshake state 1, eapol rx 4
+  tx 4", DEAUTH reason 15 after 2.69 s = the AP rejecting msg 2's MIC (wrong passphrase) - expected. Rx cpl w 4.
+  => root cause was the order / count of rx buffer posting (1.0.7.4 posts 511 before the first WLC_UP).
+  Previous run on the same boot as the pnputil install failed: a device restart while the firmware runs gives
+  "DL 6: TCM read-back mismatch" (28 mismatches) - the warm reload needs a chip reset first (open; reboot works).
+  Next: the user enters the real credentials with tools/wifi-connect on the phone (never stored in the repo).

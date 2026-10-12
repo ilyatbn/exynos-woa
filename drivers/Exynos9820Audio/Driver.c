@@ -23,7 +23,7 @@ EVT_WDF_DEVICE_D0_ENTRY           AudEvtD0Entry;
 EVT_WDF_DEVICE_D0_EXIT            AudEvtD0Exit;
 EVT_WDF_OBJECT_CONTEXT_CLEANUP    AudEvtDeviceCleanup;
 
-#define AUD_DRIVER_VERSION "1.0.1.0"
+#define AUD_DRIVER_VERSION "1.0.1.1"
 
 static AUD_CONFIG g_Cfg;
 
@@ -261,7 +261,13 @@ NTSTATUS AudEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Resources, WDFCMRE
     }
 
     Status = STATUS_SUCCESS;
-    if (!Dev->CircuitAdded && Dev->Render != NULL) {
+    if (Dev->Render == NULL) {
+        /* run audB2 (bugcheck D1 on pnputil /restart-device): ReleaseHardware's AcxDeviceRemoveCircuit deletes the
+           circuit, so a restart must create a new one (ACX AudioCodec sample: create + add in PrepareHardware) */
+        Status = AudRenderCircuitCreate(Device, Dev);
+        AudLog(Dev->Log, "render circuit re-created: %08lX\r\n", Status);
+    }
+    if (NT_SUCCESS(Status) && !Dev->CircuitAdded && Dev->Render != NULL) {
         Status = AcxDeviceAddCircuit(Device, Dev->Render);
         Dev->CircuitAdded = NT_SUCCESS(Status);
     }
@@ -283,6 +289,7 @@ NTSTATUS AudEvtReleaseHardware(WDFDEVICE Device, WDFCMRESLIST Translated)
     if (Dev->CircuitAdded) {
         (VOID)AcxDeviceRemoveCircuit(Device, Dev->Render);
         Dev->CircuitAdded = FALSE;
+        Dev->Render       = NULL;   /* deleted by the remove; PrepareHardware creates a new one */
     }
 
     if (Dev->Mapped) {

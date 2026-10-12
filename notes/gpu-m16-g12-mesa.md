@@ -118,7 +118,8 @@ No device access. Rules: AGENTS.md §2 (persist), §3 (one commit per task), §7
     1 in `nir_lower_system_values.c:833` (`derivative_group:2 = DERIVATIVE_GROUP_LINEAR` -> -2) only under
     `shuffle_local_ids_for_quad_derivatives`, which only `panvk_vX_shader.c:489` sets - not gallium. No
     Bifrost-path hit; same as the reference's native build.
-- 15. Collect stage -> `C:\Users\ilya\code\s10e-artifacts\mali-g12\` (exit 0):
+- 15. Collect stage -> `C:\Users\ilya\code\s10e-artifacts\mali-g12\` (exit 0). First-run hashes below,
+  **superseded** by the relink in the review (final hashes in the Review section):
   ```
   e0e5a88c7d5e9240c8c3f53ca2c10b9d5ad48458f4cf3119c9e260123c571146  libgallium_d3d10.dll   (16781312 B)
   008a63ecf518b3776ae07c443d35727735d0e23ae373f9c5777f72dc157af1be  libgallium_d3d10.pdb
@@ -159,7 +160,52 @@ No device access. Rules: AGENTS.md §2 (persist), §3 (one commit per task), §7
 ## Repeat the build
 ```
 powershell -ExecutionPolicy Bypass -File tools\mesa-build\build-mesa-g76.ps1            # all stages
-powershell ... -Stage host,cross,collect                                                  # after a source/libpan run
+powershell -ExecutionPolicy Bypass -File tools\mesa-build\build-mesa-g76.ps1 -Stage host,cross,collect  # after source/libpan
 ```
 Stage `source` refuses to overwrite an existing `mesa-26.2-g76`. Inputs: `mesa-26.2` @ 9a0169f (26.2.4),
 wddm-mali-g52 @ 16f7e7c (2026-10-03; 19 patches). Not run on hardware: **built, needs-boot** (AGENTS §7).
+
+## Review of 1a73b52 (AGENTS §4)
+Checked mechanically:
+- Original clone `mesa-26.2`: `git status --short` empty, HEAD 9a0169f, no extra worktree -> untouched.
+- `source` stage reproducibility: ran it into a scratch root (junctions to `mesa-26.2` / `wddm-mali-g52`):
+  exit 0, all 19 patches applied, resulting tree `1e3cfab88545374b14285d50f796b2dcd52b1ee3` == tree of
+  the hand-made `a36e5bb`. Junctions removed with `rmdir` (targets verified intact).
+- Artifact = build output: `cmp` of `s10e-artifacts\mali-g12\libgallium_d3d10.dll` vs the build dir: same.
+- Export count claim: 47 `D3DKMT*` + `OpenAdapter10` + `OpenAdapter10_2` = 49 (grep of dumpbin).
+- Both local `vc_redist.arm64.exe` (14.51.36231 and v145 dirs) have the same sha256 b70ef586..., so the
+  "first found" pick is not ambiguous.
+- ABI claim re-checked with the **real build flags** (compile_commands.json; host `pan_compile.c` vs ARM64
+  `libpanfrost-v7` `pan_precomp.c` - the file that casts the blob to `bifrost_precompiled_kernel_info`,
+  `pan_precomp.c:150`), `-Xclang -fdump-record-layouts-simple`: both 0 errors, **247 common named records,
+  0 differing**; `pan_shader_info` 8704 bits / `bifrost_precompiled_kernel_info` 8832 bits, same offsets.
+  (The step-12 hand-written check had a `timespec` redefinition error; this one replaces it.)
+
+Defects found -> fixed in follow-up commit 873248c (not folded into 1a73b52):
+- D1: `Use-VcVars` imported vcvars on top of the current env, so `-Stage all` (host then cross in one
+  process) would have run vcvarsamd64_arm64 over vcvars64's INCLUDE/LIB/PATH - stale x64 lib dirs in the
+  ARM64 link. Untested path, since host and cross had run in separate processes. Fix: snapshot the env at
+  start, restore before each vcvars import; `Use-VcVars` now runs before `Common-Tools` (which adds PATH).
+- D2: `-Stage host,cross,collect` through `powershell -File` arrives as one string and failed
+  `ValidateSet`; the notes' example was wrong. Fix: split on commas, validate by hand.
+- Fix verified: `powershell -File build-mesa-g76.ps1 -Stage host,cross,collect` in **one** process, with
+  the DLL deleted to force a relink: exit 0, `[2/3] Linking target ...libgallium_d3d10.dll`, no
+  `warning LNK`, `AA64 machine (ARM64)`, 49 exports, still only VCRUNTIME140 as non-OS import, same size
+  16781312 B. **Final artifact hashes** (the relink changes the timestamp):
+  ```
+  5761a54b148a20d9c71231b99783c4acc0f2dc064181b243e76dfb31ee3b489e  libgallium_d3d10.dll
+  d9c92db8fe4e825d3dab9d467b669ed155fdff4156bfa14640057bb791f5d44b  libgallium_d3d10.pdb
+  5761a54b148a20d9c71231b99783c4acc0f2dc064181b243e76dfb31ee3b489e  maliumd.dll
+  b70ef586669a620a0a30a1156969c05c6a3831dc8f8bc992da75779d2a92f944  vc_redist.arm64.exe
+  ```
+- D3 (in 873248c itself): its commit message says the new hashes are in the notes, but the notes edit had
+  failed (heredoc ate the backslashes) and only the script went in. The notes land in the next commit
+  (this text); no amend, per the repo rule.
+
+Not defects, recorded: `-Stage all` refuses to run when `mesa-26.2-g76` exists (by design; use the stage
+list); the cross build re-runs meson whenever the cross file is rewritten (harmless, a few seconds).
+
+## Next (needs the device / later tasks)
+- c1 on the S10e: needs Windows booted + our KMD exposing the malikm uAPI as `\\.\MaliG52` (or a shim
+  rename), `vc_redist.arm64.exe`, and `tests/d3d11-triangle` built for ARM64 (not built here).
+- Refresh the `MALIKM_FAKE` GET_PARAM table to G76 values from the G3 log (separate task, Mesa-side).

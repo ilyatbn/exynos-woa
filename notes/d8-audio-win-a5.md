@@ -486,3 +486,25 @@ extra-audio-swap.cmd + audio-a10, stage A. run.txt: `circuit: DEFAULT-mode forma
 audiotest `props:` (blob dump) / mmdevices.txt: **{74E4357A},2 must no longer be `0A00 0000...`** (rates/bits/modes
 filled), then {F19F064D},0 appears and GetMixFormat returns 0. If the cache is still empty with the family probe
 accepted, run once with Parameters\DefaultMode = 0 to separate the two changes.
+
+## A11 (2026-10-13): a10 device result
+
+Run audA10b (silent): DEFAULT list 00000000; header-only PCM family probes now ACCEPTED (#1, #5), SPDIF/MIDI NO_MATCH;
+48k 2ch 32/16 accepted (#6, #8). Endpoint {1b2f4253-...}: **{74E4357A},2 unchanged** - the registry value
+`41000000 01000000 0A000000 00000000 0000` is the same as in a9 (the first 8 bytes are the store's serialization
+header VT_BLOB 0x41 + 1, also present on every PC entry; the payload `0A00 0000 0000 0000 0000` = version 10, 0 rates,
+0 bit pairs, 0 channel masks, 0 modes). No DeviceFormat, all calls 0x88890008.
+- Cache layout from this PC (payload after the 8-byte header): u16 version 0x0A; u16 nRates + u32 rates; u16 nBits +
+  {u8 container, u8 valid} pairs; u16 nMasks + u16 masks; u16 nModes + per-mode data incl. the mode GUID
+  (DL-DK001 USB: 1 rate 48000, 1 pair 16/16, 5 masks 4/0x33/0x107/0xF/0x60F, 1 mode RAW {9E90EA20}).
+- **What builds it (a10 log, 0.92-1.12 s):** modes get (2 GUIDs now) -> DATARANGES (360 B = 4 ranges) ->
+  MODEDATAFORMATS(RAW) 224 B -> pin create RAW 48k/16 and RAW 48k/32 -> MODEDATAFORMATS(DEFAULT) -> pin create DEFAULT
+  48k/16 and 48k/32. Each probe pin: RtAudio.8 QUERY_NOTIFICATION_SUPPORT get, RtAudio.12 SETWRITEPACKET basic,
+  RtAudio.9 PACKETCOUNT basic, RtAudio.5 BUFFER_WITH_NOTIFICATION (ctl 16 / val 16 -> AllocateRtPackets 2 x 10 ms),
+  RtAudio.2 HWLATENCY get (12 B), close. That is the per-mode/per-format capability probe, and all four come back
+  with an EMPTY result although every driver callback returned success - so one of the ACX-answered RT properties
+  (notification support, write-packet/packet-count support, the buffer result, the latency) makes AudioSrv reject each
+  format. These answers are produced by ACX from our callbacks and are invisible to the driver log.
+- Next step must read those answers: a user-mode KS probe (run as SYSTEM) that opens the same filter, creates the
+  same pin and issues the same RT properties, printing every status and output byte; plus filter-level DATARANGES,
+  MODEDATAFORMATS, PROPOSEDATAFORMAT get, modes, CINSTANCES raw.

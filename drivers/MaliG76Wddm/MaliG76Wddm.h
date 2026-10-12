@@ -1,0 +1,233 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+ * MaliG76Wddm: the display + GPU driver for the Galaxy S10e (Exynos 9820, Mali-G76), M16 G10/G11.
+ *
+ * Derived from drivers/maliwddm (the WDDM 1.3 driver) and drivers/malidod (the display-only driver) of
+ * wddm-mali-g52 (https://github.com/gahingwoo/wddm-mali-g52, commit 16f7e7c6, GPL-2.0, Copyright gahingwoo),
+ * written there for the RK3576's Mali-G52 and its HDMI output. Shape and several WDDM details follow virtio-win's
+ * viogpu3d (BSD-3), as the original says.
+ *
+ * One binary, three modes, chosen in DriverEntry from Services\MaliG76Wddm\Parameters (notes/gpu-m16-g10.md):
+ *   GpuEnable 0, FullAdapter 0 (default): display-only (KMDOD, malidod's DDI set). No interrupt routine, no GPU
+ *       register access. Replaces Basic Display on the GOP framebuffer; DWM renders with Basic Render as today.
+ *   FullAdapter 1, GpuEnable 0: the full WDDM 1.3 adapter (maliwddm) with its GPU half off; the GPU's interrupt
+ *       outputs are only masked. The INF names maliumd.dll (G12 Mesa build) as the UMD.
+ *   GpuEnable 1: the full adapter with the GPU half (maligpu.c, retargeted to the G76): aperture segment, Mali
+ *       MMU, one job chain at a time, fences on the job interrupt plus a 1 ms poll.
+ * Rescue: firmware hides DSDT GPU0 (BEYOND0LTE_GPU_POWER_ON 0 image, or ESP \S10EDIAG\nogpu.flg) - then this
+ * driver never loads and Basic Display keeps the screen.
+ * NOT VALIDATED ON HARDWARE.
+ */
+#pragma once
+#include <ntddk.h>
+#include <dispmprt.h>
+#include <ntstrsafe.h>
+#include "maligpu.h"
+#include "maliwddm_abi.h"
+
+#define MW_TAG                  'dwlM'
+#define MW_SEGMENT_ID           1           /* the aperture segment */
+/* 1 GiB of GPU VA that VidMm commits system pages into (not a carve-out). The S10e gives Windows 5.24 GiB; the
+ * VA allocator spans MK_VA_START..MK_VA_END, so this must stay below 4 GB - 32 MB (notes/gpu-m16-g10.md). */
+#define MW_SEGMENT_SIZE         (1024ULL * 1024 * 1024)
+#define MW_QUEUE_DEPTH          16          /* submissions the KMD holds */
+
+#define MW_W2(x)                L##x
+#define MW_W(x)                 MW_W2(x)
+
+/* ---- the DSDT GPU0 _CRS contract (Dsdt.asl Device (GPU0); Exynos9820.h) ---- */
+#define MW_GPU_PA               0x18500000ULL   /* EXYNOS_G3D_BASE (SOURCE-ONLY, mali@18500000) */
+#define MW_GPU_LEN              0x5000u         /* EXYNOS_G3D_SIZE */
+#define MW_PMU_PAGE_PA          0x15862000ULL   /* EXYNOS_PMU_BASE 0x15860000 (VERIFIED) + 0x2000 */
+#define MW_PMU_PAGE_LEN         0x1000u
+#define MW_IRQS                 3u              /* JOB 320, MMU 319, GPU 321 (GSIV, UNVERIFIED trigger) */
+
+/* ---- the GOP framebuffer the firmware leaves (Exynos9820.h EXYNOS_FB_*, SimpleFramebufferDxe.c:420-430) ----
+ * Only compared with what dxgkrnl reports (FbMatchesGop); dxgkrnl's values are the ones used. */
+#define MW_GOP_FB_PA            0xCA000000ULL   /* EXYNOS_FB_BASE (VERIFIED, s3cfb.bootloaderfb) */
+#define MW_GOP_WIDTH            1080u           /* EXYNOS_FB_WIDTH (VERIFIED, DTBO s6e3fa7_beyond0) */
+#define MW_GOP_HEIGHT           2280u           /* EXYNOS_FB_HEIGHT (VERIFIED) */
+#define MW_GOP_PITCH            (1080u * 4u)    /* EXYNOS_FB_STRIDE_PIXELS * 4 (GOP PixelBlueGreenRedReserved8) */
+
+/* ---- modes ---- */
+typedef enum _MW_MODE {
+    MwModeDisplayOnly = 0,      /* KMDOD */
+    MwModeFullNoGpu = 1,        /* WDDM 1.3, GPU half off */
+    MwModeFullGpu = 2,          /* WDDM 1.3 + GPU */
+} MW_MODE;
+
+extern MW_MODE MwMode;          /* set once in DriverEntry */
+
+/* ---- objects ---- */
+
+typedef struct _MW_ALLOCATION {
+    SIZE_T Size;
+    ULONG Pages;
+    ULONG Flags;                /* MW_ALLOC_* */
+    ULONG64 GpuVa;              /* reserved at creation, fixed for life */
+    BOOLEAN Mapped;             /* resident: pages mapped at GpuVa */
+    /* Standard allocations (primary, shadow, staging) the runtime creates. */
+    UINT Width, Height, Pitch;
+    D3DDDIFORMAT Format;
+    /* While mapped: the backing pages VidMm handed MAP_APERTURE_SEGMENT,
+     * which is how a present reaches the pixels on the CPU. */
+    PMDL Mdl;
+    ULONG MdlPage;
+} MW_ALLOCATION;
+
+typedef struct _MW_ADAPTER MW_ADAPTER;
+
+typedef struct _MW_DEVICE {
+    MW_ADAPTER *Adapter;
+} MW_DEVICE;
+
+typedef struct _MW_CONTEXT {
+    MW_DEVICE *Device;
+} MW_CONTEXT;
+
+/* A present the CPU carries out at submission (step d): a blt or a colour
+ * fill into the primary (the POST framebuffer) or another allocation. */
+#define MW_PRESENT_NONE         0
+#define MW_PRESENT_BLT          1
+#define MW_PRESENT_FILL         2
+#define MW_MAX_RECTS            16
+
+typedef struct _MW_PRESENT_OP {
+    ULONG Kind;
+    ULONG Color;
+    MW_ALLOCATION *Src, *Dst;
+    RECT SrcRect, DstRect;
+    ULONG NumRects;             /* 0: DstRect alone */
+    RECT Rects[MW_MAX_RECTS];   /* destination sub-rectangles */
+} MW_PRESENT_OP;
+
+/* What a DMA buffer carries, kept in its private data by Render and found
+ * there again by SubmitCommand. */
+typedef struct _MW_DMA_PRIVATE {
+    ULONG Count;
+    ULONG Reserved;
+    MW_COMMAND Commands[MW_MAX_COMMANDS];
+    MW_PRESENT_OP Present;
+} MW_DMA_PRIVATE;
+
+/* A submission the hardware works through, one job chain at a time. */
+typedef struct _MW_SUBMISSION {
+    ULONG FenceId;
+    ULONG Count, Next;          /* commands, and the next one to start */
+    MW_COMMAND Commands[MW_MAX_COMMANDS];
+} MW_SUBMISSION;
+
+struct _MW_ADAPTER {
+    PDEVICE_OBJECT Pdo;
+    DXGKRNL_INTERFACE Dxgk;
+    MW_MODE Mode;
+    ULONG64 Seen;               /* DDIs already traced (see MwRet) */
+    ULONG64 Entered;            /* DDIs whose first entry is traced */
+    ULONG CallOrder;
+
+    /* Display: the firmware's framebuffer, as malidod. */
+    DXGK_DISPLAY_INFORMATION Fb;
+    PUCHAR FbVa;
+    SIZE_T FbSize;
+    BOOLEAN SourceVisible, PathActive;
+
+    /* GPU. MmuLock serialises the address allocator and the page tables. */
+    MK_GPU Gpu;
+    FAST_MUTEX MmuLock;
+    BOOLEAN GpuUp;
+    BOOLEAN ResourcesOk;        /* the translated resources match the GPU0 contract */
+
+    /* Submissions, shared with the ISR (DxgkCbSynchronizeExecution). */
+    MW_SUBMISSION Queue[MW_QUEUE_DEPTH];
+    ULONG QHead;                /* ring; QHead is the one running */
+    volatile ULONG QCount;
+    BOOLEAN Running;            /* a job chain of Queue[QHead] is on the GPU */
+    BOOLEAN NeedDpc;            /* a fence completed: queue the DPC */
+    ULONG RunningSlot;
+    ULONG64 JobStart;           /* interrupt time the running chain started */
+    ULONG LastSubmittedFence, LastCompletedFence;
+    ULONG JobsDone, JobsFailed, JobsTimedOut, ChainFlag;
+    ULONG LastJsStatus, LastFaultStatus;
+    ULONG64 LastFaultAddress;
+
+    /* Polls the job status while work is in flight (command.c). */
+    KTIMER PollTimer;
+    KDPC PollDpc;
+    volatile LONG PollArmed;
+    volatile BOOLEAN Stopping;
+
+    /* Counters for the trace. */
+    ULONG Renders, Presents, Submits, DodPresents;
+    ULONG PagingOps[16];
+    ULONG Maps, MapFails, Unmaps, LastMapPages, Allocations;
+    NTSTATUS LastMapStatus;
+    ULONG64 LastMapVa, LastAllocVa;
+    ULONG Patches, PatchAllocations, PatchPatchLocations, PatchSegment0;
+    ULONG PresentBlts, PresentFills, PresentSkips;
+    ULONG64 PatchAddress0;
+};
+
+/* ---- trace: Seen_<ddi>, Fail_<ddi> in the device's registry key ---- */
+void MwLog(MW_ADAPTER *A, PCWSTR Name, ULONG Value);
+void MwLogHook(void *Owner, PCWSTR Name, ULONG Value);
+NTSTATUS MwRet(MW_ADAPTER *A, PCWSTR Name, NTSTATUS St);
+void MwEnter(MW_ADAPTER *A, PCWSTR Name);
+
+/* display.c: VidPN and the POST framebuffer (both modes), PresentDisplayOnly (display-only mode) */
+NTSTATUS MwDisplayStart(MW_ADAPTER *A);
+void MwDisplayStop(MW_ADAPTER *A);
+NTSTATUS MwDisplayOnlyCaps(const DXGKARG_QUERYADAPTERINFO *Info);
+DXGKDDI_QUERY_CHILD_RELATIONS MwQueryChildRelations;
+DXGKDDI_QUERY_CHILD_STATUS MwQueryChildStatus;
+DXGKDDI_QUERY_DEVICE_DESCRIPTOR MwQueryDeviceDescriptor;
+DXGKDDI_ISSUPPORTEDVIDPN MwIsSupportedVidPn;
+DXGKDDI_RECOMMENDFUNCTIONALVIDPN MwRecommendFunctionalVidPn;
+DXGKDDI_ENUMVIDPNCOFUNCMODALITY MwEnumVidPnCofuncModality;
+DXGKDDI_SETVIDPNSOURCEVISIBILITY MwSetVidPnSourceVisibility;
+DXGKDDI_COMMITVIDPN MwCommitVidPn;
+DXGKDDI_UPDATEACTIVEVIDPNPRESENTPATH MwUpdateActiveVidPnPresentPath;
+DXGKDDI_RECOMMENDMONITORMODES MwRecommendMonitorModes;
+DXGKDDI_QUERYVIDPNHWCAPABILITY MwQueryVidPnHWCapability;
+DXGKDDI_SETVIDPNSOURCEADDRESS MwSetVidPnSourceAddress;
+DXGKDDI_PRESENTDISPLAYONLY MwPresentDisplayOnly;
+DXGKDDI_STOP_DEVICE_AND_RELEASE_POST_DISPLAY_OWNERSHIP MwStopDeviceAndReleasePostDisplayOwnership;
+DXGKDDI_SYSTEM_DISPLAY_ENABLE MwSystemDisplayEnable;
+DXGKDDI_SYSTEM_DISPLAY_WRITE MwSystemDisplayWrite;
+
+/* memory.c: allocations and the aperture segment */
+DXGKDDI_CREATEALLOCATION MwCreateAllocation;
+DXGKDDI_DESTROYALLOCATION MwDestroyAllocation;
+DXGKDDI_DESCRIBEALLOCATION MwDescribeAllocation;
+DXGKDDI_GETSTANDARDALLOCATIONDRIVERDATA MwGetStandardAllocationDriverData;
+DXGKDDI_OPENALLOCATIONINFO MwOpenAllocation;
+DXGKDDI_CLOSEALLOCATION MwCloseAllocation;
+DXGKDDI_BUILDPAGINGBUFFER MwBuildPagingBuffer;
+NTSTATUS MwQuerySegment(MW_ADAPTER *A, const DXGKARG_QUERYADAPTERINFO *Info);
+NTSTATUS MwEscapeAllocInfo(MW_ADAPTER *A, const DXGKARG_ESCAPE *Esc, MW_ESCAPE_ALLOC_INFO_DATA *D);
+
+/* command.c: devices, contexts, render, submission, fences */
+DXGKDDI_CREATEDEVICE MwCreateDevice;
+DXGKDDI_DESTROYDEVICE MwDestroyDevice;
+DXGKDDI_CREATECONTEXT MwCreateContext;
+DXGKDDI_DESTROYCONTEXT MwDestroyContext;
+DXGKDDI_RENDER MwRender;
+DXGKDDI_RENDERKM MwRenderKm;
+DXGKDDI_PRESENT MwPresent;
+DXGKDDI_PATCH MwPatch;
+DXGKDDI_SUBMITCOMMAND MwSubmitCommand;
+DXGKDDI_PREEMPTCOMMAND MwPreemptCommand;
+DXGKDDI_QUERYCURRENTFENCE MwQueryCurrentFence;
+DXGKDDI_RESETFROMTIMEOUT MwResetFromTimeout;
+DXGKDDI_RESTARTFROMTIMEOUT MwRestartFromTimeout;
+DXGKDDI_COLLECTDBGINFO MwCollectDbgInfo;
+DXGKDDI_GETNODEMETADATA MwGetNodeMetadata;
+DXGKDDI_RESETENGINE MwResetEngine;
+DXGKDDI_QUERYENGINESTATUS MwQueryEngineStatus;
+DXGKDDI_QUERYDEPENDENTENGINEGROUP MwQueryDependentEngineGroup;
+DXGKDDI_CANCELCOMMAND MwCancelCommand;
+DXGKDDI_CONTROLINTERRUPT MwControlInterrupt;
+DXGKDDI_GETSCANLINE MwGetScanLine;
+BOOLEAN MwJobInterrupt(MW_ADAPTER *A);    /* from the ISR, at DIRQL */
+void MwCommandInit(MW_ADAPTER *A);
+void MwCommandStop(MW_ADAPTER *A);
+void MwArmPoll(MW_ADAPTER *A);

@@ -345,6 +345,30 @@ OnReadyToBoot (
   ReadTest ();
  #endif
 
+  //
+  // M16 G10 rescue path (notes/gpu-m16-g10.md): \S10EDIAG\nogpu.flg on the ESP (vfat, writable from TWRP)
+  // hides DSDT GPU0 for this boot. GPU0._STA is 0x0F only while progress word [4] (0x8FE0F010) holds 'GPU0'
+  // (Beyond0LteGpuProbeDxe); overwriting it with 'NOGP' (0x50474F4E) before ExitBootServices means Windows never
+  // enumerates ACPI\SAMS9828, so no GPU driver loads and Basic Display keeps the GOP framebuffer. Only ever
+  // hides, never shows; repeated ReadyToBoot signals are harmless.
+  //
+  {
+    EFI_FILE_PROTOCOL  *EspRoot;
+    EFI_FILE_PROTOCOL  *NoGpu;
+
+    EspRoot = OpenEspRoot ();
+    if (EspRoot != NULL) {
+      if (!EFI_ERROR (EspRoot->Open (EspRoot, &NoGpu, L"\\S10EDIAG\\nogpu.flg", EFI_FILE_MODE_READ, 0))) {
+        NoGpu->Close (NoGpu);
+        ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[4] = 0x50474F4E;   // 'NOGP': GPU0._STA -> 0
+        __asm__ __volatile__ ("dsb sy" ::: "memory");
+        DEBUG ((DEBUG_ERROR, "BootLog: \\S10EDIAG\\nogpu.flg present - DSDT GPU0 hidden (word [4] = NOGP)\n"));
+      }
+
+      EspRoot->Close (EspRoot);
+    }
+  }
+
  #if BEYOND0LTE_WINDOWS_PAIR
   //
   // W23 boot pair: before handing over to Windows, leave \WINRUN.FLG on the ESP. When Windows

@@ -76,3 +76,14 @@ screen - the state every boot so far had. Two firmware triggers:
   (scratchpad\BEYOND0LTE_UEFI-g10-flag0.fd); BootLogDxe.efi 17 920 B contains "nogpu.flg present", GpuProbeDxe.efi
   14 336 B contains "rescue image". Flag 1 (temporary source edit, restored byte-identical): **exit 0**,
   FVMAIN_COMPACT auto-grown to 778240, 3744 free, FD sha256 `CC9CCE9E633465F8...`. Not packed, not flashed.
+
+## Review of 61e3d3c (rescue path, adversarial)
+- 9810 trees untouched (`git diff --stat d9b8572..HEAD` on Star2LtePkg, Exynos9810Pkg, drivers/Exynos9810*: empty).
+- Every writer of word [4] (rg over Beyond0LtePkg): SEC clears (ArmPlatformLib.c:102), GpuProbeDxe clears at entry
+  and sets GPU0/0 at its end (DXE dispatch), BootLogDxe writes NOGP at ReadyToBoot (BDS, later). Nothing writes it
+  after ReadyToBoot -> NOGP wins whenever the file exists. The page lies in the W32 2 MiB hand-off window at
+  0x8FE00000 that the DSDT already reads for XHC0/WLAN (PlatformMemoryMapLib.c:367).
+- Flag-1 image + nogpu.flg: UEFI still powers G3D on and leaves it at 260 MHz with no OS user. Accepted: an idle
+  powered GPU, same as the G9 state before any driver is installed; recorded as a known cost of the ESP rescue.
+- Flag-0 image: GpuProbe still runs read-only (logs), only the hand-off is suppressed - log line names why.
+- Build evidence: both module strings present in the built .efi files (above). No defect found; nothing to fix.

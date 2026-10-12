@@ -146,3 +146,8 @@ C. PMA (needs HCI_CLKSTOP_CTRL 0x13D611B0 bit3 MPHY_APBCLK_STOP CLEAR during the
 - Separate finding (debug_history, 2026-10-12): entry 717 at power-on 16:13 records "(S) OCP_B1,OCP_B5" - the
   phone that went unreachable after the KD try (boot #104) had powered OFF on a sub-PMIC buck over-current
   trip. Which rails sub bucks 1/5 feed is not named in the dtbo (s_vdd_buck1..). Recorded in HANDOFF §32.
+- UEFI speed split: Beyond0LteBootLogDxe BEYOND0LTE_UFS_SPEED_TEST (commit "m15 UFS: BEYOND0LTE_UFS_SPEED_TEST") times
+  whole-disk ReadBlocks 4 KiB..1 MiB at ReadyToBoot -> "UfsSpeed:" lines in UEFILOG. Images (built from main, = #107 +):
+  boot109-ufsspeed-v2.img (4f738af3…, speed test 1) and boot108-iocoh-v2.img (7a138c7e…, speed test 1 + IOCOH_9820 1;
+  replaces the earlier 59ed2abe… #108). FVMAIN_COMPACT 1272 B free. Review: read-only, LBA = I*Size/BlockSize from 0,
+  max 16 MiB span, page-aligned buffer; Status is always set (Reads >= 16).

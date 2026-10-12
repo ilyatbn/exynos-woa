@@ -1271,6 +1271,6 @@ runs/pre-reflash-1612 (WINPRAM from 09:52 is decayed, nothing from the KD run).
 s10e-provision-fresh.sh with UFS w34 (8ea93ce8…), **s10ediag-m18** (s10eperf sweep/loop), touch-t2 Hsi2c, touch-hold,
 wdktestcert. ESP: BCD pristine (e5d4a24e…, debug off), no stay.flg, no WINRUN.FLG, no extra.cmd, \S10EDIAG\install removed.
 BOOT = #105 (c06b623d…, watchdog 0). Windows Setup started 19:22; background wait-for-recovery 2.5 h.
-**Next order.** Setup done -> boot #107 loop (6f6396e2…) with extra.cmd = extra-ufsprobe2.cmd (m15 u2 read-only probe)
--> boot #108 (59ed2abe…, = #107 + BEYOND0LTE_UFS_IOCOH_9820 1) with extra-ufsprobe2 again (A/B on iocoh) -> GPU
+**Next order.** Setup done -> boot #109 loop (4f738af3…, #107 + UEFI UfsSpeed test) with extra.cmd = extra-ufsprobe2.cmd (m15 u2 read-only probe)
+-> boot #108 (7a138c7e…, #109 + BEYOND0LTE_UFS_IOCOH_9820 1) with extra-ufsprobe2 again (A/B on iocoh) -> GPU
 order of §30 (#106, mali-g9b, ...) -> drivers back one at a time via ESP install (battery-m4, WLAN 1.0.7.3, audio).

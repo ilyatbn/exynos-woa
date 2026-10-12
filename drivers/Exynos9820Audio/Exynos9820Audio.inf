@@ -1,0 +1,100 @@
+;
+; Exynos9820Audio.inf - Galaxy S10e (Exynos 9820) loudspeaker render driver, ACX 1.0 (KMDF).
+; Binds the DSDT device AUD0 (ACPI\SAMS9827). notes/d8-audio-win-m1.md.
+; Install sections follow Microsoft's ACX sample INF (Windows-driver-samples audio/Acx/Samples/AudioCodec/Driver/
+; AudioCodec.inf, MIT): Class MEDIA, KmdfService, one KS interface set per circuit whose reference string is the
+; circuit name ("Speaker0", Render.c AudRenderCircuitName). ACX itself needs no INF include (acxstub binds it via WDF).
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = MEDIA
+ClassGuid   = {4d36e96c-e325-11ce-bfc1-08002be10318}
+Provider    = %ProviderString%
+DriverVer   = 10/12/2026,1.0.1.0
+CatalogFile = Exynos9820Audio.cat
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskDesc%,,,""
+
+[SourceDisksFiles]
+Exynos9820Audio.sys = 1,,
+
+[Manufacturer]
+%ManufacturerString% = Standard,NTarm64.10.0...22621
+
+[Standard.NTarm64.10.0...22621]
+%DeviceDesc% = Audio_Device, ACPI\SAMS9827
+
+[Audio_Device.NT]
+CopyFiles = Audio_Device_Drivers
+
+[Audio_Device_Drivers]
+Exynos9820Audio.sys
+
+[Audio_Device.NT.Services]
+AddService = Exynos9820Audio,%SPSVCINST_ASSOCSERVICE%,Audio_Service_Inst
+
+[Audio_Service_Inst]
+DisplayName   = %ServiceDesc%
+ServiceType   = 1               ; SERVICE_KERNEL_DRIVER
+StartType     = 3               ; SERVICE_DEMAND_START
+ErrorControl  = 1               ; SERVICE_ERROR_NORMAL
+ServiceBinary = %13%\Exynos9820Audio.sys
+AddReg        = Audio_Service_AddReg
+
+; Parameters (Exynos9820Audio.h AUD_CONFIG). FLG_ADDREG_NOCLOBBER | REG_DWORD (0x00010003): a value the tester
+; changed survives a driver update.
+[Audio_Service_AddReg]
+HKR,Parameters,AmpInit,0x00010003,1
+HKR,Parameters,AmpEnable,0x00010003,1
+HKR,Parameters,AboxEnable,0x00010003,1
+HKR,Parameters,HwVolume,0x00010003,0
+HKR,Parameters,Stereo,0x00010003,0
+
+[Audio_Device.NT.Wdf]
+KmdfService = Exynos9820Audio,Audio_Wdf
+
+[Audio_Wdf]
+KmdfLibraryVersion = 1.31
+
+;
+; Render endpoint: the built-in loudspeaker.
+;
+[Audio_Device.I.Speaker]
+AddReg = Audio_Device.I.Speaker.AddReg
+
+[Audio_Device.I.Speaker.AddReg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%Speaker.FriendlyName%
+HKR,EP\0,%PKEY_AudioEndpoint_Association%,,%KSNODETYPE_ANY%
+HKR,EP\0,%PKEY_AudioEndpoint_Supports_EventDriven_Mode%,0x00010001,0x1
+
+[Audio_Device.NT.Interfaces]
+AddInterface = %KSCATEGORY_AUDIO%,%KSNAME_Speaker%,Audio_Device.I.Speaker
+AddInterface = %KSCATEGORY_RENDER%,%KSNAME_Speaker%,Audio_Device.I.Speaker
+AddInterface = %KSCATEGORY_REALTIME%,%KSNAME_Speaker%,Audio_Device.I.Speaker
+
+[Strings]
+; non-localizable
+KSNAME_Speaker         = "Speaker0"
+SPSVCINST_ASSOCSERVICE = 0x00000002
+Proxy.CLSID            = "{17CCA71B-ECD7-11D0-B908-00A0C9223196}"
+KSCATEGORY_AUDIO       = "{6994AD04-93EF-11D0-A3CC-00A0C9223196}"
+KSCATEGORY_RENDER      = "{65E8773E-8F56-11D0-A3B9-00A0C9223196}"
+KSCATEGORY_REALTIME    = "{EB115FFC-10C8-4964-831D-6DCB02E6F23F}"
+KSNODETYPE_ANY         = "{00000000-0000-0000-0000-000000000000}"
+PKEY_AudioEndpoint_Association               = "{1DA5D803-D492-4EDD-8C23-E0C0FFEE7F0E},2"
+PKEY_AudioEndpoint_Supports_EventDriven_Mode = "{1DA5D803-D492-4EDD-8C23-E0C0FFEE7F0E},7"
+
+; localizable
+ProviderString         = "exynos-woa"
+ManufacturerString     = "Samsung Electronics Co."
+DiskDesc               = "Galaxy S10e Audio Installation Disk"
+DeviceDesc             = "Galaxy S10e Audio (ABOX + CS35L40)"
+ServiceDesc            = "Galaxy S10e Audio"
+Speaker.FriendlyName   = "Speaker"

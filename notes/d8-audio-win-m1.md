@@ -170,3 +170,11 @@ RDMA frame counter.
   Accepted, noted: stage 1 (BCLK keep-alive) stays on from the first stream until ReleaseHardware (amps idle at
   GLOBAL_EN 0 meanwhile); AboxDmaStuck is sticky (every later ring is leaked after one stuck stop) - conservative.
 - A2: Dsdt.asl Device (AUD0) _HID SAMS9827, _CCA 0, _STA 0x0F, 8 Memory32Fixed in AUD_RES order (IFR, SYSREG, CMU_AUD 0x8000, GPIO_AUD 0x1000, HSI2C38 0x1000, SRAM 0x59000, PMU 0x15861000 page, PERIC1 GPIO 0x10830000). iasl 20260408 (%TEMP%\acpica-iasl-20260408) on a scratch copy: Compilation successful, 0 errors, 0 warnings; disassembly shows the 8 descriptors with the right bases/sizes. Scripted overlap check of the 8 windows vs the 16 other Memory32Fixed in the DSDT: none (hsi2c_38 0x109A0000 is not claimed elsewhere). The firmware FD itself was not rebuilt here (main session merges DSDT with its UEFI work).
+- A3: Exynos9820Audio.inf (Class MEDIA, ACPI\SAMS9827, NTarm64.10.0...22621, KmdfLibraryVersion 1.31, service
+  Parameters defaults via NOCLOBBER AddReg, KSCATEGORY_AUDIO/RENDER/REALTIME on reference string "Speaker0" = the
+  circuit name, EP\0 association + event-driven) + build-package.ps1 (replaces build.ps1; battery flow, test cert
+  5DD5DEE1..., Inf2Cat 10_NI_ARM64,10_GE_ARM64). InfVerif /v: "INF is VALID". Package
+  C:\Users\ilya\code\s10e-artifacts\audio-a1 (driver 1.0.1.0):
+    5BD4A3E248F89A6D5D777950805AA937FC58C24D384761452AAFBEBB06315039  Exynos9820Audio.sys
+    C21AD006AD4FE68F1BE712EDF8D880B45FE6B9635C932C1B75C164F5AEDA9910  Exynos9820Audio.inf
+    86039A10ABEE34F966EA31EDDFEE27963E5768A9423A9CA96F74F1A382A85CE9  exynos9820audio.cat

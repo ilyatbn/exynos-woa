@@ -6,7 +6,7 @@
  *   mem  - memcpy bandwidth over 64 MiB
  *   disk - sequential write/read of a 256 MiB unbuffered file, then 4 KiB random reads for 5 s
  *
- *   s10eperf [cpu] [mem] [disk <dir>]     (no arguments = cpu mem)
+ *   s10eperf [cpu] [mem] [disk <dir>] [raw <vol>] [sweep <vol>] [loop <vol> <s>]   (no arguments = cpu mem)
  */
 
 #include <windows.h>
@@ -189,6 +189,78 @@ RawRead(const char *Volume)
     VirtualFree(Buffer, 0, MEM_RELEASE);
 }
 
+//
+// m15 UFS size sweep (read-only, notes/m15-ufs-research-dma.md suspect 2): where does the per-request cost stop
+// being Linux-class? 512 unbuffered reads per size, 4..64 KiB in 4 KiB steps.
+//
+static void
+RawSweep(const char *Volume)
+{
+    const DWORD Max = 64u << 10;
+    BYTE *Buffer = (BYTE *)VirtualAlloc(NULL, Max, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    HANDLE File = CreateFileA(Volume, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
+                              FILE_FLAG_NO_BUFFERING, NULL);
+    DWORD Done, I, Size;
+    double T0, T1;
+
+    if (Buffer == NULL || File == INVALID_HANDLE_VALUE) {
+        printf("sweep: open %s failed %lu\n", Volume, GetLastError());
+        return;
+    }
+    for (Size = 4096; Size <= Max; Size += 4096) {
+        LARGE_INTEGER Zero;
+
+        Zero.QuadPart = 0;
+        SetFilePointerEx(File, Zero, NULL, FILE_BEGIN);
+        T0 = Now();
+        for (I = 0; I < 512; I++) {
+            if (!ReadFile(File, Buffer, Size, &Done, NULL) || Done != Size) {
+                break;
+            }
+        }
+        T1 = Now();
+        printf("sweep: %6lu-byte reads: %.1f MB/s, %.0f us per request (%lu ok)\n", Size,
+               (double)I * Size / (T1 - T0) / 1e6, (T1 - T0) * 1e6 / (I ? I : 1), I);
+    }
+    CloseHandle(File);
+    VirtualFree(Buffer, 0, MEM_RELEASE);
+}
+
+//
+// Background load for register sampling (read-only): 64 KiB unbuffered reads for Seconds, wrapping at 256 MiB.
+//
+static void
+RawLoop(const char *Volume, int Seconds)
+{
+    const DWORD Size = 64u << 10;
+    BYTE *Buffer = (BYTE *)VirtualAlloc(NULL, Size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    HANDLE File = CreateFileA(Volume, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
+                              FILE_FLAG_NO_BUFFERING, NULL);
+    DWORD Done, Count = 0;
+    double T0;
+
+    if (Buffer == NULL || File == INVALID_HANDLE_VALUE) {
+        printf("loop: open %s failed %lu\n", Volume, GetLastError());
+        return;
+    }
+    T0 = Now();
+    while (Now() - T0 < Seconds) {
+        if ((Count & 4095) == 0) {
+            LARGE_INTEGER Zero;
+
+            Zero.QuadPart = 0;
+            SetFilePointerEx(File, Zero, NULL, FILE_BEGIN);
+        }
+        if (!ReadFile(File, Buffer, Size, &Done, NULL) || Done != Size) {
+            break;
+        }
+        Count++;
+    }
+    printf("loop: %lu x 64 KiB in %.1f s\n", Count, Now() - T0);
+    CloseHandle(File);
+    VirtualFree(Buffer, 0, MEM_RELEASE);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -207,6 +279,11 @@ main(int argc, char **argv)
             Mem();
         } else if (strcmp(argv[I], "raw") == 0 && I + 1 < argc) {
             RawRead(argv[++I]);
+        } else if (strcmp(argv[I], "sweep") == 0 && I + 1 < argc) {
+            RawSweep(argv[++I]);
+        } else if (strcmp(argv[I], "loop") == 0 && I + 2 < argc) {
+            RawLoop(argv[I + 1], atoi(argv[I + 2]));
+            I += 2;
         } else if (strcmp(argv[I], "disk") == 0 && I + 1 < argc) {
             Disk(argv[++I]);
         }

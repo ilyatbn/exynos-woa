@@ -135,3 +135,14 @@ C. PMA (needs HCI_CLKSTOP_CTRL 0x13D611B0 bit3 MPHY_APBCLK_STOP CLEAR during the
   consistent with Linux's formula), IO coherency 0x13C10700 = 0x311 (9810 bits 8/9 set, 9820 bits 22/23 clear).
 - Still open: DMA side - PRDT length encoding (suspect 3), a SYSMMU in front of FSYS0 (iomem /sysmmu@13C20000),
   DMA engine state mid-transfer (0x13D611C0..F8).
+
+## 2026-10-12 evening: probe step u2 (read-only, built, not yet run)
+- s10eperf gains `sweep <vol>` (512 unbuffered reads per size, 4..64 KiB in 4 KiB steps) and `loop <vol> <s>`
+  (64 KiB background load for register sampling). Built into s10e-artifacts\s10ediag-m18 (build.bat rc 0).
+- drivers/S10eDiag/esp/extra-ufsprobe2.cmd: iocoh 0x13C10700; CMU_FSYS1 0x13C00100/180/1A0, 0x13C01000, 0x13C01800;
+  CMU_TOP 0x1A241068/078/864, 0x1A242000; UFSP 0x13D70000/08/10; HCI VS 0x13D61110-124/130/138/15C; sweep;
+  DMA monitors 0x13D611C0-DC/F8 x6 under load; UEC + INVALID_PRDT/VS_IS after. Addresses from
+  notes/m15-ufs-research-clocks.md (cmucal-sfr.c) and m15-ufs-research-dma.md (ufs-exynos-dbg.c). No PMA reads.
+- Separate finding (debug_history, 2026-10-12): entry 717 at power-on 16:13 records "(S) OCP_B1,OCP_B5" - the
+  phone that went unreachable after the KD try (boot #104) had powered OFF on a sub-PMIC buck over-current
+  trip. Which rails sub bucks 1/5 feed is not named in the dtbo (s_vdd_buck1..). Recorded in HANDOFF §32.

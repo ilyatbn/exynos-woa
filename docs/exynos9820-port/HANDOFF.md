@@ -1222,3 +1222,14 @@ refused by the session's safety classifier).
   TWRP dmesg; next = KD run with the M4s offered.
 **Tooling.** scratchpad cycle.sh (flash optional, reboot, mic listen, wait TWRP, pull UEFILOG/last/WINPRAM marks),
 deploy.sh (DriverStore .sys swap), tools/audio-listen/listen.py (narrowband mic detector, raw WDM-KS pin).
+**§30 update (2026-10-12 ~14:05).** Since run audB5 every Windows boot hangs ~2 min after power-on (debug_history:
+NORMAL -> ~126 s -> "DP INFORM3(12345670)" -> RECOVERY); nothing logged (System.evtx stops at Ntfs event 55
+"corruption" from the B6 boot). Likely cause: TWRP-side DriverStore swaps ran fsck.ntfs on the dirty NTFS.
+WLAN hidden (boot #103) did not help. KD (boot #104 + ESP BCD debug on, recoveryenabled No, firewall rule for
+kd.exe UDP 50005) never connected - no KDNET adapter on the host. After the last KD try the phone did not return
+to TWRP (unreachable since ~13:35). **User authorized a Windows reflash** ("just reflash it"). Plan when the phone is
+in TWRP: S10eHarness transfer s10e-artifacts\win-w5 -> firmware/tools/s10e-provision-fresh.sh (UFS w34,
+s10ediag-m16, touch-t2\Exynos9820Hsi2c, touch-hold, touch-t2\wdktestcert.cer) -> flash boot #105
+(boot105-setup-nowdt-v2.img = main, WINDOWS_WATCHDOG 0) for Setup -> afterwards boot #101 (watchdog 1) + no stay.flg,
+drivers re-added one at a time via ESP \S10EDIAG\install (no NTFS writes from TWRP). ESP BCD currently = debug on +
+recoveryenabled No (s10e-artifacts? scratchpad bcdkd\BCD; original in bcdkd\BCD.before-kd).

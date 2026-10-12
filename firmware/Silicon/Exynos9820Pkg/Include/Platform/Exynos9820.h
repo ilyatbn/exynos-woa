@@ -749,6 +749,14 @@
 #define EXYNOS_ABOX_SYSMMU_BASE   0x0000000018E00000ULL   // VERIFIED (sysmmu@18E00000, iommus phandle)
 #define EXYNOS_ABOX_SYSMMU_SIZE   0x0000000000009000ULL   // VERIFIED (sysmmu@18E00000 reg = +0x9000, base.dts:2692)
 
+// D8a m3 (speaker path, ABOX UAIF1 -> CS35L40). SOURCE-ONLY = cited from the LineageOS lineage-22.2 vendor tree
+// (notes/d8-audio-m3-abox.md F5-F7 with file:line), no live read yet; the m3 stage-0 audit reads them first.
+#define EXYNOS_PMU_AUD_CONFIGURATION_OFFSET  0x1900u   // SOURCE-ONLY (pd-aud@15861900, pmucal aud_on writes bit0)
+#define EXYNOS_PMU_AUD_STATUS_OFFSET         0x1904u   // SOURCE-ONLY (pmucal aud_on waits bit0 == 1)
+#define EXYNOS_PMU_AUD_PAD_OFFSET            0x1920u   // SOURCE-ONLY (abox_pad_retention: bit11 = pad normal)
+#define EXYNOS_CMU_AUD_BASE       0x0000000018C00000ULL   // SOURCE-ONLY (cal-if SFR_BLOCK(CMU_AUD, 0x18c00000, 0x8000))
+#define EXYNOS_PINCTRL_AUD_BASE   0x0000000018C60000ULL   // SOURCE-ONLY (pinctrl@18C60000 "AUD", bank gpb1 @+0x20)
+
 //
 // ---------------------------------------------------------------------------
 // Audio control buses (D8a): CS47L93 codec on spi_2, two CS35L40 amps on hsi2c_38.

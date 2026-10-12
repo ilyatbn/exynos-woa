@@ -345,3 +345,8 @@ UAIF1 SPK (F12); needs UAIF0 configured as I2S master (same F4 rules) plus codec
 9. Stock UAIF1 slot layout (4x32 inferred from the 6.144 MHz amp SCLK) — read UAIF1 CTRL1 on Android
    during playback (/dev/mem, root) to get the exact value; amps' RX slot config from the amp notes.
 10. Whether DATA_MODE (CTRL0 bit4, reset 1) / START_FIFO_DIFF_SPK matter for playback.
+- 2026-10-12 (main session): stage 0 implemented as `AudioAbox.c` AboxAudit (flag BEYOND0LTE_AUDIO_ABOX_AUDIT 1,
+  called at AudioProbe entry right after AmpProbe, inside the 0x69 guard). Reads PMU 0x1900/0x1904/0x1920; only
+  with AUD_STATUS bit0 = 1: IP_INDEX first (stops unless 0x41424F58), then the IFR/RDMA0/CMU_AUD/SYSREG/SysMMU/
+  gpb1 list of the Stage 0 plan. New header constants are tagged SOURCE-ONLY until this read confirms them.
+  Build exit 0, FVMAIN_COMPACT 360 B free. boot #95 = s10e-artifacts\boot95-v2.img sha256 ce0adb73…

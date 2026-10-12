@@ -56,4 +56,16 @@ CodecTonePlay (
   VOID
   );
 
+// D8a milestone 3 stage 0 (AudioAbox.c): 1 = read-only audit of the ABOX block that feeds the speaker amps
+// (pd-aud state first; nothing in the AUD block is read while it is off). Writes nothing.
+#ifndef BEYOND0LTE_AUDIO_ABOX_AUDIT
+#define BEYOND0LTE_AUDIO_ABOX_AUDIT  1
+#endif
+
+// Returns TRUE when pd-aud was on and the ABOX answered with its IP index.
+BOOLEAN
+AboxAudit (
+  VOID
+  );
+
 #endif

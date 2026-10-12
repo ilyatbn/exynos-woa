@@ -882,6 +882,9 @@ Beyond0LteAudioProbeEntry (
   Saved        = mProgress[1];
   mProgress[1] = AUDIO_PROGRESS_TRYING;
   AmpProbe ();
+  if (BEYOND0LTE_AUDIO_ABOX_AUDIT) {
+    (VOID)AboxAudit ();   // AudioAbox.c, read-only
+  }
 
   mGpg1HandoffCon = MmioRead32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF);
   mGpg1HandoffDat = MmioRead32 (GPIO0 + EXYNOS_GPIO_GPG1_OFF + EXYNOS_GPIO_BANK_DAT);

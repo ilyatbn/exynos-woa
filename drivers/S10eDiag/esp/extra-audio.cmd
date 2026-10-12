@@ -19,6 +19,9 @@ reg query "HKLM\SYSTEM\CurrentControlSet\Services\Exynos9820Audio\Parameters" > 
 s10ediag mark a: pnputil add audio
 pnputil /add-driver "%D%\Exynos9820Audio.inf" /install > "%W%\pnputil-add.txt" 2>&1
 s10ediag mark a: pnputil returned
+rem already installed on an earlier run: restart so PrepareHardware reads this stage's Parameters
+pnputil /restart-device "ACPI\SAMS9827\0" > "%W%\restart.txt" 2>&1
+s10ediag mark a: device restarted
 ping -n 20 127.0.0.1 > nul
 s10ediag mark a: enum
 pnputil /enum-devices /deviceid "ACPI\SAMS9827" /properties > "%W%\dev-audio.txt" 2>&1

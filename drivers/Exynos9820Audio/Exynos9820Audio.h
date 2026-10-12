@@ -95,6 +95,7 @@ typedef struct _AUD_CONFIG {
     ULONG Stereo;       /* 0 (default): mono (L+R)/2 on the loudspeaker only; 1 = L on the earpiece amp (untested) */
     ULONG KsOverride;   /* 1 (default): the driver answers host-pin DATAINTERSECTION / PROPOSEDATAFORMAT (A7) and the
                            volume element's CHANNEL_CONFIG (A9) itself (ReqLog.c); 0 = ACX only */
+    ULONG DefaultMode;  /* 1 (default, A10): host pin also offers AUDIO_SIGNALPROCESSINGMODE_DEFAULT; 0 = RAW only */
 } AUD_CONFIG, *PAUD_CONFIG;
 
 /* ======================================================================

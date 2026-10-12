@@ -465,3 +465,8 @@ AudioSrv call still 0x88890008. Audio/Operational: only event 65 "device state c
 - T20: AudPropose answers header-only PROPOSEDATAFORMAT sets (ValueCb in [64, 64+18)) on the host pin: SUCCESS for
   major AUDIO/wildcard + sub PCM/wildcard + specifier WAVEFORMATEX/wildcard/NONE (any Flags), else NO_MATCH (so 0x92
   AC3-SPDIF, 0x164 WMA-SPDIF and the MUSIC/MIDI header get NO_MATCH). Decoded with verdict as before. Build exit 0.
+- T21: Parameters\DefaultMode (default 1; INF NOCLOBBER, AudReadConfig): AcxDataFormatListCreate (parent = host pin) +
+  the same 48k/16 (default) and 48k/32 formats + AcxPinAssignModeDataFormatList(host pin, DEFAULT {C18E2F7E-933D-4965-
+  B7D1-1EEF228D2AF3}, local GUID copy checked against ksmedia.h:8424), status logged "circuit: DEFAULT-mode format list
+  on the host pin: <status>"; failure leaves RAW only. Version 1.0.1.9 (INF + Driver.c) bumped in the same commit
+  (the package step T22 only builds). Build exit 0, InfVerif VALID.

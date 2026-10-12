@@ -20,6 +20,10 @@
 static const GUID AudRenderComponentGuid =
     { 0xb2c5e9a1, 0x3d74, 0x4f0e, { 0x9c, 0x1b, 0x98, 0x20, 0xa0, 0xd1, 0xc3, 0x5e } };
 
+/* AUDIO_SIGNALPROCESSINGMODE_DEFAULT {C18E2F7E-933D-4965-B7D1-1EEF228D2AF3} (ksmedia.h:8424), local copy. */
+static const GUID AudModeDefault =
+    { 0xc18e2f7e, 0x933d, 0x4965, { 0xb7, 0xd1, 0x1e, 0xef, 0x22, 0x8d, 0x2a, 0xf3 } };
+
 /* Must equal the KSNAME reference string in Exynos9820Audio.inf. */
 DECLARE_CONST_UNICODE_STRING(AudRenderCircuitName, L"Speaker0");
 
@@ -434,6 +438,30 @@ NTSTATUS AudRenderCircuitCreate(_In_ WDFDEVICE Device, _In_ PAUD_DEVICE_CONTEXT 
     }
     if (!NT_SUCCESS(Status)) {
         return Status;
+    }
+
+    /* A10 (Parameters\DefaultMode = 1, default): the same two formats as an AUDIO_SIGNALPROCESSINGMODE_DEFAULT list, so
+       the host pin offers RAW + DEFAULT (the shared engine streams in DEFAULT mode when the pin has it). Optional:
+       a failure is logged and the pin keeps RAW only (the a9 shape). */
+    if (Dev->Cfg.DefaultMode) {
+        ACX_DATAFORMAT_LIST_CONFIG ListCfg;
+        ACXDATAFORMATLIST          ModeList = NULL;
+        NTSTATUS                   ModeStatus;
+
+        ACX_DATAFORMAT_LIST_CONFIG_INIT(&ListCfg);
+        WDF_OBJECT_ATTRIBUTES_INIT(&Attr);
+        Attr.ParentObject = Pins[0];
+        ModeStatus = AcxDataFormatListCreate(Device, &Attr, &ListCfg, &ModeList);
+        if (NT_SUCCESS(ModeStatus)) {
+            ModeStatus = AudAddFormat(Device, Circuit, ModeList, &AudFormatPcm16, TRUE);
+        }
+        if (NT_SUCCESS(ModeStatus)) {
+            ModeStatus = AudAddFormat(Device, Circuit, ModeList, &AudFormatPcm32, FALSE);
+        }
+        if (NT_SUCCESS(ModeStatus)) {
+            ModeStatus = AcxPinAssignModeDataFormatList(Pins[0], &AudModeDefault, ModeList);
+        }
+        AudLog(Dev->Log, "circuit: DEFAULT-mode format list on the host pin: %08lX\r\n", ModeStatus);
     }
 
     {

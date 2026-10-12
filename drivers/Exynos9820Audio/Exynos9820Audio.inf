@@ -11,7 +11,7 @@ Signature   = "$WINDOWS NT$"
 Class       = MEDIA
 ClassGuid   = {4d36e96c-e325-11ce-bfc1-08002be10318}
 Provider    = %ProviderString%
-DriverVer   = 10/13/2026,1.0.1.8
+DriverVer   = 10/13/2026,1.0.1.9
 CatalogFile = Exynos9820Audio.cat
 PnpLockdown = 1
 
@@ -57,6 +57,7 @@ HKR,Parameters,AboxEnable,0x00010003,0
 HKR,Parameters,HwVolume,0x00010003,0
 HKR,Parameters,Stereo,0x00010003,0
 HKR,Parameters,KsOverride,0x00010003,1
+HKR,Parameters,DefaultMode,0x00010003,1
 
 [Audio_Device.NT.Wdf]
 KmdfService = Exynos9820Audio,Audio_Wdf

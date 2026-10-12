@@ -442,7 +442,16 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
                 Memory32Fixed (ReadWrite, 0x15861000, 0x00001000)  // EXYNOS_PMU_BASE + 0x1000 (AUD_* offsets 0x19xx)
                 Memory32Fixed (ReadWrite, 0x10830000, 0x00001000)  // EXYNOS_PERIC1_GPIO_BASE / _SIZE
             })
-            Method (_STA, 0, NotSerialized) { Return (0x0F) }
+            // Rescue switch (2026-10-12): \S10EDIAG\noaudio.flg on the ESP -> BootLogDxe writes 'NOAU' (0x55414F4E) to
+            // progress word [5], 0x8FE0F014, at ReadyToBoot (and 0 when the file is absent) -> AUD0 hidden, so the
+            // audio driver never loads (run audA5b/c: Windows reset ~35 s into boot with Exynos9820Audio 1.0.1.4).
+            OperationRegion (AUST, SystemMemory, 0x8FE0F014, 4)
+            Field (AUST, DWordAcc, NoLock, Preserve) { AUDS, 32 }
+            Method (_STA, 0, NotSerialized)
+            {
+                If (LEqual (AUDS, 0x55414F4E)) { Return (Zero) }
+                Return (0x0F)
+            }
         }
 
         // M16 G9 (notes/gpu-m16-g9b.md): the Mali-G76 ("G3D") for drivers/MaliG76Probe (G9b) and later the

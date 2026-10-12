@@ -497,6 +497,19 @@ OnReadyToBoot (
         DEBUG ((DEBUG_ERROR, "BootLog: \\S10EDIAG\\nogpu.flg present - DSDT GPU0 hidden (word [4] = NOGP)\n"));
       }
 
+      //
+      // Audio rescue switch: \S10EDIAG\noaudio.flg hides DSDT AUD0 (word [5], 0x8FE0F014 = 'NOAU'). Written on
+      // every boot (0 when the file is absent) because nothing else clears word [5].
+      //
+      if (!EFI_ERROR (EspRoot->Open (EspRoot, &NoGpu, L"\\S10EDIAG\\noaudio.flg", EFI_FILE_MODE_READ, 0))) {
+        NoGpu->Close (NoGpu);
+        ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[5] = 0x55414F4E;   // 'NOAU': AUD0._STA -> 0
+        DEBUG ((DEBUG_ERROR, "BootLog: \\S10EDIAG\\noaudio.flg present - DSDT AUD0 hidden (word [5] = NOAU)\n"));
+      } else {
+        ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[5] = 0;
+      }
+
+      __asm__ __volatile__ ("dsb sy" ::: "memory");
       EspRoot->Close (EspRoot);
     }
   }

@@ -1177,3 +1177,26 @@ from TWRP: `umount /data` first (TWRP auto-mounts the Windows NTFS ro there), fs
   cable, then plug/unplug, then read Hist00-15 in Enum\ACPI\SAMS9826\0\Device Parameters).
 - Next: WiFi M5 = firmware resident for the device lifetime (DMA in device context, ReleaseHardware teardown,
   poll thread), then the NDIS/WDI question. Audio: wait for the ear test.
+**§29 hand-back (2026-10-12 ~03:25) — unattended session over, interactive state restored.**
+- BOOT = **boot #94** (s10e-artifacts\boot94-v2.img, 1a42cb25…, readback OK). It is main with
+  BEYOND0LTE_WINDOWS_WATCHDOG **0**; audio M2 tone still on (BEYOND0LTE_AUDIO_TONE 1, for the ear test).
+  ESP: **stay.flg back**, no extra.cmd, no WINRUN.FLG. Phone left in TWRP, battery 67 %.
+- Windows drivers (DriverStore swaps): Exynos9820Wlan **1.0.6.1** (M3-M6 code, resident firmware) and
+  S10eBattery **1.0.0.3** (off line while OTG boost).
+- Validated this session:
+  - WiFi M3: msgbuf + MAC A8:DB:03:06:3C:EF.
+  - WiFi M4: the CLM blob was what escan needed; SCAN 0 finds 8-14 BSS on 2.4 + 5 GHz.
+  - WiFi M5: resident firmware, rescan at t = 30 s. Needed common-buffer cache maintenance and a single
+    poller.
+  - M6 PBKDF2 self-test PASS.
+  - Audio M2 digital path: FLL1 locked, OUT2 on, tone played.
+  - Battery: driver → Windows path is live.
+- **Needs the user:**
+  1. Audio ear test: wired headphones in before power-on, ~2 s beep just before Windows Boot Manager. Then
+     set BEYOND0LTE_AUDIO_TONE 0.
+  2. Battery: boot without a cable, plug and unplug, then read Hist00-15 under
+     Enum\ACPI\SAMS9826\0\Device Parameters.
+  3. WiFi M6: Parameters\Ssid + Passphrase (REG_SZ, Services\Exynos9820Wlan\Parameters), reboot, read
+     C:\Windows\System32\LogFiles\Exynos9820Wlan-run.txt for `JOIN 0`.
+  4. WiFi M7 architecture: NDIS 802.3 adapter with a registry-configured network (fast) vs WDI/native WiFi.
+- Unattended mode again = WATCHDOG 1 build + remove stay.flg (+ `rm WINRUN.FLG` before every reboot).

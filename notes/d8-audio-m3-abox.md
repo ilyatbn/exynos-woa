@@ -431,3 +431,8 @@ UAIF1 SPK (F12); needs UAIF0 configured as I2S master (same F4 rules) plus codec
   - Order that works: UAIF1 SPK_EN, RDMA0 enabled with data, then amp power-up (PUP_DONE), unmute, volume.
     Without data on RDMA0, PUP_DONE times out (b98).
   - m3 is **device-validated** (loudspeaker tone from the AP alone: no ABOX DSP, no amp DSP).
+- 2026-10-12 11:20 **full sound re-test (user request), boot #102 = #101 + both UEFI tones on**, mic narrowband:
+  loudspeaker 1500 Hz (DRAM variant) t = 17.8 s, 2.2 s, -49 dBFS, **SNR 55 dB**; loudspeaker 3000 Hz (SRAM
+  physical) -44 dBFS, **SNR 67 dB**; 6000 Hz (SRAM offset) only -104 dBFS / 12 dB (leakage, still silent as in
+  b99); headphone 1000 Hz t = 37.6 s, 2.1 s, -71 dBFS, **SNR 29 dB**. UEFILOG: PUP_DONE 1 ms, 0 amp I2C errors,
+  both "PLAYED". Phone back on boot #101 (tones off) afterwards.

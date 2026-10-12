@@ -127,3 +127,9 @@ Logs: Exynos9820WlanCx.txt (bring-up) + Exynos9820WlanCx-run.txt (runtime, rotat
   switch. KMDF Exynos9820Wlan build W4/WX clean (scratchpad cx\t1-kmdf, sys 2D4CEFCD2C924575...). Device
   expectation: cold boot "[dl] D11 core ... resetctrl 0x1 -> 0x1" (already in reset) or 0x0 -> 0x1; after
   a device restart "pass 1 ... 0 mismatches" = cured; mismatch addresses = where the writer is.
+- Review of c124f92 (T1): checked CoreDisable against fmac chip.c:350-382 step by step (skip-if-in-reset, IOCTL
+  prereset|FGC|CLK, RESET_CTL 1, 10 us, wait == 1 up to 300 us, IOCTL reset|FGC|CLK); D11 bits match chip.c:81-82;
+  the ARM release (CoreReset(Cr4, 0, 0)) still only touches the CR4 wrappers, so the D11 cores stay in reset for
+  the firmware to bring up (fmac comment chip.c:1328-1330); retry loop rewrites the same seed; Bad is reset per
+  pass; BadNote bounded by DL_BAD_LOG. FOUND: WlanProbe.c's "Parameters key settings" comment lists neither
+  D11Reset nor (already before) CacheMaint. Fixed in a follow-up commit.

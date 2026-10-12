@@ -167,7 +167,8 @@ ReportWriteRegistry(_In_ WDFDRIVER Driver, _In_ PWLAN_REPORT R, _In_ PWLAN_PROBE
 
 /* Parameters key settings: Download (default 1), OtpProbe (default 1), NvramFile, FirmwareFile
    (empty = automatic / default), Msgbuf (default 1), HostCap (default WLAN_HOSTCAP_AUTO),
-   DoorbellDar (default 0), Scan (default 1), Resident (default 1), RescanSeconds (default 30). */
+   DoorbellDar (default 0), Scan (default 1), Resident (default 1), RescanSeconds (default 30), CacheMaint
+   (default 1), D11Reset (default 1, M9 T1). */
 static VOID
 WlanReadConfig(_In_ WDFDRIVER Driver, _Out_ PWLAN_DL_CONFIG DlCfg)
 {

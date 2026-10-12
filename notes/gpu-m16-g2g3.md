@@ -178,3 +178,25 @@ PMU = 0x15860000 (EXYNOS_PMU_BASE, VERIFIED). CMU_CMU = 0x1A240000 (= EXYNOS_CMU
   gpexbe_smc.c :98 config guard / :107 notify, Kbuild :93-97, defconfig :3362-3368.
 - Found: (1) the defconfig's real repo path was not recorded (saved under a different name) — added;
   (2) one cite lacked the `G\` prefix. Fixed in the follow-up commit.
+
+## G3 build (2026-10-12)
+- Built with a scratch copy of `firmware/tools/build-uefi.ps1` (`scratchpad\build-g3.ps1`): only `$ws` = this worktree's
+  `firmware`, `$edk2` = main checkout's `firmware\edk2` (the worktree has no edk2), and WORKSPACE = `scratchpad\g3build`
+  (with a copy of edk2\Conf) so the Build dir does not collide with the main session's. The long scratch path broke
+  GNU make (MAX_PATH: "GNUmakefile: No such file"), so WORKSPACE is `subst W:` of that dir. Run via
+  `powershell.exe -File build-g3.ps1 -Platform Beyond0LtePkg -Target DEBUG > g3build.out 2> g3build.err`.
+- Result: **exit 0**. `FVMAIN_COMPACT [99%Full] 774144 (0xbd000) total, 772096 used, 2048 (0x800) free` (auto-sized,
+  NumBlocks = 0); FVMAIN 33% full. FD `BEYOND0LTE_UEFI.fd` 7 340 032 B, sha256 `227b9b98b13369f9...`;
+  `Beyond0LteGpuProbeDxe.efi` 14 336 B, GUID ...555555555555 present in FV Guid.xref. Not packed, not flashed.
+
+## G3 expected UEFILOG (device validation = the main session's boot)
+```
+GpuProbe: start (read-only; BEYOND0LTE_GPU_POWER_ON 0)
+GpuProbe: PMU EMBEDDED_G3D CONFIG <x> STATUS <x> OUT <x> | G3D CONFIG <x> STATUS <x> (bit0 = on)
+GpuProbe: PLL_G3D CON0 <x> (ENABLE . STABLE . M . P . S .) CON2 <x> LOCKTIME <x>
+  either: GpuProbe: G3D domain is OFF (...) - nothing in CMU_G3D / GPU is read     -> GpuProbe: done
+  or:     GpuProbe: G3D domain is ON - reading CMU_G3D, 9 "GpuProbe:   CMU_G3D ..." lines, GATE_GPU_CLK line,
+          GpuProbe: GPU_ID [18500000] = <x> (arch 7.2 r?, product_major 1, ...; G76 0x7001/0xF00F match: yes)
+          24 "GpuProbe:   GPU ..." lines, shader/L2/AS/JS popcount line, GpuProbe: done
+```
+- A hang/abort after the PMU line with no "done" → next boot logs "previous boot hung in the GPU probe (progress 0x6A)".

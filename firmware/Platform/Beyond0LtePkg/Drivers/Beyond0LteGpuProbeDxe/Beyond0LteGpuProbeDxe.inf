@@ -1,0 +1,32 @@
+## @file
+#  M16 G3: READ-ONLY probe of the Mali-G76 (G3D) block - PMU G3D status, PLL_G3D, and only while the domain
+#  is on CMU_G3D and the GPU ID/feature registers - into UEFILOG ("GpuProbe:"). Guarded by boot progress
+#  code 0x6A. Recipe: notes/gpu-m16-g2g3.md. Not validated on an S10e yet.
+#
+#  FILE_GUID 11111111-2222-3333-4444-555555555555 is this module's BUILD IDENTITY, not a hardware read.
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = Beyond0LteGpuProbeDxe
+  FILE_GUID                      = 11111111-2222-3333-4444-555555555555
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 0.1
+  ENTRY_POINT                    = Beyond0LteGpuProbeEntry
+
+[Sources]
+  Beyond0LteGpuProbeDxe.c
+  GpuProbeHw.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  Silicon/Exynos9820Pkg/Exynos9820Pkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  BaseLib
+  DebugLib
+  IoLib
+
+[Depex]
+  gEfiCpuArchProtocolGuid

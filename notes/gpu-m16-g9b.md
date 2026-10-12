@@ -39,3 +39,15 @@
   flags 0x01 (consumer, level, active-high, exclusive) with GSIV 0x140/0x13F/0x141 = 320/319/321, GPST at 0x8FE0F010,
   _STA compares 0x30555047. Not packed, not flashed.
 - FVMAIN_COMPACT headroom is now 1952 B: the next firmware change may need the FV auto-grow seen with flag 1.
+
+## Review of 889f781 (G9 ACPI half, adversarial)
+- Checked mechanically: 9810 tree untouched (`git diff --stat e951137..HEAD -- firmware/Platform/Star2LtePkg
+  firmware/Silicon/Exynos9810Pkg` empty); Dsdt.aml disassembled = intended _CRS bytes (above); no other ACPI table
+  in Beyond0LtePkg/AcpiTables names GSIV 319/320/321 or the 0x15862000 page (rg); GpuPowerOn's return values
+  (GpuPower.c:87-233): FALSE for "already ON" (first probe's verdict stands) and for the failure path (domain
+  back off -> first probe said OFF -> hidden), TRUE after success or after an ACPM failure (domain on, re-probed).
+  The status write precedes the existing `dsb sy` after the guard restore, and the page is uncached.
+- Accepted, not defects (recorded): (a) ACPM FREQ_REQ failure -> GPU0 visible at sboot's/reset PLL_G3D rate (the
+  re-probe already read GPU_ID through that clock, so the block answers); (b) EMBEDDED on + outer off at entry ->
+  hidden and not powered on (conservative); (c) 0x6A-skip boot -> hidden (word cleared before the skip).
+- Nothing to fix in a follow-up commit.

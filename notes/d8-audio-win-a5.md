@@ -361,3 +361,16 @@ something after it still is.
   hash collisions only hide a format line. **Finding R6:** FmtHash[] was declared with a literal 64 next to an
   AUD_FMTHASHES macro that the code bounds-checks with - a later edit of one would overflow. Fixed in its own commit
   (array sized by the macro). Build exit 0.
+- T16 package s10e-artifacts\audio-a8 (1.0.1.7, ACX 1.1, signed 5DD5DEE1... sys + cat, InfVerif VALID, INF hardware
+  defaults 0/0/0, KsOverride 1):
+    35B16CDC5856E61E2363B12E277C3DD547618B95F9F614BB65B2359AA401A80C  Exynos9820Audio.sys
+    B2BCD6F53F3EA3B2216DD43CA727C04F17AF37C2D68F7F48FD1A423786C8811B  Exynos9820Audio.inf
+    6FA4052697FBB66FBAD8CC33EB593953E259680454079C61DB9D1417BCBE3288  exynos9820audio.cat
+
+### A8 device test
+Same swap as a7; copy the NEW audio-test.ps1 + extra-audio.cmd to the ESP. Stage A (hardware off) first - with the
+new defaults even a lost stage file stays silent. Read: audiotest.txt `props:` (is {F19F064D},0 DeviceFormat present,
+what blob; OEMFormat {E4870E26},3; any {3D6E1656} mix-format keys - compare with the working-PC reference above),
+`formats:` (shared IsFormatSupported hr per format), `exclusive ...` line (played = the KS/stream path works without
+the engine); audio\mmdevices.txt (same store, raw); evt-audio-*.txt (AudioSrv's own reason); run.txt `circuit: ACX
+default format ...` and the `fmt ... verdict:` lines.

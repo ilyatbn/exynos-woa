@@ -163,3 +163,5 @@ Device result (coordinator, runs in scratchpad\runs\audA5\last\audio, \audA5b, \
 - Plan A6: (T5) RunLog non-paged flush; (T6) ACX 1.1 like the sample (+ build-package -AcxMinor so a 1.0 fallback
   package can be built if 1.1 does not bind); (T7) log every KS request to the circuit and streams (ACX request
   preprocess callbacks, set/id/verb/item + the dispatch status) and every ACX callback with its status; version 1.0.1.5.
+- T5: RunLog.c AudLogFlush snapshot buffer POOL_FLAG_PAGED -> POOL_FLAG_NON_PAGED (the only POOL_FLAG_PAGED in the
+  driver - rg). Build exit 0.

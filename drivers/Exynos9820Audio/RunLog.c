@@ -87,8 +87,10 @@ VOID AudLogFlush(_In_opt_ PAUD_RUNLOG Log)
         return;
     }
 
-    /* Snapshot under the lock: the file write happens unlocked at PASSIVE_LEVEL. */
-    Copy = (PCHAR)ExAllocatePool2(POOL_FLAG_PAGED, AUD_RUNLOG_MAX + sizeof(Tail), AUD_POOL_TAG);
+    /* Snapshot under the lock: the file write happens unlocked at PASSIVE_LEVEL. NON-PAGED: the copy is written while
+       the spin lock holds DISPATCH_LEVEL; a fresh 64 KiB paged allocation can be demand-zero and faulted on first touch
+       -> bugcheck 0xD1 (A6: the boot crash, audA5b marks BC D1 P1 page aligned; notes/d8-audio-win-a5.md). */
+    Copy = (PCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, AUD_RUNLOG_MAX + sizeof(Tail), AUD_POOL_TAG);
     if (Copy == NULL) {
         return;
     }

@@ -23,6 +23,10 @@
   M16 G9 ACPI hand-off: progress page word [4] (0x8FE0F010) = 'GPU0' (0x30555047) only when the LAST probe of
   this run saw the GPU usable (both PMU status bits 1, GPU clock not manually gated off, GPU_ID = G76); it is
   0 otherwise (cleared at entry here and in SEC). DSDT GPU0._STA reads it, so Windows only sees a powered GPU.
+  M16 G10 rescue rule (notes/gpu-m16-g10.md): an image built with BEYOND0LTE_GPU_POWER_ON 0 never makes GPU0
+  visible, even when sboot left the domain on, so flashing such an image always takes every GPU driver
+  (MaliG76Probe, MaliG76Wddm) out of the boot. The ESP file \S10EDIAG\nogpu.flg does the same without a reflash
+  (Beyond0LteBootLogDxe, ReadyToBoot).
 
   NOT VALIDATED ON HARDWARE (stage Guided).
 **/
@@ -237,6 +241,14 @@ Beyond0LteGpuProbeEntry (
     if (GpuPowerOn ()) {
       Usable = GpuProbe ();     // after power-on: PLL_G3D (STABLE = lock), CMU_G3D gate, GPU_ID ...
     }
+  }
+
+  if (Usable && !BEYOND0LTE_GPU_POWER_ON) {
+    //
+    // M16 G10 rescue rule: the flag-0 image is the rescue image, so it never hands Windows a GPU device.
+    //
+    DEBUG ((DEBUG_WARN, "GpuProbe: G76 usable as found, but BEYOND0LTE_GPU_POWER_ON 0 = rescue image - GPU0 hidden\n"));
+    Usable = FALSE;
   }
 
   mProgress[GPU_STATUS_WORD] = Usable ? GPU_STATUS_READY : 0u;

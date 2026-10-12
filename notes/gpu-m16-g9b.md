@@ -191,3 +191,8 @@ Retarget per R-list:
    30555047)", then in Windows `s10ediag peek 0x8FE0F010` and Device Manager ACPI\SAMS9828 with 2 memory + 3 IRQ.
 3. Install s10e-artifacts\mali-g9b (pnputil /add-driver MaliG76Probe.inf /install, test signing on), read
    C:\Windows\System32\LogFiles\MaliG76Probe-run.txt. Have the R19 offline-disable path ready (IRQ storm hazard).
+
+## Superseded (2026-10-12, M16 G10 rescue path, notes/gpu-m16-g10.md Task A)
+- The case "flag 0 + sboot leaves it on -> visible" no longer holds: a `BEYOND0LTE_GPU_POWER_ON 0` image now always
+  hides GPU0 (it is the rescue image), and `\S10EDIAG\nogpu.flg` on the ESP hides it on any image (word [4] = 'NOGP').
+  For the G9b test use a flag-1 image without that file.

@@ -68,6 +68,18 @@
 #define UFS_CACHED_BOUNCE_READ                     1
 #endif
 
+/*
+ * m15 w35: with the firmware-reserved workspace (every SRB is copied through our own bounce, never DMA'd from
+ * Srb->DataBuffer), tell StorPort the miniport takes 64-bit addresses. With Dma32BitAddresses only, StorPort
+ * runs every SRB buffer above 4 GB (most of this phone's RAM) through HAL map registers and splits it: m15 u3
+ * (boot #110 + w34 counters) saw 4152 x 64 KiB raw reads become 34057 device commands (~8 KiB each) and
+ * ~3.6 ms per 64 KiB, while UEFI reads 64 KiB in 0.73 ms on the same controller. The fallback
+ * StorPortGetUncachedExtension path keeps Dma32 (its allocation must stay below 4 GB).
+ */
+#ifndef UFS_DMA64_WITH_RESERVED_WORKSPACE
+#define UFS_DMA64_WITH_RESERVED_WORKSPACE          1
+#endif
+
 #ifndef UFS_ZERO_BOUNCE_BEFORE_READ
 #define UFS_ZERO_BOUNCE_BEFORE_READ                0
 #endif

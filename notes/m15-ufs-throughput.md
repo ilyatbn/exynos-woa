@@ -151,3 +151,26 @@ C. PMA (needs HCI_CLKSTOP_CTRL 0x13D611B0 bit3 MPHY_APBCLK_STOP CLEAR during the
   boot109-ufsspeed-v2.img (4f738af3…, speed test 1) and boot108-iocoh-v2.img (7a138c7e…, speed test 1 + IOCOH_9820 1;
   replaces the earlier 59ed2abe… #108). FVMAIN_COMPACT 1272 B free. Review: read-only, LBA = I*Size/BlockSize from 0,
   max 16 MiB span, page-aligned buffer; Status is always set (Reads >= 16).
+
+## 2026-10-12 ~21:00: u2/u3 results and w35
+- Boot #109/#110 UEFI UfsSpeed (same controller, same UEFI config Windows inherits): 4 KiB 237 us, 8 KiB 266, 16 KiB
+  404, 32 KiB 432, 64 KiB 733 us (89 MB/s), 128 KiB 1163 us (113 MB/s), 1 MiB 11.2 ms (94 MB/s). 64 KiB into a high
+  buffer (0x97CAD2000), a bank0 buffer (0x9FFF0000) and the Windows UFS DMA pool (0xA7428000): all 733 us => the pool
+  region is not slow. UEFI uses the same DW7 n*128 / 4 KiB-entry encoding (Beyond0LteUfsHcDxe.c:3184-3191, 3576) =>
+  the PRDT length suspect does not explain Windows (it may explain UEFI vs Linux 617 MB/s; separate).
+- u2 Windows probes (fresh install, background I/O): iocoh 0x311; CMU_FSYS1 BUS_USER mux 0x10 (bus from CMU_TOP, not
+  OSCCLK), UFS_EMBD_USER 0x10, PLL_MMC 0x801F0110, MUX_CLK_FSYS1_BUS 0 (BUS_USER), DIV_CLK_FSYS1_BUS 1 (/2);
+  CMU_TOP MUX_CLKCMU_FSYS1_BUS 1 (400 MHz => FSYS1 bus 200 MHz), MUX_UFS_EMBD 3 (Linux 1), DIV_UFS_EMBD 1 (Linux 2),
+  GAT_FSYS1_BUS 0x00200000. UFSP 0x00000000/0x00000004/0xFFFA6492 (DESCTYPE[20:19]=3). HCI VS: 0x118 0xBEADCAFE,
+  0x120 0x8000, 0x124 0x10000, 0x138 VS_IS 0x00080000, 0x15C 1. DMA monitors static (0x1C4 0xAB01FFFF, 0x1D8
+  0x04000800). UEC* all 0 after load. sweep (noisy, first-boot background I/O): 4 KiB 1.3-2 ms ... 64 KiB 8.7 ms.
+- u3 (w34 UfsDiag counters around a 15 s 64 KiB loop): loop 4152 x 64 KiB; counter deltas READS +34057, bytes
+  +281.4 MB, DEVICE +3.89 s, BOUNCE_IN +1.30 s. => each 64 KiB request reaches the miniport as ~8 commands of ~8 KiB
+  (device 114 us + copy 38 us each) plus ~290 us per command outside device+copy. MAX_TRANSFER 0x10000, BREAKS 33,
+  DMA32=1, DMA64=0, NeedPhysicalAddresses TRUE, MapBuffers ALL. Cause (inferred, UNVERIFIED until w35 runs): with
+  Dma32 only, StorPort double-buffers SRB buffers above 4 GB through HAL map registers and splits them.
+- w35 = w34 + UFS_DMA64_WITH_RESERVED_WORKSPACE 1 (Exynos9820UfsDiag.h): ConfigInfo->Dma64BitAddresses =
+  SCSI_DMA64_MINIPORT_FULL64BIT_SUPPORTED only when the firmware-reserved workspace was mapped (the miniport never
+  DMAs from Srb->DataBuffer; the StorPortGetUncachedExtension fallback keeps Dma32). Exact build OK, signed with
+  WDKTestCert 5DD5DEE1… (same signer as w34), s10e-artifacts\ufs-w23\Exynos9820Ufs-w35.sys sha 3ed49b6a….
+  Installed by esp/extra-ufsw35.cmd inside Windows (rename w34 to .w34, copy w35), measured next boot by ufsprobe3.

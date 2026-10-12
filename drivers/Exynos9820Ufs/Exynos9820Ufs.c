@@ -8535,6 +8535,12 @@ UfsHwFindAdapter(
         return SP_RETURN_FOUND;
     }
     UfsSetDiagnosticStage(Adapter, UFS_DIAG_STAGE_WORKSPACE_ALLOCATED);
+#if UFS_DMA64_WITH_RESERVED_WORKSPACE && UFS_DMA_WINDOW_ENFORCE
+    if (Adapter->WorkspaceFirmwareReserved) {
+        ConfigInfo->Dma64BitAddresses = SCSI_DMA64_MINIPORT_FULL64BIT_SUPPORTED;
+        Adapter->Diagnostic.Dma64BitAddresses = ConfigInfo->Dma64BitAddresses;
+    }
+#endif
 
     if (!UfsValidateWarmState(Adapter)) {
         UfsEnterDiagnosticOnly(

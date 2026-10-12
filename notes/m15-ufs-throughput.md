@@ -174,3 +174,23 @@ C. PMA (needs HCI_CLKSTOP_CTRL 0x13D611B0 bit3 MPHY_APBCLK_STOP CLEAR during the
   DMAs from Srb->DataBuffer; the StorPortGetUncachedExtension fallback keeps Dma32). Exact build OK, signed with
   WDKTestCert 5DD5DEE1… (same signer as w34), s10e-artifacts\ufs-w23\Exynos9820Ufs-w35.sys sha 3ed49b6a….
   Installed by esp/extra-ufsw35.cmd inside Windows (rename w34 to .w34, copy w35), measured next boot by ufsprobe3.
+- w35 measured (boot w35-measure3): Dma64 advertised (DMA64=0x2) but 4151 x 64 KiB volume reads still = 34074
+  commands => Dma32 map registers were NOT the cause (w35 kept; harmless). u4: StorageAdapterProperty on
+  PhysicalDrive0 and C: = MaximumTransferLength 0x10000, MaximumPhysicalPages 17, AlignmentMask 3; PhysicalDrive0
+  loop also ~8.2 KiB per command => the split is in classpnp/disk, not volume filters. Linux (TWRP) queue limits:
+  max_hw_sectors_kb 512, max_segments 128, max_segment_size 4096, lbs 4096; Linux exposes no vpd_pgb0.
+- u5 (s10eperf vpd, SCSI pass-through): VPD 0x00 = 00 80 83 87 b0 b1 b2; **0xB0 Block Limits: MAXIMUM TRANSFER
+  LENGTH 0, OPTIMAL TRANSFER LENGTH 2 blocks (8 KiB), granularity 2**, max unmap LBA count 0xFFFFFFFF; 0xB1 rate 1.
+  ROOT CAUSE of the 8 KiB split: classpnp splits to the device's OPTIMAL TRANSFER LENGTH.
+- w36 = w35 + UFS_CLEAR_VPD_OPTIMAL_TRANSFER (zero bytes 12..15 of the VPD 0xB0 reply), sha 070ae94c…, installed by
+  esp/extra-ufsswap.cmd (swap in Windows + clean `shutdown /r` + measure on the 2nd pass; TWRP ntfs-3g refuses rw
+  on the flushreset-dirty volume and the fsck fallback is what corrupted NTFS before). Results (boot w36):
+  C: 64 KiB loop 4899 in 10 s (32 MB/s; was 4151 in 15 s = 18 MB/s), commands 5624 for 4899 requests (~1:1),
+  raw C: 4 KiB 316 us (was 555), 64 KiB 2188 us (was ~4000), 1 MiB 49.2 MB/s (was 19.7).
+  Counters per 64 KiB command: DEVICE ~128 us (!), BOUNCE_IN copy-back ~274 us => ~1.6 ms per request is spent
+  outside device+copy (completion is synchronous in StartIo, :8195). PhysicalDrive0 loop oddly slow: 1423 x 64 KiB
+  in 10 s with 1686 commands (~7 ms/request) - open.
+- Next levers: (1) find the ~1.6 ms per request outside the miniport (StorPort/MDL mapping/upper stack - needs a
+  StartIo-entry-to-completion counter or a KD/ETW trace); (2) copy-back 274 us per 64 KiB (DC CIVAC over 1024 lines +
+  memcpy) - DMA straight into the SRB buffer would remove it; (3) raise MaximumTransferLength past 64 KiB (UCD/PRDT
+  region); (4) UEFI vs Linux gap (UEFI 733 us per 64 KiB vs Windows device 128 us - UEFI has its own overheads).

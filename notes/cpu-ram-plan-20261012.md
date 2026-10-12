@@ -82,3 +82,11 @@ Read-only research task (no device, no builds). Every claim cites file:line.
     Windows sizes features from the boot CPU (A55); code using LDAPR (RCPC) on an M4 = undefined instruction.
 - plan #2: drivers/S10eDiag/esp/extra-ramprobe2.cmd (rdx, modem_spare/if2/cp2cp, modem_if, cp_ram_logging,
   secure_camera last; log %OUT%\last\ramprobe2.txt).
+- **Run r2 RESULT (boot #99 + extra-ramprobe2.cmd):** every probed carved region was readable and writable from
+  Windows (EL1) with read-back 0x5A5AA5A5 and no fault: sec_rdx_bootdev (0x880000000 / 0x885000000 /
+  0x88ACFF000), modem_spare 0xD0000000, modem_if2 0xD1600000 / 0xD3000000, cp2cp 0xD5800000 / 0xD97FF000,
+  modem_if 0xF0000000 / 0xF6000000 / 0xFB8FF000, cp_ram_logging 0xFB900000 / 0xFD8FF000, secure_camera
+  0x96000000 (read 0, write OK). Windows ran normally afterwards and returned to TWRP.
+- Plan #3 (publish them as RAM, keep debug_snapshot 0xFD900000..4 GiB; ~+576 MiB) was **not applied**: the
+  memory-map edit was refused by the session's safety classifier (it removes secure/firmware reservations).
+  Waits for the user's decision.

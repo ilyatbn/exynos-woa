@@ -1,0 +1,76 @@
+From 10ef8d659cef83c13a3eb27f3e4f14585a18f89f Mon Sep 17 00:00:00 2001
+From: g12-build <g12@local>
+Date: Wed, 14 Oct 2026 02:09:56 +0300
+Subject: [PATCH] H3: tgsi_to_nir indexes immediates (D3D immediate constant
+ buffers) through an array; d3d10umd keeps the immediate part of an
+ IMMEDIATE32_PLUS_RELATIVE icb index (exynos-woa
+ tools/mesa-build/patches/0048)
+
+---
+ src/gallium/auxiliary/nir/tgsi_to_nir.c     | 25 +++++++++++++++++++--
+ src/gallium/frontends/d3d10umd/ShaderTGSI.c |  4 +++-
+ 2 files changed, 26 insertions(+), 3 deletions(-)
+
+diff --git a/src/gallium/auxiliary/nir/tgsi_to_nir.c b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+index b546915..35e8c54 100644
+--- a/src/gallium/auxiliary/nir/tgsi_to_nir.c
++++ b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+@@ -97,6 +97,8 @@ struct ttn_compile {
+ 
+    /* How many TGSI_FILE_IMMEDIATE vec4s have been parsed so far. */
+    unsigned next_imm;
++   /* exynos-woa H3: the immediates as an array, for indirect access (D3D immediate constant buffers) */
++   nir_variable *imm_array;
+ 
+    bool cap_face_is_sysval;
+    bool cap_position_is_sysval;
+@@ -586,9 +588,28 @@ ttn_src_for_file_and_index(struct ttn_compile *c, unsigned file, unsigned index,
+       break;
+ 
+    case TGSI_FILE_IMMEDIATE:
+-      src = nir_src_for_ssa(c->imm_defs[index]);
+-      assert(!indirect);
+       assert(!dim);
++      if (indirect) {
++         /* exynos-woa H3 (notes/gpu-hw-path.md): d3d10umd turns a D3D immediate constant buffer (icb[r0.x]) into an
++          * indirect IMMEDIATE access, which tgsi_exec runs and ttn asserted on. All immediates are parsed before
++          * the first instruction, so an array of them is built once, stored right after the last immediate (in the
++          * top-level block: it dominates every use), and indexed like an array temporary. */
++         if (!c->imm_array) {
++            nir_cursor saved = b->cursor;
++            unsigned n = c->next_imm;
++            assert(n > 0);
++            c->imm_array = nir_variable_create(b->shader, nir_var_shader_temp,
++                                               glsl_array_type(glsl_vec4_type(), n, 0), "imm_arr");
++            b->cursor = nir_after_instr(nir_def_instr(c->imm_defs[n - 1]));
++            nir_deref_instr *arr = nir_build_deref_var(b, c->imm_array);
++            for (unsigned i = 0; i < n; i++)
++               nir_store_deref(b, nir_build_deref_array_imm(b, arr, i), c->imm_defs[i], 0xf);
++            b->cursor = saved;
++         }
++         src = nir_src_for_ssa(nir_load_deref(b, ttn_array_deref(c, c->imm_array, index, indirect)));
++      } else {
++         src = nir_src_for_ssa(c->imm_defs[index]);
++      }
+       break;
+ 
+    case TGSI_FILE_SYSTEM_VALUE: {
+diff --git a/src/gallium/frontends/d3d10umd/ShaderTGSI.c b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+index 65c99db..4cc5c65 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderTGSI.c
++++ b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+@@ -1061,8 +1061,10 @@ translate_src_operand(struct Shader_xlate *sx,
+       case D3D10_SB_OPERAND_INDEX_IMMEDIATE32_PLUS_RELATIVE:
+          reg = sx->imms;
+          reg.Index += operand->base.index[0].imm;
++         /* exynos-woa H3: index from reg (base + the immediate part), not from sx->imms - the immediate part of an
++          * IMMEDIATE32_PLUS_RELATIVE index was dropped */
+          reg = ureg_src_indirect(
+-            sx->imms,
++            reg,
+             translate_relative_operand(sx, &operand->base.index[0].rel));
+          break;
+       default:
+-- 
+2.40.1.windows.1
+

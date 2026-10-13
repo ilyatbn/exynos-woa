@@ -12,6 +12,10 @@
  */
 #include "MaliG76Wddm.h"
 
+/* The full adapter's synthesised blanking (FillSignal, BuildEdid): a driver choice, nothing is programmed. */
+#define MW_HBLANK 280u
+#define MW_VBLANK 45u
+
 static UINT BytesPerPixel(D3DDDIFORMAT F)
 {
     return (F == D3DDDIFMT_A8R8G8B8 || F == D3DDDIFMT_X8R8G8B8) ? 4 : 0;
@@ -49,7 +53,7 @@ static void FillSignal(MW_ADAPTER *Dev, D3DKMDT_VIDEO_SIGNAL_INFO *S)
         S->ScanLineOrdering = D3DDDI_VSSLO_PROGRESSIVE;
         return;
     }
-    UINT totalW = Dev->Fb.Width + 280, totalH = Dev->Fb.Height + 45;
+    UINT totalW = Dev->Fb.Width + MW_HBLANK, totalH = Dev->Fb.Height + MW_VBLANK;
 
     S->VideoStandard = D3DKMDT_VSS_OTHER;
     S->TotalSize.cx = totalW;
@@ -193,14 +197,75 @@ NTSTATUS APIENTRY MwQueryChildStatus(IN_CONST_PVOID MiniportDeviceContext, INOUT
     }
 }
 
-/* No EDID: Windows falls back to the modes RecommendMonitorModes adds. */
+/* G76 (full adapter, Parameters\SynthEdid): an EDID 1.3 block describing exactly the timing this driver reports
+ * (FillSignal: active = the GOP fb, +280/+45 blanking, 60 Hz), so the monitor that dxgkrnl builds for the panel has
+ * that mode as its preferred detailed timing and a range-limits descriptor that contains it. Without a descriptor
+ * the full adapter's every commit had zero paths (run g16full PRAM "Commit src.chk.paths 00000100"): the working
+ * hypothesis is that a descriptor-less monitor gets default frequency ranges that a 189.72 MHz / 139.5 kHz timing
+ * falls outside (UNVERIFIED - the next run answers it). Nothing here is read from the panel: identity "EXW"/0x9820,
+ * no physical size (0 = undefined), standard sRGB chromaticity, sync offsets/widths chosen inside the blanking -
+ * the panel keeps sboot's real timing whatever this says (nothing is programmed). Display-only: no descriptor. */
+
+static BOOLEAN BuildEdid(const MW_ADAPTER *Dev, UCHAR E[128])
+{
+    static const UCHAR chroma[10] = { 0xEE, 0x91, 0xA3, 0x54, 0x4C, 0x99, 0x26, 0x0F, 0x50, 0x54 };   /* sRGB */
+    static const UCHAR name[13] = { 'S', '1', '0', 'e', ' ', 'p', 'a', 'n', 'e', 'l', 0x0A, ' ', ' ' };
+    ULONG w = Dev->Fb.Width, h = Dev->Fb.Height;
+    ULONG64 clk = (ULONG64)(w + MW_HBLANK) * (h + MW_VBLANK) * 60;      /* Hz, = FillSignal's PixelRate */
+    ULONG clk10k = (ULONG)((clk + 5000) / 10000);
+    UCHAR *t, sum = 0;
+
+    if (w == 0 || h == 0 || w > 0xFFF || h > 0xFFF || clk10k > 0xFFFF || clk > 200000000ULL)
+        return FALSE;
+    RtlZeroMemory(E, 128);
+    E[1] = E[2] = E[3] = E[4] = E[5] = E[6] = 0xFF;                /* header 00 FF x6 00 */
+    E[8] = 0x17; E[9] = 0x17;                                      /* "EXW" (5,24,23) */
+    E[10] = 0x20; E[11] = 0x98;                                    /* product 0x9820 */
+    E[17] = 2026 - 1990;                                           /* year */
+    E[18] = 1; E[19] = 3;                                          /* EDID 1.3 */
+    E[20] = 0x80;                                                  /* digital input */
+    E[23] = 120;                                                   /* gamma 2.2 */
+    E[24] = 0x0A;                                                  /* RGB colour, preferred timing = DTD 1 */
+    RtlCopyMemory(E + 25, chroma, sizeof(chroma));
+    for (ULONG i = 38; i < 54; i++)
+        E[i] = 0x01;                                               /* no standard timings */
+    t = E + 54;                                                    /* DTD 1: our mode */
+    t[0] = (UCHAR)clk10k; t[1] = (UCHAR)(clk10k >> 8);
+    t[2] = (UCHAR)w; t[3] = (UCHAR)(MW_HBLANK & 0xFF); t[4] = (UCHAR)(((w >> 8) << 4) | (MW_HBLANK >> 8));
+    t[5] = (UCHAR)h; t[6] = (UCHAR)(MW_VBLANK & 0xFF); t[7] = (UCHAR)(((h >> 8) << 4) | (MW_VBLANK >> 8));
+    t[8] = 48; t[9] = 32;                                          /* h sync offset / width (inside 280) */
+    t[10] = (3 << 4) | 5;                                          /* v sync offset 3 / width 5 (inside 45) */
+    t[17] = 0x1E;                                                  /* digital separate sync, +h +v, progressive */
+    t = E + 72;                                                    /* range limits */
+    t[3] = 0xFD; t[5] = 50; t[6] = 70; t[7] = 30; t[8] = 160; t[9] = 20;   /* 50-70 Hz, 30-160 kHz, 200 MHz */
+    t[11] = 0x0A; for (ULONG i = 12; i < 18; i++) t[i] = ' ';
+    t = E + 90;                                                    /* name */
+    t[3] = 0xFC; RtlCopyMemory(t + 5, name, sizeof(name));
+    t = E + 108;                                                   /* dummy */
+    t[3] = 0x10;
+    for (ULONG i = 0; i < 127; i++)
+        sum = (UCHAR)(sum + E[i]);
+    E[127] = (UCHAR)(0x100 - sum);
+    return TRUE;
+}
+
 NTSTATUS APIENTRY MwQueryDeviceDescriptor(IN_CONST_PVOID MiniportDeviceContext, IN_ULONG ChildUid,
                                  INOUT_PDXGK_DEVICE_DESCRIPTOR DeviceDescriptor)
 {
-    UNREFERENCED_PARAMETER(MiniportDeviceContext);
+    MW_ADAPTER *dev = (MW_ADAPTER *)MiniportDeviceContext;
+    UCHAR edid[128];
+    ULONG off = DeviceDescriptor->DescriptorOffset, len = DeviceDescriptor->DescriptorLength;
+
     UNREFERENCED_PARAMETER(ChildUid);
-    UNREFERENCED_PARAMETER(DeviceDescriptor);
-    return STATUS_MONITOR_NO_DESCRIPTOR;
+    if (dev->Mode == MwModeDisplayOnly || !MwSynthEdid || !BuildEdid(dev, edid))
+        return STATUS_MONITOR_NO_DESCRIPTOR;
+    if (off >= sizeof(edid))
+        return STATUS_MONITOR_NO_MORE_DESCRIPTOR_DATA;
+    if (len > sizeof(edid) - off)
+        len = sizeof(edid) - off;
+    RtlCopyMemory(DeviceDescriptor->DescriptorBuffer, edid + off, len);
+    MwPramText(FALSE, "EDID off.len ", NULL, (off << 16) | len, TRUE);
+    return STATUS_SUCCESS;
 }
 
 /* ---- VidPN: one source, one target, one mode, identity everything ---- */
@@ -461,6 +526,10 @@ NTSTATUS APIENTRY MwEnumVidPnCofuncModality(IN_CONST_HANDLE hAdapter,
                           Arg->EnumPivot.VidPnTargetId == path->VidPnTargetId;
         NTSTATUS r = STATUS_SUCCESS;
 
+        MwPramText(FALSE, "Cofunc path s.t.scl.rot ", NULL,
+                   ((ULONG)path->VidPnSourceId << 24) | (((ULONG)path->VidPnTargetId & 0xFF) << 16) |
+                   (((ULONG)path->ContentTransformation.Scaling & 0xFF) << 8) |
+                   ((ULONG)path->ContentTransformation.Rotation & 0xFF), TRUE);
         if (!srcPivot) {
             r = AddSourceMode(dev, vidpn, Arg->hConstrainingVidPn, path->VidPnSourceId);
             if (!NT_SUCCESS(r))
@@ -585,6 +654,11 @@ NTSTATUS APIENTRY MwRecommendMonitorModes(IN_CONST_HANDLE hAdapter,
     mode->Preference = D3DKMDT_MP_PREFERRED;
     st = Arg->pMonitorSourceModeSetInterface->pfnAddMode(Arg->hMonitorSourceModeSet, mode);
     MwLog(dev, L"MonitorAddMode", (ULONG)st);
+    {
+        SIZE_T n = 0;
+        (void)Arg->pMonitorSourceModeSetInterface->pfnGetNumModes(Arg->hMonitorSourceModeSet, &n);
+        MwPramText(FALSE, "Monitor modes ", NULL, (ULONG)n, TRUE);
+    }
     if (!NT_SUCCESS(st) && st != STATUS_GRAPHICS_MODE_ALREADY_IN_MODESET)
         Arg->pMonitorSourceModeSetInterface->pfnReleaseModeInfo(Arg->hMonitorSourceModeSet, mode);
     return STATUS_SUCCESS;

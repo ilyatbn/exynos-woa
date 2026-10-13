@@ -66,6 +66,9 @@ extern ULONG MwFlipBlt;
 /* Parameters\RecommendVidPn (default 1): the full adapter answers RecommendFunctionalVidPn with its one path and
  * mode pinned (display.c); 0 = the original's "no recommendation". Display-only never recommends (malidod). */
 extern ULONG MwRecommendVidPn;
+/* Parameters\SynthEdid (default 1): the full adapter answers QueryDeviceDescriptor with an EDID it builds for its
+ * own timing (display.c); 0 = no descriptor, as the original. Display-only never sends one (malidod). */
+extern ULONG MwSynthEdid;
 
 /* ---- objects ---- */
 

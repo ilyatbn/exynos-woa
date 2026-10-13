@@ -374,3 +374,35 @@ Logs: scratchpad\runs\g13fullc (marks.txt, last\gpu\*, WINPRAM.BIN, UEFILOG.TXT)
   display-only (mode 0 behaviour unchanged - the validated desktop); pointers initialised (C4703 caught it at
   build); failure paths log and return the old status; IsSupported's log uses `pinned` only as a NULL test after
   release. Not verified: whether dxgkrnl expects the target mode set to also carry the monitor's other modes.
+
+## Run g16full (mode 1, mali-g16) - analysis 2026-10-13
+- d3dprobe (fixed) completes: Mali adapter dedicated 0 / shared 1024 MB, **outputs 0 (EnumOutputs(0) 0x887A0022
+  DXGI_ERROR_NOT_CURRENTLY_AVAILABLE)**, UMD DX9/10/11 = maliumd.dll, WDDM 0x514, adapter type 0xB (render, display,
+  post), D3D11CreateDevice plain/bgra S_OK at 10_0, D3D10CreateDevice S_OK. So the UMD path works; the adapter has
+  no active output.
+- PRAM (build 16): **RecommendFunctionalVidPn never called** (no "RecommendVidPn pinned" line). dxgkrnl runs many
+  IsSupported (pinned.ok 0x11 = our source mode pinned and accepted, 0x01 = nothing pinned) / EnumCofunc rounds
+  (pivots 1-5: source, target, scaling, rotation, none), then **"Commit src.chk.paths 00000100" = source 0,
+  connectivity checks 1 (IGNORE), 0 PATHS** -> CommitStatus 401e0307. dxgkrnl itself gives up on every path and
+  commits an empty topology; our DDIs never fail. The original's run 6 (real HDMI EDID) had the same 0x401e0307.
+  Display-only (unspecified target frequencies) pins fine.
+- Working hypothesis (UNVERIFIED): the monitor dxgkrnl builds for a target with NO descriptor gets default
+  frequency ranges, and our synthesised 1360x2325 @ 60 Hz = 189.72 MHz / 139.5 kHz target mode is outside them,
+  so no target mode is cofunctional with the monitor and every path is dropped.
+- Change (full adapter only, Parameters\SynthEdid default 1): QueryDeviceDescriptor returns a 128-byte EDID 1.3
+  built for exactly FillSignal's timing: preferred DTD 1080x2280, blanking 280/45, 18972 x 10 kHz (= 189.72 MHz,
+  60.0 Hz / 139.5 kHz, decoded independently in Python), range limits 50-70 Hz / 30-160 kHz / 200 MHz, name
+  "S10e panel", id "EXW"/0x9820, size undefined, sRGB chromaticity, checksum. Nothing is read from the panel or
+  programmed. PRAM: "EDID off.len", "Monitor modes <n>", "Cofunc path s.t.scl.rot". MW_HBLANK/MW_VBLANK shared by
+  FillSignal and the EDID. INF 1.0.17.1. Build 17 exit 0.
+- Package **s10e-artifacts\mali-g17** (InfVerif /w exit 0, signer 5DD5DEE1...): sys
+  `47A15F54D26B577F3BD679ECEFDC169837351D3F61CEB27ED8A3982F72A25EE9`, inf
+  `90C692ED9B2BFBE224D6E39600253D2B8099033FE928522D021B3E04DB94594B`, cat
+  `76A1670CDCFE7859990AD06C28349BA6399F33DC026E0F4FA9977AFFEF89530D`; d3dprobe / scripts / m5test as mali-g16.
+- Read next run: "EDID off.len 00000080" (dxgkrnl took it), "Monitor modes" count, then "Commit src.chk.paths" with
+  paths 01 and "R CommitStatus 00000000"; d3dprobe outputs 1; dxdiag Current Mode 1080 x 2280. If paths stay 0: the
+  next suspect is VOT_INTERNAL on a full adapter (try D3DKMDT_VOT_HD15/HDMI as the original's run 6 child... which
+  also failed) or the target-mode set content - then log the pinned target mode in IsSupported.
+- Review: display-only path unchanged (QueryDeviceDescriptor returns NO_DESCRIPTOR there, as validated); BuildEdid
+  refuses sizes > 12 bits or > 200 MHz (no truncated DTD); C4310 caught a byte cast at build; the descriptor copy is
+  bounded by both the request and 128.

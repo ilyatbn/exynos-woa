@@ -1100,3 +1100,25 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   ADDRESS use in d3d10umd; SM4 relative indices are integers -> UARL (not ARL) is right; the patch file has 24
   added lines (not empty). Run g47full: UMD 0036 on the ESP (gpu\maliumd.dll + libgallium_d3d10.dll), same KMD
   1.0.34.1, same extra.cmd (live dumps on).
+
+## Run g47full (18:40, Mesa 0036) - the assert is gone; LogonUI now fail-fasts in DComp surface creation
+- marks (WINPRAM.BIN, firmware wrote it this run): LogonUI=1 explorer=0 to 336 s; still no logon.
+- Live dumps: winlogon still in WluiRequestCredentials. LogonUI pid 4272 and 5608 both 5 s old = LogonUI is being
+  restarted every few seconds. 4272 got much further than g46: RequestCredentials thread now waits for the
+  RequestCredentialsData async op (UX started), lock-screen image path loading, network icon - and thread 10 is in
+  KERNELBASE!RaiseFailFastException <- combase!RoFailFastWithErrorContextInternal2 <-
+  Windows_UI_Xaml!DCompSurface::InitializeSurface <- DCompTreeHost::CreateSurface <- HWTextureManager::CreateTexture
+  <- ImageSurfaceWrapper::AllocateHardwareResources <- CLoadedImageSurface::StartDecodingHelper.
+- WER LocalDumps (armed in pass 1) caught LogonUI.exe.3800 / .4272 crashes: 0xc000027b (stowed exception),
+  Windows.UI.Xaml.dll+0x27b0e4, bucket STOWED_EXCEPTION_c000027b_Windows.UI.Xaml.dll!DCompSurface::InitializeSurface.
+  Stowed records are heap (not in the minidump), but frame 2's unwound x21 = **0x80070057 E_INVALIDARG**, the
+  result of the vtable call at InitializeSurface+0x214 (blr x15 = [[x22+0x1A8]]+0x38, args w1/w2 = size from
+  [x19+0x18], w3 = format 0x57 B8G8R8A8_UNORM or 0xA, w4/w5 flags, x6 out) - XAML's DComp surface factory
+  CreateSurface. Application log: repeated LogonUI 0xc000027b crashes in Windows.UI.Xaml.dll at the same offset.
+- d3d10umd CreateResource never returns E_INVALIDARG (only E_OUTOFMEMORY / DXGI_DDI_ERR_UNSUPPORTED), so the
+  rejection is above the UMD. Docs (D3D11_RESOURCE_MISC_FLAG, learn.microsoft.com): SHARED_NTHANDLE, GUARDED (the
+  flag of resources DComp's BeginDraw hands out), RESTRICT_SHARED_RESOURCE* are "not supported until Direct3D
+  11.1"; NTHANDLE makes the runtime "confirm that the shared resource works on all hardware at the specified
+  feature level". Hypothesis (UNVERIFIED): our UMD exposes only the D3D10/10.1 DDI (OpenAdapter10/10_2, FL 10_0),
+  so the D3D11 runtime refuses DComp's 11.1-only surface flags with E_INVALIDARG. Next: a probe that creates
+  those textures (MISC_SHARED, SHARED_NTHANDLE(+KEYEDMUTEX), GUARDED) on the Mali device and reports each HRESULT.

@@ -142,3 +142,16 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   per register, src/dst by index); sysvals PRIMID -> load_primitive_id, LAYER -> load_layer_id (both in Bifrost),
   VIEWPORT_INDEX -> 0; d3d10umd DCL_INDEXABLE_TEMP -> ureg_DECL_array_temporary + ureg_dst_array_offset. Build
   mali-umd-0046 (0040-0046) maliumd.dll dafba629....
+- 01:57 run h3e started: UMD 0046 via umd-deploy.sh.
+- **Run h3e (01:57-02:07, runs/h3e, UMD 0046):** tex VS now compiles (vertex id fixed); PS: "Assertion failed:
+  !c->cap_position_is_sysval && c->input_var_position, tgsi_to_nir.c:679" - d3d10umd declares SV_Position (and
+  FACE/PCOORD) as fragment INPUTS, Panfrost has fs_position_is_sysval; the decl path already creates a
+  SYSTEM_VALUE_FRAG_COORD variable then, only the read path asserted. DWM 0xc0000409 again (same family).
+- Static audit (all ureg_*/TGSI_OPCODE_* d3d10umd emits vs ttn op_trans + switch): untranslated = EMIT/ENDPRIM (GS,
+  Panfrost has none), BGNSUB/CAL/ENDSUB (subroutines), SWITCH/CASE/DEFAULT/ENDSWITCH (D3D switch) - not done yet,
+  wait for a dump that needs them. Register files: indirect IMMEDIATE (D3D icb[r]) asserted in ttn; d3d10umd bug:
+  icb[imm + r] dropped the imm part (indexed from sx->imms).
+- Mesa 0047: ttn input FACE/POSITION/PCOORD accepted on sysval screens (load the var; FACE in GL float form).
+  Mesa 0048: ttn indirect IMMEDIATE through an "imm_arr" shader_temp array stored after the last immediate;
+  d3d10umd icb index keeps the immediate part. (First 0048 build: Mesa 26 has nir_def_instr(), no ->parent_instr.)
+  Build mali-umd-0048 (0040-0048) maliumd.dll 9da69cbf....

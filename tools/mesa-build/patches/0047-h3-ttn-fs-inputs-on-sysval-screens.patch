@@ -1,0 +1,46 @@
+From c6f1dad178728f2adf0c1e570c1e31dd487f8174 Mon Sep 17 00:00:00 2001
+From: g12-build <g12@local>
+Date: Wed, 14 Oct 2026 02:08:02 +0300
+Subject: [PATCH] H3: tgsi_to_nir accepts FACE/POSITION/PCOORD fragment inputs
+ on screens that take them as system values (d3d10umd declares inputs; run h3e
+ assert) (exynos-woa tools/mesa-build/patches/0047)
+
+---
+ src/gallium/auxiliary/nir/tgsi_to_nir.c | 16 ++++++++++++----
+ 1 file changed, 12 insertions(+), 4 deletions(-)
+
+diff --git a/src/gallium/auxiliary/nir/tgsi_to_nir.c b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+index 83d217a..b546915 100644
+--- a/src/gallium/auxiliary/nir/tgsi_to_nir.c
++++ b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+@@ -672,15 +672,23 @@ ttn_src_for_file_and_index(struct ttn_compile *c, unsigned file, unsigned index,
+    case TGSI_FILE_INPUT:
+       if (c->scan->processor == MESA_SHADER_FRAGMENT &&
+           c->scan->input_semantic_name[index] == TGSI_SEMANTIC_FACE) {
+-         assert(!c->cap_face_is_sysval && c->input_var_face);
+-         return nir_src_for_ssa(ttn_emulate_tgsi_front_face(c));
++         /* exynos-woa H3 (notes/gpu-hw-path.md): d3d10umd declares FACE / POSITION / PCOORD as fragment INPUTS
++          * even when the screen wants them as system values (Panfrost: fs_position_is_sysval; run h3e asserted
++          * here). The declaration above already made the variable a system value in that case and loading it is
++          * lowered later, so only the input FORM matters: an input FACE is GL's float (+-1, 0, 0, 1). */
++         assert(c->input_var_face);
++         nir_def *ff = nir_load_var(&c->build, c->input_var_face);
++         nir_def *v[4] = { nir_bcsel(&c->build, ff, nir_imm_float(&c->build, 1.0), nir_imm_float(&c->build, -1.0)),
++                           nir_imm_float(&c->build, 0.0), nir_imm_float(&c->build, 0.0),
++                           nir_imm_float(&c->build, 1.0) };
++         return nir_src_for_ssa(nir_vec(&c->build, v, 4));
+       } else if (c->scan->processor == MESA_SHADER_FRAGMENT &&
+           c->scan->input_semantic_name[index] == TGSI_SEMANTIC_POSITION) {
+-         assert(!c->cap_position_is_sysval && c->input_var_position);
++         assert(c->input_var_position);
+          return nir_src_for_ssa(nir_load_var(&c->build, c->input_var_position));
+       } else if (c->scan->processor == MESA_SHADER_FRAGMENT &&
+           c->scan->input_semantic_name[index] == TGSI_SEMANTIC_PCOORD) {
+-         assert(!c->cap_point_is_sysval && c->input_var_point);
++         assert(c->input_var_point);
+          return nir_src_for_ssa(nir_load_var(&c->build, c->input_var_point));
+       } else {
+          /* Indirection on input arrays isn't supported by TTN. */
+-- 
+2.40.1.windows.1
+

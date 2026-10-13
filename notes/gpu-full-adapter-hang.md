@@ -1127,3 +1127,14 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   KEYEDMUTEX|NTHANDLE / GUARDED / GDI_COMPATIBLE. Built ARM64 (s10e-artifacts\d3dprobe-2); an x64 build on the PC
   (AMD 11_1 + Basic Render Driver) creates all 7 with S_OK = the probe itself is sound. Run g48full: same UMD
   0036, new d3dprobe on the ESP.
+
+## Run g48full (19:05, same UMD 0036, d3dprobe texture test) - the D3D11.1-flag hypothesis is REFUTED
+- d3dprobe as SYSTEM, Mali adapter: D3D11CreateDevice bgra S_OK level 10_0; D3D11_OPTIONS all 0
+  (ExtendedResourceSharing 0, OutputMergerLogicOp 0, ClearView 0, CopyWithOverlap 0; Basic Render Driver: all 1,
+  level 11_1). Texture BGRA 256 RT|SRV with MiscFlags none / SHARED / KEYEDMUTEX / SHARED|NTHANDLE /
+  KEYEDMUTEX|NTHANDLE / GUARDED / GDI_COMPATIBLE: **all S_OK on the Mali adapter**, same as WARP.
+- So the runtime accepts those flags on our 10_0 device; the E_INVALIDARG of g47 comes from inside DComp's surface
+  creation (or a format / size / alpha-mode argument: w3 = 0x57 or 0xA = R16G16B16A16_FLOAT), not from plain
+  texture creation. The minidumps lack the heap that holds the stowed exception records (with their origin stack).
+- Next run g49: LogonUI LocalDumps as a custom dump with private read/write memory (heap) so the stowed
+  exception / WIL failure info (originating module + stack of the E_INVALIDARG) can be read.

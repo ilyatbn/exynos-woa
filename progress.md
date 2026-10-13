@@ -24,6 +24,13 @@ A task is not `[x]` until its verification actually ran.
   `docs/exynos9820-port/M12-WIFI-DESIGN.md` · `Beyond0LtePcieDxe` (in the FD) ·
   DSDT `Device (WLAN)` (in the FD) · `drivers/Exynos9820Wlan/` skeleton (needs-windows build)
 
+## WWAN (D9 — opened 2026-10-12: mobile data on the 9820's integrated CP)
+
+- [ ] **R01** — live reads: modem DT nodes, mif IRQs, userspace nodes → `tasks/R01-modem-live-reads.md`  *(needs-phone)*
+- [ ] **R02** — read `[CP]`/`[MBOX]` observation lines on serial (module already in the FD, zero writes) → `tasks/R02-cp-serial-observe.md`  *(needs-boot — satisfied: boot confirmed 2026-10-13)*
+- done (research + constants + design): `notes/modem-wwan.md` T0–T12 + `docs/exynos9820-port/D9-MODEM-DESIGN.md` (boot+link planes open, R1–R6 ladder; SEC-RIL control plane is the one closed wall — R7 pending a P5 decision)
+- done (code; built into the FD, not booted): `Beyond0LteModemDxe` first slice (R1 pre-read + R2 mailbox observation, zero writes)
+
 ## Parked — off the boot path
 
 - [ ] **P01** — heimdall auto-restore/reflash path for a fully broken device → `tasks/P01-heimdall-restore.md`

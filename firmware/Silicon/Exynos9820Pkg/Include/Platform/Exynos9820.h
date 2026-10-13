@@ -776,6 +776,91 @@
 
 //
 // ---------------------------------------------------------------------------
+// WWAN (D9): the Exynos 9820's INTEGRATED cellular processor (Samsung project
+// S500AP, AP-side driver family "s5000ap"). NOT the discrete Shannon S5100 —
+// that is the S10 5G (beyondx) PCIe companion; the s5100_* names in the
+// shipping DT are family-wide leftovers (vendor DT comments: "Internal CP -
+// S500AP" over modem_if, "External CP - S5100" over modem_if2 —
+// notes/modem-wwan.md T7).
+// Reads: shipped dtbo overlays (modem fragments identical across all 7
+// BEYOND0LTE EUR OPEN SKUs) + vendor kernel mirror
+// CruelKernel/samsung-exynos9820@41aba776 (branch cruel-HVJ5-v5.3) —
+// notes/modem-wwan.md T1/T6/T7.
+// ---------------------------------------------------------------------------
+//
+// AP<->CP link: shared memory + mailbox doorbell (MIPI LLI "SBD" ring pairs
+// with Samsung SIPC5 framing). The `modem_if` rmem window
+// (EXYNOS_RSVD_MODEM_IF_*, VERIFIED above) is partitioned by the dtbo `shmem`
+// node; every ring/descriptor lives in the IPC partition — the AP driver
+// computes mld->base = modem_if + shmem,ipc_offset (link_device_shmem.c:3963).
+#define EXYNOS_CP_SHMEM_BASE      0x00000000F0000000ULL   // VERIFIED (= EXYNOS_RSVD_MODEM_IF_BASE)
+#define EXYNOS_CP_BOOT_SIZE       0x0000000007800000ULL   // VERIFIED (shmem,cp_size — CP image load region)
+#define EXYNOS_CP_VSS_BASE        0x00000000F7800000ULL   // VERIFIED (shmem,vss_offset 0x7800000, size 0x800000)
+#define EXYNOS_CP_L2B_BASE        0x00000000F8000000ULL   // VERIFIED (shmem,l2b_offset 0x8000000, size 0x3200000)
+#define EXYNOS_CP_IPC_BASE        0x00000000FB200000ULL   // VERIFIED (shmem,ipc_offset 0xb200000; use link_device_shmem.c:3963-3964)
+#define EXYNOS_CP_IPC_SIZE        0x0000000000500000ULL   // VERIFIED (shmem,ipc_size)
+#define EXYNOS_CP_VPARAM_BASE     0x00000000FB700000ULL   // VERIFIED (shmem,vparam_offset 0xb700000, size 0x200000)
+//
+// DIT — the CP-interface hardware packet classifier (NAT/CLAT offload, RX
+// steering into the rmnet rings). Window from mif_pdata reg-names "dit";
+// the register map inside it (link_rx_dit.h:74-102) belongs to the driver.
+#define EXYNOS_MODEM_DIT_BASE     0x000000001A2A0000ULL   // VERIFIED (mif_pdata reg <0 0x1A2A0000 0x10000>)
+#define EXYNOS_MODEM_DIT_SIZE     0x0000000000010000ULL   // VERIFIED (same reg)
+#define EXYNOS_MODEM_SYSREG_BUSC_BASE 0x000000001A220000ULL // VERIFIED (mif_pdata reg-names "sysreg_busc")
+#define EXYNOS_MODEM_SYSREG_BUSC_SIZE 0x0000000000002000ULL // VERIFIED (same reg)
+//
+// MCU_IPC mailbox for the CP (dtbo `mailbox_cp`, compatible
+// "samsung,exynos-shd-ipc-mailbox"). Value slots ISSR0+4*n (n<=63), doorbell
+// = write 1<<int_num to INTGR1 (mcu_ipc/regs-mcu_ipc.h:18-32, mcu_ipc.c:238-271).
+// Slot map from the mif,*_mbx_* DT ids (T1/T6): ISSR0 ap2cp_msg, ISSR1
+// cp2ap_msg, ISSR2/3 the "united status" (SBI) words ap/cp.
+#define EXYNOS_MBOX_CP_BASE       0x0000000015920000ULL   // VERIFIED (mailbox_cp reg)
+#define EXYNOS_MBOX_CP_SIZE       0x0000000000000180ULL   // VERIFIED (same reg)
+//
+// AP2CP_CFG — one handshake word: the AP writes 1 and reads it back before
+// the CP comes up (modem_ctrl_s5000ap.c:705-713 ioremap SZ_64, s5000ap_on
+// :333-342). No DT node owns it; it is the bare mif_pdata property
+// ap2cp_cfg_addr.
+#define EXYNOS_AP2CP_CFG_BASE     0x0000000015020000ULL   // VERIFIED (mif_pdata ap2cp_cfg_addr)
+#define EXYNOS_AP2CP_CFG_SIZE     0x0000000000000040ULL   // VERIFIED (driver ioremap SZ_64)
+//
+// CP control through the PMU (cal-if pmucal_cp_exynos9820.h:2-25; PMU base
+// already VERIFIED as EXYNOS_PMU_BASE). Under CONFIG_CP_SECURE_BOOT=y (our
+// Image, T3) the CP bring-up itself is owned by sboot/EL3; the AP sets
+// AP2CP_CFG and reads status.
+#define EXYNOS_PMU_CP_CONFIGURATION 0x3000                // VERIFIED (bit0 = CP reset: 1 release, 0 assert)
+#define EXYNOS_PMU_CP_STATUS        0x3004                // VERIFIED (bit0 = CP initialized)
+#define EXYNOS_PMU_CP_CTRL_S        0x3014                // VERIFIED (bit3 = cp_init step 1)
+#define EXYNOS_PMU_CP_OUT           0x3020                // VERIFIED (bit16 = dump_pc_no_pg)
+#define EXYNOS_PMU_CP_IN            0x3024                // VERIFIED (bit4 = CP ready)
+#define EXYNOS_SMC_CP_PMU_ID        0x82000700            // VERIFIED (pmucal_cp.h:15; sub-ops READ_CTRL=3 WRITE_CTRL=4)
+//
+// pktproc (zerocopy RX ring; CONFIG_CP_PKTPROC=y + CONFIG_CP_LINEAR_WA=y in
+// our Image): the global descriptor sits at the start of modem_spare; the AP
+// writes CP-side addresses into it through the CP's alias window
+// (shm_ipc.c:262-268 comment; link_rx_pktproc.h:20-25: desc @+0x100,
+// data @+0x100000, 8192 descs). The alias mapping itself is a comment read,
+// not an observed one — UNVERIFIED until seen on device.
+#define EXYNOS_CP_PKTPROC_GDESC_BASE 0x00000000D0000000ULL // VERIFIED (= EXYNOS_RSVD_MODEM_SPARE_BASE; shm_ipc.c:535-543)
+#define EXYNOS_CP_ADDR_ALIAS_BASE    0x0000000050000000ULL // UNVERIFIED (CP-view alias of AP DRAM at 0xD0000000; closes at R2 by observation)
+//
+// CP firmware: PIT partition RADIO (file modem.bin), 4096-byte LBA units
+// (notes/modem-wwan.md T4; PIT re-parsed in the review pass). On Android
+// /vendor/bin/cbd downloads it over the umts_boot0 channel; under Windows
+// our own stack must repeat that dance (or the monitor already did — open).
+#define EXYNOS_CP_RADIO_LBA_START  57856                  // VERIFIED (PIT entry 25 start)
+#define EXYNOS_CP_RADIO_LBA_COUNT  12800                  // VERIFIED (PIT entry 25 length)
+//
+// Modem IRQs (dtbo mif_pdata + mailbox_cp `interrupts` cells; GSIV = SPI + 32,
+// the repo's rule — same mapping that gave PCIe0 253->285):
+#define EXYNOS_MODEM_CP2AP_WAKEUP_GSIV 407                // VERIFIED (SPI 375; also the cp_wdt line — modem_ctrl_s5000ap.c:683-691)
+#define EXYNOS_MODEM_DIT_BUS_ERR_GSIV  100                // VERIFIED (SPI 68)
+#define EXYNOS_MODEM_DIT_RX_DONE_GSIV   99                // VERIFIED (SPI 67)
+#define EXYNOS_MODEM_DIT_TX_DONE_GSIV   98                // VERIFIED (SPI 66)
+#define EXYNOS_MBOX_CP_GSIV             73                // VERIFIED (SPI 41)
+
+//
+// ---------------------------------------------------------------------------
 // IRQ numbers the ACPI tables will need (SPI + 32 = GSIV, the repo's rule)
 //
 //   DWC3 core        (usb@10C00000/dwc3)   SPI 0xf1 = 241   GSIV 273

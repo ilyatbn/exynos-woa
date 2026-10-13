@@ -271,6 +271,10 @@
   #     iATU + EP BAR0 latched for the Windows miniport (rung R1). ---
   INF Platform/Beyond0LtePkg/Drivers/Beyond0LtePcieDxe/Beyond0LtePcieDxe.inf
 
+  # --- WWAN (D9): integrated-CP status + mailbox observation (rung R1
+  #     pre-read / R2); init write compiled out by default. ---
+  INF Platform/Beyond0LtePkg/Drivers/Beyond0LteModemDxe/Beyond0LteModemDxe.inf
+
   #
   # --- BDS: finds and launches the Windows Boot Manager ---
   #

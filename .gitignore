@@ -57,3 +57,6 @@ TestResults/
 /.release-patches/
 dumps/
 .venv/
+# RE workspace for closed vendor binaries (notes/modem-wwan.md T14): analysis
+# happens here, findings NEVER committed.
+re/

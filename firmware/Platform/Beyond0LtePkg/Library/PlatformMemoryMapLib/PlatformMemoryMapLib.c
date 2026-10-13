@@ -144,6 +144,16 @@ STATIC CONST MMIO_REGION  mMmioRegions[] = {
   { EXYNOS_PERIC0_GPIO_BASE,   EXYNOS_PERIC0_GPIO_SIZE,   "GPIO_PERIC0" },
   { EXYNOS_ALIVE_GPIO_BASE,    EXYNOS_ALIVE_GPIO_SIZE,    "GPIO_ALIVE"  },  // moved from 0x14050000
 
+  // WWAN (D9) — the integrated CP's control windows (notes/modem-wwan.md T1/T6/T7).
+  // CP_IPC_SHMEM is DRAM the CP owns (inside modem_if, above the published
+  // bank0 stop, so never RAM to Windows either); mapped Device so a UEFI PoC
+  // touches the SBD rings uncached, exactly like the vendor driver's ioremap.
+  { EXYNOS_MODEM_DIT_BASE,       EXYNOS_MODEM_DIT_SIZE,     "MODEM_DIT"    },
+  { EXYNOS_MODEM_SYSREG_BUSC_BASE, EXYNOS_MODEM_SYSREG_BUSC_SIZE, "MODEM_BUSC" },
+  { EXYNOS_MBOX_CP_BASE,         EXYNOS_MBOX_CP_SIZE,       "MBOX_CP"      },
+  { EXYNOS_AP2CP_CFG_BASE,       EXYNOS_AP2CP_CFG_SIZE,     "AP2CP_CFG"    },
+  { EXYNOS_CP_IPC_BASE,          EXYNOS_CP_IPC_SIZE,        "CP_IPC_SHMEM" },
+
   { EXYNOS_DECON_F_BASE,       EXYNOS_DECON_F_SIZE,       "DECON_F"     },
   { EXYNOS_DECON_T_BASE,       EXYNOS_DECON_T_SIZE,       "DECON_T"     },
   { EXYNOS_DSIM_BASE,          EXYNOS_DSIM_SIZE,          "DSIM"        },

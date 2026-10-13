@@ -586,6 +586,12 @@
   #     PCI root bridge by design (M12-WIFI-DESIGN.md section 2). Not
   #     validated on device. ---
   Platform/Beyond0LtePkg/Drivers/Beyond0LtePcieDxe/Beyond0LtePcieDxe.inf
+
+  # --- WWAN (D9, DRIVERS-MILESTONES.md). Beyond0LteModemDxe observes the
+  #     integrated CP's PMU status + AP<->CP mailbox (rung R1 pre-read / R2
+  #     observation). The AP2CP_CFG init write is compiled out by default
+  #     (DECISION, D9-MODEM-DESIGN.md section 7). Not validated on device. ---
+  Platform/Beyond0LtePkg/Drivers/Beyond0LteModemDxe/Beyond0LteModemDxe.inf
   MdeModulePkg/Bus/Scsi/ScsiBusDxe/ScsiBusDxe.inf
   MdeModulePkg/Bus/Scsi/ScsiDiskDxe/ScsiDiskDxe.inf
   MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf

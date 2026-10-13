@@ -8,7 +8,7 @@ No branch has been pushed. All work so far is local commits.
 
 **If you are the *next* session, jump to [`/progress.md`](../../progress.md) first**
 — it is the live task list by ID, one file per task in `tasks/`, with a done
-indicator per task. The newest restart point in this file is **§24** (§20–§23 are history); §16 and §17
+indicator per task. The newest restart point in this file is **§28** (§20–§27 are history); §16 and §17
 are history (the work they describe is committed and verified, do not redo it).
 Do not re-install VS or the WDK.
 
@@ -1154,3 +1154,143 @@ the driver writes only registers Android's own stack programs. No destructive
 operation exists in this stream. The phone was NOT connected this session
 (`adb devices` empty on the Linux box) — all device reads above are queued,
 none guessed around.
+
+## 26. Restart point — D9 WWAN / integrated CP (2026-10-12, research + constants + design + first PoC slice)
+
+**What is committed (all of it — the tree is clean):**
+
+- `notes/modem-wwan.md` — the whole research record (T0–T13) with per-commit
+  harsh reviews and Sources. Headline facts: the S10e's modem is the Exynos
+  9820's **integrated CP** (Samsung project S500AP / driver family s5000ap) —
+  **NOT** the discrete Shannon S5100, which is the S10 5G (beyondx) PCIe
+  companion (T7 correction, five independent sources); device nodes
+  `mif_pdata`/`mailbox_cp`/`shmem` live in the dtbo overlays, identical across
+  all 7 BEYOND0LTE EUR OPEN SKUs; the AP↔CP link is MIPI-LLI **SBD** ring pairs
+  (exact struct layouts pinned) + **SIPC5** framing + MCU_IPC mailbox doorbell
+  (ISSR slots, INTGR1); IPC shmem at physical **0xFB200000**+0x500000; CP boot =
+  SMC `0x82000700` + PMU `0x15860000` CP regs + `AP2CP_CFG(0x15020000)=1` +
+  STD_UDL download of `modem.bin` (RADIO partition, LBA 57856 ×4096, 12800
+  LBAs) over `umts_boot0`; **the RIL control encoding is closed** (kernel only
+  frames/routes — proven at `misc_write`; zero AT strings anywhere); Windows
+  requires **MBIM** (inbox binds USB only; non-USB = IHV lower-edge client over
+  MBBCx/NetAdapterCx, raw-IP `NdisMediumWirelessWan`); prior art for **Shannon/Exynos**
+  is empty (Mu Status.md: Mobile Data ❌ on every Exynos target — but NOT everywhere:
+  ≥5 Snapdragon phones show Mobile Data ✅ under Windows via vendor IHV driver
+  releases; corrected in the arc's second-opinion review).
+- `Exynos9820.h` WWAN block (all VERIFIED except the CP alias `0x50000000`,
+  named UNVERIFIED) + 5 memory-map entries (`MODEM_DIT`, `MODEM_BUSC`,
+  `MBOX_CP`, `AP2CP_CFG`, `CP_IPC_SHMEM`). Linux verification build exit 0,
+  FD sha `cbb55d46…` (verification-only — never flash).
+- `docs/exynos9820-port/D9-MODEM-DESIGN.md` — R0–R7 ladder; boot+link planes
+  open, control plane closed; §8 is an explicit stop line: **R7 (user-visible
+  mobile data) is not scheduled** pending the P5 decision.
+- `Beyond0LteModemDxe` first slice (FFS `…554A`, in the FD): **zero-write**
+  observation of PMU CP status regs + mailbox ISSR0..3 at DXE entry
+  (`[CP] R1 pre:` / `[MBOX] R2:` on serial); the `AP2CP_CFG=1` write is
+  compiled out behind `BEYOND0LTE_MODEM_INIT 0` (DECISION).
+- `DRIVERS-MILESTONES.md` D9 rows (research/constants/design/module moved with
+  the work), `progress.md` WWAN section, `tasks/R01-modem-live-reads.md`.
+
+**The exact next order of work:**
+
+1. **needs-phone (cheap, do first)**: task **R01** — live DT node names,
+   `/proc/interrupts` mif lines, `getprop ro.vendor.multisim.simslotcount`
+   (closes U8; confirms U1/U4 on the live device).
+2. **needs-phone (TWRP, read-only)**: cpefs contents names (U9); optionally a
+   framed `umts_ipc0` capture to SIZE the closed dialect (P5 option b) —
+   observation only; nothing RE'd gets committed (hard stop).
+3. **Boot stream first (M8/M9 gate)**: once our UEFI boots with serial, the
+   `[CP] R1 pre:` / `[MBOX] R2:` lines close **P2** (did sboot pre-boot the CP?)
+   at zero risk — this module is already in the FD.
+4. Then flip `BEYOND0LTE_MODEM_INIT=1` (rung R1 proper) and build the R3 slice:
+   create the SBD `g_desc` at 0xFB200000, read it back — closes P3 (CP alias)
+   and P8 (non-secure writability).
+5. R4 = STD_UDL download using our existing UFS driver (LBA 57856); R5 =
+   deliberately-unknown FMT message probe (answers P4 + P5(a), no closed
+   protocol needed).
+6. Windows half (DSDT `Device (WWAN)` `SAMS9827` + `drivers/Exynos9820Wwan/`
+   MBBCx skeleton) only after R3 is observed.
+7. **Policy decision at P5**: the closed SEC-RIL control encoding is the wall
+   between "CP alive under Windows" and "mobile data". Options in design §6.
+   Until one is taken, D9 ships as machinery + a documented wall, not data.
+
+**Hazards / unchanged rules:** the phone was NOT connected this session
+(`adb devices` empty) — nothing on the device was touched, all reads queued.
+The ModemDxe slice writes no registers at DXE entry. The 9810 tree is
+byte-unchanged (`git diff` over the arc: empty). `tools/release/scan.py`:
+86 findings, **all pre-existing** (user paths in AGENTS.md/HANDOFF/older task
+files); zero in any D9 file. Still UNVERIFIED and named: CP alias
+`0x50000000`, `sysreg_busc` bit meanings, STD_UDL frame byte order (readable
+from the same mirror when R4 is built).
+
+## 27. Restart point — D9 second-opinion review (2026-10-12, review pass, 7 findings fixed)
+
+**What is committed (all of it — the tree is clean):** a whole-arc adversarial
+review of D9 (`notes/modem-wwan.md` "Second-opinion review" section) plus six
+fix commits. Everything the first pass claimed was re-checked mechanically and
+held (SBD structs, doorbell chain, channel ids, LINKTYPE math 0x200=SHMEM/
+0x800=PCIE, misc_write opacity, s5000ap anchors, DIT init, TOC @0xa0, PIT,
+strings cites, SKU identity across all 7 overlays, three MS Learn pages
+verbatim). New facts established: the vendor AP **always writes signaling=1**
+(polling is our construction — design P4 updated); `mcu_ipc` has **no clock
+handling** and the node no `clocks` property (no enable step needed; design §2);
+the vendor forces **no IRQ trigger type** (R01 now captures the
+`/proc/interrupts` edge/level column for the future DSDT); both
+`BEYOND0LTE_MODEM_INIT` branches compile (flipped, built exit 0, reverted).
+The one substantive correction: **T9's "no device has cellular under Windows"
+was over-generalised** — Mu Status.md shows Mobile Data ✅ under Windows on ≥5
+Snapdragon phones via vendor IHV drivers; the Shannon/Exynos-specific verdict
+stands and the corrected fact supports the design's architecture. Claims
+propagated through notes, design, HANDOFF §26, progress.md, R01.
+
+**The exact next order of work:** unchanged from §26 (1. R01 needs-phone;
+2. TWRP cpefs/umts_ipc0 observation; 3. boot stream → read `[CP] R1 pre:` /
+`[MBOX] R2:`; 4. flip `BEYOND0LTE_MODEM_INIT=1` + R3 slice; 5. R4/R5;
+6. Windows half after R3; 7. P5 decision before any R7 work).
+
+**Hazards / unchanged rules:** nothing on the device touched (phone not
+connected); no constants changed this pass (all fixes were claims/citations/
+task text); 9810 tree still byte-unchanged; scan delta zero (86 pre-existing
+findings before and after).
+
+## 28. Restart point — D9 RE workspace opened + pass #1 (2026-10-13)
+
+**Policy boundary (notes T14):** RE of closed vendor binaries runs
+**in the gitignored `re/` workspace**; the ban is on COMMITTING
+findings, not on analysis. `.gitignore` gained `re/` (committed); design P5
+gained option (e).
+
+**What is committed (all of it — the tree is clean):**
+- `notes/modem-wwan.md` T14 (policy boundary) + T15 (pass-1 status, verdict level
+  only) + review record of both.
+- `re/` on disk (NOT in git): pulled `libsec-ril.so` / `libril_sem.so` / `cbd` /
+  channel-HIDL lib, `FINDINGS.md` (running analysis), `ipc_commands.txt`
+  (command-name inventory), `README.md` (how to regenerate + policy).
+
+**Pass #1 verdicts (safe to state in tree):**
+- `libsec-ril.so` effectively unstripped (10,253 dyn syms) — architecture
+  mapped: `IpcProtocol`/`IpcModem`/`ModemProxy` + per-domain managers.
+- Protobuf usage narrow (one carrier-lookup schema) — the CP dialect is
+  hand-rolled.
+- **"MbimManager" is NOT MS-MBIM** — zero MBIM service-GUID hits across three
+  libs: the open-MBIM shortcut is DEAD. The closed `IPC_*` family is the only
+  control path; R5 (live probe) stays the dynamic check of P5(a).
+
+**The exact next order of work:**
+1. RE pass #2 (no phone needed): send-path trace in `libsec-ril.so` (xref
+   `open`/`write` PLT from the `/dev/umts_ipc0` string → recover the SEC-RIL
+   message header) + command-id table extraction — steps 1–2 in
+   `re/FINDINGS.md`.
+2. needs-phone: R01 (unchanged) + the P5(b) framed capture to cross-validate
+   static findings.
+3. Boot stream → `[CP] R1 pre:` / `[MBOX] R2:` lines (unchanged).
+4. R1-proper (`BEYOND0LTE_MODEM_INIT=1`) → R3 → R4/R5 (unchanged).
+5. **Policy decision at P5** is now better informed: the wall is characterized
+   as "closed IPC_* dialect, self-describing name tables, no MBIM shortcut";
+   whether a translator built from `re/` findings ships is still an open call.
+
+**Hazards / unchanged rules:** nothing on the device touched (phone not
+connected); no RE internals committed (review-checked: check-ignore proves the
+workspace is out of git; diff grep found only a policy sentence + the
+pre-existing `0xFB200000`); 9810 tree byte-unchanged; scan gate: re-run before
+the arc's next final commit.

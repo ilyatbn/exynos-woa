@@ -1,0 +1,35 @@
+## @file
+#  D9 WWAN firmware half, first slice: observe the Exynos 9820's integrated
+#  CP — PMU CP status registers and the AP<->CP MCU_IPC mailbox (design rungs
+#  R1 pre-read / R2 observation). The AP2CP_CFG init write is compiled out by
+#  default (BEYOND0LTE_MODEM_INIT 0, a DECISION — D9-MODEM-DESIGN.md sec. 7).
+#  Probes transliterated from the shipping vendor kernel (modem_ctrl_s5000ap.c,
+#  mcu_ipc); every address is VERIFIED in Exynos9820.h / notes/modem-wwan.md.
+#  Not validated on device.
+#
+#  FILE_GUID 11111111-2222-3333-4444-55555555554A is this module's BUILD
+#  IDENTITY, not a hardware read.
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = Beyond0LteModemDxe
+  FILE_GUID                      = 11111111-2222-3333-4444-55555555554A
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 0.1
+  ENTRY_POINT                    = Beyond0LteModemEntry
+
+[Sources]
+  Beyond0LteModemDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  Silicon/Exynos9820Pkg/Exynos9820Pkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  DebugLib
+  IoLib
+
+[Depex]
+  gEfiCpuArchProtocolGuid

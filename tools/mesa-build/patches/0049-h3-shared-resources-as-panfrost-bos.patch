@@ -1,0 +1,303 @@
+From 7eb275d1e1cb9162966ec5dea98b3f8cc8839cdc Mon Sep 17 00:00:00 2001
+From: g12-build <g12@local>
+Date: Wed, 14 Oct 2026 02:25:02 +0300
+Subject: [PATCH] H3: shared resources on Panfrost - the shim registers a
+ shared/opened allocation as a BO (pseudo dma-buf fd, drmPrimeFDToHandle, size
+ for pan_kmod_bo_import), d3d10umd CreateResource/OpenResource import it on
+ GPU screens; runtime-owned BOs are only forgotten on close (run h3f LogonUI
+ DComp buffer assert) (exynos-woa tools/mesa-build/patches/0049)
+
+---
+ include/win32-compat/malikm_drm.c           | 138 ++++++++++++++++++--
+ src/gallium/frontends/d3d10umd/Resource.cpp |  43 +++++-
+ src/panfrost/lib/kmod/pan_kmod.c            |   9 ++
+ 3 files changed, 175 insertions(+), 15 deletions(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 7adcdbb..e6cf19f 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -344,10 +344,20 @@ drmPrimeHandleToFD(int fd, uint32_t handle, uint32_t flags, int *prime_fd)
+    return -ENOSYS;
+ }
+ 
++/* exynos-woa H3 (notes/gpu-hw-path.md): Panfrost imports shared buffers by dma-buf fd. On WDDM a shared resource is
++ * a kernel allocation; d3d10umd registers it as a BO (malikm_shared_bo_create / malikm_bo_from_allocation) and
++ * passes this pseudo fd, which only these functions understand. */
++#define MALIKM_PRIME_FD_BASE 0x40000000
++static struct wbo *wddm_bo(uint32_t h);
++
+ int
+ drmPrimeFDToHandle(int fd, int prime_fd, uint32_t *handle)
+ {
+-   (void)fd; (void)prime_fd; (void)handle;
++   (void)fd;
++   if ((prime_fd & MALIKM_PRIME_FD_BASE) && wddm_bo((uint32_t)prime_fd & ~MALIKM_PRIME_FD_BASE)) {
++      *handle = (uint32_t)prime_fd & ~MALIKM_PRIME_FD_BASE;
++      return 0;
++   }
+    errno = ENOSYS;
+    return -ENOSYS;
+ }
+@@ -582,6 +592,8 @@ struct wbo {
+    uint64_t size, va;
+    void *cpu;
+    uint32_t mark;    /* exynos-woa H2: the submission that last listed it */
++   uint32_t runtime_owned;   /* exynos-woa H3: a shared resource's allocation (created with the runtime resource
++                              * handle, or opened): the runtime frees it, GEM_CLOSE only forgets it */
+ };
+ static struct wbo *wbo;
+ static uint32_t wbo_cap;
+@@ -1353,6 +1365,109 @@ wddm_bo(uint32_t h)
+    return h && h <= wbo_cap && wbo[h - 1].h ? &wbo[h - 1] : NULL;
+ }
+ 
++/* Register an allocation as a BO; the handle, 0 on failure. wddm_lock held. */
++static uint32_t
++wbo_add(D3DKMT_HANDLE hAlloc, uint64_t size, uint64_t va, uint32_t runtime_owned)
++{
++   uint32_t h = 0;
++   for (uint32_t i = 0; i < wbo_cap && !h; i++)
++      if (!wbo[i].h)
++         h = i + 1;
++   if (!h) {
++      uint32_t cap = wbo_cap ? wbo_cap * 2 : 256;
++      struct wbo *n = realloc(wbo, cap * sizeof(*n));
++      if (!n)
++         return 0;
++      memset(n + wbo_cap, 0, (cap - wbo_cap) * sizeof(*n));
++      wbo = n;
++      h = wbo_cap + 1;
++      wbo_cap = cap;
++   }
++   wbo[h - 1] = (struct wbo){hAlloc, size, va, NULL, 0, runtime_owned};
++   return h;
++}
++
++/* exynos-woa H3: an existing allocation of this process (a shared resource's, created or opened) as a Panfrost BO
++ * at the GPU address the KMD gave it; *prime_fd for drmPrimeFDToHandle. 0 on success. wddm_lock held. */
++static int
++wbo_from_allocation_locked(unsigned hAlloc, int *prime_fd)
++{
++   MW_ESCAPE_ALLOC_INFO_DATA where = {0};
++   where.Code = MW_ESCAPE_ALLOC_INFO;
++   where.hAllocation = hAlloc;
++   if (w_escape(&where, sizeof(where)) < 0 || where.GpuVa == 0)
++      return -1;
++   uint32_t h = wbo_add(hAlloc, where.Size, where.GpuVa, 1);
++   if (!h)
++      return -1;
++   *prime_fd = (int)(MALIKM_PRIME_FD_BASE | h);
++   if (trace_on())
++      fprintf(stderr, "malikm-wddm: allocation 0x%x as BO %u at 0x%llx, %llu bytes\n", hAlloc, h,
++              (unsigned long long)where.GpuVa, (unsigned long long)where.Size);
++   return 0;
++}
++
++int
++malikm_bo_from_allocation(unsigned hAlloc, int *prime_fd)
++{
++   int ret = -1;
++   AcquireSRWLockExclusive(&wddm_lock);
++   if (ddi.on && wddm == 1)
++      ret = wbo_from_allocation_locked(hAlloc, prime_fd);
++   ReleaseSRWLockExclusive(&wddm_lock);
++   return ret;
++}
++
++/* exynos-woa H3: a MISC_SHARED texture's allocation, created with the runtime resource handle (as 0037's
++ * malikm_shared_create, not locked), as a Panfrost BO. 0 on success. */
++int
++malikm_shared_bo_create(void *hRTResource, unsigned w, unsigned h, unsigned cpp, unsigned d3dfmt, int *prime_fd,
++                        unsigned *pitch)
++{
++   int ret = -1;
++   MW_ALLOCATION_INFO pi = {0};
++   D3DDDI_ALLOCATIONINFO ai = {0};
++   D3DDDICB_ALLOCATE a = {0};
++
++   *pitch = w * cpp;
++   if (w == 0 || h == 0 || cpp == 0 || hRTResource == NULL)
++      return -1;
++   AcquireSRWLockExclusive(&wddm_lock);
++   if (ddi.on && wddm == 1 && ddi.cb.pfnAllocateCb) {
++      pi.Version = MW_ABI_VERSION;
++      pi.Flags = MW_ALLOC_NOEXEC;
++      pi.Width = w;
++      pi.Height = h;
++      pi.Pitch = *pitch;
++      pi.Format = d3dfmt;
++      pi.Size = (uint64_t)*pitch * h;
++      ai.pPrivateDriverData = &pi;
++      ai.PrivateDriverDataSize = sizeof(pi);
++      a.hResource = (HANDLE)hRTResource;
++      a.NumAllocations = 1;
++      a.pAllocationInfo = &ai;
++      if (ddi.cb.pfnAllocateCb(ddi.device, &a) >= 0)
++         ret = wbo_from_allocation_locked(ai.hAllocation, prime_fd);
++   }
++   ReleaseSRWLockExclusive(&wddm_lock);
++   return ret;
++}
++
++/* exynos-woa H3: the size pan_kmod_bo_import would get with lseek on a dma-buf. */
++uint64_t
++malikm_prime_fd_size(int prime_fd)
++{
++   uint64_t size = 0;
++   AcquireSRWLockExclusive(&wddm_lock);
++   if (prime_fd & MALIKM_PRIME_FD_BASE) {
++      struct wbo *bo = wddm_bo((uint32_t)prime_fd & ~MALIKM_PRIME_FD_BASE);
++      if (bo)
++         size = bo->size;
++   }
++   ReleaseSRWLockExclusive(&wddm_lock);
++   return size;
++}
++
+ static int
+ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+ {
+@@ -1385,21 +1500,11 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+          w_destroy(ai.hAllocation);
+          return -MK_ENOMEM;
+       }
+-      uint32_t h = 0;
+-      for (uint32_t i = 0; i < wbo_cap && !h; i++)
+-         if (!wbo[i].h)
+-            h = i + 1;
++      uint32_t h = wbo_add(ai.hAllocation, where.Size, where.GpuVa, 0);
+       if (!h) {
+-         uint32_t cap = wbo_cap ? wbo_cap * 2 : 256;
+-         struct wbo *n = realloc(wbo, cap * sizeof(*n));
+-         if (!n)
+-            return -MK_ENOMEM;
+-         memset(n + wbo_cap, 0, (cap - wbo_cap) * sizeof(*n));
+-         wbo = n;
+-         h = wbo_cap + 1;
+-         wbo_cap = cap;
++         w_destroy(ai.hAllocation);
++         return -MK_ENOMEM;
+       }
+-      wbo[h - 1] = (struct wbo){ai.hAllocation, where.Size, where.GpuVa, NULL};
+       a->handle = h;
+       a->offset = where.GpuVa;
+       return 0;
+@@ -1491,6 +1596,11 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+          return -MK_EINVAL;
+       if (bo->cpu)
+          w_unlock(bo->h);
++      if (bo->runtime_owned) {
++         /* exynos-woa H3: a shared resource's allocation - the runtime frees it with the resource */
++         memset(bo, 0, sizeof(*bo));
++         return 0;
++      }
+       /* Not destroyed yet: see wdead. The handle number is free at once. */
+       if (wdead_n == wdead_cap) {
+          uint32_t cap = wdead_cap ? wdead_cap * 2 : WDEAD_FLUSH;
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index 7aad6f8..8278687 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -42,6 +42,7 @@
+ #include "util/u_rect.h"
+ #include "util/u_surface.h"
+ #include "frontend/winsys_handle.h"   /* G13 0034: OpenResource over external memory */
++#include "drm-uapi/drm_fourcc.h"      /* exynos-woa H3: DRM_FORMAT_MOD_LINEAR for BO imports */
+ 
+ 
+ /*
+@@ -206,6 +207,29 @@ extern "C" int malikm_shared_create(void *hRTResource, unsigned w, unsigned h, u
+                                     unsigned *hAlloc, void **cpu, unsigned *pitch);
+ /* G13: true when the device is bound to the maliwddm runtime (d3d10_gdi.c d3d10_bind_runtime result >= 0). */
+ extern "C" bool d3d10_runtime_is_maliwddm(void);
++/* exynos-woa H3: shared resources for a GPU screen (Panfrost): the allocation becomes a BO, imported by pseudo fd. */
++extern "C" int malikm_shared_bo_create(void *hRTResource, unsigned w, unsigned h, unsigned cpp, unsigned d3dfmt,
++                                       int *prime_fd, unsigned *pitch);
++extern "C" int malikm_bo_from_allocation(unsigned hAlloc, int *prime_fd);
++
++/* exynos-woa H3: softpipe imports CPU memory (gdi winsys, 0034/0035); a GPU screen imports a BO by fd. */
++static bool
++screen_is_softpipe(struct pipe_screen *screen)
++{
++   return strcmp(screen->get_name(screen), "softpipe") == 0;
++}
++
++static struct pipe_resource *
++import_bo(struct pipe_screen *screen, struct pipe_resource *templat, int prime_fd, unsigned pitch)
++{
++   struct winsys_handle wh;
++   memset(&wh, 0, sizeof wh);
++   wh.type = WINSYS_HANDLE_TYPE_FD;
++   wh.handle = (HANDLE)(intptr_t)prime_fd;
++   wh.stride = pitch;
++   wh.modifier = DRM_FORMAT_MOD_LINEAR;
++   return screen->resource_from_handle(screen, templat, &wh, PIPE_HANDLE_USAGE_FRAMEBUFFER_WRITE);
++}
+ 
+ void APIENTRY
+ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+@@ -343,7 +367,14 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+          d3dfmt = D3DDDIFMT_X8R8G8B8;
+       else if (templat.format == PIPE_FORMAT_R8G8B8A8_UNORM)
+          d3dfmt = D3DDDIFMT_A8B8G8R8;
+-      if (malikm_shared_create(hRTResource.handle, templat.width0, templat.height0,
++      int prime_fd = 0;
++      if (!screen_is_softpipe(screen)) {
++         /* exynos-woa H3: Panfrost renders into the shared allocation itself (run h3f: LogonUI's DComp composition
++          * buffer asserted in panfrost_resource_from_handle on the softpipe-style CPU-memory handle). */
++         if (malikm_shared_bo_create(hRTResource.handle, templat.width0, templat.height0,
++                                     util_format_get_blocksize(templat.format), d3dfmt, &prime_fd, &pitch) == 0)
++            pResource->resource = import_bo(screen, &templat, prime_fd, pitch);
++      } else if (malikm_shared_create(hRTResource.handle, templat.width0, templat.height0,
+                                util_format_get_blocksize(templat.format), d3dfmt, &hAlloc, &cpu, &pitch) == 0 &&
+           cpu != NULL) {
+          struct winsys_handle wh;
+@@ -553,6 +584,16 @@ OpenResource(D3D10DDI_HDEVICE hDevice,                            // IN
+    templat.bind = PIPE_BIND_SAMPLER_VIEW | PIPE_BIND_RENDER_TARGET | PIPE_BIND_DISPLAY_TARGET;
+    templat.usage = PIPE_USAGE_DEFAULT;
+ 
++   if (!screen_is_softpipe(screen)) {
++      /* exynos-woa H3: on a GPU screen the opened allocation is imported as a BO at its GPU address (the KMD's
++       * allocations live in one address space); the read-only CPU lock of the softpipe path is dropped. */
++      int prime_fd = 0;
++      if (cpu)
++         malikm_close_shared(pOpenResource->pOpenAllocationInfo[0].hAllocation);
++      cpu = NULL;
++      if (malikm_bo_from_allocation(pOpenResource->pOpenAllocationInfo[0].hAllocation, &prime_fd) == 0)
++         pResource->resource = import_bo(screen, &templat, prime_fd, pitch);
++   }
+    if (cpu) {
+       struct winsys_handle wh;
+       memset(&wh, 0, sizeof wh);
+diff --git a/src/panfrost/lib/kmod/pan_kmod.c b/src/panfrost/lib/kmod/pan_kmod.c
+index eac10b2..74a2845 100644
+--- a/src/panfrost/lib/kmod/pan_kmod.c
++++ b/src/panfrost/lib/kmod/pan_kmod.c
+@@ -147,6 +147,11 @@ pan_kmod_bo_put(struct pan_kmod_bo *bo)
+    simple_mtx_unlock(&dev->handle_to_bo.lock);
+ }
+ 
++#ifdef _WIN32
++/* exynos-woa H3: the win32 shim's pseudo dma-buf fds (malikm_drm.c) */
++uint64_t malikm_prime_fd_size(int prime_fd);
++#endif
++
+ struct pan_kmod_bo *
+ pan_kmod_bo_import(struct pan_kmod_dev *dev, int fd)
+ {
+@@ -169,7 +174,11 @@ pan_kmod_bo_import(struct pan_kmod_dev *dev, int fd)
+ 
+       p_atomic_inc(&bo->refcnt);
+    } else {
++#ifdef _WIN32
++      size_t size = (size_t)malikm_prime_fd_size(fd);
++#else
+       size_t size = lseek(fd, 0, SEEK_END);
++#endif
+       if (size == 0 || size == (size_t)-1) {
+          mesa_loge("invalid dmabuf size");
+          goto err_close_handle;
+-- 
+2.40.1.windows.1
+

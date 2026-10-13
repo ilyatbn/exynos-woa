@@ -155,3 +155,18 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   Mesa 0048: ttn indirect IMMEDIATE through an "imm_arr" shader_temp array stored after the last immediate;
   d3d10umd icb index keeps the immediate part. (First 0048 build: Mesa 26 has nir_def_instr(), no ->parent_instr.)
   Build mali-umd-0048 (0040-0048) maliumd.dll 9da69cbf....
+- 02:11 run h3f started: UMD 0048.
+- **Run h3f (02:11-02:20, runs/h3f, UMD 0048):** **DWM no longer crashes** (Application log: only LogonUI), KMD 242
+  jobs from logon/desktop processes before the tests, no fault; logon still not completed (no explorer at 300 s).
+  LogonUI.exe.2932.dmp: wassert <- panfrost_resource_from_handle (pan_resource.c:373 `assert(whandle->type ==
+  WINSYS_HANDLE_TYPE_FD)`) <- d3d10umd CreateResource (0037's MISC_SHARED path: CPU-memory SHARED handle, a
+  softpipe-only import) <- d3d11 CreateCompositionBuffer <- dcomp CAtlasSurfacePool. d3dtri tex: access violation
+  0xC0000005 at "draw" (no dump: no LocalDumps key for d3dtri). Panfrost import: pan_kmod_bo_import ->
+  drmPrimeFDToHandle (shim: ENOSYS stub) + lseek(fd, SEEK_END) for the size; VA from GET_BO_OFFSET.
+- Mesa 0049: shim wbo entries can be runtime_owned (shared/opened allocations: GEM_CLOSE forgets, never destroys);
+  wbo_add() factored out of CREATE_BO; malikm_shared_bo_create (allocation with the runtime resource handle, not
+  locked) and malikm_bo_from_allocation (opened allocation) register the allocation at its KMD GPU VA
+  (ALLOC_INFO escape) and return pseudo fd 0x40000000|handle; drmPrimeFDToHandle decodes it;
+  malikm_prime_fd_size replaces lseek in pan_kmod_bo_import (_WIN32). d3d10umd CreateResource/OpenResource:
+  non-softpipe screens import the BO (WINSYS_HANDLE_TYPE_FD, linear, pitch) instead of CPU memory. Build
+  mali-umd-0049 3314f7e3.... extra-gpu-h3.cmd: WER LocalDumps for d3dtri.exe.

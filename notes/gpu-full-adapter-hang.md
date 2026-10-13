@@ -1016,3 +1016,25 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   stay in HKLM\SOFTWARE\...\Windows Error Reporting\LocalDumps - remove them in the display-only restore step.
 - Run g44full started (same binaries as g43: KMD 1.0.34.1, UMD 0035; extra.cmd = CRLF copy sha 5c4e7d79...,
   nogpu.flg re-created for pass 1).
+
+## Run g44full (17:28, same binaries as g43 + crash/process diagnostics)
+- Marks pass 2: explorer.exe appeared at 34.7 s, "up for 30 s" at 64.8 s (same as g43). run-as-user at ~149 s:
+  "no explorer.exe owner" again.
+- tasks.txt (tasklist /v right before run-as-user): session 1 holds ONLY csrss, winlogon, fontdrvhost, LogonUI
+  (93 MB), dwm (DWM-1, 8 s CPU), ctfmon (SYSTEM). No process of the user S10e at all (no explorer, sihost,
+  taskhostw, StartMenu, SearchHost) -> the user's session content is gone, not just explorer.
+- No crash: app-crashes.txt newest Event 1000 is g43-era explorer pid 0x10FC; 0 minidumps (LocalDumps armed for
+  explorer/StartMenu/SearchHost/dwm/LogonUI). So the user processes ended without crashing = a logoff / session
+  teardown, not a crash.
+- **Correction to the g43 post-mortem**: Winlogon 7001 (CEIP logon notification) is NOT in every full-mode boot.
+  System.evtx boot map: g42 full boot (13774) had 7001; g43 full (13942) and g44 full (14112) have 12 + 1074 but NO
+  7001 (and no 7002/13: hard reset). Display-only pass 1 boots always have 7001/1074/7002/13.
+- Application.evtx g44: pass 1 has 1531 (User Profile Service started), Winlogon 6003/6000 (SessionEnv / WSearch
+  notification subscribers) and 1532 at shutdown; pass 2 has 1531 but NO Winlogon 600x events at all.
+  Reading (UNVERIFIED): in full mode since Mesa 0034 the logon starts (profile service, userinit -> explorer) but
+  winlogon's logon sequence never reaches the notification / CEIP step, LogonUI stays up (LogonUI=1 throughout,
+  pass 1 shows LogonUI=0 once explorer runs), and the user session's processes are later torn down. g42 (before
+  0034) got further in winlogon (7001) but explorer/StartMenu/SearchHost aborted repeatedly.
+- Next run g45: export Microsoft-Windows-Winlogon/Operational, TerminalServices-LocalSessionManager/Operational
+  (21/23/24 session logon/logoff), User Profile Service/Operational, Shell-Core/Operational and Security
+  4624/4634/4647 in pass 2, plus a second tasklist ~60 s earlier to time the teardown.

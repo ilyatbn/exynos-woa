@@ -26,10 +26,9 @@ for /f "usebackq delims=" %%L in (`findstr /i /c:"frames," "%X%\d3dfill-bench.tx
 rem numbered history copy (out\last is replaced every boot)
 set H=%ESP%\S10EDIAG\out\gfx-history
 mkdir "%H%" > nul 2>&1
-set N=0
-if exist "%H%\count.txt" set /p N=<"%H%\count.txt"
-set /a N=%N%+1
-echo %N%> "%H%\count.txt"
+rem first free number (no counter file: "echo %N%> f" with a 1-digit N is a 1> redirect and lost the count)
+set N=
+for /l %%I in (1,1,999) do if not defined N if not exist "%H%\%%I\" set N=%%I
 mkdir "%H%\%N%" > nul 2>&1
 copy /y "%X%\*.txt" "%H%\%N%\" > nul 2>&1
 s10ediag mark "x: history %N%"

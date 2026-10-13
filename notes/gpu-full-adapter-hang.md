@@ -921,3 +921,17 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   d3dprobe-stderr: "bind ... present only (maliwddm without a GPU)" -> softpipe renders on the CPU, frames reach the
   kernel primaries through Lock. Remaining question: are the latched frames black? (g39 latch pixel lines.)
   cycle.sh now runs `sync` after deleting WINRUN.FLG and reports if it is still there. g39 rerun 12:05.
+
+## Run g39full (12:02, KMD 1.0.31.1) - display path works end to end; DWM composes BLACK
+- Latch PRAM lines: va 0x90000000 / 0x90a00000 (CPU views exist), fb present (bit 24), PresentSkips 0, px0
+  0x00000000 / 0xff000000, pxmid 0 -> the latch copies DWM's flipped primary into the GOP fb, and that frame is black.
+- ETW (PC-decoded with tracerpt -lr; etwdur.py): DWM render median 0.7 ms (p90 1.2), present median 0.9 ms (p90 26),
+  95 frames presented + retired, dirtyRegionCount 1 - fast, not a softpipe-speed problem.
+- Cause: Mesa d3d10umd Resource.cpp OpenResource = LOG_UNSUPPORTED + SetError(E_OUTOFMEMORY). DWM composes every other
+  process's content (LogonUI, CDD/GDI redirection, DComp surfaces) through shared resources it OPENS; none can be
+  opened, so only DWM's own black background reaches the screen - and LogonUI likely cannot get presented, which
+  fits the never-finishing logon in every full-mode run.
+- Next (large): shared resources in the UMD - CreateResource with D3D10_DDI_RESOURCE_MISC_SHARED backed by a kernel
+  allocation (pfnAllocateCb, shared), OpenResource mapping the opened allocation (pfnLockCb) as the softpipe
+  texture's storage, so CPU rendering in one process is visible in DWM. Docs first (OpenResource(D3D10),
+  D3D10DDIARG_OPENRESOURCE, shared allocation rules).

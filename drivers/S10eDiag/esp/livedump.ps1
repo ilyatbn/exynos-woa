@@ -4,6 +4,8 @@
 # g45 (notes/gpu-full-adapter-hang.md): in full mode LogonUI stays up and the autologon never starts - the stacks of
 # LogonUI / dwm / winlogon show what they wait on (cdb + MS symbols on the PC).
 param([string]$Out, [string[]]$Names)
+# powershell -File passes "a,b,c" as ONE string, not an array
+$Names = @($Names | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 Add-Type -TypeDefinition @'
 using System;
 using System.IO;

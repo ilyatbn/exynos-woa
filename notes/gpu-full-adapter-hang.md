@@ -1335,3 +1335,7 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   management under Windows (MILESTONES: thermal todo). Black screen on restart = the known full-mode
   clean-restart hang.
 - Not yet known: which service the always-100 % svchost is (both modes, costs one of 6 cores).
+- Fix d6df374: history number = first free folder 1..999 (no count.txt). Tested in cmd on the PC with folders
+  0, 1 present -> 2, 3, 4. Deployed to ESP extra.cmd (md5 815dcbb4... matches), stale count.txt removed.
+  Review: no other count.txt reader (rg drivers/); FAT dir test `if exist "dir\"` exercised by the PC test only
+  on NTFS - confirm on the next boot's "x: history N" mark.

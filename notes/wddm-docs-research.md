@@ -48,3 +48,19 @@ Full sub-agent report in the session transcript; key facts with sources:
 5. DMA_COMPLETED for every submission incl. present DMA buffers.
 6. Audit the stop/shutdown path (SupportNonVGA, StopDeviceAndReleasePostDisplayOwnership, SetPowerState D3).
 - KMD vs docs (adapter.c:357-372): SupportNonVGA, StopDeviceAndReleasePostDisplayOwnership, SystemDisplayEnable, CRTC_VSYNC PhysicalAddress, DMA_COMPLETED present. **Missing: FlipCaps.FlipIndependent (docs: WDDM 1.3 must set 1) and MaxQueuedFlipOnVSync** -> KMD follow-up when flips are re-enabled.
+
+## Addendum (sub-agent, from the display docs TOC)
+- https://learn.microsoft.com/en-us/windows-hardware/drivers/display/dxgi-presentation-path and
+  .../passing-dxgi-information-at-resource-creation-time: DXGI sets DXGI_DDI_PRIMARY_OPTIONAL on back buffers only;
+  NO_SCANOUT on an optional buffer only turns Flip into Blt. A front buffer / proxy (not OPTIONAL) may opt out only by
+  FAILING creation with DXGI_DDI_ERR_UNSUPPORTED + NO_SCANOUT (DXGI then makes a proxy). Our 0023 set NO_SCANOUT on
+  every primary and succeeded the create -> outside the documented protocol. Fix: no NO_SCANOUT (panel can scan out
+  BGRA 1080x2280), front buffer a real primary, SetDisplayModeDXGI -> pfnSetDisplayModeCb (0028).
+- DirectFlip (CheckDirectFlipSupport, SupportDirectFlip) is Mandatory for full-graphics WDDM 1.2+:
+  .../display/direct-flip-of-video-memory, .../display/wddm-v1-2-features.
+- VSync control: VSyncPowerSaveAware; test knob Scheduler\VsyncIdleTimeout=0 disables it:
+  .../display/saving-energy-with-vsync-control. Display-only: implement ControlInterrupt+GetScanLine with real vsync,
+  or neither (dxgkrnl simulates) - otherwise the KMDOD is not loaded.
+- Revised order: (1) drop NO_SCANOUT, (2) SetDisplayModeDXGI (0028), (3) KMD SetVidPnSourceAddress accepts the
+  primary (ContextCount 0 mode switch + flips), (4) CRTC_VSYNC + ControlInterrupt + FlipIndependent, (5) DMA_COMPLETED
+  for every submission, (6) DirectFlip.

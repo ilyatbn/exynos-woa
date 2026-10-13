@@ -135,6 +135,20 @@ NTSTATUS APIENTRY MwPresent(IN_CONST_HANDLE hContext, DXGKARG_PRESENT *Arg)
     MW_ADAPTER *a = ctx->Device->Adapter;
     MW_DMA_PRIVATE *priv = (MW_DMA_PRIVATE *)Arg->pDmaBufferPrivateData;
 
+    /* MMIO flip (FlipCaps.FlipOnVSyncMmIo, Parameters\FlipMmio): MS Learn DxgkDdiPresent - "called with the
+     * pDmaBuffer member ... set to NULL because a MMIO-based flip does not require a DMA buffer ... must validate
+     * the source surface and program flip hardware as required"; dxgkrnl then runs the flip through
+     * DxgkDdiSetVidPnSourceAddress (display.c: queued, latched by the next vsync DPC). Run g33full: with no private
+     * data this function returned STATUS_INVALID_PARAMETER - not a documented DxgkDdiPresent status, dxgkrnl ETW 494
+     * "Driver returned an invalid NTSTATUS code" - on every DWM flip. */
+    if (Arg->Flags.Flip && MwFlipMmio && Arg->pDmaBuffer == NULL) {
+        if (Arg->pAllocationList == NULL ||
+            Arg->pAllocationList[DXGK_PRESENT_SOURCE_INDEX].hDeviceSpecificAllocation == NULL)
+            return STATUS_INVALID_HANDLE;
+        a->Presents++;
+        return STATUS_SUCCESS;
+    }
+    /* Not a documented DxgkDdiPresent status either, but only reachable with a DMA buffer and no private data. */
     if (priv == NULL || Arg->DmaBufferPrivateDataSize < sizeof(*priv))
         return STATUS_INVALID_PARAMETER;
     RtlZeroMemory(priv, sizeof(*priv));

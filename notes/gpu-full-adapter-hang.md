@@ -856,3 +856,17 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   implementation". maliumd.dll exports only OpenAdapter10 / OpenAdapter10_2 (no D3D9 OpenAdapter) -> Mesa's original
   NO_REDIRECTION is per the docs. Mesa **0033** reverts 0031+0032 (tree == after 0030, `git diff 3074a45 HEAD` empty).
   mali-g34 renamed mali-g34-WITHDRAWN. The 0x087A0004 journal entries are just that status being logged.
+
+## Run g33full (10:31, mali-g33 = UMD 0026+0028+0029: no NO_SCANOUT, real primaries, SetDisplayMode) - DWM FLIPS
+- DWM now flips: DxgKrnl Present Flags 0x401004 (Flip|PresentCountValid|PresentRegionsValid), FlipInterval 1, DxgKrnl
+  Flip x448 with MMIOFlip=true, pDmaBuffer 0. No more NOT_EXCLUSIVE_MODE_OWNER / PRESENT_MODE_CHANGED: the ownership
+  problem is solved (0028 + 0029, i.e. the documented protocol).
+- New failure, ours: every flip's DxgkDdiPresent returns c000000d (KMD PRAM "<Present c000000d", "Fail_Present"),
+  dxgkrnl 494 "Driver returned an invalid NTSTATUS code: 0xC000000D". MwPresent's first check rejected the missing
+  DMA private data; MS Learn DxgkDdiPresent: for FlipOnVSyncMmIo the call comes with pDmaBuffer NULL, the driver
+  "must validate the source surface and program flip hardware as required", the flip then runs through
+  DxgkDdiSetVidPnSourceAddress; STATUS_INVALID_PARAMETER is not a documented return.
+- Fix (KMD 1.0.27.1, build 27): MwPresent returns STATUS_SUCCESS for an MMIO flip with a source allocation
+  (STATUS_INVALID_HANDLE without one), before the private-data check. Package **mali-g35** = KMD 1.0.27.1 + g33 UMD.
+  Install: one display-only boot with extra-gpu-update.cmd (live pnputil update, Parameters stay 0/0), then the
+  full-mode two-pass run.

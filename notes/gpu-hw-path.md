@@ -187,3 +187,17 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
 - Mesa 0050: per-process timing log (MALIKM_TGSI_DIR, machine-wide = C:\S10eTmp\tgsi): idle waits >= 20 ms (event
   or poll, result), frontbuffer map/convert ms, present copy lock/memcpy/unlock ms, every 500th submit. Build
   mali-umd-0050 135bc8d4.... extra-gpu-h3.cmd collects tlog\malikm-*.txt.
+- 02:36 run h3h started: UMD 0050 (timing log).
+- **Run h3h (02:36-02:45, runs/h3h, UMD 0050) - timing logs (h3/tlog):** logon again OK (explorer at 44 s), 0
+  faults. dwm.exe: 91 presented frames in ~175 s; per frame map 0-16 ms, **convert 47-94 ms** (per-pixel copy out
+  of the uncached Panfrost mapping), present memcpy 0-16 ms; only ONE idle wait >= 20 ms (32 ms) -> the 10 s
+  event-timeout theory is wrong. Frame gaps: min 250, median 437 ms when busy (2-4 fps); 3-31 s gaps = idle.
+  d3dtri cube: 646 frames (frontbuffer 540x1140 convert 31 ms each), but **DWM drew no frame during the cube**
+  (DWM frames at 151.5 / 165.6 / 171.3 s only) -> windowed presents of an app do not reach the composition.
+  gfxperf: idle CPU mean 78 % this boot (Windows Update / Defender busy). LogonUI keeps crashing in the
+  background (not blocking logon); tex 0xC0000005 (dump pending).
+- **H4a plan (zero-copy present):** the panel scans the GOP fb (0xCA000000, 1080x2280 BGRX, pitch 4320). Map its
+  pages into the GPU MMU (KMD, fixed GPU VA), expose it by a new escape; the UMD imports it as a linear Panfrost
+  resource and DWM's present becomes a GPU copy of its back buffer into it (no CPU map/convert/memcpy); the KMD
+  skips its CPU blt for primaries marked "GPU-presented". Windowed apps keep the CPU path (only the compositor may
+  write scanout).

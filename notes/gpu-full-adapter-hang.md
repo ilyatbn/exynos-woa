@@ -826,3 +826,9 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   (malikm_set_display_mode in malikm_drm.c, traced under MALIKM_TRACE). Built: s10e-artifacts\mali-umd-0028
   (maliumd.dll b2e87389…, DxgiFns.cpp + malikm_drm.c recompiled per the log). Package **mali-g32** = mali-g31 + UMD 0028.
 - Review of 2eda75c: patch 0028 = only the two intended hunks (checked from the committed patch); SubResourceIndex ignored (DXGI primaries are single-subresource); wddm_lock held across the callback like pfnAllocateCb's; failure HRESULT returned to DXGI. No follow-up.
+
+## Idea (user, 2026-10-13): rebootless mode switch
+- Switch MaliG76Wddm between display-only and full adapter (and swap the UMD) by restarting the PnP device in one
+  Windows session (pnputil /restart-device on GPU0; Windows shows the Basic Display Driver in between) instead of
+  the two-pass reboot. Prerequisite: our StopDevice/unload path must work - every full-mode clean restart hangs, so
+  first test a restart-device in display-only mode with the 20-min fallback armed. Docs being researched (question F).

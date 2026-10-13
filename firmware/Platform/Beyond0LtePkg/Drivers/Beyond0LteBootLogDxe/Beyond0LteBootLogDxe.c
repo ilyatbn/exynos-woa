@@ -584,7 +584,13 @@ OnReadyToBoot (
             DEBUG ((DEBUG_ERROR, "BootLog: previous boot ran Windows (no restart marker) - interactive (stay.flg): "
                     "saving its PRAM and continuing\n"));
             DumpMemoryToEsp (L"\\WINPRAM.BIN", (UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);
-            ZeroMem ((VOID *)(UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);
+            //
+            // This boot continues into Windows: keep the progress page (0x8FE0F000, the last 4 KiB of the
+            // dump). Its words [2..5] are this boot's 'USBH'/'WLAN'/'GPU0'/'NOAU' (set by the DXEs before
+            // ReadyToBoot) and the DSDT _STA of XHC0/WLAN/GPU0/AUD0 reads them; zeroing the whole dump hid
+            // all four devices from Windows after every hard reset (2026-10-13, notes/m12-wifi-wificx.md).
+            //
+            ZeroMem ((VOID *)(UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP - SIZE_4KB);
             Root = OpenEspRoot ();
           } else {
             DEBUG ((DEBUG_ERROR, "BootLog: previous boot ran Windows - saving its PRAM, then recovery\n"));

@@ -457,3 +457,12 @@ ntfs-3g `mount.ntfs -o ro /dev/block/by-name/userdata`; esp/ = UEFILOG + PRAM; o
   only on 'NOAU', so zero **exposed** the audio device despite noaudio.flg on hard-reset boots). Comment fixed in
   a follow-up commit (comment only; the #115 binary is unaffected). Diff checked: one ZeroMem length change
   (DUMP - SIZE_4KB = 0xF000), other branches untouched (they reboot to TWRP).
+- **VALIDATED on device (boot #115, 2026-10-13 ~23:37-23:41, runs/user7, wifi-history 3 and 4):** progress page at
+  runtime `00000072 00000072 'USBH' 'WLAN' / 'GPU0' 'NOAU'`, ACPI\SAMS9825\0 Started, GPU0 Started, netsh
+  "State connected, SSID S10eTest, 54 Mbps, signal 100 %"; phonestate.sh saw the phone answer ping at
+  192.168.137.90 in both boots. History 4 = the boot after a **forced restart** ([0] = 0x32, the broken path) -
+  fixed. (User could not see the tray: in GPU full mode the desktop is wider than the panel, taskbar cut on the
+  right - separate GPU-mode display bug.)
+- Consequence: GPU0 is now present after hard resets too, so with MaliG76Wddm FullAdapter 1 EVERY boot is the slow
+  softpipe desktop (the earlier "good performance" boots were the bug hiding GPU0). For interactive use the ESP
+  now has \S10EDIAG\nogpu.flg (GPU0 hidden -> Basic Display/WARP); remove it for GPU work.

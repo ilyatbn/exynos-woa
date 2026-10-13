@@ -1,0 +1,110 @@
+From 09f1cd9adf5a0f7fba1ebc3342afc4ab41307a0c Mon Sep 17 00:00:00 2001
+From: ilyatbn <tovbin.ilya@gmail.com>
+Date: Tue, 13 Oct 2026 20:57:42 +0300
+Subject: [PATCH] G13: tgsi_exec BGNLOOP stack overflow reports the shader to
+ MALIKM_TGSI_DIR and abandons the run instead of asserting (exynos-woa
+ tools/mesa-build/patches/0038)
+
+---
+ src/gallium/auxiliary/tgsi/tgsi_exec.c | 71 ++++++++++++++++++++++++++
+ 1 file changed, 71 insertions(+)
+
+diff --git a/src/gallium/auxiliary/tgsi/tgsi_exec.c b/src/gallium/auxiliary/tgsi/tgsi_exec.c
+index eaaa1e1..3584818 100644
+--- a/src/gallium/auxiliary/tgsi/tgsi_exec.c
++++ b/src/gallium/auxiliary/tgsi/tgsi_exec.c
+@@ -63,6 +63,13 @@
+ #include "util/u_memory.h"
+ #include "util/u_math.h"
+ #include "util/rounding.h"
++#include <stdio.h>
++#include <stdlib.h>
++#ifdef _WIN32
++#include <process.h>    /* _getpid, G13 0038 overflow report */
++#else
++#include <unistd.h>
++#endif
+ 
+ 
+ #define DEBUG_EXECUTION 0
+@@ -3287,6 +3294,63 @@ exec_lit(struct tgsi_exec_machine *mach,
+    }
+ }
+ 
++/* G13 (exynos-woa, patch 0038): run g52full - DWM's compositor thread sat in the wassert message box of BGNLOOP's
++ * "LoopStackTop < TGSI_EXEC_MAX_LOOP_NESTING" (a d2d pixel shader under softpipe), so DWM stopped composing and the
++ * panel stayed dark. Until the shader construct behind it is known: a control-flow stack overflow writes the shader
++ * (tgsi_dump_str of mach->Tokens) and the pc to %MALIKM_TGSI_DIR% (once per shader, up to 16 per process) and ends
++ * that run as a return from main would, instead of asserting. */
++static void
++exec_report_overflow(struct tgsi_exec_machine *mach, int pc, const char *what)
++{
++   static const struct tgsi_token *seen[16];
++   static unsigned nseen;
++   const char *dir = getenv("MALIKM_TGSI_DIR");
++   char path[512];
++   FILE *f;
++   char *s;
++
++   if (dir == NULL || *dir == '\0' || mach->Tokens == NULL)
++      return;
++   for (unsigned i = 0; i < nseen; i++)
++      if (seen[i] == mach->Tokens)
++         return;
++   if (nseen >= ARRAY_SIZE(seen))
++      return;
++   seen[nseen++] = mach->Tokens;
++#ifdef _WIN32
++   snprintf(path, sizeof(path), "%s\\overflow-%lu-%u.txt", dir, (unsigned long)_getpid(), nseen);
++#else
++   snprintf(path, sizeof(path), "%s/overflow-%lu-%u.txt", dir, (unsigned long)getpid(), nseen);
++#endif
++   f = fopen(path, "w");
++   if (f == NULL)
++      return;
++   fprintf(f, "%s stack overflow at pc %d (of %u), stage %d\n", what, pc, mach->NumInstructions,
++           (int)mach->ShaderType);
++   s = (char *)MALLOC(1 << 18);
++   if (s != NULL) {
++      tgsi_dump_str(mach->Tokens, 0, s, 1 << 18);
++      fputs(s, f);
++      FREE(s);
++   }
++   fclose(f);
++}
++
++/* Abandon this run the way RET from main does (empty stacks, pc -1), so the next run's entry asserts hold. */
++static void
++exec_abandon_run(struct tgsi_exec_machine *mach, int *pc)
++{
++   mach->CondStackTop = 0;
++   mach->LoopStackTop = 0;
++   mach->ContStackTop = 0;
++   mach->LoopLabelStackTop = 0;
++   mach->SwitchStackTop = 0;
++   mach->BreakStackTop = 0;
++   mach->CallStackTop = 0;
++   mach->FuncStackTop = 0;
++   *pc = -1;
++}
++
+ static void
+ exec_break(struct tgsi_exec_machine *mach)
+ {
+@@ -5364,6 +5428,13 @@ exec_instruction(
+       break;
+ 
+    case TGSI_OPCODE_BGNLOOP:
++      /* G13 (0038): overflow -> report the shader and abandon the run (see exec_report_overflow) */
++      if (mach->LoopStackTop >= TGSI_EXEC_MAX_LOOP_NESTING || mach->ContStackTop >= TGSI_EXEC_MAX_LOOP_NESTING ||
++          mach->LoopLabelStackTop >= TGSI_EXEC_MAX_LOOP_NESTING || mach->BreakStackTop >= TGSI_EXEC_MAX_BREAK_STACK) {
++         exec_report_overflow(mach, *pc - 1, "loop");
++         exec_abandon_run(mach, pc);
++         return false;
++      }
+       /* push LoopMask and ContMasks */
+       assert(mach->LoopStackTop < TGSI_EXEC_MAX_LOOP_NESTING);
+       assert(mach->ContStackTop < TGSI_EXEC_MAX_LOOP_NESTING);
+-- 
+2.40.1.windows.1
+

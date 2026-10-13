@@ -1215,3 +1215,17 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   55 = MILEVENT_MEDIA_UCE_PROCESSQUEUEEVENT - not errors (event names from the PC's Dwm-Core manifest).
 - Open: why the full-mode panel is dark after logon (DWM leaves flip presents after 24 s; blts land where?),
   and the remaining LogonUI.exe.1252 WER dump of this boot.
+- **Why the panel is dark in g52**: live dump of dwm.exe (pid 1260, ~330 s): "DWM Compositor Thread" is in
+  ucrtbase!wassert -> MessageBoxW, from maliumd!exec_instruction (tgsi_exec.c:5368 = BGNLOOP's
+  assert(mach->LoopStackTop < TGSI_EXEC_MAX_LOOP_NESTING), 32) <- tgsi_exec_machine_run <- softpipe exec_run /
+  shade_quad (a PIXEL shader) <- sp_setup_tri <- draw_vbo <- softpipe_draw_vbo <- d3d10umd DrawIndexed <- d3d11 <-
+  dwmcore CD3DBatchExecutionContext::Flush <- d2d1 CHwSurfaceRenderTarget. The compositor never runs again: DWM's
+  frame events (SCHEDULE_FRAMEINFO etc.) stop at 01:29:41.688 and its last flip is at 41.640 (4 DWM flips in the
+  ETW, 8 latches in the KMD) - exactly when it stopped. Each run starts with empty stacks (asserted at run entry),
+  so one run pushed 32 loops without popping them - the shader construct is not known from the stack.
+- Mesa **0038** (diagnostic + containment): tgsi_exec BGNLOOP overflow -> write mach->Tokens (tgsi_dump_str), pc,
+  instruction count and stage to %MALIKM_TGSI_DIR%\overflow-<pid>-<n>.txt (once per shader, max 16 per process)
+  and end that run like RET from main (all stack tops 0, pc -1) instead of the assert. extra-gpu-mode pass 1 sets
+  MALIKM_TGSI_DIR=C:\S10eTmp\tgsi machine-wide (Session Manager\Environment; folder Everyone:M), pass 2 copies the
+  reports to out\last\gpu\tgsi. Cleanup when leaving GPU testing: remove that variable and the LocalDumps keys.
+  Build mali-umd-0038 (6a2723a2..., ARM64, no new warnings).

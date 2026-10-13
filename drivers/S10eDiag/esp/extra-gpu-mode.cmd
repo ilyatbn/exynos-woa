@@ -68,6 +68,13 @@ rem ThreadInfo 0x1000 = 0x1B25), DumpCount 1 (it restarts every few seconds; the
 reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\LogonUI.exe" /v DumpType /t REG_DWORD /d 0 /f >> "%G%\set-mode.txt" 2>&1
 reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\LogonUI.exe" /v CustomDumpFlags /t REG_DWORD /d 0x1B25 /f >> "%G%\set-mode.txt" 2>&1
 reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\LogonUI.exe" /v DumpCount /t REG_DWORD /d 1 /f >> "%G%\set-mode.txt" 2>&1
+rem g52: DWM's compositor stopped on a tgsi_exec loop-stack overflow. Mesa 0038 writes the offending shader to
+rem %MALIKM_TGSI_DIR% instead of asserting; set it machine-wide (DWM and every app get it from the next boot on) on a
+rem folder everyone can write (DWM runs as Window Manager\DWM-1).
+if exist C:\S10eTmp\tgsi rmdir /s /q C:\S10eTmp\tgsi
+mkdir C:\S10eTmp\tgsi > nul 2>&1
+icacls C:\S10eTmp\tgsi /grant *S-1-1-0:(OI)(CI)M >> "%G%\set-mode.txt" 2>&1
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v MALIKM_TGSI_DIR /t REG_SZ /d C:\S10eTmp\tgsi /f >> "%G%\set-mode.txt" 2>&1
 if exist "%ESP%\S10EDIAG\nogpu.flg" del /f /q "%ESP%\S10EDIAG\nogpu.flg"
 echo pass2 > C:\S10eTmp\gpumode2.flg
 s10ediag mark g: clean restart into the new mode
@@ -152,6 +159,11 @@ if exist C:\S10eTmp\dumps mkdir "%G%\dumps" > nul 2>&1
 if exist C:\S10eTmp\dumps copy /y C:\S10eTmp\dumps\*.dmp "%G%\dumps\" > nul 2>&1
 dir /b "%G%\dumps" > "%G%\dumps.txt" 2>&1
 for /f "usebackq" %%N in (`find /c ".dmp" ^< "%G%\dumps.txt"`) do s10ediag mark "a: %%N minidumps"
+rem g52 / Mesa 0038: shaders that overflowed tgsi_exec's control-flow stacks (one text file each)
+if exist C:\S10eTmp\tgsi mkdir "%G%\tgsi" > nul 2>&1
+if exist C:\S10eTmp\tgsi copy /y C:\S10eTmp\tgsi\*.txt "%G%\tgsi\" > nul 2>&1
+dir /b "%G%\tgsi" > "%G%\tgsi.txt" 2>&1
+for /f "usebackq" %%N in (`find /c ".txt" ^< "%G%\tgsi.txt"`) do s10ediag mark "t: %%N overflow shaders"
 rem g44: winlogon never logged its logon notifications in full mode and the user session vanished without a crash.
 rem The session / logon channels of this boot (newest 150 events each, text) say who ended it and when.
 wevtutil qe Microsoft-Windows-Winlogon/Operational /c:150 /rd:true /f:text > "%G%\ev-winlogon.txt" 2>&1

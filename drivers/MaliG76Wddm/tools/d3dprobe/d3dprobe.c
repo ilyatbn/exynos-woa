@@ -107,6 +107,53 @@ static void KmtInfo(LUID Luid)
     D3DKMTCloseAdapter(&close);
 }
 
+/* g47 (notes/gpu-full-adapter-hang.md): LogonUI's XAML fail-fasts on E_INVALIDARG from DComp surface creation.
+ * DComp surfaces need resource flags the docs list as "not supported until Direct3D 11.1" (SHARED_NTHANDLE, GUARDED)
+ * and our UMD has only the D3D10/10.1 DDI. Create a 256x256 B8G8R8A8 render-target/shader texture with each flag
+ * set and print the HRESULT (the Basic Render Driver adapter is the control), plus the device's D3D11.1 options. */
+static void TryTextures(ID3D11Device *Dev)
+{
+    static const struct { UINT Misc; const char *N; } t[] = {
+        { 0, "none" },
+        { D3D11_RESOURCE_MISC_SHARED, "SHARED" },
+        { D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX, "KEYEDMUTEX" },
+        { D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE, "SHARED|NTHANDLE" },
+        { D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX | D3D11_RESOURCE_MISC_SHARED_NTHANDLE, "KEYEDMUTEX|NTHANDLE" },
+        { D3D11_RESOURCE_MISC_GUARDED, "GUARDED" },
+        { D3D11_RESOURCE_MISC_GDI_COMPATIBLE, "GDI_COMPATIBLE" },
+    };
+    D3D11_FEATURE_DATA_D3D11_OPTIONS o;
+    D3D11_FEATURE_DATA_THREADING th;
+
+    if (SUCCEEDED(ID3D11Device_CheckFeatureSupport(Dev, D3D11_FEATURE_D3D11_OPTIONS, &o, sizeof(o))))
+        printf("    options: ExtendedResourceSharing %d OutputMergerLogicOp %d ClearView %d CopyWithOverlap %d\n",
+               o.ExtendedResourceSharing, o.OutputMergerLogicOp, o.ClearView, o.CopyWithOverlap);
+    else
+        printf("    options: D3D11_OPTIONS query failed\n");
+    if (SUCCEEDED(ID3D11Device_CheckFeatureSupport(Dev, D3D11_FEATURE_THREADING, &th, sizeof(th))))
+        printf("    threading: concurrent creates %d command lists %d\n", th.DriverConcurrentCreates, th.DriverCommandLists);
+    for (UINT i = 0; i < ARRAYSIZE(t); i++) {
+        D3D11_TEXTURE2D_DESC d = { 0 };
+        ID3D11Texture2D *tex = NULL;
+        HRESULT hr;
+
+        d.Width = 256;
+        d.Height = 256;
+        d.MipLevels = 1;
+        d.ArraySize = 1;
+        d.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        d.SampleDesc.Count = 1;
+        d.Usage = D3D11_USAGE_DEFAULT;
+        d.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+        d.MiscFlags = t[i].Misc;
+        Mark(t[i].N);
+        hr = ID3D11Device_CreateTexture2D(Dev, &d, NULL, &tex);
+        printf("    texture BGRA 256 %-20s hr 0x%08lx\n", t[i].N, (unsigned long)hr);
+        if (tex != NULL)
+            ID3D11Texture2D_Release(tex);
+    }
+}
+
 static void TryD3D11(IDXGIAdapter *A, UINT Flags, const char *What)
 {
     static const D3D_FEATURE_LEVEL levels[] = {
@@ -124,6 +171,8 @@ static void TryD3D11(IDXGIAdapter *A, UINT Flags, const char *What)
         hr = D3D11CreateDevice(A, D3D_DRIVER_TYPE_UNKNOWN, NULL, Flags, levels + 1, ARRAYSIZE(levels) - 1,
                                D3D11_SDK_VERSION, &dev, &got, NULL);
     printf("  D3D11CreateDevice %-6s hr 0x%08lx level %s\n", What, (unsigned long)hr, SUCCEEDED(hr) ? FlName(got) : "-");
+    if (dev != NULL && (Flags & D3D11_CREATE_DEVICE_BGRA_SUPPORT))
+        TryTextures(dev);
     if (dev != NULL)
         ID3D11Device_Release(dev);
 }

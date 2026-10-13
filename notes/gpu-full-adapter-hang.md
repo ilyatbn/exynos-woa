@@ -1122,3 +1122,8 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   feature level". Hypothesis (UNVERIFIED): our UMD exposes only the D3D10/10.1 DDI (OpenAdapter10/10_2, FL 10_0),
   so the D3D11 runtime refuses DComp's 11.1-only surface flags with E_INVALIDARG. Next: a probe that creates
   those textures (MISC_SHARED, SHARED_NTHANDLE(+KEYEDMUTEX), GUARDED) on the Mali device and reports each HRESULT.
+- d3dprobe: TryTextures on each adapter's BGRA device - D3D11_OPTIONS (ExtendedResourceSharing, ...), threading
+  caps, and a 256x256 B8G8R8A8 RT|SRV texture with MiscFlags none / SHARED / KEYEDMUTEX / SHARED|NTHANDLE /
+  KEYEDMUTEX|NTHANDLE / GUARDED / GDI_COMPATIBLE. Built ARM64 (s10e-artifacts\d3dprobe-2); an x64 build on the PC
+  (AMD 11_1 + Basic Render Driver) creates all 7 with S_OK = the probe itself is sound. Run g48full: same UMD
+  0036, new d3dprobe on the ESP.

@@ -55,7 +55,7 @@ logman delete "autosession\MaliDxgk" >> "%G%\etw-stop.txt" 2>&1
 if exist C:\S10eTmp\dxgk.etl copy /y C:\S10eTmp\dxgk.etl "%G%\dxgk.etl" > nul 2>&1
 if exist C:\S10eTmp\dxgk.etl tracerpt C:\S10eTmp\dxgk.etl -o "%G%\dxgk.xml" -of XML -y > "%G%\etw-tracerpt.txt" 2>&1
 if exist C:\S10eTmp\dxgk.etl tracerpt C:\S10eTmp\dxgk.etl -o "%G%\dxgk.csv" -of CSV -y >> "%G%\etw-tracerpt.txt" 2>&1
-if exist "%G%\dxgk.csv" findstr /i /c:"fail" /c:"unable" /c:"invalid" /c:"can't" /c:"error" /c:"0xffffffffc0" /c:"VidPn" /c:"primary" "%G%\dxgk.csv" > "%G%\dxgk-msgs.txt" 2>&1
+if exist "%G%\dxgk.csv" findstr /r /c:"DxgKrnl, *DCStart *, *494," "%G%\dxgk.csv" > "%G%\dxgk-msgs.txt" 2>&1
 if exist C:\S10eTmp\dxgk.etl del /f /q C:\S10eTmp\dxgk.etl
 rem G13: can the D3D runtimes create a device on the Mali adapter (DWM needs D3D11; maliumd.dll is Mesa d3d10umd
 rem built D3D10.0-only)? d3dprobe prints per adapter the UMD names for DX9/10/11, the WDDM version and the HRESULT of

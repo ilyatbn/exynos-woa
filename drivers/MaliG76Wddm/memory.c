@@ -34,6 +34,12 @@ NTSTATUS MwQuerySegment(MW_ADAPTER *A, const DXGKARG_QUERYADAPTERINFO *Info)
     /* The Mali is not coherent with the CPU caches, so VidMm maps CPU views
      * of these allocations uncached, as malikm's write-combined BOs. */
     d->Flags.CacheCoherent = FALSE;
+    /* G76: dxgkrnl refuses a shared primary unless every segment in its SupportedWriteSegmentSet is CPU visible -
+     * DxgKrnl ETW event 494 "All segment specified in supported write segment set for a shared primary must be CPU
+     * visible." (run g18etw), after which it destroyed the primary and committed a VidPN with 0 paths. Our presents
+     * are CPU copies anyway (AllocationVa), so the segment is CPU visible; Parameters\SegmentCpuVisible 0 = the
+     * original's flags. */
+    d->Flags.CpuVisible = MwSegmentCpuVisible ? TRUE : FALSE;
     /* As viogpu3d. Paging buffers stay empty: map and unmap are done on
      * the CPU while the paging buffer is built. */
     out->PagingBufferSegmentId = MW_SEGMENT_ID;

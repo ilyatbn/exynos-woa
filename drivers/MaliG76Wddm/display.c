@@ -623,6 +623,11 @@ NTSTATUS APIENTRY MwCommitVidPn(IN_CONST_HANDLE hAdapter, const DXGKARG_COMMITVI
     }
     vidpn->pfnReleaseSourceModeSet(Arg->hFunctionalVidPn, set);
     MwLog(dev, L"CommitStatus", (ULONG)st);
+    /* G76: STATUS_GRAPHICS_MODE_NOT_PINNED (0x401E0307) is informational from pfnAcquirePinnedModeInfo, not an answer
+     * dxgkrnl accepts from CommitVidPn - ETW event 494 "Driver returned an invalid NTSTATUS code: 0x401e0307" (run
+     * g18etw). A source without a pinned mode is simply not active (PathActive FALSE above): success. */
+    if (st == STATUS_GRAPHICS_MODE_NOT_PINNED)
+        st = STATUS_SUCCESS;
     return st;
 }
 

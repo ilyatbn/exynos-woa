@@ -69,6 +69,9 @@ extern ULONG MwRecommendVidPn;
 /* Parameters\SynthEdid (default 1): the full adapter answers QueryDeviceDescriptor with an EDID it builds for its
  * own timing (display.c); 0 = no descriptor, as the original. Display-only never sends one (malidod). */
 extern ULONG MwSynthEdid;
+/* Parameters\SegmentCpuVisible (default 1): the aperture segment is reported CPU visible (memory.c), which dxgkrnl
+ * requires of every segment a shared primary may be written in. */
+extern ULONG MwSegmentCpuVisible;
 
 /* ---- objects ---- */
 

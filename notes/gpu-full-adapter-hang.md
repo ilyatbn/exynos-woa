@@ -435,3 +435,33 @@ Logs: scratchpad\runs\g13fullc (marks.txt, last\gpu\*, WINPRAM.BIN, UEFILOG.TXT)
 - Package **s10e-artifacts\mali-g18** = mali-g17's driver (1.0.17.1, sys 47A15F54...) + extra-gpu-mode.cmd with the
   ETW capture (CRLF) `DFBE06688F91DB3FBDFD57FBF7A249A04FCF94AB67BD55977D014638B7A02C9D`; rest as mali-g17. No driver
   change -> no update boot needed if 1.0.17.1 is installed: copy extra-gpu-mode.cmd, full.flg + nogpu.flg, run.
+
+## Run g18etw - DxgKrnl ETW decoded (2026-10-13) -> the cause
+Decoded on the PC (scratchpad\dxgkcsv.py over gpu\dxgk.csv; 54 rows of event 494 "DCStart" = dxgkrnl's own
+diagnostic text). Every mode-set attempt of the full adapter repeats:
+1. **"All segment specified in supported write segment set for a shared primary must be CPU visible."** (data 1907)
+   - our only segment, the aperture (memory.c MwQuerySegment), had Flags.CpuVisible 0 (the original's flags); our
+   primaries name it in SupportedWriteSegmentSet -> dxgkrnl refuses the shared primary -> DestroyAllocation (the
+   create/destroy pair in every PRAM trace).
+2. **"Driver returned an invalid NTSTATUS code: 0x%I64x" with 1075708679 = 0x401E0307** - our MwCommitVidPn handed
+   back STATUS_GRAPHICS_MODE_NOT_PINNED from pfnAcquirePinnedModeInfo as its own result.
+3. "VidPn source 0 ... is not in any session view ..." follows; later "Failed to get display config buffer sizes
+   when looking for internal target", "Can't reference adapter by luid", "Failed to get pairing adapters" - the
+   consequences of having no committed path.
+Fixes (both full-adapter only; display-only never reports segments and its commits pin):
+- memory.c: aperture segment Flags.CpuVisible = 1 (Parameters\SegmentCpuVisible, default 1; 0 = old flags).
+  Presents are CPU copies through the allocation's MDL anyway. UNVERIFIED: whether dxgkrnl wants anything else of a
+  CPU-visible APERTURE segment (StartDevice / QAI failure would show as code 43 + PRAM "<QueryAdapterInfo" status).
+- display.c: CommitVidPn returns STATUS_SUCCESS for a source with no pinned mode (it is just inactive).
+- dxgk-msgs.txt filter narrowed to event 494 rows (findstr /r "DxgKrnl, *DCStart *, *494," - 54 rows on g18etw).
+- INF 1.0.19.1; PRAM DriverEntry line "SegCpuVis.RecVidPn.Edid <hex>". Defaults unchanged: GpuEnable 0 /
+  FullAdapter 0 (the INF's MW_Parameters writes 0/0 on install) = display-only stays the default mode.
+Package **s10e-artifacts\mali-g19** (build 19, InfVerif /w exit 0, signer 5DD5DEE1...): sys
+`066BAFE3171A98FCA4EC48F720ACB2B53BEC3FFA00F1380BDC45AAED2B952C34`, inf
+`905D765C191BBA2A7EEA87171967A340453D6993D98F3BD29989D6389EEE899A`, cat
+`700670549FBB9C293F5A70EA1D12FDF1AD46C4D34624A724AEB4F79B191BB52C`, extra-gpu-mode.cmd (CRLF)
+`F1BF9636FE3665E37A1202C90C57566A1CA6C9E273C8E3A9BF91F06E4E53CD39`; d3dprobe/update/g10 scripts/m5test as before.
+Steps: update live in display-only (must show 1.0.19.1) -> full.flg + nogpu.flg + extra-gpu-mode.cmd. Read:
+gpu\dxgk-msgs.txt (no "must be CPU visible", no "invalid NTSTATUS"), PRAM "Commit src.chk.paths" paths 01 +
+"R CommitStatus 00000000", BuildPagingBuffer / SetVidPnSourceAddress lines, d3dprobe outputs 1, dxdiag Current
+Mode 1080 x 2280; heartbeat p > 0 / Present lines if DWM composes (UMD questions start only after that).

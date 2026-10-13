@@ -19,6 +19,7 @@
 ;   FlipBlt   1   full adapter: a Flip present is a CPU copy into the GOP framebuffer (0 = flips dropped)
 ;   RecommendVidPn 1  full adapter: RecommendFunctionalVidPn pins path 0->0 and our one mode (0 = no recommendation)
 ;   SynthEdid 1   full adapter: QueryDeviceDescriptor returns an EDID built for the reported timing (0 = none)
+;   SegmentCpuVisible 1  full adapter: the aperture segment is CPU visible (dxgkrnl requires it for a shared primary)
 ;
 ; SPDX-License-Identifier: GPL-2.0
 ;
@@ -28,7 +29,7 @@ Signature   = "$WINDOWS NT$"
 Class       = Display
 ClassGuid   = {4D36E968-E325-11CE-BFC1-08002BE10318}
 Provider    = %ProviderName%
-DriverVer   = 10/13/2026,1.0.17.1
+DriverVer   = 10/13/2026,1.0.19.1
 CatalogFile = MaliG76Wddm.cat
 PnpLockdown = 1
 

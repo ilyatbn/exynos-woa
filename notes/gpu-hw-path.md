@@ -104,3 +104,22 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   no fsck) into System32 maliumd.dll + libgallium_d3d10.dll (sha256 verified on the device), so DWM loads it at
   the next boot (the in-Windows swap only reaches new processes). gpu\umd-new removed from the ESP; d3dtri-2
   (bright clear 0xff4073d9) on the ESP.
+- 01:25 run h3c started: DWM on Panfrost with UMD 0043 (no pin).
+- **Run h3c (01:25-01:35, runs/h3c, UMD 0043):** DWM/LogonUI got past the viewport assert - KMD counted 66 GPU jobs
+  from them before the tests (0 in h3b), no fault - then still crashed 0xc0000409 (logon never completed).
+  LogonUI.exe.4300.dmp: wassert <- maliumd!ttn_src_for_file_and_index (tgsi_to_nir.c:748 UNREACHABLE "bad src
+  file") <- ttn_get_src <- ttn_emit_instruction <- tgsi_to_nir <- panfrost_create_shader_state <- d3d10umd
+  CreatePixelShader. ttn_get_src skips only NULL/SAMPLER/IMAGE/BUFFER operands; d3d10umd's D3D10 sampling
+  opcodes (SAMPLE, SAMPLE_B/C/C_LZ/D/L, SAMPLE_I, SVIEWINFO, ShaderTGSI.c:1448-1776) carry a SAMPLER_VIEW operand,
+  and tgsi_to_nir implements none of them (only GL TEX/TXB/TXL/TXD/TXF/TG4/LODQ/TXQ with combined samplers). Any
+  D3D shader that samples a texture died here.
+- Mesa 0044 (tgsi_to_nir): ttn_sample + ttn_sviewinfo, semantics copied from softpipe tgsi_exec (exec_sample,
+  exec_sample_d, exec_txf, exec_txq): src0 coord, src1 SVIEW (target from its DECL, result re-swizzled by the
+  SVIEW operand's swizzle), src2 SAMP as a SEPARATE sampler variable (texture_deref binding = SVIEW, sampler_deref
+  binding = SAMP; nir_lower_samplers lowers each from its own var.binding), src3.x compare/bias/lod, src3/src4
+  ddx/ddy, SAMPLE_C_LZ lod 0, SAMPLE_I integer coords + mip in src0.w (no lod for buffers), SVIEWINFO txs +
+  query_levels (1 for buffer/MSAA). SAMPLER_VIEW operands skipped in ttn_get_src. First build failed
+  (ttn_swizzle is a token-pasting macro) -> nir_swizzle with an array. Build mali-umd-0044 maliumd.dll
+  4f78b651..., copied to System32 from TWRP (sha256 verified).
+- d3dtri `tex` mode (2x2 texture via Sample / Load / GetDimensions, quadrant pixel check) PASS on WARP x64;
+  ARM64 d3dtri-3 on the ESP; extra-gpu-h3.cmd runs it in session 0 on Panfrost first.

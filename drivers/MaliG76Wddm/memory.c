@@ -27,7 +27,7 @@ NTSTATUS MwQuerySegment(MW_ADAPTER *A, const DXGKARG_QUERYADAPTERINFO *Info)
     }
     DXGK_SEGMENTDESCRIPTOR3 *d = &out->pSegmentDescriptor[0];
     RtlZeroMemory(d, sizeof(*d));
-    d->BaseAddress.QuadPart = MK_VA_START;  /* nominal: nothing uses aperture offsets */
+    d->BaseAddress.QuadPart = MK_VA_START;  /* nominal; MwScanoutLookup matches flip PrimaryAddress against it + offset */
     d->Size = MW_SEGMENT_SIZE;
     d->CommitLimit = MW_SEGMENT_SIZE;
     d->Flags.Aperture = TRUE;
@@ -280,7 +280,11 @@ NTSTATUS APIENTRY MwBuildPagingBuffer(IN_CONST_HANDLE hAdapter, DXGKARG_BUILDPAG
             ExAcquireFastMutex(&a->MmuLock);
             alloc->Mdl = Arg->MapApertureSegment.pMdl;
             alloc->MdlPage = (ULONG)Arg->MapApertureSegment.MdlOffset;
+            alloc->SegOffset = (ULONG64)Arg->MapApertureSegment.OffsetInPages * PAGE_SIZE;
+            alloc->SegAddress = MK_VA_START + alloc->SegOffset;
             ExReleaseFastMutex(&a->MmuLock);
+            if (alloc->Flags & MW_ALLOC_PRIMARY)
+                MwScanoutRegister(a, alloc, TRUE);
             a->Maps++;
             return STATUS_SUCCESS;
         }
@@ -293,7 +297,11 @@ NTSTATUS APIENTRY MwBuildPagingBuffer(IN_CONST_HANDLE hAdapter, DXGKARG_BUILDPAG
         alloc->Mapped = NT_SUCCESS(st);
         alloc->Mdl = Arg->MapApertureSegment.pMdl;
         alloc->MdlPage = (ULONG)Arg->MapApertureSegment.MdlOffset;
+        alloc->SegOffset = (ULONG64)Arg->MapApertureSegment.OffsetInPages * PAGE_SIZE;
+        alloc->SegAddress = MK_VA_START + alloc->SegOffset;
         ExReleaseFastMutex(&a->MmuLock);
+        if (alloc->Flags & MW_ALLOC_PRIMARY)
+            MwScanoutRegister(a, alloc, TRUE);
         a->Maps++;
         if (!NT_SUCCESS(st))
             a->MapFails++;
@@ -306,6 +314,7 @@ NTSTATUS APIENTRY MwBuildPagingBuffer(IN_CONST_HANDLE hAdapter, DXGKARG_BUILDPAG
         MW_ALLOCATION *alloc = (MW_ALLOCATION *)Arg->UnmapApertureSegment.hAllocation;
         if (alloc == NULL)
             return STATUS_SUCCESS;
+        MwScanoutRegister(a, alloc, FALSE);
         if (!a->GpuUp) {
             ExAcquireFastMutex(&a->MmuLock);
             alloc->Mdl = NULL;

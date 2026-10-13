@@ -97,6 +97,10 @@ typedef struct _MW_ALLOCATION {
      * which is how a present reaches the pixels on the CPU. */
     PMDL Mdl;
     ULONG MdlPage;
+    /* While mapped: segment BaseAddress (MK_VA_START) + OffsetInPages * PAGE_SIZE, the form PrimaryAddress is
+     * matched against for flips that come without hAllocation (UNVERIFIED form - the PRAM lookup lines check it). */
+    ULONG64 SegAddress;
+    ULONG64 SegOffset;          /* OffsetInPages * PAGE_SIZE alone, matched too */
 } MW_ALLOCATION;
 
 typedef struct _MW_ADAPTER MW_ADAPTER;
@@ -205,6 +209,11 @@ struct _MW_ADAPTER {
     KSPIN_LOCK ScanLock;                /* held by the latch while it copies, and by FreeAllocation's forget */
     MW_ALLOCATION * volatile PendingPrimary;    /* set lock-free by SetVidPnSourceAddress (any IRQL) */
     PHYSICAL_ADDRESS PendingAddress;
+    /* Mapped primaries, for flips whose DXGKARG_SETVIDPNSOURCEADDRESS.hAllocation is NULL (MS Learn: hAllocation is
+     * only "if non-NULL"; the allocation is then named by PrimarySegment/PrimaryAddress). Written at PASSIVE with
+     * interlocked exchanges, read lock-free at DIRQL. */
+    MW_ALLOCATION * volatile Prims[8];
+    volatile LONG Lookups;
     volatile LONG Latches;
     volatile LONG IsrCalls, DpcCalls, VsyncTicks;
 };
@@ -279,6 +288,8 @@ DXGKDDI_CONTROLINTERRUPT MwControlInterrupt;
 DXGKDDI_GETSCANLINE MwGetScanLine;
 BOOLEAN MwJobInterrupt(MW_ADAPTER *A);    /* from the ISR, at DIRQL */
 void MwScanoutForget(MW_ADAPTER *A, MW_ALLOCATION *Alloc);   /* memory.c FreeAllocation: drop a pending latch */
+void MwScanoutRegister(MW_ADAPTER *A, MW_ALLOCATION *Alloc, BOOLEAN Mapped); /* memory.c map/unmap of a primary */
+MW_ALLOCATION *MwScanoutLookup(MW_ADAPTER *A, ULONG64 PrimaryAddress);     /* display.c, any IRQL */
 void MwCommandInit(MW_ADAPTER *A);
 void MwCommandStop(MW_ADAPTER *A);
 void MwArmPoll(MW_ADAPTER *A);

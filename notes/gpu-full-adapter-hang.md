@@ -886,3 +886,16 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   PresentSkips); extra-gpu-mode.cmd runs `s10ediag flush` at its end. Package mali-g36 (sys c04ac708…, cmd f1cb08a6…).
 - ESP was 100% full: g35's dxgk.xml = 461 MB on the 600 MB ESP -> the real reason for the 0-byte files (with the hard reset). Pulled copies verified (etl sha 8aaea91e identical), ESP copies of dxgk.xml/csv/etl deleted (16% used after). extra-gpu-mode.cmd: no XML, CSV on C:\S10eTmp (deleted after the findstr extracts), only the 64 MB .etl copied to the ESP (decode on the PC).
 - PC-side decode verified on g35's etl: `tracerpt dxgk.etl -o dxgk.xml -of XML -y -lr` (PowerShell; -lr needed) -> same Dwm-Core counts (BUFFERFLIP 39, PRESENT_SUCCEEDED 39, RETIREFRAME 40). 755 MB XML, delete after parsing.
+
+## Run g36full (11:18, KMD 1.0.28.1 + latch PRAM + flush + ETW decode on C:) - collection complete, no latch
+- out\last\gpu complete this time (trace.reg, pnp-*, dwm-all 61 MB, dxgk.etl 31 MB). ESP 31 % after.
+- KMD PRAM: DWM's flips arrive as Present (0) + SetVidPnSourceAddress (0) pairs ~1.2 s apart, vsync DPC running
+  (HB v=0x91c), but **no "Latch" line at all** -> Latch never ran -> PendingPrimary never set -> hAllocation NULL.
+- MS Learn DXGKARG_SETVIDPNSOURCEADDRESS: hAllocation "If non-NULL, a handle that the display miniport driver
+  assigned"; otherwise the primary is PrimarySegment / PrimaryAddress. Our driver only latched non-NULL handles.
+- Fix (KMD 1.0.29.1, build 29): BuildPagingBuffer MAP_APERTURE_SEGMENT records SegOffset (OffsetInPages*PAGE_SIZE)
+  and SegAddress (segment BaseAddress MK_VA_START + offset) and registers MW_ALLOC_PRIMARY allocations in a lock-free
+  table (unmap / FreeAllocation remove them); SetVidPnSourceAddress resolves a flip (ContextCount > 0) without
+  hAllocation by PrimaryAddress. The address form is UNVERIFIED - the first 6 lookups go to PRAM ("Lookup addr lo",
+  "Lookup how" 1 = base+offset, 2 = offset, 0 = none). Package mali-g37 (sys 48c95672…).
+- Monitoring: tools/phone/phonestate.sh (user: don't get stuck waiting while the phone is already in TWRP).

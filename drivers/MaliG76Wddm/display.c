@@ -797,12 +797,18 @@ NTSTATUS APIENTRY MwSetVidPnSourceAddress(IN_CONST_HANDLE hAdapter, const DXGKAR
         if (InterlockedExchange(&once, 1) == 0)
             MwPramText(TRUE, "SetSourceAddress irql ", NULL, (ULONG)KeGetCurrentIrql(), TRUE);
     }
-    if (!MwFlipMmio || Arg->hAllocation == NULL) {
+    HANDLE target = Arg->hAllocation;
+    /* Run g36full: DWM's MMIO flips reached here (Present + SetVidPnSourceAddress pairs in PRAM) but no latch ever
+     * ran - hAllocation was NULL. MS Learn DXGKARG_SETVIDPNSOURCEADDRESS: hAllocation is only "If non-NULL"; the
+     * primary is otherwise PrimarySegment/PrimaryAddress, so a flip (ContextCount > 0) is resolved by address. */
+    if (MwFlipMmio && target == NULL && Arg->ContextCount > 0)
+        target = MwScanoutLookup(dev, (ULONG64)Arg->PrimaryAddress.QuadPart);
+    if (!MwFlipMmio || target == NULL) {
         dev->ScanoutAddress = Arg->PrimaryAddress;
         return STATUS_SUCCESS;
     }
     dev->PendingAddress = Arg->PrimaryAddress;
     KeMemoryBarrier();
-    (void)InterlockedExchangePointer((PVOID volatile *)&dev->PendingPrimary, Arg->hAllocation);
+    (void)InterlockedExchangePointer((PVOID volatile *)&dev->PendingPrimary, target);
     return STATUS_SUCCESS;
 }

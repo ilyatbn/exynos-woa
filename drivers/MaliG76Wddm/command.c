@@ -547,6 +547,57 @@ void MwScanoutForget(MW_ADAPTER *A, MW_ALLOCATION *Alloc)
     KeAcquireSpinLock(&A->ScanLock, &irql);
     (void)InterlockedCompareExchangePointer((PVOID volatile *)&A->PendingPrimary, NULL, Alloc);
     KeReleaseSpinLock(&A->ScanLock, irql);
+    MwScanoutRegister(A, Alloc, FALSE);
+}
+
+/* PASSIVE (BuildPagingBuffer map/unmap, FreeAllocation): keep the table of mapped primaries that
+ * MwScanoutLookup searches. A full table is reported once to PRAM. */
+void MwScanoutRegister(MW_ADAPTER *A, MW_ALLOCATION *Alloc, BOOLEAN Mapped)
+{
+    static LONG full;
+    ULONG i;
+
+    for (i = 0; i < ARRAYSIZE(A->Prims); i++) {
+        if (A->Prims[i] == Alloc) {
+            if (!Mapped)
+                (void)InterlockedExchangePointer((PVOID volatile *)&A->Prims[i], NULL);
+            return;
+        }
+    }
+    if (!Mapped)
+        return;
+    for (i = 0; i < ARRAYSIZE(A->Prims); i++) {
+        if (InterlockedCompareExchangePointer((PVOID volatile *)&A->Prims[i], Alloc, NULL) == NULL)
+            return;
+    }
+    if (InterlockedExchange(&full, 1) == 0)
+        MwPramText(TRUE, "Prims table full", NULL, 0, FALSE);
+}
+
+/* Any IRQL (SetVidPnSourceAddress runs at DIRQL with FlipOnVSyncMmIo): the mapped primary at PrimaryAddress, or
+ * NULL. The first 6 lookups go to PRAM with the address and which form matched (1 base+offset, 2 offset, 0 none). */
+MW_ALLOCATION *MwScanoutLookup(MW_ADAPTER *A, ULONG64 PrimaryAddress)
+{
+    MW_ALLOCATION *hit = NULL;
+    ULONG how = 0, i;
+
+    for (i = 0; i < ARRAYSIZE(A->Prims) && hit == NULL; i++) {
+        MW_ALLOCATION *p = A->Prims[i];
+        if (p == NULL)
+            continue;
+        if (p->SegAddress == PrimaryAddress) {
+            hit = p;
+            how = 1;
+        } else if (p->SegOffset == PrimaryAddress) {
+            hit = p;
+            how = 2;
+        }
+    }
+    if (InterlockedIncrement(&A->Lookups) <= 6) {
+        MwPramText(TRUE, "Lookup addr lo ", NULL, (ULONG)PrimaryAddress, TRUE);
+        MwPramText(TRUE, "Lookup how ", NULL, how, TRUE);
+    }
+    return hit;
 }
 
 static VOID VsDpc(PKDPC Dpc, PVOID Context, PVOID Arg1, PVOID Arg2)

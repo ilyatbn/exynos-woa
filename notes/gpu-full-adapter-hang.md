@@ -907,3 +907,11 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
 - KMD 1.0.30.1 (build 30): the first 8 SetVidPnSourceAddress calls log their raw arguments to PRAM ("SVA h.cc",
   "SVA addr lo", "SVA seg.flags"); a flip is now "not Flags.ModeChange" (DXGK_SETVIDPNSOURCEADDRESS_FLAGS, WDK
   d3dkmddi.h) instead of ContextCount > 0. Package mali-g38.
+
+## Run g38full (11:46, KMD 1.0.30.1) - raw SetVidPnSourceAddress arguments
+- Every DWM flip: hAllocation NON-NULL, ContextCount 1, PrimarySegment 1, Flags 0x4 (FlipOnNextVSync), PrimaryAddress
+  0x02965000 - the same address on every flip (~1.2-3 s apart). So the g37 premise (NULL hAllocation) was wrong too:
+  PendingPrimary is set on each flip. No "Latch" line in the ring though - the ring holds only the last 255 lines
+  (from 40.8 s); the latch log was limited to the first 4 latches, likely boot-console flips before that window.
+- KMD 1.0.31.1 (build 31): latch also logged every 16th latch. Package mali-g39. Lesson: "first N" logs into a ring
+  that wraps are useless; log periodically or into a fixed slot.

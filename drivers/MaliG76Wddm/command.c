@@ -522,7 +522,9 @@ static void Latch(MW_ADAPTER *A)
         /* Run g35full: DWM's MMIO flips all succeed and retire, the panel stays dark, and the counter dump was lost
          * to the hard reset. The first 4 latches go to PRAM: the source's CPU view (0 = no MDL -> skipped) and its
          * first and middle pixels (all 0 = the frame itself is black). */
-        if (A->Latches < 4) {
+        /* g38full: the first 4 fell out of the 255-line PRAM ring before the trace was read (boot-console flips) -
+         * every 16th latch is logged too, so the latest ones are in the ring. */
+        if (A->Latches < 4 || (A->Latches & 15) == 0) {
             PUCHAR va = AllocationVa(p);
             ULONG mid = (ULONG)(((SIZE_T)(p->Height / 2) * (p->Pitch ? p->Pitch : p->Width * 4)) +
                                 (SIZE_T)(p->Width / 2) * 4);

@@ -355,6 +355,41 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
             Method (_STA, 0, NotSerialized) { Return (0x0F) }
         }
 
+        // D4c: the BT function of the same BCM4375, on the dedicated BT UART
+        // (uart@10840000). Windows half = drivers/Exynos9820Bt (BthxDDI
+        // transport, direct-MMIO H4). Design: D4c-BT-DESIGN.md.
+        // NOT in _CRS (role-latch, same contract as WLAN/XHC0): the USI mode
+        // register 0x10821000, CMU_PERIC1 gates (ids 0x22a/0x23c) and the
+        // gpq0 pin mux are latched by UEFI; USI_CON/OPTION live INSIDE the
+        // UART window and the driver re-asserts them.
+        // _CRS ORDER IS A BINDING CONTRACT: Exynos9820Bt maps descriptor
+        // 0 = UART MEM, 1 = GpioInt (hostwake), 2 = UART Interrupt.
+        Device (BTH0)
+        {
+            Name (_HID, "SAMS9826")   // vendor _HID for the BCM4375 BT-over-UART device
+            Name (_UID, Zero)
+            Name (_CCA, 1)            // same coherency story as WLAN on this SoC
+            Name (_DEP, Package (1)
+            {
+                \_SB.GPIO
+            })
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, 0x10840000, 0x00000100)  // VERIFIED uart@10840000 reg (base.dtb)
+                GpioInt (Edge, ActiveBoth, Shared, PullUp, 0xFFFF,
+                    "\\_SB.GPIO", 0x00, ResourceConsumer, , )
+                { 19 }   // bt_hostwake gpa2-3 = EINT19 (VERIFIED dtb00 bt-hostwake + __fixups__ gpa2);
+                         // 0xFFFF = no debounce: a chip wake line, not a key contact
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)
+                {
+                    408  // VERIFIED: base.dtb uart@10840000 interrupts <0 0x198 0>;
+                         // DT trigger cell is 0 (unspecified) — Level/ActiveHigh follows
+                         // the on-chip SPI convention used by UFS0/XHC0
+                }
+            })
+            Method (_STA, 0, NotSerialized) { Return (0x0F) }
+        }
+
         // D8: ALIVE GPIO controller (Exynos9820Gpio driver, GpioClx provider).
         // Window VERIFIED: pinctrl@15850000 +0x1000 (live DTB; Exynos9820.h).
         // The 34 Interrupt entries are the wakeup-EINT lines EINT0..EINT33 in

@@ -1105,3 +1105,52 @@ needs-phone, P4/P5 close at R1/R4 by observation.
 destructive was run; the phone was not touched (it was not connected). The
 PCIe module writes only registers Android's own driver programs, and pcie_1
 (the modem doorbell) stays untouched/disabled.
+
+## 25. Restart point — D4c Bluetooth (2026-10-12, research + design + skeleton)
+
+**What is committed (all of it — the tree is clean):**
+
+- `notes/bt-driver.md` — the whole research record (B1..B5) with per-commit
+  review log and Sources. The chip: BT function of the same **BCM4375**, on the
+  dedicated **BT UART `uart@10840000`** (USI v2, GSIV 408, fifo 256), pins
+  gpq0-0..3 (ALIVE), bt_wake gpg2-0, bt_hostwake gpa2-3 (EINT19/GSIV 56),
+  bt_en = PCAL6524@0x22 on **hsi2c@10930000** pin 7 (variant-dependent, Q1).
+  Patch files on the device are a raw HCI stream (`0xFC4C`×1260 + `0xFC4E`) —
+  exactly what mainline `btbcm_patchram` replays. Stock Android runs **no**
+  kernel HCI UART (`# CONFIG_BT_HCIUART is not set`): transport is userspace.
+- `Exynos9820.h` "Bluetooth" block + 3 memory-map entries (UART_BT/USI_BT/
+  HSI2C25) — Linux verification build exit 0, FD sha `d1e36668…`.
+- `docs/exynos9820-port/D4c-BT-DESIGN.md` — two-halves design: UEFI role-latch
+  (CMU/pinctrl/USI mode) + Windows **direct-MMIO BthxDDI transport** (no serial
+  stack — Samsung UART is not 16550); rung ladder R1..R6; license posture
+  (serialhcibus/cywbtserialbus MS-PL adoptable; hci_bcm/btbcm GPL refs only;
+  blobs device-copied, never committed).
+- DSDT `Device (BTH0)` `_HID SAMS9826` — UART window + GSIV 408 + hostwake
+  GpioInt 19 (no debounce); built into the FD, `Dsdt.aml` carries it.
+- `drivers/Exynos9820Bt/` — KMDF skeleton (not built — needs WDK): implemented
+  UART/USI programming, H4 TX framing, `.hcd` walker; every later stage is a
+  NOT-IMPLEMENTED marker naming rung + reference file.
+- `DRIVERS-MILESTONES.md` — D4c milestone + task rows moved with the work.
+
+**The exact next order of work:**
+
+1. **needs-phone (cheap, do first)**: attach the S10e to a machine with adb and
+   read, from TWRP root: `od -t x4 /proc/device-tree/bluetooth/gpios` (24 B) and
+   which dtbo overlay is live — closes **Q1** (bt_en line: PCAL6524 pin 7 vs
+   gpm8 vs null). Also `ls /vendor/firmware/*4375*` for the exact blob names.
+2. **firmware half**: `Beyond0LteBtUartDxe` — CMU_PERIC1 QCH+ungates (ids
+   0x22a/0x23c, M12's gate math), gpq0 fn2 mux, USI mode=1 at 0x10821000, then
+   **R1** loopback + **R2** `HCI_READ_LOCAL_VERSION` prints on the debug serial.
+   This also closes the `BT_UART_SRC_CLK_HZ` UNVERIFIED (100 MHz assumption).
+3. **needs-windows**: `msbuild drivers\Exynos9820Bt\Exynos9820Bt.vcxproj
+   /p:Configuration=Release /p:Platform=ARM64` — first compile arbitrates the
+   WDF/BthxDDI call shapes.
+4. Only after R2: patchram (R3) in UEFI or Windows, then the Windows R4 layers
+   (`_CRS` mapping, ISR/RX ring, FDO/PDO split, BthxDDI per serialhcibus).
+
+**Hazards / unchanged rules:** the BT UART and its pins are **not touched by
+our UEFI today** (sboot leaves them as Android's bootloader set them — unknown);
+the driver writes only registers Android's own stack programs. No destructive
+operation exists in this stream. The phone was NOT connected this session
+(`adb devices` empty on the Linux box) — all device reads above are queued,
+none guessed around.

@@ -521,6 +521,68 @@
 
 //
 // ---------------------------------------------------------------------------
+// Bluetooth: the BT function of the SAME BCM4375, on a dedicated UART (D4c).
+// Every value read from the shipped base.dtb / dtb00 model overlay with a raw
+// FDT walk, or from the vendor drivers — notes/bt-driver.md B3.
+//
+// Transport: uart@10840000 (aliases uart1 / serial_1, PERIC1 block), a USI v2
+// FIFO UART; its mode-select register is the 4-byte usi@10821000 (base DT has
+// both "disabled"; the model overlay selects usi_v2_mode="uart" + okay).
+// Samsung USI v2 UART quirks: USI_CON must be written 1 then 0 to release the
+// pad reset, and USI_OPTION bit1 (CLKREQ_ON) set for the clock to run.
+// ---------------------------------------------------------------------------
+//
+#define EXYNOS_UART_BT_BASE       0x0000000010840000ULL   // VERIFIED (base.dtb uart@10840000 reg)
+#define EXYNOS_UART_BT_SIZE       0x0000000000000100ULL   // VERIFIED (same reg, size cell; fifo-size 0x100)
+#define EXYNOS_USI_BT_MODE_BASE   0x0000000010821000ULL   // VERIFIED (base.dtb usi@10821000 reg)
+#define EXYNOS_USI_BT_MODE_SIZE   0x0000000000000004ULL   // VERIFIED
+#define EXYNOS_USI_MODE_UART      0x1                     // VERIFIED (usi_v2.c UART_SW_CONF=1<<0; writel(mode, base))
+#define EXYNOS_UART_USI_CON_OFF   0xC4                    // VERIFIED (serial_s3c.h:46; 1=SET_RESET, 0=release)
+#define EXYNOS_UART_USI_OPT_OFF   0xC8                    // VERIFIED (serial_s3c.h:47; bit1 CLKREQ_ON, bit2 CLKSTOP_ON)
+#define EXYNOS_UART_BT_GSIV       408                     // VERIFIED (base.dtb interrupts <0 0x198 0>)
+// CMU_PERIC1 (0x10800000) clock ids of this UART (the two clock cells):
+#define EXYNOS_UART_BT_GATE_ID    0x22a                   // VERIFIED (clock-names gate_uart_clk1)
+#define EXYNOS_UART_BT_IPCLK_ID   0x23c                   // VERIFIED (clock-names ipclk_uart1)
+//
+// Pin mux (base.dtb pinctrl states, ALIVE block pinctrl@15850000):
+//   uart1-bus  = gpq0-3..0 function 2 (UART), pull-up; rxd gpq0-0; the DT also
+//   carries a Samsung TX-contention scheme on gpq0-1 (tx_dat/tx_con/tx_input).
+//   uart1-bus-rts = gpq0-2 function 1 (plain GPIO out, val 1) — the DT's
+//   samsung,rts-gpio-control: RTS is a GPIO, not the USI flow pin.
+// Wake lines (dtb00 model overlay): bt_hostwake gpa2-3 on ALIVE (resolved via
+// __fixups__, flags 0xf), bt_wake gpg2-0 on PERIC0 (pinctrl state applied; the
+// AP-side gpio cell is 0xffffffff in our dtbo — see notes Q1/Q5).
+#define EXYNOS_BT_UART_BUS_BANK   "gpq0"                  // VERIFIED (uart1-bus samsung,pins)
+#define EXYNOS_BT_UART_BUS_FN     2                       // VERIFIED (uart1-bus pin-function)
+#define EXYNOS_BT_RTS_PIN         2                       // VERIFIED (uart1-bus-rts, function 1, val 1)
+#define EXYNOS_BT_HOST_WAKE_BANK  "gpa2"                  // VERIFIED (bt-hostwake samsung,pins)
+#define EXYNOS_BT_HOST_WAKE_PIN   3                       // VERIFIED
+#define EXYNOS_BT_WAKE_BANK       "gpg2"                  // VERIFIED (bt-btwake samsung,pins)
+#define EXYNOS_BT_WAKE_PIN        0                       // VERIFIED
+//
+// bt_en (chip power enable): PCAL6524 I2C GPIO expander at 0x22 on
+// hsi2c@10930000 (symbol hsi2c_25 — our dtb00 __fixups__ for fragment@120),
+// expander pin 7 (gpio_start 0x12c); expander reset gpg4-0 (out, val 1).
+// The older rev-25 overlay variant instead wires gpios[0] to gpm8 — which
+// overlay is live on the phone is Q1 in notes/bt-driver.md, so the driver
+// must not hardcode this line before that read.
+#define EXYNOS_BT_EN_I2C_ADDR     0x22                    // VERIFIED (dtb00 fragment@120 pcal6524@22 reg)
+#define EXYNOS_BT_EN_I2C_BUS_BASE 0x0000000010930000ULL   // VERIFIED (__fixups__ hsi2c_25; base alias hsi2c25)
+#define EXYNOS_BT_EN_I2C_BUS_SIZE 0x0000000000001000ULL   // VERIFIED (base.dtb hsi2c@10930000 reg)
+#define EXYNOS_BT_EN_PIN          7                       // VERIFIED (bluetooth gpios[0] pin cell, dtb00)
+#define EXYNOS_BT_EXP_RESET_BANK  "gpg4"                  // VERIFIED (expander_reset_active, __fixups__ gpg4)
+#define EXYNOS_BT_EXP_RESET_PIN   0                       // VERIFIED (function 1, val 1)
+//
+// Broadcom BT-over-UART vendor opcodes (constants; semantics from mainline
+// btbcm.c/hci_bcm.c — GPL reference only, no code copied):
+#define BCM_HCI_OP_SET_BAUDRATE   0xFC18                  // VERIFIED (hci_bcm.c bcm_set_baudrate; u16 zero + u32 baud)
+#define BCM_HCI_OP_SET_UART_CLOCK 0xFC45                  // VERIFIED (hci_bcm.c; 1-byte clock type, used >3 Mbaud)
+#define BCM_HCI_OP_START_DOWNLOAD 0xFC2E                  // VERIFIED (btbcm.c btbcm_patchram start)
+#define BCM_HCI_OP_WRITE_RAM      0xFC4C                  // VERIFIED (record opcode of the device .hcd, 1260x)
+#define BCM_HCI_OP_LAUNCH_RAM     0xFC4E                  // VERIFIED (last .hcd record, addr 0xFFFFFFFF)
+
+//
+// ---------------------------------------------------------------------------
 // Touch: the HSI2C bus the panel IC hangs off, and the panel itself.
 //
 // VERIFIED on the live phone: touchscreen@48 is a CHILD of hsi2c@104B0000 —

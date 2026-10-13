@@ -1061,3 +1061,7 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
 - So: in full mode LogonUI comes up (DWM on the Mali adapter, 52 submissions, lit panel since 0034) but the
   autologon never proceeds past winlogon's first notification. Next: live minidumps of LogonUI.exe and dwm.exe
   (MiniDumpWriteDump from SYSTEM in pass 2) to see what their threads wait on; cdb x64 + MS symbols on the PC.
+- livedump.ps1 (MiniDumpWriteDump 0x1124: handles, unloaded modules, thread data/info, no full memory) tested on the
+  PC: notepad 0.5 MB, explorer 3.6 MB, cdb x64 walks the stacks with MS symbols. Review found -File passes
+  "LogonUI,dwm,winlogon" as one string -> follow-up commit splits it (re-tested with explorer,sihost,nosuchproc).
+  Run g46full: pass 2 dumps LogonUI, dwm, winlogon into out\last\gpu\live.

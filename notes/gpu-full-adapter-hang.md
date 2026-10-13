@@ -872,3 +872,15 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   full-mode two-pass run.
 - INF: MW_Parameters AddReg now 0x00010003 (DWORD | FLG_ADDREG_NOCLOBBER, MS Learn INF AddReg Directive) so a (staged) install keeps the mode -> g35 stages 1.0.27.1 with stage.flg in pass 1 and still boots pass 2 in full mode. Package rebuilt (sys 619b82da… unchanged, inf f25b44da…, cat 587c743a…).
 - Review of 4971904 + d909901: MMIO-flip branch is before any priv use, 'a' defined above it, FlipBlt path unchanged when FlipMmio 0; NOCLOBBER = 0x10001|0x2 checked against the doc's flag table; only the two Parameters lines use it. Finding: stale 'Flips are not handled yet' header comment above MwPresent -> fixed in the next commit (comment only; the g35 binary is unaffected).
+
+## Run g35full (10:50, KMD 1.0.27.1 staged via stage.flg + NOCLOBBER, UMD g33) - DWM WORKS, panel still dark
+- dxdiag: Driver Version 1.0.27.1, FL 10_0, WDDM 1.3 -> staged install kept full mode (NOCLOBBER works).
+- DxgKrnl Present: 52 events, all ReturnStatus 0. Dwm-Core: LEGACYSWAPCHAIN_BUFFERFLIP x39,
+  SCHEDULE_DXGI_PRESENT_SUCCEEDED x39, SCHEDULE_RETIREFRAME x40, 2872 vblank loops, UNPRESENTED_FRAME x2825 (idle,
+  nothing new), RENDERSKIPPED x15. No more "invalid NTSTATUS". DWM's present path is healthy for the first time.
+- Panel dark on all 36 webcam shots (10:50-11:04). LogonUI still never finished; d3dfill not run.
+- KMD HB: s=0 submits (GPU half off: Mesa renders on the CPU), p=0x1b. Most of out\last\gpu came back as 0-byte
+  files (trace.reg, pnp-*.txt, hashes...) - FAT ESP writes lost to the agent's hard reset after the hung restart.
+- Suspect: the vsync Latch (copy of the flipped primary into the GOP fb) skips (no MDL) or copies a black frame.
+- g36: KMD 1.0.28.1 (build 28) logs the first 4 latches to PRAM (source VA, first and middle pixel, fb present +
+  PresentSkips); extra-gpu-mode.cmd runs `s10ediag flush` at its end. Package mali-g36 (sys c04ac708…, cmd f1cb08a6…).

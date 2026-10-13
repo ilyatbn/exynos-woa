@@ -519,6 +519,20 @@ static void Latch(MW_ADAPTER *A)
         op.SrcRect.right = (LONG)p->Width;
         op.SrcRect.bottom = (LONG)p->Height;
         op.DstRect = op.SrcRect;
+        /* Run g35full: DWM's MMIO flips all succeed and retire, the panel stays dark, and the counter dump was lost
+         * to the hard reset. The first 4 latches go to PRAM: the source's CPU view (0 = no MDL -> skipped) and its
+         * first and middle pixels (all 0 = the frame itself is black). */
+        if (A->Latches < 4) {
+            PUCHAR va = AllocationVa(p);
+            ULONG mid = (ULONG)(((SIZE_T)(p->Height / 2) * (p->Pitch ? p->Pitch : p->Width * 4)) +
+                                (SIZE_T)(p->Width / 2) * 4);
+            MwPramText(TRUE, "Latch va lo ", NULL, (ULONG)(ULONG_PTR)va, TRUE);
+            if (va != NULL) {
+                MwPramText(TRUE, "Latch px0 ", NULL, *(volatile ULONG *)va, TRUE);
+                MwPramText(TRUE, "Latch pxmid ", NULL, *(volatile ULONG *)(va + mid), TRUE);
+            }
+            MwPramText(TRUE, "Latch fb skips ", NULL, ((A->FbVa != NULL) << 24) | (A->PresentSkips & 0xFFFFFF), TRUE);
+        }
         DoPresent(A, &op);
         A->ScanoutAddress = A->PendingAddress;
         InterlockedIncrement(&A->Latches);

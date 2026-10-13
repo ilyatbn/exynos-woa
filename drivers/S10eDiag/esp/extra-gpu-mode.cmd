@@ -122,3 +122,6 @@ call "%ESP%\S10EDIAG\gpu\extra-gpu-g10.cmd"
 for %%R in (trace) do if exist "%G%\%%R.reg" for /f "usebackq delims=" %%L in (`findstr /i "Mode Started Fail Seen_Create GpuQuieted ResContract Presents" "%G%\%%R.reg"`) do s10ediag mark "t: %%L"
 :end
 s10ediag mark g: done
+rem Run g35full: the full-mode clean restart hangs and the agent's hard reset follows; half of out\last\gpu (FAT ESP)
+rem came back as 0-byte files (trace.reg, pnp-gpu0.txt, ...). Flush every volume now, before collect.cmd restarts.
+s10ediag flush > nul 2>&1

@@ -1247,3 +1247,15 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   discard fix their UIF label up to their ENDIF - the nir_to_tgsi pattern (nir_to_tgsi.c:3069-3078). 64 deep,
   bounds-guarded. Build mali-umd-0039 (9c9abcde..., ARM64, only the old upstream warnings). 0038's overflow guard
   stays as a safety net. Run g54full.
+
+## Run g54full (21:12, Mesa 0039) - desktop + every d3dfill colour on the panel, no overflow, no crash
+- Webcam (28 shots): 14 (bluish desktop), **15 red** (144/102/104, panel overexposed, red spill), **16 blue**
+  (101/106/154), 17-21 the desktop (wallpaper, icons, taskbar) until the collection ends. Sent to the user.
+- No tgsi overflow report (0038's guard never fired), no WER dumps, run-as-user Ready after 46 s, d3dfill "every
+  phase presented". So 0039's IF/ELSE label fix-ups are what DWM's blur shader needed.
+- Full mode now: logon, desktop composition, D3D11 app presents all reach the panel - rendered by softpipe on the
+  CPU inside the Mesa UMD (GpuEnable 0); MMIO flips latched into the GOP framebuffer by the KMD's soft-vsync DPC.
+- Remaining, in order: (1) SetFullscreenState 0x887A0022 (exclusive fullscreen refused); (2) the full-mode clean
+  restart still hangs (agent hard reset every run); (3) asserts still on in the UMD (debugoptimized) - any further
+  assert hangs the calling process; (4) cleanup items when leaving GPU testing (MALIKM_TGSI_DIR, LocalDumps keys,
+  display-only mode); (5) GpuEnable 1 (real Mali job submission; ARM kbase r54p2 as reference, notes/gpu-panfrost-repos.md).

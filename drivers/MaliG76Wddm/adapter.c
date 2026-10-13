@@ -110,6 +110,7 @@ static VOID HbDpc(PKDPC Dpc, PVOID Context, PVOID Arg1, PVOID Arg2)
     UNREFERENCED_PARAMETER(Arg2);
     MwPramHeartbeat((ULONG)a->IsrCalls, (ULONG)a->DpcCalls, (ULONG)a->VsyncTicks, a->Submits,
                     a->Presents + a->DodPresents + (ULONG)a->Latches, a->LastCompletedFence);
+    MwPramStats((ULONG)a->Opens, (ULONG)a->StdRefused, (ULONG)a->Latches, a->PresentSkips, a->PresentBlts);
 }
 
 static void HbStop(MW_ADAPTER *A)

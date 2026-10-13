@@ -206,9 +206,8 @@ NTSTATUS APIENTRY MwGetStandardAllocationDriverData(IN_CONST_HANDLE hAdapter,
     default: {
         /* g39 follow-up: which other standard types (GDISURFACE = DWM redirection) does the OS ask for? Each
          * type once, to PRAM, with the GDI surface type when there is one. */
-        static LONG seen;
         ULONG bit = 1u << ((ULONG)Arg->StandardAllocationType & 31);
-        if ((InterlockedOr(&seen, (LONG)bit) & (LONG)bit) == 0)
+        if ((InterlockedOr(&((MW_ADAPTER *)hAdapter)->StdRefused, (LONG)bit) & (LONG)bit) == 0)
             MwPramText(TRUE, "StdAlloc unsupported type.gdi ", NULL,
                        ((ULONG)Arg->StandardAllocationType << 16) |
                        (Arg->StandardAllocationType == D3DKMDT_STANDARDALLOCATION_GDISURFACE &&
@@ -250,8 +249,7 @@ NTSTATUS APIENTRY MwOpenAllocation(IN_CONST_HANDLE hDevice, const DXGKARG_OPENAL
     MW_DEVICE *dev = (MW_DEVICE *)hDevice;
     DXGKRNL_INTERFACE *dx = &dev->Adapter->Dxgk;
 
-    static LONG opens;
-    LONG n = InterlockedIncrement(&opens);
+    LONG n = InterlockedIncrement(&dev->Adapter->Opens);
 
     for (UINT i = 0; i < Arg->NumAllocations; i++) {
         DXGKARGCB_GETHANDLEDATA get = {0};

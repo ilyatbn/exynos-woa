@@ -33,8 +33,9 @@
 #define PRAM_LINES          (PRAM_SIZE / PRAM_LINE)
 #define PRAM_HB_LINE        1u
 #define PRAM_FIRST_START    2u
-#define PRAM_FIRST_COUNT    110u
-#define PRAM_ROLL_START     (PRAM_FIRST_START + PRAM_FIRST_COUNT)
+#define PRAM_FIRST_COUNT    109u
+#define PRAM_STATS_LINE     (PRAM_FIRST_START + PRAM_FIRST_COUNT)   /* g40: counters, rewritten in place */
+#define PRAM_ROLL_START     (PRAM_STATS_LINE + 1u)
 #define PRAM_ROLL_COUNT     (PRAM_LINES - PRAM_ROLL_START)
 
 C_ASSERT(PRAM_ROLL_START + PRAM_ROLL_COUNT == PRAM_LINES);
@@ -222,6 +223,29 @@ void MwPramDdi(BOOLEAN First, BOOLEAN Exit, const CHAR *Name, NTSTATUS Status)
 /* The heartbeat line (rewritten in place, no sequence number): "HB i<isr> d<dpc> v<vsync> s<submits> p<presents>
  * f<fence>", 6 hex digits each (low 24 bits) - 61 characters. If its uptime stops advancing before the phone was
  * reset, the 1 Hz timer DPC stopped running. */
+/* The stats line (rewritten in place like the heartbeat): "ST o<opens> u<refused std types mask> l<latches>
+ * k<present skips> b<present blts>", 6 hex digits each. g40full: per-event lines into the first-call region or the
+ * ring kept getting lost (the first-call region persists across boots and fills; the ring wraps in ~20 s). */
+void MwPramStats(ULONG Opens, ULONG Refused, ULONG Latches, ULONG Skips, ULONG Blts)
+{
+    PRAM_TEXT t;
+    if (Pram == NULL)
+        return;
+    Begin(&t, ~0u);
+    Str(&t, "ST o", 0);
+    Hex(&t, Opens, 6);
+    Str(&t, " u", 0);
+    Hex(&t, Refused, 6);
+    Str(&t, " l", 0);
+    Hex(&t, Latches, 6);
+    Str(&t, " k", 0);
+    Hex(&t, Skips, 6);
+    Str(&t, " b", 0);
+    Hex(&t, Blts, 6);
+    Store(PRAM_STATS_LINE, &t);
+    KeMemoryBarrier();
+}
+
 void MwPramHeartbeat(ULONG Isr, ULONG Dpc, ULONG Vsync, ULONG Submits, ULONG Presents, ULONG Fence)
 {
     PRAM_TEXT t;

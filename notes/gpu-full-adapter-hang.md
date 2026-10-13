@@ -938,3 +938,11 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
 - KMD 1.0.32.1 (build 32, package mali-g40): PRAM "Open n.allocs" / "Open flags.fmt" / "Open wxh" for opens 1-8 and
   every 16th (what DWM opens), "StdAlloc unsupported type.gdi" once per refused standard type (does the OS ask for
   GDISURFACE?). Plan step 5 (device check before building shared resources).
+
+## Run g40full (12:21, KMD 1.0.32.1) - inconclusive (PRAM per-event logging lost again)
+- Ring covered only 41-60 s; no OpenAllocation DDI in that window, no "Open"/"StdAlloc unsupported" lines anywhere.
+  Root cause of the repeated losses: the 109/110 first-call lines PERSIST across boots ("LOAD ... cont") and are full,
+  so First=TRUE lines overflow into the ring, which wraps in ~20 s.
+- KMD 1.0.33.1 (build 33, package mali-g41): fixed PRAM stats line (line 111, roll ring now 112-255) rewritten by the
+  1 Hz heartbeat DPC: "ST o<OpenAllocation calls> u<refused standard-type bitmask> l<latches> k<present skips>
+  b<present blts>". Adapter counters Opens / StdRefused.

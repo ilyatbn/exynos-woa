@@ -214,6 +214,8 @@ struct _MW_ADAPTER {
      * interlocked exchanges, read lock-free at DIRQL. */
     MW_ALLOCATION * volatile Prims[8];
     volatile LONG Lookups;
+    volatile LONG Opens;                /* DxgkDdiOpenAllocation calls (PRAM stats line) */
+    volatile LONG StdRefused;           /* bit per refused standard allocation type */
     volatile LONG Latches;
     volatile LONG IsrCalls, DpcCalls, VsyncTicks;
 };
@@ -230,6 +232,7 @@ void MwPramFree(void);
 void MwPramText(BOOLEAN First, const CHAR *Tag, PCWSTR Name, ULONG Value, BOOLEAN HasValue);
 void MwPramDdi(BOOLEAN First, BOOLEAN Exit, const CHAR *Name, NTSTATUS Status);
 void MwPramHeartbeat(ULONG Isr, ULONG Dpc, ULONG Vsync, ULONG Submits, ULONG Presents, ULONG Fence);
+void MwPramStats(ULONG Opens, ULONG Refused, ULONG Latches, ULONG Skips, ULONG Blts);
 
 /* display.c: VidPN and the POST framebuffer (both modes), PresentDisplayOnly (display-only mode) */
 NTSTATUS MwDisplayStart(MW_ADAPTER *A);

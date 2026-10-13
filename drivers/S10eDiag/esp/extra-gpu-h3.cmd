@@ -54,6 +54,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File %T%\livedump.ps1 -Out "%X%\d
 wevtutil qe Application /q:"*[System[(EventID=1000 or EventID=1002)]]" /c:10 /rd:true /f:text > "%X%\app-crashes.txt" 2>&1
 wevtutil qe Application /q:"*[System[Provider[@Name='Desktop Window Manager']]]" /c:20 /rd:true /f:text > "%X%\ev-dwm.txt" 2>&1
 wevtutil qe System /q:"*[System[Provider[@Name='Display']]]" /c:20 /rd:true /f:text > "%X%\ev-display.txt" 2>&1
+rem Mesa 0050 timing logs (one per process with the UMD loaded, DWM's included) from MALIKM_TGSI_DIR; the ones no
+rem process holds open any more (earlier boots, exited tests) are deleted after the copy
+mkdir "%X%\tlog" > nul 2>&1
+copy /y C:\S10eTmp\tgsi\malikm-*.txt "%X%\tlog\" > nul 2>&1
+del /q C:\S10eTmp\tgsi\malikm-*.txt > nul 2>&1
 s10ediag peek 0x8FE04000 0x4000 > "%X%\maliwddm-pram-peek.txt" 2>&1
 reg export "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SAMS9828\0\Device Parameters\MaliG76Wddm" "%X%\trace.reg" /y > nul 2>&1
 

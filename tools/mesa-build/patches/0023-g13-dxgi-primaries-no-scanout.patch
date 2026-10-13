@@ -1,0 +1,58 @@
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index 9d724ea..e8b15f5 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -193,6 +193,8 @@ subResourceBox(struct pipe_resource *resource, // IN
+  * callbacks; 0 and *hAlloc set on success, -1 when not bound to maliwddm (nothing changes then). */
+ extern "C" int malikm_primary_create(void *hRTResource, unsigned vidpn, unsigned w, unsigned h, unsigned *hAlloc);
+ extern "C" void malikm_primary_destroy(unsigned hAlloc);
++/* G13: true when the device is bound to the maliwddm runtime (d3d10_gdi.c d3d10_bind_runtime result >= 0). */
++extern "C" bool d3d10_runtime_is_maliwddm(void);
+ 
+ void APIENTRY
+ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+@@ -319,10 +321,24 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+       return;
+    }
+ 
++   /* G13 (exynos-woa, patch 0023): DXGI primaries are not scan-out capable on the maliwddm runtime, so DXGI
++    * composes with blt presents into the shared primary instead of flipping. Every flip of DWM's swap chain was
++    * refused with STATUS_GRAPHICS_PRESENT_MODE_CHANGED whatever the primary allocation (shim-owned g22-g24,
++    * resource-owned g25, DMA or MMIO flips g26); blt presents work (the boot console's). The flag is the one the
++    * #if 0 block above names (DXGI_DDI_PRIMARY_DRIVER_FLAG_NO_SCANOUT). MALIKM_SCANOUT=1 keeps the flip path. */
++   bool no_scanout = false;
++   if (pCreateResource->pPrimaryDesc && d3d10_runtime_is_maliwddm()) {
++      const char *keep = getenv("MALIKM_SCANOUT");
++      if (!(keep && *keep == '1')) {
++         pCreateResource->pPrimaryDesc->DriverFlags |= DXGI_DDI_PRIMARY_DRIVER_FLAG_NO_SCANOUT;
++         no_scanout = true;
++      }
++   }
++
+    /* G13: DXGI swap-chain primaries get a kernel primary allocation tied to the runtime resource, so the
+     * runtime's flip of this resource names an allocation dxgkrnl created for the current mode (shim-owned
+-    * primaries were refused with STATUS_GRAPHICS_PRESENT_MODE_CHANGED, runs g22-g24). */
+-   if (pCreateResource->pPrimaryDesc && templat.target == PIPE_TEXTURE_2D) {
++    * primaries were refused with STATUS_GRAPHICS_PRESENT_MODE_CHANGED, runs g22-g24). Not with no_scanout. */
++   if (pCreateResource->pPrimaryDesc && !no_scanout && templat.target == PIPE_TEXTURE_2D) {
+       unsigned h = 0;
+       if (malikm_primary_create(hRTResource.handle, pCreateResource->pPrimaryDesc->VidPnSourceId,
+                                 templat.width0, templat.height0, &h) == 0)
+diff --git a/src/gallium/targets/d3d10umd/d3d10_gdi.c b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+index d662bfd..95718e2 100644
+--- a/src/gallium/targets/d3d10umd/d3d10_gdi.c
++++ b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+@@ -200,6 +200,13 @@ int malikm_bind_d3dddi(HANDLE hRTAdapter, HANDLE hRTDevice, const void *pKTCallb
+  * runtime callbacks), 1 the maliwddm adapter without a GPU (callbacks kept for presenting only), -1 anything else. */
+ static int d3d10_runtime_bind = -1;
+ 
++/* G13 (patch 0023): for the frontend's CreateResource - the last bind reached the maliwddm adapter. */
++bool
++d3d10_runtime_is_maliwddm(void)
++{
++   return d3d10_runtime_bind >= 0;
++}
++
+ bool
+ d3d10_bind_runtime(HANDLE hRTAdapter, HANDLE hRTDevice, const void *pKTCallbacks,
+                    const void *pDXGIBaseCallbacks)

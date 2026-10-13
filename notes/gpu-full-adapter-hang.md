@@ -666,3 +666,23 @@ patches/*.patch after the reference patches, one commit each).
   refuse flip-model: report DXGI_DDI_PRIMARY_DRIVER_FLAG_NO_SCANOUT on primaries so DXGI composes by blt); (2) a
   live kernel debug (KDNET/serial M17) breakpoint on dxgkrnl's flip validation to read the exact check; (3) keep
   display-only + no GPU desktop (mode 0, works) until the Mesa UMD is a real WDDM UMD (G13 proper).
+
+## Run g26full - MMIO flips fail the same way -> no flips at all (2026-10-13)
+- runs\g26full has UEFILOG.TXT, WINPRAM.BIN, WINPRAM-RESTART.BIN and last\gpu\* (dxgk.*, peek, trace.reg, ...).
+- ETW 184: 442 flips from 0x400008C0, all 0xC01E0005 again. PRAM (build 26, "Switches 00111111" = FlipMmio on):
+  ">SetVidPnSourceAddress" only once (the mode set, "SetSourceAddress irql 00000000" = PASSIVE), never for a DWM
+  flip; heartbeat p 0x35 (= 0x33 presents + 2 latches of the mode-set primary). So dxgkrnl refuses DWM's flips
+  BEFORE either flip mechanism (DMA or MMIO) reaches the driver - flip caps are not the issue either.
+- **Option 1, Mesa patch 0023** (mesa-26.2-g76 d729e24; tools/mesa-build/patches/0023-g13-dxgi-primaries-no-
+  scanout.patch, fresh-tree apply OK): on the maliwddm runtime (new `d3d10_runtime_is_maliwddm()` = last bind
+  result >= 0) CreateResource sets `pPrimaryDesc->DriverFlags |= DXGI_DDI_PRIMARY_DRIVER_FLAG_NO_SCANOUT` (dxgiddi.h
+  0x1; the flag the frontend's own #if 0 block names) and skips patch 0022's resource-owned primary allocation, so
+  DXGI composes by Blt presents into the shared primary (the path the boot console's presents take, which work).
+  MALIKM_SCANOUT=1 restores the flip path. KMD unchanged (g26 1.0.26.1; Blt presents to the primary = DoPresent CPU
+  copy to the GOP fb at SubmitCommand). UMD maliumd = libgallium_d3d10
+  `CFA93C590E0C90295B25E874A91AE2BB3BDA6781E7620EB707CA3BAB6AF67A4E` (contains "MALIKM_SCANOUT"; Resource.cpp.obj
+  rebuilt).
+- Package **s10e-artifacts\mali-g27** = g26 driver + this UMD + unchanged scripts. Display-only remains the default
+  (install writes GpuEnable 0 / FullAdapter 0). Steps: full.flg + nogpu.flg + extra-gpu-mode.cmd (pass 1 deploys the
+  UMD; no update boot). Read: ETW 184 - flags 0x1 (Blt) presents with ReturnStatus 0 and no 0x401004 flips; PRAM
+  ">Present" lines after ~30 s and heartbeat p growing; webcam desktop; clean restart.

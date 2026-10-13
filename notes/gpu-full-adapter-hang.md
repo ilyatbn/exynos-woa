@@ -789,3 +789,23 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   the panel -> SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) first; (2) a stale C:\S10eTmp\d3dfill.exe from an
   earlier run would still run with gpu\d3dfill.exe gone from the ESP -> deleted before the copy. Rebuilt ->
   s10e-artifacts\d3dfill-2\d3dfill.exe.
+
+## Run g30full (2026-10-13 09:36, mali-g30, ETW capture fixed) - DWM's reason found
+- ETW complete this time (FileName C:\S10eTmp\dxgk.etl; 228k events, DxgKrnl + Dwm-Core + DXGI). Decoded with
+  scratchpad etwx.py / etwd.py (task names and EventData from dxgk.xml).
+- DWM runs its frame loop (269 SCHEDULE_VBLANK_LOOP), renders and presents only 4 frames
+  (SCHEDULE_DXGI_PRESENT_SUCCEEDED x4), then RENDERTARGET_RENDERSKIPPED "outstandingPresents=2" for every later
+  frame: two presents never retire (SCHEDULE_RETIREFRAME nrOutput=0 fTimedOut=1) -> DWM throttles -> dark panel.
+- Why: DxgKrnl Present (184) from DWM, Flags 0x401081 (Blt|SrcRectValid|PresentCountValid|PresentRegionsValid),
+  hSrc 0x400008C0 -> hDst 0x40000840, ReturnStatus 0xC000000D, each preceded by dxgkrnl 494
+  **"destination must be primary"**; then BlitCancel and a retry with hDst 0 that returns 0 but is never carried
+  out. Cause: Mesa 0025 created NO_SCANOUT primaries without D3DDDI_ALLOCATIONINFO.Flags.Primary.
+- Also seen (494): "When opening a synchronization object, the NoGPUAccess flag specified at open time must match
+  the flag specified at creation time" (DWM, once at startup) - next suspect if presents still do not retire.
+- Second boot: LogonUI stayed up (explorer never started) as in earlier full runs; the agent ran the script after its
+  300 s wait; clean restart hung -> agent hard reset at +180 s. KMD PRAM: HB p=0x34 presents, trace ring full early.
+- Fix -> Mesa **0026**: every DXGI primary is allocated with Flags.Primary + MW_ALLOC_PRIMARY again (NO_SCANOUT kept,
+  so DXGI still blts; the KMD's DoPresent writes a MW_ALLOC_PRIMARY destination into the framebuffer).
+- Built: s10e-artifacts\mali-umd-0026 (maliumd.dll = libgallium_d3d10.dll fdf5e749…, malikm_drm.c recompiled per
+  the build log). Package **mali-g31** = mali-g30 (driver 1.0.26.1) + UMD 0026 + d3dfill-2 (685baa47…) +
+  extra-gpu-mode.cmd 1871fdd6… (d3dfill pass). Not yet run.

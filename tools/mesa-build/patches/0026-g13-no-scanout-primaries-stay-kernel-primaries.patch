@@ -1,0 +1,27 @@
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 4050f82..2fe69ab 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -946,7 +946,12 @@ malikm_primary_create(void *hRTResource, unsigned vidpn, unsigned w, unsigned h,
+       D3DDDI_ALLOCATIONINFO ai = {0};
+       D3DDDICB_ALLOCATE a = {0};
+       pi.Version = MW_ABI_VERSION;
+-      pi.Flags = MW_ALLOC_NOEXEC | (scanout ? MW_ALLOC_PRIMARY : 0);
++      /* G13 0026: every DXGI primary is a kernel primary again, NO_SCANOUT or not. Run g30full, dxgkrnl ETW 494
++       * "destination must be primary" + Present 0xC000000D on each DWM Blt into the 0025 non-primary destination;
++       * the KMD blts into the framebuffer when the destination carries MW_ALLOC_PRIMARY (command.c DoPresent).
++       * NO_SCANOUT still keeps DXGI on blt presents (no flips, which failed PRESENT_MODE_CHANGED in g22-g26). */
++      (void)scanout;
++      pi.Flags = MW_ALLOC_NOEXEC | MW_ALLOC_PRIMARY;
+       pi.Width = w;
+       pi.Height = h;
+       pi.Pitch = w * 4;
+@@ -955,7 +960,7 @@ malikm_primary_create(void *hRTResource, unsigned vidpn, unsigned w, unsigned h,
+       ai.pPrivateDriverData = &pi;
+       ai.PrivateDriverDataSize = sizeof(pi);
+       ai.VidPnSourceId = vidpn;
+-      ai.Flags.Primary = scanout ? 1 : 0;     /* G13 0025: NO_SCANOUT primaries are ordinary allocations */
++      ai.Flags.Primary = 1;
+       a.hResource = (HANDLE)hRTResource;
+       a.NumAllocations = 1;
+       a.pAllocationInfo = &ai;

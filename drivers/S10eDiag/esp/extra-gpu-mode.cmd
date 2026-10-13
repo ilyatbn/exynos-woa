@@ -74,6 +74,10 @@ goto end
 :collect
 del /f /q C:\S10eTmp\gpumode2.flg
 s10ediag mark g: pass 2 - collect
+rem g44: by ~149 s the user's processes were gone from session 1 (no crash). Snapshot at the start of pass 2 (~69 s)
+rem too, to time the teardown against tasks.txt later.
+tasklist /v /fo csv > "%G%\tasks-early.txt" 2>&1
+for %%X in (explorer.exe sihost.exe LogonUI.exe) do for /f "usebackq delims=" %%L in (`tasklist /fo table /nh /fi "imagename eq %%X"`) do s10ediag mark "p0: %%L"
 rem MaliG76Wddm's PRAM DDI trace (WINPRAM + 0x4000, 16 KiB, drivers/MaliG76Wddm/pram.c) of THIS boot, live (peek only: dumpram uses MmCopyMemory, which failed with 59 on this RAM in run g13fullc).
 s10ediag peek 0x8FE04000 0x4000 > "%G%\maliwddm-pram-peek.txt" 2>&1
 rem The boot ETW (pass 1): stop, remove the AutoLogger, decode; dxgkrnl's diagnostic lines (event 494
@@ -137,6 +141,13 @@ if exist C:\S10eTmp\dumps mkdir "%G%\dumps" > nul 2>&1
 if exist C:\S10eTmp\dumps copy /y C:\S10eTmp\dumps\*.dmp "%G%\dumps\" > nul 2>&1
 dir /b "%G%\dumps" > "%G%\dumps.txt" 2>&1
 for /f "usebackq" %%N in (`find /c ".dmp" ^< "%G%\dumps.txt"`) do s10ediag mark "a: %%N minidumps"
+rem g44: winlogon never logged its logon notifications in full mode and the user session vanished without a crash.
+rem The session / logon channels of this boot (newest 150 events each, text) say who ended it and when.
+wevtutil qe Microsoft-Windows-Winlogon/Operational /c:150 /rd:true /f:text > "%G%\ev-winlogon.txt" 2>&1
+wevtutil qe Microsoft-Windows-TerminalServices-LocalSessionManager/Operational /c:150 /rd:true /f:text > "%G%\ev-lsm.txt" 2>&1
+wevtutil qe "Microsoft-Windows-User Profile Service/Operational" /c:150 /rd:true /f:text > "%G%\ev-profile.txt" 2>&1
+wevtutil qe Microsoft-Windows-Shell-Core/Operational /c:150 /rd:true /f:text > "%G%\ev-shellcore.txt" 2>&1
+wevtutil qe Security /q:"*[System[(EventID=4624 or EventID=4634 or EventID=4647 or EventID=4625)]]" /c:40 /rd:true /f:text > "%G%\ev-security.txt" 2>&1
 for /f "usebackq delims=" %%L in (`findstr /i "adapter output D3D11CreateDevice EnumOutputs DeviceName Bounds" "%G%\d3dprobe-user.txt"`) do s10ediag mark "u: %%L"
 s10ediag mark g: dxdiag
 dxdiag /whql:off /t "%G%\dxdiag.txt"

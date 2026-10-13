@@ -840,3 +840,12 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   retry, 1 PRESENT_SUCCEEDED, LogonUI stuck, d3dfill not run. Reading (docs addendum): with NO_SCANOUT on the
   non-optional front buffer DXGI is outside the protocol and likely never calls SetDisplayMode, so 0028 alone
   changes nothing -> g33 (0029, NO_SCANOUT off).
+- g32 DXGI journal (ETW DXGI event 70, scratchpad runs/g32full/dxgi-journal.txt): around DWM's SetFullscreenState
+  0x087A0004 **DXGI_STATUS_NO_REDIRECTION** x5, one **E_FAIL** right before IDXGIOutput_ReleaseOwnership, then
+  0x087A0007 DXGI_STATUS_MODE_CHANGED x654 (the refused presents), 0x087A0001 OCCLUDED x3. DxgKrnl SetDisplayMode
+  appears once only (boot, pid 668), never from DWM.
+- Source of NO_REDIRECTION: d3d10umd Device.cpp CreateDevice returns DXGI_STATUS_NO_REDIRECTION unconditionally (Mesa's
+  software-rasterizer heritage); docs: software rasterizers only. -> Mesa **0031**: S_OK on the maliwddm runtime.
+  Built mali-umd-0031 (maliumd.dll d996535a…, Device.cpp recompiled); package **mali-g34** = g33 + 0031.
+  Side effect to watch: windowed apps now use DWM shared surfaces + BltDXGI(Present) in our UMD's _Blt.
+- E_FAIL source still unknown (SetFullscreenState internals; candidates: 0028's SetDisplayModeCb result, a Map).

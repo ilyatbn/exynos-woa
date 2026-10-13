@@ -147,7 +147,9 @@ wevtutil qe Microsoft-Windows-Winlogon/Operational /c:150 /rd:true /f:text > "%G
 wevtutil qe Microsoft-Windows-TerminalServices-LocalSessionManager/Operational /c:150 /rd:true /f:text > "%G%\ev-lsm.txt" 2>&1
 wevtutil qe "Microsoft-Windows-User Profile Service/Operational" /c:150 /rd:true /f:text > "%G%\ev-profile.txt" 2>&1
 wevtutil qe Microsoft-Windows-Shell-Core/Operational /c:150 /rd:true /f:text > "%G%\ev-shellcore.txt" 2>&1
-wevtutil qe Security /q:"*[System[(EventID=4624 or EventID=4634 or EventID=4647 or EventID=4625)]]" /c:40 /rd:true /f:text > "%G%\ev-security.txt" 2>&1
+rem Security: 4624 is mostly service logons (type 5); keep the interactive ones (type 2) and every logoff/failure.
+wevtutil qe Security /q:"*[System[(EventID=4624)] and EventData[Data[@Name='LogonType']='2']]" /c:10 /rd:true /f:text > "%G%\ev-security.txt" 2>&1
+wevtutil qe Security /q:"*[System[(EventID=4634 or EventID=4647 or EventID=4625)]]" /c:20 /rd:true /f:text >> "%G%\ev-security.txt" 2>&1
 for /f "usebackq delims=" %%L in (`findstr /i "adapter output D3D11CreateDevice EnumOutputs DeviceName Bounds" "%G%\d3dprobe-user.txt"`) do s10ediag mark "u: %%L"
 s10ediag mark g: dxdiag
 dxdiag /whql:off /t "%G%\dxdiag.txt"

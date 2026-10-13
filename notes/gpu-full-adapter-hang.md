@@ -1274,3 +1274,6 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
 - Consequence for the next boot: gpumode2.flg is set, so the agent will run pass 2 (collect, then the clean restart
   to TWRP) ~60 s after explorer appears, unless extra.cmd is removed and stay.flg created. Not changed - asked the
   user first.
+- User chose to disable the harness for their tests: ESP extra.cmd -> extra.cmd.off, stay.flg created (no restart
+  from collect.cmd, no 20-min fallback reset), leftover torecovery.flg removed. Mode stays full (gpu\full.flg,
+  registry FullAdapter 1), UMD 0039, KMD 1.0.34.1. Re-enable for harness runs: mv extra.cmd.off extra.cmd, rm stay.flg.

@@ -587,3 +587,8 @@ mic heard only amp pops (tone amplitude 0.03 by design).
   fixed. Check against audD: stop 0x003C0140 -> 960 + 320 = 1280 < 1920 ring frames; 0x00800268 -> 2048 + 616 = 2664
   < 8192 (exclusive ring 0x20000 / 16). No hardware constant changed (same register; field layout from the abox notes
   + this run). Build exit 0.
+- Review of T27: delta math checked on the audD samples; HwLastPos initialised right after AboxStart; out-of-ring
+  samples ignored. **Finding R8:** RBUF_OFFSET and RBUF_CNT are two fields of one register; a read straddling the
+  period-boundary update could pair the old OFFSET with the new small CNT, which the modulo math reads as a ~3-period
+  jump. Fixed in its own commit: AboxRingPosition re-reads STATUS until OFFSET is equal on two consecutive reads
+  (<= 4 reads, DISPATCH-safe). Build exit 0.

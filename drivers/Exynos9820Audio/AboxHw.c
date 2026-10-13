@@ -382,6 +382,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS AboxRingPosition(_In_ PAUD_DEVICE_CONTEXT Dev, _Out_ PULONG Frames, _Out_ PULONG RawStatus)
 {
     ULONG S;
+    ULONG I;
 
     *Frames    = 0;
     *RawStatus = 0;
@@ -389,7 +390,19 @@ NTSTATUS AboxRingPosition(_In_ PAUD_DEVICE_CONTEXT Dev, _Out_ PULONG Frames, _Ou
         return STATUS_DEVICE_NOT_READY;
     }
 
-    S          = AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_RDMA0_STATUS);
+    /* Review R8: OFFSET and CNT are two fields of one register updated by the DMA at a period boundary; a read that
+       straddles the update could pair the old OFFSET with the new (small) CNT, which the caller would take as a ring
+       wrap (~3 periods forward). Re-read until OFFSET is stable on two consecutive reads (<= 4 reads). */
+    S = AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_RDMA0_STATUS);
+    for (I = 0; I < 3; I++) {
+        ULONG S2 = AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_RDMA0_STATUS);
+
+        if (((S2 ^ S) >> ABOX_RDMA_RBUF_OFF_SHIFT & ABOX_RDMA_RBUF_OFF_MASK) == 0) {
+            S = S2;
+            break;
+        }
+        S = S2;
+    }
     *RawStatus = S;
     *Frames    = ((S >> ABOX_RDMA_RBUF_OFF_SHIFT) & ABOX_RDMA_RBUF_OFF_MASK) + (S & ABOX_RDMA_RBUF_CNT_MASK);
     return STATUS_SUCCESS;

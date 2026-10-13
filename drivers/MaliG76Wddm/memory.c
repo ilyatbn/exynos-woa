@@ -166,8 +166,8 @@ NTSTATUS APIENTRY MwDescribeAllocation(IN_CONST_HANDLE hAdapter, DXGKARG_DESCRIB
         MwModeRefresh(a, &Arg->RefreshRate);
     Arg->PrivateDriverFormatAttribute = 0;
     if (InterlockedIncrement(&logged) <= 8) {
-        MwPramText(FALSE, "Describe wxh ", NULL, (alloc->Width << 16) | (alloc->Height & 0xFFFF), TRUE);
-        MwPramText(FALSE, "Describe fmt.flags ", NULL, ((ULONG)alloc->Format << 8) | (alloc->Flags & 0xFF), TRUE);
+        MwPramText(TRUE, "Describe wxh ", NULL, (alloc->Width << 16) | (alloc->Height & 0xFFFF), TRUE);
+        MwPramText(TRUE, "Describe fmt.flags ", NULL, ((ULONG)alloc->Format << 8) | (alloc->Flags & 0xFF), TRUE);
     }
     return STATUS_SUCCESS;
 }
@@ -222,6 +222,14 @@ NTSTATUS APIENTRY MwGetStandardAllocationDriverData(IN_CONST_HANDLE hAdapter,
     out->Size = (mw_u64)out->Pitch * h;
     if (pitch != NULL)
         *pitch = out->Pitch;
+    {
+        static LONG stdLogged;     /* the first 4 standard allocations, into the first-call PRAM lines */
+        if (InterlockedIncrement(&stdLogged) <= 4) {
+            MwPramText(TRUE, "StdAlloc type.fmt ", NULL,
+                       ((ULONG)Arg->StandardAllocationType << 24) | ((ULONG)f & 0xFFFFFF), TRUE);
+            MwPramText(TRUE, "StdAlloc wxh ", NULL, (w << 16) | (h & 0xFFFF), TRUE);
+        }
+    }
     return STATUS_SUCCESS;
 }
 

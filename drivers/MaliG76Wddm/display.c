@@ -61,10 +61,20 @@ static void FillSignal(MW_ADAPTER *Dev, D3DKMDT_VIDEO_SIGNAL_INFO *S)
     S->ActiveSize.cx = Dev->Fb.Width;
     S->ActiveSize.cy = Dev->Fb.Height;
     S->PixelRate = (SIZE_T)totalW * totalH * 60;
-    S->HSyncFreq.Numerator = (UINT)S->PixelRate;
-    S->HSyncFreq.Denominator = totalW;
-    S->VSyncFreq.Numerator = (UINT)S->PixelRate;
-    S->VSyncFreq.Denominator = totalW * totalH;
+    /* G76: the same frequencies as reduced rationals (60/1 Hz, 60*totalH/1 lines/s) - the original's
+     * PixelRate/(totalW*totalH) form equals 60 but is a different rational from the 60/1 that runtimes and
+     * DescribeAllocation use; DWM's flips kept failing with PRESENT_MODE_CHANGED (runs g22full, g23full). */
+    if (MwRefresh601) {
+        S->HSyncFreq.Numerator = 60 * totalH;
+        S->HSyncFreq.Denominator = 1;
+        S->VSyncFreq.Numerator = 60;
+        S->VSyncFreq.Denominator = 1;
+    } else {                /* Parameters\Refresh601 0: the original's form */
+        S->HSyncFreq.Numerator = (UINT)S->PixelRate;
+        S->HSyncFreq.Denominator = totalW;
+        S->VSyncFreq.Numerator = (UINT)S->PixelRate;
+        S->VSyncFreq.Denominator = totalW * totalH;
+    }
     S->ScanLineOrdering = D3DDDI_VSSLO_PROGRESSIVE;
 }
 

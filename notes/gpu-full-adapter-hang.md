@@ -588,3 +588,25 @@ patches/*.patch after the reference patches, one commit each).
   0721d314 (mali-g22) and scripts unchanged. Steps: update live in display-only (1.0.23.1) -> full.flg + nogpu.flg
   -> extra-gpu-mode.cmd. Read: ETW 184 ReturnStatus 0 for flips, PRAM ">Present" after 30 s + heartbeat p growing,
   "Describe" lines (DWM's swap chain size = 1080x2280? format 0x15 A8R8G8B8?), webcam desktop, clean restart.
+
+## Run g23full - still PRESENT_MODE_CHANGED (2026-10-13)
+- ETW 184: the same 440 flips (two primaries 0x40000800/0x40000840, flags 0x401004) all 0xC01E0005; 4 non-flip
+  presents ok. No other DxgKrnl event near a failed flip carries a reason (only 471 process lines). PRAM: KMD
+  Present never after the boot console (p 0x31), DescribeAllocation pairs every ~1.4 s, nobody logged on.
+- The "Describe" lines were written to the ROLLING region and the DescribeAllocation flood overwrote them - my
+  mistake (follow-up done here: first-call region). So the exact-rational refresh did not change the outcome, and
+  what dxgkrnl compares is still unknown.
+- g24 changes (build 24, INF 1.0.24.1):
+  1. FillSignal (full adapter) states the timing as reduced rationals - VSync 60/1, HSync 60*totalH/1 (PixelRate
+     unchanged) - so the mode, DescribeAllocation (60/1, also via MwModeRefresh) and the runtime's 60 Hz can no
+     longer differ as rationals. Parameters\Refresh601 (default 1; 0 = the original's PixelRate/total form).
+     RISK: the EDID's DTD still yields 189.72 MHz / 1360 / 2325; if dxgkrnl then refuses the target mode as not
+     cofunctional (back to 0 paths / "Commit src.chk.paths 00000100"), Refresh601 0 restores g23's behaviour.
+  2. PRAM first-call region: "Describe wxh" / "Describe fmt.flags" (first 8) and "StdAlloc type.fmt" / "StdAlloc
+     wxh" (first 4: the shared primary dxgkrnl asks for = the mode it holds) - the next run shows whether DWM's
+     swap-chain primaries match the mode in size and format.
+- Package **s10e-artifacts\mali-g24**: sys `A34D88F2E4A5052B104FAC5C42A62F67FDA42441168B4255E6FE86B24D905EBF`, inf
+  `745D73780572B0E415C1A2E4D455A6E50341CB5B1568CA73B5FFE0ECD4B5449D`, cat
+  `DA938EB394D9B08C983F15AEF9CCE3AB48C95B752E3C3772227A04DF7E6E21BD` (InfVerif /w 0, signer 5DD5DEE1...); UMD and
+  scripts = mali-g23. Steps as g23 (update live to 1.0.24.1, then full mode). Read: ETW 184 status; first-call PRAM
+  lines StdAlloc (type 1 = shared primary: format 0x15/0x16? 1080x2280?) vs Describe (DWM's primaries); commit paths.

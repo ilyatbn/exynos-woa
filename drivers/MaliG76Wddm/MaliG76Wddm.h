@@ -75,6 +75,8 @@ extern ULONG MwSegmentCpuVisible;
 /* Parameters\ModeRefreshExact (default 1): DescribeAllocation reports a primary's refresh rate exactly as the
  * VidPN target mode carries it (memory.c); 0 = the original's 60/1. */
 extern ULONG MwModeRefreshExact;
+/* Parameters\Refresh601 (default 1): the full adapter's timing frequencies as reduced rationals (60/1). */
+extern ULONG MwRefresh601;
 
 /* ---- objects ---- */
 

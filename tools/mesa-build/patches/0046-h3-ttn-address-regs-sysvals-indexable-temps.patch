@@ -1,0 +1,105 @@
+From e4699870c1cbd5e355a7249ea344da8ccad44b9c Mon Sep 17 00:00:00 2001
+From: g12-build <g12@local>
+Date: Wed, 14 Oct 2026 01:56:32 +0300
+Subject: [PATCH] H3: tgsi_to_nir keeps one register per TGSI ADDRESS (0036's
+ ADDR[0..2] aliased), PRIMID/LAYER/VIEWPORT_INDEX system values; d3d10umd
+ indexable temps as TGSI arrays (run h3d: DWM bad system value, LogonUI
+ indirect plain temporary) (exynos-woa tools/mesa-build/patches/0046)
+
+---
+ src/gallium/auxiliary/nir/tgsi_to_nir.c     | 28 +++++++++++++++++----
+ src/gallium/frontends/d3d10umd/ShaderTGSI.c | 11 ++++++--
+ 2 files changed, 32 insertions(+), 7 deletions(-)
+
+diff --git a/src/gallium/auxiliary/nir/tgsi_to_nir.c b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+index ae193d2..83d217a 100644
+--- a/src/gallium/auxiliary/nir/tgsi_to_nir.c
++++ b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+@@ -72,7 +72,9 @@ struct ttn_compile {
+    /* exynos-woa H3: the TGSI_TEXTURE_* target of each SVIEW declaration (D3D10 SAMPLE* opcodes, below) */
+    unsigned *sview_targets;
+ 
+-   nir_def *addr_reg;
++   /* exynos-woa H3: one per TGSI ADDRESS register - d3d10umd (patch 0036) loads up to three relative operands of
++    * one instruction into ADDR[0..2]; a single register made them alias. */
++   nir_def *addr_regs[4];
+ 
+    nir_variable **inputs;
+    nir_variable **outputs;
+@@ -237,7 +239,10 @@ ttn_emit_declaration(struct ttn_compile *c)
+          }
+       }
+    } else if (file == TGSI_FILE_ADDRESS) {
+-      c->addr_reg = nir_decl_reg(b, 4, 32, 0);
++      for (i = 0; i < array_size; i++) {
++         assert(decl->Range.First + i < ARRAY_SIZE(c->addr_regs));
++         c->addr_regs[decl->Range.First + i] = nir_decl_reg(b, 4, 32, 0);
++      }
+    } else if (file == TGSI_FILE_SYSTEM_VALUE) {
+       /* Nothing to record for system values. */
+    } else if (file == TGSI_FILE_BUFFER) {
+@@ -575,7 +580,8 @@ ttn_src_for_file_and_index(struct ttn_compile *c, unsigned file, unsigned index,
+       break;
+ 
+    case TGSI_FILE_ADDRESS:
+-      src = nir_src_for_ssa(nir_load_reg(b, c->addr_reg));
++      assert(index < ARRAY_SIZE(c->addr_regs) && c->addr_regs[index]);
++      src = nir_src_for_ssa(nir_load_reg(b, c->addr_regs[index]));
+       assert(!dim);
+       break;
+ 
+@@ -638,6 +644,18 @@ ttn_src_for_file_and_index(struct ttn_compile *c, unsigned file, unsigned index,
+          load = nir_load_sample_id(b);
+          b->shader->info.fs.uses_sample_shading = true;
+          break;
++      /* exynos-woa H3: d3d10umd declares these as system values (dcl_input_sgv/siv, SV_PrimitiveID in a pixel
++       * shader); without them DWM's shaders died in UNREACHABLE("bad system value") (run h3d). Bifrost has
++       * primitive and layer ids; Panfrost has one viewport. */
++      case TGSI_SEMANTIC_PRIMID:
++         load = nir_load_primitive_id(b);
++         break;
++      case TGSI_SEMANTIC_LAYER:
++         load = nir_load_layer_id(b);
++         break;
++      case TGSI_SEMANTIC_VIEWPORT_INDEX:
++         load = nir_imm_int(b, 0);
++         break;
+       default:
+          UNREACHABLE("bad system value");
+       }
+@@ -2332,8 +2350,8 @@ ttn_emit_instruction(struct ttn_compile *c)
+          reg = c->output_regs[index].reg;
+          base_offset = c->output_regs[index].offset;
+       } else if (tgsi_dst->Register.File == TGSI_FILE_ADDRESS) {
+-         assert(index == 0);
+-         reg = c->addr_reg;
++         assert(index < ARRAY_SIZE(c->addr_regs) && c->addr_regs[index]);
++         reg = c->addr_regs[index];
+       }
+ 
+       if (tgsi_dst->Register.Indirect) {
+diff --git a/src/gallium/frontends/d3d10umd/ShaderTGSI.c b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+index 6c2ab71..65c99db 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderTGSI.c
++++ b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+@@ -2156,8 +2156,15 @@ Shader_tgsi_translate(const unsigned *code,
+             sx.indexable_temp_offsets[opcode.specific.dcl_indexable_temp.index] =
+                sx.declared_temps;
+ 
+-            for (i = 0; i < opcode.specific.dcl_indexable_temp.count; i++) {
+-               sx.temps[sx.declared_temps + i] = ureg_DECL_temporary(ureg);
++            /* exynos-woa H3 (notes/gpu-hw-path.md): a TGSI array, so that a relative index into it is an array
++             * access for tgsi_to_nir (which only indexes temporaries declared as arrays: Panfrost's LogonUI vertex
++             * shader asserted on an indirect plain temporary, run h3d). tgsi_exec treats it like the plain ones. */
++            {
++               struct ureg_dst first =
++                  ureg_DECL_array_temporary(ureg, opcode.specific.dcl_indexable_temp.count, true);
++               for (i = 0; i < opcode.specific.dcl_indexable_temp.count; i++) {
++                  sx.temps[sx.declared_temps + i] = ureg_dst_array_offset(first, i);
++               }
+             }
+             sx.declared_temps += opcode.specific.dcl_indexable_temp.count;
+          }
+-- 
+2.40.1.windows.1
+

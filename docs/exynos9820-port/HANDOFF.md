@@ -1341,3 +1341,31 @@ gpu\stage.flg); clean-restart runs save PRAM to \WINPRAM-RESTART.BIN (not WINPRA
 **In flight:** audio a11, GPU G13 (mali-g15), remote-control channel (S10eAgent outbound HTTP poll to the laptop).
 **§32 audio addendum 7 (2026-10-13, agent).** a10: family probe accepted, DEFAULT mode added, cache {74E4357A},2 still empty; the four per-mode pin probes (create, RT buffer, latency, close) are the cache builder and fail on an ACX-answered RT property. a11 = s10e-artifacts\audio-a11 (1.0.1.10, sys 09ecf93a...): RT packets allocated like the ACX sample, GetHwLatency = sample values; new esp\ks-probe.ps1 (run by extra-audio-swap pass 2 as SYSTEM) prints ACX's answers. Test: notes/d8-audio-win-a5.md "A11 device test".
 **§32 audio addendum 8 (2026-10-13, agent).** a11 stage A = Windows audio works (coordinator, run audA11c). Stage D stalled shared streams: RDMA0 STATUS[11:0] is the frame offset inside the current period and [27:12] the period start (16-byte units), not a free mod-4096 counter. a12 = s10e-artifacts\audio-a12 (1.0.1.11, sys 34557cfd...): ring position = [27:12] + [11:0] modulo the ring, torn-read guard; audio-test amplitude 0.1. Volume buttons: s10e-artifacts\s10ediag-m20 (S10eAgent + s10ekeys VK_VOLUME_*). Test: notes/d8-audio-win-a5.md "A12 device test".
+
+## 36. Restart point (2026-10-13 ~09:30 local; context compaction requested by the user)
+**Phone now:** TWRP, battery 75 %. BOOT = #114 (boot114-gpuon-cleanret-v2.img 85e4e0c5…: main + GPU_POWER_ON 1 +
+clean return + nogpu/noaudio switches). ESP: \S10EDIAG\nogpu.flg SET (GPU0 hidden), no extra.cmd, no stay.flg,
+wait.txt = 300. MaliG76Wddm Parameters 0/0 (display-only). Unattended loop = scratchpad cycle.sh (TWRP -> Windows ->
+agent collect -> clean restart -> TWRP).
+**Windows drivers installed:** UFS w37 (reads 20 -> 117 MB/s), WiFiCx cx5 (**WiFi works**, user-confirmed, hotspot
+S10eTest / Home-X), battery 322ca95…, **audio a12 1.0.1.11 (speaker plays in Windows, endpoint volume/mute work, PC mic
+heard the 2 s tone; stage D params AmpInit/AmpEnable/AboxEnable 1)**, MaliG76Wddm 1.0.26.1 (display-only desktop works,
+seen on webcam), UMD maliumd.dll g29 (228d8332…) in System32, S10eAgent/s10ekeys m20 (Vol+/Vol- -> volume keys;
+physical-button test by the user still pending).
+**GPU full adapter (FullAdapter 1, GPU half off) status - notes/gpu-full-adapter-hang.md has everything:** no hang
+(software vsync), mode set works (EDID synth, CPU-visible segment, CommitVidPn 0), D3D11 FL10_0 device creation OK,
+DWM loads maliumd.dll, boot-console Blt presents reach the panel. DWM's own frames never do: flips (DMA, MMIO, shim- or
+resource-owned primaries) all refused with 0xC01E0005 PRESENT_MODE_CHANGED (g22-g26); with NO_SCANOUT (patch 0023)
+4 Blt presents accepted then stall (g27-g29). Every full-mode clean restart hangs (20-min fallback). **Next: mali-g30**
+(fixed ETW capture: DxgKrnl + Dwm-Core + DXGI providers; logman update needs -o) -> read dwm-msgs.txt for DWM's own
+reason. Run with: ESP gpu\{maliumd,libgallium_d3d10}.dll from mali-g30, extra.cmd = mali-g30\extra-gpu-mode.cmd,
+touch gpu\full.flg + nogpu.flg + noaudio.flg; afterwards restore with the same script and no full.flg.
+**Audio follow-ups:** amp pops at stream start/stop; headphone path in Windows; RDMA0 STATUS = [27:12] period start
++ [11:0] offset (fixed in a12). Install flow for boot-loaded drivers: extra-audio-swap.cmd (hide, delete old oemN,
+stage, unhide) then extra-audio-stage.cmd for Parameters.
+**WiFi follow-ups:** throughput ("slow", ping ~58 ms - poll-based driver), sleep/D3 resume, roaming.
+**Other:** remote-control channel attempt stopped by the safety filter (not pursued; user may enable OpenSSH
+themselves). Bluetooth D4c research + skeleton imported (parkinglot/bluetooth-d4c.md; bt_en = gpm8-0).
+**Lessons:** marker files in C:\S10eTmp (audswap/gpumode2/audstage.flg) survive a crashed pass - check marks; a
+killed ping returned to collect.cmd -> holdrestart loops; installs reset INF Parameters (stage after add); clean
+restarts save PRAM to WINPRAM-RESTART.BIN; never fsck NTFS from TWRP (read-only mounts are fine).

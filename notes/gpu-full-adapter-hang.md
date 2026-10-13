@@ -870,3 +870,4 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   (STATUS_INVALID_HANDLE without one), before the private-data check. Package **mali-g35** = KMD 1.0.27.1 + g33 UMD.
   Install: one display-only boot with extra-gpu-update.cmd (live pnputil update, Parameters stay 0/0), then the
   full-mode two-pass run.
+- INF: MW_Parameters AddReg now 0x00010003 (DWORD | FLG_ADDREG_NOCLOBBER, MS Learn INF AddReg Directive) so a (staged) install keeps the mode -> g35 stages 1.0.27.1 with stage.flg in pass 1 and still boots pass 2 in full mode. Package rebuilt (sys 619b82da… unchanged, inf f25b44da…, cat 587c743a…).

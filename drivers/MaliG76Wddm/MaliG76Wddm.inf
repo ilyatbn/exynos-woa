@@ -75,8 +75,10 @@ LoadOrderGroup = Video
 AddReg         = MW_Parameters
 
 [MW_Parameters]
-HKR,Parameters,GpuEnable,%REG_DWORD%,0
-HKR,Parameters,FullAdapter,%REG_DWORD%,0
+; FLG_ADDREG_NOCLOBBER (0x2, MS Learn "INF AddReg Directive"): an install keeps the mode already set (every
+; install reset FullAdapter/GpuEnable to 0 before - runs g13full/g13fullb).
+HKR,Parameters,GpuEnable,%REG_DWORD_NOCLOBBER%,0
+HKR,Parameters,FullAdapter,%REG_DWORD_NOCLOBBER%,0
 
 [Strings]
 ProviderName  = "exynos-woa"
@@ -84,4 +86,5 @@ DiskName      = "Galaxy S10e Mali-G76 display driver"
 MW.DeviceDesc = "Arm Mali-G76 MP12 (Galaxy S10e, G10/G11)"
 MW.SvcDesc    = "Galaxy S10e Mali-G76 display driver"
 REG_DWORD     = 0x00010001
+REG_DWORD_NOCLOBBER = 0x00010003
 REG_MULTI_SZ  = 0x00010000

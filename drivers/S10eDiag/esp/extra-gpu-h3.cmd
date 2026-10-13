@@ -14,7 +14,7 @@ mkdir "%X%" > nul 2>&1
 set T=C:\S10eTmp
 if not exist %T% mkdir %T%
 for %%F in (d3dtri.exe m5test.exe gfxperf.exe) do copy /y "%ESP%\S10EDIAG\gpu\%%F" %T%\%%F > nul 2>&1
-for %%F in (run-as-user.ps1 livedump.ps1) do copy /y "%ESP%\S10EDIAG\%%F" %T%\%%F > nul 2>&1
+for %%F in (run-as-user.ps1 livedump.ps1 dwm-sampler.ps1) do copy /y "%ESP%\S10EDIAG\%%F" %T%\%%F > nul 2>&1
 if exist "%X%\umd-swap.txt" del /f /q "%X%\umd-swap.txt"
 for %%U in (maliumd.dll libgallium_d3d10.dll) do if exist "%ESP%\S10EDIAG\gpu\umd-new\%%U" (
   if exist "%SystemRoot%\System32\%%U.old" del /f /q "%SystemRoot%\System32\%%U.old" >> "%X%\umd-swap.txt" 2>&1
@@ -44,11 +44,17 @@ for /f "usebackq delims=" %%L in (`findstr /c:"tex ->" /c:"WRONG" /c:"TIMEOUT" "
 >> %T%\h3-user.ps1 echo Start-Sleep -Seconds 40
 >> %T%\h3-user.ps1 echo $env:GALLIUM_DRIVER = 'panfrost'
 >> %T%\h3-user.ps1 echo C:\S10eTmp\d3dtri.exe cube 20 ^> C:\S10eTmp\h3-cube.txt 2^>^&1
+rem H4: a pure DWM composition load (GDI square moving every 33 ms) at t=70 s for 25 s, while dwm-sampler.ps1 (SYSTEM,
+rem started below) takes 8 stack dumps of dwm 1 s apart from t=78 s
+>> %T%\h3-user.ps1 echo Start-Sleep -Seconds 8
+>> %T%\h3-user.ps1 echo C:\S10eTmp\d3dtri.exe gdi 25 ^> C:\S10eTmp\h3-gdi.txt 2^>^&1
 >> %T%\h3-user.ps1 echo $g.WaitForExit(150000) ^| Out-Null
-for %%F in (h3-gfxperf.txt h3-cube.txt) do if exist %T%\%%F del /f /q %T%\%%F
+for %%F in (h3-gfxperf.txt h3-cube.txt h3-gdi.txt) do if exist %T%\%%F del /f /q %T%\%%F
+if exist "%X%\dwmsamples" rmdir /s /q "%X%\dwmsamples"
+start "dwm-sampler" /b cmd /c "powershell -NoProfile -ExecutionPolicy Bypass -File %T%\dwm-sampler.ps1 -Out %X%\dwmsamples -Delay 80 -Count 8 -Interval 1000 > %X%\dwm-sampler.txt 2>&1"
 s10ediag mark x: gfxperf 120 s + cube at 40 s
 powershell -NoProfile -ExecutionPolicy Bypass -File %T%\run-as-user.ps1 -Script %T%\h3-user.ps1 -Wait 200 > "%X%\user-task.txt" 2>&1
-for %%F in (h3-gfxperf.txt h3-cube.txt) do if exist %T%\%%F copy /y %T%\%%F "%X%\%%F" > nul
+for %%F in (h3-gfxperf.txt h3-cube.txt h3-gdi.txt) do if exist %T%\%%F copy /y %T%\%%F "%X%\%%F" > nul
 %T%\m5test.exe > "%X%\m5test-1.txt" 2>&1
 powershell -NoProfile -ExecutionPolicy Bypass -File %T%\livedump.ps1 -Out "%X%\dump" -Names dwm > "%X%\livedump.txt" 2>&1
 wevtutil qe Application /q:"*[System[(EventID=1000 or EventID=1002)]]" /c:10 /rd:true /f:text > "%X%\app-crashes.txt" 2>&1

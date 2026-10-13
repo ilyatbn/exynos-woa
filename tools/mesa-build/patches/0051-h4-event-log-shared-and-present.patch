@@ -1,0 +1,110 @@
+From f8361c28f44d3fd0195ce9defbab7c2344b89d69 Mon Sep 17 00:00:00 2001
+From: g12-build <g12@local>
+Date: Wed, 14 Oct 2026 02:51:33 +0300
+Subject: [PATCH] H4: event log for shared-resource create/open (Panfrost BO or
+ fallback) and every present path with its HRESULT (exynos-woa
+ tools/mesa-build/patches/0051)
+
+---
+ include/win32-compat/malikm_drm.c           | 24 ++++++++++++++++-----
+ src/gallium/frontends/d3d10umd/Resource.cpp |  5 +++++
+ 2 files changed, 24 insertions(+), 5 deletions(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 92e18b0..a13eb7b 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -1209,7 +1209,9 @@ malikm_primary_present(unsigned hAlloc, unsigned hDst, const void *bgrx, unsigne
+       p.hDstAllocation = hDst;        /* G13 0025: the destination resource's allocation, if DXGI named one */
+       p.pDXGIContext = dxgi_context;
+       p.hContext = ddi.context;
+-      ret = ddi.dxgi->pfnPresentCb(ddi.device, &p) >= 0 ? 0 : -1;
++      HRESULT phr = ddi.dxgi->pfnPresentCb(ddi.device, &p);
++      ret = phr >= 0 ? 0 : -1;
++      malikm_tlog("present primary 0x%x -> dst 0x%x: hr 0x%08lx", hAlloc, hDst, (unsigned long)phr);
+       if (trace_on() && ret)
+          fprintf(stderr, "malikm: pfnPresentCb (runtime primary 0x%x) failed\n", hAlloc);
+       goto out;
+@@ -1299,7 +1301,9 @@ malikm_present_d3dddi(const void *bgrx, unsigned w, unsigned h, void *dxgi_conte
+       fp.hSrcAllocation = ddi.prim[i];
+       fp.pDXGIContext = dxgi_context;
+       fp.hContext = ddi.context;
+-      ret = ddi.dxgi->pfnPresentCb(ddi.device, &fp) >= 0 ? 0 : -1;
++      HRESULT phr = ddi.dxgi->pfnPresentCb(ddi.device, &fp);
++      ret = phr >= 0 ? 0 : -1;
++      malikm_tlog("present flip prim[%u] 0x%x %ux%u: hr 0x%08lx", i, ddi.prim[i], w, h, (unsigned long)phr);
+       if (trace_on() && ret)
+          fprintf(stderr, "malikm: pfnPresentCb (flip) failed\n");
+       goto out;
+@@ -1334,7 +1338,9 @@ malikm_present_d3dddi(const void *bgrx, unsigned w, unsigned h, void *dxgi_conte
+    p.hSrcAllocation = ddi.present;
+    p.pDXGIContext = dxgi_context;
+    p.hContext = ddi.context;
+-   ret = ddi.dxgi->pfnPresentCb(ddi.device, &p) >= 0 ? 0 : -1;
++   HRESULT phr = ddi.dxgi->pfnPresentCb(ddi.device, &p);
++   ret = phr >= 0 ? 0 : -1;
++   malikm_tlog("present blt surface 0x%x %ux%u: hr 0x%08lx", ddi.present, w, h, (unsigned long)phr);
+    if (trace_on() && ret)
+       fprintf(stderr, "malikm: pfnPresentCb failed\n");
+ out:
+@@ -1445,9 +1451,14 @@ wbo_from_allocation_locked(unsigned hAlloc, int *prime_fd)
+    MW_ESCAPE_ALLOC_INFO_DATA where = {0};
+    where.Code = MW_ESCAPE_ALLOC_INFO;
+    where.hAllocation = hAlloc;
+-   if (w_escape(&where, sizeof(where)) < 0 || where.GpuVa == 0)
++   if (w_escape(&where, sizeof(where)) < 0 || where.GpuVa == 0) {
++      malikm_tlog("bo-from-allocation 0x%x: ALLOC_INFO failed (va 0x%llx)", hAlloc,
++                  (unsigned long long)where.GpuVa);
+       return -1;
++   }
+    uint32_t h = wbo_add(hAlloc, where.Size, where.GpuVa, 1);
++   malikm_tlog("bo-from-allocation 0x%x: BO %u va 0x%llx size %llu", hAlloc, h, (unsigned long long)where.GpuVa,
++               (unsigned long long)where.Size);
+    if (!h)
+       return -1;
+    *prime_fd = (int)(MALIKM_PRIME_FD_BASE | h);
+@@ -1496,7 +1507,10 @@ malikm_shared_bo_create(void *hRTResource, unsigned w, unsigned h, unsigned cpp,
+       a.hResource = (HANDLE)hRTResource;
+       a.NumAllocations = 1;
+       a.pAllocationInfo = &ai;
+-      if (ddi.cb.pfnAllocateCb(ddi.device, &a) >= 0)
++      HRESULT hr = ddi.cb.pfnAllocateCb(ddi.device, &a);
++      malikm_tlog("shared-bo-create %ux%u cpp %u fmt %u: allocate hr 0x%08lx alloc 0x%x", w, h, cpp, d3dfmt,
++                  (unsigned long)hr, ai.hAllocation);
++      if (hr >= 0)
+          ret = wbo_from_allocation_locked(ai.hAllocation, prime_fd);
+    }
+    ReleaseSRWLockExclusive(&wddm_lock);
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index 8278687..fcac4b4 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -211,6 +211,7 @@ extern "C" bool d3d10_runtime_is_maliwddm(void);
+ extern "C" int malikm_shared_bo_create(void *hRTResource, unsigned w, unsigned h, unsigned cpp, unsigned d3dfmt,
+                                        int *prime_fd, unsigned *pitch);
+ extern "C" int malikm_bo_from_allocation(unsigned hAlloc, int *prime_fd);
++extern "C" void malikm_tlog(const char *fmt, ...);   /* exynos-woa H4: timing/event log (malikm_drm.c) */
+ 
+ /* exynos-woa H3: softpipe imports CPU memory (gdi winsys, 0034/0035); a GPU screen imports a BO by fd. */
+ static bool
+@@ -374,6 +375,8 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+          if (malikm_shared_bo_create(hRTResource.handle, templat.width0, templat.height0,
+                                      util_format_get_blocksize(templat.format), d3dfmt, &prime_fd, &pitch) == 0)
+             pResource->resource = import_bo(screen, &templat, prime_fd, pitch);
++         malikm_tlog("CreateResource shared %ux%u fmt %u pitch %u: %s", templat.width0, templat.height0, d3dfmt,
++                     pitch, pResource->resource ? "Panfrost BO" : "FAILED -> plain resource (not shared)");
+       } else if (malikm_shared_create(hRTResource.handle, templat.width0, templat.height0,
+                                util_format_get_blocksize(templat.format), d3dfmt, &hAlloc, &cpu, &pitch) == 0 &&
+           cpu != NULL) {
+@@ -593,6 +596,8 @@ OpenResource(D3D10DDI_HDEVICE hDevice,                            // IN
+       cpu = NULL;
+       if (malikm_bo_from_allocation(pOpenResource->pOpenAllocationInfo[0].hAllocation, &prime_fd) == 0)
+          pResource->resource = import_bo(screen, &templat, prime_fd, pitch);
++      malikm_tlog("OpenResource 0x%x %ux%u fmt %u pitch %u: %s", pOpenResource->pOpenAllocationInfo[0].hAllocation,
++                  w, h, fmt, pitch, pResource->resource ? "Panfrost BO" : "FAILED -> blank texture");
+    }
+    if (cpu) {
+       struct winsys_handle wh;
+-- 
+2.40.1.windows.1
+

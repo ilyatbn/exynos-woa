@@ -201,3 +201,16 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   resource and DWM's present becomes a GPU copy of its back buffer into it (no CPU map/convert/memcpy); the KMD
   skips its CPU blt for primaries marked "GPU-presented". Windowed apps keep the CPU path (only the compositor may
   write scanout).
+- KMD 1.0.35.1 built (s10e-artifacts\mali-kmd-35, not deployed yet): MwMapScanout maps the GOP fb (A->Fb.PhysicAddress,
+  FbSize) NoExec at a MkVaAlloc VA after GpuUp; MW_ESCAPE_SCANOUT (4) returns VA/size/pitch/format and marks an
+  allocation GpuPresented; DoPresent skips the CPU blt/latch for a GpuPresented source to scanout (PresentGpu,
+  STATS' former Reserved0). Loaded .sys path (hive): DriverStore\FileRepository\malig76wddm.inf_arm64_6557c1d415c2ef25.
+- **Obstacle for the zero-copy present:** Panfrost v7 requires 64-byte-aligned linear row pitch
+  (pan_linear_or_tiled_row_align_req = 64 except some YUV; strict WSI import fails "WSI pitch not properly
+  aligned"); the GOP fb pitch is 4320 = 67.5 x 64. Options: (a) DECON/DPP source width 1088 px -> pitch 4352
+  (needs verified DPP/IDMA registers - no Samsung DPU source locally), (b) a custom 2-rows-per-line copy pass
+  (2160x1140 view, pitch 8640 = 135 x 64) inside Panfrost, (c) GPU blit to an aligned staging + CPU row copy.
+  Decision deferred until the DWM profile says how much of the frame the copies are.
+- Next run h3i: Mesa 0051 (event log: shared create/open path + every present's HRESULT, build mali-umd-0051
+  32d9674c...), d3dtri gdi mode (DWM load without app D3D), dwm-sampler.ps1 (8 stack dumps of dwm 1 s apart during
+  the gdi phase).

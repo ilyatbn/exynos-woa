@@ -47,3 +47,4 @@ Full sub-agent report in the session transcript; key facts with sources:
 4. Vsync: CRTC_VSYNC with the displayed address each vblank; FlipIndependent=1, sane MaxQueuedFlipOnVSync.
 5. DMA_COMPLETED for every submission incl. present DMA buffers.
 6. Audit the stop/shutdown path (SupportNonVGA, StopDeviceAndReleasePostDisplayOwnership, SetPowerState D3).
+- KMD vs docs (adapter.c:357-372): SupportNonVGA, StopDeviceAndReleasePostDisplayOwnership, SystemDisplayEnable, CRTC_VSYNC PhysicalAddress, DMA_COMPLETED present. **Missing: FlipCaps.FlipIndependent (docs: WDDM 1.3 must set 1) and MaxQueuedFlipOnVSync** -> KMD follow-up when flips are re-enabled.

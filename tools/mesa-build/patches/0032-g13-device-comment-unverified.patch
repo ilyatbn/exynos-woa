@@ -1,0 +1,15 @@
+diff --git a/src/gallium/frontends/d3d10umd/Device.cpp b/src/gallium/frontends/d3d10umd/Device.cpp
+index 72e1fc1..8f90df7 100644
+--- a/src/gallium/frontends/d3d10umd/Device.cpp
++++ b/src/gallium/frontends/d3d10umd/Device.cpp
+@@ -314,8 +314,8 @@ CreateDevice(D3D10DDI_HADAPTER hAdapter,                 // IN
+       _Blt;
+ 
+    /* G13 (exynos-woa, patch 0031): MS Learn "Supporting the DXGI DDI": DXGI_STATUS_NO_REDIRECTION is for software
+-    * rasterizers only. On the maliwddm runtime (bound above) this is a hardware device: returning it made DXGI treat
+-    * DWM's device as a software one (DXGI journal 0x087A0004 around DWM's SetFullscreenState, run g32full). */
++    * rasterizers only. On the maliwddm runtime (bound above) this is a hardware device. Run g32full's DXGI journal
++    * shows 0x087A0004 around DWM's SetFullscreenState; that it changed DXGI's path is UNVERIFIED until a device run. */
+    if (d3d10_runtime_is_maliwddm()) {
+       return S_OK;
+    } else {

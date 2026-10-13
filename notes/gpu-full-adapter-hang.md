@@ -849,3 +849,4 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   Built mali-umd-0031 (maliumd.dll d996535a…, Device.cpp recompiled); package **mali-g34** = g33 + 0031.
   Side effect to watch: windowed apps now use DWM shared surfaces + BltDXGI(Present) in our UMD's _Blt.
 - E_FAIL source still unknown (SetFullscreenState internals; candidates: 0028's SetDisplayModeCb result, a Map).
+- Review of c946667: bind >= 0 also covers maliwddm with GPU half off (our FullAdapter 1 GpuEnable 0) - intended. Comment asserted the effect as fact -> comment-only Mesa 0032 (UNVERIFIED). No rebuild.

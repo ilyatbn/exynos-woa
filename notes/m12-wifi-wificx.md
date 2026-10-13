@@ -396,3 +396,23 @@ ntfs-3g `mount.ntfs -o ro /dev/block/by-name/userdata`; esp/ = UEFILOG + PRAM; o
   many boots (first rec 5259) - the same E_INVALIDARG as g49 (CreateCompositionBuffer/Acrylic).
 - Open: whether the display-only boots also connected (bring-up log is overwritten each boot; run.2 has a
   DISASSOC + rescans from another boot); what exactly the user does not see (tray icon / flyout / list).
+- **Correction (same evening):** the user's next boot (runs/user4) showed the same "no WiFi" UI ("not connected"
+  globe; Quick Settings has no network list). After it, all six Exynos9820WlanCx*.txt in System32\LogFiles are
+  **byte-identical** (md5) to the runs/user3 pull, so the driver logs analysed above are **stale** - from an older
+  boot, not "the last boot". File times are useless: Windows' clock restarts at ~2026-10-12 22:29 every boot
+  (UEFILOG.TXT is also 22:29:10). Both recent boots ended in a hard reset (user's Vol Down + Power; the agent's
+  recovery action is `s10ediag flushreset`), which can drop NTFS writes still in Windows' cache, so offline reads
+  of the logs/hive can't tell whether the driver ran.
+- runs/user4 facts: UEFILOG `[PCIe] link up on try 1 ... ACPI WLAN visible` again (G3D already on = warm entry).
+  Offline SYSTEM hive (LOG1 applied with regipy 6.5.0, scratch venv): Enum\ACPI\SAMS9825\0 Service
+  Exynos9820WlanCx, Driver oem11.inf (0.37.30.366 = cx5), ConfigFlags 0 (not disabled); Services\Exynos9820WlanCx
+  Start 3; WlanSvc Start 2. System.evtx: WLAN AutoConfig 4000 started, no driver/SCM errors for the WLAN device.
+  agent.log: collect.cmd started at 72.6 s, collect.log stops at "--- extra" (gfxperf still running) - power menu
+  long-presses at 124 s and 181 s produced no "request:" line (s10ekeys popup runs in the session on its own
+  thread, not blocked by collect; likely just slow in full GPU mode), then the user's force reset at ~205 s.
+- New step f69aa7b extra-wifi-state.cmd (read-only, ~seconds, before gfxperf via extra-wifi-gfx.cmd = ESP
+  extra.cmd): pnputil device+Net class, sc (WlanCx, Wlan, WlanSvc, wcmsvc), netsh wlan drivers/interfaces/networks/
+  settings/profiles, ipconfig, Get-NetAdapter -IncludeHidden + Get-PnpDevice, RadioManagement, WLAN-AutoConfig
+  Operational (60), System PnP/SCM/NDIS events (400), live copies of the driver logs; out\last\wifistate +
+  out\wifi-history\<n>. Tested on the PC (dummy ESP, history 1). Deployed: md5 extra.cmd ba4628ec..,
+  extra-wifi-state.cmd c3907a1d.., extra-gfxperf.cmd 815dcbb4...

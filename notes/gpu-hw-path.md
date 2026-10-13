@@ -123,3 +123,22 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   4f78b651..., copied to System32 from TWRP (sha256 verified).
 - d3dtri `tex` mode (2x2 texture via Sample / Load / GetDimensions, quadrant pixel check) PASS on WARP x64;
   ARM64 d3dtri-3 on the ESP; extra-gpu-h3.cmd runs it in session 0 on Panfrost first.
+- 01:42 run h3d started: DWM on Panfrost, UMD 0044.
+- **Run h3d (01:42-01:52, runs/h3d, UMD 0044):** d3dtri tex on Panfrost: "Unhandled intrinsic
+  load_vertex_id_zero_base / Assertion failed bifrost_compile.c:2233" (0042 now prints asserts) - SV_VertexID is
+  declared VERTEXID_NOBASE by d3d10umd and tgsi_to_nir emits load_vertex_id_zero_base, which Panfrost does not
+  implement (it lowers only load_vertex_id, pan_nir_lower_vertex_id.c). DWM + LogonUI still 0xc0000409; WER dumps:
+  dwm.exe.4016.dmp = PS: tgsi_to_nir.c:656 (0044 numbering) UNREACHABLE("bad system value"); LogonUI.exe.4088.dmp =
+  VS: tgsi_to_nir.c:571 assert(!indirect) on a TEMPORARY without an array var. KMD: 86 jobs from LogonUI/DWM
+  before the tests, no fault.
+- d3d10umd sources: indexable temps (DCL_INDEXABLE_TEMP) are declared as plain ureg temporaries ("XXX: Add true
+  indexable temps to gallium"), relative access = indirect plain temp (fine for tgsi_exec, not for ttn); system
+  values PRIMID/VIEWPORT_INDEX/LAYER/CLIPDIST are declared with ureg_DECL_system_value; ttn's sysval switch lacks
+  PRIMID/LAYER/VIEWPORT_INDEX. Also found: ttn keeps ONE addr_reg (dst asserts index == 0) while our 0036 uses
+  ADDR[0..2] round-robin -> silent aliasing of two relative operands in one instruction.
+- Mesa 0045: VERTEXID_NOBASE -> vertex_id - base_vertex when !vertex_id_zero_based; Panfrost ctx->base_vertex =
+  draw->start for non-indexed draws (only feeds the sysval; = draw_vs_exec.c basevertex) so the value equals
+  softpipe's (indexed: index; non-indexed: i). Build mali-umd-0045 3c04ec3d.... Mesa 0046: ttn addr_regs[4] (decl
+  per register, src/dst by index); sysvals PRIMID -> load_primitive_id, LAYER -> load_layer_id (both in Bifrost),
+  VIEWPORT_INDEX -> 0; d3d10umd DCL_INDEXABLE_TEMP -> ureg_DECL_array_temporary + ureg_dst_array_offset. Build
+  mali-umd-0046 (0040-0046) maliumd.dll dafba629....

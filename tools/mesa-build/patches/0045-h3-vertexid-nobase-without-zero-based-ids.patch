@@ -1,0 +1,50 @@
+From d23236de5202ba6d32e284d6f09abe176b5982b2 Mon Sep 17 00:00:00 2001
+From: g12-build <g12@local>
+Date: Wed, 14 Oct 2026 01:54:25 +0300
+Subject: [PATCH] H3: VERTEXID_NOBASE (d3d10umd SV_VertexID) lowered to
+ vertex_id - base_vertex for drivers without zero-based vertex ids; Panfrost
+ base_vertex = start for non-indexed draws (run h3d Bifrost: unhandled
+ load_vertex_id_zero_base) (exynos-woa tools/mesa-build/patches/0045)
+
+---
+ src/gallium/auxiliary/nir/tgsi_to_nir.c      | 8 +++++++-
+ src/gallium/drivers/panfrost/pan_cmdstream.c | 4 +++-
+ 2 files changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/src/gallium/auxiliary/nir/tgsi_to_nir.c b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+index ac19c62..ae193d2 100644
+--- a/src/gallium/auxiliary/nir/tgsi_to_nir.c
++++ b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+@@ -593,7 +593,13 @@ ttn_src_for_file_and_index(struct ttn_compile *c, unsigned file, unsigned index,
+ 
+       switch (c->scan->system_value_semantic_name[index]) {
+       case TGSI_SEMANTIC_VERTEXID_NOBASE:
+-         load = nir_load_vertex_id_zero_base(b);
++         /* exynos-woa H3 (notes/gpu-hw-path.md): d3d10umd declares SV_VertexID as VERTEXID_NOBASE; a driver
++          * without vertex_id_zero_based (Panfrost: "Unhandled intrinsic load_vertex_id_zero_base", run h3d)
++          * gets it as gl_VertexID - gl_BaseVertex, the value softpipe's draw module computes. */
++         if (b->shader->options->vertex_id_zero_based)
++            load = nir_load_vertex_id_zero_base(b);
++         else
++            load = nir_isub(b, nir_load_vertex_id(b), nir_load_base_vertex(b));
+          break;
+       case TGSI_SEMANTIC_VERTEXID:
+          load = nir_load_vertex_id(b);
+diff --git a/src/gallium/drivers/panfrost/pan_cmdstream.c b/src/gallium/drivers/panfrost/pan_cmdstream.c
+index bcb3abe..9da718f 100644
+--- a/src/gallium/drivers/panfrost/pan_cmdstream.c
++++ b/src/gallium/drivers/panfrost/pan_cmdstream.c
+@@ -3433,7 +3433,9 @@ panfrost_single_draw_direct(struct panfrost_batch *batch,
+    ctx->vertex_count =
+       draw->count + (info->index_size ? abs(draw->index_bias) : 0);
+    ctx->instance_count = info->instance_count;
+-   ctx->base_vertex = info->index_size ? draw->index_bias : 0;
++   /* exynos-woa H3: the first vertex of a non-indexed draw (draw_vs_exec.c basevertex = start_index), so that
++    * tgsi_to_nir's VERTEXID_NOBASE = vertex_id - base_vertex counts from 0 as softpipe does (d3d10umd SV_VertexID). */
++   ctx->base_vertex = info->index_size ? draw->index_bias : draw->start;
+    ctx->base_instance = info->start_instance;
+    ctx->drawid = drawid_offset;
+ 
+-- 
+2.40.1.windows.1
+

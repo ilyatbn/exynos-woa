@@ -74,3 +74,31 @@ Full sub-agent report in the session transcript; key facts with sources:
   must get the device that owns the primary. If DWM has more than one D3D device, 0028 may pass the wrong one.
 - DXGI_DDI_ARG_SETDISPLAYMODE: hDevice, hResource, SubResourceIndex only.
 - NO_REDIRECTION: required for UMDs without a D3D9 DDI (supporting-the-dxgi-ddi) -> 0031 reverted (0033).
+
+## Shared resources (sub-agent, 2026-10-13 ~12:20) - why DWM composes black, and what the docs require
+- **Openers cannot lock:** "Only the owner (creator) of a shared allocation can lock it, unless it's a GDI non-managed
+  primary allocation." (.../d3dukmdt/ns-d3dukmdt-_d3dddicb_lockflags); same in DXGK_ALLOCATIONINFOFLAGS CpuVisible.
+  -> DWM (an opener of LogonUI/CDD/DComp surfaces) can never Lock them; a CPU-rendering UMD must move pixels
+  through the KMD.
+- CreateResource MISC_SHARED: pfnAllocateCb with hResource = hRTResource (required, else leak / no hKMResource);
+  per-resource + per-allocation private data. OpenResource receives exactly the private data DxgkDdiCreateAllocation
+  got at creation (.../d3dumddi/nc-d3dumddi-pfnd3dddi_openresource); D3D10DDIARG_OPENRESOURCE has NumAllocations,
+  pOpenAllocationInfo[] {hAllocation, private data}, hKMResource, per-resource private data - no format/size, so
+  the blob must describe the resource fully. KMD can't change private data on open (DxgkDdiOpenAllocation).
+- OS-created surfaces (GDISURFACE incl. D3DKMDT_GDISURFACE_TEXTURE "opened by a user-mode driver and used as a
+  texture during DWM composition", SHAREDPRIMARY, SHADOW, STAGING) get their blobs from the KMD's
+  DxgkDdiGetStandardAllocationDriverData. Our KMD returns STATUS_NOT_SUPPORTED for GDISURFACE today.
+- DriverSupportsCddDwmInterop: CDD presents GDI content into DWM's UMD-created textures via DxgkDdiPresent Blt.
+- BltDXGI with Present flag (windowed DXGI apps -> DWM's shared surface): one atomic copy pass.
+- Docs silent: keyed mutex / NT-handle shared variants, present history/redirection internals.
+
+## Plan (CPU rendering, GPU half off) - chunked
+1. Shared blob: one versioned resource description written by the UMD (CreateResource) and by the KMD
+   (GetStandardAllocationDriverData, all GDISURFACE types + SHAREDPRIMARY); KMD validates in CreateAllocation.
+2. UMD CreateResource(MISC_SHARED): kernel allocation (hResource = hRTResource), owner-lockable, softpipe texture
+   storage = the locked allocation (owner may lock).
+3. UMD OpenResource: rebuild from the blob, keep hAllocations; softpipe-private copy refreshed before use by a
+   "copy shared X -> my staging Y" command (pfnRenderCb, allocation list {X,Y}); the KMD runs it on the CPU over its
+   aperture MDLs at SubmitCommand; DWM then Locks Y (its own) and uploads.
+4. KMD: DriverSupportsCddDwmInterop + DxgkDdiPresent Blt into non-primary destinations (exists for MW blts).
+5. Device check first: does DWM call OpenResource, with which blobs (UMD trace under MALIKM_TRACE / PRAM)?

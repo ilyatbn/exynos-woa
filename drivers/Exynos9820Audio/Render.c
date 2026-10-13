@@ -506,7 +506,7 @@ NTSTATUS AudRenderCircuitCreate(_In_ WDFDEVICE Device, _In_ PAUD_DEVICE_CONTEXT 
  *   boundary j>=1: packet k0+j-1 is complete (the RDMA is now playing it), CurrentPacket = k0+j, and packet k0+j
  *                  (written by the client during the previous period) is expanded into slot (j+1) % AUD_DMA_SLOTS,
  *                  one full period before the RDMA reaches it.
- * Boundaries come from the RDMA frame counter (STATUS[11:0], 48 kHz mod 4096) while the hardware runs, so the client
+ * Boundaries come from the RDMA ring position (STATUS[27:12] + [11:0], AboxRingPosition) while the hardware runs, so the client
  * follows the audio PLL, not the QPC; without hardware (disabled or failed) the QPC drives the same timeline.
  * ================================================================================================================ */
 
@@ -617,11 +617,12 @@ static ULONGLONG AudNowHns(_In_ PAUD_STREAM_CONTEXT Ctx)
     return KSCONVERT_PERFORMANCE_TIME(Ctx->QpcFrequency.QuadPart, KeQueryPerformanceCounter(NULL));
 }
 
-/* Frames since this Run: RDMA frame counter (accumulated mod 4096, must be sampled at least every 85 ms - the packet
-   timer does) while the hardware runs, else QPC. Callable at <= DISPATCH_LEVEL. */
+/* Frames since this Run: RDMA ring position accumulated modulo the ring (must be sampled at least once per ring =
+   AUD_DMA_SLOTS periods - the packet timer samples every period) while the hardware runs, else QPC. <= DISPATCH. */
 static ULONGLONG AudElapsedFrames(_Inout_ PAUD_STREAM_CONTEXT Ctx)
 {
     ULONG     Count;
+    ULONG     Raw;
     ULONGLONG Frames;
     KIRQL     OldIrql;
 
@@ -630,9 +631,18 @@ static ULONGLONG AudElapsedFrames(_Inout_ PAUD_STREAM_CONTEXT Ctx)
     }
 
     KeAcquireSpinLock(&Ctx->HwLock, &OldIrql);
-    if (NT_SUCCESS(AboxFrameCount(Ctx->Dev, &Count))) {
-        Ctx->HwFrames += (Count - Ctx->HwLast12) & 0xFFFu;
-        Ctx->HwLast12  = Count;
+    /* A12: the RDMA reports its position in the RING (AboxRingPosition), so the advance is taken modulo the ring
+       size; the timer samples every period and the ring holds AUD_DMA_SLOTS periods, so a wrap is never missed. */
+    if (NT_SUCCESS(AboxRingPosition(Ctx->Dev, &Count, &Raw))) {
+        ULONG RingFrames = Ctx->DmaBytes / AUD_HW_FRAME_BYTES;
+
+        Ctx->HwLastRaw = Raw;
+        if (RingFrames != 0 && Count < RingFrames) {
+            Ctx->HwFrames += (Count + RingFrames - Ctx->HwLastPos) % RingFrames;
+            Ctx->HwLastPos = Count;
+        } else {
+            Ctx->HwBadPos++;
+        }
     }
     Frames = Ctx->HwFrames;
     KeReleaseSpinLock(&Ctx->HwLock, OldIrql);
@@ -687,8 +697,8 @@ VOID AudEvtStreamTimer(WDFTIMER Timer)
         Done++;
 
         if (Ctx->HwStarted && (Completed % AUD_HW_LOG_PACKETS) == 0) {
-            AudLog(Ctx->Dev->Log, "stream: packet %lu complete, RDMA frames %I64u (counter 0x%03lX)\r\n", Completed, Frames,
-                   Ctx->HwLast12);
+            AudLog(Ctx->Dev->Log, "stream: packet %lu complete, RDMA frames %I64u (pos %lu, STATUS %08lX, bad %lu)\r\n",
+                   Completed, Frames, Ctx->HwLastPos, Ctx->HwLastRaw, Ctx->HwBadPos);
         }
     }
 
@@ -902,8 +912,9 @@ static VOID AudHwStart(_Inout_ PAUD_STREAM_CONTEXT Ctx)
         return;
     }
 
-    (VOID)AboxFrameCount(Dev, &Count);
-    Ctx->HwLast12  = Count;
+    (VOID)AboxRingPosition(Dev, &Count, &Ctx->HwLastRaw);
+    Ctx->HwLastPos = Count;
+    Ctx->HwBadPos  = 0;
     Ctx->HwFrames  = 0;
     Ctx->HwStarted = TRUE;
 }

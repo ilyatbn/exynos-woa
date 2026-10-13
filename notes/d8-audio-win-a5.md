@@ -581,3 +581,9 @@ mic heard only amp pops (tone amplitude 0.03 by design).
 - Fix (T27): position from STATUS[27:12] + STATUS[11:0] with the ring size as modulus; samples every timer pass
   (ring = 4 periods, so a pass per <= 4 periods is enough; the timer runs every period). Out-of-range samples are
   ignored and counted.
+- T27 driver 1.0.1.11: AboxFrameCount -> AboxRingPosition (STATUS[27:12] + STATUS[11:0], raw STATUS returned);
+  AudElapsedFrames accumulates (pos - last) mod ring frames (DmaBytes / 16), ignores/counts out-of-ring samples
+  (HwBadPos); the per-100-packet log line prints pos, raw STATUS and the bad-sample count; stale "mod 4096" comments
+  fixed. Check against audD: stop 0x003C0140 -> 960 + 320 = 1280 < 1920 ring frames; 0x00800268 -> 2048 + 616 = 2664
+  < 8192 (exclusive ring 0x20000 / 16). No hardware constant changed (same register; field layout from the abox notes
+  + this run). Build exit 0.

@@ -253,9 +253,11 @@ typedef struct _AUD_STREAM_CONTEXT {
     ULONGLONG        StartTime;         /* HNS, QPC clock */
     ULONGLONG        StartPosition;
     LARGE_INTEGER    QpcFrequency;
-    KSPIN_LOCK       HwLock;            /* HwFrames / HwLast12 (timer DPC vs position queries) */
+    KSPIN_LOCK       HwLock;            /* HwFrames / HwLastPos (timer DPC vs position queries) */
     ULONGLONG        HwFrames;          /* RDMA frames since this Run */
-    ULONG            HwLast12;          /* last RDMA0 STATUS[11:0] */
+    ULONG            HwLastPos;         /* last RDMA0 ring position (frames, AboxRingPosition) */
+    ULONG            HwLastRaw;         /* last raw RDMA0 STATUS (log) */
+    ULONG            HwBadPos;          /* samples outside the ring (ignored) */
     ULONG            Glitches;          /* timer passes that found more than one boundary */
     ULONG            LateWrites;
     ULONG            Traces;         /* run audB4: callback trace lines written (capped) */
@@ -298,7 +300,8 @@ _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS AboxStart(_Inout_ PAUD_DEVICE_CONTEXT De
                                                   _In_ ULONG Channels, _In_ ULONG Bits);
 _IRQL_requires_(PASSIVE_LEVEL) VOID AboxStop(_Inout_ PAUD_DEVICE_CONTEXT Dev);
 _IRQL_requires_(PASSIVE_LEVEL) VOID AboxRelease(_Inout_ PAUD_DEVICE_CONTEXT Dev);
-_IRQL_requires_max_(DISPATCH_LEVEL) NTSTATUS AboxFrameCount(_In_ PAUD_DEVICE_CONTEXT Dev, _Out_ PULONG Count12);
+_IRQL_requires_max_(DISPATCH_LEVEL) NTSTATUS AboxRingPosition(_In_ PAUD_DEVICE_CONTEXT Dev, _Out_ PULONG Frames,
+                                                              _Out_ PULONG RawStatus);
 
 /* AmpI2c.c - all PASSIVE_LEVEL, BusLock taken inside. */
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS AmpInit(_Inout_ PAUD_DEVICE_CONTEXT Dev);

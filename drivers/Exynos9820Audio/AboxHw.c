@@ -1,6 +1,6 @@
 /*
  * AboxHw.c - the ABOX hardware layer: everything the render stream needs from ABOX goes through
- * AboxInit / AboxStart / AboxStop / AboxFrameCount / AboxRelease.
+ * AboxInit / AboxStart / AboxStop / AboxRingPosition / AboxRelease.
  *
  * Sequence = the device-validated UEFI code, main 24fb796
  * firmware/Platform/Beyond0LtePkg/Drivers/Beyond0LteAudioProbeDxe/AudioSpeaker.c (boot #99: loudspeaker tone heard
@@ -12,7 +12,8 @@
  *     VOL_FACTOR 0x800000, CTRL0 BURST 8 | FORMAT 0x1B (4 x 32) | ENABLE;
  *   teardown (:600-604): SPK_EN off, CTRL0 back to 0x00400000, wait for STATUS bit31 (progress) to clear.
  * Every stage-1 register is saved before it is written and restored by AboxRelease (UEFI :530-538, :606-619).
- * RDMA0 STATUS[11:0] counts 48 kHz frames mod 4096 (boot #99: +0xF0 per 5 ms); [27:12] stays 0 on 2.0.1.
+ * RDMA0 STATUS: [27:12] current period start (16-byte units), [11:0] frames into that period (run audD, A12;
+ * boot #99 saw a one-period ring, where [27:12] stays 0 and [11:0] looked like a free frame counter).
  *
  * Rule (abox notes F5): nothing in the AUD block is touched unless PMU AUD_STATUS bit0 reads 1 first.
  * Validated in UEFI only; NOT VALIDATED UNDER WINDOWS (stage Guided).
@@ -52,7 +53,9 @@
 #define   ABOX_RDMA_VOL_UNITY      0x00800000u   /* boot #99: correct level */
 #define ABOX_RDMA0_STATUS        0x1030u
 #define   ABOX_RDMA_PROGRESS       0x80000000u
-#define   ABOX_RDMA_FRAMES_MASK    0x00000FFFu   /* 48 kHz frames mod 4096 */
+#define   ABOX_RDMA_RBUF_CNT_MASK  0x00000FFFu   /* RBUF_CNT: frames inside the current period (run audD, A12) */
+#define   ABOX_RDMA_RBUF_OFF_SHIFT 12           /* RBUF_OFFSET 27:12 (2.0.1 layout, notes/d8-audio-m3-abox.md:55) */
+#define   ABOX_RDMA_RBUF_OFF_MASK  0xFFFFu       /*   in 16-byte units = frame index of the period start (audD) */
 
 /* CMU_AUD / GPIO_AUD / SYSREG_AUD (AudioSpeaker.c :115-125). */
 #define CMU_AUD_DIV_UAIF1        0x1830u
@@ -368,15 +371,26 @@ VOID AboxStop(_Inout_ PAUD_DEVICE_CONTEXT Dev)
            AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_UAIF1_CTRL0), AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_UAIF1_STATUS));
 }
 
-/* RDMA0 STATUS[11:0]: 48 kHz frames mod 4096 while the DMA runs (boot #99). Legal at DISPATCH_LEVEL. */
+/*
+ * RDMA0 read position in ring frames (one frame = 16 bytes = 4 x 32-bit slots) while the DMA runs:
+ * RBUF_OFFSET (27:12, 16-byte units = the current period's first frame) + RBUF_CNT (11:0, frames into that period).
+ * Run audD (A12): every RBUF_CNT value was below the 480-frame period and RBUF_OFFSET was period-aligned
+ * (0x3C0 = period 2, 0x800 = period 1 of 2048-frame periods); boot #99's "frames mod 4096" reading came from a
+ * one-period ring where RBUF_OFFSET stays 0. The caller takes the result modulo the ring size. DISPATCH_LEVEL ok.
+ */
 _IRQL_requires_max_(DISPATCH_LEVEL)
-NTSTATUS AboxFrameCount(_In_ PAUD_DEVICE_CONTEXT Dev, _Out_ PULONG Count12)
+NTSTATUS AboxRingPosition(_In_ PAUD_DEVICE_CONTEXT Dev, _Out_ PULONG Frames, _Out_ PULONG RawStatus)
 {
-    *Count12 = 0;
+    ULONG S;
+
+    *Frames    = 0;
+    *RawStatus = 0;
     if (!Dev->AboxRunning) {
         return STATUS_DEVICE_NOT_READY;
     }
 
-    *Count12 = AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_RDMA0_STATUS) & ABOX_RDMA_FRAMES_MASK;
+    S          = AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_RDMA0_STATUS);
+    *RawStatus = S;
+    *Frames    = ((S >> ABOX_RDMA_RBUF_OFF_SHIFT) & ABOX_RDMA_RBUF_OFF_MASK) + (S & ABOX_RDMA_RBUF_CNT_MASK);
     return STATUS_SUCCESS;
 }

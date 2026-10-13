@@ -772,3 +772,11 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
 - Package **s10e-artifacts\mali-g30** = mali-g29 (driver 1.0.26.1, UMD 228d8332) + extra-gpu-mode.cmd (CRLF)
   `2E9F32AEED89AE73B6797C9483CD6DE62BA32D16BE8A95060F449FCBEEECA4FC`. Read: out\gpu\etw-create.txt (3 providers,
   FileName C:\S10eTmp\dxgk.etl), then dxgk-present.txt / dwm-msgs.txt.
+
+## Planned: fullscreen D3D11 clear/triangle test (user agreed 2026-10-13)
+- Small exe: D3D11 device on the Mali, fullscreen-exclusive swapchain (bypasses DWM composition), clear to solid red,
+  then a triangle; Present for ~20 s. Visible on the laptop camera as "lights" only.
+- Splits the open question: red on the panel -> Mali render + scanout path works, the fault is DWM-specific;
+  dark -> the fault is below DWM (present/flip/scanout in MaliG76Wddm). Run alongside g30.
+- Caveat: collect.cmd runs as SYSTEM in session 0 (no display) - the test must run in the user session
+  (stay.flg + scheduled task at logon, or a Run key), like the earlier interactive tests.

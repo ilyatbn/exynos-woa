@@ -50,6 +50,17 @@ for %%U in (maliumd.dll libgallium_d3d10.dll) do if exist "%ESP%\S10EDIAG\gpu\%%
   certutil -hashfile "%SystemRoot%\System32\%%U" SHA256 >> "%G%\umd-deploy.txt" 2>&1
 )
 for /f "usebackq delims=" %%L in (`findstr /i /v "certutil SHA256" "%G%\umd-deploy.txt"`) do s10ediag mark "umd: %%L"
+rem g43 (notes/gpu-full-adapter-hang.md): earlier full-mode boots show explorer / StartMenuExperienceHost / SearchHost
+rem dying in abort() (ucrtbase 0xc0000409, WER P9 7). WER LocalDumps (learn.microsoft.com "Collecting User-Mode Dumps":
+rem per-exe key, DumpFolder / DumpCount / DumpType 1 = minidump) leaves a stack of any such crash in pass 2.
+if exist C:\S10eTmp\dumps rmdir /s /q C:\S10eTmp\dumps
+mkdir C:\S10eTmp\dumps > nul 2>&1
+icacls C:\S10eTmp\dumps /grant *S-1-1-0:(OI)(CI)M >> "%G%\set-mode.txt" 2>&1
+for %%X in (explorer.exe StartMenuExperienceHost.exe SearchHost.exe dwm.exe LogonUI.exe) do (
+  reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\%%X" /v DumpFolder /t REG_EXPAND_SZ /d C:\S10eTmp\dumps /f >> "%G%\set-mode.txt" 2>&1
+  reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\%%X" /v DumpCount /t REG_DWORD /d 2 /f >> "%G%\set-mode.txt" 2>&1
+  reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\%%X" /v DumpType /t REG_DWORD /d 1 /f >> "%G%\set-mode.txt" 2>&1
+)
 if exist "%ESP%\S10EDIAG\nogpu.flg" del /f /q "%ESP%\S10EDIAG\nogpu.flg"
 echo pass2 > C:\S10eTmp\gpumode2.flg
 s10ediag mark g: clean restart into the new mode
@@ -110,11 +121,22 @@ rem with present counts + back-buffer readback - a colour on the webcam means re
 if exist C:\S10eTmp\d3dfill.exe >> C:\S10eTmp\gpu-user.ps1 echo C:\S10eTmp\d3dfill.exe 8 ^> C:\S10eTmp\d3dfill-user.txt 2^>^&1
 if exist C:\S10eTmp\d3dfill-user.txt del /f /q C:\S10eTmp\d3dfill-user.txt
 if exist C:\S10eTmp\d3dprobe-user.txt del /f /q C:\S10eTmp\d3dprobe-user.txt
+rem g43: run-as-user found no explorer.exe at ~135 s although the agent saw it up for 30 s at 64 s - which processes
+rem (session, user, state) exist right before the user task.
+tasklist /v /fo csv > "%G%\tasks.txt" 2>&1
+for %%X in (explorer.exe LogonUI.exe) do for /f "usebackq delims=" %%L in (`tasklist /fo table /nh /fi "imagename eq %%X"`) do s10ediag mark "p: %%L"
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\S10eTmp\run-as-user.ps1 -Script C:\S10eTmp\gpu-user.ps1 -Wait 240 > "%G%\user-task.txt" 2>&1
 if exist C:\S10eTmp\d3dprobe-user.txt copy /y C:\S10eTmp\d3dprobe-user.txt "%G%\d3dprobe-user.txt" > nul
 if exist C:\S10eTmp\d3dfill-user.txt copy /y C:\S10eTmp\d3dfill-user.txt "%G%\d3dfill-user.txt" > nul
 for /f "usebackq delims=" %%L in (`findstr /i "hr readback presents TIMEOUT done" "%G%\d3dfill-user.txt"`) do s10ediag mark "f: %%L"
 for /f "usebackq delims=" %%L in (`findstr /i "maliumd gallium" "%G%\dwm-modules.txt"`) do s10ediag mark "w: %%L"
+rem g43: Application.evtx is exported by collect.cmd at ~66 s, before this step; the crash events (Application Error
+rem 1000) of the whole boot are taken again here, plus the WER LocalDumps armed in pass 1.
+wevtutil qe Application /q:"*[System[(EventID=1000)]]" /c:30 /rd:true /f:text > "%G%\app-crashes.txt" 2>&1
+if exist C:\S10eTmp\dumps mkdir "%G%\dumps" > nul 2>&1
+if exist C:\S10eTmp\dumps copy /y C:\S10eTmp\dumps\*.dmp "%G%\dumps\" > nul 2>&1
+dir /b "%G%\dumps" > "%G%\dumps.txt" 2>&1
+for /f "usebackq" %%N in (`find /c ".dmp" ^< "%G%\dumps.txt"`) do s10ediag mark "a: %%N minidumps"
 for /f "usebackq delims=" %%L in (`findstr /i "adapter output D3D11CreateDevice EnumOutputs DeviceName Bounds" "%G%\d3dprobe-user.txt"`) do s10ediag mark "u: %%L"
 s10ediag mark g: dxdiag
 dxdiag /whql:off /t "%G%\dxdiag.txt"

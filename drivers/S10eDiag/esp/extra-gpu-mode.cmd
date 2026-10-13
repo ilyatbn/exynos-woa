@@ -99,11 +99,18 @@ s10ediag mark g: dwm modules + user-session d3dprobe
 powershell -NoProfile -Command "Get-Process dwm -ErrorAction SilentlyContinue | ForEach-Object { 'dwm pid ' + $_.Id; $_.Modules | Where-Object { $_.ModuleName -match 'maliumd|gallium|d3d10|d3d11|dxgi|warp|basicrender' } | ForEach-Object { '  ' + $_.FileName } }" > "%G%\dwm-modules.txt" 2>&1
 copy /y "%ESP%\S10EDIAG\run-as-user.ps1" C:\S10eTmp\run-as-user.ps1 > nul 2>&1
 copy /y "%ESP%\S10EDIAG\gpu\d3dprobe.exe" C:\S10eTmp\d3dprobe.exe > nul 2>&1
+copy /y "%ESP%\S10EDIAG\gpu\d3dfill.exe" C:\S10eTmp\d3dfill.exe > nul 2>&1
 > C:\S10eTmp\gpu-user.ps1 echo C:\S10eTmp\d3dprobe.exe ^> C:\S10eTmp\d3dprobe-user.txt 2^>^&1
 >> C:\S10eTmp\gpu-user.ps1 echo Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Screen]::AllScreens ^| Format-List DeviceName,Primary,Bounds ^| Out-File -Append C:\S10eTmp\d3dprobe-user.txt
+rem G13 d3dfill (notes/gpu-full-adapter-hang.md): D3D11 on the Mali, exclusive fullscreen, red/green/blue/white 8 s each
+rem with present counts + back-buffer readback - a colour on the webcam means render + present + scanout work without DWM.
+if exist C:\S10eTmp\d3dfill.exe >> C:\S10eTmp\gpu-user.ps1 echo C:\S10eTmp\d3dfill.exe 8 ^> C:\S10eTmp\d3dfill-user.txt 2^>^&1
+if exist C:\S10eTmp\d3dfill-user.txt del /f /q C:\S10eTmp\d3dfill-user.txt
 if exist C:\S10eTmp\d3dprobe-user.txt del /f /q C:\S10eTmp\d3dprobe-user.txt
-powershell -NoProfile -ExecutionPolicy Bypass -File C:\S10eTmp\run-as-user.ps1 -Script C:\S10eTmp\gpu-user.ps1 -Wait 120 > "%G%\user-task.txt" 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\S10eTmp\run-as-user.ps1 -Script C:\S10eTmp\gpu-user.ps1 -Wait 240 > "%G%\user-task.txt" 2>&1
 if exist C:\S10eTmp\d3dprobe-user.txt copy /y C:\S10eTmp\d3dprobe-user.txt "%G%\d3dprobe-user.txt" > nul
+if exist C:\S10eTmp\d3dfill-user.txt copy /y C:\S10eTmp\d3dfill-user.txt "%G%\d3dfill-user.txt" > nul
+for /f "usebackq delims=" %%L in (`findstr /i "hr readback presents TIMEOUT done" "%G%\d3dfill-user.txt"`) do s10ediag mark "f: %%L"
 for /f "usebackq delims=" %%L in (`findstr /i "maliumd gallium" "%G%\dwm-modules.txt"`) do s10ediag mark "w: %%L"
 for /f "usebackq delims=" %%L in (`findstr /i "adapter output D3D11CreateDevice EnumOutputs DeviceName Bounds" "%G%\d3dprobe-user.txt"`) do s10ediag mark "u: %%L"
 s10ediag mark g: dxdiag

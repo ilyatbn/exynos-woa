@@ -780,3 +780,8 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   dark -> the fault is below DWM (present/flip/scanout in MaliG76Wddm). Run alongside g30.
 - Caveat: collect.cmd runs as SYSTEM in session 0 (no display) - the test must run in the user session
   (stay.flg + scheduled task at logon, or a Run key), like the earlier interactive tests.
+- 2026-10-13: written - drivers/MaliG76Wddm/tools/d3dfill (d3dfill.c + build-d3dfill.cmd; built warning-free /W4 /WX,
+  test-signed -> s10e-artifacts\d3dfill-1\d3dfill.exe). Exclusive fullscreen DISCARD swap chain on the "Mali" DXGI
+  adapter, FL 10_0 + BGRA, red/green/blue/white phases (arg = seconds each), per-phase present counts + pixel (0,0)
+  readback. extra-gpu-mode.cmd pass 2 runs it (8 s phases) in the user session after d3dprobe if gpu\d3dfill.exe is
+  on the ESP; marks "f: ..."; run-as-user wait 120 -> 240 s. Not yet run on the device.

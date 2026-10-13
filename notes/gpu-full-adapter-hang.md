@@ -884,3 +884,4 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
 - Suspect: the vsync Latch (copy of the flipped primary into the GOP fb) skips (no MDL) or copies a black frame.
 - g36: KMD 1.0.28.1 (build 28) logs the first 4 latches to PRAM (source VA, first and middle pixel, fb present +
   PresentSkips); extra-gpu-mode.cmd runs `s10ediag flush` at its end. Package mali-g36 (sys c04ac708…, cmd f1cb08a6…).
+- ESP was 100% full: g35's dxgk.xml = 461 MB on the 600 MB ESP -> the real reason for the 0-byte files (with the hard reset). Pulled copies verified (etl sha 8aaea91e identical), ESP copies of dxgk.xml/csv/etl deleted (16% used after). extra-gpu-mode.cmd: no XML, CSV on C:\S10eTmp (deleted after the findstr extracts), only the 64 MB .etl copied to the ESP (decode on the PC).

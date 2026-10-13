@@ -74,16 +74,18 @@ if exist C:\S10eTmp\etw-create.txt copy /y C:\S10eTmp\etw-create.txt "%G%\etw-cr
 rem a misplaced ETL (an older pass 1 without -o on the updates) is moved to where it is expected
 if not exist C:\S10eTmp\dxgk.etl if exist "%SystemRoot%\System32\dxgk.etl" move /y "%SystemRoot%\System32\dxgk.etl" C:\S10eTmp\dxgk.etl > nul 2>&1
 if exist C:\S10eTmp\dxgk.etl copy /y C:\S10eTmp\dxgk.etl "%G%\dxgk.etl" > nul 2>&1
-if exist C:\S10eTmp\dxgk.etl tracerpt C:\S10eTmp\dxgk.etl -o "%G%\dxgk.xml" -of XML -y > "%G%\etw-tracerpt.txt" 2>&1
-if exist C:\S10eTmp\dxgk.etl tracerpt C:\S10eTmp\dxgk.etl -o "%G%\dxgk.csv" -of CSV -y >> "%G%\etw-tracerpt.txt" 2>&1
-if exist "%G%\dxgk.csv" findstr /r /c:"DxgKrnl, *DCStart *, *494," "%G%\dxgk.csv" > "%G%\dxgk-msgs.txt" 2>&1
+rem Run g35full: the XML decode was 461 MB and filled the 600 MB ESP (most of out\last came back 0-byte). No XML any
+rem more (decode the copied .etl on the PC); the CSV stays on C: and only the findstr extracts go to the ESP.
+if exist C:\S10eTmp\dxgk.etl tracerpt C:\S10eTmp\dxgk.etl -o C:\S10eTmp\dxgk.csv -of CSV -y > "%G%\etw-tracerpt.txt" 2>&1
+if exist C:\S10eTmp\dxgk.csv findstr /r /c:"DxgKrnl, *DCStart *, *494," C:\S10eTmp\dxgk.csv > "%G%\dxgk-msgs.txt" 2>&1
 rem DxgKrnl present results (event 184) and every DWM / DXGI event of level error or warning (CSV Level column 2/3),
 rem plus their text-bearing rows, into dwm-msgs.txt - DWM's own reason for re-creating or stalling.
-if exist "%G%\dxgk.csv" findstr /r /c:"DxgKrnl, *Info *, *184," "%G%\dxgk.csv" > "%G%\dxgk-present.txt" 2>&1
-if exist "%G%\dxgk.csv" findstr /r /c:"^Microsoft-Windows-Dwm-Core" /c:"^Microsoft-Windows-DXGI" "%G%\dxgk.csv" > "%G%\dwm-all.txt" 2>&1
+if exist C:\S10eTmp\dxgk.csv findstr /r /c:"DxgKrnl, *Info *, *184," C:\S10eTmp\dxgk.csv > "%G%\dxgk-present.txt" 2>&1
+if exist C:\S10eTmp\dxgk.csv findstr /r /c:"^Microsoft-Windows-Dwm-Core" /c:"^Microsoft-Windows-DXGI" C:\S10eTmp\dxgk.csv > "%G%\dwm-all.txt" 2>&1
 if exist "%G%\dwm-all.txt" findstr /r /c:"^[^,]*,[^,]*,[^,]*,[^,]*,[^,]*, *[23]," /c:"fail" /c:"error" /c:"0x8" "%G%\dwm-all.txt" > "%G%\dwm-msgs.txt" 2>&1
 for /f "usebackq delims=" %%L in (`findstr /n "^" "%G%\dwm-msgs.txt" ^| findstr /b "1: 2: 3: 4: 5:"`) do s10ediag mark "e: %%L"
 if exist C:\S10eTmp\dxgk.etl del /f /q C:\S10eTmp\dxgk.etl
+if exist C:\S10eTmp\dxgk.csv del /f /q C:\S10eTmp\dxgk.csv
 rem G13: can the D3D runtimes create a device on the Mali adapter (DWM needs D3D11; maliumd.dll is Mesa d3d10umd
 rem built D3D10.0-only)? d3dprobe prints per adapter the UMD names for DX9/10/11, the WDDM version and the HRESULT of
 rem D3D11CreateDevice / D3D10CreateDevice; MALIKM_TRACE=1 adds the Mesa shim's trace (stderr) from inside the probe.

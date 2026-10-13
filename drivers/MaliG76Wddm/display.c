@@ -68,6 +68,16 @@ static void FillSignal(MW_ADAPTER *Dev, D3DKMDT_VIDEO_SIGNAL_INFO *S)
     S->ScanLineOrdering = D3DDDI_VSSLO_PROGRESSIVE;
 }
 
+/* G76: the refresh rate of the mode this driver reports, exactly as the target mode carries it (FillSignal), for
+ * DescribeAllocation (memory.c). */
+void MwModeRefresh(MW_ADAPTER *A, D3DDDI_RATIONAL *Refresh)
+{
+    D3DKMDT_VIDEO_SIGNAL_INFO s;
+    RtlZeroMemory(&s, sizeof(s));
+    FillSignal(A, &s);
+    *Refresh = s.VSyncFreq;
+}
+
 /* ---- the firmware framebuffer ---- */
 
 NTSTATUS MwDisplayStart(MW_ADAPTER *A)

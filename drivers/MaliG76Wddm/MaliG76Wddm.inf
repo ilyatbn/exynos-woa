@@ -20,6 +20,7 @@
 ;   RecommendVidPn 1  full adapter: RecommendFunctionalVidPn pins path 0->0 and our one mode (0 = no recommendation)
 ;   SynthEdid 1   full adapter: QueryDeviceDescriptor returns an EDID built for the reported timing (0 = none)
 ;   SegmentCpuVisible 1  full adapter: the aperture segment is CPU visible (dxgkrnl requires it for a shared primary)
+;   ModeRefreshExact 1   full adapter: DescribeAllocation reports a primary at the target mode's exact refresh rational
 ;
 ; SPDX-License-Identifier: GPL-2.0
 ;
@@ -29,7 +30,7 @@ Signature   = "$WINDOWS NT$"
 Class       = Display
 ClassGuid   = {4D36E968-E325-11CE-BFC1-08002BE10318}
 Provider    = %ProviderName%
-DriverVer   = 10/13/2026,1.0.19.1
+DriverVer   = 10/13/2026,1.0.23.1
 CatalogFile = MaliG76Wddm.cat
 PnpLockdown = 1
 

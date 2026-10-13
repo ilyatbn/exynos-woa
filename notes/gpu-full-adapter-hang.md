@@ -563,3 +563,28 @@ patches/*.patch after the reference patches, one commit each).
   and the heartbeat "p" growing (each = one DWM frame blitted to the panel); webcam desktop; whether the clean
   restart now happens. UNVERIFIED: dxgkrnl may next want flips to retire via the vsync's reported address
   (FlipOnVSyncMmIo) - the trace would show presents stalling after 2.
+
+## Run g22full - flips reach dxgkrnl, rejected as PRESENT_MODE_CHANGED (2026-10-13)
+- Event 494: "Source of Flip must be primary" gone; left: StartDevice/AddDevice/virtualization lines, 3x "Failed to
+  get pairing adapters from adapter .. VidPn source 1", 2x file version, 1x NoGPUAccess - none fatal.
+- **DxgKrnl event 184 (present: hContext, VidPnSourceId 0, FlipInterval 1, Flags 0x401004 = flip, hSrcAllocHandle,
+  ReturnStatus): 440 flips, ALL ReturnStatus 0xC01E0005 STATUS_GRAPHICS_PRESENT_MODE_CHANGED**, alternating the two
+  primaries (0x40000800 / 0x40000840) - the patch-0021 surfaces; 4 other presents (flags 0x8000) succeeded.
+- PRAM: KMD Present never called after the boot console (heartbeat p 0x30); a DescribeAllocation PAIR every ~1.4 s
+  = dxgkrnl describing both primaries before each flip retry, then refusing them. user-task: nobody logged on again.
+- Cause (strong): MwDescribeAllocation answered RefreshRate 60/1 for every allocation (the original's constant),
+  while the committed target mode carries VSyncFreq = PixelRate / (totalW * totalH) = 189720000 / 3162000
+  (FillSignal). dxgkrnl's flip path compares the primary's description with the current mode; the rationals differ
+  -> PRESENT_MODE_CHANGED. (The boot console used Blt presents, which skip that check - why they worked.)
+- Fix (Parameters\ModeRefreshExact, default 1): a MW_ALLOC_PRIMARY allocation reports the mode's exact VSyncFreq
+  (new display.c MwModeRefresh from FillSignal); the first 8 descriptions go to PRAM ("Describe wxh", "Describe
+  fmt.flags") so a size/format mismatch of DWM's swap chain shows next run. INF 1.0.23.1, build 23 exit 0.
+- Logon + restart hang: both follow from DWM never getting a frame out (LogonUI cannot show; shutdown never reached
+  the driver in g21) - expected to clear with working flips; if the restart still hangs with flips working, the
+  next read is the PRAM tail of WINPRAM-RESTART.BIN for ">SetPowerState" without "<".
+- Package **s10e-artifacts\mali-g23**: sys `657C7E72F114830A8249CEB6601C577CF7BF690005E02D62E3FD0A4F4FB89F38`, inf
+  `B3E0F82D36953E6EA974371B3DA810242B6DA729225956054C68A04E4A7E5A3B`, cat
+  `B2FCC65CDA70B3D94DA07E82D55722E9ECD52425CD9155BBDFF014EFD6A58913` (InfVerif /w 0, signer 5DD5DEE1...); UMD
+  0721d314 (mali-g22) and scripts unchanged. Steps: update live in display-only (1.0.23.1) -> full.flg + nogpu.flg
+  -> extra-gpu-mode.cmd. Read: ETW 184 ReturnStatus 0 for flips, PRAM ">Present" after 30 s + heartbeat p growing,
+  "Describe" lines (DWM's swap chain size = 1080x2280? format 0x15 A8R8G8B8?), webcam desktop, clean restart.

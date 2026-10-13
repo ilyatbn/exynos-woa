@@ -144,10 +144,16 @@ NTSTATUS APIENTRY MwDestroyAllocation(IN_CONST_HANDLE hAdapter, const DXGKARG_DE
     return STATUS_SUCCESS;
 }
 
+/* G76: dxgkrnl describes a flip's primary to check it against the current mode; the original's fixed 60/1 refresh
+ * is not the target mode's VSyncFreq (PixelRate / (totalW * totalH) as a rational, display.c FillSignal), and every
+ * flip of DWM's swap chain came back STATUS_GRAPHICS_PRESENT_MODE_CHANGED (0xC01E0005, DxgKrnl ETW event 184,
+ * run g22full) with a DescribeAllocation pair before each retry. A primary now reports the mode's own refresh
+ * rational; the first description of each kind goes to PRAM ("Describe wxh", "Describe fmt.flags"). */
 NTSTATUS APIENTRY MwDescribeAllocation(IN_CONST_HANDLE hAdapter, DXGKARG_DESCRIBEALLOCATION *Arg)
 {
+    MW_ADAPTER *a = (MW_ADAPTER *)hAdapter;
     MW_ALLOCATION *alloc = (MW_ALLOCATION *)Arg->hAllocation;
-    UNREFERENCED_PARAMETER(hAdapter);
+    static LONG logged;
 
     Arg->Width = alloc->Width;
     Arg->Height = alloc->Height;
@@ -156,7 +162,13 @@ NTSTATUS APIENTRY MwDescribeAllocation(IN_CONST_HANDLE hAdapter, DXGKARG_DESCRIB
     Arg->MultisampleMethod.NumQualityLevels = 0;
     Arg->RefreshRate.Numerator = 60;
     Arg->RefreshRate.Denominator = 1;
+    if ((alloc->Flags & MW_ALLOC_PRIMARY) && MwModeRefreshExact)
+        MwModeRefresh(a, &Arg->RefreshRate);
     Arg->PrivateDriverFormatAttribute = 0;
+    if (InterlockedIncrement(&logged) <= 8) {
+        MwPramText(FALSE, "Describe wxh ", NULL, (alloc->Width << 16) | (alloc->Height & 0xFFFF), TRUE);
+        MwPramText(FALSE, "Describe fmt.flags ", NULL, ((ULONG)alloc->Format << 8) | (alloc->Flags & 0xFF), TRUE);
+    }
     return STATUS_SUCCESS;
 }
 

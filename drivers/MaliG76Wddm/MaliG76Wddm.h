@@ -72,6 +72,9 @@ extern ULONG MwSynthEdid;
 /* Parameters\SegmentCpuVisible (default 1): the aperture segment is reported CPU visible (memory.c), which dxgkrnl
  * requires of every segment a shared primary may be written in. */
 extern ULONG MwSegmentCpuVisible;
+/* Parameters\ModeRefreshExact (default 1): DescribeAllocation reports a primary's refresh rate exactly as the
+ * VidPN target mode carries it (memory.c); 0 = the original's 60/1. */
+extern ULONG MwModeRefreshExact;
 
 /* ---- objects ---- */
 
@@ -211,6 +214,7 @@ void MwPramHeartbeat(ULONG Isr, ULONG Dpc, ULONG Vsync, ULONG Submits, ULONG Pre
 /* display.c: VidPN and the POST framebuffer (both modes), PresentDisplayOnly (display-only mode) */
 NTSTATUS MwDisplayStart(MW_ADAPTER *A);
 void MwDisplayStop(MW_ADAPTER *A);
+void MwModeRefresh(MW_ADAPTER *A, D3DDDI_RATIONAL *Refresh);   /* the VidPN target mode's VSyncFreq */
 NTSTATUS MwDisplayOnlyCaps(const DXGKARG_QUERYADAPTERINFO *Info);
 DXGKDDI_QUERY_CHILD_RELATIONS MwQueryChildRelations;
 DXGKDDI_QUERY_CHILD_STATUS MwQueryChildStatus;

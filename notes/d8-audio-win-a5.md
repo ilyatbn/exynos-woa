@@ -597,3 +597,14 @@ mic heard only amp pops (tone amplitude 0.03 by design).
   key is down and only for volup/voldown long actions, migration touches only "none" values. No findings.
 - audio-test.ps1: amplitude 0.03 -> 0.1 (coordinator: quiet but audible to the mic; with ~10 % endpoint volume and
   the amps at -10 dB still a quiet tone). Exclusive tone label corrected (our volume element also applies there).
+- Package s10e-artifacts\audio-a12 (1.0.1.11, ACX 1.1, signed 5DD5DEE1... sys + cat, InfVerif VALID, INF defaults 0/0/0):
+    34557CFD03ADB502AFD98759392B84221436B5501EE2847D3D995C40F8DB4B63  Exynos9820Audio.sys
+    F00EA3FE0B67D308D21E30356178736963915A597E0A7A9FF4996FD06AECBE99  Exynos9820Audio.inf
+    5391DD967AFFD6C749DF1D0C61832A894C772CA415FDC301DB5E34988AADB6BD  exynos9820audio.cat
+
+### A12 device test
+Swap to audio-a12 (new audio-test.ps1 with amplitude 0.1), stage D (AmpInit/AmpEnable/AboxEnable 1). Expect: shared
+tones `played 96000 frames` (no STALLED), run.txt `stream: packet 100 complete, RDMA frames ~48000 (pos <ring>,
+STATUS ..., bad 0)` i.e. ~480 frames per packet and ~10 ms per packet (packet 1000 ~10 s after run), few late timer
+passes; mic hears 1000 Hz (exclusive) and 1500/1500/2000 Hz with A > B < C, D silent. Then s10ediag-m20 for the
+buttons (notes/d8-buttons-agent.md).

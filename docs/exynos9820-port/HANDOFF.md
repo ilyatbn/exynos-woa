@@ -1369,3 +1369,9 @@ themselves). Bluetooth D4c research + skeleton imported (parkinglot/bluetooth-d4
 **Lessons:** marker files in C:\S10eTmp (audswap/gpumode2/audstage.flg) survive a crashed pass - check marks; a
 killed ping returned to collect.cmd -> holdrestart loops; installs reset INF Parameters (stage after add); clean
 restarts save PRAM to WINPRAM-RESTART.BIN; never fsck NTFS from TWRP (read-only mounts are fine).
+
+**§33 update (2026-10-13 ~23:35).** BOOT = **#115** (s10e-artifactsoot115-wlanfix-v2.img, 358e52bd…: #114 recipe
++ 9ffee79 - the stay.flg WINPRAM save no longer zeroes the progress page; that zeroing hid XHC0/WLAN/GPU0 from
+Windows after every hard reset). ESP: extra.cmd = extra-wifi-gfx.cmd (extra-wifi-state snapshot, then gfxperf),
+stay.flg, gpuull.flg + bench.flg, noaudio.flg; BCD = original (KD off). Next: validate WiFi on #115
+(notes/m12-wifi-wificx.md), then the power-menu "reboot to TWRP" failure and slow TWRP start, then GpuEnable 1.

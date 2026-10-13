@@ -433,3 +433,23 @@ ntfs-3g `mount.ntfs -o ro /dev/block/by-name/userdata`; esp/ = UEFILOG + PRAM; o
   kept as BCD.nokd (md5 db0825ed..) - **undo: copy BCD.nokd over BCD**. Host: tools/kd-runner/kdrun.py ->
   s10e-artifacts/runs/kd1/kd.log, break-in at 150 s, then !dd 8fe0f000 (physical read of the words),
   !amli dns /s \_SB.WLAN / GPU0 / XHC0, !devnode 0 1, g.
+- **ROOT CAUSE (runs/user6, live peek from Windows):** `8fe0f000: 00000000 00000072 00000000 00000000 / 0...` -
+  every status word zero at runtime, [1] = 0x72 (BootLogDxe's ExitBootServices write). The zeroing is our own
+  Beyond0LteBootLogDxe ReadyToBoot pair logic: the 2026-10-12 interactive branch (previous boot ran Windows, no
+  0x80 restart marker, \S10EDIAG\stay.flg present) did DumpMemoryToEsp(WINPRAM.BIN) then
+  ZeroMem(0x8FE00000, 64 KiB) **and continued into Windows** - the 64 KiB includes the progress page, so this
+  boot's 'USBH'/'WLAN'/'GPU0' (set by the DXEs before ReadyToBoot, still visible in the dump) were wiped and
+  XHC0/WLAN/GPU0 _STA returned 0. Explains: WiFi absent after every hard reset regardless of GPU mode; GPU0
+  Disconnected after hard resets but Started after a Windows-requested restart (that branch saves
+  WINPRAM-RESTART.BIN without zeroing); WiFi worked on the same #114 image before stay.flg existed (18:59).
+  The two other branches zero too but reboot to TWRP (SEC rewrites the words) - harmless.
+- Fix 9ffee79: the interactive branch zeroes BASE .. BASE+0xF000 only (keeps the 4 KiB progress page; its other
+  users - shim FDT pointer +0x20/+0x28, progress words - are rewritten every boot).
+- **boot #115** = boot114 recipe (main + BEYOND0LTE_GPU_POWER_ON 1 for the build only, not committed) + 9ffee79:
+  build-uefi.ps1 -Platform Beyond0LtePkg (CLANGPDB DEBUG, exit 0, 23:31) -> pack-uefi-beyond0lte.ps1 -Ref
+  ref-recovery.img -SkipFreshCheck (the guard tripped only on GpuProbeDxe.c restored to 0 after the build) ->
+  s10e-artifacts\boot115-wlanfix-v2.img 18 255 872 B sha256 358e52bd1fff4649…; phone had #114 (85e4e0c5…),
+  dd to by-name/boot, readback 358e52bd… = match. BCD restored from BCD.nokd (md5 db0825ed..; KD needs the
+  BEYOND0LTE_USB_KD_DEVICE 1 image, the host image has no UFN0 - BCD debug must match the image).
+- Validation (needs-boot): wifistate\progress.txt shows 'USBH' 'WLAN' 'GPU0' at runtime, ACPI\SAMS9825\0 Started,
+  netsh shows the interface; also after a hard reset (the branch that was broken).

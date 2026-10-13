@@ -946,3 +946,14 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
 - KMD 1.0.33.1 (build 33, package mali-g41): fixed PRAM stats line (line 111, roll ring now 112-255) rewritten by the
   1 Hz heartbeat DPC: "ST o<OpenAllocation calls> u<refused standard-type bitmask> l<latches> k<present skips>
   b<present blts>". Adapter counters Opens / StdRefused.
+
+## Run g41full (12:40, KMD 1.0.33.1) - stats line works
+- "ST o000005 u000000 l00000e k000000 b00000e": 5 OpenAllocation calls (all ~38 s, 1 allocation each), NO refused
+  standard allocation type (the OS never asks for GDISURFACE - no GDI redirection surfaces through us), 14 latches,
+  0 skips, 14 latch blts.
+- "Open flags.fmt" lines missing -> DxgkCbGetHandleData returned NULL for every open. MS Learn DXGKCB_GETHANDLEDATA:
+  NULL = dxgkrnl could not resolve the handle; "the display miniport driver should fail its currently running DDI
+  function with STATUS_INVALID_HANDLE" - we returned success.
+- KMD 1.0.34.1 (build 34, package mali-g42): OpenAllocation returns STATUS_INVALID_HANDLE on a NULL lookup (docs) and
+  logs (ring) each open's private data: size, MW_ALLOCATION_INFO version/flags, wxh, format - identifies what DWM opens
+  without GetHandleData.

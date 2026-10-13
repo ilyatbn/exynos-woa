@@ -250,25 +250,39 @@ NTSTATUS APIENTRY MwOpenAllocation(IN_CONST_HANDLE hDevice, const DXGKARG_OPENAL
     DXGKRNL_INTERFACE *dx = &dev->Adapter->Dxgk;
 
     LONG n = InterlockedIncrement(&dev->Adapter->Opens);
+    NTSTATUS st = STATUS_SUCCESS;
 
     for (UINT i = 0; i < Arg->NumAllocations; i++) {
         DXGKARGCB_GETHANDLEDATA get = {0};
         get.hObject = Arg->pOpenAllocation[i].hAllocation;
         get.Type = DXGK_HANDLE_ALLOCATION;
         Arg->pOpenAllocation[i].hDeviceSpecificAllocation = dx->DxgkCbGetHandleData(&get);
+        /* MS Learn DXGKCB_GETHANDLEDATA: "If a NULL pointer is returned, the display miniport driver should fail
+         * its currently running DDI function with STATUS_INVALID_HANDLE." (g41full: every open got NULL here and
+         * this function still returned success.) */
+        if (Arg->pOpenAllocation[i].hDeviceSpecificAllocation == NULL)
+            st = STATUS_INVALID_HANDLE;
     }
-    /* g39full: DWM composes black because d3d10umd's OpenResource fails; which surfaces does it try to open
-     * (UMD-created shared ones carry our MW_ALLOCATION_INFO, OS standard ones the blob of
-     * GetStandardAllocationDriverData)? Opens 1-8 and every 16th: count, allocation 0's flags and size. */
+    /* g39/g41: DWM composes black because d3d10umd's OpenResource fails; what does it open? Identified from the
+     * private data the allocation was created with (ours or GetStandardAllocationDriverData's MW_ALLOCATION_INFO),
+     * which does not depend on DxgkCbGetHandleData. Opens 1-8 and every 16th go to the PRAM ring (First FALSE). */
     if (n <= 8 || (n & 15) == 0) {
-        const MW_ALLOCATION *a0 = Arg->NumAllocations ? (const MW_ALLOCATION *)Arg->pOpenAllocation[0].hDeviceSpecificAllocation : NULL;
-        MwPramText(TRUE, "Open n.allocs ", NULL, ((ULONG)n << 16) | (Arg->NumAllocations & 0xFFFF), TRUE);
-        if (a0 != NULL) {
-            MwPramText(TRUE, "Open flags.fmt ", NULL, (a0->Flags << 16) | ((ULONG)a0->Format & 0xFFFF), TRUE);
-            MwPramText(TRUE, "Open wxh ", NULL, (a0->Width << 16) | (a0->Height & 0xFFFF), TRUE);
+        const DXGK_OPENALLOCATIONINFO *o = Arg->NumAllocations ? &Arg->pOpenAllocation[0] : NULL;
+        MwPramText(FALSE, "Open n.allocs ", NULL, ((ULONG)n << 16) | (Arg->NumAllocations & 0xFFFF), TRUE);
+        if (o != NULL) {
+            MwPramText(FALSE, "Open h.size ", NULL,
+                       ((ULONG)(o->hDeviceSpecificAllocation != NULL) << 24) | (o->PrivateDriverDataSize & 0xFFFFFF), TRUE);
+            if (o->pPrivateDriverData != NULL && o->PrivateDriverDataSize >= sizeof(MW_ALLOCATION_INFO)) {
+                const MW_ALLOCATION_INFO *pi = (const MW_ALLOCATION_INFO *)o->pPrivateDriverData;
+                MwPramText(FALSE, "Open ver.flags ", NULL, (pi->Version << 16) | (pi->Flags & 0xFFFF), TRUE);
+                MwPramText(FALSE, "Open wxh ", NULL, (pi->Width << 16) | (pi->Height & 0xFFFF), TRUE);
+                MwPramText(FALSE, "Open fmt ", NULL, pi->Format, TRUE);
+            }
         }
+        if (!NT_SUCCESS(st))
+            MwPramText(FALSE, "Open status ", NULL, (ULONG)st, TRUE);
     }
-    return STATUS_SUCCESS;
+    return st;
 }
 
 NTSTATUS APIENTRY MwCloseAllocation(IN_CONST_HANDLE hDevice, const DXGKARG_CLOSEALLOCATION *Arg)

@@ -48,10 +48,18 @@ set GALLIUM_DRIVER=
 s10ediag mark h: user session panfrost tri + cube
 > %T%\h2-user.ps1 echo $env:GALLIUM_DRIVER = 'panfrost'
 >> %T%\h2-user.ps1 echo C:\S10eTmp\d3dtri.exe tri ^> C:\S10eTmp\h2-tri-user.txt 2^>^&1
->> %T%\h2-user.ps1 echo C:\S10eTmp\d3dtri.exe cube 20 ^> C:\S10eTmp\h2-cube-user.txt 2^>^&1
-for %%F in (h2-tri-user.txt h2-cube-user.txt) do if exist %T%\%%F del /f /q %T%\%%F
+rem the cube runs as its own process: still alive 30 s in = hung -> a live minidump of it (stacks; cdb + the UMD's
+rem libgallium_d3d10.pdb on the PC), then it is left to its own watchdog
+>> %T%\h2-user.ps1 echo $c = Start-Process -FilePath C:\S10eTmp\d3dtri.exe -ArgumentList 'cube','20' -RedirectStandardOutput C:\S10eTmp\h2-cube-user.txt -RedirectStandardError C:\S10eTmp\h2-cube-stderr.txt -PassThru
+>> %T%\h2-user.ps1 echo Start-Sleep -Seconds 30
+>> %T%\h2-user.ps1 echo if (-not $c.HasExited) { ^& C:\S10eTmp\livedump.ps1 -Out C:\S10eTmp\h2dump -Names d3dtri ^> C:\S10eTmp\h2dump.txt 2^>^&1 }
+>> %T%\h2-user.ps1 echo $c.WaitForExit(120000) ^| Out-Null
+copy /y "%ESP%\S10EDIAG\livedump.ps1" %T%\livedump.ps1 > nul 2>&1
+if exist %T%\h2dump rmdir /s /q %T%\h2dump
+for %%F in (h2-tri-user.txt h2-cube-user.txt h2-cube-stderr.txt h2dump.txt) do if exist %T%\%%F del /f /q %T%\%%F
 powershell -NoProfile -ExecutionPolicy Bypass -File %T%\run-as-user.ps1 -Script %T%\h2-user.ps1 -Wait 240 > "%H%\user-task.txt" 2>&1
-for %%F in (h2-tri-user.txt h2-cube-user.txt) do if exist %T%\%%F copy /y %T%\%%F "%H%\%%F" > nul
+for %%F in (h2-tri-user.txt h2-cube-user.txt h2-cube-stderr.txt h2dump.txt) do if exist %T%\%%F copy /y %T%\%%F "%H%\%%F" > nul
+if exist %T%\h2dump xcopy /y /i %T%\h2dump "%H%\dump" > nul 2>&1
 %T%\m5test.exe > "%H%\m5test-2.txt" 2>&1
 
 s10ediag peek 0x8FE04000 0x4000 > "%H%\maliwddm-pram-peek.txt" 2>&1

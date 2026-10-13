@@ -56,3 +56,11 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   runtime's list (256 slots, KMD MW_LIST_SIZE) is reported once on stderr. Built mali-umd-0040:
   libgallium_d3d10.dll = maliumd.dll 9c70c544a3dd0257..., ARM64. First build failed on my own edit (a "\n" in a
   string became a real line break through the python heredoc) - fixed before the commit.
+- 00:21 run h2b started: UMD 0040 (md5 14a50732..) in gpu\umd-new + gpu\, extra.cmd = extra-gpu-h2.cmd with the UMD swap (md5 6f12642b..).
+- **Run h2b (00:21-00:30, runs/h2b, cam/h2b) with UMD 0040:** swap worked (System32 maliumd.dll sha256 9c70c544 =
+  0040). **No fault any more** (`failed 0 ... fault 0x0 resets 0` through the whole run) - 0040 fixed the
+  residency fault. Session-0 tri panfrost + user tri still PASS. **Cube still hangs in its first frame**, and
+  submits NO job (KMD jobs done unchanged across the cube) -> a CPU-side hang inside the first frame's D3D calls
+  (UMD/shim), not a GPU hang.
+- Next (h2c): extra-gpu-h2.cmd runs the cube as its own process; still alive at 30 s -> livedump.ps1 minidump
+  (stacks) of d3dtri from the user session -> cdb on the PC with libgallium_d3d10.pdb (mali-umd-0040).

@@ -915,3 +915,9 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   (from 40.8 s); the latch log was limited to the first 4 latches, likely boot-console flips before that window.
 - KMD 1.0.31.1 (build 31): latch also logged every 16th latch. Package mali-g39. Lesson: "first N" logs into a ring
   that wraps are useless; log periodically or into a fixed slot.
+- g39 attempt 1 (11:59) was a no-op: UEFI found \WINRUN.FLG (cycle.sh's rm from TWRP did not reach the disk before
+  `adb reboot`), saved the PRAM and went to recovery. Side effect: a fresh WINPRAM.BIN with g38's KMD ring at its end
+  (419 s): HB p=0x2d (= Presents + DodPresents + Latches; ~22 flips each validated + latched -> latches DO run).
+  d3dprobe-stderr: "bind ... present only (maliwddm without a GPU)" -> softpipe renders on the CPU, frames reach the
+  kernel primaries through Lock. Remaining question: are the latched frames black? (g39 latch pixel lines.)
+  cycle.sh now runs `sync` after deleting WINRUN.FLG and reports if it is still there. g39 rerun 12:05.

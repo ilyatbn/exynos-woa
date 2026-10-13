@@ -310,3 +310,11 @@ for Windows AArch64" re-checked in the clone (`mesa-upstream/docs/install.rst:34
 Found: `panfrost_mmu.c:177-...` started mid-function — `panfrost_mmu_enable` begins at **:167**
 (same error in the notes' "Enable (:177-189)" from e45567b). Fixed in the follow-up commit to
 `:167-243` / `:167-189`.
+
+## 2026-10-13 - user find: ARM's own Bifrost kbase r54p2 (newest JM-era kernel driver we know of)
+- https://github.com/dmanlfc/mali-kernel-bifrost - mirror of ARM's BX304EG76-SW-99002-r54p2 Bifrost kernel driver
+  (developer.arm.com release tarball; GPL). Newer than anything in the Samsung trees (b_r10p0..b_r19p0,
+  bv_r32p1). Still the job-manager (JM) Bifrost code path, so it covers our G76 MP12.
+- Use: reference for the GpuEnable=1 work (power-up sequence, MMU / address-space setup, cache flush, job slots,
+  per-GPU quirks and errata workarounds for tGOx/G76) - cross-check against the Samsung b_r19p0 / bv_r32p1 code the
+  KMD was written from. Not relevant to the current full-adapter composition problem (user-mode d3d11 / dcomp).

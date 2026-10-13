@@ -1075,3 +1075,24 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
 - LogonUI: RPC server thread WluirRequestCredentials -> CLogonController::RequestCredentials -> _EnsureLogonUX ->
   Windows_UI_Logon!CLogonUX::Start -> WaitForCompletion<IAsyncAction> (CoWaitForMultipleHandles) = LogonUI never
   finishes starting its logon UX (the XAML/DComp UI), so the credential request never returns.
+- **Root cause of the full-mode logon hang (g46 LogonUI dump, thread 5, symbolized with the 0035 PDB)**:
+  Windows_UI_Xaml!WindowsGraphicsDeviceManager::InitializeCallback -> InitializeExpensiveResources -> DrawDummyText ->
+  d2d1 EndDraw/DrawDynamicVB -> d3d11 Draw -> maliumd!Draw (Draw.cpp:160) -> softpipe_draw_vbo -> draw_vbo ->
+  vs_exec_run_linear -> tgsi_exec_machine_run -> exec_vector_unary -> fetch_source -> get_index_registers ->
+  **assert(reg->Indirect.File == TGSI_FILE_ADDRESS) (tgsi_exec.c:1521)** -> ucrtbase!wassert -> MessageBoxW, which
+  waits forever on LogonUI's invisible desktop. XAML's UI thread (thread 4) waits in
+  WaitForD3DDependentResourceCreation for that init thread; CLogonUX::Start (thread 3) waits for XAML; winlogon
+  waits for LogonUI's RequestCredentials. The UMD is a debugoptimized cross build (asserts on); in a process
+  without a usable desktop the same wassert ends in abort() = the 0xc0000409 / P9 7 crashes of explorer,
+  StartMenuExperienceHost and SearchHost seen in g38-g42 (UNVERIFIED that it is the same assert).
+- Why: d3d10umd's translate_relative_operand returns the relative index as a TEMP (or prim-id) register and
+  callers use ureg_src_indirect(reg, temp) - fine for llvmpipe's gallivm (upstream's target), but softpipe's
+  tgsi_exec only accepts TGSI_FILE_ADDRESS indirection (Addrs[3]); in a release build it would silently read
+  Addrs[temp index] (wrong / out of bounds).
+- Mesa **0036**: translate_relative_operand emits UARL ADDR[k].x, <index component> and returns ADDR[k].x;
+  ADDR[0..2] declared lazily, round-robin so up to 3 relative operands in one instruction stay distinct.
+  Every operand is translated before its instruction is emitted (no ureg_emit_insn split emission in
+  ShaderTGSI.c), so the UARL always precedes its use. Build mali-umd-0036 (843c5e09..., ARM64); remaining
+  -Wsometimes-uninitialized warnings are upstream lines (756/908/1038/1062), not the new block (715-728).
+- Asserts stay ON for the next run on purpose: if another assert fires, the LogonUI live dump names it in one
+  run; a release (b_ndebug) build is a separate decision once the logon works.

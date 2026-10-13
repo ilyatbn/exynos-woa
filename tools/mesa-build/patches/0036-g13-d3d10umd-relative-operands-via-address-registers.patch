@@ -1,0 +1,55 @@
+From a08ffcb88fee46e073ae4a5d139d5e0d34da2382 Mon Sep 17 00:00:00 2001
+From: ilyatbn <tovbin.ilya@gmail.com>
+Date: Tue, 13 Oct 2026 18:48:40 +0300
+Subject: [PATCH] G13: d3d10umd loads relative operands into ADDRESS registers
+ with UARL - softpipe tgsi_exec only indexes through TGSI_FILE_ADDRESS
+ (exynos-woa tools/mesa-build/patches/0036)
+
+---
+ src/gallium/frontends/d3d10umd/ShaderTGSI.c | 23 +++++++++++++++++++++
+ 1 file changed, 23 insertions(+)
+
+diff --git a/src/gallium/frontends/d3d10umd/ShaderTGSI.c b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+index 653cb96..ffae13d 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderTGSI.c
++++ b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+@@ -214,6 +214,13 @@ struct Shader_xlate {
+    struct ureg_src imms;
+    struct ureg_src prim_id;
+ 
++   /* G13 (exynos-woa, patch 0036): softpipe's tgsi_exec indexes indirectly only through the ADDRESS file
++    * (get_index_registers asserts Indirect.File == TGSI_FILE_ADDRESS; tgsi_exec has Addrs[3]). Relative
++    * operands are loaded into these with UARL, used round-robin so up to 3 per instruction stay distinct. */
++   struct ureg_dst addrs[3];
++   uint num_addrs;
++   uint next_addr;
++
+    uint temp_offset;
+    uint indexable_temp_offsets[SHADER_MAX_INDEXABLE_TEMPS];
+ 
+@@ -702,6 +709,22 @@ translate_relative_operand(struct Shader_xlate *sx,
+    }
+ 
+    reg = ureg_scalar(reg, operand->comp);
++
++   /* G13 (patch 0036): the relative index lives in a TEMP/primitive-id register; tgsi_exec only takes ADDRESS
++    * registers as the indirect file (D2D's vertex shaders hit the assert in LogonUI, run g46full). */
++   {
++      uint k = sx->next_addr;
++      struct ureg_dst addr;
++
++      if (k >= sx->num_addrs) {
++         assert(sx->num_addrs < ARRAY_SIZE(sx->addrs));
++         sx->addrs[sx->num_addrs++] = ureg_DECL_address(sx->ureg);
++      }
++      sx->next_addr = (k + 1) % ARRAY_SIZE(sx->addrs);
++      addr = ureg_writemask(sx->addrs[k], TGSI_WRITEMASK_X);
++      ureg_UARL(sx->ureg, addr, reg);
++      reg = ureg_scalar(ureg_src(sx->addrs[k]), TGSI_SWIZZLE_X);
++   }
+    return reg;
+ }
+ 
+-- 
+2.40.1.windows.1
+

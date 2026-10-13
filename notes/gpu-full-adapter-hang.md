@@ -1009,3 +1009,10 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   re-exports the Application crash events at the end, and WER LocalDumps (minidumps) for explorer / StartMenu /
   SearchHost / dwm / LogonUI are armed in pass 1 so any abort() leaves a stack (cdb x64 on the PC reads ARM64
   minidumps).
+- Review of the extra-gpu-mode diagnostics commit: P9 7 = FAST_FAIL_FATAL_APP_EXIT (winnt.h) - claim holds; marks use
+  `tasklist /fo table` (no quotes, safe inside "p: ..."), crash events are NOT marked (the phone RTC restarts at the
+  same wall-clock every boot, so a time filter cannot separate boots) - only the minidump count is; dump folder gets
+  Everyone:M because WER may write the dump in the crashing user's context. Follow-up (not done): the LocalDumps keys
+  stay in HKLM\SOFTWARE\...\Windows Error Reporting\LocalDumps - remove them in the display-only restore step.
+- Run g44full started (same binaries as g43: KMD 1.0.34.1, UMD 0035; extra.cmd = CRLF copy sha 5c4e7d79...,
+  nogpu.flg re-created for pass 1).

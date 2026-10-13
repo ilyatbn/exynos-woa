@@ -1259,3 +1259,18 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   restart still hangs (agent hard reset every run); (3) asserts still on in the UMD (debugoptimized) - any further
   assert hangs the calling process; (4) cleanup items when leaving GPU testing (MALIKM_TGSI_DIR, LocalDumps keys,
   display-only mode); (5) GpuEnable 1 (real Mali job submission; ARM kbase r54p2 as reference, notes/gpu-panfrost-repos.md).
+
+## User test boot (2026-10-13 ~21:50, after g54; logs runs/user1) - harness interfered
+- User report: long black screen, then the Windows logo, then the desktop with no visible logon screen; the
+  picture shows only half the screen as if a landscape image were displayed in portrait; everything lags badly
+  (a right-click took over a minute); the phone was effectively frozen. User put it back in TWRP and asked
+  for logs only, no patches.
+- marks (WINPRAM-RESTART.BIN, written this boot): explorer.exe appeared at 32.2 s; power key short press at 50.7 s;
+  "desktop: explorer.exe up for 30 s" at 62.6 s -> collect.cmd -> extra.cmd = extra-gpu-mode **pass 1** at 67.2 s
+  (GPU0 not hidden: nogpu.flg was consumed in g54, so the UMD copy failed "in use"; registry mode written full 1
+  gpu 0 again; C:\S10eTmp\gpumode2.flg created) -> "clean restart into the new mode" at 76.9 s -> service
+  control 5 at 97.4 s, shutdown notification at 102.4 s. So the test harness restarted Windows under the user ~77 s
+  into the boot. The 20-min fallback hard reset was armed too (no stay.flg).
+- Consequence for the next boot: gpumode2.flg is set, so the agent will run pass 2 (collect, then the clean restart
+  to TWRP) ~60 s after explorer appears, unless extra.cmd is removed and stay.flg created. Not changed - asked the
+  user first.

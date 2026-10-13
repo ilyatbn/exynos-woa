@@ -825,3 +825,4 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
 - Fix -> Mesa **0028**: _SetDisplayMode passes the resource's kmt_primary to the runtime's pfnSetDisplayModeCb
   (malikm_set_display_mode in malikm_drm.c, traced under MALIKM_TRACE). Built: s10e-artifacts\mali-umd-0028
   (maliumd.dll b2e87389…, DxgiFns.cpp + malikm_drm.c recompiled per the log). Package **mali-g32** = mali-g31 + UMD 0028.
+- Review of 2eda75c: patch 0028 = only the two intended hunks (checked from the committed patch); SubResourceIndex ignored (DXGI primaries are single-subresource); wddm_lock held across the callback like pfnAllocateCb's; failure HRESULT returned to DXGI. No follow-up.

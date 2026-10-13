@@ -375,6 +375,60 @@ NTSTATUS APIENTRY MwBuildPagingBuffer(IN_CONST_HANDLE hAdapter, DXGKARG_BUILDPAG
 
 /* ---- the UMD's question: where is this allocation on the GPU? ---- */
 
+/* H4a (notes/gpu-hw-path.md): the GOP framebuffer the panel scans (A->Fb, physically contiguous, from
+ * DxgkCbAcquirePostDisplayOwnership) mapped into the GPU's address space once, NoExec, so that the UMD can copy
+ * DWM's frame into it with the GPU instead of three CPU passes. PASSIVE, after the GPU half is up. */
+void MwMapScanout(MW_ADAPTER *A)
+{
+    ULONG pages;
+    PFN_NUMBER *pfn;
+    ULONG64 va = 0;
+    NTSTATUS st = STATUS_UNSUCCESSFUL;
+
+    if (!A->GpuUp || A->FbVa == NULL || A->FbSize == 0 || A->Fb.PhysicAddress.QuadPart == 0)
+        return;
+    pages = (ULONG)((A->FbSize + PAGE_SIZE - 1) >> PAGE_SHIFT);
+    pfn = (PFN_NUMBER *)ExAllocatePool2(POOL_FLAG_NON_PAGED, (SIZE_T)pages * sizeof(PFN_NUMBER), MW_TAG);
+    if (pfn == NULL)
+        return;
+    for (ULONG i = 0; i < pages; i++)
+        pfn[i] = (PFN_NUMBER)((A->Fb.PhysicAddress.QuadPart >> PAGE_SHIFT) + i);
+    ExAcquireFastMutex(&A->MmuLock);
+    if (MkVaAlloc(&A->Gpu, pages, FALSE, &va)) {
+        st = MkMmuMapPages(&A->Gpu, va, pfn, pages, TRUE);
+        if (!NT_SUCCESS(st))
+            MkVaFree(&A->Gpu, va, pages);
+    }
+    ExReleaseFastMutex(&A->MmuLock);
+    ExFreePoolWithTag(pfn, MW_TAG);
+    A->ScanoutGpuVa = NT_SUCCESS(st) ? va : 0;
+    MwLog(A, L"ScanoutGpuVa", (ULONG)A->ScanoutGpuVa);
+    MwLog(A, L"ScanoutMap", (ULONG)st);
+}
+
+NTSTATUS MwEscapeScanout(MW_ADAPTER *A, const DXGKARG_ESCAPE *Esc, MW_ESCAPE_SCANOUT_DATA *D)
+{
+    if (D->hAllocation != 0) {
+        DXGKARGCB_GETHANDLEDATA get = {0};
+        MW_ALLOCATION *alloc;
+
+        if (Esc->hDevice == NULL)
+            return STATUS_INVALID_PARAMETER;
+        get.hObject = (D3DKMT_HANDLE)D->hAllocation;
+        get.Type = DXGK_HANDLE_ALLOCATION;
+        alloc = (MW_ALLOCATION *)A->Dxgk.DxgkCbGetHandleData(&get);
+        if (alloc == NULL)
+            return STATUS_INVALID_HANDLE;
+        alloc->GpuPresented = A->ScanoutGpuVa != 0;
+    }
+    D->GpuVa = A->ScanoutGpuVa;
+    D->Width = A->Fb.Width;
+    D->Height = A->Fb.Height;
+    D->Pitch = A->Fb.Pitch;
+    D->Format = (mw_u32)A->Fb.ColorFormat;
+    return STATUS_SUCCESS;
+}
+
 NTSTATUS MwEscapeAllocInfo(MW_ADAPTER *A, const DXGKARG_ESCAPE *Esc, MW_ESCAPE_ALLOC_INFO_DATA *D)
 {
     DXGKARGCB_GETHANDLEDATA get = {0};

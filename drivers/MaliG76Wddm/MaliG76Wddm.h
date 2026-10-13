@@ -90,6 +90,7 @@ typedef struct _MW_ALLOCATION {
     ULONG Flags;                /* MW_ALLOC_* */
     ULONG64 GpuVa;              /* reserved at creation, fixed for life */
     BOOLEAN Mapped;             /* resident: pages mapped at GpuVa */
+    BOOLEAN GpuPresented;       /* H4a: the UMD copies this primary's frame into the framebuffer on the GPU */
     /* Standard allocations (primary, shadow, staging) the runtime creates. */
     UINT Width, Height, Pitch;
     D3DDDIFORMAT Format;
@@ -192,7 +193,8 @@ struct _MW_ADAPTER {
     NTSTATUS LastMapStatus;
     ULONG64 LastMapVa, LastAllocVa;
     ULONG Patches, PatchAllocations, PatchPatchLocations, PatchSegment0;
-    ULONG PresentBlts, PresentFills, PresentSkips;
+    ULONG PresentBlts, PresentFills, PresentSkips, PresentGpu;
+    ULONG64 ScanoutGpuVa;       /* H4a: the GOP framebuffer in the GPU address space (0 = not mapped) */
     ULONG64 PatchAddress0;
 
     /* PRAM trace heartbeat (pram.c): a 1 Hz timer from StartDevice to StopDevice, and what it reports. */
@@ -266,6 +268,8 @@ DXGKDDI_CLOSEALLOCATION MwCloseAllocation;
 DXGKDDI_BUILDPAGINGBUFFER MwBuildPagingBuffer;
 NTSTATUS MwQuerySegment(MW_ADAPTER *A, const DXGKARG_QUERYADAPTERINFO *Info);
 NTSTATUS MwEscapeAllocInfo(MW_ADAPTER *A, const DXGKARG_ESCAPE *Esc, MW_ESCAPE_ALLOC_INFO_DATA *D);
+void MwMapScanout(MW_ADAPTER *A);
+NTSTATUS MwEscapeScanout(MW_ADAPTER *A, const DXGKARG_ESCAPE *Esc, MW_ESCAPE_SCANOUT_DATA *D);
 
 /* command.c: devices, contexts, render, submission, fences */
 DXGKDDI_CREATEDEVICE MwCreateDevice;

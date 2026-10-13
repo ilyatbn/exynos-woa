@@ -225,6 +225,12 @@ static void DoPresent(MW_ADAPTER *A, const MW_PRESENT_OP *Op)
     LONG dstW, dstH, dstPitch, srcPitch = 0, srcW = 0, srcH = 0;
     ULONG n = Op->NumRects ? Op->NumRects : 1;
 
+    /* H4a: a GPU-presented primary's frame is in the framebuffer already (the UMD copied it there on the GPU). */
+    if (Op->Kind == MW_PRESENT_BLT && Op->Src != NULL && Op->Src->GpuPresented &&
+        (Op->ToScanout || (Op->Dst != NULL && (Op->Dst->Flags & MW_ALLOC_PRIMARY)))) {
+        A->PresentGpu++;
+        return;
+    }
     if ((Op->ToScanout || (Op->Dst != NULL && (Op->Dst->Flags & MW_ALLOC_PRIMARY))) && A->FbVa != NULL) {
         dst = A->FbVa;
         dstW = (LONG)A->Fb.Width;

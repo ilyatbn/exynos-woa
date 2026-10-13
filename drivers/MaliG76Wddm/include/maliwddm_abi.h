@@ -53,6 +53,7 @@ typedef struct _MW_COMMAND {
 #define MW_ESCAPE_ALLOC_INFO    1
 #define MW_ESCAPE_GPU_INFO      2
 #define MW_ESCAPE_STATS         3
+#define MW_ESCAPE_SCANOUT       4       /* exynos-woa H4a: the scan-out framebuffer in the GPU's address space */
 
 typedef struct _MW_ESCAPE_ALLOC_INFO_DATA {
     mw_u32 Code;                        /* MW_ESCAPE_ALLOC_INFO */
@@ -60,6 +61,17 @@ typedef struct _MW_ESCAPE_ALLOC_INFO_DATA {
     mw_u64 GpuVa;                       /* out */
     mw_u64 Size;                        /* out */
 } MW_ESCAPE_ALLOC_INFO_DATA;
+
+/* exynos-woa H4a: the framebuffer the panel scans, mapped at GpuVa (0 = not mapped: no GPU half / no framebuffer),
+ * linear, Format a D3DDDIFORMAT. hAllocation != 0: from now on that allocation (a primary the UMD presents from)
+ * is "GPU-presented" - the UMD has copied its frame into the framebuffer with the GPU already, so the KMD's CPU
+ * blt / latch copy of it to the framebuffer is skipped. */
+typedef struct _MW_ESCAPE_SCANOUT_DATA {
+    mw_u32 Code;                        /* MW_ESCAPE_SCANOUT */
+    mw_u32 hAllocation;                 /* in: D3DKMT allocation to mark GPU-presented, or 0 */
+    mw_u64 GpuVa;                       /* out */
+    mw_u32 Width, Height, Pitch, Format;    /* out */
+} MW_ESCAPE_SCANOUT_DATA;
 
 /* GET_PARAM's values for the UMD, by Panfrost parameter number. */
 #define MW_GPU_PARAMS           45
@@ -90,6 +102,7 @@ typedef struct _MW_ESCAPE_STATS_DATA {
      * patched DMA buffer, first entry. */
     mw_u32 Patches, PatchAllocations, PatchPatchLocations, PatchSegment0;
     mw_u64 PatchAddress0;
-    /* Presents carried out on the CPU, and skipped (no pages known). */
-    mw_u32 PresentBlts, PresentFills, PresentSkips, Reserved0;
+    /* Presents carried out on the CPU, and skipped (no pages known); PresentGpu (was Reserved0): presents from a
+     * GPU-presented allocation, whose CPU copy was skipped (exynos-woa H4a). */
+    mw_u32 PresentBlts, PresentFills, PresentSkips, PresentGpu;
 } MW_ESCAPE_STATS_DATA;

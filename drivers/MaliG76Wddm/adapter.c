@@ -232,6 +232,7 @@ static NTSTATUS APIENTRY MwStartDevice(IN_CONST_PVOID Context, IN_PDXGK_START_IN
             if (!NT_SUCCESS(st))
                 MkGpuQuiet(&a->Gpu);
             a->GpuUp = NT_SUCCESS(st);
+            MwMapScanout(a);    /* H4a: the GOP framebuffer in the GPU address space */
         } else if (NT_SUCCESS(st)) {
             MkGpuQuiet(&a->Gpu);
             MwLog(a, L"GpuQuieted", 1);
@@ -484,6 +485,7 @@ static void Stats(MW_ADAPTER *A, MW_ESCAPE_STATS_DATA *D)
     D->PresentBlts = A->PresentBlts;
     D->PresentFills = A->PresentFills;
     D->PresentSkips = A->PresentSkips;
+    D->PresentGpu = A->PresentGpu;
 }
 
 static NTSTATUS APIENTRY MwEscape(IN_CONST_HANDLE hAdapter, const DXGKARG_ESCAPE *Esc)
@@ -509,6 +511,10 @@ static NTSTATUS APIENTRY MwEscape(IN_CONST_HANDLE hAdapter, const DXGKARG_ESCAPE
             return STATUS_INVALID_PARAMETER;
         GpuInfo(a, (MW_ESCAPE_GPU_INFO_DATA *)Esc->pPrivateDriverData);
         return STATUS_SUCCESS;
+    case MW_ESCAPE_SCANOUT:
+        if (Esc->PrivateDriverDataSize < sizeof(MW_ESCAPE_SCANOUT_DATA))
+            return STATUS_INVALID_PARAMETER;
+        return MwEscapeScanout(a, Esc, (MW_ESCAPE_SCANOUT_DATA *)Esc->pPrivateDriverData);
     case MW_ESCAPE_STATS:
         if (Esc->PrivateDriverDataSize < sizeof(MW_ESCAPE_STATS_DATA))
             return STATUS_INVALID_PARAMETER;

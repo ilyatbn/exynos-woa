@@ -798,10 +798,22 @@ NTSTATUS APIENTRY MwSetVidPnSourceAddress(IN_CONST_HANDLE hAdapter, const DXGKAR
             MwPramText(TRUE, "SetSourceAddress irql ", NULL, (ULONG)KeGetCurrentIrql(), TRUE);
     }
     HANDLE target = Arg->hAllocation;
+    static LONG logged;
+    /* Run g37full: flips arrived (Present + SetVidPnSourceAddress pairs) but neither a lookup nor a latch ran, so the
+     * assumption hAllocation NULL + ContextCount > 0 did not hold. The raw arguments of the first 8 calls go to PRAM:
+     * "SVA h.cc" = (hAllocation != NULL) << 16 | ContextCount, "SVA addr lo", "SVA seg.flags" = PrimarySegment << 16 |
+     * Flags.Value low 16 bits. */
+    if (InterlockedIncrement(&logged) <= 8) {
+        MwPramText(TRUE, "SVA h.cc ", NULL, ((ULONG)(Arg->hAllocation != NULL) << 16) | (Arg->ContextCount & 0xFFFF), TRUE);
+        MwPramText(TRUE, "SVA addr lo ", NULL, (ULONG)Arg->PrimaryAddress.QuadPart, TRUE);
+        MwPramText(TRUE, "SVA seg.flags ", NULL, (Arg->PrimarySegment << 16) | (Arg->Flags.Value & 0xFFFF), TRUE);
+    }
     /* Run g36full: DWM's MMIO flips reached here (Present + SetVidPnSourceAddress pairs in PRAM) but no latch ever
      * ran - hAllocation was NULL. MS Learn DXGKARG_SETVIDPNSOURCEADDRESS: hAllocation is only "If non-NULL"; the
      * primary is otherwise PrimarySegment/PrimaryAddress, so a flip (ContextCount > 0) is resolved by address. */
-    if (MwFlipMmio && target == NULL && Arg->ContextCount > 0)
+    /* g37full showed ContextCount > 0 is not what marks these flips; DXGK_SETVIDPNSOURCEADDRESS_FLAGS.ModeChange
+     * (WDK d3dkmddi.h) marks the mode switches, everything else is a flip. */
+    if (MwFlipMmio && target == NULL && !Arg->Flags.ModeChange)
         target = MwScanoutLookup(dev, (ULONG64)Arg->PrimaryAddress.QuadPart);
     if (!MwFlipMmio || target == NULL) {
         dev->ScanoutAddress = Arg->PrimaryAddress;

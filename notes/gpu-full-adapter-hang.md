@@ -899,3 +899,11 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   hAllocation by PrimaryAddress. The address form is UNVERIFIED - the first 6 lookups go to PRAM ("Lookup addr lo",
   "Lookup how" 1 = base+offset, 2 = offset, 0 = none). Package mali-g37 (sys 48c95672…).
 - Monitoring: tools/phone/phonestate.sh (user: don't get stuck waiting while the phone is already in TWRP).
+
+## Run g37full (11:34, KMD 1.0.29.1) - no lookup, no latch
+- dxdiag 1.0.29.1, FullAdapter 1; flips arrived (Present + SetVidPnSourceAddress, 22 SVA in the PRAM ring) but no
+  "Lookup" and no "Latch" line -> hAllocation NULL AND ContextCount == 0 (my guard assumed > 0 for flips: wrong).
+  35 webcam shots (state-bounded camwatch), panel dark; LogonUI still stuck.
+- KMD 1.0.30.1 (build 30): the first 8 SetVidPnSourceAddress calls log their raw arguments to PRAM ("SVA h.cc",
+  "SVA addr lo", "SVA seg.flags"); a flip is now "not Flags.ModeChange" (DXGK_SETVIDPNSOURCEADDRESS_FLAGS, WDK
+  d3dkmddi.h) instead of ContextCount > 0. Package mali-g38.

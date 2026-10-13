@@ -1065,3 +1065,13 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   PC: notepad 0.5 MB, explorer 3.6 MB, cdb x64 walks the stacks with MS symbols. Review found -File passes
   "LogonUI,dwm,winlogon" as one string -> follow-up commit splits it (re-tested with explorer,sihost,nosuchproc).
   Run g46full: pass 2 dumps LogonUI, dwm, winlogon into out\last\gpu\live.
+
+## Run g46full (18:05) - live stack minidumps of winlogon / LogonUI / dwm in the full-mode boot (~330 s)
+- marks (WINPRAM-RESTART.BIN, verified written this run): LogonUI=1 explorer=0 to 330 s again.
+- livedump: LogonUI 470 KB, dwm 755 KB, winlogon 307 KB, all ok. cdb x64 + MS symbol server.
+- winlogon: main thread StateMachineRun waiting; worker thread WLGeneric_Request_Logon_Credz_Execute ->
+  RequestCredentials -> WluiRequestCredentials -> NdrClientCall3 (ALPC send/receive) = winlogon is blocked in the
+  RPC asking LogonUI for credentials (autologon credentials also come back through this call).
+- LogonUI: RPC server thread WluirRequestCredentials -> CLogonController::RequestCredentials -> _EnsureLogonUX ->
+  Windows_UI_Logon!CLogonUX::Start -> WaitForCompletion<IAsyncAction> (CoWaitForMultipleHandles) = LogonUI never
+  finishes starting its logon UX (the XAML/DComp UI), so the credential request never returns.

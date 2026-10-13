@@ -406,3 +406,32 @@ Logs: scratchpad\runs\g13fullc (marks.txt, last\gpu\*, WINPRAM.BIN, UEFILOG.TXT)
 - Review: display-only path unchanged (QueryDeviceDescriptor returns NO_DESCRIPTOR there, as validated); BuildEdid
   refuses sizes > 12 bits or > 200 MHz (no truncated DTD); C4310 caught a byte cast at build; the descriptor copy is
   bounded by both the request and 128.
+
+## Run g17full (mode 1, mali-g17) - analysis 2026-10-13
+- PRAM (decoded): **QueryDeviceDescriptor returned 0** (EDID taken; the second call at offset 128 got
+  c01d0008 NO_MORE_DESCRIPTOR_DATA - trace.reg Fail_QueryDeviceDescriptor), RecommendMonitorModes 0. Still never a
+  RecommendFunctionalVidPn call. Paths seen in every EnumCofunc round: source 0 -> target 0, scaling/rotation
+  identity (01) or unpinned (fe). IsSupported accepts every VidPN (0x11 our source mode pinned, 0x01 none).
+- The decisive sequence, every time: cofunc rounds -> **GetStandardAllocationDriverData x2 -> CreateAllocation ->
+  OpenAllocation -> CloseAllocation -> DestroyAllocation -> CommitVidPn with 0 paths** (src.chk.paths 00000100) ->
+  401e0307. dxgkrnl builds the mode's shared primary through us, drops it immediately (no BuildPagingBuffer =
+  VidMm never paged it in, no DescribeAllocation, no SetVidPnSourceAddress) and falls back to an empty topology. So
+  the EDID hypothesis is refuted; the failure is in dxgkrnl's mode-set step around the primary, after all our DDIs
+  returned success - only dxgkrnl's own diagnostics can say what it disliked.
+- Candidates (ranked, none verifiable offline): (1) the primary lives in our single **aperture** segment - VidMm may
+  refuse to pin a scan-out primary there (a primary needs a segment it can keep resident and hand to
+  SetVidPnSourceAddress; WDDM 1.x drivers normally give the primary a memory segment); (2) the POST-adapter takeover
+  (adapter type 0xB = render+display+post; dxgkrnl reports 'Device Type: Full Device (POST)') expects something of
+  the POST framebuffer path we do not provide; (3) the primary's private data (our MW_ALLOCATION_INFO Size =
+  Pitch*Height, Pitch w*4) vs dxgkrnl's expected pitch/size.
+- Minimal VidPN for FlipBlt-mirroring without a path: not possible - DWM only presents to outputs, and an adapter
+  whose committed topology has no path has no output (d3dprobe: EnumOutputs 0x887A0022). The full adapter must own
+  path 0 -> 0 with a mode for any desktop on it; FlipBlt only decides how that output's pixels reach the GOP fb.
+- Next step = one decisive capture: extra-gpu-mode.cmd pass 1 now creates an ETW AutoLogger "MaliDxgk" for
+  Microsoft-Windows-DxgKrnl {802EC45A-1E99-4B83-9920-87C98277BA9D} (all keywords, level 5, 32 MB sequential,
+  C:\S10eTmp\dxgk.etl) for full modes; pass 2 stops + deletes it, keeps gpu\dxgk.etl, decodes with tracerpt to
+  dxgk.xml + dxgk.csv and filters fail/unable/invalid/error/VidPn/primary lines into dxgk-msgs.txt. Event 494
+  ("EventDescription") is how the original project read dxgkrnl's reasons (W:docs/results/m5.2-pe-run*-dxgkrnl-etw.txt).
+- Package **s10e-artifacts\mali-g18** = mali-g17's driver (1.0.17.1, sys 47A15F54...) + extra-gpu-mode.cmd with the
+  ETW capture (CRLF) `DFBE06688F91DB3FBDFD57FBF7A249A04FCF94AB67BD55977D014638B7A02C9D`; rest as mali-g17. No driver
+  change -> no update boot needed if 1.0.17.1 is installed: copy extra-gpu-mode.cmd, full.flg + nogpu.flg, run.

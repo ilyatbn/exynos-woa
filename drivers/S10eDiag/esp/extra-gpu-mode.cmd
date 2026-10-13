@@ -26,6 +26,12 @@ rem preemption off BEFORE the first full-mode boot (extra-gpu-g10.cmd only did i
 set /a ANYFULL=%GPU%+%FULL%
 if %ANYFULL% GTR 0 reg add "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\Scheduler" /v EnablePreemption /t REG_DWORD /d 0 /f >> "%G%\set-mode.txt" 2>&1
 if %ANYFULL% EQU 0 reg delete "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\Scheduler" /v EnablePreemption /f >> "%G%\set-mode.txt" 2>&1
+rem G13: boot-time ETW of Microsoft-Windows-DxgKrnl (its event 494 carries dxgkrnl's own diagnostic text, the way the
+rem original project found its VidPN/start failures - wddm-mali-g52 docs/results/m5.2-pe-run*-dxgkrnl-etw.txt) for the
+rem full-mode boot: why dxgkrnl creates the primary, destroys it and commits a VidPN with 0 paths (run g17full).
+rem An AutoLogger session (starts at the next boot), stopped and decoded in pass 2. Full modes only.
+if %ANYFULL% GTR 0 logman delete "autosession\MaliDxgk" > nul 2>&1
+if %ANYFULL% GTR 0 logman create trace "autosession\MaliDxgk" -p {802EC45A-1E99-4B83-9920-87C98277BA9D} 0xffffffffffffffff 5 -o C:\S10eTmp\dxgk.etl -bs 1024 -nb 16 256 -max 32 -mode Sequential > "%G%\etw-create.txt" 2>&1
 if exist "%ESP%\S10EDIAG\nogpu.flg" del /f /q "%ESP%\S10EDIAG\nogpu.flg"
 echo pass2 > C:\S10eTmp\gpumode2.flg
 s10ediag mark g: clean restart into the new mode
@@ -41,6 +47,16 @@ del /f /q C:\S10eTmp\gpumode2.flg
 s10ediag mark g: pass 2 - collect
 rem MaliG76Wddm's PRAM DDI trace (WINPRAM + 0x4000, 16 KiB, drivers/MaliG76Wddm/pram.c) of THIS boot, live (peek only: dumpram uses MmCopyMemory, which failed with 59 on this RAM in run g13fullc).
 s10ediag peek 0x8FE04000 0x4000 > "%G%\maliwddm-pram-peek.txt" 2>&1
+rem The boot ETW (pass 1): stop, remove the AutoLogger, decode; dxgkrnl's diagnostic lines (event 494
+rem EventDescription + data, and every event carrying a Status) into dxgk-msgs.txt, the raw .etl kept too.
+s10ediag mark g: etw stop
+logman stop MaliDxgk -ets > "%G%\etw-stop.txt" 2>&1
+logman delete "autosession\MaliDxgk" >> "%G%\etw-stop.txt" 2>&1
+if exist C:\S10eTmp\dxgk.etl copy /y C:\S10eTmp\dxgk.etl "%G%\dxgk.etl" > nul 2>&1
+if exist C:\S10eTmp\dxgk.etl tracerpt C:\S10eTmp\dxgk.etl -o "%G%\dxgk.xml" -of XML -y > "%G%\etw-tracerpt.txt" 2>&1
+if exist C:\S10eTmp\dxgk.etl tracerpt C:\S10eTmp\dxgk.etl -o "%G%\dxgk.csv" -of CSV -y >> "%G%\etw-tracerpt.txt" 2>&1
+if exist "%G%\dxgk.csv" findstr /i /c:"fail" /c:"unable" /c:"invalid" /c:"can't" /c:"error" /c:"0xffffffffc0" /c:"VidPn" /c:"primary" "%G%\dxgk.csv" > "%G%\dxgk-msgs.txt" 2>&1
+if exist C:\S10eTmp\dxgk.etl del /f /q C:\S10eTmp\dxgk.etl
 rem G13: can the D3D runtimes create a device on the Mali adapter (DWM needs D3D11; maliumd.dll is Mesa d3d10umd
 rem built D3D10.0-only)? d3dprobe prints per adapter the UMD names for DX9/10/11, the WDDM version and the HRESULT of
 rem D3D11CreateDevice / D3D10CreateDevice; MALIKM_TRACE=1 adds the Mesa shim's trace (stderr) from inside the probe.

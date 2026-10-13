@@ -1,0 +1,60 @@
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 2fe69ab..be1064d 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -998,6 +998,29 @@ malikm_primary_destroy(unsigned hAlloc)
+    ReleaseSRWLockExclusive(&wddm_lock);
+ }
+ 
++/* G13 0028: DXGI's SetDisplayMode -> the runtime's pfnSetDisplayModeCb with the resource's kernel primary, which is
++ * how dxgkrnl makes that primary the VidPN source's current one and the device its exclusive owner. d3d10umd's
++ * _SetDisplayMode was a stub, so every present into DWM's primary failed 0xC01E0000 NOT_EXCLUSIVE_MODE_OWNER, then
++ * 0xC01E0005 PRESENT_MODE_CHANGED (run g31full; the same status the flips got in g22-g26). Returns the HRESULT, or
++ * 1 when not bound to the maliwddm runtime / no callback (the caller then keeps the stub's S_OK). */
++long
++malikm_set_display_mode(unsigned hAlloc)
++{
++   long hr = 1;
++
++   AcquireSRWLockExclusive(&wddm_lock);
++   if (ddi.on && ddi.cb.pfnSetDisplayModeCb && hAlloc) {
++      D3DDDICB_SETDISPLAYMODE m = {0};
++      m.hPrimaryAllocation = hAlloc;
++      hr = ddi.cb.pfnSetDisplayModeCb(ddi.device, &m);
++      if (trace_on())
++         fprintf(stderr, "malikm: SetDisplayModeCb alloc 0x%x: hr 0x%08lx attr 0x%x\n", hAlloc, (unsigned long)hr,
++                 m.PrivateDriverFormatAttribute);
++   }
++   ReleaseSRWLockExclusive(&wddm_lock);
++   return hr;
++}
++
+ int
+ malikm_primary_present(unsigned hAlloc, unsigned hDst, const void *bgrx, unsigned w, unsigned h, void *dxgi_context)
+ {
+diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+index 5414dc6..96e8028 100644
+--- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
++++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+@@ -127,12 +127,19 @@ _GetGammaCaps( DXGI_DDI_ARG_GET_GAMMA_CONTROL_CAPS *GetCaps )
+  * ----------------------------------------------------------------------
+  */
+ 
++/* G13 (exynos-woa, patch 0028): the resource's kernel primary goes to the runtime's pfnSetDisplayModeCb (malikm_drm.c);
++ * returns 1 when not bound to maliwddm or the resource has none (then S_OK, as the stub did). */
++extern "C" long malikm_set_display_mode(unsigned hAlloc);
++
+ HRESULT APIENTRY
+ _SetDisplayMode( DXGI_DDI_ARG_SETDISPLAYMODE *SetDisplayMode )
+ {
+-   LOG_UNSUPPORTED_ENTRYPOINT();
++   LOG_ENTRYPOINT();
+ 
+-   return S_OK;
++   Resource *pResource = SetDisplayMode->hResource ? CastResource(SetDisplayMode->hResource) : NULL;
++   long hr = malikm_set_display_mode(pResource ? pResource->kmt_primary : 0);
++
++   return hr < 0 ? (HRESULT)hr : S_OK;
+ }
+ 
+ 

@@ -811,3 +811,17 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   extra-gpu-mode.cmd 1871fdd6… (d3dfill pass). Not yet run.
 - Review of dd455e3: Resource.cpp:342 comment still said NO_SCANOUT primaries get no Flags.Primary -> comment-only Mesa patch 0027 (no rebuild: comment only, mali-g31 binaries unchanged). Patch 0026 diff checked: only the two intended lines + comment.
 - 387d67a committed an EMPTY 0027 (the Edit had failed, unread file; not checked before commit) -> refilled in the next commit; lesson: check the patch file size before committing.
+
+## Run g31full (2026-10-13 09:58, mali-g31 = UMD 0026 + d3dfill) - "destination must be primary" gone
+- dxgkrnl 494 no longer reports "destination must be primary". DWM's Blt presents (Flags 0x401081, 0x8C0 -> primary
+  0x840) now fail **0xC01E0000 STATUS_GRAPHICS_NOT_EXCLUSIVE_MODE_OWNER** (first) then **0xC01E0005
+  PRESENT_MODE_CHANGED** (every retry, ~1/s) - the status every flip got in g22-g26. Only 1
+  SCHEDULE_DXGI_PRESENT_SUCCEEDED. "NoGPUAccess flag" sync-object message still once at DWM start.
+- LogonUI never finished again (explorer=0) -> run-as-user "no explorer.exe owner" -> d3dfill did not run.
+  Webcam: 40 shots 09:58-10:13 in scratchpad cam-g31-*.
+- Cause found in the UMD: d3d10umd DxgiFns.cpp _SetDisplayMode was LOG_UNSUPPORTED + S_OK - DXGI's request to make
+  a primary the VidPN source's current one never reached dxgkrnl (pfnSetDisplayModeCb), so DWM's device never owned
+  the mode and every present/flip into its primary is "mode changed".
+- Fix -> Mesa **0028**: _SetDisplayMode passes the resource's kmt_primary to the runtime's pfnSetDisplayModeCb
+  (malikm_set_display_mode in malikm_drm.c, traced under MALIKM_TRACE). Built: s10e-artifacts\mali-umd-0028
+  (maliumd.dll b2e87389…, DxgiFns.cpp + malikm_drm.c recompiled per the log). Package **mali-g32** = mali-g31 + UMD 0028.

@@ -90,3 +90,17 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   d3dtri itself ~90 % of a core at 37 fps (CPU present copies, H4). Webcam (user: camera IS on the phone): logon +
   desktop visible 00:55-00:58; from 00:58:22 the panel is dark = the cube's fullscreen window (clear colour
   0.05/0.05/0.15 is near-black on camera) - next d3dtri build clears brighter. Pin removed for boot B.
+- **Run h3b = boot B (01:02-01:12, runs/h3b):** machine GALLIUM_DRIVER gone -> DWM on Panfrost (maliumd.dll loaded).
+  **Logon never completed** (agent: LogonUI up, no explorer.exe for 300 s), DWM restarted (2 dwm processes,
+  ~0-1.6 s CPU), KMD 0 jobs from DWM. Application log: dwm.exe and LogonUI.exe crash 0xc0000409 in ucrtbase
+  +0x76d8c = Mesa 0042's assert->abort. WER LocalDumps (armed by the h1a harness) left LogonUI.exe.4352.dmp (custom,
+  139 MB) on C:\S10eTmp\dumps; cdb: ucrtbase!wassert <- maliumd!panfrost_set_viewport_states
+  (pan_context.c:497 `assert(num_viewports == 1)`) <- d3d10umd SetViewports (Rasterizer.cpp:87) <- d3d11
+  RSSetViewports <- d2d1 CD3DRenderState::ResetState. d3d10umd passes NumViewports + ClearViewports (up to 16);
+  Panfrost has one viewport and one scissor (same assert in set_scissor_states:511). Other Panfrost setters'
+  limits (16 samplers, 128 sampler views) match what d3d10umd passes.
+- Mesa 0043: SetViewports/SetScissorRects pass MIN2(count, screen caps.max_viewports), nothing when 0. Build
+  mali-umd-0043 maliumd.dll 3576b65f.... Deployed by **TWRP ntfs-3g rw** (clean NTFS after boot B's shutdown;
+  no fsck) into System32 maliumd.dll + libgallium_d3d10.dll (sha256 verified on the device), so DWM loads it at
+  the next boot (the in-Windows swap only reaches new processes). gpu\umd-new removed from the ESP; d3dtri-2
+  (bright clear 0xff4073d9) on the ESP.

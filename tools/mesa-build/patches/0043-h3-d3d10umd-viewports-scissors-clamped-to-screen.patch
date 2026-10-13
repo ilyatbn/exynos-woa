@@ -1,0 +1,46 @@
+From 68cd54d021313845466f82ad2c3da2414c65ad5b Mon Sep 17 00:00:00 2001
+From: g12-build <g12@local>
+Date: Wed, 14 Oct 2026 01:24:48 +0300
+Subject: [PATCH] H3: d3d10umd passes no more viewports/scissors than the
+ screen has - Panfrost has one and asserted under D2D (run h3b LogonUI dump)
+ (exynos-woa tools/mesa-build/patches/0043)
+
+---
+ src/gallium/frontends/d3d10umd/Rasterizer.cpp | 14 ++++++++++----
+ 1 file changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/Rasterizer.cpp b/src/gallium/frontends/d3d10umd/Rasterizer.cpp
+index a0262da..0dad6a9 100644
+--- a/src/gallium/frontends/d3d10umd/Rasterizer.cpp
++++ b/src/gallium/frontends/d3d10umd/Rasterizer.cpp
+@@ -84,8 +84,12 @@ SetViewports(D3D10DDI_HDEVICE hDevice,                                        //
+       memset(states + NumViewports, 0,
+              sizeof(struct pipe_viewport_state) * ClearViewports);
+    }
+-   pipe->set_viewport_states(pipe, 0, NumViewports + ClearViewports,
+-                             states);
++   /* exynos-woa H3 (notes/gpu-hw-path.md): the cleared slots are passed too, but Panfrost has ONE viewport and
++    * asserts num_viewports == 1 (run h3b: LogonUI/DWM died in panfrost_set_viewport_states under D2D). Pass no
++    * more slots than the screen supports. */
++   unsigned num = MIN2(NumViewports + ClearViewports, pipe->screen->caps.max_viewports);
++   if (num)
++      pipe->set_viewport_states(pipe, 0, num, states);
+ }
+ 
+ 
+@@ -127,8 +131,10 @@ SetScissorRects(D3D10DDI_HDEVICE hDevice,                            // IN
+       memset(states + NumScissorRects, 0,
+              sizeof(struct pipe_scissor_state) * ClearScissorRects);
+    }
+-   pipe->set_scissor_states(pipe, 0, NumScissorRects + ClearScissorRects,
+-                            states);
++   /* exynos-woa H3: as SetViewports - Panfrost has one scissor (asserts num_scissors == 1). */
++   unsigned num = MIN2(NumScissorRects + ClearScissorRects, pipe->screen->caps.max_viewports);
++   if (num)
++      pipe->set_scissor_states(pipe, 0, num, states);
+ }
+ 
+ 
+-- 
+2.40.1.windows.1
+

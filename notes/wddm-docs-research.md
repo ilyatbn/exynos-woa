@@ -64,3 +64,13 @@ Full sub-agent report in the session transcript; key facts with sources:
 - Revised order: (1) drop NO_SCANOUT, (2) SetDisplayModeDXGI (0028), (3) KMD SetVidPnSourceAddress accepts the
   primary (ContextCount 0 mode switch + flips), (4) CRTC_VSYNC + ControlInterrupt + FlipIndependent, (5) DMA_COMPLETED
   for every submission, (6) DirectFlip.
+
+## Lookups during g33 (2026-10-13 ~10:45)
+- pfnSetDisplayModeCb (.../ddi/d3dumddi/nc-d3dumddi-pfnd3dddi_setdisplaymodecb): returns S_OK, E_INVALIDARG,
+  D3DDDIERR_INCOMPATIBLEPRIVATEFORMAT (convert + call again until another value), "might also return other HRESULT
+  values". E_INVALIDARG also if an extended format / MSAA mode does not match the GDI mode's resolution. MS sample:
+  hPrimaryAllocation = the resource+SubResourceIndex allocation, return hr. -> our 0028 matches the sample.
+- Possible gap (UNVERIFIED): malikm_drm.c keeps ONE global ddi.device (the last bound runtime device); the callback
+  must get the device that owns the primary. If DWM has more than one D3D device, 0028 may pass the wrong one.
+- DXGI_DDI_ARG_SETDISPLAYMODE: hDevice, hResource, SubResourceIndex only.
+- NO_REDIRECTION: required for UMDs without a D3D9 DDI (supporting-the-dxgi-ddi) -> 0031 reverted (0033).

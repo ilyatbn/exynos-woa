@@ -1138,3 +1138,28 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   texture creation. The minidumps lack the heap that holds the stowed exception records (with their origin stack).
 - Next run g49: LogonUI LocalDumps as a custom dump with private read/write memory (heap) so the stowed
   exception / WIL failure info (originating module + stack of the E_INVALIDARG) can be read.
+
+## Run g49full (19:25) - origin of LogonUI's E_INVALIDARG: d3d11!CDevice::CreateCompositionBuffer
+- LogonUI custom dump (0x1B25, 226 MB, pulled + verified, deleted from the ESP). !analyze: STOWED_EXCEPTION_80070057
+  originating in dcomp.dll. Stowed record (STOWED_EXCEPTION_INFORMATION_V2, ResultCode 80070057) stack:
+  Windows_UI_Logon RootViewModel::RequestCredentials -> _RefreshCredentialView -> XAML binding -> AcrylicBrush::
+  OnElementConnected -> CreateAcrylicBrush -> MaterialHelper::GetNoiseBrushImpl -> LoadedImageSurface (noise
+  texture) -> HWTextureManager::CreateTexture -> DCompSurface::InitializeSurface -> dcomp!CSurfaceFactory::
+  CreateSurface -> CSurfaceManager::RequestSurface -> CAtlasSurfacePool::CreateDeviceResources ->
+  **TokenFactory::CreateCompositionBuffer** -> wil Return_Hr.
+- dcomp TokenFactory::CreateCompositionBuffer: QI of the D3D11 device for IID {26c5dc23-e49c-4b0a-8f79-e7b1ac804d32}
+  (undocumented; symbol GUID_26c5dc23_... in d3d11, d2d1, dcomp, Windows.UI.Xaml), then vtable slot 12 =
+  d3d11!CDevice::CreateCompositionBuffer(UINT w, UINT h, DXGI_FORMAT, int, UINT flags, UINT, REFIID, void **, void **)
+  (d3d11.pdb). dcomp passes int 0, flags 0x10 for R8 (0x3D) / R8G8 (0x31) else 0x30, last UINT 1 for B8G8R8A8/X8.
+- d3d11!CDevice::CreateCompositionBuffer (disassembly): null outputs -> DXGI_ERROR_INVALID_CALL; format must pass
+  ValidCompositionBufferFormat (0xA R16G16B16A16F, 0x1C R8G8B8A8, 0x57 B8G8R8A8) or
+  ValidCompositionBufferFormatWDDM1_3 (0x31, 0x3D, 0x41 A8, 0x47/48 BC1, 0x4A/4B BC2, 0x4D/4E BC3); a WDDM1_3-list
+  format also needs caps word +0x40 bit 5 else DXGI_ERROR_UNSUPPORTED; flags & ~0x430 and the last UINT & ~1 must be
+  0; then it ORs 0x40 / 0x00100040 / 0x00820080 into the resource flags and creates through the driver. Our
+  E_INVALIDARG is therefore from the format/flag checks or from the creation call - not the caps check.
+- Docs: displayable surfaces (D3D11_RESOURCE_MISC_SHARED_DISPLAYABLE 0x100000) need WDDM 3.0 drivers.
+- d3dprobe now also: D3D11_FEATURE_DISPLAYABLE, a SHARED|NTHANDLE|SHARED_DISPLAYABLE texture, QI {26c5dc23} and
+  slot-12 calls for B8G8R8A8 / R8G8B8A8 / R8 / R8G8 / R16G16B16A16F with dcomp's arguments. On the PC (x64): all 5
+  composition buffers S_OK on AMD and WARP (out1 = an NT handle, out2 = an object pointer - releasing out1 as an
+  IUnknown faulted, so outputs are not released); DISPLAYABLE texture E_INVALIDARG everywhere (DisplayableTexture 0
+  on these drivers, SharedResourceTier 3) - not the discriminator. ARM64 build s10e-artifacts\d3dprobe-3. Run g50.

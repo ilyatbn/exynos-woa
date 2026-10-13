@@ -121,6 +121,8 @@ static void TryTextures(ID3D11Device *Dev)
         { D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX | D3D11_RESOURCE_MISC_SHARED_NTHANDLE, "KEYEDMUTEX|NTHANDLE" },
         { D3D11_RESOURCE_MISC_GUARDED, "GUARDED" },
         { D3D11_RESOURCE_MISC_GDI_COMPATIBLE, "GDI_COMPATIBLE" },
+        { D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED_DISPLAYABLE,
+          "SHARED|NT|DISPLAYABLE" },
     };
     D3D11_FEATURE_DATA_D3D11_OPTIONS o;
     D3D11_FEATURE_DATA_THREADING th;
@@ -154,6 +156,55 @@ static void TryTextures(ID3D11Device *Dev)
     }
 }
 
+/* g49: dcomp!TokenFactory::CreateCompositionBuffer QIs the D3D11 device for this undocumented interface and calls
+ * slot 12 = d3d11!CDevice::CreateCompositionBuffer(UINT w, UINT h, DXGI_FORMAT, int, UINT, UINT, REFIID, void **,
+ * void **) (signature from d3d11.pdb); in LogonUI it returned E_INVALIDARG. Called here with dcomp's arguments
+ * (CAtlasSurfacePool::CreateDeviceResources: int 0, flags 0x10 for R8/R8G8 else 0x30, last UINT 1 for B8G8R8A8/X8). */
+static const GUID IID_CompositionBufferFactory =
+    { 0x26c5dc23, 0xe49c, 0x4b0a, { 0x8f, 0x79, 0xe7, 0xb1, 0xac, 0x80, 0x4d, 0x32 } };
+typedef HRESULT (STDMETHODCALLTYPE *PFN_CREATECOMPOSITIONBUFFER)(void *This, UINT W, UINT H, DXGI_FORMAT F, int I,
+                                                                 UINT Flags, UINT Bgra, REFIID Riid, void **Out1,
+                                                                 void **Out2);
+
+static void TryCompositionBuffers(ID3D11Device *Dev)
+{
+    static const struct { DXGI_FORMAT F; UINT Flags; UINT Bgra; const char *N; } t[] = {
+        { DXGI_FORMAT_B8G8R8A8_UNORM, 0x30, 1, "B8G8R8A8" },
+        { DXGI_FORMAT_R8G8B8A8_UNORM, 0x30, 0, "R8G8B8A8" },
+        { DXGI_FORMAT_R8_UNORM, 0x10, 0, "R8" },
+        { DXGI_FORMAT_R8G8_UNORM, 0x10, 0, "R8G8" },
+        { DXGI_FORMAT_R16G16B16A16_FLOAT, 0x30, 0, "R16G16B16A16F" },
+    };
+    D3D11_FEATURE_DATA_DISPLAYABLE disp = { 0 };
+    void **obj = NULL;
+    HRESULT hr;
+
+    hr = ID3D11Device_CheckFeatureSupport(Dev, D3D11_FEATURE_DISPLAYABLE, &disp, sizeof(disp));
+    printf("    displayable: hr 0x%08lx DisplayableTexture %d SharedResourceTier %d\n", (unsigned long)hr,
+           disp.DisplayableTexture, (int)disp.SharedResourceTier);
+    hr = ID3D11Device_QueryInterface(Dev, &IID_CompositionBufferFactory, (void **)&obj);
+    printf("    QI {26c5dc23} hr 0x%08lx\n", (unsigned long)hr);
+    if (FAILED(hr) || obj == NULL)
+        return;
+    for (UINT i = 0; i < ARRAYSIZE(t); i++) {
+        PFN_CREATECOMPOSITIONBUFFER Create = (PFN_CREATECOMPOSITIONBUFFER)((void **)*obj)[12];
+        IUnknown *buf = NULL;
+        void *out2 = NULL;
+
+        Mark(t[i].N);
+        __try {
+            hr = Create(obj, 256, 256, t[i].F, 0, t[i].Flags, t[i].Bgra, &IID_IUnknown, (void **)&buf, &out2);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            hr = (HRESULT)GetExceptionCode();
+        }
+        printf("    composition buffer 256 %-14s flags 0x%02x hr 0x%08lx out1 %p out2 %p\n", t[i].N, t[i].Flags,
+               (unsigned long)hr, (void *)buf, out2);
+        /* Neither output is released: releasing out1 as an IUnknown faulted on the PC (x64 AMD/WARP), so the
+         * outputs' types are not what the riid suggests. The probe exits soon after; the leak is harmless. */
+    }
+    ((IUnknown *)obj)->lpVtbl->Release((IUnknown *)obj);
+}
+
 static void TryD3D11(IDXGIAdapter *A, UINT Flags, const char *What)
 {
     static const D3D_FEATURE_LEVEL levels[] = {
@@ -171,8 +222,10 @@ static void TryD3D11(IDXGIAdapter *A, UINT Flags, const char *What)
         hr = D3D11CreateDevice(A, D3D_DRIVER_TYPE_UNKNOWN, NULL, Flags, levels + 1, ARRAYSIZE(levels) - 1,
                                D3D11_SDK_VERSION, &dev, &got, NULL);
     printf("  D3D11CreateDevice %-6s hr 0x%08lx level %s\n", What, (unsigned long)hr, SUCCEEDED(hr) ? FlName(got) : "-");
-    if (dev != NULL && (Flags & D3D11_CREATE_DEVICE_BGRA_SUPPORT))
+    if (dev != NULL && (Flags & D3D11_CREATE_DEVICE_BGRA_SUPPORT)) {
         TryTextures(dev);
+        TryCompositionBuffers(dev);
+    }
     if (dev != NULL)
         ID3D11Device_Release(dev);
 }

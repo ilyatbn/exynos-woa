@@ -985,3 +985,27 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
 - LogonUI still never finished in pass 2 (no explorer owner) -> d3dfill not run. A torecovery.flg was left on the
   ESP after the run (removed).
 - Next: identify the lit content (d3dfill / LogonUI); why logon does not complete in full mode.
+
+## g43 post-mortem from the PC (2026-10-13 evening) - logon DID complete; the "stuck LogonUI" reading was wrong
+- marks.txt, pass 2 (full mode): "waiting: LogonUI=1 explorer=0" (29 s) -> "explorer.exe appeared" (34 s) ->
+  "LogonUI=1 explorer=1" (44/59 s) -> "desktop: explorer.exe up for 30 s" (64.5 s). The agent only ran collect
+  because explorer existed. So the user session logs on in full mode; LogonUI=1 alongside explorer is the lock-screen
+  host staying resident.
+- System.evtx (last\last, copied in pass 2): every run shows pass 1 (display-only: Winlogon 7001 logon, 1074
+  restart, 7002 logoff, Kernel-General 13 clean shutdown) followed by the full-mode boot (7001 logon at ~35 s
+  uptime, 1074 restart requested, then NO 7002/13 - the next boot logs 6008/41 unexpected shutdown = the agent's
+  hard reset). The full-mode logon notification (7001) is present in every full run.
+- run-as-user.ps1 ("no explorer.exe owner") runs at ~135 s; the Win32_Process query found no explorer.exe then (or
+  GetOwner failed). Application.evtx is copied at ~66 s (collect.cmd wevtutil), so anything after that is not in it.
+- Application.evtx crash history (Event 1000/1001): the full-mode boots of earlier runs (g38..g42) each show
+  StartMenuExperienceHost.exe + SearchHost.exe crashing every 10 s and Explorer.EXE once (~39 s after its start), all
+  ucrtbase.dll 0xc0000409, WER P9 = 7 = FAST_FAIL_FATAL_APP_EXIT = abort(). The g43 pass 1 and pass 2 sections
+  (records 5023-5072) contain no crash events at all, up to the 66 s copy. Not yet known: whether the in-process
+  abort() is Mesa's (maliumd/libgallium loaded in explorer) and whether g43's explorer died after 66 s.
+- nogpu.flg missing from the ESP after g43 is by design: extra-gpu-mode.cmd pass 1 deletes it (line 53).
+- Also in every full run's DXGI journal: one "QueryDisplayConfig failed unexpectedly" 0x80070057 (pids 0x974 /
+  0x12FC, unidentified).
+- Next run (g44, same binaries): pass 2 logs `tasklist /v` before run-as-user (is explorer alive, which session/user),
+  re-exports the Application crash events at the end, and WER LocalDumps (minidumps) for explorer / StartMenu /
+  SearchHost / dwm / LogonUI are armed in pass 1 so any abort() leaves a stack (cdb x64 on the PC reads ARM64
+  minidumps).

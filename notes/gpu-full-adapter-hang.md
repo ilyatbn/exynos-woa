@@ -1096,3 +1096,7 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   -Wsometimes-uninitialized warnings are upstream lines (756/908/1038/1062), not the new block (715-728).
 - Asserts stay ON for the next run on purpose: if another assert fires, the LogonUI live dump names it in one
   run; a release (b_ndebug) build is a separate decision once the logon works.
+- Review of 0036: UREG_MAX_ADDR is 3 (tgsi_ureg.c:89) = tgsi_exec Addrs[3] = the 3-slot round robin; no other
+  ADDRESS use in d3d10umd; SM4 relative indices are integers -> UARL (not ARL) is right; the patch file has 24
+  added lines (not empty). Run g47full: UMD 0036 on the ESP (gpu\maliumd.dll + libgallium_d3d10.dll), same KMD
+  1.0.34.1, same extra.cmd (live dumps on).

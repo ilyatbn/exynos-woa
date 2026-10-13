@@ -1,0 +1,111 @@
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index b4b2256..0b334ce 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -927,6 +927,7 @@ wddm_idle(void)
+ /* G13 (exynos-woa): kernel primary allocations for the runtime's DXGI primaries (d3d10umd CreateResource with
+  * pPrimaryDesc): allocated through the bound runtime's pfnAllocateCb WITH the runtime resource handle and
+  * Flags.Primary, so dxgkrnl ties them to the swap-chain resource; kept locked for CPU writes. */
++static int present_copy(D3DKMT_HANDLE h, const void *bgrx, unsigned w, unsigned hgt);   /* below (G13 0024) */
+ #define MAX_KPRIM 16
+ static struct { D3DKMT_HANDLE h; void *cpu; unsigned w, hgt; } kprim[MAX_KPRIM];
+ 
+@@ -984,8 +985,6 @@ malikm_primary_destroy(unsigned hAlloc)
+    for (int i = 0; i < MAX_KPRIM; i++) {
+       if (kprim[i].h != hAlloc)
+          continue;
+-      if (kprim[i].cpu)
+-         w_unlock(kprim[i].h);
+       /* The runtime frees a resource's allocations itself when the resource goes (pfnAllocateCb with
+        * hResource); only forget it here. */
+       kprim[i].h = 0;
+@@ -1007,11 +1006,8 @@ malikm_primary_present(unsigned hAlloc, const void *bgrx, unsigned w, unsigned h
+          continue;
+       if (kprim[i].w != w || kprim[i].hgt != h)
+          goto out;
+-      if (!kprim[i].cpu)
+-         kprim[i].cpu = w_lock(kprim[i].h);
+-      if (!kprim[i].cpu)
++      if (present_copy(kprim[i].h, bgrx, w, h) != 0)
+          goto out;
+-      memcpy(kprim[i].cpu, bgrx, (size_t)w * h * 4);
+       DXGIDDICB_PRESENT p = {0};
+       p.hSrcAllocation = kprim[i].h;
+       p.pDXGIContext = dxgi_context;
+@@ -1026,16 +1022,29 @@ out:
+    return ret;
+ }
+ 
++/* G13 (exynos-woa, patch 0024): copy a frame into a present surface with the allocation locked only for the
++ * copy. The surfaces used to stay locked for their whole life, and dxgkrnl does not run a present whose source
++ * allocation is CPU-locked: run g27full, DWM's 4 Blt presents were accepted (ETW 184 status 0) but never reached
++ * the KMD's DxgkDdiPresent, and DWM stopped at its frame latency. 0 if copied. wddm_lock held. */
++static int
++present_copy(D3DKMT_HANDLE h, const void *bgrx, unsigned w, unsigned hgt)
++{
++   void *cpu = w_lock(h);
++   if (!cpu)
++      return -1;
++   memcpy(cpu, bgrx, (size_t)w * hgt * 4);
++   w_unlock(h);
++   return 0;
++}
++
+ /* G13: a primary present surface pair for flips; 0 if ready. Called with wddm_lock held. */
+ static int
+ present_primaries(unsigned w, unsigned h)
+ {
+    if (ddi.prim[0] && (ddi.prim_w != w || ddi.prim_h != h)) {
+       for (int i = 0; i < 2; i++) {
+-         if (ddi.prim[i]) {
+-            w_unlock(ddi.prim[i]);
++         if (ddi.prim[i])
+             w_destroy(ddi.prim[i]);
+-         }
+          ddi.prim[i] = 0;
+          ddi.prim_cpu[i] = NULL;
+       }
+@@ -1062,9 +1071,6 @@ present_primaries(unsigned w, unsigned h)
+          return -1;
+       }
+       ddi.prim[i] = ai.hAllocation;
+-      ddi.prim_cpu[i] = w_lock(ddi.prim[i]);
+-      if (!ddi.prim_cpu[i])
+-         return -1;
+    }
+    ddi.prim_w = w;
+    ddi.prim_h = h;
+@@ -1085,7 +1091,8 @@ malikm_present_d3dddi(const void *bgrx, unsigned w, unsigned h, void *dxgi_conte
+          goto out;
+       unsigned i = ddi.prim_next;
+       ddi.prim_next ^= 1;
+-      memcpy(ddi.prim_cpu[i], bgrx, (size_t)w * h * 4);
++      if (present_copy(ddi.prim[i], bgrx, w, h) != 0)
++         goto out;
+       DXGIDDICB_PRESENT fp = {0};
+       fp.hSrcAllocation = ddi.prim[i];
+       fp.pDXGIContext = dxgi_context;
+@@ -1096,7 +1103,6 @@ malikm_present_d3dddi(const void *bgrx, unsigned w, unsigned h, void *dxgi_conte
+       goto out;
+    }
+    if (ddi.present && (ddi.present_w != w || ddi.present_h != h)) {
+-      w_unlock(ddi.present);
+       w_destroy(ddi.present);
+       ddi.present = 0;
+       ddi.present_cpu = NULL;
+@@ -1116,13 +1122,11 @@ malikm_present_d3dddi(const void *bgrx, unsigned w, unsigned h, void *dxgi_conte
+       if (w_create(&ai) < 0)
+          goto out;
+       ddi.present = ai.hAllocation;
+-      ddi.present_cpu = w_lock(ddi.present);
+       ddi.present_w = w;
+       ddi.present_h = h;
+-      if (!ddi.present_cpu)
+-         goto out;
+    }
+-   memcpy(ddi.present_cpu, bgrx, (size_t)w * h * 4);
++   if (present_copy(ddi.present, bgrx, w, h) != 0)
++      goto out;
+ 
+    DXGIDDICB_PRESENT p = {0};
+    p.hSrcAllocation = ddi.present;

@@ -686,3 +686,47 @@ patches/*.patch after the reference patches, one commit each).
   (install writes GpuEnable 0 / FullAdapter 0). Steps: full.flg + nogpu.flg + extra-gpu-mode.cmd (pass 1 deploys the
   UMD; no update boot). Read: ETW 184 - flags 0x1 (Blt) presents with ReturnStatus 0 and no 0x401004 flips; PRAM
   ">Present" lines after ~30 s and heartbeat p growing; webcam desktop; clean restart.
+
+## Run g27full (2026-10-13) + mali-g28
+- ETW 184: no flips any more (patch 0023 works) - **4 Blt presents** (flags 0x401081, src 0x40000800 = the shim's
+  present surface, ReturnStatus 0), then nothing. Event 494: only the benign set. PRAM: the KMD's DxgkDdiPresent
+  is never called for them (last Present = the boot console's at 30.57 s; afterwards only "Describe 1080x2280 fmt
+  0x16 flags 01" = the shim surface, and VidPN rounds); heartbeat p 0x36. Nobody logged on.
+- Cause (single, clear): the shim kept its present surfaces **CPU-locked for their whole life** (w_lock once at
+  creation). dxgkrnl accepts the present call but cannot run a present whose source allocation is locked, so the 4
+  queued presents never reach the KMD and DWM stalls at its frame latency.
+- **Mesa patch 0024** (mesa-26.2-g76 4626d94; tools/mesa-build/patches/0024-g13-present-surfaces-locked-only-for-
+  the-copy.patch, fresh-tree apply OK): new present_copy() = lock, memcpy, unlock for every present (blt surface,
+  flip primaries, resource-owned primaries); no permanent locks remain on present surfaces. UMD
+  `B8C8135F38ECB0E8ED8E8AFA97A1A3BA814F4F9044273C465885EA590245DA20`. Package s10e-artifacts\mali-g28 = g26 driver
+  1.0.26.1 + this UMD + unchanged scripts (NO_SCANOUT from 0023 still on). Read next: ETW 184 Blt presents growing
+  past 4, PRAM ">Present"/SubmitCommand after 30 s with heartbeat p growing, webcam.
+  (This lock may also have hurt g22-g26, but those flips were refused at the call with PRESENT_MODE_CHANGED -
+  before scheduling - so it does not explain them.)
+
+## STATUS + OPTIONS (2026-10-13, after g27)
+Proven on the full adapter (FullAdapter 1, GPU half off), all on the device:
+- no hang any more (software vsync, F1); StartDevice, QAI caps, aperture segment (CPU visible) accepted;
+- mode set: EDID taken, functional VidPN committed with path 0->0 (CommitVidPn 0), SetVidPnSourceAddress, vsync on;
+- shared primary created/described (1080x2280 A8R8G8B8), boot-console Blt presents -> KMD Present/Submit -> CPU copy
+  into the GOP fb (~50 per boot);
+- UMD: D3D11 FL10_0 + D3D10 devices on the Mali adapter (d3dprobe), present-only bind on maliwddm without a GPU,
+  DWM loads maliumd.dll;
+- DWM: flips (DMA or MMIO, shim or resource-owned primaries) all refused STATUS_GRAPHICS_PRESENT_MODE_CHANGED at the
+  call (g22-g26); with NO_SCANOUT (g27) DWM switches to Blt presents, accepted - then stalled on the locked surface
+  (fixed in g28, untested).
+Open: clean restart from full mode hangs every time (shutdown never reaches the KMD: no StopDevice/SetPowerState in
+PRAM) - most likely the session/DWM never finishing logon; expected to follow the desktop.
+Options, ranked by my estimate of reaching a composed desktop on the full adapter:
+1. **mali-g28** (one run): if DWM's Blt presents flow, the desktop is CPU-composed by DWM on the Mali adapter's UMD
+   (softpipe) and CPU-copied to the panel - the first full-adapter desktop. ~50%. Then GpuEnable 1 (Panfrost
+   default, patch 0020) is the step to a GPU-composed desktop, after the G11 m5test pass.
+2. **ETW with more providers** for the next failure: Microsoft-Windows-Dwm-Core {9e9bba3c-2e38-40cb-99f4-9e8281425164}
+   and Microsoft-Windows-DXGI {CA11C036-0102-4A2D-A6AD-F03CFED5D3C9} added to the MaliDxgk AutoLogger - DWM's own
+   reason for re-creating/stalling; cheap (script-only), high information.
+3. **Kernel debugger (M17 KDNET plan)**: break in dxgkrnl's flip validation to read the PRESENT_MODE_CHANGED check
+   exactly - decisive for flips, but needs the M17 USB debug transport working first; only needed if flips matter
+   (Blt presents suffice for a desktop).
+4. **Defer the full adapter**: keep display-only (mode 0, validated) as the shipped desktop; GPU work continues via
+   m5test/compute until the Mesa UMD is a full WDDM UMD (D3D11 DDI, real allocations, flips). Zero risk.
+Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the diagnostic if 1 stalls.

@@ -1195,3 +1195,23 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   KEYEDMUTEX|NTHANDLE: CreateSharedHandle **0x80070057**. Basic Render Driver: real handles (0x400000C2, 0x1AC ...).
   = the shared resources have no kernel allocation behind them; the NT-handle case is exactly what
   CreateCompositionBuffer needs. Run g52full: UMD 0037 (same KMD 1.0.34.1, same probe d3dprobe-4).
+
+## Run g52full (20:30, Mesa 0037) - **LOGON COMPLETES IN FULL MODE**; d3dfill runs on the Mali adapter; panel dark
+- d3dprobe (SYSTEM): shared handles now real on the Mali adapter (GetSharedHandle 0x400000C2 / 0x40000182,
+  CreateSharedHandle 0x140 / 0x144); composition buffers B8G8R8A8 + R8G8B8A8 **S_OK** (out1 NT handle, out2 object);
+  R8 / R8G8 still DXGI_ERROR_UNSUPPORTED (caps gate), R16G16B16A16F E_OUTOFMEMORY (softpipe format) - both expected.
+- run-as-user: "user DESKTOP-24G4OQF\S10e ... state Ready after 175 s, last result 0" = a user session exists
+  (first time in full mode). d3dfill-user.txt: Mali adapter, D3D11 FL 10_0 (0xa000), window 1080x2280, swap chain
+  S_OK, SetFullscreenState(TRUE) 0x887A0022 (stays windowed), red 49 / green 84 / blue 14 / white 31 frames, every
+  present S_OK, readback (0,0) = 0xffff0000 / 0xff00ff00 / 0xff0000ff / 0xffffffff - "every phase presented".
+- Webcam (55 shots, mean RGB of the centre): pass 1 shots 4-5 show the lock screen (wallpaper + clock, display-only);
+  the whole full-mode boot (shots 10-49) is dark (~9/7/12, the OLED off/black) - d3dfill's colours never reached
+  the panel. g43 (before logon worked) had a lit rectangle.
+- KMD stats (PRAM peek at ~196 s): ST o23 u0 l8 k0 b57, HB s=0x31 p=0x3d f=0x31: only 8 MMIO-flip latches (all at
+  21-24 s, before logon, px0/pxmid 0 = black frames), 57 present blts after that.
+- DWM ETW (dxgk.xml decoded on the PC): HWDEVICE start (409) on Mali at 01:29:37.883 (FL 0xA000), a second HWDEVICE
+  start on the Basic Render Driver at 01:29:41.242 (FL 0xC100); no HWDEVICE stop (410) = DWM keeps its Mali device
+  and adds a WARP device (some content on the Basic Render adapter). Dwm-Core 24 = SCHEDULE_GLITCH (frame stats),
+  55 = MILEVENT_MEDIA_UCE_PROCESSQUEUEEVENT - not errors (event names from the PC's Dwm-Core manifest).
+- Open: why the full-mode panel is dark after logon (DWM leaves flip presents after 24 s; blts land where?),
+  and the remaining LogonUI.exe.1252 WER dump of this boot.

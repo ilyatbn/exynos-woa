@@ -871,3 +871,4 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   Install: one display-only boot with extra-gpu-update.cmd (live pnputil update, Parameters stay 0/0), then the
   full-mode two-pass run.
 - INF: MW_Parameters AddReg now 0x00010003 (DWORD | FLG_ADDREG_NOCLOBBER, MS Learn INF AddReg Directive) so a (staged) install keeps the mode -> g35 stages 1.0.27.1 with stage.flg in pass 1 and still boots pass 2 in full mode. Package rebuilt (sys 619b82da… unchanged, inf f25b44da…, cat 587c743a…).
+- Review of 4971904 + d909901: MMIO-flip branch is before any priv use, 'a' defined above it, FlipBlt path unchanged when FlipMmio 0; NOCLOBBER = 0x10001|0x2 checked against the doc's flag table; only the two Parameters lines use it. Finding: stale 'Flips are not handled yet' header comment above MwPresent -> fixed in the next commit (comment only; the g35 binary is unaffected).

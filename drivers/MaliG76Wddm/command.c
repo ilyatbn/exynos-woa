@@ -128,7 +128,8 @@ NTSTATUS APIENTRY MwRender(IN_CONST_HANDLE hContext, DXGKARG_RENDER *Arg)
  * POST framebuffer) or the destination allocation's pages. Render records
  * what to do in the DMA buffer's private data and patches both allocations
  * so that VidMm makes them resident, which is when their pages are known.
- * Flips are not handled yet. */
+ * Flips: with FlipMmio an MMIO flip (no DMA buffer) is only validated here and runs through
+ * SetVidPnSourceAddress; with FlipBlt and FlipMmio 0 a DMA flip becomes a whole-surface blt (below). */
 NTSTATUS APIENTRY MwPresent(IN_CONST_HANDLE hContext, DXGKARG_PRESENT *Arg)
 {
     MW_CONTEXT *ctx = (MW_CONTEXT *)hContext;

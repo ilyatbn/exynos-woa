@@ -75,6 +75,12 @@ if exist C:\S10eTmp\tgsi rmdir /s /q C:\S10eTmp\tgsi
 mkdir C:\S10eTmp\tgsi > nul 2>&1
 icacls C:\S10eTmp\tgsi /grant *S-1-1-0:(OI)(CI)M >> "%G%\set-mode.txt" 2>&1
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v MALIKM_TGSI_DIR /t REG_SZ /d C:\S10eTmp\tgsi /f >> "%G%\set-mode.txt" 2>&1
+rem H1 (notes/gpu-hw-path.md): Mesa 0020 makes Panfrost the default renderer once GPU_INFO is Valid (GpuEnable 1), so
+rem DWM would land on the untested Panfrost path in the first GPU-on boot. \S10EDIAG\gpu\softpipe.flg pins every
+rem process (DWM included) to softpipe via the machine environment - GALLIUM_DRIVER still overrides the default in 0020
+rem (d3d10_gdi.c debug_get_option) - while m5test (D3DKMT, no Mesa) exercises the GPU. No flag = no pin.
+if exist "%ESP%\S10EDIAG\gpu\softpipe.flg" reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v GALLIUM_DRIVER /t REG_SZ /d softpipe /f >> "%G%\set-mode.txt" 2>&1
+if not exist "%ESP%\S10EDIAG\gpu\softpipe.flg" reg delete "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v GALLIUM_DRIVER /f >> "%G%\set-mode.txt" 2>&1
 if exist "%ESP%\S10EDIAG\nogpu.flg" del /f /q "%ESP%\S10EDIAG\nogpu.flg"
 echo pass2 > C:\S10eTmp\gpumode2.flg
 s10ediag mark g: clean restart into the new mode

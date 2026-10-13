@@ -4,7 +4,7 @@
 #    volume keys in between, so the PC microphone (tools/audio-listen) sees playback and the level changes.
 # 3) A5: after every key step the endpoint volume (IAudioEndpointVolume: scalar, dB, mute, QueryHardwareSupport) is
 #    logged - with the driver's volume + mute elements, hw support must be 3 and the scalar must follow the keys.
-# 4) A8: QUIET (user request): tone amplitude 0.03 (was 0.25), volume ~10 % / ~6 % / ~16 % (was 50/30/70; the A > B < C
+# 4) A8: QUIET (user request): tone amplitude 0.03 (was 0.25; A12: 0.1 so the PC mic can hear it), volume ~10 % / ~6 % / ~16 % (was 50/30/70; the A > B < C
 #    pattern stays for the mic). Diagnostics for AUDCLNT_E_UNSUPPORTED_FORMAT: the endpoint property store (every
 #    property; blobs = formats in hex), IsFormatSupported (shared) for three 48 kHz formats, and one EXCLUSIVE-mode
 #    48 kHz 16-bit tone (bypasses the engine's device format). notes/d8-audio-win-a5.md "A8".
@@ -84,7 +84,7 @@ namespace S10e {
   }
   public static class Wasapi {
     [DllImport("ole32.dll")] static extern int PropVariantClear(ref PV v);
-    public const double Amp = 0.03;   // A8: quiet (user request)
+    public const double Amp = 0.1;    // A12: 0.1 (-20 dBFS; amps at -10 dB, ~10 % volume) - quiet but mic-detectable (A8 0.03 was not)
     // A8: every endpoint property (VT_LPWSTR text, VT_UI4 number, VT_BLOB hex = formats). One line per property.
     public static string Props() {
       string info; var d = Dev(out info); if (d == null) return info;
@@ -184,7 +184,7 @@ namespace S10e {
         hw.ToString("X") + ", range " + mn.ToString("F1") + ".." + mx.ToString("F1") + " step " + inc.ToString("F2") +
         " (hr " + h1.ToString("X") + "/" + h2.ToString("X") + "/" + h3.ToString("X") + "/" + h4.ToString("X") + "/" + h5.ToString("X") + ")";
     }
-    // Shared-mode tone in the mix format (float or 16-bit), amplitude Amp (0.03, A8).
+    // Shared-mode tone in the mix format (float or 16-bit), amplitude Amp (0.1, A12).
     public static string Tone(double hz, int ms) {
       string info; var d = Dev(out info); if (d == null) return info;
       Guid g = typeof(IAudioClient).GUID; object o; int hr = d.Activate(ref g, 23, IntPtr.Zero, out o); if (hr != 0) return "Activate 0x" + hr.ToString("X8");
@@ -231,7 +231,7 @@ try {
   L ("props: " + [S10e.Wasapi]::Props())
   L ("formats: " + [S10e.Wasapi]::Formats())
   Key 0xAE 50; Key 0xAF 5; L 'volume keys: 0 then +5 steps (~10%)'; L ("vol: " + [S10e.Wasapi]::Vol())
-  Start-Sleep 1; L 'play 1000 Hz exclusive 48k/16 (amplitude 0.03, no endpoint volume)'; L ([S10e.Wasapi]::Exclusive(1000, 1500))
+  Start-Sleep 1; L 'play 1000 Hz exclusive 48k/16 (amplitude 0.1, endpoint volume via the driver element)'; L ([S10e.Wasapi]::Exclusive(1000, 1500))
   Start-Sleep 1; L 'play 1500 Hz A (~10%)'; L ([S10e.Wasapi]::Tone(1500, 2000))
   Start-Sleep 1; Key 0xAE 2; L 'volume down x2 (~6%)'; L ("vol: " + [S10e.Wasapi]::Vol())
   Start-Sleep 1; L 'play 1500 Hz B (~6%)'; L ([S10e.Wasapi]::Tone(1500, 2000))

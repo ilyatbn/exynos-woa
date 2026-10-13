@@ -592,3 +592,8 @@ mic heard only amp pops (tone amplitude 0.03 by design).
   period-boundary update could pair the old OFFSET with the new small CNT, which the modulo math reads as a ~3-period
   jump. Fixed in its own commit: AboxRingPosition re-reads STATUS until OFFSET is equal on two consecutive reads
   (<= 4 reads, DISPATCH-safe). Build exit 0.
+- Buttons (separate commit, notes/d8-buttons-agent.md): S10eAgent volup/voldown -> s10ekeys SendInput VK_VOLUME_*,
+  s10ediag-m20. Review: KEY gains LastRepeat (zero-initialised by the shorter initialisers), repeat only while the
+  key is down and only for volup/voldown long actions, migration touches only "none" values. No findings.
+- audio-test.ps1: amplitude 0.03 -> 0.1 (coordinator: quiet but audible to the mic; with ~10 % endpoint volume and
+  the amps at -10 dB still a quiet tone). Exclusive tone label corrected (our volume element also applies there).

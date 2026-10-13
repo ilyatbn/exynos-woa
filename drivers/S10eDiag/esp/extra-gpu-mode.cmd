@@ -99,6 +99,7 @@ s10ediag mark g: dwm modules + user-session d3dprobe
 powershell -NoProfile -Command "Get-Process dwm -ErrorAction SilentlyContinue | ForEach-Object { 'dwm pid ' + $_.Id; $_.Modules | Where-Object { $_.ModuleName -match 'maliumd|gallium|d3d10|d3d11|dxgi|warp|basicrender' } | ForEach-Object { '  ' + $_.FileName } }" > "%G%\dwm-modules.txt" 2>&1
 copy /y "%ESP%\S10EDIAG\run-as-user.ps1" C:\S10eTmp\run-as-user.ps1 > nul 2>&1
 copy /y "%ESP%\S10EDIAG\gpu\d3dprobe.exe" C:\S10eTmp\d3dprobe.exe > nul 2>&1
+if exist C:\S10eTmp\d3dfill.exe del /f /q C:\S10eTmp\d3dfill.exe
 copy /y "%ESP%\S10EDIAG\gpu\d3dfill.exe" C:\S10eTmp\d3dfill.exe > nul 2>&1
 > C:\S10eTmp\gpu-user.ps1 echo C:\S10eTmp\d3dprobe.exe ^> C:\S10eTmp\d3dprobe-user.txt 2^>^&1
 >> C:\S10eTmp\gpu-user.ps1 echo Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Screen]::AllScreens ^| Format-List DeviceName,Primary,Bounds ^| Out-File -Append C:\S10eTmp\d3dprobe-user.txt

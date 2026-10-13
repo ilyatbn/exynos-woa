@@ -103,6 +103,9 @@ int main(int argc, char **argv)
     CreateThread(NULL, 0, Watchdog, NULL, 0, NULL);
     setvbuf(stdout, NULL, _IONBF, 0);
 
+    /* review 211ede8: a DPI-unaware process gets scaled SM_CXSCREEN/SM_CYSCREEN (the S10e runs above 100 % scaling),
+     * so the swap chain and the fullscreen mode request would not match the panel's native size. */
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     Mark("CreateDXGIFactory1");
     Hr = CreateDXGIFactory1(&IID_IDXGIFactory1, (void **)&Factory);
     printf("CreateDXGIFactory1 hr 0x%08lx\n", Hr);

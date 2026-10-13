@@ -785,3 +785,7 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   adapter, FL 10_0 + BGRA, red/green/blue/white phases (arg = seconds each), per-phase present counts + pixel (0,0)
   readback. extra-gpu-mode.cmd pass 2 runs it (8 s phases) in the user session after d3dprobe if gpu\d3dfill.exe is
   on the ESP; marks "f: ..."; run-as-user wait 120 -> 240 s. Not yet run on the device.
+- Review of 211ede8: (1) DPI-unaware process -> scaled screen metrics, swap chain / fullscreen mode would not match
+  the panel -> SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) first; (2) a stale C:\S10eTmp\d3dfill.exe from an
+  earlier run would still run with gpu\d3dfill.exe gone from the ESP -> deleted before the copy. Rebuilt ->
+  s10e-artifacts\d3dfill-2\d3dfill.exe.

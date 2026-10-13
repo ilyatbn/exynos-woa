@@ -1229,3 +1229,21 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   MALIKM_TGSI_DIR=C:\S10eTmp\tgsi machine-wide (Session Manager\Environment; folder Everyone:M), pass 2 copies the
   reports to out\last\gpu\tgsi. Cleanup when leaving GPU testing: remove that variable and the LocalDumps keys.
   Build mali-umd-0038 (6a2723a2..., ARM64, no new warnings).
+
+## Run g53full (20:55, Mesa 0038) - **FIRST WINDOWS DESKTOP ON THE FULL MALI ADAPTER**
+- Webcam: shot 26 (21:05:58) shows the Windows desktop (wallpaper, desktop icons top-left, taskbar) composed by DWM
+  on the full adapter; shot 23 = d3dfill's green phase (green spill around the overexposed panel), 24 white, 15-21
+  bright (the d3dfill window / white phases). Sent to the user. run-as-user: user S10e, Ready after 45 s;
+  d3dfill: every phase presented (white 125 frames).
+- One overflow report: tgsi\overflow-1224-1.txt (pid 1224 = dwm): FRAG, 259 instructions, CONST[0][0..129],
+  two BGNLOOP/ENDLOOP loops each starting with `ISGE; UIF TEMP[6].y :0; BRK; ENDIF`, 18 SAMPLE + 27 UARL per pass (a
+  D2D/DWM blur kernel; 0036's UARL path visible). **Cause: `UIF ... :0`** - every UIF's label is 0. tgsi_exec's
+  UIF jumps to inst->Label.Label when no channel takes the THEN branch (tgsi_exec.c UIF case), so a not-taken
+  breakc jumped to instruction 0 and re-ran the shader from the top, re-entering BGNLOOP at pc 9 until the loop
+  stack (32) overflowed. d3d10umd ShaderTGSI.c never calls ureg_fixup_label for IF/ELSE (only for CALL);
+  llvmpipe (upstream's target) builds structured control flow and ignores these labels.
+- Mesa **0039**: a label stack in Shader_xlate: D3D10 IF pushes the UIF label; ELSE fixes the pending label up to
+  the ELSE instruction and pushes ELSE's own; ENDIF fixes it up to the ENDIF and pops; breakc/retc/continuec/callc/
+  discard fix their UIF label up to their ENDIF - the nir_to_tgsi pattern (nir_to_tgsi.c:3069-3078). 64 deep,
+  bounds-guarded. Build mali-umd-0039 (9c9abcde..., ARM64, only the old upstream warnings). 0038's overflow guard
+  stays as a safety net. Run g54full.

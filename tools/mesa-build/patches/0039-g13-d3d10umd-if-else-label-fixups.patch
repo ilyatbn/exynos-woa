@@ -1,0 +1,75 @@
+From f3b201a5ab323a5f4bb09eb94143eab6793a97a4 Mon Sep 17 00:00:00 2001
+From: ilyatbn <tovbin.ilya@gmail.com>
+Date: Tue, 13 Oct 2026 21:11:48 +0300
+Subject: [PATCH] G13: d3d10umd fixes up UIF/ELSE labels (IF/ELSE/ENDIF and
+ breakc/retc/continuec/callc/discard) - they all pointed at instruction 0 and
+ softpipe's tgsi_exec jumped there (exynos-woa tools/mesa-build/patches/0039)
+
+---
+ src/gallium/frontends/d3d10umd/ShaderTGSI.c | 34 +++++++++++++++++++++
+ 1 file changed, 34 insertions(+)
+
+diff --git a/src/gallium/frontends/d3d10umd/ShaderTGSI.c b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+index ffae13d..6c2ab71 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderTGSI.c
++++ b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+@@ -221,6 +221,12 @@ struct Shader_xlate {
+    uint num_addrs;
+    uint next_addr;
+ 
++   /* G13 (patch 0039): label tokens of the open IF/ELSE, innermost last. tgsi_exec jumps by them (UIF -> ELSE or
++    * ENDIF, ELSE -> ENDIF); d3d10umd never fixed them up (llvmpipe ignores them), so they all pointed at
++    * instruction 0. 64 deep (tgsi_exec itself stops at 32 nested IFs); deeper nesting is counted but not fixed up. */
++   unsigned if_labels[64];
++   uint num_if_labels;
++
+    uint temp_offset;
+    uint indexable_temp_offsets[SHADER_MAX_INDEXABLE_TEMPS];
+ 
+@@ -2168,8 +2174,32 @@ Shader_tgsi_translate(const unsigned *code,
+          } else {
+             ureg_UIF(ureg, translate_src_operand(&sx, &opcode.src[0], OF_INT), &label);
+          }
++         /* G13 (patch 0039): remember the UIF's label token; ELSE / ENDIF fix it up (below). */
++         assert(sx.num_if_labels < ARRAY_SIZE(sx.if_labels));
++         if (sx.num_if_labels < ARRAY_SIZE(sx.if_labels))
++            sx.if_labels[sx.num_if_labels] = label;
++         sx.num_if_labels++;
++      }
++         break;
++      case D3D10_SB_OPCODE_ELSE: {
++         /* G13 (0039): the UIF jumps here when no channel takes the THEN branch; the ELSE's own label (ENDIF) is
++          * fixed up at ENDIF. */
++         unsigned label = 0;
++         if (sx.num_if_labels > 0 && sx.num_if_labels <= ARRAY_SIZE(sx.if_labels))
++            ureg_fixup_label(ureg, sx.if_labels[sx.num_if_labels - 1], ureg_get_instruction_number(ureg));
++         ureg_ELSE(ureg, &label);
++         if (sx.num_if_labels > 0 && sx.num_if_labels <= ARRAY_SIZE(sx.if_labels))
++            sx.if_labels[sx.num_if_labels - 1] = label;
+       }
+          break;
++      case D3D10_SB_OPCODE_ENDIF:
++         if (sx.num_if_labels > 0) {
++            if (sx.num_if_labels <= ARRAY_SIZE(sx.if_labels))
++               ureg_fixup_label(ureg, sx.if_labels[sx.num_if_labels - 1], ureg_get_instruction_number(ureg));
++            sx.num_if_labels--;
++         }
++         ureg_ENDIF(ureg);
++         break;
+       case D3D10_SB_OPCODE_RETC:
+       case D3D10_SB_OPCODE_CONTINUEC:
+       case D3D10_SB_OPCODE_CALLC:
+@@ -2213,6 +2243,10 @@ Shader_tgsi_translate(const unsigned *code,
+             assert(0);
+             break;
+          }
++         /* G13 (0039): the UIF skips to this ENDIF when no channel's condition holds - its label was left 0, so
++          * tgsi_exec jumped to instruction 0 and re-ran the shader from the top (run g53: DWM's blur shader
++          * re-entered its BGNLOOP until the loop stack overflowed). */
++         ureg_fixup_label(ureg, label, ureg_get_instruction_number(ureg));
+          ureg_ENDIF(ureg);
+       }
+          break;
+-- 
+2.40.1.windows.1
+

@@ -1,0 +1,88 @@
+From b56235c105de689db04b68c49e389257767725b7 Mon Sep 17 00:00:00 2001
+From: g12-build <g12@local>
+Date: Wed, 14 Oct 2026 00:20:16 +0300
+Subject: [PATCH] H2: the shim lists every live BO in each Panfrost submission
+ (WDDM 1.x maps only listed allocations; run h2a EXECUTE translation fault)
+ (exynos-woa tools/mesa-build/patches/0040)
+
+---
+ include/win32-compat/malikm_drm.c | 43 +++++++++++++++++++++++++++----
+ 1 file changed, 38 insertions(+), 5 deletions(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 912ab7f..7adcdbb 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -581,9 +581,11 @@ struct wbo {
+    D3DKMT_HANDLE h;
+    uint64_t size, va;
+    void *cpu;
++   uint32_t mark;    /* exynos-woa H2: the submission that last listed it */
+ };
+ static struct wbo *wbo;
+ static uint32_t wbo_cap;
++static uint32_t wsubmit_gen, wlist_overflows;
+ static D3DKMT_HANDLE wadapter, wdevice, wcontext;
+ static void *wcmd;
+ static UINT wcmd_size;
+@@ -1429,21 +1431,52 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+       const uint32_t *bos = (const uint32_t *)(b + a->bo_handles);
+       if (!a->jc)
+          return -MK_EINVAL;
+-      if (a->bo_handle_count > walloc_size || sizeof(MW_COMMAND) > wcmd_size)
++      if (sizeof(MW_COMMAND) > wcmd_size)
+          return -MK_E2BIG;
++      /* exynos-woa H2 (notes/gpu-hw-path.md): WDDM 1.x VidMm maps an allocation into the GPU's aperture only
++       * while a submission lists it, and an unlisted one may be unmapped (its pages can move). Panfrost assumes
++       * the Linux model - every BO stays mapped - and lists only the batch's own BOs, so a BO it reaches some
++       * other way (run h2a: an EXECUTE translation fault, fault status 0x240001c3) was never mapped. List the
++       * batch's BOs first (written), then every other live BO (read), each once. */
++      uint32_t gen = ++wsubmit_gen;
++      if (gen == 0)
++         gen = ++wsubmit_gen;
++      UINT n = 0;
+       for (uint32_t i = 0; i < a->bo_handle_count; i++) {
+          struct wbo *bo = wddm_bo(bos[i]);
+          if (!bo)
+             return -MK_ENOENT;
+-         memset(&walloc[i], 0, sizeof(walloc[i]));
+-         walloc[i].hAllocation = bo->h;
+-         walloc[i].WriteOperation = 1;
++         if (bo->mark == gen)
++            continue;
++         if (n == walloc_size)
++            return -MK_E2BIG;
++         bo->mark = gen;
++         memset(&walloc[n], 0, sizeof(walloc[n]));
++         walloc[n].hAllocation = bo->h;
++         walloc[n].WriteOperation = 1;
++         n++;
+       }
++      uint32_t skipped = 0;
++      for (uint32_t i = 0; i < wbo_cap; i++) {
++         if (!wbo[i].h || wbo[i].mark == gen)
++            continue;
++         if (n == walloc_size) {
++            skipped++;
++            continue;
++         }
++         wbo[i].mark = gen;
++         memset(&walloc[n], 0, sizeof(walloc[n]));
++         walloc[n].hAllocation = wbo[i].h;
++         n++;
++      }
++      if (skipped && (wlist_overflows++ == 0 || trace_on()))
++         fprintf(stderr, "malikm-wddm: allocation list full (%u slots): %u live BOs not listed\n", walloc_size,
++                 skipped);
+       MW_COMMAND *c = wcmd;
+       c->Type = MW_CMD_JOB;
+       c->Slot = (a->requirements & PANFROST_JD_REQ_FS) ? 0 : 1;
+       c->Jc = a->jc;
+-      NTSTATUS st = w_render(sizeof(*c), a->bo_handle_count);
++      NTSTATUS st = w_render(sizeof(*c), n);
+       if (st < 0) {
+          if (trace_on())
+             fprintf(stderr, "malikm-wddm: Render failed 0x%08lx\n", (unsigned long)st);
+-- 
+2.40.1.windows.1
+

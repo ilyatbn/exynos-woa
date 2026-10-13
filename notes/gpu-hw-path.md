@@ -39,3 +39,20 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   job header status 0x1, stats `jobs done 1 failed 0 timedout 0 js 0x0 fault 0x0 irqs 1 resets 0`, exit 0 ->
   the job IRQ is delivered (not only the 1 ms poll). DWM loaded maliumd.dll (softpipe pinned), d3dfill presented
   every phase (white 129 frames / 8 s). Then clean return to TWRP (00:06:39). = G11 device-validated (1 boot).
+- 00:08 run h2a started: extra.cmd = extra-gpu-h2.cmd (md5 62b987b5..), gpu\d3dtri.exe (da1c773c..), mode stays GpuEnable 1 / FullAdapter 1 / machine GALLIUM_DRIVER=softpipe, no nogpu.flg.
+- H4 note: present path = 2 CPU copies per frame of 1080x2280x4 (shim present_copy: Panfrost render target -> primary allocation, then KMD DoPresent blt -> GOP fb 0xCA000000); with Panfrost the source is a GPU BO read by the CPU (uncached/WC mapping, CacheCoherent FALSE segment) - expected bottleneck for DWM fps; zero-copy scanout (DECON base address flip) is the H4 target.
+- **H2 run h2a (00:08-00:16, runs/h2a, cam/h2a):** session 0: d3dtri tri softpipe PASS, **tri panfrost PASS**
+  (pixels identical: red 1352, blue 2744, other 0), KMD `jobs done` 0 -> 9 (8 Panfrost jobs + m5test's), no fault;
+  shim "bind to the runtime device ... yes, through its callbacks", "VERSION panfrost 1.1" = first Panfrost frame
+  rendered by the S10e's Mali. User session: tri PASS (12 more jobs); **cube hung in its first frame** (d3dtri
+  watchdog "TIMEOUT in frames") with **one fault**: `jobs done 21 failed 1 ... js 0x8 fault 0x240001c3 @0x40b8000
+  resets 1` = exception 0xC3 TRANSLATION_FAULT, access type 1 = EXECUTE -> the GPU fetched shader code from an
+  unmapped VA. KMD stats: 79 allocations, only 44 aperture maps.
+- Cause (Mesa pan_jm.c:105-150 read): Panfrost's submit lists batch->bos + the batch's two pools + tiler heap +
+  sample positions only - Linux keeps every BO mapped; WDDM 1.x VidMm maps an allocation only while a submission
+  lists it (and an unlisted one may be unmapped, its pages may move -> keeping PTEs in the KMD is unsafe).
+- Fix A, Mesa 0040 (tools/mesa-build/patches/0040-h2-shim-lists-every-live-bo-per-submit.patch): SUBMIT lists the
+  batch BOs (WriteOperation 1) then every other live BO (read), deduped by a per-submit mark; overflow of the
+  runtime's list (256 slots, KMD MW_LIST_SIZE) is reported once on stderr. Built mali-umd-0040:
+  libgallium_d3d10.dll = maliumd.dll 9c70c544a3dd0257..., ARM64. First build failed on my own edit (a "\n" in a
+  string became a real line break through the python heredoc) - fixed before the commit.

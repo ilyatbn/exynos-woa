@@ -29,6 +29,12 @@ pnputil /enum-devices /instanceid "ACPI\SAMS9828\0" >> "%X%\mode.txt" 2>&1
 for /f "usebackq tokens=1,2,3" %%A in (`findstr /i "GALLIUM_DRIVER GpuEnable" "%X%\mode.txt"`) do s10ediag mark "x: %%A %%C"
 powershell -NoProfile -Command "Get-Process dwm -ErrorAction SilentlyContinue | ForEach-Object { 'dwm pid ' + $_.Id + ' start ' + $_.StartTime + ' cpu ' + $_.CPU; $_.Modules | Where-Object { $_.ModuleName -match 'maliumd|gallium|d3d10warp|basicrender' } | ForEach-Object { '  ' + $_.FileName } }" > "%X%\dwm-modules.txt" 2>&1
 %T%\m5test.exe > "%X%\m5test-0.txt" 2>&1
+rem the D3D10 sampling path (Mesa 0044: SAMPLE / SAMPLE_I / SVIEWINFO through tgsi_to_nir) by pixels, on Panfrost
+set GALLIUM_DRIVER=panfrost
+%T%\d3dtri.exe tex > "%X%\tex-s0.txt" 2>&1
+call echo exit %%ERRORLEVEL%% >> "%X%\tex-s0.txt"
+set GALLIUM_DRIVER=
+for /f "usebackq delims=" %%L in (`findstr /c:"tex ->" /c:"WRONG" /c:"TIMEOUT" "%X%\tex-s0.txt"`) do s10ediag mark "x: %%L"
 
 > %T%\h3-user.ps1 echo $g = Start-Process -FilePath C:\S10eTmp\gfxperf.exe -ArgumentList '120' -RedirectStandardOutput C:\S10eTmp\h3-gfxperf.txt -WindowStyle Hidden -PassThru
 >> %T%\h3-user.ps1 echo Start-Sleep -Seconds 40

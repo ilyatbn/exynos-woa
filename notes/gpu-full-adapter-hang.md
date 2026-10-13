@@ -515,3 +515,9 @@ patches/*.patch after the reference patches, one commit each).
 - UNVERIFIED: whether DWM's swap chain present (DXGI _Present -> flush_frontbuffer) on the D3D11-over-D3D10-DDI
   runtime reaches pfnPresentCb with a context the runtime accepts; the PRAM trace answers it (KMD Present lines from
   DWM after the boot console's, heartbeat p growing).
+- Review of b0981d5: the claim "byte-exact because the touched files are CRLF" was wrong - the Mesa blobs are LF
+  (`git show a36e5bb:<file> | grep -c CR` = 0; the CRLF seen in the working tree is a checkout artefact) and the
+  exported patch is LF. Verified: `git apply --check` of the repo patch on a fresh LF tree of a36e5bb's two files ->
+  OK, and `git apply -R --check` on the working copy -> OK. The `-text` .gitattributes line is removed again and the
+  build script comment corrected (follow-up commit). Also checked: the present-only branch never sets `wddm`, so
+  wddm_init() still requires GPU_INFO Valid for Panfrost; malikm_present_d3dddi takes wddm_lock as before.

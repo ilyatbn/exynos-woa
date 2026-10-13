@@ -61,6 +61,13 @@ for %%X in (explorer.exe StartMenuExperienceHost.exe SearchHost.exe dwm.exe Logo
   reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\%%X" /v DumpCount /t REG_DWORD /d 2 /f >> "%G%\set-mode.txt" 2>&1
   reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\%%X" /v DumpType /t REG_DWORD /d 1 /f >> "%G%\set-mode.txt" 2>&1
 )
+rem g48: LogonUI's fail-fast keeps the E_INVALIDARG origin in stowed exception records on the heap, which a minidump
+rem lacks. LogonUI only: one custom dump (DumpType 0, CustomDumpFlags = MINIDUMP_TYPE DataSegs 0x1 | HandleData 0x4 |
+rem UnloadedModules 0x20 | ProcessThreadData 0x100 | PrivateReadWriteMemory 0x200 | FullMemoryInfo 0x800 |
+rem ThreadInfo 0x1000 = 0x1B25), DumpCount 1 (it restarts every few seconds; the ESP holds ~470 MB free).
+reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\LogonUI.exe" /v DumpType /t REG_DWORD /d 0 /f >> "%G%\set-mode.txt" 2>&1
+reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\LogonUI.exe" /v CustomDumpFlags /t REG_DWORD /d 0x1B25 /f >> "%G%\set-mode.txt" 2>&1
+reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\LogonUI.exe" /v DumpCount /t REG_DWORD /d 1 /f >> "%G%\set-mode.txt" 2>&1
 if exist "%ESP%\S10EDIAG\nogpu.flg" del /f /q "%ESP%\S10EDIAG\nogpu.flg"
 echo pass2 > C:\S10eTmp\gpumode2.flg
 s10ediag mark g: clean restart into the new mode

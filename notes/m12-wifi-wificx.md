@@ -416,3 +416,20 @@ ntfs-3g `mount.ntfs -o ro /dev/block/by-name/userdata`; esp/ = UEFILOG + PRAM; o
   Operational (60), System PnP/SCM/NDIS events (400), live copies of the driver logs; out\last\wifistate +
   out\wifi-history\<n>. Tested on the PC (dummy ESP, history 1). Deployed: md5 extra.cmd ba4628ec..,
   extra-wifi-state.cmd c3907a1d.., extra-gfxperf.cmd 815dcbb4...
+- **runs/user5 (live snapshot, first run of extra-wifi-state): Windows does not see the WLAN device at all.**
+  pnputil ACPI\SAMS9825\0 Status **Disconnected**, IsPresent FALSE, HasProblem FALSE (never enumerated this boot,
+  no removal); sc Exynos9820WlanCx STOPPED 1077 (never started); netsh "There is no wireless interface on the
+  system". GPU0 (ACPI\SAMS9828) also Disconnected this boot (gfx\mode.txt). But the firmware's own WINPRAM.BIN,
+  dumped at ReadyToBoot of THIS boot, has words [2..5] 'USBH' 'WLAN' 'GPU0' 'NOAU' at 0x8FE0F008..17, and UEFILOG
+  says link up / "ACPI WLAN visible" / "ACPI GPU0 visible". So the words are right at hand-off, yet both
+  status-word-gated devices are absent in Windows. S10eDiag mark ring is 0x8FE0A000+16 KiB (ends 0x8FE0E000) -
+  does not overlap the progress page.
+- 16eea6f: extra-wifi-state adds `s10ediag peek 0x8FE0F000 0x20` (runtime value of the words) + the connected
+  device list. Deployed (md5 ad7ae6db..).
+- Kernel debugger for the answer (user: "whats the point of the kernel debugger you wrote if not for these
+  instances?"): phone BCD had debug off ({dbgsettings} Local). Offline edit of a pulled copy with
+  `bcdedit /store` (no elevation needed): net hostip 169.254.255.255 port 50005 key 1.2.3.4, busparams 0, dhcp No,
+  {default} debug Yes (= m17 boot #77 settings). Pushed to ESP EFI\Microsoft\Boot\BCD (md5 108bbbc4..), original
+  kept as BCD.nokd (md5 db0825ed..) - **undo: copy BCD.nokd over BCD**. Host: tools/kd-runner/kdrun.py ->
+  s10e-artifacts/runs/kd1/kd.log, break-in at 150 s, then !dd 8fe0f000 (physical read of the words),
+  !amli dns /s \_SB.WLAN / GPU0 / XHC0, !devnode 0 1, g.

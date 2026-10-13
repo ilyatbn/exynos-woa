@@ -1038,3 +1038,6 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
 - Next run g45: export Microsoft-Windows-Winlogon/Operational, TerminalServices-LocalSessionManager/Operational
   (21/23/24 session logon/logoff), User Profile Service/Operational, Shell-Core/Operational and Security
   4624/4634/4647 in pass 2, plus a second tasklist ~60 s earlier to time the teardown.
+- Review of the channel-export commit: channel names verified with `wevtutil el` on the (Windows 11) build PC;
+  finding - the 40 newest 4624 would be service logons -> follow-up commit queries LogonType 2 separately (XPath
+  verified locally). Run g45full started with it (same binaries).

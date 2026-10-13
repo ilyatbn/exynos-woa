@@ -465,3 +465,33 @@ Steps: update live in display-only (must show 1.0.19.1) -> full.flg + nogpu.flg 
 gpu\dxgk-msgs.txt (no "must be CPU visible", no "invalid NTSTATUS"), PRAM "Commit src.chk.paths" paths 01 +
 "R CommitStatus 00000000", BuildPagingBuffer / SetVidPnSourceAddress lines, d3dprobe outputs 1, dxdiag Current
 Mode 1080 x 2280; heartbeat p > 0 / Present lines if DWM composes (UMD questions start only after that).
+
+## Run g19full - the KMD mode set now WORKS (2026-10-13)
+- ETW event 494 (scratchpad\dxgkcsv.py): "must be CPU visible" and "invalid NTSTATUS" are GONE. Remaining: 267x
+  "There should be at least one broadcast context passed to signal" (data 960), 2x "Cannot find the file version
+  resource in DxgkpGetFileVersion" (our .sys has no VERSIONINFO resource), 1x "When opening a synchronization
+  object, the NoGPUAccess flag ... must match" (a user-mode runtime's sync object) - none about the mode set.
+- PRAM (build 19): GetStandardAllocationDriverData -> CreateAllocation -> OpenAllocation -> **DescribeAllocation ->
+  CommitVidPn 00000000 -> SetVidPnSourceAddress -> SetVidPnSourceVisibility -> ControlInterrupt -> Present / Patch /
+  SubmitCommand** x52 (every ~47 ms, 27.6-30.1 s: the boot console's CDD presents into our primary, CPU blts to the
+  GOP fb), then at 30.27-30.29 s visibility off/on, BuildPagingBuffer x2, Close/DestroyAllocation of that primary -
+  and **no DDI call at all for the next 300 s** (heartbeat at 335 s: v 0x4b26 vsyncs, s/p 0x34 = still 52). So the
+  adapter owns a mode and accepts presents; the session-1 compositor (DWM) never creates a primary, an allocation or
+  a present on it.
+- Why (static, consistent with every trace): maliumd.dll in mode 1 = Mesa d3d10umd on **softpipe with the GDI
+  software winsys** (malikm_bind_d3dddi refuses to bind without GPU_INFO Valid, d3d10_gdi.c default driver
+  softpipe): its resources are user-mode memory (no pfnAllocateCb -> no CreateAllocation in the KMD) and its present
+  is StretchDIBits into a window (d3d10_gdi.c d3d10_gdi_acquire_hdc / sw winsys displaytarget_display), never
+  pfnPresentCb -> no KMD Present. DWM "runs" on it and nothing reaches the kernel or the panel.
+- Also: the session-0 d3dprobe / dxdiag ("outputs 0", "Current Mode Unknown") were taken as SYSTEM in session 0,
+  which owns no display - not proof of no mode. g20's script repeats d3dprobe in the user session and lists DWM's
+  loaded graphics modules (maliumd / libgallium = DWM's device is on our adapter).
+- **The next fix is in the UMD, not the KMD** (Mesa, mali\mesa-26.2-g76; MILESTONES G13): (a) a WDDM present path
+  for the software screen - wrap the GDI sw winsys' displaytarget_display to map the display target and hand the
+  pixels to malikm_present_d3dddi (patch 0019's pfnPresentCb path, today only on the Panfrost screen) and let
+  malikm_bind_d3dddi bind the runtime callbacks for presenting even when GPU_INFO.Valid is 0; (b) for GpuEnable 1,
+  make Panfrost the default screen when bound to the maliwddm runtime (DWM has no GALLIUM_DRIVER). Whether DWM's own
+  flip-model swap chain is served by pfnPresentCb-from-a-staging-copy is UNVERIFIED (never validated upstream).
+- Package **s10e-artifacts\mali-g20** = mali-g19 driver (1.0.19.1, sys 066BAFE3...) + extra-gpu-mode.cmd with the
+  user-session probe and DWM module list `FB4F16A9FC5DE10B95773E133F2A3EC6DAABB97A4953794AAE3AAD2F767C7B26` (CRLF),
+  run-as-user.ps1 `DDB47BE5...` (same as the repo's). No driver change -> no update boot.

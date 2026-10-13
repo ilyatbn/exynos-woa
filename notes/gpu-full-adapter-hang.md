@@ -1174,3 +1174,18 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   CreateResource creates no kernel allocation for MISC_SHARED resources (only DXGI primaries get one, 0026), so the
   runtime has nothing to make a shared handle from. Next probe step: GetSharedHandle / CreateSharedHandle on the
   SHARED / KEYEDMUTEX / NTHANDLE textures (S_OK on the PC's AMD + WARP). Build s10e-artifacts\d3dprobe-4, run g51.
+- Docs (MS Learn PFND3DDDI_ALLOCATECB / D3DDDICB_ALLOCATE): for CreateResource(D3D10/D3D11) with
+  D3D10_DDI_RESOURCE_MISC_SHARED the UMD **must** create the allocations through pfnAllocateCb with a non-NULL
+  hResource (the hRTResource), and may call AllocateCb/DeallocateCb exactly once each for a shared resource. d3d10umd
+  creates none for shared resources (only DXGI primaries, 0026) - matches the CreateCompositionBuffer failure.
+- Mesa **0037**: malikm_shared_create (pfnAllocateCb with hResource = hRTResource, one allocation, MW_ALLOCATION_INFO
+  NOEXEC with w/h/pitch/D3DDDI format, then pfnLockCb for writing) and d3d10umd CreateResource: MISC_SHARED,
+  non-primary, single-mip single-slice TEXTURE_2D on the maliwddm runtime -> texture storage = the locked allocation
+  (resource_from_handle over the gdi winsys external memory, 0035), unlocked in DestroyResource via kmt_opened_locked.
+  Formats B8G8R8A8 -> A8R8G8B8, B8G8R8X8 -> X8R8G8B8, R8G8B8A8 -> A8B8G8R8 (OpenResource now maps that back), others
+  get the allocation with format 0 (handle works, openers get E_INVALIDARG as before). KMD CreateAllocation accepts
+  any format (memory.c:58-70 checks only Size). UNVERIFIED: an opener (DWM) may not be allowed to lock a non-primary
+  shared allocation (D3DDDICB_LOCKFLAGS) -> DWM would show it blank even when LogonUI stops crashing.
+  Noticed, not touched: upstream CreateResource checks `if (!pResource)` after resource_create (always false) - the
+  failure check never fires; follow-up task.
+  Build mali-umd-0037 (8791b7c6..., ARM64).

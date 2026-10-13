@@ -1,0 +1,154 @@
+From e29357b6d905708119537452c9ddf5906438af9a Mon Sep 17 00:00:00 2001
+From: ilyatbn <tovbin.ilya@gmail.com>
+Date: Tue, 13 Oct 2026 20:21:19 +0300
+Subject: [PATCH] G13: d3d10umd backs MISC_SHARED 2D textures with one kernel
+ allocation created with the runtime resource handle, kept locked and rendered
+ into; OpenResource maps A8B8G8R8 (exynos-woa tools/mesa-build/patches/0037)
+
+---
+ include/win32-compat/malikm_drm.c           | 57 +++++++++++++++++++++
+ src/gallium/frontends/d3d10umd/Resource.cpp | 46 ++++++++++++++++-
+ 2 files changed, 102 insertions(+), 1 deletion(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 0b074ee..912ab7f 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -998,6 +998,63 @@ malikm_primary_destroy(unsigned hAlloc)
+    ReleaseSRWLockExclusive(&wddm_lock);
+ }
+ 
++/* G13 0037: the kernel allocation behind a MISC_SHARED resource. MS Learn PFND3DDDI_ALLOCATECB / D3DDDICB_ALLOCATE:
++ * allocations for CreateResource(D3D10) with D3D10_DDI_RESOURCE_MISC_SHARED must be created with a non-NULL hResource
++ * (the hRTResource), once per resource (no later additions). d3d10umd created none, so the runtime had nothing to make
++ * a shared handle from: d3d11!CDevice::CreateCompositionBuffer failed E_INVALIDARG on the Mali adapter (run g50) and
++ * LogonUI's DComp atlas with it (g47/g49). One allocation with the KMD's MW_ALLOCATION_INFO (d3dfmt as the openers
++ * read it, 0 when it has no D3DDDIFORMAT here), then locked for writing: the creator renders straight into it.
++ * Returns 0 with *hAlloc (and *cpu / *pitch, *cpu NULL when the lock was refused), -1 on failure. */
++int
++malikm_shared_create(void *hRTResource, unsigned w, unsigned h, unsigned cpp, unsigned d3dfmt, unsigned *hAlloc,
++                     void **cpu, unsigned *pitch)
++{
++   int ret = -1;
++   MW_ALLOCATION_INFO pi = {0};
++   D3DDDI_ALLOCATIONINFO ai = {0};
++   D3DDDICB_ALLOCATE a = {0};
++   HRESULT hr;
++
++   *hAlloc = 0;
++   *cpu = NULL;
++   *pitch = w * cpp;
++   if (w == 0 || h == 0 || cpp == 0 || hRTResource == NULL)
++      return -1;
++   AcquireSRWLockExclusive(&wddm_lock);
++   if (!ddi.on || !ddi.cb.pfnAllocateCb)
++      goto out;
++   pi.Version = MW_ABI_VERSION;
++   pi.Flags = MW_ALLOC_NOEXEC;
++   pi.Width = w;
++   pi.Height = h;
++   pi.Pitch = *pitch;
++   pi.Format = d3dfmt;
++   pi.Size = (uint64_t)*pitch * h;
++   ai.pPrivateDriverData = &pi;
++   ai.PrivateDriverDataSize = sizeof(pi);
++   a.hResource = (HANDLE)hRTResource;
++   a.NumAllocations = 1;
++   a.pAllocationInfo = &ai;
++   hr = ddi.cb.pfnAllocateCb(ddi.device, &a);
++   if (hr >= 0) {
++      *hAlloc = ai.hAllocation;
++      ret = 0;
++      if (ddi.cb.pfnLockCb) {
++         D3DDDICB_LOCK l = {0};
++         l.hAllocation = ai.hAllocation;
++         l.Flags.IgnoreSync = 1;
++         if (ddi.cb.pfnLockCb(ddi.device, &l) >= 0)
++            *cpu = l.pData;
++      }
++   }
++   if (trace_on())
++      fprintf(stderr, "malikm: shared resource %p %ux%u cpp %u fmt %u: alloc hr 0x%08lx 0x%x cpu %p\n", hRTResource,
++              w, h, cpp, d3dfmt, (unsigned long)hr, *hAlloc, *cpu);
++out:
++   ReleaseSRWLockExclusive(&wddm_lock);
++   return ret;
++}
++
+ /* G13 0028: DXGI's SetDisplayMode -> the runtime's pfnSetDisplayModeCb with the resource's kernel primary, which is
+  * how dxgkrnl makes that primary the VidPN source's current one and the device its exclusive owner. d3d10umd's
+  * _SetDisplayMode was a stub, so every present into DWM's primary failed 0xC01E0000 NOT_EXCLUSIVE_MODE_OWNER, then
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index 5e09253..7aad6f8 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -200,6 +200,10 @@ extern "C" void malikm_primary_destroy(unsigned hAlloc);
+ extern "C" int malikm_open_shared(const void *priv, unsigned size, unsigned hAlloc, unsigned *w, unsigned *h,
+                                   unsigned *pitch, unsigned *d3dfmt, void **cpu);
+ extern "C" void malikm_close_shared(unsigned hAlloc);
++/* G13 (0037): the kernel allocation of a MISC_SHARED resource, created with the runtime resource handle and locked
++ * for writing (malikm_drm.c). Unlocked with malikm_close_shared; the runtime frees it with the resource. */
++extern "C" int malikm_shared_create(void *hRTResource, unsigned w, unsigned h, unsigned cpp, unsigned d3dfmt,
++                                    unsigned *hAlloc, void **cpu, unsigned *pitch);
+ /* G13: true when the device is bound to the maliwddm runtime (d3d10_gdi.c d3d10_bind_runtime result >= 0). */
+ extern "C" bool d3d10_runtime_is_maliwddm(void);
+ 
+@@ -321,7 +325,44 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+       }
+    }
+ 
+-   pResource->resource = screen->resource_create(screen, &templat);
++   /* G13 (patch 0037): a shared 2D texture is backed by one kernel allocation created with the runtime resource
++    * handle (MS Learn PFND3DDDI_ALLOCATECB: required for D3D10_DDI_RESOURCE_MISC_SHARED; without it the runtime
++    * cannot make the resource's shared handle - CreateCompositionBuffer E_INVALIDARG, run g50). The allocation is
++    * kept locked and softpipe renders into it (gdi winsys external memory, patch 0035), so what the creator draws is
++    * what an opener of the allocation sees. Single-mip, single-slice only (the shareable case, MS Learn
++    * D3D11_RESOURCE_MISC_SHARED: "2D non-mipmapped textures"); anything else keeps the plain path. */
++   if ((pCreateResource->MiscFlags & D3D10_DDI_RESOURCE_MISC_SHARED) && !pCreateResource->pPrimaryDesc &&
++       templat.target == PIPE_TEXTURE_2D && pCreateResource->MipLevels == 1 && pCreateResource->ArraySize == 1 &&
++       d3d10_runtime_is_maliwddm()) {
++      unsigned d3dfmt = 0, hAlloc = 0, pitch = 0;
++      void *cpu = NULL;
++
++      if (templat.format == PIPE_FORMAT_B8G8R8A8_UNORM)
++         d3dfmt = D3DDDIFMT_A8R8G8B8;
++      else if (templat.format == PIPE_FORMAT_B8G8R8X8_UNORM)
++         d3dfmt = D3DDDIFMT_X8R8G8B8;
++      else if (templat.format == PIPE_FORMAT_R8G8B8A8_UNORM)
++         d3dfmt = D3DDDIFMT_A8B8G8R8;
++      if (malikm_shared_create(hRTResource.handle, templat.width0, templat.height0,
++                               util_format_get_blocksize(templat.format), d3dfmt, &hAlloc, &cpu, &pitch) == 0 &&
++          cpu != NULL) {
++         struct winsys_handle wh;
++         memset(&wh, 0, sizeof wh);
++         wh.type = WINSYS_HANDLE_TYPE_SHARED;
++         wh.handle = (HANDLE)cpu;       /* gdi_sw_displaytarget_from_handle (patch 0035): external CPU memory */
++         wh.stride = pitch;
++         templat.bind |= PIPE_BIND_DISPLAY_TARGET;
++         pResource->resource = screen->resource_from_handle(screen, &templat, &wh, PIPE_HANDLE_USAGE_FRAMEBUFFER_WRITE);
++         if (pResource->resource)
++            pResource->kmt_opened_locked = hAlloc;   /* unlocked in DestroyResource; the runtime frees it */
++         else
++            malikm_close_shared(hAlloc);
++         templat.bind &= ~PIPE_BIND_DISPLAY_TARGET;
++      }
++   }
++
++   if (!pResource->resource)
++      pResource->resource = screen->resource_create(screen, &templat);
+    if (!pResource) {
+       DebugPrintf("%s: failed to create resource\n", __func__);
+       SetError(hDevice, E_OUTOFMEMORY);
+@@ -493,6 +534,9 @@ OpenResource(D3D10DDI_HDEVICE hDevice,                            // IN
+    } else if (fmt == D3DDDIFMT_X8R8G8B8) {
+       templat.format = PIPE_FORMAT_B8G8R8X8_UNORM;
+       pResource->Format = DXGI_FORMAT_B8G8R8X8_UNORM;
++   } else if (fmt == D3DDDIFMT_A8B8G8R8) {      /* 0037: shared R8G8B8A8 resources */
++      templat.format = PIPE_FORMAT_R8G8B8A8_UNORM;
++      pResource->Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    } else {
+       if (cpu)
+          malikm_close_shared(pOpenResource->pOpenAllocationInfo[0].hAllocation);
+-- 
+2.40.1.windows.1
+

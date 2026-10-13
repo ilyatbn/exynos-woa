@@ -1,0 +1,31 @@
+From 335a8833115965bfc5601e5ab6c5fc80d909bbc3 Mon Sep 17 00:00:00 2001
+From: g12-build <g12@local>
+Date: Wed, 14 Oct 2026 00:42:39 +0300
+Subject: [PATCH] H2: only the sysval UBO is pushed - d3d10umd constant buffers
+ are GPU resources, pushing UBO 0 asserted in panfrost_emit_const_buf
+ (exynos-woa tools/mesa-build/patches/0041)
+
+---
+ src/gallium/drivers/panfrost/pan_shader.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/src/gallium/drivers/panfrost/pan_shader.c b/src/gallium/drivers/panfrost/pan_shader.c
+index 920be21..ddda519 100644
+--- a/src/gallium/drivers/panfrost/pan_shader.c
++++ b/src/gallium/drivers/panfrost/pan_shader.c
+@@ -198,7 +198,11 @@ panfrost_shader_compile(struct panfrost_screen *screen, const nir_shader *ir,
+     * When we switch to pushing UBOs with a compute kernel (or CSF instructions)
+     * we can relax this. */
+    assert(s->info.first_ubo_is_default_ubo);
+-   inputs.fau.pushable_ubos = BITFIELD_BIT(0);
++   /* exynos-woa H2 (notes/gpu-hw-path.md): only GL binds UBO 0 as a CPU user buffer. On Windows this driver is
++    * fed by d3d10umd, whose constant buffers (cbuffer b0 included) are real GPU resources, and pushing them hits
++    * panfrost_emit_const_buf's "only user buffers use this path" assert on the first draw with a constant buffer
++    * (run h2c, d3dtri cube). So only the sysval UBO is pushed; D3D constants are read as UBO loads. */
++   inputs.fau.pushable_ubos = 0;
+ 
+    if (out->sysvals.sysval_count != 0) {
+       inputs.fau.pushable_ubos |= BITFIELD_BIT(PAN_UBO_SYSVALS);
+-- 
+2.40.1.windows.1
+

@@ -64,3 +64,14 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   (UMD/shim), not a GPU hang.
 - Next (h2c): extra-gpu-h2.cmd runs the cube as its own process; still alive at 30 s -> livedump.ps1 minidump
   (stacks) of d3dtri from the user session -> cdb on the PC with libgallium_d3d10.pdb (mali-umd-0040).
+- 00:31 run h2c started (extra.cmd md5 a0780e8b..).
+- **Run h2c (00:31-00:39, runs/h2c):** cube alive at 30 s -> minidump d3dtri-2736.dmp. cdb + mali-umd-0040 PDB:
+  main thread in ucrtbase!wassert -> MessageBoxW (assert dialog), from maliumd!panfrost_emit_const_buf
+  (pan_cmdstream.c:1639 `assert(!cb->buffer && cb->user_buffer && "only user buffers use this path")`) <-
+  panfrost_update_shader_state <- panfrost_draw_vbo <- d3d10umd DrawIndexed. Cause: pan_shader.c:201 makes UBO 0
+  pushable because GL binds it as a CPU user buffer; d3d10umd binds cbuffer b0 as a real resource. Every D3D shader
+  with a constant buffer hits it (DWM's too). Not a GPU problem, not a deadlock: the "hang" is the modal dialog.
+- Mesa 0041: pushable_ubos = sysval UBO only (D3D constants read with UBO loads). Mesa 0042: OpenAdapterCommon sets
+  _set_error_mode(_OUT_TO_STDERR) + _set_abort_behavior(0, _WRITE_ABORT_MSG) once per process - a UMD assert now
+  prints and aborts (DWM restarts) instead of hanging in a dialog. Build mali-umd-0042 (0040+0041+0042):
+  maliumd.dll 508abc96acb585d0..., ARM64.

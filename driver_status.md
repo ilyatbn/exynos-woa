@@ -17,7 +17,7 @@ As of 2026-10-12 evening. Windows was just reinstalled, so everything below desc
 | USB (docks, mouse, keyboard, drives) | 🟡 | works, no hot-plug |
 | Battery / charging | 🟡 | works, slow to update |
 | GPU (graphics acceleration) | 🔴 | written, never tested |
-| Speaker | 🟠 | Windows plays, sound unverified |
+| Speaker | 🟡 | works, quiet-tested only |
 | Headphone jack | 🟠 | detected, no sound |
 | Microphones | 🔴 | nothing yet |
 | WiFi | 🟡 | works, slow |
@@ -44,7 +44,7 @@ As of 2026-10-12 evening. Windows was just reinstalled, so everything below desc
 - **USB:** dock, mouse, keyboard and USB drive all work, but only if plugged in before boot. Plugging in later doesn't work yet. The phone can't charge while a dock is powering USB devices.
 - **Battery:** the battery icon shows the real level, but takes a few seconds to update. If the battery runs out, plugging in the charger boots the phone back up.
 - **GPU:** the drivers and graphics library are written and built, but haven't run on the phone yet. That's next after the storage tests. The S9+ developer showed it working on their phone, but never released code.
-- **Speaker / headphones:** sound already plays from both before Windows starts, so the hardware path is proven. In Windows the speaker shows up as a device, but playback fails to start. Volume keys come after that.
+- **Speaker / headphones:** Windows now plays sound through the speaker, and the Windows volume and mute work (tested quietly, heard by the PC mic). There are small pops when sound starts/stops, the physical volume buttons are being hooked up, and the headphone jack is not done in Windows yet.
 - **WiFi:** works through the normal Windows WiFi menu (pick a network, type the password). It is slow for now; speed, sleep/wake and roaming come next.
 - **Bluetooth:** same Broadcom chip as WiFi, on a separate serial line. The research, design and an untested driver skeleton are done (parkinglot/bluetooth-d4c.md).
 - **Cellular, cameras, fingerprint, sensors, vibration, NFC, GPS, microphones, wireless charging:** not started.

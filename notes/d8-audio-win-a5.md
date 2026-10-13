@@ -608,3 +608,12 @@ tones `played 96000 frames` (no STALLED), run.txt `stream: packet 100 complete, 
 STATUS ..., bad 0)` i.e. ~480 frames per packet and ~10 ms per packet (packet 1000 ~10 s after run), few late timer
 passes; mic hears 1000 Hz (exclusive) and 1500/1500/2000 Hz with A > B < C, D silent. Then s10ediag-m20 for the
 buttons (notes/d8-buttons-agent.md).
+
+## DEVICE RESULT a12 stage D (2026-10-13, run audA12D): **SOUND FROM THE SPEAKER IN WINDOWS**
+- 1.0.1.11, AmpInit/AmpEnable/AboxEnable 1 (set by esp/extra-audio-stage.cmd; the swap script's stage values were
+  reset at install - run audA12 ran 0/0/0). Exclusive 48k/16 played 72000 frames; shared A/B/C/D each "played 96000
+  frames", NO stalls (the RDMA0 STATUS position fix). Endpoint volume 0.10/0.06/0.16, mute 1 -> 0 all applied.
+- PC mic (narrowband): **2000 Hz, start 261.4 s, duration 2.0 s, SNR 19 dB = tone C (2 s, 16 %)**; muted D silent;
+  A/B (10/6 %) and the exclusive 0.1-amplitude tone below the mic floor (quiet by the user's request); other hits
+  are 0.3 s broadband amp pops at stream start/stop (follow-up: pop suppression).
+- Open: physical Vol+/Vol- -> s10ediag-m20 S10eAgent/s10ekeys (built, deploying), headphone path in Windows, pops.

@@ -1,0 +1,24 @@
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index 3c466e0..6ab6fe8 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -327,10 +327,16 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+     * refused with STATUS_GRAPHICS_PRESENT_MODE_CHANGED whatever the primary allocation (shim-owned g22-g24,
+     * resource-owned g25, DMA or MMIO flips g26); blt presents work (the boot console's). The flag is the one the
+     * #if 0 block above names (DXGI_DDI_PRIMARY_DRIVER_FLAG_NO_SCANOUT). MALIKM_SCANOUT=1 keeps the flip path. */
++   /* G13 (patch 0029): opt-in only now (MALIKM_NOSCANOUT=1), and only on DXGI_DDI_PRIMARY_OPTIONAL surfaces (back
++    * buffers). MS Learn "DXGI presentation path" / "Passing DXGI information at resource creation time": NO_SCANOUT on
++    * a non-optional front buffer or proxy is only valid when the create FAILS with DXGI_DDI_ERR_UNSUPPORTED; setting
++    * it on every primary was outside the protocol. The g22-g26 flip refusals came from the stub SetDisplayMode
++    * (fixed in 0028), not from the panel being unable to scan out a BGRA primary. */
+    bool no_scanout = false;
+-   if (pCreateResource->pPrimaryDesc && d3d10_runtime_is_maliwddm()) {
+-      const char *keep = getenv("MALIKM_SCANOUT");
+-      if (!(keep && *keep == '1')) {
++   if (pCreateResource->pPrimaryDesc && d3d10_runtime_is_maliwddm() &&
++       (pCreateResource->pPrimaryDesc->Flags & DXGI_DDI_PRIMARY_OPTIONAL)) {
++      const char *want = getenv("MALIKM_NOSCANOUT");
++      if (want && *want == '1') {
+          pCreateResource->pPrimaryDesc->DriverFlags |= DXGI_DDI_PRIMARY_DRIVER_FLAG_NO_SCANOUT;
+          no_scanout = true;
+       }

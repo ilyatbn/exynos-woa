@@ -832,3 +832,4 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   Windows session (pnputil /restart-device on GPU0; Windows shows the Basic Display Driver in between) instead of
   the two-pass reboot. Prerequisite: our StopDevice/unload path must work - every full-mode clean restart hangs, so
   first test a restart-device in display-only mode with the 20-min fallback armed. Docs being researched (question F).
+- Mesa **0029** (from the docs addendum): NO_SCANOUT only with MALIKM_NOSCANOUT=1 and only on DXGI_DDI_PRIMARY_OPTIONAL surfaces -> DXGI flips again, primaries real (Flags.Primary) + SetDisplayMode (0028). Built mali-umd-0029 (maliumd.dll ebe07be5…, Resource.cpp recompiled); package **mali-g33** = mali-g32 + UMD 0029. Run after g32's result.

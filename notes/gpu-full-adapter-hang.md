@@ -975,3 +975,13 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   not read) -> Mesa **0035**: gdi_sw_displaytarget_from_handle wraps external memory (was assert(0)), destroy does
   not free it. Build mali-umd-0035 (56f51279…, gdi_sw_winsys.c + Resource.cpp recompiled). Package mali-g43 =
   KMD 1.0.34.1 + UMD 0035. mali-umd-0034 alone must not be used (assert(0) path).
+
+## Run g43full (13:06, KMD 1.0.34.1 + Mesa 0034/0035 OpenResource) - FIRST NON-BLACK FULL-MODE PICTURE
+- Webcam: shots 13-46 (13:10-13:20, full mode, Windows answering ping) show a large bright rectangle lit for the whole
+  pass 2 (cam-g43-15/25/45); pass 1 (display-only, GPU0 hidden, Basic Display) showed only a small glyph. Before
+  0034 every full-mode shot was dark. Content not identifiable at webcam quality ("lights" only).
+- KMD stats: "ST o000005 u000000 l00000a k000000 b00003e", HB s=0x34 f=0x34: 52 submissions + fences (first ones
+  ever in full mode) and 62 present blts - DWM now renders/blts with real content.
+- LogonUI still never finished in pass 2 (no explorer owner) -> d3dfill not run. A torecovery.flg was left on the
+  ESP after the run (removed).
+- Next: identify the lit content (d3dfill / LogonUI); why logon does not complete in full mode.

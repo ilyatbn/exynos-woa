@@ -850,3 +850,9 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   Side effect to watch: windowed apps now use DWM shared surfaces + BltDXGI(Present) in our UMD's _Blt.
 - E_FAIL source still unknown (SetFullscreenState internals; candidates: 0028's SetDisplayModeCb result, a Map).
 - Review of c946667: bind >= 0 also covers maliwddm with GPU half off (our FullAdapter 1 GpuEnable 0) - intended. Comment asserted the effect as fact -> comment-only Mesa 0032 (UNVERIFIED). No rebuild.
+- **0031 withdrawn (docs check, before any run):** "Supporting the DXGI DDI"
+  (https://learn.microsoft.com/en-us/windows-hardware/drivers/display/supporting-the-dxgi-ddi): NO_REDIRECTION is
+  required for "any driver that does not support hardware that is shared with the Direct3D version 9 DDI
+  implementation". maliumd.dll exports only OpenAdapter10 / OpenAdapter10_2 (no D3D9 OpenAdapter) -> Mesa's original
+  NO_REDIRECTION is per the docs. Mesa **0033** reverts 0031+0032 (tree == after 0030, `git diff 3074a45 HEAD` empty).
+  mali-g34 renamed mali-g34-WITHDRAWN. The 0x087A0004 journal entries are just that status being logged.

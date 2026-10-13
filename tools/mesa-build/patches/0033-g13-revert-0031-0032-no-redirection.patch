@@ -1,0 +1,26 @@
+diff --git a/src/gallium/frontends/d3d10umd/Device.cpp b/src/gallium/frontends/d3d10umd/Device.cpp
+index 8f90df7..11b0907 100644
+--- a/src/gallium/frontends/d3d10umd/Device.cpp
++++ b/src/gallium/frontends/d3d10umd/Device.cpp
+@@ -55,9 +55,6 @@ d3d10_create_screen(void);
+ EXTERN_C bool
+ d3d10_bind_runtime(HANDLE hRTAdapter, HANDLE hRTDevice, const void *pKTCallbacks,
+                    const void *pDXGIBaseCallbacks);
+-/* G13: true when the last bind reached the maliwddm adapter (d3d10_gdi.c). */
+-EXTERN_C bool
+-d3d10_runtime_is_maliwddm(void);
+ 
+ static void APIENTRY DestroyDevice(D3D10DDI_HDEVICE hDevice);
+ static void APIENTRY RelocateDeviceFuncs(D3D10DDI_HDEVICE hDevice,
+@@ -313,10 +310,7 @@ CreateDevice(D3D10DDI_HADAPTER hAdapter,                 // IN
+    pCreateData->DXGIBaseDDI.pDXGIDDIBaseFunctions->pfnBlt =
+       _Blt;
+ 
+-   /* G13 (exynos-woa, patch 0031): MS Learn "Supporting the DXGI DDI": DXGI_STATUS_NO_REDIRECTION is for software
+-    * rasterizers only. On the maliwddm runtime (bound above) this is a hardware device. Run g32full's DXGI journal
+-    * shows 0x087A0004 around DWM's SetFullscreenState; that it changed DXGI's path is UNVERIFIED until a device run. */
+-   if (d3d10_runtime_is_maliwddm()) {
++   if (0) {
+       return S_OK;
+    } else {
+       // Tell DXGI to not use the shared resource presentation path when

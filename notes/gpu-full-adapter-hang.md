@@ -1303,3 +1303,35 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   runs gfx-user.ps1 in the user's session via run-as-user (gfxperf 150 s; with gpu\bench.flg d3dfill 3 s per colour
   at t=60 s), copies to out\last\gfx and a numbered copy to out\gfx-history\<n>\ (survives later boots), marks a
   summary (median/max DWM fps, mean CPU, most frequent top process). Summary line tested through cmd on the PC.
+
+## User test boots 5-8 (2026-10-13 ~22:20-22:40, logs s10e-artifacts/runs/user3) - first gfxperf data
+- User report: boot 1 display-only (landscape, no transparency, good performance, PowerShell window, user rebooted
+  after a few seconds); boot 2 full mode (logo spinner stalls ~1 s, long panel-off black, then lit black, no
+  logon visible, portrait, taskbar clock cut off, transparent taskbar, terrible lag, Start click froze the
+  desktop ~2 min, power menu ~20 s, restart -> black for 1 min -> hard reset; phone **extremely hot**);
+  boot 3 = boot 1; boot 4 = boot 2 (clicking "kind of usable", anything else froze, rotate to landscape never
+  applied); restart to TWRP via the power menu.
+- **History counter bug** (extra-gfxperf.cmd:32): `echo %N%> file` with a 1-digit N parses as the `1>` stdout
+  redirect -> count.txt gets "ECHO is off." / nothing -> next `set /a` "Missing operator." (collect.log) -> N stays
+  0/1, so boots overwrite each other. Only 2 folders survived: gfx-history/1 = a display-only boot (GPU0
+  Disconnected, 19 samples = user rebooted at ~28 s), gfx-history/0 = the last full-mode boot (GPU0 Started).
+- Full mode (history 0), 85 samples over 150 s (a sample takes ~1.5 s, not 1 s, under this load):
+  - DWM composition **0.4-0.7 fps** the whole run, dwm.exe at **~100 % of one core** (max 108) whenever it
+    appears in the top 4. The Mali adapter's 3D engine (LUID 0x8CC4) 0-3 % - the GPU does nothing (GpuEnable 0;
+    softpipe on the CPU).
+  - Total CPU 60-99 %, mean 77 %, all 6 online cores (CPU 6/7 failed start) mostly at 100 %. Clocks fixed:
+    cores 0-3 @1456 MHz, 4-5 @1794 MHz in every sample (no DVFS visible).
+  - Background load on top of DWM: one svchost pinned at ~100 % in every sample, a second svchost 80-180 %,
+    TiWorker 55-80 % (Windows servicing), MsMpEng 50-180 % (Defender), MoUsoCoreWorker 90-130 % (update scan).
+  - d3dfill (bench, t=60 s): red 56 / green 62 / blue 60 / white 62 frames in 3.0 s each = ~20 fps presents ok,
+    SetFullscreenState 0x887A0022 again. That's the app's present rate, not what DWM put on the panel.
+- Display-only (history 1, t 7-28 s only): DWM 0.7-0.9 fps (idle desktop - DWM only composes on change, so idle
+  fps is ~1 in both modes and **not** the comparison number); dwm.exe 3-37 %; total CPU 24-49 %; the same
+  svchost pinned at ~100 %, MsMpEng 40-80 %; Basic Display adapter (LUID 0x8596) 3D 4-33 % (WARP).
+- Reading: in full mode DWM spends a whole core and still composes <1 frame/s, i.e. one composed frame
+  (1080x2280 with blur/transparency, softpipe single-threaded TGSI interpreter) costs >1 s of CPU. Every
+  interaction (Start menu, rotation) needs several frames -> tens of seconds/minutes. Display-only DWM costs a
+  few % of a core for the same desktop. The heat matches 6 cores at 100 % for minutes with no thermal
+  management under Windows (MILESTONES: thermal todo). Black screen on restart = the known full-mode
+  clean-restart hang.
+- Not yet known: which service the always-100 % svchost is (both modes, costs one of 6 cores).

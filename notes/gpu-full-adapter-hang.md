@@ -957,3 +957,14 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
 - KMD 1.0.34.1 (build 34, package mali-g42): OpenAllocation returns STATUS_INVALID_HANDLE on a NULL lookup (docs) and
   logs (ring) each open's private data: size, MW_ALLOCATION_INFO version/flags, wxh, format - identifies what DWM opens
   without GetHandleData.
+
+## Run g42full (12:52, KMD 1.0.34.1) - CORRECTION to g41
+- The g41 conclusion "DxgkCbGetHandleData returned NULL" was WRONG: I had grepped only "Open n"; the g41 boot's
+  "Open flags.fmt"/"Open wxh" lines exist (first-call region, read again in g42's peek). GetHandleData resolves.
+  1.0.34.1's INVALID_HANDLE-on-NULL is still the documented behaviour and does not trigger.
+- What DWM opens (5 opens at ~38 s, 1 allocation each): 4 x MW_ALLOCATION_INFO flags 0x3 (NOEXEC|PRIMARY) A8R8G8B8
+  1080x2280 and 1 x flags 0x1 (NOEXEC) A8R8G8B8 1080x2280 = the KMD's standard allocations (GetStandardAllocation-
+  DriverData: SHAREDPRIMARYSURFACE gets MW_ALLOC_PRIMARY, SHADOWSURFACE not) - CDD's shared primary + shadow.
+- Docs: openers cannot lock "unless it's a GDI non-managed primary allocation" (D3DDDICB_LOCKFLAGS) - the shared
+  primary may be lockable by DWM. Next: d3d10umd OpenResource for these blobs: softpipe texture whose storage is the
+  allocation locked via pfnLockCb (live pixels); if the lock is refused, a blank texture instead of failing.

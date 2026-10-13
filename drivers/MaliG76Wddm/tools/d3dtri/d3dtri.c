@@ -9,6 +9,8 @@
  *                                constant buffer, D24S8 depth) in a window covering the primary monitor, presented
  *                                every frame; prints frames per second each second and the total. A readback of the
  *                                centre pixel after the first frame checks that something was drawn.
+ *   d3dtri.exe gdi <seconds>     no D3D: a GDI window with a square moving every 33 ms - a pure DWM composition load
+ *                                (prints paints per second; what reaches the panel is DWM's rate).
  *   d3dtri.exe tex               offscreen: a 2x2 texture (red, green / blue, white) on a full-target triangle,
  *                                left half Texture2D.Sample (TGSI SAMPLE), right half .Load (SAMPLE_I), both
  *                                behind GetDimensions == 2x2 (SVIEWINFO); PASS = the four quadrant colours.
@@ -532,6 +534,77 @@ static int Cube(ID3D11Device *Dev, ID3D11DeviceContext *Ctx, DWORD Seconds)
     return PresentFails == 0 ? 0 : 2;
 }
 
+/* ---- gdi: a DWM load without D3D in the app ---- */
+
+static LONG GdiX, GdiW, GdiH;
+static ULONG GdiPaints;
+
+static LRESULT CALLBACK GdiProc(HWND W, UINT M, WPARAM Wp, LPARAM Lp)
+{
+    if (M == WM_PAINT) {
+        PAINTSTRUCT Ps;
+        HDC Dc = BeginPaint(W, &Ps);
+        RECT All = { 0, 0, GdiW, GdiH }, Box = { GdiX, GdiH / 3, GdiX + GdiW / 4, GdiH / 3 + GdiW / 4 };
+        HBRUSH Bg = CreateSolidBrush(RGB(30, 60, 120)), Fg = CreateSolidBrush(RGB(255, 200, 0));
+        FillRect(Dc, &All, Bg);
+        FillRect(Dc, &Box, Fg);
+        DeleteObject(Bg);
+        DeleteObject(Fg);
+        EndPaint(W, &Ps);
+        GdiPaints++;
+        return 0;
+    }
+    if (M == WM_ERASEBKGND)
+        return 1;
+    return DefWindowProcW(W, M, Wp, Lp);
+}
+
+/* A window covering the primary monitor whose yellow square moves every 33 ms (WM_PAINT through GDI): every move
+ * is a change DWM has to compose, so the panel shows how fast the compositor runs. Prints paints per second. */
+static int Gdi(DWORD Seconds)
+{
+    WNDCLASSW Wc = { 0 };
+    MONITORINFO Mi = { sizeof(Mi) };
+    HMONITOR Mon = MonitorFromPoint((POINT){ 0, 0 }, MONITOR_DEFAULTTOPRIMARY);
+    HWND Wnd;
+    DWORD T0 = GetTickCount(), Sec = T0, Last = 0;
+
+    GetMonitorInfoW(Mon, &Mi);
+    GdiW = Mi.rcMonitor.right - Mi.rcMonitor.left;
+    GdiH = Mi.rcMonitor.bottom - Mi.rcMonitor.top;
+    Wc.lpfnWndProc = GdiProc;
+    Wc.hInstance = GetModuleHandleW(NULL);
+    Wc.lpszClassName = L"d3dtri-gdi";
+    RegisterClassW(&Wc);
+    Mark("gdi window");
+    Wnd = CreateWindowExW(WS_EX_TOPMOST, L"d3dtri-gdi", L"d3dtri gdi", WS_POPUP | WS_VISIBLE, Mi.rcMonitor.left,
+                          Mi.rcMonitor.top, GdiW, GdiH, NULL, NULL, Wc.hInstance, NULL);
+    if (Wnd == NULL) {
+        printf("CreateWindowExW failed %lu\n", GetLastError());
+        return 2;
+    }
+    printf("gdi window %ldx%ld\n", GdiW, GdiH);
+    Mark("gdi frames");
+    while (GetTickCount() - T0 < Seconds * 1000) {
+        DWORD Now = GetTickCount();
+        if (Now - Last >= 33) {
+            Last = Now;
+            GdiX = (LONG)(((Now - T0) / 4) % (ULONG)(GdiW - GdiW / 4));
+            InvalidateRect(Wnd, NULL, FALSE);
+        }
+        Pump();
+        if (Now - Sec >= 1000) {
+            printf("t %5.1f paints %lu\n", (Now - T0) / 1000.0, GdiPaints);
+            fflush(stdout);
+            Sec = Now;
+        }
+        Sleep(1);
+    }
+    printf("gdi: %lu paints in %lu s\n", GdiPaints, Seconds);
+    DestroyWindow(Wnd);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     const char *Mode = argc > 1 ? argv[1] : "tri";
@@ -548,12 +621,18 @@ int main(int argc, char **argv)
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
     if (Seconds == 0 || Seconds > 3600)
         Seconds = 20;
-    WatchdogMs = (strcmp(Mode, "cube") == 0 ? Seconds * 1000 : 0) + 90000;
+    WatchdogMs = (strcmp(Mode, "cube") == 0 || strcmp(Mode, "gdi") == 0 ? Seconds * 1000 : 0) + 90000;
     CreateThread(NULL, 0, Watchdog, NULL, 0, NULL);
     if (GetEnvironmentVariableA("GALLIUM_DRIVER", Gd, sizeof(Gd)) == 0)
         strcpy(Gd, "(unset)");
     printf("d3dtri %s, GALLIUM_DRIVER=%s\n", Mode, Gd);
 
+    if (strcmp(Mode, "gdi") == 0) {
+        Rc = Gdi(Seconds);
+        printf("d3dtri: done, exit %d\n", Rc);
+        fflush(stdout);
+        return Rc;
+    }
     Mark("find Mali adapter");
     Mali = FindMali();
     if (Mali == NULL) {

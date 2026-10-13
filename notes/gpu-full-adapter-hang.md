@@ -1189,3 +1189,9 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   Noticed, not touched: upstream CreateResource checks `if (!pResource)` after resource_create (always false) - the
   failure check never fires; follow-up task.
   Build mali-umd-0037 (8791b7c6..., ARM64).
+
+## Run g51full (20:10) - shared handles: CONFIRMED missing on the Mali adapter (UMD 0036)
+- Mali: SHARED and KEYEDMUTEX textures S_OK but GetSharedHandle S_OK with handle **NULL**; SHARED|NTHANDLE and
+  KEYEDMUTEX|NTHANDLE: CreateSharedHandle **0x80070057**. Basic Render Driver: real handles (0x400000C2, 0x1AC ...).
+  = the shared resources have no kernel allocation behind them; the NT-handle case is exactly what
+  CreateCompositionBuffer needs. Run g52full: UMD 0037 (same KMD 1.0.34.1, same probe d3dprobe-4).

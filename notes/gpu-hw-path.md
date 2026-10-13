@@ -83,3 +83,10 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   is the proof.) DWM still softpipe (machine GALLIUM_DRIVER).
 - Next: H3 = DWM on Panfrost. GALLIUM_DRIVER is read at process start, so the switch needs one boot to remove the
   machine variable (extra-gpu-h3.cmd, by \S10EDIAG\gpu\softpipe.flg) and the next boot to measure.
+- 00:53 run h3a (boot A) started: extra.cmd = extra-gpu-h3.cmd, gpu\softpipe.flg REMOVED -> this boot DWM still softpipe (pin from h1a pass 1), removes the pin for boot B; d3dtri rebuilt build (56a74116..).
+- **Run h3a = boot A (00:53-01:01, runs/h3a, cam/h3a):** DWM softpipe (machine GALLIUM_DRIVER=softpipe; DWM loaded
+  maliumd.dll + D3D10Warp.dll), GPU half up. gfxperf: DWM 0.7 fps median (0.5-0.9), CPU mean 65 %, all cores ~100 %
+  during the cube; cube on Panfrost **37.3 fps, 0 present failures**; KMD `jobs done 4482 failed 0 fault 0x0`.
+  d3dtri itself ~90 % of a core at 37 fps (CPU present copies, H4). Webcam (user: camera IS on the phone): logon +
+  desktop visible 00:55-00:58; from 00:58:22 the panel is dark = the cube's fullscreen window (clear colour
+  0.05/0.05/0.15 is near-black on camera) - next d3dtri build clears brighter. Pin removed for boot B.

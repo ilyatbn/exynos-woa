@@ -834,3 +834,9 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   first test a restart-device in display-only mode with the 20-min fallback armed. Docs being researched (question F).
 - Mesa **0029** (from the docs addendum): NO_SCANOUT only with MALIKM_NOSCANOUT=1 and only on DXGI_DDI_PRIMARY_OPTIONAL surfaces -> DXGI flips again, primaries real (Flags.Primary) + SetDisplayMode (0028). Built mali-umd-0029 (maliumd.dll ebe07be5…, Resource.cpp recompiled); package **mali-g33** = mali-g32 + UMD 0029. Run after g32's result.
 - Review of 270a3a0: stale 0023 comment (named MALIKM_SCANOUT, said primaries not scan-out capable) and an unverified causal claim in the 0029 comment -> comment-only Mesa patch 0030 (merged comment, cause marked UNVERIFIED). No rebuild (comments only).
+
+## Run g32full (10:15, mali-g32 = UMD 0028 SetDisplayMode, NO_SCANOUT still on every primary)
+- UMD b2e87389 deployed (hashes.txt). Same result as g31: Blt 0x8C0 -> 0x840 first 0xC01E0000 then 0xC01E0005 every
+  retry, 1 PRESENT_SUCCEEDED, LogonUI stuck, d3dfill not run. Reading (docs addendum): with NO_SCANOUT on the
+  non-optional front buffer DXGI is outside the protocol and likely never calls SetDisplayMode, so 0028 alone
+  changes nothing -> g33 (0029, NO_SCANOUT off).

@@ -266,7 +266,7 @@ static int Cube(ID3D11Device *Dev, ID3D11DeviceContext *Ctx, DWORD Seconds)
     };
     static const USHORT Idx[36] = { 0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4,
                                     3, 6, 2, 3, 7, 6, 0, 4, 7, 0, 7, 3, 1, 2, 6, 1, 6, 5 };
-    static const float Clear[4] = { 0.05f, 0.05f, 0.15f, 1.0f };
+    static const float Clear[4] = { 0.25f, 0.45f, 0.85f, 1.0f }   /* bright blue: visible on the webcam */;
     WNDCLASSW Wc = { 0 };
     HMONITOR Mon;
     MONITORINFO Mi = { sizeof(Mi) };
@@ -412,7 +412,7 @@ static int Cube(ID3D11Device *Dev, ID3D11DeviceContext *Ctx, DWORD Seconds)
                 if (SUCCEEDED(ID3D11DeviceContext_Map(Ctx, (ID3D11Resource *)St, 0, D3D11_MAP_READ, 0, &M))) {
                     UINT C = *(const UINT *)((const BYTE *)M.pData + (H / 2) * M.RowPitch + (W / 2) * 4);
                     UINT K = *(const UINT *)((const BYTE *)M.pData + 2 * M.RowPitch + 2 * 4);
-                    printf("first frame: centre 0x%08x (cube), corner 0x%08x (clear colour = 0xff0d0d26)\n", C, K);
+                    printf("first frame: centre 0x%08x (cube), corner 0x%08x (clear colour = 0xff4073d9)\n", C, K);
                     ID3D11DeviceContext_Unmap(Ctx, (ID3D11Resource *)St, 0);
                 }
                 ID3D11Texture2D_Release(St);

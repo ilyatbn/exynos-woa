@@ -28,6 +28,15 @@ a chain of small commits is not.
   separate tasks **before** doing them, and add them to the todo list.
 - One git commit per task, per the repo's ground rule. **Commit between tasks**
   — never accumulate two tasks in one commit, never batch commits.
+- **Collapse at the end of an arc** (global rule): those per-task commits are the
+  recovery net while working; once the arc is finished and verified, squash it
+  into one commit (`git reset --soft <arc-base>` + one commit, tagged
+  `<arc>-pre-squash` first). Then repair any commit-hash references the rewrite
+  invalidated. Never collapse in-flight or unrelated history.
+- **No user attributions in committed files** (global rule): no quotes, no
+  "user directive …", no "per the user", no "the owner's call". Record decisions
+  as neutral facts/policy with the date kept. Scrub such lines whenever a file
+  is touched.
 - Move the `MILESTONES.md` line (`todo → doing → done`) in the **same commit**
   as the work it describes.
 - A task is not `done` until its verification actually ran.

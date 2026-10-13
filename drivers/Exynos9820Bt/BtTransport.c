@@ -203,7 +203,7 @@ EvtDeviceAdd (_In_ WDFDRIVER Driver, _Inout_ PWDFDEVICE_INIT DeviceInit)
 
     /* NOT-IMPLEMENTED (R4): parse _CRS per the binding contract in
      * Exynos9820Bt.h (desc 0 UART MEM -> map into D->UartWindow;
-     * Interrupt GSIV 408 -> WdfInterruptCreate; desc 1 GpioInt via the
+     * Interrupt GSIV 440 -> WdfInterruptCreate; desc 1 GpioInt via the
      * SAMS9821 GpioClx controller -> D->HostwakeInterrupt). Until then
      * the FDO enumerates with no mapped window and BtUartInit is NOT
      * called — calling it on an unmapped window would fault.          */

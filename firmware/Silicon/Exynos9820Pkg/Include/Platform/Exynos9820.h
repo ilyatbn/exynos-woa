@@ -539,7 +539,12 @@
 #define EXYNOS_USI_MODE_UART      0x1                     // VERIFIED (usi_v2.c UART_SW_CONF=1<<0; writel(mode, base))
 #define EXYNOS_UART_USI_CON_OFF   0xC4                    // VERIFIED (serial_s3c.h:46; 1=SET_RESET, 0=release)
 #define EXYNOS_UART_USI_OPT_OFF   0xC8                    // VERIFIED (serial_s3c.h:47; bit1 CLKREQ_ON, bit2 CLKSTOP_ON)
-#define EXYNOS_UART_BT_GSIV       408                     // VERIFIED (base.dtb interrupts <0 0x198 0>)
+#define EXYNOS_UART_BT_GSIV       440                     // CORRECTED 2026-10-13: base.dtb uart@10840000
+// declares `interrupts = <0 0x198 0>`; the second cell is the GIC **SPI number** (0x198 = 408),
+// so GSIV = SPI + 32 = **440**. The 408 that used to sit here was the raw cell, 32 too low —
+// every other GSIV in this header resolves to SPI-32 at its own node, only this one did not.
+// Rule proven twice: drivers/irqchip/irq-gic.c:1019-1026 (+16 then +16 for type 0) and the
+// arm,gic binding ("SPI interrupts are in the range [0-987]") — notes/video-mfc.md T5.
 // CMU_PERIC1 (0x10800000) clock ids of this UART (the two clock cells):
 #define EXYNOS_UART_BT_GATE_ID    0x22a                   // VERIFIED (clock-names gate_uart_clk1)
 #define EXYNOS_UART_BT_IPCLK_ID   0x23c                   // VERIFIED (clock-names ipclk_uart1)
@@ -869,6 +874,137 @@
 //   pinctrl PERIC0   (pinctrl@10430000)    SPI 0x17c = 380  GSIV 412
 //   decon_f          (decon_f@0x19030000)  SPI 0xb7,0xb8,0xbd,0x197
 //                                          GSIV 215, 216, 221, 439
+// ---------------------------------------------------------------------------
+//
+// Video codec / MFC (D10) — the 9820's Multi-Format Codec. notes/video-mfc.md
+// T1 (shipped base.dtb, raw cells) and T2 (the Exynos 9820 vendor kernel
+// mirror, kept outside the tree). The DT and the mirror agree cell for cell.
+//
+// Identity: /mfc@188D0000, compatible "samsung,exynos-mfc", no `status`
+// property (DT-spec default = enabled), no overlay touches it.
+//
+#define EXYNOS_MFC_BASE        0x00000000188D0000ULL  // VERIFIED (base.dtb /mfc@188D0000 reg)
+#define EXYNOS_MFC_SIZE        0x0000000000010000     // VERIFIED (same)
+#define EXYNOS_MFC_GSIV        370                    // VERIFIED (DT cell 0x152 = SPI 338, +32)
+#define EXYNOS_MFC_IP_VER      0x1300                 // VERIFIED (base.dtb ip_ver; v13.0 by the driver's own halves)
+
+// The MFC's clock gate lives in CMU_TOP (0x1A240000, already defined above):
+// `clocks = <0x2 0x1a6>` resolves to phandle 0x2 = /clock-controller@0x1a240000,
+// index 422 — and the mirror's dt-bindings give GATE_MFC = CLK_MFC_BASE(420) + 2.
+#define EXYNOS_MFC_GATE_ID     422                    // VERIFIED (DT cell + mirror clock/exynos9820.h:300-303)
+#define EXYNOS_MFC_SYSMMU0_GATE_ID 423                // VERIFIED (/sysmmu@18890000 clocks <0x2 0x1a7>)
+#define EXYNOS_MFC_SYSMMU1_GATE_ID 424                // VERIFIED (/sysmmu@188B0000 clocks <0x2 0x1a8>)
+
+// MFC feeds through two SYSMMUs (iommus = <0x47 0x48>, both #iommu-cells = 0).
+// Each also has a secure alias window and a pair of interrupts.
+#define EXYNOS_MFC_SYSMMU0_BASE 0x0000000018890000ULL // VERIFIED (base.dtb /sysmmu@18890000)
+#define EXYNOS_MFC_SYSMMU0_SIZE 0x0000000000009000
+#define EXYNOS_MFC_SYSMMU0_SECURE_BASE 0x00000000188A0000ULL // VERIFIED (sysmmu,secure_base)
+#define EXYNOS_MFC_SYSMMU1_BASE 0x00000000188B0000ULL // VERIFIED (base.dtb /sysmmu@188B0000)
+#define EXYNOS_MFC_SYSMMU1_SIZE 0x0000000000009000
+#define EXYNOS_MFC_SYSMMU1_SECURE_BASE 0x00000000188C0000ULL // VERIFIED (sysmmu,secure_base)
+#define EXYNOS_MFC_SYSMMU0_GSIV 375                   // VERIFIED (SPI 343)
+#define EXYNOS_MFC_SYSMMU0_ERR_GSIV 376               // VERIFIED (SPI 344)
+#define EXYNOS_MFC_SYSMMU1_GSIV 377                   // VERIFIED (SPI 345)
+#define EXYNOS_MFC_SYSMMU1_ERR_GSIV 378               // VERIFIED (SPI 346)
+
+// Auxiliary windows the vendor driver maps for this block.
+#define EXYNOS_MFC_HWFC_BASE   0x0000000018A28000ULL  // VERIFIED (base.dtb mfc child `hwfc` reg)
+#define EXYNOS_MFC_HWFC_SIZE   0x0000000000000100
+#define EXYNOS_MFC_MMCACHE_BASE 0x000000001A300000ULL // VERIFIED (base.dtb mfc child `mmcache` reg)
+#define EXYNOS_MFC_MMCACHE_SIZE  0x0000000000000100
+#define EXYNOS_PD_MFC_PMU_OFF  0x15862600             // VERIFIED (base.dtb /pd-mfc@15862600, status okay)
+
+// MFC register offsets inside EXYNOS_MFC_BASE — mirror reads (the vendor
+// driver's own header), not dump reads. The version register is what the
+// driver compares against ip_ver before it will run (mfc_run.c:110-116).
+#define MFC_REG_RISC_ON        0x0000                 // VERIFIED (mfc_regs.h:24)
+#define MFC_REG_RISC_BASE_ADDR 0x0054                 // VERIFIED (mfc_regs.h:27)
+#define MFC_REG_MFC_RESET      0x1070                 // VERIFIED (mfc_regs.h:30)
+#define MFC_REG_MFC_VERSION    0xF028                 // VERIFIED (mfc_regs.h:51, full 32-bit mask :583)
+// R2H completion codes the bring-up waits on (mfc_regs.h:516,526):
+#define MFC_R2H_SYS_INIT_RET   1
+#define MFC_R2H_FW_STATUS_RET  12
+// Firmware blob: "mfc_fw.bin" (mfc_common.h:68), present in the shipped dump at
+// /vendor/firmware/mfc_fw.bin, 687 912 B (debugfs stat). NEVER committed — it is
+// copied from the device at install time like every other vendor blob.
+
+// ---------------------------------------------------------------------------
+//
+// Thermal (D11) — the 9820's TMU blocks, notes/thermal.md T1/T2.
+//
+// Two TMU controller windows, five DT consumers: TOP serves BIG (id 0),
+// MID (id 1) and LITTLE (id 2); SUB serves G3D (id 3) and ISP (id 4).
+// Bases/sizes and the interrupt cells are raw base.dtb reads
+// (tools/dump-tools/fdt.py); the register offsets are the vendor driver's
+// own CONFIG_SOC_EXYNOS9820 block (exynos_tmu.c:129-153,196-199 in the
+// Exynos 9820 kernel mirror — mirror read, not a dump read).
+//
+#define EXYNOS_TMU_TOP_BASE  0x0000000010090000ULL  // VERIFIED (base.dtb /BIG@10090000 reg)
+#define EXYNOS_TMU_TOP_SIZE  0x0000000000000800     // VERIFIED (same)
+#define EXYNOS_TMU_SUB_BASE  0x00000000100A0000ULL  // VERIFIED (base.dtb /G3D@100A0000 reg)
+#define EXYNOS_TMU_SUB_SIZE  0x0000000000000800     // VERIFIED (same)
+
+// DT `interrupts` cells are SPI numbers; GSIV = SPI + 32 (the repo's rule,
+// proven against the vendor GIC driver's +16+16 translation and the
+// arm,gic binding — see notes/video-mfc.md "SPI-vs-GSIV").
+#define EXYNOS_TMU_TOP_GSIV  510                    // VERIFIED (SPI 0x1de = 478)
+#define EXYNOS_TMU_SUB_GSIV  511                    // VERIFIED (SPI 0x1df = 479)
+
+// TMU register offsets inside either window (exynos_tmu.c:129-153).
+#define TMU_REG_TRIMINFO(p)  ((p) * 0x4)            // VERIFIED (exynos_tmu.c:131)
+#define TMU_REG_CONTROL      0x50                   // VERIFIED (exynos_tmu.c:132)
+#define TMU_REG_CONTROL1     0x54                   // VERIFIED (exynos_tmu.c:133)
+#define TMU_REG_AVG_CON      0x58                   // VERIFIED (exynos_tmu.c:149)
+#define TMU_REG_TRIM0        0x5C                   // VERIFIED (exynos_tmu.c:146)
+#define TMU_REG_COUNTER0     0x74                   // VERIFIED (exynos_tmu.c:150)
+#define TMU_REG_COUNTER1     0x78                   // VERIFIED (exynos_tmu.c:151)
+#define TMU_REG_STATUS       0x80                   // VERIFIED (exynos_tmu.c:134)
+#define TMU_REG_CUR_TEMP0    0x84                   // VERIFIED (exynos_tmu.c:135)
+#define TMU_REG_THD0         0xD0                   // VERIFIED (exynos_tmu.c:137)
+#define TMU_REG_INTEN0       0xF0                   // VERIFIED (exynos_tmu.c:138)
+#define TMU_REG_INTPEND0     0xF8                   // VERIFIED (exynos_tmu.c:139)
+#define TMU_REG_EMUL_CON     0xB0                   // VERIFIED (exynos_tmu.c:147)
+#define TMU_SENSOR_STRIDE    0x50                   // VERIFIED (exynos_tmu.c:140)
+#define TMU_TEMP_SHIFT       16                     // VERIFIED (exynos_tmu.c:153)
+#define TMU_TEMP_MASK        0x1FF                  // VERIFIED (exynos_tmu.c:198, 9-bit codes)
+#define TMU_CALIB_SEL_SHIFT  23                     // VERIFIED (exynos_tmu.c:196)
+#define TMU_TRIP_EN_SHIFT    12                     // VERIFIED (exynos_tmu.c:174, set at :529)
+#define TMU_CORE_EN_SHIFT    0                      // VERIFIED (exynos_tmu.c:164, set at :530)
+
+// Sensor->register packing for a direct MMIO temperature read: sensor n sits
+// in CUR_TEMP0 + (n/2)*4, halfword (n%2) (exynos_tmu.c:1218-1224).
+// The code is NOT a temperature: with the shipped DT's cal_type = 0
+// (one-point trimming) the vendor converts it as
+//     tempC = code - temp_error1 + first_point_trim
+// where temp_error1 = TRIMINFO(sensor) & TMU_TEMP_MASK, falling back to the
+// DT's efuse value when it reads 0 (exynos_tmu.c:373-400,453-465).
+#define TMU_TRIM_EFUSE_VALUE        55              // VERIFIED (base.dtb samsung,tmu_efuse_value)
+#define TMU_TRIM_FIRST_POINT        25              // VERIFIED (samsung,tmu_first_point_trim)
+#define TMU_TRIM_SECOND_POINT       85              // VERIFIED (samsung,tmu_second_point_trim)
+#define TMU_DEFAULT_TEMP_OFFSET     50              // VERIFIED (samsung,tmu_default_temp_offset)
+#define TMU_DEFAULT_TRIP_TEMP       115             // VERIFIED (samsung,tmu_default_trip_temp, deg C)
+#define TMU_CAL_TYPE_ONE_POINT      0               // VERIFIED (dt-bindings/thermal/thermal_exynos.h:22)
+
+// The AP's normal read path is not MMIO at all: it is an IPC call to the
+// ACPM coprocessor, which owns the sensors (exynos_acpm_tmu.h: 16-byte
+// message, READ_TEMP = 0x02, AP_SUSPEND/AP_RESUME prove it runs without the
+// AP). Channel from base.dtb /acpm_tmu.
+#define EXYNOS_ACPM_TMU_IPC_CHANNEL 9               // VERIFIED (base.dtb acpm-ipc-channel)
+
+// UNVERIFIED, deliberately not used anywhere: the vendor writes 0x028A into
+// COUNTER0[15:0] (EN_TEMP_SEN_OFF) and COUNTER1[31:16] (CLK_SENSE_ON)
+// (exynos_tmu.c:228-233,646-652). What the hardware then does is not stated
+// in the GPL source; it closes with the TMU TRM or by observing INTPEND
+// behaviour on device (notes/thermal.md U1). Do not copy the value into code.
+
+// DT trip points, milli-degC, for the record (base.dtb /thermal-zones/*):
+//   BIG/MID: 20000,55000 active | 83000 passive | 95000..110000 active | 115000 hot
+//   LITTLE : 20000,76000..101000 active | 115000 hot          (polling-delay 0)
+//   G3D    : 20000,78000 active | 88000 passive | 105000..115000 active | 115000 hot
+//   ISP    : 20000,91000..101000 active | 115000 hot          (polling-delay 0)
+// There is NO `critical` trip anywhere in the DT (notes/thermal.md T1).
+
 // ---------------------------------------------------------------------------
 //
 

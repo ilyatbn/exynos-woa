@@ -154,6 +154,22 @@ STATIC CONST MMIO_REGION  mMmioRegions[] = {
   { EXYNOS_AP2CP_CFG_BASE,       EXYNOS_AP2CP_CFG_SIZE,     "AP2CP_CFG"    },
   { EXYNOS_CP_IPC_BASE,          EXYNOS_CP_IPC_SIZE,        "CP_IPC_SHMEM" },
 
+  // Thermal (D11) — the two TMU controller windows (notes/thermal.md T1).
+  // Mapped Device so a UEFI observation pass can read CURRENT_TEMP/TRIP
+  // registers uncached, and so Windows never sees either window as RAM.
+  { EXYNOS_TMU_TOP_BASE,         EXYNOS_TMU_TOP_SIZE,       "TMU_TOP"      },
+  { EXYNOS_TMU_SUB_BASE,         EXYNOS_TMU_SUB_SIZE,       "TMU_SUB"      },
+
+  // Video codec (D10) — the MFC core, the two SYSMMUs that feed it, and its
+  // hwfc/mmcache side windows (notes/video-mfc.md T1). All mapped Device: the
+  // vendor driver ioremaps them, and none of them may look like RAM to
+  // Windows or to our own stage-2 map.
+  { EXYNOS_MFC_BASE,             EXYNOS_MFC_SIZE,           "MFC"          },
+  { EXYNOS_MFC_SYSMMU0_BASE,     EXYNOS_MFC_SYSMMU0_SIZE,   "MFC_SYSMMU0"  },
+  { EXYNOS_MFC_SYSMMU1_BASE,     EXYNOS_MFC_SYSMMU1_SIZE,   "MFC_SYSMMU1"  },
+  { EXYNOS_MFC_HWFC_BASE,        EXYNOS_MFC_HWFC_SIZE,      "MFC_HWFC"     },
+  { EXYNOS_MFC_MMCACHE_BASE,     EXYNOS_MFC_MMCACHE_SIZE,   "MFC_MMCACHE"  },
+
   { EXYNOS_DECON_F_BASE,       EXYNOS_DECON_F_SIZE,       "DECON_F"     },
   { EXYNOS_DECON_T_BASE,       EXYNOS_DECON_T_SIZE,       "DECON_T"     },
   { EXYNOS_DSIM_BASE,          EXYNOS_DSIM_SIZE,          "DSIM"        },

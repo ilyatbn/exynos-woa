@@ -31,6 +31,16 @@ A task is not `[x]` until its verification actually ran.
 - done (research + constants + design): `notes/modem-wwan.md` T0–T12 + `docs/exynos9820-port/D9-MODEM-DESIGN.md` (boot+link planes open, R1–R6 ladder; SEC-RIL control plane is the one closed wall — R7 pending a P5 decision)
 - done (code; built into the FD, not booted): `Beyond0LteModemDxe` first slice (R1 pre-read + R2 mailbox observation, zero writes)
 
+## Video codec (D10 — opened 2026-10-13: the 9820's MFC offload engine)
+
+- [ ] **V01** — live reads: codec DT node, `/proc/interrupts` line, `/dev/video*`, blob names → `tasks/V01-mfc-live-reads.md`  *(needs-phone)*
+- [ ] **V02** — read `[MFC] R1: version=0x1300` on serial (zero writes; module not written yet) → `tasks/V02-mfc-r1-observe.md`  *(needs-boot)*
+
+## Thermal (D11 — opened 2026-10-13: sensors, trip points, cooling)
+
+- [ ] **TH01** — live reads: thermal zones, idle vs loaded temps, battery temp → `tasks/TH01-thermal-live-reads.md`  *(needs-phone)*
+- [ ] **TH02** — read `[TMU] R1:` TMU state on serial (zero writes; module not written yet) → `tasks/TH02-tmu-r1-observe.md`  *(needs-boot)*
+
 ## Parked — off the boot path
 
 - [ ] **P01** — heimdall auto-restore/reflash path for a fully broken device → `tasks/P01-heimdall-restore.md`

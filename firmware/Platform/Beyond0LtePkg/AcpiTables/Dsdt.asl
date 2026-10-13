@@ -240,7 +240,11 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
                 // GSIV 259 = GIC SPI 227, which has no consumer in the device tree,
                 // so the line never asserts. The miniport completes by polling with
                 // UTRD IOC cleared and a no-op ISR, so a level-triggered parked line
-                // is inert. The real UFS line is GSIV 274 / SPI 242 and stays absent.
+                // is inert. The real UFS line is **GSIV 281 / SPI 249**
+                // (`/ufs@0x13D60000 interrupts = <0 0xf9 0>`, base.dtb) and stays
+                // absent here. Corrected 2026-10-13: this comment used to claim
+                // "GSIV 274 / SPI 242" — no node in the shipped DTB owns SPI 242
+                // (read: notes/video-mfc.md T5).
                 //
                 Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 259 }
             })
@@ -382,7 +386,13 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
                          // 0xFFFF = no debounce: a chip wake line, not a key contact
                 Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)
                 {
-                    408  // VERIFIED: base.dtb uart@10840000 interrupts <0 0x198 0>;
+                    440  // CORRECTED 2026-10-13: base.dtb uart@10840000 declares
+                         // `interrupts = <0 0x198 0>` — the second cell is the GIC **SPI
+                         // number** (408), not the GSIV. GSIV = SPI + 32 = **440**. The value
+                         // 408 that used to sit here was the raw SPI cell, 32 too low.
+                         // Rule proven twice: the vendor GIC driver's +16/+16 translation
+                         // (drivers/irqchip/irq-gic.c:1019-1026) and the arm,gic binding
+                         // ("SPI interrupts are in the range [0-987]") — notes/video-mfc.md T5.
                          // DT trigger cell is 0 (unspecified) — Level/ActiveHigh follows
                          // the on-chip SPI convention used by UFS0/XHC0
                 }

@@ -32,7 +32,7 @@
 /* _CRS ORDER IS A BINDING CONTRACT (Dsdt.asl, Device (BTH0)):
  *   descriptor 0 = UART Memory32Fixed
  *   descriptor 1 = GpioInt (bt_hostwake, gpa2-3 / EINT19)
- *   Interrupt resource list entry 0 = UART IRQ (GSIV 408)            */
+ *   Interrupt resource list entry 0 = UART IRQ (GSIV 440)           */
 #define BT_RES_UART_WINDOW        0
 #define BT_RES_HOSTWAKE_GPIO      1
 
@@ -116,7 +116,7 @@ typedef struct _BT_DEVICE {
     WDFDEVICE   WdfDevice;
     PUCHAR      UartWindow;       /* mapped _CRS descriptor 0 */
     size_t      UartWindowLength;
-    WDFINTERRUPT UartInterrupt;   /* GSIV 408  */
+    WDFINTERRUPT UartInterrupt;   /* GSIV 440  */
     WDFINTERRUPT HostwakeInterrupt; /* GpioInt index 19 */
     BT_STATE    State;
     BOOLEAN     BaudSwitchEnabled; /* registry knob, default OFF (Q2)  */

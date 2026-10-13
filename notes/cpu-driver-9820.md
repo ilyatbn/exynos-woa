@@ -196,6 +196,15 @@ alert2 105 000, alert3 110 000, hot 115 000; hysteresis 5 000 (cold 20 000).
 Cooling maps bind the cpufreq domains (F3). TMU sensors are reached via
 `acpm_tmu` (ch 0x9) — thermal reads are ALSO ACPM-IPC, not direct MMIO.
 
+**CORRECTED 2026-10-13 by the D11 pass (`notes/thermal.md` T1)**: the shipped
+`base.dtb` has **five** zones, not four — `ISP` is the fifth — and the cooling
+map is not all cpufreq: `G3D` cools `/mali@18500000` and `ISP` cools
+`/fimc_is@17190000`. `LITTLE` and `ISP` have `polling-delay = 0` and no
+governor, so the AP framework never polls them. There is **no `critical` trip
+anywhere** in the DT; the 115 000 trips are type `hot`. The MMIO path also
+exists (`CURRENT_TEMP1_0 0x84` + one-point trim) even though the AP reads via
+ACPM IPC.
+
 ## F7. Kernel binary facts (Q8)
 
 FACT: `boot.img` kernel field = raw ARM64 Image, 44 380 172 B,

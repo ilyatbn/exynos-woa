@@ -1294,3 +1294,89 @@ connected); no RE internals committed (review-checked: check-ignore proves the
 workspace is out of git; diff grep found only a policy sentence + the
 pre-existing `0xFB200000`); 9810 tree byte-unchanged; scan gate: re-run before
 the arc's next final commit.
+
+---
+
+## 29. Restart point — D10 video codec + D11 thermal (2026-10-13, research + constants + design)
+
+**Committed and verified (this arc, one collapsed commit):**
+
+- **New third-party source, and what it is.** `github.com/ianmacd/d2s` is not a driver folder — it
+  is a **complete Samsung Exynos 9820 vendor kernel** (Linux 4.14.113, DTJ4, Note 10 N970F/N975F/
+  N976B, HEAD `d1d4fb4aa`, GPL-2.0). Cloned to `/tmp/opencode/d2s` (2.1 GB) **outside the repo**;
+  only verdicts are committed. It answers open questions in five other milestones at once:
+  `drivers/gpu/arm/b_r10p0…b_r19p0` (D5b(a)), `sound/soc/samsung/abox` (D8),
+  `drivers/misc/modem_v1{,_dual}` (D9), `drivers/iommu/exynos-iommu*` (SYSMMU),
+  `drivers/media/platform/exynos/{smfc,fimc-is2,camera-pp,scaler,tsmux}`, `drivers/thermal/samsung`.
+- **D10 (video codec / MFC) — research, constants, design.** `notes/video-mfc.md` T0–T5 + review
+  records; `docs/exynos9820-port/D10-VIDEO-MFC-DESIGN.md`; tasks `V01` (needs-phone), `V02`
+  (needs-boot, module not written). Identity closed from the shipped `base.dtb` **and** confirmed
+  cell-for-cell by the mirror: `/mfc@188D0000` +`0x10000`, no `status`, DT cell `0x152` = SPI 338 →
+  **GSIV 370**, clock gate **422** in CMU_TOP, two SYSMMUs (`0x18890000`/`0x188B0000` +`0x9000`,
+  GSIVs 375–378), `pd-mfc@15862600`, `ip_ver = 0x1300`, driver built-in `y`, and
+  **`/vendor/firmware/mfc_fw.bin` = 687 912 B** (name+size only). Windows shape chosen:
+  **AVStream minidriver with three KS filters** (MF proxies them as MFTs) — *not* D3D11/DXVA, which
+  needs a WDDM driver we do not have, so **D10 is not gated on D5b**.
+- **D11 (thermal) — research, constants, design.** `notes/thermal.md` T0–T4 + two review records;
+  `docs/exynos9820-port/D11-THERMAL-DESIGN.md`; tasks `TH01` (needs-phone), `TH02` (needs-boot).
+  From the shipped DTB: **five** TMU controllers / **five** zones (BIG/MID/LITTLE/G3D/**ISP** —
+  `notes/cpu-driver-9820.md` F6 said four and is corrected), TOP `0x10090000+0x800` GSIV **510**,
+  SUB `0x100A0000+0x800` GSIV **511**, full trip table, and the safety headline: **zero `critical`
+  trips anywhere in the DT**, and two zones are never even polled. The vendor TMU register map and
+  the code→°C one-point calibration are read out of the mirror; the AP's normal read path is
+  **ACPM IPC channel 9**, and `AP_SUSPEND`/`AP_RESUME` prove the ACPM monitors without the AP.
+  Windows' thermal model **is** the ACPI thermal zone and is in-box for SoC platforms, so the
+  deliverable is **AML, not a driver**: `ThermalZone` + `OperationRegion` over the TMU + `_TMP`
+  doing the calibration, `_PSV`/`_HOT` from the DT, `_CRT` as a stated DECISION, and `ACPI000C`
+  makes Windows park cores at `_PSV`.
+- **D4c defect found and fixed (same audit).** The DT `interrupts` second cell is the **SPI number**;
+  **GSIV = SPI + 32** — proven twice (vendor `drivers/irqchip/irq-gic.c:1019-1026` +16/+16, and the
+  mainline `arm,gic` binding). The BT UART therefore has **GSIV 440**, and `Dsdt.asl` carried
+  **408** (the raw cell). Fixed in `Dsdt.asl` (verified in the built AML: `0x000001B8`), in
+  `EXYNOS_UART_BT_GSIV`, and in the D4c design doc, driver skeleton and notes. The whole GSIV set in
+  `Exynos9820.h` was audited mechanically against `base.dtb` + all 7 overlays: **only** the BT one
+  resolved to nothing at −32 while itself being a live SPI cell. Two citation errors died in the
+  same audit: PCIe0's DT cell is `0xfd` (253), not `0x11d`; and the UFS0 DSDT comment's "real UFS
+  line GSIV 274 / SPI 242" is wrong — no node owns SPI 242, the UFS host line is SPI 249 / GSIV 281
+  (the parked 259 stays, it is deliberate).
+- **Repo workflow rules now in `AGENTS.md`**: a finished and verified arc collapses to one commit
+  (tag first, repair dead hash references), and committed files never carry the owner's words —
+  decisions are recorded as neutral facts/policy.
+
+**Build state:** Linux verification build (`/tmp/opencode/build-uefi-linux.sh`, regenerated from
+`notes/d1-build-env.md`) exit **0**, zero `error:`; `BEYOND0LTE_UEFI.fd` **7 340 032 B**;
+`FVMAIN_COMPACT` 421 888 B / **56 B free**; `FVMAIN` 47 %. Five pre-existing warnings
+(`FuelGauge.c:209`, three `DebugLib.h:383` instances, `PeilessSec.c:169`). **Verification-only FD —
+never flash.** No device rung has run; the phone was not attached all session.
+
+**In flight / nothing lost:** nothing uncommitted. Scratch (gitignored, outside the tree):
+`/tmp/opencode/thermal/{dump_thermal.py,dump_subtree.py,thermal_trips.py,thermal-dtb.txt,
+thermal-zones.txt}`, `/tmp/opencode/video-mfc/{walk.py,ins.py,kernel.strings.txt}`,
+`/tmp/opencode/d2s/`.
+
+**The exact next order of work:**
+
+1. **needs-phone, cheap and blocking for both milestones:** `TH01` (thermal zones, idle vs loaded
+   °C, battery temp — it is the known-good reference that closes D11 rung **R2** and risk **P2**) and
+   `V01` (codec live reads). `adb devices` was empty; check it first.
+2. **D11 firmware half A** — write `Beyond0LteThermalDxe` (zero writes, prints `[TMU] R1:` for both
+   windows). This is the measurement that answers *"what protects the phone when no thermal driver
+   runs?"* — `CONTROL` bit 12 (`TRIP_EN`) armed or not. Highest value per unit work in the whole
+   drivers board; `tasks/TH02-tmu-r1-observe.md`.
+3. **D11 firmware half B** — the `ThermalZone` AML in `Dsdt.asl` (four zones, `_TMP` = max of the
+   zone's sensors, tenths of **Kelvin**), plus `ACPI000C`. Gate it on R1+R2.
+4. **D10 firmware half** — `Beyond0LteMfcDxe` reading `0x188D0000+0xF028`, expecting `0x1300`, zero
+   writes (`tasks/V02-mfc-r1-observe.md`). Stop and re-plan if that read hangs: it is the P1 hazard.
+5. **D10 stays behind D11.** P7 says plainly that the codec is a performance/power project, not a
+   capability one; P3 (two SYSMMUs between the codec and DRAM — wrong translation is silent memory
+   corruption) is the worst failure mode on the board.
+6. Unresolved and worth a pass when the 6 GB member is available: U3 (what the three
+   `sec_thermistor` channels guard), U7 (battery charge/OTP limits — the layer that actually protects
+   the cell), U8 (Samsung's thermal policy XMLs, not in `/vendor/firmware`), U9
+   (`EXYNOS_MIN_TEMP`/`MAX_TEMP` clamp bounds), and the CMU bank that feeds MFC gate 422.
+
+**Hazards / unchanged rules:** nothing on the device touched; no partition writes, no flashing, no
+deliberate over-temperature test **ever** (D11's hard-stop rung R5 is verified with an injected
+value, not with heat); 9810 tree byte-unchanged; no vendor blob committed (`mfc_fw.bin` is name +
+size only); scan gate re-run: 611 files, **87 findings** (+1 vs the arc's start, a GPL *mention* in
+`notes/video-mfc.md` with precedent at `notes/d8-audio-windows.md:342` — accepted, not silenced).

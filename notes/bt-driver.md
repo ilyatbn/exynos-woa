@@ -103,8 +103,10 @@ binaries directly — the repo's `.dts` dumps garble phandles, the raw DTBs do n
 
 - **BT UART controller**: `uart@10840000`, reg **0x10840000 size 0x100**,
   `samsung,usi-serial-v2`, fifo-size 0x100, `samsung,rts-gpio-control`,
-  `samsung,rts-trig-level=1`. **Interrupt `<0 0x198 0>` = GSIV 408** (same 3-cell
-  format as PCIe0's `<0 0x11d 0>` = GSIV 285, M12).
+  `samsung,rts-trig-level=1`. **Interrupt `<0 0x198 0>`: the cell is the GIC SPI number
+  408, so GSIV = 408 + 32 = 440** — corrected 2026-10-13 (this line used to call 408 the
+  GSIV, and the DSDT carried it 32 low; see `notes/video-mfc.md` T5). Same 3-cell format as
+  PCIe0's `<0 0xfd 0>` = SPI 253 → GSIV 285 (M12; the cell there is `0xfd`, not `0x11d`).
 - **USI v2 mode register**: `usi@10821000`, reg **0x10821000 size 4**; select UART by
   writing **1** (`UART_SW_CONF = 1<<0`, `drivers/soc/samsung/usi_v2.c`:36,100).
 - **USI UART quirks** (`include/linux/serial_s3c.h` + `drivers/tty/serial/samsung.c`):
@@ -184,7 +186,8 @@ Checked mechanically against the binaries/sources cited. Found and fixed (this c
   `gpios[2]` IS fixed up (gpa2), `gpios[1]` is not (stays 0xffffffff).
 - citations: `btbcm_patchram` is btbcm.c:**211** not 213; cywbtserialbus baud sits at
   Command[5..8] (param offset 2), not "offset 3".
-Verified unchanged: GSIV 0x198=408 (dtbwalk of base.dtb); USI mode=1 (usi_v2.c:36);
+Verified unchanged: DT cell 0x198 = SPI 408 → GSIV **440** (dtbwalk of base.dtb; the GSIV was
+recorded as 408 here until 2026-10-13 — see `notes/video-mfc.md` T5); USI mode=1 (usi_v2.c:36);
 USI_CON/OPTION +0xC4/+0xC8 (serial_s3c.h:46-47); 1260×0xFC4C + 1×0xFC4E record chain
 (python parse, end offset == file size exactly); defconfig `# CONFIG_BT_HCIUART is not
 set`; gpio_start 0x12c; expander reset gpg4-0 via `__fixups__ [gpg4]`.

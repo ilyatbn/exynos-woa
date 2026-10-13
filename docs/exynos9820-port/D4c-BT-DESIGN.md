@@ -28,7 +28,7 @@ half exists to make those observations cheap.
 |---|---|
 | UART | `uart@10840000` (uart1, PERIC1), s3c/Exynos register map, fifo 256, USI v2 quirks at +0xC4/+0xC8 |
 | USI mode sel | `0x10821000` (4 B) = **1** for UART |
-| UART IRQ | GSIV **408** |
+| UART IRQ | GSIV **440** (DT cell = SPI 408; +32 — corrected 2026-10-13, was 408) |
 | CMU_PERIC1 ids | gate **0x22a** (`gate_uart_clk1`), ipclk **0x23c** (`ipclk_uart1`) |
 | Pins | gpq0-0..3 function 2 (ALIVE block); RTS also as GPIO (gpq0-2 fn 1); bt_wake gpg2-0 (PERIC0); bt_hostwake gpa2-3 (ALIVE, EINT19, GSIV 56) |
 | bt_en | PCAL6524 expander @0x22 on hsi2c@10930000, pin 7; expander reset gpg4-0 — **variant-dependent, Q1 open** |
@@ -59,7 +59,7 @@ UCON/UFCON/UBRDIV/FIFO registers itself (register semantics: our own
 ## 4. Windows driver layering
 
 1. **Bind/resources** — `ACPI\SAMS9826`; `_CRS` contract: desc 0 = UART MEM,
-   desc 1 = GpioInt (hostwake), Interrupt entry = UART GSIV 408.
+   desc 1 = GpioInt (hostwake), Interrupt entry = UART GSIV 440.
 2. **UART engine** — init at 115200 8N1; RX via ISR + ring; TX via FIFO-drain ISR.
    Flow control: UFCON RTS/CTS enable is a **rung** (which of gpq0-1..3 are the
    USI HW flow pins is UNVERIFIED; H4 requires it eventually — hci_bcm refuses

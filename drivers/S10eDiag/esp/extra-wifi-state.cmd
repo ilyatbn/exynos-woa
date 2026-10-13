@@ -8,6 +8,11 @@ mkdir "%Y%" > nul 2>&1
 s10ediag mark w: wifi state
 pnputil /enum-devices /deviceid "ACPI\SAMS9825" /drivers /properties > "%Y%\dev-wlan.txt" 2>&1
 pnputil /enum-devices /class Net > "%Y%\dev-net.txt" 2>&1
+rem DSDT _STA of WLAN/GPU0/XHC0/AUD0 reads the progress page words [2..5] at 0x8FE0F008..0x8FE0F017 ('USBH' 'WLAN'
+rem 'GPU0' 'NOAU'); the runtime value tells "firmware never set it" from "Windows did not enumerate it anyway".
+s10ediag peek 0x8FE0F000 0x20 > "%Y%\progress.txt" 2>&1
+pnputil /enum-devices /connected > "%Y%\dev-connected.txt" 2>&1
+pnputil /enum-devices /deviceid "ACPI\SAMS9828" >> "%Y%\dev-wlan.txt" 2>&1
 sc queryex Exynos9820WlanCx > "%Y%\sc.txt" 2>&1
 sc queryex Exynos9820Wlan >> "%Y%\sc.txt" 2>&1
 sc queryex WlanSvc >> "%Y%\sc.txt" 2>&1
@@ -27,6 +32,7 @@ copy /y "%SystemRoot%\System32\LogFiles\Exynos9820WlanCx-run.txt" "%Y%\run.txt" 
 for %%N in (1 2) do copy /y "%SystemRoot%\System32\LogFiles\Exynos9820WlanCx-run.%%N.txt" "%Y%\run.%%N.txt" > nul 2>&1
 for /f "usebackq tokens=1,*" %%A in (`findstr /i /c:"Status:" /c:"Problem" "%Y%\dev-wlan.txt"`) do s10ediag mark "w: %%A %%B"
 for /f "usebackq tokens=1,*" %%A in (`findstr /i /c:"STATE" "%Y%\sc.txt"`) do s10ediag mark "w: sc %%B"
+for /f "usebackq delims=" %%L in ("%Y%\progress.txt") do s10ediag mark "w: %%L"
 for /f "usebackq delims=" %%L in (`findstr /i /c:"There is" /c:" State " /c:"SSID" "%Y%\netsh-interfaces.txt"`) do s10ediag mark "w: %%L"
 rem numbered history copy (out\last is replaced every boot); first free number, as in extra-gfxperf.cmd
 set H=%ESP%\S10EDIAG\out\wifi-history

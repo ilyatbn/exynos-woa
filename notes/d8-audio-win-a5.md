@@ -559,3 +559,25 @@ If KsCreatePin fails there too (87 as on this PC), the filter-level lines still 
 - Fix that did it (a11): RT packet memory per-packet non-paged + MDL like the ACX sample and GetHwLatency fifo 128
   delay 0 (exact split between the two not isolated).
 - Open: audible check with amps on (quiet), physical volume buttons -> VK_VOLUME keys (S10eAgent buttons config).
+
+## A12 (2026-10-13): stage D - shared streams stall on the hardware clock
+
+Run audD (AmpInit/AmpEnable/AboxEnable 1, 1.0.1.10): exclusive 48k/16 played 72000 frames; every shared tone STALLED
+("padding 9600 of 9600, the stream position does not advance"); first stream (26 s) ran 1016 packets in 5.5 s;
+mic heard only amp pops (tone amplitude 0.03 by design).
+- **The RDMA0 STATUS[11:0] "frame counter" is not a free-running counter.** Every value logged in audD while the
+  ring had 480-frame periods is < 480 (0x040, 0x088, 0x1A8, 0x0E0, 0x128, 0x078, 0x180, 0x0C0, 0x108, 0x048, 0x160,
+  stop 0x140, 0x168): it is the frame position INSIDE THE CURRENT PERIOD. The bits 27:12 that the UEFI run saw stay 0
+  (whole-buffer period there) are non-zero here and are period-aligned: stop 0x003C0140 -> 27:12 = 0x3C0 = 960 =
+  2 x 480 frames (= byte 0x3C00 in 16-byte units, period 2 of 4); exclusive stop 0x00800268 -> 0x800 = 2048 =
+  period 1 of 2048-frame periods. That is RBUF_OFFSET 27:12 in 16-byte units (notes/d8-audio-m3-abox.md:55/311, the
+  2.0.1 layout) = the frame index of the current period start, since one ring frame is 16 bytes.
+  => ring position (frames) = STATUS[27:12] + STATUS[11:0], modulo ring frames (DmaBytes / 16).
+- What the driver did (AudElapsedFrames): Frames += (STATUS[11:0] - last) & 0xFFF. At each period wrap (e.g. 470 ->
+  10) the masked delta is ~3636 instead of 20 -> the 26 s stream ran ~2.1x too fast (1016 packets in ~5 s, 119 late
+  passes, 63 late writes), and shared engine streams got bursts/stalls of packet completions (packet 0 after 0.5-0.7
+  s at "4144 frames", then 9 packets in 3.7 s) - the engine stops when the completions are not periodic. The QPC path
+  (stage A) never reads the register, which is why stage A works.
+- Fix (T27): position from STATUS[27:12] + STATUS[11:0] with the ring size as modulus; samples every timer pass
+  (ring = 4 periods, so a pass per <= 4 periods is enough; the timer runs every period). Out-of-range samples are
+  ignored and counted.

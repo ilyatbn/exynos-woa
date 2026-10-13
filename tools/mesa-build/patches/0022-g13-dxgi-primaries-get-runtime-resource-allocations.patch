@@ -1,0 +1,222 @@
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index bc35d92..b4b2256 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -924,6 +924,108 @@ wddm_idle(void)
+  * handed to DXGI, which has maliwddm blt it (on the CPU, for now) to the
+  * screen. 0 if presented; -1 if not bound to the runtime (the caller falls
+  * back to GDI). */
++/* G13 (exynos-woa): kernel primary allocations for the runtime's DXGI primaries (d3d10umd CreateResource with
++ * pPrimaryDesc): allocated through the bound runtime's pfnAllocateCb WITH the runtime resource handle and
++ * Flags.Primary, so dxgkrnl ties them to the swap-chain resource; kept locked for CPU writes. */
++#define MAX_KPRIM 16
++static struct { D3DKMT_HANDLE h; void *cpu; unsigned w, hgt; } kprim[MAX_KPRIM];
++
++int
++malikm_primary_create(void *hRTResource, unsigned vidpn, unsigned w, unsigned h, unsigned *hAlloc)
++{
++   int ret = -1;
++
++   AcquireSRWLockExclusive(&wddm_lock);
++   if (!ddi.on || !ddi.cb.pfnAllocateCb)
++      goto out;
++   for (int i = 0; i < MAX_KPRIM; i++) {
++      if (kprim[i].h)
++         continue;
++      MW_ALLOCATION_INFO pi = {0};
++      D3DDDI_ALLOCATIONINFO ai = {0};
++      D3DDDICB_ALLOCATE a = {0};
++      pi.Version = MW_ABI_VERSION;
++      pi.Flags = MW_ALLOC_NOEXEC | MW_ALLOC_PRIMARY;
++      pi.Width = w;
++      pi.Height = h;
++      pi.Pitch = w * 4;
++      pi.Format = D3DDDIFMT_A8R8G8B8;
++      pi.Size = (uint64_t)w * h * 4;
++      ai.pPrivateDriverData = &pi;
++      ai.PrivateDriverDataSize = sizeof(pi);
++      ai.VidPnSourceId = vidpn;
++      ai.Flags.Primary = 1;
++      a.hResource = (HANDLE)hRTResource;
++      a.NumAllocations = 1;
++      a.pAllocationInfo = &ai;
++      HRESULT hr = ddi.cb.pfnAllocateCb(ddi.device, &a);
++      if (trace_on())
++         fprintf(stderr, "malikm: primary for runtime resource %p %ux%u source %u: hr 0x%08lx alloc 0x%x\n",
++                 hRTResource, w, h, vidpn, (unsigned long)hr, (unsigned)ai.hAllocation);
++      if (hr < 0)
++         goto out;
++      kprim[i].h = ai.hAllocation;
++      kprim[i].cpu = NULL;
++      kprim[i].w = w;
++      kprim[i].hgt = h;
++      *hAlloc = ai.hAllocation;
++      ret = 0;
++      goto out;
++   }
++out:
++   ReleaseSRWLockExclusive(&wddm_lock);
++   return ret;
++}
++
++void
++malikm_primary_destroy(unsigned hAlloc)
++{
++   AcquireSRWLockExclusive(&wddm_lock);
++   for (int i = 0; i < MAX_KPRIM; i++) {
++      if (kprim[i].h != hAlloc)
++         continue;
++      if (kprim[i].cpu)
++         w_unlock(kprim[i].h);
++      /* The runtime frees a resource's allocations itself when the resource goes (pfnAllocateCb with
++       * hResource); only forget it here. */
++      kprim[i].h = 0;
++      kprim[i].cpu = NULL;
++   }
++   ReleaseSRWLockExclusive(&wddm_lock);
++}
++
++int
++malikm_primary_present(unsigned hAlloc, const void *bgrx, unsigned w, unsigned h, void *dxgi_context)
++{
++   int ret = -1;
++
++   AcquireSRWLockExclusive(&wddm_lock);
++   if (!ddi.on || !ddi.dxgi || !ddi.dxgi->pfnPresentCb)
++      goto out;
++   for (int i = 0; i < MAX_KPRIM; i++) {
++      if (kprim[i].h != hAlloc)
++         continue;
++      if (kprim[i].w != w || kprim[i].hgt != h)
++         goto out;
++      if (!kprim[i].cpu)
++         kprim[i].cpu = w_lock(kprim[i].h);
++      if (!kprim[i].cpu)
++         goto out;
++      memcpy(kprim[i].cpu, bgrx, (size_t)w * h * 4);
++      DXGIDDICB_PRESENT p = {0};
++      p.hSrcAllocation = kprim[i].h;
++      p.pDXGIContext = dxgi_context;
++      p.hContext = ddi.context;
++      ret = ddi.dxgi->pfnPresentCb(ddi.device, &p) >= 0 ? 0 : -1;
++      if (trace_on() && ret)
++         fprintf(stderr, "malikm: pfnPresentCb (runtime primary 0x%x) failed\n", hAlloc);
++      goto out;
++   }
++out:
++   ReleaseSRWLockExclusive(&wddm_lock);
++   return ret;
++}
++
+ /* G13: a primary present surface pair for flips; 0 if ready. Called with wddm_lock held. */
+ static int
+ present_primaries(unsigned w, unsigned h)
+diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+index 6431fe5..3f8bef0 100644
+--- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
++++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+@@ -44,6 +44,8 @@
+  * flush_frontbuffer (d3d10_gdi.c) reads it: dxgkrnl only flips to allocations created as primaries ("Source of Flip
+  * must be primary", DxgKrnl ETW, run g21full), so a flip needs a primary present surface. Per thread. */
+ extern "C" __declspec(thread) int d3d10_present_flip = 0;
++/* G13: the kernel primary allocation of the resource being presented (Resource.kmt_primary), 0 if none. */
++extern "C" __declspec(thread) unsigned d3d10_present_alloc = 0;
+ 
+ 
+ /*
+@@ -68,9 +70,11 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
+ 
+    device->pipe->flush(device->pipe, NULL, 0);
+    d3d10_present_flip = pPresentData->Flags.Flip;
++   d3d10_present_alloc = pSrcResource ? pSrcResource->kmt_primary : 0;
+    device->pipe->screen->flush_frontbuffer(device->pipe->screen, device->pipe, 
+       pSrcResource->resource, 0, 0, pPresentData->pDXGIContext, 0, NULL);
+    d3d10_present_flip = 0;
++   d3d10_present_alloc = 0;
+ 
+    return S_OK;
+ }
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index 65729f1..9d724ea 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -189,6 +189,11 @@ subResourceBox(struct pipe_resource *resource, // IN
+  * ----------------------------------------------------------------------
+  */
+ 
++/* G13 (exynos-woa, malikm_drm.c): a primary allocation of the runtime resource, through the bound runtime's
++ * callbacks; 0 and *hAlloc set on success, -1 when not bound to maliwddm (nothing changes then). */
++extern "C" int malikm_primary_create(void *hRTResource, unsigned vidpn, unsigned w, unsigned h, unsigned *hAlloc);
++extern "C" void malikm_primary_destroy(unsigned hAlloc);
++
+ void APIENTRY
+ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+                __in const D3D10DDIARG_CREATERESOURCE *pCreateResource,  // IN
+@@ -314,6 +319,16 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+       return;
+    }
+ 
++   /* G13: DXGI swap-chain primaries get a kernel primary allocation tied to the runtime resource, so the
++    * runtime's flip of this resource names an allocation dxgkrnl created for the current mode (shim-owned
++    * primaries were refused with STATUS_GRAPHICS_PRESENT_MODE_CHANGED, runs g22-g24). */
++   if (pCreateResource->pPrimaryDesc && templat.target == PIPE_TEXTURE_2D) {
++      unsigned h = 0;
++      if (malikm_primary_create(hRTResource.handle, pCreateResource->pPrimaryDesc->VidPnSourceId,
++                                templat.width0, templat.height0, &h) == 0)
++         pResource->kmt_primary = h;
++   }
++
+    pResource->NumSubResources = pCreateResource->MipLevels * pCreateResource->ArraySize;
+    pResource->transfers = (struct pipe_transfer **)calloc(pResource->NumSubResources,
+                                                           sizeof *pResource->transfers);
+@@ -462,6 +477,10 @@ DestroyResource(D3D10DDI_HDEVICE hDevice,       // IN
+    }
+    free(pResource->transfers);
+ 
++   if (pResource->kmt_primary) {
++      malikm_primary_destroy(pResource->kmt_primary);
++      pResource->kmt_primary = 0;
++   }
+    pipe_resource_reference(&pResource->resource, NULL);
+ }
+ 
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index 633dc2d..0bd591f 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -171,6 +171,9 @@ struct Resource
+    struct pipe_resource *resource;
+    struct pipe_transfer **transfers;
+    struct pipe_stream_output_target *so_target;
++   /* G13 (exynos-woa): the kernel allocation created for a DXGI primary (CreateResource with pPrimaryDesc) on
++    * the maliwddm runtime, 0 otherwise. Flips of this resource present from it (DxgiFns.cpp _Present). */
++   unsigned kmt_primary;
+ };
+ 
+ 
+diff --git a/src/gallium/targets/d3d10umd/d3d10_gdi.c b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+index 3ae130c..d662bfd 100644
+--- a/src/gallium/targets/d3d10umd/d3d10_gdi.c
++++ b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+@@ -109,6 +109,8 @@ d3d10_gdi_release_hdc(void *winsys_drawable_handle, HDC hDC) {
+  * owns the display. */
+ int malikm_present_d3dddi(const void *bgrx, unsigned w, unsigned h, void *dxgi_context, int primary);
+ extern __declspec(thread) int d3d10_present_flip;   /* frontend DxgiFns.cpp (G13) */
++extern __declspec(thread) unsigned d3d10_present_alloc;   /* frontend DxgiFns.cpp (G13) */
++int malikm_primary_present(unsigned hAlloc, const void *bgrx, unsigned w, unsigned h, void *dxgi_context);
+ 
+ /* G13 (exynos-woa, notes/gpu-full-adapter-hang.md): the same present also serves the software screen on the
+  * hardware runtime. softpipe's own flush_frontbuffer draws with GDI into a window (the sw winsys), which never
+@@ -154,6 +156,12 @@ d3d10_pan_flush_frontbuffer(struct pipe_screen *screen, struct pipe_context *pip
+    /* On the hardware runtime (maliwddm), present through DXGI: the frame
+     * goes into a surface of the runtime's device and the kernel driver
+     * blts it to the screen. Otherwise (the software runtime) GDI below. */
++   /* G13: a DXGI primary with its own kernel allocation presents from that allocation (the runtime's swap-chain
++    * resource), anything else from the shim's present surfaces. */
++   if (d3d10_present_alloc && malikm_primary_present(d3d10_present_alloc, bits, w, h, context_private) == 0) {
++      free(bits);
++      return;
++   }
+    if (malikm_present_d3dddi(bits, w, h, context_private, d3d10_present_flip) == 0) {
+       free(bits);
+       return;

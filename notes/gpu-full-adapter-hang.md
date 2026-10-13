@@ -610,3 +610,27 @@ patches/*.patch after the reference patches, one commit each).
   `DA938EB394D9B08C983F15AEF9CCE3AB48C95B752E3C3772227A04DF7E6E21BD` (InfVerif /w 0, signer 5DD5DEE1...); UMD and
   scripts = mali-g23. Steps as g23 (update live to 1.0.24.1, then full mode). Read: ETW 184 status; first-call PRAM
   lines StdAlloc (type 1 = shared primary: format 0x15/0x16? 1080x2280?) vs Describe (DWM's primaries); commit paths.
+
+## Run g24full - descriptions identical, flips still MODE_CHANGED -> swap-chain resources (2026-10-13)
+- Commit fine with Refresh601 (CommitVidPn 0; the EDID risk did not happen).
+- First-call PRAM: dxgkrnl's own primaries "StdAlloc type.fmt 01000015 / 02000015" (shared primary, then shadow)
+  "wxh 043808e8" = 1080x2280 A8R8G8B8; every "Describe" (DWM path primaries) = 1080x2280, fmt 0x15, flags 03 -
+  **identical** to the mode. ETW 184: 442 flips, all 0xC01E0005 again (the same two shim surfaces 0x40000800/840).
+  => not the allocation description. What remains: the flipped allocations are the SHIM's (pfnAllocateCb without a
+  runtime resource) while DXGI flips DWM's swap-chain resource - dxgkrnl ties a flip's primary to the runtime
+  resource / mode it was created for, and an allocation with no resource can never match (inference; the status is
+  the one DXGI uses to make a swap chain re-create its buffers, which DWM does every ~1.4 s = the Describe pairs).
+- **Mesa patch 0022** (mesa-26.2-g76 1f49bdd; tools/mesa-build/patches/0022-g13-dxgi-primaries-get-runtime-resource-
+  allocations.patch, fresh-tree apply OK): d3d10umd CreateResource with pPrimaryDesc (2D) calls
+  `malikm_primary_create(hRTResource, VidPnSourceId, w, h)` -> pfnAllocateCb with **D3DDDICB_ALLOCATE.hResource =
+  the runtime resource**, Flags.Primary, VidPnSourceId, MW_ALLOCATION_INFO A8R8G8B8 1080-style pitch; the handle is
+  kept in Resource.kmt_primary; _Present passes it (thread-local d3d10_present_alloc); flush_frontbuffer then copies
+  the frame into THAT allocation (locked once) and calls pfnPresentCb with it; the shim surfaces remain the fallback;
+  DestroyResource forgets it (the runtime frees resource-owned allocations). Build: maliumd = libgallium_d3d10
+  `C93FE995097A9FE45E8E680476765C3FFA247BD47358A1EE2C8B478CCFC536DD`.
+- **One-run test** (mali-g25 = g24 driver 1.0.24.1 + this UMD; no update boot): full.flg + nogpu.flg +
+  extra-gpu-mode.cmd. Decisive in ETW 184: flips whose hSrcAllocHandle is NOT 0x40000800/0x40000840 (= the
+  resource-owned primaries) and their ReturnStatus - 0 => the question is answered and PRAM must then show KMD
+  Present lines + heartbeat p growing; 0xC01E0005 on resource-owned primaries too => it is not the resource tie
+  (next: DXGI's mode tracking - the runtime's own GetDisplayModeList / mode the swap chain was created for).
+  If no new handles appear at all, CreateResource never got a pPrimaryDesc (DWM uses a different swap-chain path).

@@ -17,7 +17,7 @@ As of 2026-10-12 evening. Windows was just reinstalled, so everything below desc
 | USB (docks, mouse, keyboard, drives) | 🟡 | works, no hot-plug |
 | Battery / charging | 🟡 | works, slow to update |
 | GPU (graphics acceleration) | 🔴 | written, never tested |
-| Speaker | 🟠 | detected, no sound |
+| Speaker | 🟠 | Windows plays, sound unverified |
 | Headphone jack | 🟠 | detected, no sound |
 | Microphones | 🔴 | nothing yet |
 | WiFi | 🟡 | works, slow |

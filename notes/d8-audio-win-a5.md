@@ -547,3 +547,15 @@ MODEDATAFORMATS RAW/DEFAULT, PROPOSEDATAFORMAT get, and for the probe pin QUERY_
 SETWRITEPACKET/PACKETCOUNT basic, BUFFER_WITH_NOTIFICATION (BufferAddress / ActualBufferSize / CallMemoryBarrier),
 HWLATENCY, then the RUN positions (advancing = streaming path works); run-after-probe.txt shows the driver side.
 If KsCreatePin fails there too (87 as on this PC), the filter-level lines still show ACX's real answers.
+
+## DEVICE RESULT a11 (2026-10-13 ~00:05 device time, run audA11c, stage A = amps/ABOX off, silent): **WINDOWS AUDIO WORKS**
+- 1.0.1.10 (ACX 1.1) loaded at boot. Endpoint {f351f2bd-...}: **GetMixFormat OK (EXTENSIBLE float 2 ch 48000 Hz
+  32 bit), Initialize 0**; IsFormatSupported PCM16/EXT16/float32 all 0; device period 100000/30000.
+- Exclusive 48k/16: played 72000 frames. Shared: played 96000 frames x4 (A/B/C/D) at 48 kHz float.
+- {F19F064D},0 DeviceFormat now stored (EXTENSIBLE 2ch 48k 16-bit PCM). ({74E4357A},2 cache still the empty-payload
+  form - not required.)
+- Volume: IAudioEndpointVolume hw support 0x3, range -96..0 dB step 0.5; keys 0->+5 = 0.10 (-34.8 dB), -2 = 0.06,
+  +5 = 0.16, mute key -> mute 1, unmute -> 0. Driver log: 64 "volume ch n <- x dB (software)" lines.
+- Fix that did it (a11): RT packet memory per-packet non-paged + MDL like the ACX sample and GetHwLatency fifo 128
+  delay 0 (exact split between the two not isolated).
+- Open: audible check with amps on (quiet), physical volume buttons -> VK_VOLUME keys (S10eAgent buttons config).

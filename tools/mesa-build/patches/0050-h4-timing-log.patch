@@ -1,0 +1,149 @@
+From 057946c5e84ceaa0f6209e9ab22a9dcdab4e45c9 Mon Sep 17 00:00:00 2001
+From: g12-build <g12@local>
+Date: Wed, 14 Oct 2026 02:36:04 +0300
+Subject: [PATCH] H4: timing log of slow events (GPU idle waits, frontbuffer
+ map/convert, present copies, every 500th submit) per process into
+ MALIKM_TGSI_DIR (exynos-woa tools/mesa-build/patches/0050)
+
+---
+ include/win32-compat/malikm_drm.c        | 52 ++++++++++++++++++++++++
+ src/gallium/targets/d3d10umd/d3d10_gdi.c |  5 +++
+ 2 files changed, 57 insertions(+)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index e6cf19f..92e18b0 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -22,6 +22,7 @@
+ #include <fcntl.h>
+ #include <errno.h>
+ #include <stdint.h>
++#include <stdarg.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -135,6 +136,45 @@ trace_on(void)
+    return t;
+ }
+ 
++/* exynos-woa H4 (notes/gpu-hw-path.md): a timing log of the slow events only (GPU idle waits, present copies, the
++ * runtime's present callback), per process, when MALIKM_TGSI_DIR is set (it is machine-wide on the S10e, so DWM
++ * writes one too): <dir>\malikm-<exe>-<pid>.txt, lines "<GetTickCount ms> <event>". Unbuffered. */
++static FILE *
++tlog_file(void)
++{
++   static int init;
++   static FILE *f;
++   if (!init) {
++      const char *d = getenv("MALIKM_TGSI_DIR");
++      init = 1;
++      if (d && *d) {
++         char exe[MAX_PATH] = "x", p[MAX_PATH];
++         GetModuleFileNameA(NULL, exe, MAX_PATH);
++         const char *b = strrchr(exe, '\\');
++         b = b ? b + 1 : exe;
++         snprintf(p, sizeof(p), "%s\\malikm-%s-%lu.txt", d, b, (unsigned long)GetCurrentProcessId());
++         f = fopen(p, "a");
++         if (f)
++            setvbuf(f, NULL, _IONBF, 0);
++      }
++   }
++   return f;
++}
++
++void
++malikm_tlog(const char *fmt, ...)
++{
++   FILE *f = tlog_file();
++   if (!f)
++      return;
++   char line[256];
++   va_list ap;
++   va_start(ap, fmt);
++   vsnprintf(line, sizeof(line), fmt, ap);
++   va_end(ap);
++   fprintf(f, "%lu %s\n", (unsigned long)GetTickCount(), line);
++}
++
+ static int
+ call(int fd, DWORD code, void *buf, DWORD len)
+ {
+@@ -919,10 +959,15 @@ wddm_idle(void)
+    int ret = 0;
+ 
+    if (ddi.on) {
++      DWORD t0 = GetTickCount();
+       if (ddi.last_event && WaitForSingleObject(ddi.last_event, 10000) != WAIT_OBJECT_0)
+          ret = -MK_ETIMEDOUT;
+       else if (ddi.last_unsignalled)
+          ret = wddm_poll_idle();
++      DWORD dt = GetTickCount() - t0;
++      if (dt >= 20 || ret)
++         malikm_tlog("idle %lu ms via %s, ret %d", (unsigned long)dt,
++                     ddi.last_unsignalled ? "poll" : (ddi.last_event ? "event" : "none"), ret);
+    } else {
+       D3DKMT_WAITFORIDLE w = {0};
+       w.hDevice = wdevice;
+@@ -1181,11 +1226,16 @@ out:
+ static int
+ present_copy(D3DKMT_HANDLE h, const void *bgrx, unsigned w, unsigned hgt)
+ {
++   DWORD t0 = GetTickCount();
+    void *cpu = w_lock(h);
+    if (!cpu)
+       return -1;
++   DWORD t1 = GetTickCount();
+    memcpy(cpu, bgrx, (size_t)w * hgt * 4);
++   DWORD t2 = GetTickCount();
+    w_unlock(h);
++   malikm_tlog("present copy %ux%u: lock %lu ms, memcpy %lu ms, unlock %lu ms", w, hgt, (unsigned long)(t1 - t0),
++               (unsigned long)(t2 - t1), (unsigned long)(GetTickCount() - t2));
+    return 0;
+ }
+ 
+@@ -1588,6 +1638,8 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+          return -MK_EIO;
+       }
+       wseq++;
++      if ((wseq % 500) == 0)
++         malikm_tlog("submit %llu (%u allocations listed)", (unsigned long long)wseq, n);
+       return 0;
+    }
+    case MALIKM_NR_GEM_CLOSE: {
+diff --git a/src/gallium/targets/d3d10umd/d3d10_gdi.c b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+index 6e628c0..25e7b85 100644
+--- a/src/gallium/targets/d3d10umd/d3d10_gdi.c
++++ b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+@@ -108,6 +108,7 @@ d3d10_gdi_release_hdc(void *winsys_drawable_handle, HDC hDC) {
+  * the software winsys does. One copy per frame: enough until a WDDM driver
+  * owns the display. */
+ int malikm_present_d3dddi(const void *bgrx, unsigned w, unsigned h, void *dxgi_context, int primary);
++void malikm_tlog(const char *fmt, ...);   /* exynos-woa H4: timing log (malikm_drm.c) */
+ extern __declspec(thread) int d3d10_present_flip;   /* frontend DxgiFns.cpp (G13) */
+ extern __declspec(thread) unsigned d3d10_present_alloc;   /* frontend DxgiFns.cpp (G13) */
+ extern __declspec(thread) unsigned d3d10_present_dst;     /* frontend DxgiFns.cpp (G13 0025) */
+@@ -133,10 +134,12 @@ d3d10_pan_flush_frontbuffer(struct pipe_screen *screen, struct pipe_context *pip
+ 
+    if (!pipe || !desc || desc->block.bits != 32)
+       return;
++   DWORD t0 = GetTickCount();
+    const uint8_t *map = pipe_texture_map(pipe, res, level, layer, PIPE_MAP_READ,
+                                          0, 0, w, h, &xfer);
+    if (!map)
+       return;
++   DWORD t1 = GetTickCount();
+ 
+    /* GDI wants B, G, R, X in memory. */
+    bool rgba = desc->swizzle[0] == PIPE_SWIZZLE_X;
+@@ -152,6 +155,8 @@ d3d10_pan_flush_frontbuffer(struct pipe_screen *screen, struct pipe_context *pip
+       }
+    }
+    pipe_texture_unmap(pipe, xfer);
++   malikm_tlog("frontbuffer %ux%u: map %lu ms, convert %lu ms", w, h, (unsigned long)(t1 - t0),
++               (unsigned long)(GetTickCount() - t1));
+    if (!bits)
+       return;
+ 
+-- 
+2.40.1.windows.1
+

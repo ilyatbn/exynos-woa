@@ -170,3 +170,20 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   malikm_prime_fd_size replaces lseek in pan_kmod_bo_import (_WIN32). d3d10umd CreateResource/OpenResource:
   non-softpipe screens import the BO (WINSYS_HANDLE_TYPE_FD, linear, pitch) instead of CPU memory. Build
   mali-umd-0049 3314f7e3.... extra-gpu-h3.cmd: WER LocalDumps for d3dtri.exe.
+- 02:25 run h3g started: UMD 0049.
+- **Run h3g (02:25-02:33, runs/h3g, UMD 0049): LOGON COMPLETES WITH DWM ON THE MALI.** explorer.exe at 37 s,
+  desktop up; DWM loaded maliumd.dll (no softpipe pin); KMD 896 jobs from logon/DWM before the tests, 5348 after,
+  `failed 0 fault 0x0 resets 0`. Webcam 02:28-02:30: wallpaper + desktop + taskbar on the panel (composed by
+  Panfrost), plus a dark window with a title bar top-left (likely a console of the harness). gfxperf: idle desktop
+  CPU 26-46 % (softpipe baseline 60-99 %), dwm not in the top 4 at idle; cube on Panfrost 36.1 fps. LogonUI still
+  crashes repeatedly (crash events) but the logon goes through; tex still 0xC0000005 (no dump: key armed by this
+  run, next run has it).
+- **The H4 problem:** DWM composition is still ~0.9 frames/s (gfxperf) and the KMD saw only 23 presents in the
+  ~3-minute measurement (presents 128 -> 151) while d3dtri rendered 722 frames: DWM presents very rarely. dwm.exe
+  100-117 % CPU for ~3 s at the cube start, then idle. Per-frame present path: pipe_texture_map(READ) of the
+  Panfrost render target (GPU wait + possibly de-tiling blit + wait) -> per-pixel swizzle copy out of an uncached
+  CPU mapping -> present_copy memcpy into the present allocation -> KMD CPU blt to the GOP fb. Suspect a wait
+  timing out (wddm_idle: 10 s WaitForSingleObject on the EnqueueCpuEvent completion event).
+- Mesa 0050: per-process timing log (MALIKM_TGSI_DIR, machine-wide = C:\S10eTmp\tgsi): idle waits >= 20 ms (event
+  or poll, result), frontbuffer map/convert ms, present copy lock/memcpy/unlock ms, every 500th submit. Build
+  mali-umd-0050 135bc8d4.... extra-gpu-h3.cmd collects tlog\malikm-*.txt.

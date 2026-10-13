@@ -1,0 +1,43 @@
+From 3919261867bfe7d0374115299bdd7172b9a4fb93 Mon Sep 17 00:00:00 2001
+From: g12-build <g12@local>
+Date: Wed, 14 Oct 2026 00:42:59 +0300
+Subject: [PATCH] H2: d3d10umd sends CRT asserts to stderr and aborts instead
+ of a modal dialog (run h2c hung in an assert MessageBox) (exynos-woa
+ tools/mesa-build/patches/0042)
+
+---
+ src/gallium/frontends/d3d10umd/Adapter.cpp | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/src/gallium/frontends/d3d10umd/Adapter.cpp b/src/gallium/frontends/d3d10umd/Adapter.cpp
+index 3259249..52959c7 100644
+--- a/src/gallium/frontends/d3d10umd/Adapter.cpp
++++ b/src/gallium/frontends/d3d10umd/Adapter.cpp
+@@ -39,6 +39,8 @@
+ 
+ #include "util/u_memory.h"
+ 
++#include <stdlib.h>
++
+ 
+ EXTERN_C struct pipe_screen *
+ d3d10_create_screen(void);
+@@ -72,6 +74,15 @@ OpenAdapterCommon(__inout D3D10DDIARG_OPENADAPTER *pOpenData)   // IN
+ #endif
+    ++numAdapters;
+ 
++   /* exynos-woa H2 (notes/gpu-hw-path.md): a failed assert in this debugoptimized build must not open the CRT's
++    * modal assert dialog - nobody clicks it, so the process hangs (run h2c: d3dtri in a MessageBox under
++    * panfrost_emit_const_buf; for DWM that is a frozen desktop). Print to stderr and abort instead, so the process
++    * dies and is restarted (DWM) or reported (tests). Process-wide, set once by the first adapter. */
++   if (numAdapters == 1) {
++      _set_error_mode(_OUT_TO_STDERR);
++      _set_abort_behavior(0, _WRITE_ABORT_MSG);
++   }
++
+    Adapter *pAdaptor = (Adapter *)calloc(sizeof *pAdaptor, 1);
+    if (!pAdaptor) {
+       --numAdapters;
+-- 
+2.40.1.windows.1
+

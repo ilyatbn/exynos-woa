@@ -14,3 +14,6 @@
 *.fd binary
 *.ko binary
 *.ttf binary
+
+# Mesa patches applied byte-exact to the CRLF files of the Mesa working copy (tools/mesa-build).
+tools/mesa-build/patches/*.patch -text

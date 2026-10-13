@@ -1,0 +1,126 @@
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 39e48d4..e760f5b 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -968,7 +968,10 @@ out:
+ }
+ 
+ /* The runtime's device and callbacks, from d3d10umd's CreateDevice. 0 if
+- * this is maliwddm's adapter and Panfrost now goes through the callbacks. */
++ * this is maliwddm's adapter and Panfrost now goes through the callbacks.
++ * G13 (exynos-woa): 1 if it is maliwddm's adapter WITHOUT a GPU (GPU_INFO
++ * Count != 0, Valid == 0): the callbacks are kept for presenting only
++ * (malikm_present_d3dddi), Panfrost stays off (wddm is not set). -1 else. */
+ int
+ malikm_bind_d3dddi(HANDLE hRTAdapter, HANDLE hRTDevice, const void *pKTCallbacks,
+                    const void *pDXGIBaseCallbacks)
+@@ -987,7 +990,21 @@ malikm_bind_d3dddi(HANDLE hRTAdapter, HANDLE hRTDevice, const void *pKTCallbacks
+    e.pPrivateDriverData = &g;
+    e.PrivateDriverDataSize = sizeof(g);
+    g.Code = MW_ESCAPE_GPU_INFO;
+-   if (cb->pfnEscapeCb(hRTAdapter, &e) >= 0 && g.Count != 0 && g.Valid != 0) {
++   NTSTATUS es = cb->pfnEscapeCb(hRTAdapter, &e);
++   if (es >= 0 && g.Count != 0 && g.Valid == 0 && cb->pfnLockCb && cb->pfnUnlockCb && cb->pfnDeallocateCb) {
++      D3DDDICB_CREATECONTEXT c = {0};
++      c.NodeOrdinal = 0;
++      c.EngineAffinity = 1;
++      if (cb->pfnCreateContextCb(hRTDevice, &c) >= 0) {
++         ddi.on = 1;
++         ddi.adapter = hRTAdapter;
++         ddi.device = hRTDevice;
++         ddi.context = c.hContext;
++         ddi.cb = *cb;
++         ddi.dxgi = pDXGIBaseCallbacks;
++         ret = 1;
++      }
++   } else if (es >= 0 && g.Count != 0 && g.Valid != 0) {
+       D3DDDICB_CREATECONTEXT c = {0};
+       c.NodeOrdinal = 0;
+       c.EngineAffinity = 1;
+@@ -1012,7 +1029,8 @@ malikm_bind_d3dddi(HANDLE hRTAdapter, HANDLE hRTDevice, const void *pKTCallbacks
+    ReleaseSRWLockExclusive(&wddm_lock);
+    if (trace_on())
+       fprintf(stderr, "malikm: bind to the runtime device %p: %s\n", hRTDevice,
+-              ret == 0 ? "yes, through its callbacks" : "no (not maliwddm, or software runtime)");
++              ret == 0 ? "yes, through its callbacks" :
++              ret == 1 ? "present only (maliwddm without a GPU)" : "no (not maliwddm, or software runtime)");
+    return ret;
+ }
+ 
+diff --git a/src/gallium/targets/d3d10umd/d3d10_gdi.c b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+index bbd677f..d9570e0 100644
+--- a/src/gallium/targets/d3d10umd/d3d10_gdi.c
++++ b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+@@ -109,6 +109,13 @@ d3d10_gdi_release_hdc(void *winsys_drawable_handle, HDC hDC) {
+  * owns the display. */
+ int malikm_present_d3dddi(const void *bgrx, unsigned w, unsigned h, void *dxgi_context);
+ 
++/* G13 (exynos-woa, notes/gpu-full-adapter-hang.md): the same present also serves the software screen on the
++ * hardware runtime. softpipe's own flush_frontbuffer draws with GDI into a window (the sw winsys), which never
++ * reaches the kernel driver - DWM on maliwddm with no GPU ran on it and nothing ever reached the panel (run
++ * g19full). d3d10_sw_flush_frontbuffer is softpipe's original, used when the runtime present is not available. */
++static void (*d3d10_sw_flush_frontbuffer)(struct pipe_screen *, struct pipe_context *, struct pipe_resource *,
++                                          unsigned, unsigned, void *, unsigned, struct pipe_box *);
++
+ static void
+ d3d10_pan_flush_frontbuffer(struct pipe_screen *screen, struct pipe_context *pipe,
+                             struct pipe_resource *res, unsigned level, unsigned layer,
+@@ -150,6 +157,12 @@ d3d10_pan_flush_frontbuffer(struct pipe_screen *screen, struct pipe_context *pip
+       free(bits);
+       return;
+    }
++   if (d3d10_sw_flush_frontbuffer) {
++      /* G13: the software screen falls back to its own (GDI) present. */
++      free(bits);
++      d3d10_sw_flush_frontbuffer(screen, pipe, res, level, layer, context_private, nboxes, sub_box);
++      return;
++   }
+ 
+    BITMAPINFO bmi = {0};
+    bmi.bmiHeader.biSize = sizeof(bmi.bmiHeader);
+@@ -174,12 +187,17 @@ int malikm_bind_d3dddi(HANDLE hRTAdapter, HANDLE hRTDevice, const void *pKTCallb
+                        const void *pDXGIBaseCallbacks);
+ #endif
+ 
++/* G13: what the last d3d10_bind_runtime found: 0 the maliwddm adapter with its GPU up (Panfrost through the
++ * runtime callbacks), 1 the maliwddm adapter without a GPU (callbacks kept for presenting only), -1 anything else. */
++static int d3d10_runtime_bind = -1;
++
+ bool
+ d3d10_bind_runtime(HANDLE hRTAdapter, HANDLE hRTDevice, const void *pKTCallbacks,
+                    const void *pDXGIBaseCallbacks)
+ {
+ #ifdef GALLIUM_PANFROST
+-   return malikm_bind_d3dddi(hRTAdapter, hRTDevice, pKTCallbacks, pDXGIBaseCallbacks) == 0;
++   d3d10_runtime_bind = malikm_bind_d3dddi(hRTAdapter, hRTDevice, pKTCallbacks, pDXGIBaseCallbacks);
++   return d3d10_runtime_bind == 0;
+ #else
+    (void)hRTAdapter; (void)hRTDevice; (void)pKTCallbacks; (void)pDXGIBaseCallbacks;
+    return false;
+@@ -203,6 +221,12 @@ d3d10_create_screen(void)
+ #else
+    default_driver = "softpipe";
+ #endif
++#ifdef GALLIUM_PANFROST
++   /* G13: on the maliwddm adapter with its GPU up, Panfrost is the default - DWM and every other runtime client
++    * get the Mali without GALLIUM_DRIVER (which still overrides). */
++   if (d3d10_runtime_bind == 0)
++      default_driver = "panfrost";
++#endif
+ 
+    driver = debug_get_option("GALLIUM_DRIVER", default_driver);
+ 
+@@ -245,6 +269,13 @@ d3d10_create_screen(void)
+ 
+    if (screen == NULL) {
+       screen = softpipe_create_screen( winsys );
++#ifdef GALLIUM_PANFROST
++      /* G13: bound to the maliwddm adapter (with or without its GPU), present through the runtime. */
++      if (screen && d3d10_runtime_bind >= 0) {
++         d3d10_sw_flush_frontbuffer = screen->flush_frontbuffer;
++         screen->flush_frontbuffer = d3d10_pan_flush_frontbuffer;
++      }
++#endif
+    }
+ 
+    if (screen == NULL)

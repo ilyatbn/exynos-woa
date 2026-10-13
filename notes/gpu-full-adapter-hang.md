@@ -495,3 +495,23 @@ Mode 1080 x 2280; heartbeat p > 0 / Present lines if DWM composes (UMD questions
 - Package **s10e-artifacts\mali-g20** = mali-g19 driver (1.0.19.1, sys 066BAFE3...) + extra-gpu-mode.cmd with the
   user-session probe and DWM module list `FB4F16A9FC5DE10B95773E133F2A3EC6DAABB97A4953794AAE3AAD2F767C7B26` (CRLF),
   run-as-user.ps1 `DDB47BE5...` (same as the repo's). No driver change -> no update boot.
+
+## G13 Mesa change (2026-10-13) - tools/mesa-build/patches/0020
+Working copy mali\mesa-26.2-g76 commit 6efa57c (on a36e5bb = G12); the same diff is kept byte-exact in the repo
+(`tools/mesa-build/patches/0020-g13-runtime-present-without-gpu-and-panfrost-default.patch`, `-text` in
+.gitattributes because the touched files are CRLF; build-mesa-g76.ps1's source stage now applies tools/mesa-build/
+patches/*.patch after the reference patches, one commit each).
+- include/win32-compat/malikm_drm.c `malikm_bind_d3dddi`: GPU_INFO answered by maliwddm (Count != 0) with Valid == 0
+  -> **present-only bind**: a runtime context is created and ddi.{on,adapter,device,context,cb,dxgi} kept, so
+  malikm_present_d3dddi works; `wddm`/wgpu/command buffers are NOT set (Panfrost stays off). Returns 1 (0 = full
+  bind as before, -1 = not maliwddm). Requires pfnLockCb/UnlockCb/DeallocateCb (used by the present surface).
+- src/gallium/targets/d3d10umd/d3d10_gdi.c: d3d10_bind_runtime keeps the result; **default driver = panfrost when
+  the full bind succeeded** (GALLIUM_DRIVER still overrides); a softpipe screen created while bound (0 or 1) gets
+  d3d10_pan_flush_frontbuffer (read back the resource, BGRX, malikm_present_d3dddi -> DXGI pfnPresentCb -> KMD
+  Present blt) with softpipe's own GDI flush_frontbuffer as the fallback when the runtime present fails.
+- Build: `build-mesa-g76.ps1 -Stage cross,collect -Out ...\mali-g21\umd` incremental (6 steps; only the existing
+  wpatch/wpatch_size unused warnings), libgallium_d3d10.dll = maliumd.dll sha256
+  `4ded674dd9077a191bd6ea19814d2d59071ee556de081d0e1dd52539ac22db76`, AA64, CUI subsystem as G12.
+- UNVERIFIED: whether DWM's swap chain present (DXGI _Present -> flush_frontbuffer) on the D3D11-over-D3D10-DDI
+  runtime reaches pfnPresentCb with a context the runtime accepts; the PRAM trace answers it (KMD Present lines from
+  DWM after the boot console's, heartbeat p growing).

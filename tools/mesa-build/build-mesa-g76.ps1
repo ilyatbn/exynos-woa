@@ -102,6 +102,13 @@ if (Want 'source') {
   }
   git -C $Mesa add -A; Check 'add'
   git -C $Mesa -c user.name=g12-build -c user.email=g12@local commit -q -m 'G12: wddm-mali-g52 mesa-patches 0001-0019 (LF) + win32-compat shim'; Check 'commit'
+  # exynos-woa's own patches (G13 on): byte-exact (they touch CRLF files), each committed on its own.
+  Get-ChildItem (Join-Path $Here 'patches') -Filter *.patch -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object {
+    Write-Host "applying $($_.Name)"
+    git -C $Mesa apply --whitespace=nowarn $_.FullName; Check "patch $($_.Name)"
+    git -C $Mesa add -A; Check 'add'
+    git -C $Mesa -c user.name=exynos-woa -c user.email=build@local commit -q -m "exynos-woa $($_.Name)"; Check 'commit'
+  }
 }
 
 if (Want 'libpan') {

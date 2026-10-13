@@ -13,6 +13,7 @@
 MW_MODE MwMode = MwModeDisplayOnly;
 ULONG MwSoftVsync = 1;
 ULONG MwFlipBlt = 1;
+ULONG MwRecommendVidPn = 1;
 
 /* ---- trace ---- */
 
@@ -658,6 +659,7 @@ static MW_MODE ReadMode(PUNICODE_STRING RegistryPath, ULONG *PramTrace)
     *PramTrace = ReadParameter(params, L"PramTrace", 1);
     MwSoftVsync = ReadParameter(params, L"SoftVsync", 1) != 0;
     MwFlipBlt = ReadParameter(params, L"FlipBlt", 1) != 0;
+    MwRecommendVidPn = ReadParameter(params, L"RecommendVidPn", 1) != 0;
     if (params != NULL)
         ZwClose(params);
     if (svc != NULL)
@@ -793,6 +795,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
         MwPramText(TRUE, "Params g.f.keys.vs.fb ", NULL,
                    ((ParamGpu & 0xFF) << 24) | ((ParamFull & 0xFF) << 16) | (ParamKeys << 8) |
                    ((MwSoftVsync & 0xF) << 4) | (MwFlipBlt & 0xF), TRUE);
+        MwPramText(TRUE, "RecommendVidPn ", NULL, MwRecommendVidPn, TRUE);
         /* Wall clock (Unix seconds), so a saved \WINPRAM.BIN can be matched to the boot that wrote it. */
         KeQuerySystemTimePrecise(&now);
         MwPramText(TRUE, "UnixTime ", NULL, (ULONG)(now.QuadPart / 10000000LL - 11644473600LL), TRUE);

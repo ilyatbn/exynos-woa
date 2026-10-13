@@ -17,6 +17,7 @@
 ;   PramTrace 1   DDI entry/exit trace into reserved RAM 0x8FE04000 (16 KiB), saved by the firmware as \WINPRAM.BIN
 ;   SoftVsync 1   full adapter: software vsync (16 ms timer) while dxgkrnl enables CRTC_VSYNC (0 = never reported)
 ;   FlipBlt   1   full adapter: a Flip present is a CPU copy into the GOP framebuffer (0 = flips dropped)
+;   RecommendVidPn 1  full adapter: RecommendFunctionalVidPn pins path 0->0 and our one mode (0 = no recommendation)
 ;
 ; SPDX-License-Identifier: GPL-2.0
 ;
@@ -26,7 +27,7 @@ Signature   = "$WINDOWS NT$"
 Class       = Display
 ClassGuid   = {4D36E968-E325-11CE-BFC1-08002BE10318}
 Provider    = %ProviderName%
-DriverVer   = 10/13/2026,1.0.14.1
+DriverVer   = 10/13/2026,1.0.16.1
 CatalogFile = MaliG76Wddm.cat
 PnpLockdown = 1
 

@@ -327,3 +327,50 @@ Logs: scratchpad\runs\g13fullc (marks.txt, last\gpu\*, WINPRAM.BIN, UEFILOG.TXT)
   4. Read: Mali adapter line - UMD DX9/DX10/DX11 names, D3D11CreateDevice hr (plain/bgra), D3D10CreateDevice hr;
      dxdiag "DDI Version"/"Feature Levels" for the Mali card; stderr shim lines. Then rm full.flg, run
      extra-gpu-mode.cmd once more to return to 0/0 (optional: the probe in mode 0 too, as a baseline).
+
+## Run g15fullb (mode 1, mali-g15) - analysis 2026-10-13
+- d3dprobe.txt ends after "CreateDXGIFactory1 hr 0x00000000", stderr empty. Probable cause (my bug): the output
+  loop `while (EnumOutputs(i) != DXGI_ERROR_NOT_FOUND)` spins forever on any other failure (and the adapter line is
+  printed only after that loop). Fixed in c55a397: stop on any failure, SEH per step, step marks, 90 s watchdog
+  ("TIMEOUT in <step>"), plus output descs and the D3DKMT adapter type bits (render/display/software/post).
+- dxdiag on the Mali card: **DDI Version 11.2, Feature Levels 10_0,9_3,9_2,9_1** - so the D3D11 runtime DOES get
+  a feature-level-10_0 device out of the D3D10.0-only Mesa UMD (it maps 10-level onto the D3D10 DDI). This corrects
+  the G13 section above: "DWM cannot get a D3D11 device" is wrong for FL 10_0. Also: Device Type Full Device (POST),
+  Driver Model WDDM 1.3, Graphics Preemption DMA, **Current Mode: Unknown, Displayable: Not Supported**.
+- PRAM (live peek, build 14 "Params 00010311" = gpu 0, full 1, both keys, vs 1, fb 1): every CommitVidPn returns
+  **0x401E0307 STATUS_GRAPHICS_MODE_NOT_PINNED** (32.4 s twice); our MwCommitVidPn then sets PathActive FALSE.
+  No later commit with a pinned mode. Same in g13fullc and in the original's run 6 (CommitStatus 0x401e0307 there
+  too). Display-only (same VidPN code, target frequencies unspecified) commits with a pinned mode (CommitStatus 0).
+  => **The full adapter never gets a display mode.** That explains "Current Mode: Unknown" / Win32_VideoController
+  resolution empty / "Displayable: Not Supported" (no active source) and why DWM has no output on it to present to -
+  before any UMD question. Then the Escape + CreateDevice x3 + DestroyDevice x2 are the runtime probing an adapter
+  without a desktop. UNVERIFIED why the OS never pins: candidates are our "no recommended functional VidPN" answer on
+  a full driver (dxgkrnl then derives one from the monitor modes) and the synthesised timing.
+- Change (behind Parameters\RecommendVidPn, default 1, full adapter only): MwRecommendFunctionalVidPn builds path
+  0 -> 0 (identity, sRGB 8/8/8, graphics, no protection, default gamma) and pins our one source and one target
+  mode; any failure is logged ("RecommendVidPn path/addpath/pinned <status>") and answered as before
+  (NO_RECOMMENDED_FUNCTIONAL_VIDPN). PRAM diagnostics: "Cofunc pivot <type>", "IsSupported pinned.ok <0x10 pinned |
+  1 ok>", "Commit src.chk.paths <src<<16 | checks<<8 | paths>". Build 16 exit 0.
+- Realistic paths to a composed GPU desktop (ranked): (1) make the full adapter own a mode first (this change; the
+  PRAM trace says if dxgkrnl pins it) - without a display mode nothing else matters; (2) then DWM on maliumd at FL
+  10_0 needs a WDDM present path in the UMD (d3d10umd's Present goes to GDI/StretchDIBits on softpipe; patch 0019's
+  pfnPresentCb only when Panfrost is bound = GpuEnable 1) - Mesa work; (3) fallback that ships now: display-only
+  desktop (mode 0) + the GPU as a compute/render device for apps is NOT available either (render-only on an ACPI
+  device was refused, maliwddm.h:24-34), so mode 0 stays the desktop until (1)+(2) work.
+- Package **s10e-artifacts\mali-g16** (build 16, INF 1.0.16.1, InfVerif /w exit 0, signer 5DD5DEE1...): sys
+  `75871BCF6016D62D92432535F027EEC38987A44654BC8AB561DE1EE3D31ECCEA`, inf
+  `A6ED4A60810CCA402B6CF6D79B5DDC8F9B28C6DF55B4090E8F25B74545BFF363`, cat
+  `D1EDC07C87E89C36D28C6DFE543D57FE934CB1B81115284D3B97E769BFD1238C`, d3dprobe.exe (robust)
+  `0791B40D78330B83568DD90FA3A507E045F96CC12D2DC76FE2DA8B7E411DAB58`, extra-gpu-mode.cmd (main incl. the
+  coordinator's holdrestart/stage.flg edits, CRLF) `A98668E5EB81A149F455DBD5E59DA586E97D4115D7028D6B3EB14D4F195992BC`;
+  extra-gpu-update.cmd / extra-gpu-g10.cmd / m5test.exe unchanged. Not run.
+- Steps: as mali-g15 (update live in mode 0 -> must show 1.0.16.1; full.flg + nogpu.flg; extra-gpu-mode.cmd). Read
+  in the PRAM peek: "RecommendVidPn pinned 00000000"?, then "Commit ... " + "R CommitStatus" - **00000000 = the full
+  adapter got a mode** (expect dxdiag Current Mode 1080 x 2280, Displayable Supported, and Present/Flip lines /
+  heartbeat p > 0 if DWM composes on it); still 401e0307 = dxgkrnl ignored the recommendation (next: log the
+  monitor/target mode sets dxgkrnl offers). d3dprobe.txt: adapter type display bit, outputs, D3D11/D3D10 hr.
+  Rollback switch for this change: Parameters\RecommendVidPn 0.
+- Review of this change: RecommendFunctionalVidPn is only in the full init table and returns the old answer in
+  display-only (mode 0 behaviour unchanged - the validated desktop); pointers initialised (C4703 caught it at
+  build); failure paths log and return the old status; IsSupported's log uses `pinned` only as a NULL test after
+  release. Not verified: whether dxgkrnl expects the target mode set to also carry the monitor's other modes.

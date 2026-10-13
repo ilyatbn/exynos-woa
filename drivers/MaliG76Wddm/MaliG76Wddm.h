@@ -63,6 +63,9 @@ extern ULONG MwSoftVsync;
 /* Parameters\FlipBlt (default 1): a Flip present is carried out as a CPU copy of the new primary into the GOP
  * framebuffer (command.c); 0 = the original's behaviour (flips are dropped, the panel never shows them). */
 extern ULONG MwFlipBlt;
+/* Parameters\RecommendVidPn (default 1): the full adapter answers RecommendFunctionalVidPn with its one path and
+ * mode pinned (display.c); 0 = the original's "no recommendation". Display-only never recommends (malidod). */
+extern ULONG MwRecommendVidPn;
 
 /* ---- objects ---- */
 

@@ -236,15 +236,116 @@ NTSTATUS APIENTRY MwIsSupportedVidPn(IN_CONST_HANDLE hAdapter, DXGKARG_ISSUPPORT
             setIf->pfnReleaseModeInfo(set, pinned);
     }
     vidpn->pfnReleaseSourceModeSet(Arg->hDesiredVidPn, set);
+    MwPramText(FALSE, "IsSupported pinned.ok ", NULL, ((pinned != NULL) ? 0x10u : 0u) | (Arg->IsVidPnSupported ? 1u : 0u), TRUE);
     return STATUS_SUCCESS;
+}
+
+/* G76: the full adapter's every CommitVidPn came back with no pinned source mode (0x401E0307
+ * STATUS_GRAPHICS_MODE_NOT_PINNED, runs g13fullc + g15fullb; dxdiag "Current Mode: Unknown", "Displayable: Not
+ * Supported"), so no desktop mode was ever set on it while the KMDOD (same VidPN code, unspecified frequencies) got
+ * one. With RecommendVidPn the full adapter offers the one functional VidPN it has: path source 0 -> target 0,
+ * identity transforms, our source mode and target mode pinned. Display-only keeps malidod's answer. */
+static NTSTATUS PinSourceMode(MW_ADAPTER *Dev, const DXGK_VIDPN_INTERFACE *VidPn, D3DKMDT_HVIDPN H)
+{
+    D3DKMDT_HVIDPNSOURCEMODESET set;
+    const DXGK_VIDPNSOURCEMODESET_INTERFACE *setIf;
+    D3DKMDT_VIDPN_SOURCE_MODE *mode;
+    D3DKMDT_VIDEO_PRESENT_SOURCE_MODE_ID id;
+    NTSTATUS st = VidPn->pfnCreateNewSourceModeSet(H, 0, &set, &setIf);
+
+    if (!NT_SUCCESS(st))
+        return st;
+    st = setIf->pfnCreateNewModeInfo(set, &mode);
+    if (NT_SUCCESS(st)) {
+        FillSourceMode(Dev, mode);
+        id = mode->Id;
+        st = setIf->pfnAddMode(set, mode);
+        if (!NT_SUCCESS(st))
+            setIf->pfnReleaseModeInfo(set, mode);
+        else
+            st = setIf->pfnPinMode(set, id);
+    }
+    if (NT_SUCCESS(st))
+        st = VidPn->pfnAssignSourceModeSet(H, 0, set);
+    if (!NT_SUCCESS(st))
+        VidPn->pfnReleaseSourceModeSet(H, set);
+    return st;
+}
+
+static NTSTATUS PinTargetMode(MW_ADAPTER *Dev, const DXGK_VIDPN_INTERFACE *VidPn, D3DKMDT_HVIDPN H)
+{
+    D3DKMDT_HVIDPNTARGETMODESET set;
+    const DXGK_VIDPNTARGETMODESET_INTERFACE *setIf;
+    D3DKMDT_VIDPN_TARGET_MODE *mode;
+    D3DKMDT_VIDEO_PRESENT_TARGET_MODE_ID id;
+    NTSTATUS st = VidPn->pfnCreateNewTargetModeSet(H, 0, &set, &setIf);
+
+    if (!NT_SUCCESS(st))
+        return st;
+    st = setIf->pfnCreateNewModeInfo(set, &mode);
+    if (NT_SUCCESS(st)) {
+        FillSignal(Dev, &mode->VideoSignalInfo);
+        mode->Preference = D3DKMDT_MP_PREFERRED;
+        id = mode->Id;
+        st = setIf->pfnAddMode(set, mode);
+        if (!NT_SUCCESS(st))
+            setIf->pfnReleaseModeInfo(set, mode);
+        else
+            st = setIf->pfnPinMode(set, id);
+    }
+    if (NT_SUCCESS(st))
+        st = VidPn->pfnAssignTargetModeSet(H, 0, set);
+    if (!NT_SUCCESS(st))
+        VidPn->pfnReleaseTargetModeSet(H, set);
+    return st;
 }
 
 NTSTATUS APIENTRY MwRecommendFunctionalVidPn(IN_CONST_HANDLE hAdapter,
                                              const DXGKARG_RECOMMENDFUNCTIONALVIDPN *Arg)
 {
-    UNREFERENCED_PARAMETER(hAdapter);
-    UNREFERENCED_PARAMETER(Arg);
-    return STATUS_GRAPHICS_NO_RECOMMENDED_FUNCTIONAL_VIDPN;
+    MW_ADAPTER *dev = (MW_ADAPTER *)hAdapter;
+    const DXGK_VIDPN_INTERFACE *vidpn;
+    D3DKMDT_HVIDPNTOPOLOGY topo = NULL;
+    const DXGK_VIDPNTOPOLOGY_INTERFACE *topoIf = NULL;
+    D3DKMDT_VIDPN_PRESENT_PATH *path = NULL;
+    NTSTATUS st;
+
+    if (dev->Mode == MwModeDisplayOnly || !MwRecommendVidPn)
+        return STATUS_GRAPHICS_NO_RECOMMENDED_FUNCTIONAL_VIDPN;
+    st = dev->Dxgk.DxgkCbQueryVidPnInterface(Arg->hRecommendedFunctionalVidPn, DXGK_VIDPN_INTERFACE_VERSION_V1, &vidpn);
+    if (NT_SUCCESS(st))
+        st = vidpn->pfnGetTopology(Arg->hRecommendedFunctionalVidPn, &topo, &topoIf);
+    if (NT_SUCCESS(st))
+        st = topoIf->pfnCreateNewPathInfo(topo, &path);
+    if (!NT_SUCCESS(st)) {
+        MwPramText(TRUE, "RecommendVidPn path ", NULL, (ULONG)st, TRUE);
+        return STATUS_GRAPHICS_NO_RECOMMENDED_FUNCTIONAL_VIDPN;     /* as before: dxgkrnl builds its own */
+    }
+    path->VidPnSourceId = 0;
+    path->VidPnTargetId = 0;
+    path->ImportanceOrdinal = D3DKMDT_VPPI_PRIMARY;
+    path->ContentTransformation.Scaling = D3DKMDT_VPPS_IDENTITY;
+    path->ContentTransformation.ScalingSupport.Identity = 1;
+    path->ContentTransformation.Rotation = D3DKMDT_VPPR_IDENTITY;
+    path->ContentTransformation.RotationSupport.Identity = 1;
+    path->VidPnTargetColorBasis = D3DKMDT_CB_SRGB;
+    path->VidPnTargetColorCoeffDynamicRanges.FirstChannel = 8;
+    path->VidPnTargetColorCoeffDynamicRanges.SecondChannel = 8;
+    path->VidPnTargetColorCoeffDynamicRanges.ThirdChannel = 8;
+    path->Content = D3DKMDT_VPPC_GRAPHICS;
+    path->CopyProtection.CopyProtectionType = D3DKMDT_VPPMT_NOPROTECTION;
+    path->GammaRamp.Type = D3DDDI_GAMMARAMP_DEFAULT;
+    st = topoIf->pfnAddPath(topo, path);
+    if (!NT_SUCCESS(st)) {
+        topoIf->pfnReleasePathInfo(topo, path);
+        MwPramText(TRUE, "RecommendVidPn addpath ", NULL, (ULONG)st, TRUE);
+        return STATUS_GRAPHICS_NO_RECOMMENDED_FUNCTIONAL_VIDPN;
+    }
+    st = PinSourceMode(dev, vidpn, Arg->hRecommendedFunctionalVidPn);
+    if (NT_SUCCESS(st))
+        st = PinTargetMode(dev, vidpn, Arg->hRecommendedFunctionalVidPn);
+    MwPramText(TRUE, "RecommendVidPn pinned ", NULL, (ULONG)st, TRUE);
+    return NT_SUCCESS(st) ? STATUS_SUCCESS : STATUS_GRAPHICS_NO_RECOMMENDED_FUNCTIONAL_VIDPN;
 }
 
 /* Give the source and target of a path our mode if nothing is pinned. */
@@ -340,6 +441,7 @@ NTSTATUS APIENTRY MwEnumVidPnCofuncModality(IN_CONST_HANDLE hAdapter,
     const D3DKMDT_VIDPN_PRESENT_PATH *path = NULL, *next;
     NTSTATUS st;
 
+    MwPramText(FALSE, "Cofunc pivot ", NULL, (ULONG)Arg->EnumPivotType, TRUE);
     st = dev->Dxgk.DxgkCbQueryVidPnInterface(Arg->hConstrainingVidPn, DXGK_VIDPN_INTERFACE_VERSION_V1, &vidpn);
     if (!NT_SUCCESS(st))
         return st;
@@ -421,6 +523,17 @@ NTSTATUS APIENTRY MwCommitVidPn(IN_CONST_HANDLE hAdapter, const DXGKARG_COMMITVI
     st = dev->Dxgk.DxgkCbQueryVidPnInterface(Arg->hFunctionalVidPn, DXGK_VIDPN_INTERFACE_VERSION_V1, &vidpn);
     if (!NT_SUCCESS(st))
         return st;
+    {
+        /* G76: what was committed - source id, connectivity checks, number of paths (PRAM). */
+        D3DKMDT_HVIDPNTOPOLOGY topo;
+        const DXGK_VIDPNTOPOLOGY_INTERFACE *topoIf;
+        SIZE_T paths = 0;
+        if (NT_SUCCESS(vidpn->pfnGetTopology(Arg->hFunctionalVidPn, &topo, &topoIf)))
+            (void)topoIf->pfnGetNumPaths(topo, &paths);
+        MwPramText(FALSE, "Commit src.chk.paths ", NULL,
+                   ((ULONG)Arg->AffectedVidPnSourceId << 16) | ((ULONG)Arg->MonitorConnectivityChecks << 8) |
+                   ((ULONG)paths & 0xFF), TRUE);
+    }
     st = vidpn->pfnAcquireSourceModeSet(Arg->hFunctionalVidPn, 0, &set, &setIf);
     if (st == STATUS_GRAPHICS_INVALID_VIDEO_PRESENT_SOURCE || !NT_SUCCESS(st)) {
         /* No path for our source: it is being turned off. */

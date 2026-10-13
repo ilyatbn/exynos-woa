@@ -1,0 +1,192 @@
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index be1064d..0b074ee 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -1021,6 +1021,58 @@ malikm_set_display_mode(unsigned hAlloc)
+    return hr;
+ }
+ 
++/* G13 0034: OpenResource of an allocation another process (or the OS: CDD's shared primary / shadow surface) created.
++ * Run g42full: DWM opens 4 x MW_ALLOC_PRIMARY + 1 x plain A8R8G8B8 1080x2280 allocations at start; d3d10umd's
++ * OpenResource was a stub (E_OUTOFMEMORY), so DWM composed black. The description comes only from the allocation's
++ * private data (MS Learn PFND3DDDI_OPENRESOURCE: the same data DxgkDdiCreateAllocation got) - here the KMD's
++ * MW_ALLOCATION_INFO. The pixels: openers may not lock a shared allocation "unless it's a GDI non-managed primary
++ * allocation" (D3DDDICB_LOCKFLAGS), so the lock is attempted and *cpu stays NULL when refused (the caller then
++ * makes a blank texture). Returns 0 with the description, -1 when the data is not ours. Traced under MALIKM_TRACE. */
++int
++malikm_open_shared(const void *priv, unsigned size, unsigned hAlloc, unsigned *w, unsigned *h, unsigned *pitch,
++                   unsigned *d3dfmt, void **cpu)
++{
++   const MW_ALLOCATION_INFO *pi = (const MW_ALLOCATION_INFO *)priv;
++
++   *cpu = NULL;
++   if (pi == NULL || size < sizeof(*pi) || pi->Version != MW_ABI_VERSION || pi->Width == 0 || pi->Height == 0)
++      return -1;
++   *w = pi->Width;
++   *h = pi->Height;
++   *pitch = pi->Pitch ? pi->Pitch : pi->Width * 4;
++   *d3dfmt = pi->Format;
++   AcquireSRWLockExclusive(&wddm_lock);
++   if (ddi.on && ddi.cb.pfnLockCb) {
++      D3DDDICB_LOCK l = {0};
++      HRESULT hr;
++      l.hAllocation = hAlloc;
++      l.Flags.ReadOnly = 1;
++      l.Flags.IgnoreSync = 1;
++      hr = ddi.cb.pfnLockCb(ddi.device, &l);
++      if (hr >= 0)
++         *cpu = l.pData;
++      if (trace_on())
++         fprintf(stderr, "malikm: open shared alloc 0x%x %ux%u pitch %u fmt %u flags 0x%x: lock hr 0x%08lx cpu %p\n",
++                 hAlloc, *w, *h, *pitch, *d3dfmt, pi->Flags, (unsigned long)hr, *cpu);
++   }
++   ReleaseSRWLockExclusive(&wddm_lock);
++   return 0;
++}
++
++void
++malikm_close_shared(unsigned hAlloc)
++{
++   D3DKMT_HANDLE hk = hAlloc;
++   AcquireSRWLockExclusive(&wddm_lock);
++   if (ddi.on && ddi.cb.pfnUnlockCb) {
++      D3DDDICB_UNLOCK u = {0};
++      u.NumAllocations = 1;
++      u.phAllocations = &hk;
++      ddi.cb.pfnUnlockCb(ddi.device, &u);
++   }
++   ReleaseSRWLockExclusive(&wddm_lock);
++}
++
+ int
+ malikm_primary_present(unsigned hAlloc, unsigned hDst, const void *bgrx, unsigned w, unsigned h, void *dxgi_context)
+ {
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index 2354cbf..5e09253 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -41,6 +41,7 @@
+ #include "util/u_math.h"
+ #include "util/u_rect.h"
+ #include "util/u_surface.h"
++#include "frontend/winsys_handle.h"   /* G13 0034: OpenResource over external memory */
+ 
+ 
+ /*
+@@ -194,6 +195,11 @@ subResourceBox(struct pipe_resource *resource, // IN
+ extern "C" int malikm_primary_create(void *hRTResource, unsigned vidpn, unsigned w, unsigned h, unsigned *hAlloc,
+                                      int scanout);
+ extern "C" void malikm_primary_destroy(unsigned hAlloc);
++/* G13 (0034): an opened allocation's description from its private data, and its CPU view if the runtime lets this
++ * process lock it (malikm_drm.c). */
++extern "C" int malikm_open_shared(const void *priv, unsigned size, unsigned hAlloc, unsigned *w, unsigned *h,
++                                  unsigned *pitch, unsigned *d3dfmt, void **cpu);
++extern "C" void malikm_close_shared(unsigned hAlloc);
+ /* G13: true when the device is bound to the maliwddm runtime (d3d10_gdi.c d3d10_bind_runtime result >= 0). */
+ extern "C" bool d3d10_runtime_is_maliwddm(void);
+ 
+@@ -455,8 +461,77 @@ OpenResource(D3D10DDI_HDEVICE hDevice,                            // IN
+              D3D10DDI_HRESOURCE hResource,                        // IN
+              D3D10DDI_HRTRESOURCE hRTResource)                    // IN
+ {
+-   LOG_UNSUPPORTED_ENTRYPOINT();
+-   SetError(hDevice, E_OUTOFMEMORY);
++   /* G13 (exynos-woa, patch 0034): run g39full - DWM composed black because this was a stub (E_OUTOFMEMORY); run
++    * g42full - what DWM opens are the KMD's standard allocations (CDD shared primary x4, shadow surface), A8R8G8B8
++    * 1080x2280. The resource is rebuilt from the allocation's private data only (MS Learn PFND3DDDI_OPENRESOURCE /
++    * D3D10DDIARG_OPENRESOURCE carry no format or size); its texture storage is the allocation itself, locked
++    * read-only, when the runtime allows the opener to lock it (GDI non-managed primaries), else a blank texture. */
++   LOG_ENTRYPOINT();
++
++   struct pipe_context *pipe = CastPipeContext(hDevice);
++   struct pipe_screen *screen = pipe->screen;
++   Resource *pResource = CastResource(hResource);
++   unsigned w = 0, h = 0, pitch = 0, fmt = 0;
++   void *cpu = NULL;
++
++   UNREFERENCED_PARAMETER(hRTResource);
++   memset(pResource, 0, sizeof *pResource);
++   if (pOpenResource->NumAllocations < 1 || pOpenResource->pOpenAllocationInfo == NULL ||
++       malikm_open_shared(pOpenResource->pOpenAllocationInfo[0].pPrivateDriverData,
++                          pOpenResource->pOpenAllocationInfo[0].PrivateDriverDataSize,
++                          pOpenResource->pOpenAllocationInfo[0].hAllocation, &w, &h, &pitch, &fmt, &cpu) != 0) {
++      SetError(hDevice, E_INVALIDARG);
++      return;
++   }
++
++   struct pipe_resource templat;
++   memset(&templat, 0, sizeof templat);
++   templat.target = PIPE_TEXTURE_2D;
++   if (fmt == D3DDDIFMT_A8R8G8B8) {
++      templat.format = PIPE_FORMAT_B8G8R8A8_UNORM;
++      pResource->Format = DXGI_FORMAT_B8G8R8A8_UNORM;
++   } else if (fmt == D3DDDIFMT_X8R8G8B8) {
++      templat.format = PIPE_FORMAT_B8G8R8X8_UNORM;
++      pResource->Format = DXGI_FORMAT_B8G8R8X8_UNORM;
++   } else {
++      if (cpu)
++         malikm_close_shared(pOpenResource->pOpenAllocationInfo[0].hAllocation);
++      SetError(hDevice, E_INVALIDARG);
++      return;
++   }
++   templat.width0 = w;
++   templat.height0 = h;
++   templat.depth0 = 1;
++   templat.array_size = 1;
++   templat.last_level = 0;
++   templat.nr_samples = 1;
++   templat.nr_storage_samples = 1;
++   templat.bind = PIPE_BIND_SAMPLER_VIEW | PIPE_BIND_RENDER_TARGET | PIPE_BIND_DISPLAY_TARGET;
++   templat.usage = PIPE_USAGE_DEFAULT;
++
++   if (cpu) {
++      struct winsys_handle wh;
++      memset(&wh, 0, sizeof wh);
++      wh.type = WINSYS_HANDLE_TYPE_SHARED;
++      wh.handle = (HANDLE)cpu;          /* gdi_sw_displaytarget_from_handle (patch 0034): external CPU memory */
++      wh.stride = pitch;
++      pResource->resource = screen->resource_from_handle(screen, &templat, &wh, PIPE_HANDLE_USAGE_FRAMEBUFFER_WRITE);
++      if (pResource->resource)
++         pResource->kmt_opened_locked = pOpenResource->pOpenAllocationInfo[0].hAllocation;
++      else
++         malikm_close_shared(pOpenResource->pOpenAllocationInfo[0].hAllocation);
++   }
++   if (!pResource->resource) {
++      templat.bind &= ~PIPE_BIND_DISPLAY_TARGET;
++      pResource->resource = screen->resource_create(screen, &templat);
++   }
++   if (!pResource->resource) {
++      SetError(hDevice, E_OUTOFMEMORY);
++      return;
++   }
++   pResource->MipLevels = 1;
++   pResource->NumSubResources = 1;
++   pResource->transfers = (struct pipe_transfer **)calloc(1, sizeof *pResource->transfers);
+ }
+ 
+ 
+@@ -504,6 +579,11 @@ DestroyResource(D3D10DDI_HDEVICE hDevice,       // IN
+       pResource->kmt_primary = 0;
+    }
+    pipe_resource_reference(&pResource->resource, NULL);
++   if (pResource->kmt_opened_locked) {
++      /* after the texture that used the locked memory is gone (G13 0034) */
++      malikm_close_shared(pResource->kmt_opened_locked);
++      pResource->kmt_opened_locked = 0;
++   }
+ }
+ 
+ 
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index 0bd591f..2c79223 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -174,6 +174,8 @@ struct Resource
+    /* G13 (exynos-woa): the kernel allocation created for a DXGI primary (CreateResource with pPrimaryDesc) on
+     * the maliwddm runtime, 0 otherwise. Flips of this resource present from it (DxgiFns.cpp _Present). */
+    unsigned kmt_primary;
++   /* G13 (0034): an opened shared allocation whose lock backs the texture (unlocked in DestroyResource), 0 if none. */
++   unsigned kmt_opened_locked;
+ };
+ 
+ 

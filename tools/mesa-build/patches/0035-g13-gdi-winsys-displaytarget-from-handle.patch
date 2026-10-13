@@ -1,0 +1,49 @@
+diff --git a/src/gallium/winsys/sw/gdi/gdi_sw_winsys.c b/src/gallium/winsys/sw/gdi/gdi_sw_winsys.c
+index 3c43393..24ae93b 100644
+--- a/src/gallium/winsys/sw/gdi/gdi_sw_winsys.c
++++ b/src/gallium/winsys/sw/gdi/gdi_sw_winsys.c
+@@ -57,6 +57,7 @@ struct gdi_sw_displaytarget
+    unsigned size;
+ 
+    void *data;
++   bool external;      /* G13 (exynos-woa, 0034): data is someone else's memory (an opened, locked allocation) */
+ 
+    BITMAPV5HEADER bmi;
+ };
+@@ -134,7 +135,8 @@ gdi_sw_displaytarget_destroy(struct sw_winsys *winsys,
+ {
+    struct gdi_sw_displaytarget *gdt = gdi_sw_displaytarget(dt);
+ 
+-   align_free(gdt->data);
++   if (!gdt->external)
++      align_free(gdt->data);
+    FREE(gdt);
+ }
+ 
+@@ -220,8 +222,24 @@ gdi_sw_displaytarget_from_handle(struct sw_winsys *winsys,
+                                  struct winsys_handle *whandle,
+                                  unsigned *stride)
+ {
+-   assert(0);
+-   return NULL;
++   /* G13 (exynos-woa, patch 0034): d3d10umd OpenResource wraps an opened kernel allocation's locked CPU view -
++    * whandle->handle is that pointer, whandle->stride its pitch. The memory stays the caller's (not freed here). */
++   struct gdi_sw_displaytarget *gdt;
++
++   if (whandle == NULL || whandle->handle == NULL || whandle->stride == 0)
++      return NULL;
++   gdt = CALLOC_STRUCT(gdi_sw_displaytarget);
++   if (!gdt)
++      return NULL;
++   gdt->format = templet->format;
++   gdt->width = templet->width0;
++   gdt->height = templet->height0;
++   gdt->stride = whandle->stride;
++   gdt->size = gdt->stride * gdt->height;
++   gdt->data = (void *)whandle->handle;
++   gdt->external = true;
++   *stride = gdt->stride;
++   return (struct sw_displaytarget *)gdt;
+ }
+ 
+ 

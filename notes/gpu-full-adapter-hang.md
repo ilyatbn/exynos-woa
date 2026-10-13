@@ -968,3 +968,10 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
 - Docs: openers cannot lock "unless it's a GDI non-managed primary allocation" (D3DDDICB_LOCKFLAGS) - the shared
   primary may be lockable by DWM. Next: d3d10umd OpenResource for these blobs: softpipe texture whose storage is the
   allocation locked via pfnLockCb (live pixels); if the lock is refused, a blank texture instead of failing.
+- Mesa **0034**: d3d10umd OpenResource rebuilds an opened allocation from its MW_ALLOCATION_INFO (A8R8G8B8 ->
+  B8G8R8A8_UNORM, X8R8G8B8 -> B8G8R8X8), tries pfnLockCb (ReadOnly, IgnoreSync) and, if allowed, makes the softpipe
+  texture's storage that locked memory (resource_from_handle); else a blank texture; unlock in DestroyResource;
+  E_INVALIDARG for data that is not ours. 0034 was built WITHOUT its gdi winsys half (the edits had failed - file
+  not read) -> Mesa **0035**: gdi_sw_displaytarget_from_handle wraps external memory (was assert(0)), destroy does
+  not free it. Build mali-umd-0035 (56f51279…, gdi_sw_winsys.c + Resource.cpp recompiled). Package mali-g43 =
+  KMD 1.0.34.1 + UMD 0035. mali-umd-0034 alone must not be used (assert(0) path).

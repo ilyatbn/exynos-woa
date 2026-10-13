@@ -9,6 +9,9 @@
  *                                constant buffer, D24S8 depth) in a window covering the primary monitor, presented
  *                                every frame; prints frames per second each second and the total. A readback of the
  *                                centre pixel after the first frame checks that something was drawn.
+ *   d3dtri.exe tex               offscreen: a 2x2 texture (red, green / blue, white) on a full-target triangle,
+ *                                left half Texture2D.Sample (TGSI SAMPLE), right half .Load (SAMPLE_I), both
+ *                                behind GetDimensions == 2x2 (SVIEWINFO); PASS = the four quadrant colours.
  *
  * The renderer is whatever the adapter's UMD picks: with Mesa 0020 Panfrost when the KMD's GPU half is up, unless
  * GALLIUM_DRIVER overrides it (set GALLIUM_DRIVER=panfrost / softpipe to choose). Each step is logged before it
@@ -198,6 +201,96 @@ static int Tri(ID3D11Device *Dev, ID3D11DeviceContext *Ctx)
     printf("centre=0x%08x (want 0xff0000ff) corner=0x%08x (want 0xffff0000) -> %s\n", Centre, Corner,
            (Centre == 0xff0000ffu && Corner == 0xffff0000u) ? "PASS" : "FAIL");
     return (Centre == 0xff0000ffu && Corner == 0xffff0000u) ? 0 : 4;
+}
+
+/* ---- tex: D3D10 sampling (SAMPLE, SAMPLE_I, SVIEWINFO) ---- */
+
+static const char TexHlsl[] =
+    "struct V { float4 p : SV_Position; float2 uv : TEXCOORD0; };\n"
+    "V vs(uint id : SV_VertexID) { V o; float2 t = float2((id << 1) & 2, id & 2);"
+    " o.p = float4(t * float2(2, -2) + float2(-1, 1), 0, 1); o.uv = t; return o; }\n"
+    "Texture2D tx : register(t0); SamplerState sm : register(s0);\n"
+    "float4 ps(V i) : SV_Target { uint w, h; tx.GetDimensions(w, h);"
+    " if (w != 2 || h != 2) return float4(1, 0, 1, 1);"
+    " if (i.p.x < 32) return tx.Sample(sm, i.uv);"
+    " return tx.Load(int3(int2(i.uv * 2), 0)); }\n";
+
+static int Tex(ID3D11Device *Dev, ID3D11DeviceContext *Ctx)
+{
+    static const UINT Texels[4] = { 0xff0000ffu, 0xff00ff00u, 0xffff0000u, 0xffffffffu };
+    static const struct { int X, Y; UINT Want; const char *Name; } Probe[4] = {
+        { 16, 16, 0xff0000ffu, "top-left red (Sample)" }, { 48, 16, 0xff00ff00u, "top-right green (Load)" },
+        { 16, 48, 0xffff0000u, "bottom-left blue (Sample)" }, { 48, 48, 0xffffffffu, "bottom-right white (Load)" },
+    };
+    D3D11_TEXTURE2D_DESC Td = { 0 };
+    D3D11_SUBRESOURCE_DATA Init = { Texels, 8, 0 };
+    D3D11_SAMPLER_DESC Sd = { 0 };
+    D3D11_VIEWPORT Vp = { 0.0f, 0.0f, 64.0f, 64.0f, 0.0f, 1.0f };
+    D3D11_MAPPED_SUBRESOURCE M;
+    ID3D11Texture2D *Rt = NULL, *St = NULL, *Tx = NULL;
+    ID3D11RenderTargetView *Rtv = NULL;
+    ID3D11ShaderResourceView *Srv = NULL;
+    ID3D11SamplerState *Smp = NULL;
+    ID3DBlob *Vsb = NULL, *Psb = NULL;
+    ID3D11VertexShader *Vs = NULL;
+    ID3D11PixelShader *Ps = NULL;
+    static const float Black[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    int Bad = 0;
+
+    Td.Width = Td.Height = 64;
+    Td.MipLevels = Td.ArraySize = 1;
+    Td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    Td.SampleDesc.Count = 1;
+    Td.Usage = D3D11_USAGE_DEFAULT;
+    Td.BindFlags = D3D11_BIND_RENDER_TARGET;
+    Mark("render target");
+    CHECK(ID3D11Device_CreateTexture2D(Dev, &Td, NULL, &Rt), "CreateTexture2D(rt)");
+    CHECK(ID3D11Device_CreateRenderTargetView(Dev, (ID3D11Resource *)Rt, NULL, &Rtv), "CreateRenderTargetView");
+    Mark("texture");
+    Td.Width = Td.Height = 2;
+    Td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    CHECK(ID3D11Device_CreateTexture2D(Dev, &Td, &Init, &Tx), "CreateTexture2D(2x2)");
+    CHECK(ID3D11Device_CreateShaderResourceView(Dev, (ID3D11Resource *)Tx, NULL, &Srv), "CreateShaderResourceView");
+    Sd.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+    Sd.AddressU = Sd.AddressV = Sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+    Sd.MaxLOD = D3D11_FLOAT32_MAX;
+    Sd.ComparisonFunc = D3D11_COMPARISON_NEVER;
+    CHECK(ID3D11Device_CreateSamplerState(Dev, &Sd, &Smp), "CreateSamplerState");
+    Mark("shaders");
+    CHECK(Compile(TexHlsl, "vs", "vs_4_0", &Vsb), "D3DCompile(vs)");
+    CHECK(Compile(TexHlsl, "ps", "ps_4_0", &Psb), "D3DCompile(ps)");
+    CHECK(ID3D11Device_CreateVertexShader(Dev, ID3D10Blob_GetBufferPointer(Vsb), ID3D10Blob_GetBufferSize(Vsb), NULL,
+                                          &Vs), "CreateVertexShader");
+    CHECK(ID3D11Device_CreatePixelShader(Dev, ID3D10Blob_GetBufferPointer(Psb), ID3D10Blob_GetBufferSize(Psb), NULL,
+                                         &Ps), "CreatePixelShader");
+    Mark("draw");
+    ID3D11DeviceContext_ClearRenderTargetView(Ctx, Rtv, Black);
+    ID3D11DeviceContext_OMSetRenderTargets(Ctx, 1, &Rtv, NULL);
+    ID3D11DeviceContext_RSSetViewports(Ctx, 1, &Vp);
+    ID3D11DeviceContext_IASetInputLayout(Ctx, NULL);
+    ID3D11DeviceContext_IASetPrimitiveTopology(Ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D11DeviceContext_VSSetShader(Ctx, Vs, NULL, 0);
+    ID3D11DeviceContext_PSSetShader(Ctx, Ps, NULL, 0);
+    ID3D11DeviceContext_PSSetShaderResources(Ctx, 0, 1, &Srv);
+    ID3D11DeviceContext_PSSetSamplers(Ctx, 0, 1, &Smp);
+    ID3D11DeviceContext_Draw(Ctx, 3, 0);
+    Mark("readback");
+    Td.Width = Td.Height = 64;
+    Td.Usage = D3D11_USAGE_STAGING;
+    Td.BindFlags = 0;
+    Td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    CHECK(ID3D11Device_CreateTexture2D(Dev, &Td, NULL, &St), "CreateTexture2D(staging)");
+    ID3D11DeviceContext_CopyResource(Ctx, (ID3D11Resource *)St, (ID3D11Resource *)Rt);
+    CHECK(ID3D11DeviceContext_Map(Ctx, (ID3D11Resource *)St, 0, D3D11_MAP_READ, 0, &M), "Map");
+    for (int i = 0; i < 4; i++) {
+        UINT C = *(const UINT *)((const BYTE *)M.pData + Probe[i].Y * M.RowPitch + Probe[i].X * 4);
+        printf("%-28s 0x%08x (want 0x%08x)%s\n", Probe[i].Name, C, Probe[i].Want, C == Probe[i].Want ? "" : "  <- WRONG");
+        if (C != Probe[i].Want)
+            Bad++;
+    }
+    ID3D11DeviceContext_Unmap(Ctx, (ID3D11Resource *)St, 0);
+    printf("tex -> %s\n", Bad ? "FAIL" : "PASS");
+    return Bad ? 4 : 0;
 }
 
 /* ---- cube: a spinning 3D workload ---- */
@@ -473,7 +566,7 @@ int main(int argc, char **argv)
     printf("D3D11CreateDevice hr 0x%08lx FL 0x%x\n", (unsigned long)hr, Got);
     if (FAILED(hr))
         return 2;
-    Rc = strcmp(Mode, "cube") == 0 ? Cube(Dev, Ctx, Seconds) : Tri(Dev, Ctx);
+    Rc = strcmp(Mode, "cube") == 0 ? Cube(Dev, Ctx, Seconds) : strcmp(Mode, "tex") == 0 ? Tex(Dev, Ctx) : Tri(Dev, Ctx);
     printf("d3dtri: done, exit %d\n", Rc);
     fflush(stdout);
     return Rc;

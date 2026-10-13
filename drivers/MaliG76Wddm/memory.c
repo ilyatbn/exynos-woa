@@ -203,8 +203,19 @@ NTSTATUS APIENTRY MwGetStandardAllocationDriverData(IN_CONST_HANDLE hAdapter,
         h = Arg->pCreateStagingSurfaceData->Height;
         pitch = &Arg->pCreateStagingSurfaceData->Pitch;
         break;
-    default:
+    default: {
+        /* g39 follow-up: which other standard types (GDISURFACE = DWM redirection) does the OS ask for? Each
+         * type once, to PRAM, with the GDI surface type when there is one. */
+        static LONG seen;
+        ULONG bit = 1u << ((ULONG)Arg->StandardAllocationType & 31);
+        if ((InterlockedOr(&seen, (LONG)bit) & (LONG)bit) == 0)
+            MwPramText(TRUE, "StdAlloc unsupported type.gdi ", NULL,
+                       ((ULONG)Arg->StandardAllocationType << 16) |
+                       (Arg->StandardAllocationType == D3DKMDT_STANDARDALLOCATION_GDISURFACE &&
+                        Arg->pCreateGdiSurfaceData != NULL ? ((ULONG)Arg->pCreateGdiSurfaceData->Type & 0xFFFF) : 0),
+                       TRUE);
         return STATUS_NOT_SUPPORTED;
+    }
     }
     if (out == NULL) {
         Arg->AllocationPrivateDriverDataSize = sizeof(MW_ALLOCATION_INFO);
@@ -239,11 +250,25 @@ NTSTATUS APIENTRY MwOpenAllocation(IN_CONST_HANDLE hDevice, const DXGKARG_OPENAL
     MW_DEVICE *dev = (MW_DEVICE *)hDevice;
     DXGKRNL_INTERFACE *dx = &dev->Adapter->Dxgk;
 
+    static LONG opens;
+    LONG n = InterlockedIncrement(&opens);
+
     for (UINT i = 0; i < Arg->NumAllocations; i++) {
         DXGKARGCB_GETHANDLEDATA get = {0};
         get.hObject = Arg->pOpenAllocation[i].hAllocation;
         get.Type = DXGK_HANDLE_ALLOCATION;
         Arg->pOpenAllocation[i].hDeviceSpecificAllocation = dx->DxgkCbGetHandleData(&get);
+    }
+    /* g39full: DWM composes black because d3d10umd's OpenResource fails; which surfaces does it try to open
+     * (UMD-created shared ones carry our MW_ALLOCATION_INFO, OS standard ones the blob of
+     * GetStandardAllocationDriverData)? Opens 1-8 and every 16th: count, allocation 0's flags and size. */
+    if (n <= 8 || (n & 15) == 0) {
+        const MW_ALLOCATION *a0 = Arg->NumAllocations ? (const MW_ALLOCATION *)Arg->pOpenAllocation[0].hDeviceSpecificAllocation : NULL;
+        MwPramText(TRUE, "Open n.allocs ", NULL, ((ULONG)n << 16) | (Arg->NumAllocations & 0xFFFF), TRUE);
+        if (a0 != NULL) {
+            MwPramText(TRUE, "Open flags.fmt ", NULL, (a0->Flags << 16) | ((ULONG)a0->Format & 0xFFFF), TRUE);
+            MwPramText(TRUE, "Open wxh ", NULL, (a0->Width << 16) | (a0->Height & 0xFFFF), TRUE);
+        }
     }
     return STATUS_SUCCESS;
 }

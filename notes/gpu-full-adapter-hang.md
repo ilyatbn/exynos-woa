@@ -935,3 +935,6 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   allocation (pfnAllocateCb, shared), OpenResource mapping the opened allocation (pfnLockCb) as the softpipe
   texture's storage, so CPU rendering in one process is visible in DWM. Docs first (OpenResource(D3D10),
   D3D10DDIARG_OPENRESOURCE, shared allocation rules).
+- KMD 1.0.32.1 (build 32, package mali-g40): PRAM "Open n.allocs" / "Open flags.fmt" / "Open wxh" for opens 1-8 and
+  every 16th (what DWM opens), "StdAlloc unsupported type.gdi" once per refused standard type (does the OS ask for
+  GDISURFACE?). Plan step 5 (device check before building shared resources).

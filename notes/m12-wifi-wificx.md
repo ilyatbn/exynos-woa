@@ -381,3 +381,18 @@ What the logs must show (Exynos9820WlanCx.txt = bring-up, -run.txt = runtime):
 - Root cause of cx3/cx4 "unable to connect": rx frames had to be delivered as 802.11 data + LLC/SNAP (cx5), plus the
   association-result TLV (cx4). Open: throughput ("very slow"), firewall/remote access, power/D3, roaming.
 - Next: S10eAgent outbound remote-control channel to 192.168.137.1 (avoids inbound firewall + UAC; runs as SYSTEM).
+
+## User report 2026-10-13 ~22:40: "WiFi missing" / "wifi menu was not visible in all boots, regardless of gpu"
+Logs: s10e-artifacts/runs/user3 (wlan/ = System32\LogFiles\Exynos9820WlanCx*.txt pulled read-only via TWRP
+ntfs-3g `mount.ntfs -o ro /dev/block/by-name/userdata`; esp/ = UEFILOG + PRAM; out/ = ESP S10EDIAG\out).
+- Last boot (full GPU mode): UEFILOG `[PCIe] link up on try 1 ... WLAN: bring-up Success, ACPI WLAN visible`.
+  Driver bring-up log: RESULT 0, DL 0 (fw 18.41.117), MSG 0, CLM OK, SCAN 0 (6 BSS), RESIDENT, CX 0.
+  Run log (run.1 -> run.txt): WDI scans, **WDI connect to S10eTest (7E:B5:66:C3:74:E0), association status 0,
+  [link] connected, pairwise + group keys installed**, then DHCP/ARP/mDNS tx and unicast rx from the AP
+  (rx/tx fifo ~2400/2060, 0 drops). So the driver and the OS WLAN stack connected on their own (saved profile).
+- => "WiFi missing" is a **UI** symptom, not a driver/PCIe one (at least in that boot). Application.evtx:
+  ShellExperienceHost.exe 10.0.22621.2792 Application Hang (rec 6364; hosts the 22H2 Quick Settings/network
+  flyout), SearchHost / StartMenuExperienceHost hangs, LogonUI APPCRASH combase.dll 0x80070057 at +0x99d44 on
+  many boots (first rec 5259) - the same E_INVALIDARG as g49 (CreateCompositionBuffer/Acrylic).
+- Open: whether the display-only boots also connected (bring-up log is overwritten each boot; run.2 has a
+  DISASSOC + rescans from another boot); what exactly the user does not see (tray icon / flyout / list).

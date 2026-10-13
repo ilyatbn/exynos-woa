@@ -453,3 +453,7 @@ ntfs-3g `mount.ntfs -o ro /dev/block/by-name/userdata`; esp/ = UEFILOG + PRAM; o
   BEYOND0LTE_USB_KD_DEVICE 1 image, the host image has no UFN0 - BCD debug must match the image).
 - Validation (needs-boot): wifistate\progress.txt shows 'USBH' 'WLAN' 'GPU0' at runtime, ACPI\SAMS9825\0 Started,
   netsh shows the interface; also after a hard reset (the branch that was broken).
+- Review of 9ffee79: comment claimed the zeroing "hid all four devices" - wrong for AUD0 (DSDT AUD0._STA returns 0
+  only on 'NOAU', so zero **exposed** the audio device despite noaudio.flg on hard-reset boots). Comment fixed in
+  a follow-up commit (comment only; the #115 binary is unaffected). Diff checked: one ZeroMem length change
+  (DUMP - SIZE_4KB = 0xF000), other branches untouched (they reboot to TWRP).

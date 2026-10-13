@@ -588,7 +588,8 @@ OnReadyToBoot (
             // This boot continues into Windows: keep the progress page (0x8FE0F000, the last 4 KiB of the
             // dump). Its words [2..5] are this boot's 'USBH'/'WLAN'/'GPU0'/'NOAU' (set by the DXEs before
             // ReadyToBoot) and the DSDT _STA of XHC0/WLAN/GPU0/AUD0 reads them; zeroing the whole dump hid
-            // all four devices from Windows after every hard reset (2026-10-13, notes/m12-wifi-wificx.md).
+            // XHC0, WLAN and GPU0 from Windows after every hard reset, and un-hid AUD0 despite noaudio.flg
+            // ('NOAU' hides it, 0 shows it) (2026-10-13, notes/m12-wifi-wificx.md).
             //
             ZeroMem ((VOID *)(UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP - SIZE_4KB);
             Root = OpenEspRoot ();

@@ -42,7 +42,8 @@ Nothing above a rung is claimed until that rung is observed.
 **Firmware half, part A — observation.** `firmware/Platform/Beyond0LtePkg/Drivers/Beyond0LteThermalDxe/`
 maps both TMU windows and prints, with **zero writes**: `CONTROL`, `THD0..7`, `INTPEND0..7`,
 `CUR_TEMP0..` and the calibrated °C for each of the five ids. That single line answers the safety
-question the user asked: *is anything already protecting this SoC when no thermal driver runs?*
+question this subsystem exists for: *is anything already protecting this SoC when no thermal
+driver runs?*
 
 **Firmware half, part B — the real deliverable: describe the zones in AML.** No driver of ours is
 required for Windows to do thermal management; it needs a `ThermalZone` object. In

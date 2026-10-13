@@ -730,3 +730,26 @@ Options, ranked by my estimate of reaching a composed desktop on the full adapte
 4. **Defer the full adapter**: keep display-only (mode 0, validated) as the shipped desktop; GPU work continues via
    m5test/compute until the Mesa UMD is a full WDDM UMD (D3D11 DDI, real allocations, flips). Zero risk.
 Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the diagnostic if 1 stalls.
+
+## Run g28full (2026-10-13) -> mali-g29
+- UMD on the device = b8c8135f (pass-2 hashes.txt). ETW 184: still exactly **4 Blt presents** (flags 0x401081 =
+  Blt|SrcRectValid|PresentCountValid|bit22, src 0x40000800 = the shim's private surface, **hDstAllocHandle 0,
+  hWindow 0**, status 0), then nothing; PRAM: no KMD Present after the boot console, only Describe/VidPN. So the
+  permanent lock was not the (only) blocker.
+- Reading: with NO_SCANOUT, DXGI presents DWM's primary RESOURCE, but the shim hands dxgkrnl an allocation that
+  belongs to no resource (and no destination); dxgkrnl accepts the call and nothing executes. (Inference.)
+- **Mesa patch 0025** (mesa-26.2-g76 81007ef; tools/mesa-build/patches/0025-g13-no-scanout-primaries-resource-
+  allocations-and-dst.patch, fresh-tree apply OK): NO_SCANOUT primaries also get a resource-owned kernel allocation
+  (pfnAllocateCb with hResource, Flags.Primary 0, no MW_ALLOC_PRIMARY) and presents come from it
+  (malikm_primary_present); _Present's hDstResource allocation, if any, goes to DXGIDDICB_PRESENT.hDstAllocation.
+  UMD `228D8332D821EAD03EC953A7EA74290657D9B7C80934C66CEAA6629B51F3B4B9`.
+- **Option 2 in extra-gpu-mode.cmd**: the MaliDxgk AutoLogger also takes Microsoft-Windows-Dwm-Core
+  {9E9BBA3C-2E38-40CB-99F4-9E8281425164} and Microsoft-Windows-DXGI {CA11C036-0102-4A2D-A6AD-F03CFED5D3C9} (GUIDs
+  checked with `logman query providers` here; `logman update trace autosession\MaliDxgk -p ...`, then `logman query`
+  into etw-create.txt), -max 64 MB. Pass 2 keeps dxgk-msgs.txt (494) and adds dxgk-present.txt (DxgKrnl 184 rows),
+  dwm-all.txt (all Dwm-Core/DXGI rows) and dwm-msgs.txt (level 2/3 rows + rows with fail/error/0x8...), first 5 as
+  "e:" marks.
+- Package **s10e-artifacts\mali-g29** = g26 driver 1.0.26.1 + UMD 228d8332 + extra-gpu-mode.cmd (CRLF)
+  `75463D00102F6304421364255EB3A3F409E89BD1C31D07EB2EA1FBBA4916B60E`; other scripts unchanged; display-only default.
+  Steps as before (full.flg + nogpu.flg + extra-gpu-mode.cmd; pass 1 deploys the UMD). Read: etw-create.txt (3
+  providers listed), dxgk-present.txt (src handle != 0x40000800? count > 4?), PRAM Present after 30 s, dwm-msgs.txt.

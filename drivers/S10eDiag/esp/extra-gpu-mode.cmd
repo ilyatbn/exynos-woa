@@ -31,7 +31,12 @@ rem original project found its VidPN/start failures - wddm-mali-g52 docs/results
 rem full-mode boot: why dxgkrnl creates the primary, destroys it and commits a VidPN with 0 paths (run g17full).
 rem An AutoLogger session (starts at the next boot), stopped and decoded in pass 2. Full modes only.
 if %ANYFULL% GTR 0 logman delete "autosession\MaliDxgk" > nul 2>&1
-if %ANYFULL% GTR 0 logman create trace "autosession\MaliDxgk" -p {802EC45A-1E99-4B83-9920-87C98277BA9D} 0xffffffffffffffff 5 -o C:\S10eTmp\dxgk.etl -bs 1024 -nb 16 256 -max 32 -mode Sequential > "%G%\etw-create.txt" 2>&1
+if %ANYFULL% GTR 0 logman create trace "autosession\MaliDxgk" -p {802EC45A-1E99-4B83-9920-87C98277BA9D} 0xffffffffffffffff 5 -o C:\S10eTmp\dxgk.etl -bs 1024 -nb 16 256 -max 64 -mode Sequential > "%G%\etw-create.txt" 2>&1
+rem G13 (run g28full): also DWM's and DXGI's own providers (GUIDs from `logman query providers` on Windows 11):
+rem Microsoft-Windows-Dwm-Core {9E9BBA3C-2E38-40CB-99F4-9E8281425164}, Microsoft-Windows-DXGI {CA11C036-0102-4A2D-A6AD-F03CFED5D3C9}.
+if %ANYFULL% GTR 0 logman update trace "autosession\MaliDxgk" -p {9E9BBA3C-2E38-40CB-99F4-9E8281425164} 0xffffffffffffffff 5 >> "%G%\etw-create.txt" 2>&1
+if %ANYFULL% GTR 0 logman update trace "autosession\MaliDxgk" -p {CA11C036-0102-4A2D-A6AD-F03CFED5D3C9} 0xffffffffffffffff 5 >> "%G%\etw-create.txt" 2>&1
+if %ANYFULL% GTR 0 logman query "autosession\MaliDxgk" >> "%G%\etw-create.txt" 2>&1
 rem G13: deploy the UMD (maliumd.dll + libgallium_d3d10.dll from \S10EDIAG\gpu) into System32 NOW, while GPU0 is hidden
 rem and no process has the Mali adapter's UMD loaded (in pass 2 DWM holds maliumd.dll: "being used by another process",
 rem run g13fullc). Hashes before/after into gpu\umd-deploy.txt.
@@ -65,6 +70,12 @@ if exist C:\S10eTmp\dxgk.etl copy /y C:\S10eTmp\dxgk.etl "%G%\dxgk.etl" > nul 2>
 if exist C:\S10eTmp\dxgk.etl tracerpt C:\S10eTmp\dxgk.etl -o "%G%\dxgk.xml" -of XML -y > "%G%\etw-tracerpt.txt" 2>&1
 if exist C:\S10eTmp\dxgk.etl tracerpt C:\S10eTmp\dxgk.etl -o "%G%\dxgk.csv" -of CSV -y >> "%G%\etw-tracerpt.txt" 2>&1
 if exist "%G%\dxgk.csv" findstr /r /c:"DxgKrnl, *DCStart *, *494," "%G%\dxgk.csv" > "%G%\dxgk-msgs.txt" 2>&1
+rem DxgKrnl present results (event 184) and every DWM / DXGI event of level error or warning (CSV Level column 2/3),
+rem plus their text-bearing rows, into dwm-msgs.txt - DWM's own reason for re-creating or stalling.
+if exist "%G%\dxgk.csv" findstr /r /c:"DxgKrnl, *Info *, *184," "%G%\dxgk.csv" > "%G%\dxgk-present.txt" 2>&1
+if exist "%G%\dxgk.csv" findstr /r /c:"^Microsoft-Windows-Dwm-Core" /c:"^Microsoft-Windows-DXGI" "%G%\dxgk.csv" > "%G%\dwm-all.txt" 2>&1
+if exist "%G%\dwm-all.txt" findstr /r /c:"^[^,]*,[^,]*,[^,]*,[^,]*,[^,]*, *[23]," /c:"fail" /c:"error" /c:"0x8" "%G%\dwm-all.txt" > "%G%\dwm-msgs.txt" 2>&1
+for /f "usebackq delims=" %%L in (`findstr /n "^" "%G%\dwm-msgs.txt" ^| findstr /b "1: 2: 3: 4: 5:"`) do s10ediag mark "e: %%L"
 if exist C:\S10eTmp\dxgk.etl del /f /q C:\S10eTmp\dxgk.etl
 rem G13: can the D3D runtimes create a device on the Mali adapter (DWM needs D3D11; maliumd.dll is Mesa d3d10umd
 rem built D3D10.0-only)? d3dprobe prints per adapter the UMD names for DX9/10/11, the WDDM version and the HRESULT of

@@ -1163,3 +1163,14 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   composition buffers S_OK on AMD and WARP (out1 = an NT handle, out2 = an object pointer - releasing out1 as an
   IUnknown faulted, so outputs are not released); DISPLAYABLE texture E_INVALIDARG everywhere (DisplayableTexture 0
   on these drivers, SharedResourceTier 3) - not the discriminator. ARM64 build s10e-artifacts\d3dprobe-3. Run g50.
+
+## Run g50full (19:55) - CreateCompositionBuffer reproduced on the Mali adapter (probe, SYSTEM, session 0)
+- Mali: QI {26c5dc23} S_OK; composition buffer 256: B8G8R8A8 0x80070057, R8G8B8A8 0x80070057 (= LogonUI's failure),
+  R8 / R8G8 0x887A0004 DXGI_ERROR_UNSUPPORTED (the WDDM1_3-format caps gate), R16G16B16A16F 0x8007000E
+  E_OUTOFMEMORY (= our d3d10umd CreateResource's unsupported-format SetError -> that call reached the UMD).
+  D3D11_FEATURE_DISPLAYABLE: DisplayableTexture 0, **SharedResourceTier 0** (WARP: 3).
+- Basic Render Driver in the same process: all 5 S_OK (out1 = NT handle, out2 = object).
+- Reading (UNVERIFIED): composition buffers are shared resources returned with an NT handle at once. d3d10umd
+  CreateResource creates no kernel allocation for MISC_SHARED resources (only DXGI primaries get one, 0026), so the
+  runtime has nothing to make a shared handle from. Next probe step: GetSharedHandle / CreateSharedHandle on the
+  SHARED / KEYEDMUTEX / NTHANDLE textures (S_OK on the PC's AMD + WARP). Build s10e-artifacts\d3dprobe-4, run g51.

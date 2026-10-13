@@ -18,7 +18,7 @@
 #include <stdio.h>
 #pragma warning(push)
 #pragma warning(disable : 4201)     /* nameless unions in the SDK headers (C mode) */
-#include <dxgi.h>
+#include <dxgi1_2.h>
 #include <d3d11.h>
 #include <d3d10.h>
 #include <d3dkmthk.h>
@@ -151,6 +151,32 @@ static void TryTextures(ID3D11Device *Dev)
         Mark(t[i].N);
         hr = ID3D11Device_CreateTexture2D(Dev, &d, NULL, &tex);
         printf("    texture BGRA 256 %-20s hr 0x%08lx\n", t[i].N, (unsigned long)hr);
+        /* g50: composition buffers come back with an NT shared handle, and the UMD backs shared resources with no
+         * kernel allocation - can the runtime make a shared handle for our shared textures at all? */
+        if (tex != NULL && (t[i].Misc & D3D11_RESOURCE_MISC_SHARED_NTHANDLE)) {
+            IDXGIResource1 *r1 = NULL;
+            HANDLE h = NULL;
+            HRESULT hq = ID3D11Texture2D_QueryInterface(tex, &IID_IDXGIResource1, (void **)&r1);
+            if (SUCCEEDED(hq)) {
+                Mark("CreateSharedHandle");
+                hq = IDXGIResource1_CreateSharedHandle(r1, NULL, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE,
+                                                       NULL, &h);
+                IDXGIResource1_Release(r1);
+            }
+            printf("      CreateSharedHandle hr 0x%08lx handle %p\n", (unsigned long)hq, h);
+            if (h != NULL)
+                CloseHandle(h);
+        } else if (tex != NULL && (t[i].Misc & (D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX))) {
+            IDXGIResource *r = NULL;
+            HANDLE h = NULL;
+            HRESULT hq = ID3D11Texture2D_QueryInterface(tex, &IID_IDXGIResource, (void **)&r);
+            if (SUCCEEDED(hq)) {
+                Mark("GetSharedHandle");
+                hq = IDXGIResource_GetSharedHandle(r, &h);
+                IDXGIResource_Release(r);
+            }
+            printf("      GetSharedHandle hr 0x%08lx handle %p\n", (unsigned long)hq, h);
+        }
         if (tex != NULL)
             ID3D11Texture2D_Release(tex);
     }

@@ -1277,3 +1277,29 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
 - User chose to disable the harness for their tests: ESP extra.cmd -> extra.cmd.off, stay.flg created (no restart
   from collect.cmd, no 20-min fallback reset), leftover torecovery.flg removed. Mode stays full (gpu\full.flg,
   registry FullAdapter 1), UMD 0039, KMD 1.0.34.1. Re-enable for harness runs: mv extra.cmd.off extra.cmd, rm stay.flg.
+
+## User test boots 2-4 (22:00-22:14, logs runs/user2) + gfxperf
+- User report: boot A - logon screen landscape, then no transparent desktop, WiFi missing (no networks);
+  boot B (restart) - ~30 s panel off after the logo, then grey, then a transparent desktop not in landscape, taskbar
+  clock "stretched beyond the screen", extreme lag (touch very slow, power-menu long press 30-40 s), frozen ->
+  hard reset; boot C - logon landscape, no transparency, good performance, still no WiFi; then reboot to TWRP.
+  The user asked for logs only and for an automation that measures frame rate / CPU / GPU cost with the GPU
+  adapter on.
+- runs/user2: WINPRAM.BIN marks are bit-damaged (keys: voldown lines; the PRAM ring of a hard reset), the last
+  boot's out\last has only collect.cmd output (extra.cmd disabled). pnp-problem: only CPUs 6 and 7 (M4 big cores,
+  CM_PROB_FAILED_START 0xC0000225, known open item) - GPU0 (MaliG76Wddm) had no problem in that boot.
+  KernelPnP.evtx is a wrapped circular log - not usable to attribute the boots. Not analysed further (user asked
+  for logs only): landscape/portrait switching between boots, the "stretched" taskbar, WiFi missing.
+- Known numbers already: d3dfill (full mode, softpipe on the CPU) presented 1080x2280 frames at 1.7-15 fps per
+  phase (g52: red 49 / 9.2 s, green 84 / 8.0 s, blue 14 / 8.3 s, white 31 / 10.0 s; g53 white 125 / 8.0 s).
+  Everything DWM composes in full mode is drawn by Mesa softpipe (a per-pixel TGSI interpreter) on the CPU; the
+  Mali itself does no work with GpuEnable 0. Display-only mode uses Microsoft Basic Display + WARP (JIT,
+  multi-threaded) instead - expected to be much faster.
+- New tool **gfxperf** (drivers/MaliG76Wddm/tools/gfxperf): every second for N s - DWM composition fps
+  (DwmGetCompositionTimingInfo cFrame delta), refresh Hz, dropped/missed; per-CPU % Processor Utility + Processor
+  Frequency (MHz); GPU Engine Utilization per adapter LUID + engine type; top 4 processes by CPU. Tested x64 on the
+  PC. ARM64 build s10e-artifacts\gfxperf-1.
+- New ESP step **extra-gfxperf.cmd** (for interactive boots, no restart): logs the mode (registry + GPU0 status),
+  runs gfx-user.ps1 in the user's session via run-as-user (gfxperf 150 s; with gpu\bench.flg d3dfill 3 s per colour
+  at t=60 s), copies to out\last\gfx and a numbered copy to out\gfx-history\<n>\ (survives later boots), marks a
+  summary (median/max DWM fps, mean CPU, most frequent top process). Summary line tested through cmd on the PC.

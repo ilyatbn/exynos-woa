@@ -29,6 +29,10 @@ pnputil /enum-devices /instanceid "ACPI\SAMS9828\0" >> "%X%\mode.txt" 2>&1
 for /f "usebackq tokens=1,2,3" %%A in (`findstr /i "GALLIUM_DRIVER GpuEnable" "%X%\mode.txt"`) do s10ediag mark "x: %%A %%C"
 powershell -NoProfile -Command "Get-Process dwm -ErrorAction SilentlyContinue | ForEach-Object { 'dwm pid ' + $_.Id + ' start ' + $_.StartTime + ' cpu ' + $_.CPU; $_.Modules | Where-Object { $_.ModuleName -match 'maliumd|gallium|d3d10warp|basicrender' } | ForEach-Object { '  ' + $_.FileName } }" > "%X%\dwm-modules.txt" 2>&1
 %T%\m5test.exe > "%X%\m5test-0.txt" 2>&1
+rem a crashing test leaves a WER minidump next to dwm/LogonUI's (C:\S10eTmp\dumps, armed by extra-gpu-mode.cmd)
+reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\d3dtri.exe" /v DumpFolder /t REG_EXPAND_SZ /d C:\S10eTmp\dumps /f > nul 2>&1
+reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\d3dtri.exe" /v DumpType /t REG_DWORD /d 1 /f > nul 2>&1
+reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\d3dtri.exe" /v DumpCount /t REG_DWORD /d 2 /f > nul 2>&1
 rem the D3D10 sampling path (Mesa 0044: SAMPLE / SAMPLE_I / SVIEWINFO through tgsi_to_nir) by pixels, on Panfrost
 set GALLIUM_DRIVER=panfrost
 %T%\d3dtri.exe tex > "%X%\tex-s0.txt" 2>&1

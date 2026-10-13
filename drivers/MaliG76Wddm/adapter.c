@@ -18,6 +18,7 @@ ULONG MwSynthEdid = 1;
 ULONG MwSegmentCpuVisible = 1;
 ULONG MwModeRefreshExact = 1;
 ULONG MwRefresh601 = 1;
+ULONG MwFlipMmio = 1;
 
 /* ---- trace ---- */
 
@@ -108,7 +109,7 @@ static VOID HbDpc(PKDPC Dpc, PVOID Context, PVOID Arg1, PVOID Arg2)
     UNREFERENCED_PARAMETER(Arg1);
     UNREFERENCED_PARAMETER(Arg2);
     MwPramHeartbeat((ULONG)a->IsrCalls, (ULONG)a->DpcCalls, (ULONG)a->VsyncTicks, a->Submits,
-                    a->Presents + a->DodPresents, a->LastCompletedFence);
+                    a->Presents + a->DodPresents + (ULONG)a->Latches, a->LastCompletedFence);
 }
 
 static void HbStop(MW_ADAPTER *A)
@@ -132,6 +133,7 @@ static NTSTATUS APIENTRY MwAddDevice(IN_CONST_PDEVICE_OBJECT Pdo, OUT_PPVOID Con
     a->Gpu.Log = MwLogHook;
     a->Gpu.LogOwner = a;
     MwCommandInit(a);
+    KeInitializeSpinLock(&a->ScanLock);
     KeInitializeTimer(&a->HbTimer);
     KeInitializeDpc(&a->HbDpc, HbDpc, a);
     *Context = a;
@@ -360,6 +362,10 @@ static NTSTATUS DriverCaps(MW_ADAPTER *A, const DXGKARG_QUERYADAPTERINFO *Info)
     /* Preemption off system-wide (the full-mode ESP script sets EnablePreemption 0), as viogpu3d does. */
     caps->SchedulingCaps.PreemptionAware = 1;
     caps->GpuEngineTopology.NbAsymetricProcessingNodes = 1;
+    /* G76: MMIO flips (Parameters\FlipMmio) - every DMA flip of DWM's swap chain came back
+     * STATUS_GRAPHICS_PRESENT_MODE_CHANGED (runs g22-g25) whatever the primary looked like. */
+    if (MwFlipMmio)
+        caps->FlipCaps.FlipOnVSyncMmIo = 1;
     if (FITS(size, DXGK_DRIVERCAPS, SupportNonVGA))
         caps->SupportNonVGA = TRUE;
     if (FITS(size, DXGK_DRIVERCAPS, SupportSmoothRotation))
@@ -668,6 +674,7 @@ static MW_MODE ReadMode(PUNICODE_STRING RegistryPath, ULONG *PramTrace)
     MwSegmentCpuVisible = ReadParameter(params, L"SegmentCpuVisible", 1) != 0;
     MwModeRefreshExact = ReadParameter(params, L"ModeRefreshExact", 1) != 0;
     MwRefresh601 = ReadParameter(params, L"Refresh601", 1) != 0;
+    MwFlipMmio = ReadParameter(params, L"FlipMmio", 1) != 0;
     if (params != NULL)
         ZwClose(params);
     if (svc != NULL)
@@ -803,8 +810,8 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
         MwPramText(TRUE, "Params g.f.keys.vs.fb ", NULL,
                    ((ParamGpu & 0xFF) << 24) | ((ParamFull & 0xFF) << 16) | (ParamKeys << 8) |
                    ((MwSoftVsync & 0xF) << 4) | (MwFlipBlt & 0xF), TRUE);
-        MwPramText(TRUE, "R601.RefEx.SegCpu.RecVp.Edid ", NULL,
-                   (MwRefresh601 << 16) | (MwModeRefreshExact << 12) | (MwSegmentCpuVisible << 8) | (MwRecommendVidPn << 4) | MwSynthEdid, TRUE);
+        MwPramText(TRUE, "Switches ", NULL,
+                   (MwFlipMmio << 20) | (MwRefresh601 << 16) | (MwModeRefreshExact << 12) | (MwSegmentCpuVisible << 8) | (MwRecommendVidPn << 4) | MwSynthEdid, TRUE);
         /* Wall clock (Unix seconds), so a saved \WINPRAM.BIN can be matched to the boot that wrote it. */
         KeQuerySystemTimePrecise(&now);
         MwPramText(TRUE, "UnixTime ", NULL, (ULONG)(now.QuadPart / 10000000LL - 11644473600LL), TRUE);

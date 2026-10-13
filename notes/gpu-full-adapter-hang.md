@@ -634,3 +634,35 @@ patches/*.patch after the reference patches, one commit each).
   Present lines + heartbeat p growing; 0xC01E0005 on resource-owned primaries too => it is not the resource tie
   (next: DXGI's mode tracking - the runtime's own GetDisplayModeList / mode the swap chain was created for).
   If no new handles appear at all, CreateResource never got a pPrimaryDesc (DWM uses a different swap-chain path).
+
+## Run g25full - resource-owned primaries also refused -> MMIO flips (2026-10-13)
+- ETW 184: **442 flips, all from ONE new handle 0x400008C0** (the resource-owned primary of patch 0022 - the shim
+  pair 0x40000800/840 is gone) and **all still 0xC01E0005**; 4 non-flip presents ok. Decision table: "new handles
+  but still MODE_CHANGED" -> it is not the allocation's resource tie, nor its description (g24).
+- What every attempt shared: the adapter reports **no FlipCaps**, so dxgkrnl does DWM's flips as DMA-buffer flips
+  (Present(Flip) -> SubmitCommand) - the path the original project never validated (its full adapter never got
+  to DWM: run 6), and not the one WDDM 1.x display drivers normally take: FlipOnVSyncMmIo, where dxgkrnl calls
+  DxgkDdiSetVidPnSourceAddress per flip and retires it when the driver's CRTC_VSYNC reports that PrimaryAddress
+  (d3dkmddi.h DXGK_FLIPCAPS "Support Flip as mmio at vsync interrupt"; the CrtcVsync.PhysicalAddress field =
+  "Physical Address of displaying buffer"). UNVERIFIED that this is what PRESENT_MODE_CHANGED wants - it is the
+  remaining structural difference, and cheap to try behind a switch.
+- **g26 (build 26, INF 1.0.26.1), Parameters\FlipMmio default 1**:
+  - DRIVERCAPS FlipCaps.FlipOnVSyncMmIo = 1.
+  - SetVidPnSourceAddress (any IRQL; first call's IRQL to PRAM "SetSourceAddress irql") queues the allocation
+    lock-free (PendingAddress, then InterlockedExchangePointer PendingPrimary).
+  - The soft-vsync DPC first "latches": takes the pending primary under ScanLock, CPU-copies it whole into the GOP
+    fb (DoPresent ToScanout, the allocation's MDL), sets ScanoutAddress = its PrimaryAddress, counts Latches (added
+    to the heartbeat "p"), THEN reports CRTC_VSYNC with that address - a display controller's vblank latch.
+  - FreeAllocation drops a queued latch of the allocation under ScanLock (MwScanoutForget) - no copy from freed
+    memory. Present(Flip) no longer copies at SubmitCommand while FlipMmio (no double copy).
+  - FlipMmio 0 = g25 behaviour.
+- Package **s10e-artifacts\mali-g26**: sys `7B65F3A344127E79A24083E8C916609C30E9E1DC2F33F7B9CCCF21C49AB24CCB`, inf
+  `C1BC0DA103B82CF43AF521852A591BA45A81B5E5745FE838FF35BCC8A1287FE0`, cat
+  `328BDCD3B3A790C00454B0483B32BEBB6ABD634FDE9903E18C063F71A940C740` (InfVerif /w 0, signer 5DD5DEE1...); UMD
+  c93fe995 (g25) + scripts unchanged. Steps: update live to 1.0.26.1, then full mode. Read: ETW 184 status of the
+  flips, PRAM ">SetVidPnSourceAddress" lines + "SetSourceAddress irql", heartbeat p (= presents + latches) growing.
+- If this also fails, the options left (no more cheap toggles): (1) stop flipping - make the UMD present every
+  DWM frame as a BLT to the shared primary (DXGI_DDI_PRESENT_FLAGS from the runtime decide; would need the UMD to
+  refuse flip-model: report DXGI_DDI_PRIMARY_DRIVER_FLAG_NO_SCANOUT on primaries so DXGI composes by blt); (2) a
+  live kernel debug (KDNET/serial M17) breakpoint on dxgkrnl's flip validation to read the exact check; (3) keep
+  display-only + no GPU desktop (mode 0, works) until the Mesa UMD is a real WDDM UMD (G13 proper).

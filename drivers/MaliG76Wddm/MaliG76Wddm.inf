@@ -22,6 +22,7 @@
 ;   SegmentCpuVisible 1  full adapter: the aperture segment is CPU visible (dxgkrnl requires it for a shared primary)
 ;   ModeRefreshExact 1   full adapter: DescribeAllocation reports a primary at the target mode's exact refresh rational
 ;   Refresh601 1  full adapter: timing frequencies as reduced rationals (60/1) instead of PixelRate/total
+;   FlipMmio 1    full adapter: FlipOnVSyncMmIo - flips via SetVidPnSourceAddress, latched (CPU copy) at the next soft vsync
 ;
 ; SPDX-License-Identifier: GPL-2.0
 ;
@@ -31,7 +32,7 @@ Signature   = "$WINDOWS NT$"
 Class       = Display
 ClassGuid   = {4D36E968-E325-11CE-BFC1-08002BE10318}
 Provider    = %ProviderName%
-DriverVer   = 10/13/2026,1.0.24.1
+DriverVer   = 10/13/2026,1.0.26.1
 CatalogFile = MaliG76Wddm.cat
 PnpLockdown = 1
 

@@ -77,6 +77,10 @@ extern ULONG MwSegmentCpuVisible;
 extern ULONG MwModeRefreshExact;
 /* Parameters\Refresh601 (default 1): the full adapter's timing frequencies as reduced rationals (60/1). */
 extern ULONG MwRefresh601;
+/* Parameters\FlipMmio (default 1): the full adapter reports FlipCaps.FlipOnVSyncMmIo; dxgkrnl then flips through
+ * SetVidPnSourceAddress, the software vsync "latches" the new primary (CPU copy into the GOP fb) and reports its
+ * address (command.c). 0 = no flip caps (DMA flips, FlipBlt at SubmitCommand). */
+extern ULONG MwFlipMmio;
 
 /* ---- objects ---- */
 
@@ -197,6 +201,11 @@ struct _MW_ADAPTER {
     KDPC VsDpc;
     volatile LONG VsEnabled;
     PHYSICAL_ADDRESS ScanoutAddress;    /* the last SetVidPnSourceAddress PrimaryAddress, reported with each vsync */
+    /* FlipMmio: the primary SetVidPnSourceAddress named, copied to the GOP fb at the next vsync (ScanLock). */
+    KSPIN_LOCK ScanLock;                /* held by the latch while it copies, and by FreeAllocation's forget */
+    MW_ALLOCATION * volatile PendingPrimary;    /* set lock-free by SetVidPnSourceAddress (any IRQL) */
+    PHYSICAL_ADDRESS PendingAddress;
+    volatile LONG Latches;
     volatile LONG IsrCalls, DpcCalls, VsyncTicks;
 };
 
@@ -269,6 +278,7 @@ DXGKDDI_CANCELCOMMAND MwCancelCommand;
 DXGKDDI_CONTROLINTERRUPT MwControlInterrupt;
 DXGKDDI_GETSCANLINE MwGetScanLine;
 BOOLEAN MwJobInterrupt(MW_ADAPTER *A);    /* from the ISR, at DIRQL */
+void MwScanoutForget(MW_ADAPTER *A, MW_ALLOCATION *Alloc);   /* memory.c FreeAllocation: drop a pending latch */
 void MwCommandInit(MW_ADAPTER *A);
 void MwCommandStop(MW_ADAPTER *A);
 void MwArmPoll(MW_ADAPTER *A);

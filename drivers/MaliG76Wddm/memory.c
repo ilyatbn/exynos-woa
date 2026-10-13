@@ -100,6 +100,7 @@ static NTSTATUS NewAllocation(MW_ADAPTER *A, const MW_ALLOCATION_INFO *In, DXGK_
 
 static void FreeAllocation(MW_ADAPTER *A, MW_ALLOCATION *Alloc)
 {
+    MwScanoutForget(A, Alloc);      /* G76: never latch a freed primary (FlipMmio) */
     ExAcquireFastMutex(&A->MmuLock);
     if (Alloc->Mapped && A->GpuUp)
         MkMmuUnmapPages(&A->Gpu, Alloc->GpuVa, Alloc->Pages);

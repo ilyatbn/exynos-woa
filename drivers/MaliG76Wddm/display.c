@@ -789,7 +789,20 @@ NTSTATUS APIENTRY MwSetVidPnSourceAddress(IN_CONST_HANDLE hAdapter, const DXGKAR
 {
     MW_ADAPTER *dev = (MW_ADAPTER *)hAdapter;
     /* Step d of the original: nothing is reprogrammed; presents are CPU copies (command.c). G76: the address is
-     * kept, the software vsync reports it as the one being scanned out (command.c SyncVsync). Up to DIRQL: a store. */
-    dev->ScanoutAddress = Arg->PrimaryAddress;
+     * kept, the software vsync reports it as the one being scanned out (command.c SyncVsync). With FlipMmio the
+     * allocation is queued instead: the next vsync DPC copies it into the GOP fb ("latches" it) and only then
+     * reports its address. This DDI may run up to DIRQL, so the queue is two stores, lock-free (command.c Latch). */
+    {
+        static LONG once;
+        if (InterlockedExchange(&once, 1) == 0)
+            MwPramText(TRUE, "SetSourceAddress irql ", NULL, (ULONG)KeGetCurrentIrql(), TRUE);
+    }
+    if (!MwFlipMmio || Arg->hAllocation == NULL) {
+        dev->ScanoutAddress = Arg->PrimaryAddress;
+        return STATUS_SUCCESS;
+    }
+    dev->PendingAddress = Arg->PrimaryAddress;
+    KeMemoryBarrier();
+    (void)InterlockedExchangePointer((PVOID volatile *)&dev->PendingPrimary, Arg->hAllocation);
     return STATUS_SUCCESS;
 }

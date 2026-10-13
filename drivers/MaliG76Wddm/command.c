@@ -142,7 +142,7 @@ NTSTATUS APIENTRY MwPresent(IN_CONST_HANDLE hContext, DXGKARG_PRESENT *Arg)
     /* G76: a flip names only the new primary (the source slot); with FlipBlt it becomes a whole-surface blt into the
      * GOP framebuffer, which the firmware's scan-out shows. The original dropped flips (step d not done), so a
      * compositor that flips never reached the panel. */
-    BOOLEAN flip = Arg->Flags.Flip && MwFlipBlt && Arg->pAllocationList != NULL &&
+    BOOLEAN flip = Arg->Flags.Flip && MwFlipBlt && !MwFlipMmio && Arg->pAllocationList != NULL &&
                    Arg->pAllocationList[DXGK_PRESENT_SOURCE_INDEX].hDeviceSpecificAllocation != NULL;
     if (Arg->Flags.Blt || Arg->Flags.ColorFill || flip) {
         MW_PRESENT_OP *op = &priv->Present;
@@ -482,6 +482,44 @@ static BOOLEAN SyncVsync(PVOID Context)
     return TRUE;
 }
 
+static void DoPresent(MW_ADAPTER *A, const MW_PRESENT_OP *Op);
+
+/* FlipMmio: the "scan-out latch" at a vsync (DISPATCH, VsDpc). The queued primary is copied into the GOP fb
+ * whole, and its address becomes the one the vsync reports - what a display controller does when it latches a
+ * new base address at vblank. ScanLock keeps FreeAllocation (MwScanoutForget) from freeing it meanwhile. */
+static void Latch(MW_ADAPTER *A)
+{
+    KIRQL irql;
+    MW_ALLOCATION *p;
+
+    KeAcquireSpinLock(&A->ScanLock, &irql);
+    p = (MW_ALLOCATION *)InterlockedExchangePointer((PVOID volatile *)&A->PendingPrimary, NULL);
+    if (p != NULL) {
+        MW_PRESENT_OP op;
+        KeMemoryBarrier();
+        RtlZeroMemory(&op, sizeof(op));
+        op.Kind = MW_PRESENT_BLT;
+        op.ToScanout = TRUE;
+        op.Src = p;
+        op.SrcRect.right = (LONG)p->Width;
+        op.SrcRect.bottom = (LONG)p->Height;
+        op.DstRect = op.SrcRect;
+        DoPresent(A, &op);
+        A->ScanoutAddress = A->PendingAddress;
+        InterlockedIncrement(&A->Latches);
+    }
+    KeReleaseSpinLock(&A->ScanLock, irql);
+}
+
+/* PASSIVE (FreeAllocation). Under ScanLock: a latch in progress finishes first; a queued one is dropped. */
+void MwScanoutForget(MW_ADAPTER *A, MW_ALLOCATION *Alloc)
+{
+    KIRQL irql;
+    KeAcquireSpinLock(&A->ScanLock, &irql);
+    (void)InterlockedCompareExchangePointer((PVOID volatile *)&A->PendingPrimary, NULL, Alloc);
+    KeReleaseSpinLock(&A->ScanLock, irql);
+}
+
 static VOID VsDpc(PKDPC Dpc, PVOID Context, PVOID Arg1, PVOID Arg2)
 {
     MW_ADAPTER *a = (MW_ADAPTER *)Context;
@@ -491,6 +529,8 @@ static VOID VsDpc(PKDPC Dpc, PVOID Context, PVOID Arg1, PVOID Arg2)
 
     if (a->Stopping || !a->VsEnabled)
         return;
+    if (MwFlipMmio)
+        Latch(a);
     if (Synchronize(a, SyncVsync, a))
         InterlockedIncrement(&a->VsyncTicks);
     else if (a->VsyncTicks == 0 && InterlockedExchange(&a->VsEnabled, 0) != 0) {

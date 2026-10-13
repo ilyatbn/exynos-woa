@@ -34,9 +34,13 @@ if %ANYFULL% GTR 0 logman delete "autosession\MaliDxgk" > nul 2>&1
 if %ANYFULL% GTR 0 logman create trace "autosession\MaliDxgk" -p {802EC45A-1E99-4B83-9920-87C98277BA9D} 0xffffffffffffffff 5 -o C:\S10eTmp\dxgk.etl -bs 1024 -nb 16 256 -max 64 -mode Sequential > "%G%\etw-create.txt" 2>&1
 rem G13 (run g28full): also DWM's and DXGI's own providers (GUIDs from `logman query providers` on Windows 11):
 rem Microsoft-Windows-Dwm-Core {9E9BBA3C-2E38-40CB-99F4-9E8281425164}, Microsoft-Windows-DXGI {CA11C036-0102-4A2D-A6AD-F03CFED5D3C9}.
-if %ANYFULL% GTR 0 logman update trace "autosession\MaliDxgk" -p {9E9BBA3C-2E38-40CB-99F4-9E8281425164} 0xffffffffffffffff 5 >> "%G%\etw-create.txt" 2>&1
-if %ANYFULL% GTR 0 logman update trace "autosession\MaliDxgk" -p {CA11C036-0102-4A2D-A6AD-F03CFED5D3C9} 0xffffffffffffffff 5 >> "%G%\etw-create.txt" 2>&1
+if %ANYFULL% GTR 0 logman update trace "autosession\MaliDxgk" -p {9E9BBA3C-2E38-40CB-99F4-9E8281425164} 0xffffffffffffffff 5 -o C:\S10eTmp\dxgk.etl >> "%G%\etw-create.txt" 2>&1
+if %ANYFULL% GTR 0 logman update trace "autosession\MaliDxgk" -p {CA11C036-0102-4A2D-A6AD-F03CFED5D3C9} 0xffffffffffffffff 5 -o C:\S10eTmp\dxgk.etl >> "%G%\etw-create.txt" 2>&1
 if %ANYFULL% GTR 0 logman query "autosession\MaliDxgk" >> "%G%\etw-create.txt" 2>&1
+rem run g29full: without -o, `logman update` rewrote the AutoLogger FileName to <current dir>\dxgk.etl (verified on
+rem the build PC) and pass 2 found no C:\S10eTmp\dxgk.etl. The creation log is kept on C: too (pass 2 copies it).
+if %ANYFULL% GTR 0 reg query "HKLM\SYSTEM\CurrentControlSet\Control\WMI\Autologger\MaliDxgk" /s >> "%G%\etw-create.txt" 2>&1
+if %ANYFULL% GTR 0 copy /y "%G%\etw-create.txt" C:\S10eTmp\etw-create.txt > nul 2>&1
 rem G13: deploy the UMD (maliumd.dll + libgallium_d3d10.dll from \S10EDIAG\gpu) into System32 NOW, while GPU0 is hidden
 rem and no process has the Mali adapter's UMD loaded (in pass 2 DWM holds maliumd.dll: "being used by another process",
 rem run g13fullc). Hashes before/after into gpu\umd-deploy.txt.
@@ -66,6 +70,9 @@ rem EventDescription + data, and every event carrying a Status) into dxgk-msgs.t
 s10ediag mark g: etw stop
 logman stop MaliDxgk -ets > "%G%\etw-stop.txt" 2>&1
 logman delete "autosession\MaliDxgk" >> "%G%\etw-stop.txt" 2>&1
+if exist C:\S10eTmp\etw-create.txt copy /y C:\S10eTmp\etw-create.txt "%G%\etw-create.txt" > nul 2>&1
+rem a misplaced ETL (an older pass 1 without -o on the updates) is moved to where it is expected
+if not exist C:\S10eTmp\dxgk.etl if exist "%SystemRoot%\System32\dxgk.etl" move /y "%SystemRoot%\System32\dxgk.etl" C:\S10eTmp\dxgk.etl > nul 2>&1
 if exist C:\S10eTmp\dxgk.etl copy /y C:\S10eTmp\dxgk.etl "%G%\dxgk.etl" > nul 2>&1
 if exist C:\S10eTmp\dxgk.etl tracerpt C:\S10eTmp\dxgk.etl -o "%G%\dxgk.xml" -of XML -y > "%G%\etw-tracerpt.txt" 2>&1
 if exist C:\S10eTmp\dxgk.etl tracerpt C:\S10eTmp\dxgk.etl -o "%G%\dxgk.csv" -of CSV -y >> "%G%\etw-tracerpt.txt" 2>&1

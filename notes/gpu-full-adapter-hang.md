@@ -753,3 +753,22 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   `75463D00102F6304421364255EB3A3F409E89BD1C31D07EB2EA1FBBA4916B60E`; other scripts unchanged; display-only default.
   Steps as before (full.flg + nogpu.flg + extra-gpu-mode.cmd; pass 1 deploys the UMD). Read: etw-create.txt (3
   providers listed), dxgk-present.txt (src handle != 0x40000800? count > 4?), PRAM Present after 30 s, dwm-msgs.txt.
+
+## Run g29full (2026-10-13) -> mali-g30 (capture fix)
+- ETW missing: last\gpu has no dxgk.etl/csv/xml/dwm-*/dxgk-present/etw-create; etw-stop.txt (UTF-16) = "The command
+  completed successfully." x2 (stop + delete ran). **Cause, reproduced on the build PC**: `logman update trace
+  autosession\<n> -p <guid> ...` WITHOUT `-o` rewrites the AutoLogger's FileName to `<current directory>\<basename>`
+  (registry Autologger\<n>\FileName became C:\Users\ilya\code\exynos-woa\dxgktest.etl after create with a full -o);
+  with `-o <full path>` on every update the path stays (also from another cwd). On the phone the ETL therefore went
+  to the agent's working directory and pass 2's `if exist C:\S10eTmp\dxgk.etl` skipped everything. Test session
+  deleted afterwards (registry key gone).
+- Fix (extra-gpu-mode.cmd): `-o C:\S10eTmp\dxgk.etl` on both updates; the AutoLogger registry key (reg query /s) is
+  appended to etw-create.txt, which is also kept as C:\S10eTmp\etw-create.txt and copied into pass 2's out\gpu (pass
+  1's out dir does not survive); pass 2 moves a misplaced %SystemRoot%\System32\dxgk.etl into place if found.
+- PRAM g29 (build 26 driver, UMD 228d8332): patch 0025 works - at 30.80-30.83 s CreateAllocation/OpenAllocation x4
+  (DWM's swap-chain resources), described "1080x2280 fmt 0x15 flags 01" (non-primary A8R8G8B8) and the shim surface
+  (0x16); then DescribeAllocation triples every ~1.3-2.3 s and **still no KMD Present**; heartbeat p 0x34. Without the
+  DXGI/DWM ETW the reason stays unknown -> UMD unchanged for g30.
+- Package **s10e-artifacts\mali-g30** = mali-g29 (driver 1.0.26.1, UMD 228d8332) + extra-gpu-mode.cmd (CRLF)
+  `2E9F32AEED89AE73B6797C9483CD6DE62BA32D16BE8A95060F449FCBEEECA4FC`. Read: out\gpu\etw-create.txt (3 providers,
+  FileName C:\S10eTmp\dxgk.etl), then dxgk-present.txt / dwm-msgs.txt.

@@ -521,3 +521,16 @@ patches/*.patch after the reference patches, one commit each).
   OK, and `git apply -R --check` on the working copy -> OK. The `-text` .gitattributes line is removed again and the
   build script comment corrected (follow-up commit). Also checked: the present-only branch never sets `wddm`, so
   wddm_init() still requires GPU_INFO Valid for Panfrost; malikm_present_d3dddi takes wddm_lock as before.
+- UMD deployment (extra-gpu-mode.cmd pass 1, GPU0 hidden, before the clean restart): maliumd.dll and
+  libgallium_d3d10.dll from \S10EDIAG\gpu are copied into System32 with sha256 into gpu\umd-deploy.txt (+ "umd:"
+  marks) - in pass 2 DWM holds maliumd.dll (g13fullc "being used by another process"). extra-gpu-g10.cmd's own
+  pass-2 copy stays (it just fails while DWM has the file).
+- Package **s10e-artifacts\mali-g21**: driver = mali-g19/g20 (1.0.19.1, sys 066BAFE3...), maliumd.dll =
+  libgallium_d3d10.dll `4DED674DD9077A191BD6EA19814D2D59071EE556DE081D0E1DD52539AC22DB76` (umd\ has pdb, SHA256SUMS,
+  dumpbin, vc_redist), extra-gpu-mode.cmd (CRLF) `333621D846101941BF4C51C12E4B67AE4A14A542EB59BE1DD16970BD78B0D967`,
+  d3dprobe/run-as-user/update/g10/m5test as mali-g20.
+- Steps: ESP \S10EDIAG\gpu\ <- maliumd.dll + libgallium_d3d10.dll (+ d3dprobe.exe); \S10EDIAG\ <- extra-gpu-mode.cmd,
+  run-as-user.ps1; full.flg + nogpu.flg; extra.cmd = extra-gpu-mode.cmd. Read: gpu\umd-deploy.txt (both hashes
+  4ded674d...), dwm-modules.txt (maliumd loaded), PRAM: KMD Present/SubmitCommand lines AFTER the boot console's
+  (~30 s) and a growing heartbeat "p", MALIKM shim line in d3dprobe-stderr ("present only"), webcam: desktop.
+  Mode 1 only for this run (GpuEnable 1 = Panfrost default needs G11 m5test first).

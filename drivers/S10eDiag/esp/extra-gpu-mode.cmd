@@ -32,6 +32,15 @@ rem full-mode boot: why dxgkrnl creates the primary, destroys it and commits a V
 rem An AutoLogger session (starts at the next boot), stopped and decoded in pass 2. Full modes only.
 if %ANYFULL% GTR 0 logman delete "autosession\MaliDxgk" > nul 2>&1
 if %ANYFULL% GTR 0 logman create trace "autosession\MaliDxgk" -p {802EC45A-1E99-4B83-9920-87C98277BA9D} 0xffffffffffffffff 5 -o C:\S10eTmp\dxgk.etl -bs 1024 -nb 16 256 -max 32 -mode Sequential > "%G%\etw-create.txt" 2>&1
+rem G13: deploy the UMD (maliumd.dll + libgallium_d3d10.dll from \S10EDIAG\gpu) into System32 NOW, while GPU0 is hidden
+rem and no process has the Mali adapter's UMD loaded (in pass 2 DWM holds maliumd.dll: "being used by another process",
+rem run g13fullc). Hashes before/after into gpu\umd-deploy.txt.
+if exist "%G%\umd-deploy.txt" del /f /q "%G%\umd-deploy.txt"
+for %%U in (maliumd.dll libgallium_d3d10.dll) do if exist "%ESP%\S10EDIAG\gpu\%%U" (
+  copy /y "%ESP%\S10EDIAG\gpu\%%U" "%SystemRoot%\System32\%%U" >> "%G%\umd-deploy.txt" 2>&1
+  certutil -hashfile "%SystemRoot%\System32\%%U" SHA256 >> "%G%\umd-deploy.txt" 2>&1
+)
+for /f "usebackq delims=" %%L in (`findstr /i /v "certutil SHA256" "%G%\umd-deploy.txt"`) do s10ediag mark "umd: %%L"
 if exist "%ESP%\S10EDIAG\nogpu.flg" del /f /q "%ESP%\S10EDIAG\nogpu.flg"
 echo pass2 > C:\S10eTmp\gpumode2.flg
 s10ediag mark g: clean restart into the new mode

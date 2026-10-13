@@ -14,6 +14,17 @@ set T=C:\S10eTmp
 if not exist %T% mkdir %T%
 for %%F in (d3dtri.exe m5test.exe) do copy /y "%ESP%\S10EDIAG\gpu\%%F" %T%\%%F > nul 2>&1
 copy /y "%ESP%\S10EDIAG\run-as-user.ps1" %T%\run-as-user.ps1 > nul 2>&1
+rem A new UMD in \S10EDIAG\gpu\umd-new\ (maliumd.dll + libgallium_d3d10.dll) goes live for every NEW process now: the
+rem loaded copies (DWM holds maliumd.dll) are renamed aside - a mapped DLL can be renamed, not overwritten - and the
+rem new ones copied in (as extra-agent-update.cmd swaps the running agent). DWM keeps the old one until the next boot.
+if exist "%H%\umd-swap.txt" del /f /q "%H%\umd-swap.txt"
+for %%U in (maliumd.dll libgallium_d3d10.dll) do if exist "%ESP%\S10EDIAG\gpu\umd-new\%%U" (
+  if exist "%SystemRoot%\System32\%%U.old" del /f /q "%SystemRoot%\System32\%%U.old" >> "%H%\umd-swap.txt" 2>&1
+  if exist "%SystemRoot%\System32\%%U" move /y "%SystemRoot%\System32\%%U" "%SystemRoot%\System32\%%U.old" >> "%H%\umd-swap.txt" 2>&1
+  copy /y "%ESP%\S10EDIAG\gpu\umd-new\%%U" "%SystemRoot%\System32\%%U" >> "%H%\umd-swap.txt" 2>&1
+  certutil -hashfile "%SystemRoot%\System32\%%U" SHA256 >> "%H%\umd-swap.txt" 2>&1
+)
+for /f "usebackq delims=" %%L in (`findstr /r /c:"^[0-9a-f][0-9a-f]* *$" "%H%\umd-swap.txt"`) do s10ediag mark "h: umd %%L"
 reg query HKLM\SYSTEM\CurrentControlSet\Services\MaliG76Wddm\Parameters > "%H%\mode.txt" 2>&1
 reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v GALLIUM_DRIVER >> "%H%\mode.txt" 2>&1
 pnputil /enum-devices /instanceid "ACPI\SAMS9828\0" >> "%H%\mode.txt" 2>&1

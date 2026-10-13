@@ -1,0 +1,144 @@
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index e760f5b..bc35d92 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -610,6 +610,12 @@ static struct {
+    D3DKMT_HANDLE present;
+    void *present_cpu;
+    unsigned present_w, present_h;
++   /* G13 (exynos-woa): flips go to primaries only (DxgKrnl "Source of Flip must be primary", run g21full): two
++    * primary present surfaces (VidPN source 0, the S10e's only one), used in turn so a flip never names the
++    * surface that is being scanned out. */
++   D3DKMT_HANDLE prim[2];
++   void *prim_cpu[2];
++   unsigned prim_w, prim_h, prim_next;
+    HANDLE last_event;          /* signalled when the last submission is done */
+    /* The newest submission has no event (the signal callback failed), so
+     * last_event is older than it and waiting on it alone would return
+@@ -918,14 +924,75 @@ wddm_idle(void)
+  * handed to DXGI, which has maliwddm blt it (on the CPU, for now) to the
+  * screen. 0 if presented; -1 if not bound to the runtime (the caller falls
+  * back to GDI). */
++/* G13: a primary present surface pair for flips; 0 if ready. Called with wddm_lock held. */
++static int
++present_primaries(unsigned w, unsigned h)
++{
++   if (ddi.prim[0] && (ddi.prim_w != w || ddi.prim_h != h)) {
++      for (int i = 0; i < 2; i++) {
++         if (ddi.prim[i]) {
++            w_unlock(ddi.prim[i]);
++            w_destroy(ddi.prim[i]);
++         }
++         ddi.prim[i] = 0;
++         ddi.prim_cpu[i] = NULL;
++      }
++   }
++   for (int i = 0; i < 2; i++) {
++      if (ddi.prim[i])
++         continue;
++      MW_ALLOCATION_INFO pi = {0};
++      D3DDDI_ALLOCATIONINFO ai = {0};
++      pi.Version = MW_ABI_VERSION;
++      pi.Flags = MW_ALLOC_NOEXEC | MW_ALLOC_PRIMARY;
++      pi.Width = w;
++      pi.Height = h;
++      pi.Pitch = w * 4;
++      pi.Format = D3DDDIFMT_A8R8G8B8;   /* as the VidPN source mode (MaliG76Wddm FillSourceMode) */
++      pi.Size = (uint64_t)w * h * 4;
++      ai.pPrivateDriverData = &pi;
++      ai.PrivateDriverDataSize = sizeof(pi);
++      ai.VidPnSourceId = 0;
++      ai.Flags.Primary = 1;
++      if (w_create(&ai) < 0) {
++         if (trace_on())
++            fprintf(stderr, "malikm: primary present surface %ux%u: allocate failed\n", w, h);
++         return -1;
++      }
++      ddi.prim[i] = ai.hAllocation;
++      ddi.prim_cpu[i] = w_lock(ddi.prim[i]);
++      if (!ddi.prim_cpu[i])
++         return -1;
++   }
++   ddi.prim_w = w;
++   ddi.prim_h = h;
++   return 0;
++}
++
+ int
+-malikm_present_d3dddi(const void *bgrx, unsigned w, unsigned h, void *dxgi_context)
++malikm_present_d3dddi(const void *bgrx, unsigned w, unsigned h, void *dxgi_context, int primary)
+ {
+    int ret = -1;
+ 
+    AcquireSRWLockExclusive(&wddm_lock);
+    if (!ddi.on || !ddi.dxgi || !ddi.dxgi->pfnPresentCb)
+       goto out;
++   if (primary) {
++      /* G13: a flip - from one of the two primaries, in turn. */
++      if (present_primaries(w, h) != 0)
++         goto out;
++      unsigned i = ddi.prim_next;
++      ddi.prim_next ^= 1;
++      memcpy(ddi.prim_cpu[i], bgrx, (size_t)w * h * 4);
++      DXGIDDICB_PRESENT fp = {0};
++      fp.hSrcAllocation = ddi.prim[i];
++      fp.pDXGIContext = dxgi_context;
++      fp.hContext = ddi.context;
++      ret = ddi.dxgi->pfnPresentCb(ddi.device, &fp) >= 0 ? 0 : -1;
++      if (trace_on() && ret)
++         fprintf(stderr, "malikm: pfnPresentCb (flip) failed\n");
++      goto out;
++   }
+    if (ddi.present && (ddi.present_w != w || ddi.present_h != h)) {
+       w_unlock(ddi.present);
+       w_destroy(ddi.present);
+diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+index ea61523..6431fe5 100644
+--- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
++++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+@@ -40,6 +40,11 @@
+ 
+ #include "util/format/u_format.h"
+ 
++/* G13 (exynos-woa): whether the present being carried out is a flip (DXGI_DDI_PRESENT_FLAGS.Flip). The target's
++ * flush_frontbuffer (d3d10_gdi.c) reads it: dxgkrnl only flips to allocations created as primaries ("Source of Flip
++ * must be primary", DxgKrnl ETW, run g21full), so a flip needs a primary present surface. Per thread. */
++extern "C" __declspec(thread) int d3d10_present_flip = 0;
++
+ 
+ /*
+  * ----------------------------------------------------------------------
+@@ -62,8 +67,10 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
+    Resource *pSrcResource = CastResource(pPresentData->hSurfaceToPresent);
+ 
+    device->pipe->flush(device->pipe, NULL, 0);
++   d3d10_present_flip = pPresentData->Flags.Flip;
+    device->pipe->screen->flush_frontbuffer(device->pipe->screen, device->pipe, 
+       pSrcResource->resource, 0, 0, pPresentData->pDXGIContext, 0, NULL);
++   d3d10_present_flip = 0;
+ 
+    return S_OK;
+ }
+diff --git a/src/gallium/targets/d3d10umd/d3d10_gdi.c b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+index d9570e0..3ae130c 100644
+--- a/src/gallium/targets/d3d10umd/d3d10_gdi.c
++++ b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+@@ -107,7 +107,8 @@ d3d10_gdi_release_hdc(void *winsys_drawable_handle, HDC hDC) {
+  * Panfrost's tiled or AFBC layout, and draw it into the window with GDI as
+  * the software winsys does. One copy per frame: enough until a WDDM driver
+  * owns the display. */
+-int malikm_present_d3dddi(const void *bgrx, unsigned w, unsigned h, void *dxgi_context);
++int malikm_present_d3dddi(const void *bgrx, unsigned w, unsigned h, void *dxgi_context, int primary);
++extern __declspec(thread) int d3d10_present_flip;   /* frontend DxgiFns.cpp (G13) */
+ 
+ /* G13 (exynos-woa, notes/gpu-full-adapter-hang.md): the same present also serves the software screen on the
+  * hardware runtime. softpipe's own flush_frontbuffer draws with GDI into a window (the sw winsys), which never
+@@ -153,7 +154,7 @@ d3d10_pan_flush_frontbuffer(struct pipe_screen *screen, struct pipe_context *pip
+    /* On the hardware runtime (maliwddm), present through DXGI: the frame
+     * goes into a surface of the runtime's device and the kernel driver
+     * blts it to the screen. Otherwise (the software runtime) GDI below. */
+-   if (malikm_present_d3dddi(bits, w, h, context_private) == 0) {
++   if (malikm_present_d3dddi(bits, w, h, context_private, d3d10_present_flip) == 0) {
+       free(bits);
+       return;
+    }

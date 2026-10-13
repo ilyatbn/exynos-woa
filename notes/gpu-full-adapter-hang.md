@@ -534,3 +534,32 @@ patches/*.patch after the reference patches, one commit each).
   4ded674d...), dwm-modules.txt (maliumd loaded), PRAM: KMD Present/SubmitCommand lines AFTER the boot console's
   (~30 s) and a growing heartbeat "p", MALIKM shim line in d3dprobe-stderr ("present only"), webcam: desktop.
   Mode 1 only for this run (GpuEnable 1 = Panfrost default needs G11 m5test first).
+
+## Run g21full - DWM now presents through maliumd, dxgkrnl rejects its flips (2026-10-13)
+- d3dprobe-stderr: "malikm: bind to the runtime device ...: present only (maliwddm without a GPU)" x3 - patch 0020's
+  present-only bind works. dwm-modules: DWM loaded dxgi, d3d11, D3D10Warp.dll AND maliumd.dll; pass-2 hashes.txt:
+  the ESP maliumd = 4ded674d... (the new build). user-task: "no explorer.exe owner - nobody logged on" = logon never
+  completed in that boot.
+- DxgKrnl ETW event 494: **227x "Source of Flip must be primary"** with status 0xC000000D (+ the usual StartDevice /
+  file-version lines); nothing about the mode set. = DWM's frames now reach the runtime's present callback as FLIPS
+  (DXGI_DDI_PRESENT_FLAGS.Flip), from the shim's single non-primary present surface -> dxgkrnl refuses each one.
+- PRAM (live, build 19): mode set + 50 boot-console presents as in g19 (heartbeat s/p 0x32), no KMD Present after
+  that; from ~235 s to the end of the ring a DescribeAllocation every ~1.39 s (someone - most likely DWM retrying
+  its swap chain - describing an allocation over and over).
+- The long pass-2 boot / no clean restart: WINPRAM-RESTART.BIN holds the first mode-1 boot - heartbeat alive at
+  696 s, last DDI lines at 511 s (VidPN re-enumeration), **no StopDevice / SetPowerState ever** -> shutdown never got
+  to the display driver; consistent with winlogon/LogonUI stuck behind a DWM that cannot present (UNVERIFIED; a
+  driver-side D3 hang would show ">SetPowerState" without "<"). The later WINPRAM.BIN is a mode-0 boot.
+- **Fix = Mesa patch 0021** (mesa-26.2-g76 be83cc4; tools/mesa-build/patches/0021-g13-flip-from-primary-present-
+  surfaces.patch, applies to a fresh tree): DxgiFns.cpp _Present records Flags.Flip in a thread-local
+  `d3d10_present_flip`; d3d10_gdi.c passes it to `malikm_present_d3dddi(..., primary)`; the shim keeps two primary
+  present surfaces (D3DDDI_ALLOCATIONINFO.Flags.Primary 1, VidPnSourceId 0, MW_ALLOC_PRIMARY, A8R8G8B8 like the
+  VidPN source mode) used in turn for flips; blt presents keep the old surface. KMD unchanged: a Flip present is
+  the FlipBlt CPU copy into the GOP fb (F2). Build: incremental 8 steps, maliumd = libgallium_d3d10
+  `0721D314EAF4294CCC2B2E38829CD127E0F29BF682AA301EDA85205DA5093FE1`.
+- Package **s10e-artifacts\mali-g22** = mali-g21 + this UMD (driver 1.0.19.1 unchanged, scripts unchanged).
+  Steps: ESP \S10EDIAG\gpu\ <- maliumd.dll + libgallium_d3d10.dll; full.flg + nogpu.flg; extra-gpu-mode.cmd (pass 1
+  deploys the UMD). Read: dxgk-msgs.txt without "Source of Flip must be primary"; PRAM ">Present" lines after ~30 s
+  and the heartbeat "p" growing (each = one DWM frame blitted to the panel); webcam desktop; whether the clean
+  restart now happens. UNVERIFIED: dxgkrnl may next want flips to retire via the vsync's reported address
+  (FlipOnVSyncMmIo) - the trace would show presents stalling after 2.

@@ -7,6 +7,9 @@
  *                       (SC_MONITORPOWER 2) or wakes it (input nudge + SC_MONITORPOWER -1)
  *   s10ekeys powermenu  wake the display and show Reboot / Recovery (TWRP) / Shut down / Cancel
  *   s10ekeys wake       wake the display only
+ *   s10ekeys volup | voldown | mute
+ *                       one VK_VOLUME_UP / VK_VOLUME_DOWN / VK_VOLUME_MUTE key press (down + up) via SendInput:
+ *                       Windows applies it to the default render endpoint and shows the volume flyout (D8 audio)
  *
  * Recovery drops C:\S10eTmp\req\recovery.req for the agent (no UAC); reboot/shutdown use shutdown.exe.
  * Lines go to %TEMP%\s10ekeys.log. notes/d8-buttons-agent.md.
@@ -305,6 +308,21 @@ wWinMain(HINSTANCE Instance, HINSTANCE Previous, PWSTR CommandLine, int Show)
         PowerMenu(Instance);
     } else if (_wcsicmp(CommandLine, L"wake") == 0) {
         WakeDisplay();
+    } else if ((_wcsicmp(CommandLine, L"volup") == 0) || (_wcsicmp(CommandLine, L"voldown") == 0) ||
+               (_wcsicmp(CommandLine, L"mute") == 0)) {
+        INPUT Key[2];
+        WORD Vk = (_wcsicmp(CommandLine, L"volup") == 0) ? VK_VOLUME_UP
+                : (_wcsicmp(CommandLine, L"voldown") == 0) ? VK_VOLUME_DOWN : VK_VOLUME_MUTE;
+        UINT Sent;
+
+        ZeroMemory(Key, sizeof(Key));
+        Key[0].type = INPUT_KEYBOARD;
+        Key[0].ki.wVk = Vk;
+        Key[1] = Key[0];
+        Key[1].ki.dwFlags = KEYEVENTF_KEYUP;
+        Sent = SendInput(2, Key, sizeof(INPUT));
+        swprintf_s(Text, 96, L"%s: SendInput vk %02X -> %u of 2 (error %lu)", CommandLine, Vk, Sent, Sent == 2 ? 0 : GetLastError());
+        Log(Text);
     } else {
         swprintf_s(Text, 96, L"unknown command '%.60s'", CommandLine);
         Log(Text);

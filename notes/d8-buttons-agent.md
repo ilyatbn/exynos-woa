@@ -45,3 +45,16 @@ for now; Bixby = Task Manager; everything configurable (an app later; a config f
   untouched bixby.long=none. Rotation itself is UNTESTED on this phone (BasicDisplay may refuse with BADMODE;
   s10erotate logs the ChangeDisplaySettingsEx result to %TEMP%\s10erotate.log).
 - Test 4 (user): Bixby long press rotates portrait <-> landscape - WORKS (BasicDisplay accepts the orientation change). All four button behaviours device-validated.
+- 2026-10-13 (D8 audio, coordinator request): the physical volume keys drive the Windows volume. s10ekeys.exe gets
+  `volup` / `voldown` / `mute` = one VK_VOLUME_UP / VK_VOLUME_DOWN / VK_VOLUME_MUTE press (SendInput down + up, logged
+  "<cmd>: SendInput vk AF -> 2 of 2") in the user session; S10eAgent actions volup/voldown/mute launch it; defaults
+  volup.short/long = volup, voldown.short/long = voldown; a held key repeats its volup/voldown long action every
+  150 ms after long_press_ms. buttons.ini version 3, v2 -> v3 migration only replaces untouched "none" values.
+  Build (build.bat, ARM64, signed 5DD5DEE1...) -> s10e-artifacts\s10ediag-m20:
+    FA5BB08476AB57ADB946F298DE95428FC3FAC4CF38B0831333D94276B49BDEFD  S10eAgent.exe
+    199569F8E79A908C990F87989BDFB20D5A8124889318811C2DE260F2B3BABEB3  s10ekeys.exe
+    48D253C6562C53DB0C8EA9A302D5443E5DDE0B81DF685B877E619708177776F3  s10ediag.exe
+    FA76C6AF1180620122547BC7094A4B53E2CF2A4BEB96A5254C070C917E018238  S10eDiag.sys
+  UNTESTED on the device (needs the Exynos9820Audio endpoint - works since a11 - and the agent + s10ekeys deployed).
+  Test: press Vol+/Vol- (flyout, level changes), hold one (repeats), agent.log "keys: volup.short -> volup",
+  %TEMP%\s10ekeys.log SendInput 2 of 2.

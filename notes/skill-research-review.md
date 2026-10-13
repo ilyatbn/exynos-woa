@@ -23,6 +23,11 @@ Repo state at review time: branch `drivers`, clean tree, HEAD `6cdf8de`
 `D4c …` / `M12 …` / `D8 …` prefixes, **not** `research:` — checked with
 `git log --oneline -25`.
 
+> **Hash note (2026-10-13):** the D4c and D9 arcs were later collapsed to one
+> commit each, so every hash in this file is a **pre-collapse** hash and no longer
+> reachable from `drivers`. The old history is kept under the tags `d4c-pre-squash`
+> and `d9-pre-squash`; the findings they record are unchanged.
+
 ---
 
 ## 1. BLOCKER — the skill's own ASL example contains an invented constant

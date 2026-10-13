@@ -75,3 +75,11 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   _set_error_mode(_OUT_TO_STDERR) + _set_abort_behavior(0, _WRITE_ABORT_MSG) once per process - a UMD assert now
   prints and aborts (DWM restarts) instead of hanging in a dialog. Build mali-umd-0042 (0040+0041+0042):
   maliumd.dll 508abc96acb585d0..., ARM64.
+- 00:43 run h2d started (UMD 0042, md5 28679f11..).
+- **H2 PASS (run h2d, 00:43-00:51, runs/h2d, UMD 0042):** session-0 + user tri PASS on Panfrost; **user cube on
+  the Mali: 733 frames / 20 s = 36.6 fps (33-47 per second), 0 present failures, first frame centre 0xff7f017f =
+  the x64 WARP reference pixel**; KMD after the run `jobs done 4420 failed 0 timedout 0 fault 0x0 irqs 4414
+  resets 0`. No assert, no minidump needed. (Webcam not aimed at the phone - visual check missing; the readback
+  is the proof.) DWM still softpipe (machine GALLIUM_DRIVER).
+- Next: H3 = DWM on Panfrost. GALLIUM_DRIVER is read at process start, so the switch needs one boot to remove the
+  machine variable (extra-gpu-h3.cmd, by \S10EDIAG\gpu\softpipe.flg) and the next boot to measure.

@@ -360,6 +360,7 @@ tree does not contain.
 | Task | State | Notes |
 |------|-------|-------|
 | Build an automated restore/reflash path with **heimdall** for when the device breaks completely | **parking lot** | heimdall v2.1.0 (Grimler's fork) is the CLI equivalent of Odin: `detect` → `print-pit` (both read-only) → `flash --RECOVERY <file> --no-reboot`. Not installed on this machine. Two hazards already recorded in `notes/heimdall-flashing.md`: it has **no partition-size check** (PR #555 — silently overwrites neighbours; our 18 255 872 B into a 55 279 616 B slot is a 3× margin but must be checked against `print-pit`, whose `blockSizeOrOffset` field is ambiguous), and it is **untested on an S10e** (works on a 2021 device per issue #547, fails on an A14 5G per #548). The rollback file already exists locally: `ref-recovery.img` is a byte-exact snapshot of the recovery slot |
+| TWRP sits ~70 s on its logo: it mounts the Windows NTFS `userdata` as `/data` (ntfs-3g, read-only after a hard reset) and scans the whole C: tree for its storage size; grows with the file count on C: | **parking lot** (user 2026-10-13: document for later) | `notes/twrp-slow-start.md` (dmesg + recovery.log evidence). Fix = a TWRP build without the `/data` auto-mount (or `/data` flagged so it is not mounted at start) - that writes the **recovery** partition, which the ground rules exclude (only `boot` is written), so it needs the user's explicit go-ahead and the `ref-recovery.img` rollback |
 
 ### M16 — GPU acceleration (Mali-G76 via Panfrost)
 

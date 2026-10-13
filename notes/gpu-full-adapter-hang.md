@@ -1041,3 +1041,23 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
 - Review of the channel-export commit: channel names verified with `wevtutil el` on the (Windows 11) build PC;
   finding - the 40 newest 4624 would be service logons -> follow-up commit queries LogonType 2 separately (XPath
   verified locally). Run g45full started with it (same binaries).
+
+## Run g45full (17:50) + CORRECTION: the g43/g44 "logon completes" reading came from a stale PRAM dump
+- cycle.sh decoded marks.txt from \WINPRAM.BIN only. The firmware writes \WINPRAM.BIN only after an unrequested
+  reset; when Windows asked for the restart (torecovery clean restart path, UEFILOG "Windows asked for this restart
+  - saving its PRAM and continuing") it writes \WINPRAM-RESTART.BIN. WINPRAM.BIN was byte-identical in g40..g45
+  (sha bd710ab2..., and faf9ab52... in g30..g38) - every "explorer.exe appeared / LogonUI=1 explorer=1" line quoted
+  for g43/g44 above is an OLD boot. File dates do not help: Windows' clock restarts at 2026-10-12 22:29Z every boot.
+  Fix (scratchpad marks.sh, called by cycle.sh/pullrun.sh): pull both dumps, use the one UEFILOG says it wrote,
+  refuse otherwise.
+- g45 real marks (WINPRAM-RESTART.BIN): full-mode boot "waiting: LogonUI=1 explorer=0" every 15 s from 29.9 s to
+  331 s, "no explorer.exe after 300 s - running the script anyway". **Logon never starts in full mode** (the
+  original reading was right; the g43 post-mortem and g44 "session torn down" sections are wrong on this point).
+- Consistent with g45's event channels: LocalSessionManager/Operational has no 41/42/21 (session arbitration /
+  logon) in the full boot, Winlogon/Operational shows only notification event 0 (GPClient, TermSrv at ~26 s) and
+  nothing after; no Winlogon 7001; no 600x; tasks-early (~338 s) and tasks: session 1 = csrss, winlogon,
+  fontdrvhost, LogonUI, dwm, ctfmon only. 0 minidumps, no crashes. The g38-g42 explorer/StartMenu/SearchHost
+  abort() crashes are from display-only boots or older ones - not attributable to full mode from this data.
+- So: in full mode LogonUI comes up (DWM on the Mali adapter, 52 submissions, lit panel since 0034) but the
+  autologon never proceeds past winlogon's first notification. Next: live minidumps of LogonUI.exe and dwm.exe
+  (MiniDumpWriteDump from SYSTEM in pass 2) to see what their threads wait on; cdb x64 + MS symbols on the PC.

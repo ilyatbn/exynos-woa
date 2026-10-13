@@ -1,0 +1,16 @@
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index f1e9d57..3c466e0 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -339,8 +339,9 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+    /* G13: DXGI swap-chain primaries get a kernel primary allocation tied to the runtime resource, so the
+     * runtime's flip of this resource names an allocation dxgkrnl created for the current mode (shim-owned
+     * primaries were refused with STATUS_GRAPHICS_PRESENT_MODE_CHANGED, runs g22-g24). Not with no_scanout. */
+-   /* G13 (patch 0025): a NO_SCANOUT primary gets one too, without Flags.Primary: run g28full, DWM's Blt presents
+-    * named the shim's private surface (not the presented resource's allocation) and never reached the KMD. */
++   /* G13 (patch 0025): a NO_SCANOUT primary gets one too: run g28full, DWM's Blt presents named the shim's private
++    * surface (not the presented resource's allocation) and never reached the KMD. Since patch 0026 it is a kernel
++    * primary (Flags.Primary) whatever the scanout argument: dxgkrnl refuses a Blt whose destination is not one. */
+    if (pCreateResource->pPrimaryDesc && templat.target == PIPE_TEXTURE_2D) {
+       unsigned h = 0;
+       if (malikm_primary_create(hRTResource.handle, pCreateResource->pPrimaryDesc->VidPnSourceId,

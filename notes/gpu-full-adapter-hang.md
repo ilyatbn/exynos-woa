@@ -810,3 +810,4 @@ Most likely path to a GPU-composed desktop: 1 then GpuEnable 1, with 2 as the di
   the build log). Package **mali-g31** = mali-g30 (driver 1.0.26.1) + UMD 0026 + d3dfill-2 (685baa47…) +
   extra-gpu-mode.cmd 1871fdd6… (d3dfill pass). Not yet run.
 - Review of dd455e3: Resource.cpp:342 comment still said NO_SCANOUT primaries get no Flags.Primary -> comment-only Mesa patch 0027 (no rebuild: comment only, mali-g31 binaries unchanged). Patch 0026 diff checked: only the two intended lines + comment.
+- 387d67a committed an EMPTY 0027 (the Edit had failed, unread file; not checked before commit) -> refilled in the next commit; lesson: check the patch file size before committing.

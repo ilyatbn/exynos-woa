@@ -129,6 +129,10 @@ rem g43: run-as-user found no explorer.exe at ~135 s although the agent saw it u
 rem (session, user, state) exist right before the user task.
 tasklist /v /fo csv > "%G%\tasks.txt" 2>&1
 for %%X in (explorer.exe LogonUI.exe) do for /f "usebackq delims=" %%L in (`tasklist /fo table /nh /fi "imagename eq %%X"`) do s10ediag mark "p: %%L"
+rem g45: logon never starts in full mode (LogonUI up 300 s, no session logon). Live stack minidumps of the logon
+rem chain and DWM (livedump.ps1, MiniDumpWriteDump without full memory) show what they wait on.
+if exist "%ESP%\S10EDIAG\livedump.ps1" powershell -NoProfile -ExecutionPolicy Bypass -File "%ESP%\S10EDIAG\livedump.ps1" -Out "%G%\live" -Names LogonUI,dwm,winlogon > "%G%\livedump.txt" 2>&1
+for /f "usebackq delims=" %%L in ("%G%\livedump.txt") do s10ediag mark "l: %%L"
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\S10eTmp\run-as-user.ps1 -Script C:\S10eTmp\gpu-user.ps1 -Wait 240 > "%G%\user-task.txt" 2>&1
 if exist C:\S10eTmp\d3dprobe-user.txt copy /y C:\S10eTmp\d3dprobe-user.txt "%G%\d3dprobe-user.txt" > nul
 if exist C:\S10eTmp\d3dfill-user.txt copy /y C:\S10eTmp\d3dfill-user.txt "%G%\d3dfill-user.txt" > nul

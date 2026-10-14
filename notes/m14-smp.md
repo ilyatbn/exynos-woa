@@ -442,3 +442,10 @@ No device access in this task; build-verified only (Guided, not Ready).
 - Next structural test (m4off2): M4s CPU_ON'd, alive mark, then PSCI CPU_OFF (0x84000002) from the stub; UEFI
   checks AFFINITY_INFO; Windows 6 cores. Freeze => CPU_ON leaves something armed; none => the powered cluster.
 - boot-m4cpuoff1.img: KD flags + PARK 0xFE + OFFER 0x3E + SLEEP_UNOFFERED 2 (M4s: alive mark, then PSCI CPU_OFF 0x84000002 from the stub; mailbox pointer saved in x19 across the SMC; objdump verified).
+- Run m4cpuoff1 (boot-m4cpuoff1 8d46d4e5: M4s CPU_ON'd, alive mark, then PSCI CPU_OFF; UEFILOG "sleep 2" = CPU_OFF
+  taken, no return): Windows 6 procs, break-ins fine to +90 s, then a CLEAN harness restart ("Shutdown occurred"
+  01:00:27 = +95 s; next UEFI prev=0x80 -> torecovery). NEW READING of the not-offered runs: their "freeze" times
+  (+95..160 s) coincide with the harness's restart after collect (no stay.flg) => maybe the RESTART/RESET path hangs
+  while the M4 cluster is powered (KD drops at shutdown; SoC soft-reset minutes later by something else).
+  The full 8-core runs died earlier (driver load) - possibly a second issue. Test: stay.flg back, M4s powered not
+  offered, 10 min.

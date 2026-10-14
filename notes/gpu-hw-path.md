@@ -394,3 +394,4 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
 - Mesa 0059 (mali-umd-0059, maliumd e23cf496...): Resource.kmt_runtime_alloc for created-shared/present and opened
   GPU resources; DestroyResource -> malikm_allocation_gone(h): every runtime-owned BO on it is marked gone (unlocked,
   never listed again, forgotten at GEM_CLOSE); tlog "allocation 0x.. gone" (first 16).
+- 04:45 h3s deploy: UMD 0059 (e23cf496...) + KMD 1.0.37.1 (a7a5e971...; C:\S10eTmp\kmd-prev now = KMD 36 95c188d8...).

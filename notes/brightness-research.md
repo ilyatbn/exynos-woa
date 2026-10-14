@@ -322,3 +322,31 @@ Serialise all senders with one FAST_MUTEX/KEVENT in the adapter (brightness DDI 
   FbDeconPresent calls -> DEBUG lines "FbDsim <tag>: TRIG MIPI INTSRC FIFO CMDST busy linemoved" in the UEFI RAM log.
   Image s10e-artifacts\boot116-gpuon-nowdt-d9.img sha256 1ed69ae7... = HEAD + build-only WINDOWS_WATCHDOG 0 and
   GPU_POWER_ON 1 (both reverted after the build; pack -SkipFreshCheck), same recipe as boot116-gpuon-nowdt.
+- D9 flash: `shutdown /r` after `s10ediag recovery` came back to Windows (known, m14 run 20); `s10ed3 flushreset`
+  reached TWRP (bat 46 %). boot116-gpuon-nowdt-d9.img pushed + dd to by-name/boot; readback via
+  `head -c 18255872 | sha256sum` = 1ed69ae7... match (toybox dd has no iflag=count_bytes - that readback hashed 0 B).
+- **D9 result** (UEFI RAM log, dumpmmio 0x8FF00000, runs\uefilog-d9.bin):
+  entry (= as sboot left it): TRIG 0x3070 (HW_TRIG_EN 0, MASK_DECON 1), MIPI 0x20000000, INTSRC 0x01400000,
+  FIFO 0x1507, CMDST 0x08, busy 5000/5000, linemoved 4996. pre-present1 identical; post-present1 TRIG 0x3061,
+  FIFO 0x9507 (bit 15 appears after our first SW-trigger present), busy 4998/5000; present2 same.
+  -> **sboot already leaves DSIM in FRM_PROCESSING + ABNORMAL cause 8**, not our UEFI or KMD. With DECON's trigger
+  masked, FRM_PROCESSING stays set and LINK_STATUS1[12:0] still changes -> that field is not a frame-line counter
+  driven by DECON (free-running) [INFER]; "line moved" is no evidence of frames (correction to D1/D6 reading).
+  Next: what Samsung's kernel does between "already enabled in bootloader" and its first DCS read (panel ID),
+  since Android does get commands through from this same sboot state.
+
+## Progress log - D10 DECON operation mode (2026-10-14 ~16:40)
+- Read-only: DSIM NUM_OF_TRANSFER 0x8e8 (2280), UNDERRUN_CTRL 0x57f, THRESHOLD 0x438 (1080), RESOL 0x08e80438 -
+  consistent. DECON_F GLOBAL_CONTROL (+0x00) **0x00001011** = DECON_EN_F | RUN_STATUS | MASTER_MODE 1, and
+  OPERATION_MODE (bit 8) = **0 = VIDEO mode**; INTERRUPT_PENDING 0x3000 (frame start+done); SCALED_SIZE 0x08e80438;
+  DSIM_CONNECTION_CONTROL 0x40; HW_TE_CNT 0x22ed22ed; FRAME_COUNT 0x2e60 -> 0x2eba in ~1 s (counting);
+  CLOCK_CONTROL_0 0x11011101; PLL_SLEEP_CONTROL 0.
+- Samsung (LineageOS lineage-22.2 cal_9820 decon_reg.c): decon_reg_init() when RUN_STATUS is already set
+  ("already called by BOOTLOADER") calls decon_reg_init_probe() -> decon_reg_set_operation_mode(CMD) (+ rgb order,
+  data path, sizes), then for command mode decon_reg_set_trigger(DISABLE) (HW_TRIG_MASK_DECON). So Android
+  re-puts DECON into command mode at probe; sboot leaves it in VIDEO mode while DSIM is in command mode.
+  -> Hypothesis: video-mode DECON streams continuously, DSIM never reaches a frame boundary (FRM_PROCESSING forever,
+  ABNORMAL cause 8), so SFR command packets never get a slot. Under Windows nothing ever switched the mode.
+- Test plan: GLOBAL_CONTROL |= OPERATION_MODE_CMD (bit 8), SHADOW_REG_UPDATE_REQ |= GLOBAL (bit 31; GLOBAL_CONTROL is
+  in the shadowed 0x0000-0x011C range), keep HW trigger 0x3061 (TE-driven frames). Then FRAME_COUNT, MIPI_STATUS
+  histogram, PH FIFO, DCS read 0x0A. Recovery: ssh shutdown /r.

@@ -504,3 +504,4 @@ No device access in this task; build-verified only (Guided, not Ready).
   Samsung; debug_history logs a SOFT reset). Theory: the M4 (aggressive OoO / prefetch) touches a physical range the
   A55/A75 never touch - e.g. a protected carve-out missing from our memory map. Test: BCD truncatememory to the low
   bank, then the one-M4 boot again.
+- BEYOND0LTE_MEM_GUARD (PlatformMemoryMapLib, default 0): 2 MiB-aligned EfiReservedMemoryType guards below/above every monitor reservation edge and every published DRAM entry edge, only inside published RAM, clear of WINPRAM/bootlog, the UEFI FD (0x90000000 +16 MiB) and the UFS DMA pool; each logged 'MemGuard: reserved'. Image boot-m4guard1.img 093d75a3 = KD flags + PARK 0x7E (one M4) + MEM_GUARD 1.

@@ -43,6 +43,9 @@
 // the bank0-only boot tells whether the new ranges (uH stage-2?) are the cause.
 //
 #define BEYOND0LTE_PUBLISH_BANK12      1   // W33: back on, and now actually published as RAM (resource HOBs below)
+#ifndef BEYOND0LTE_MEM_GUARD
+#define BEYOND0LTE_MEM_GUARD           0   // m14 M4 test: 2 MiB reserved guards around reservations and bank edges
+#endif
 
 #define MMAP_DRAM   ARM_MEMORY_REGION_ATTRIBUTE_WRITE_BACK
 #define MMAP_DEV    ARM_MEMORY_REGION_ATTRIBUTE_DEVICE
@@ -530,6 +533,92 @@ ArmPlatformGetVirtualMemoryMap (
       // W31: runtime data (still never handed to the OS as RAM) so the runtime ResetSystem can
       // reach the boot progress word at 0x8FE0F000 after SetVirtualAddressMap.
       BuildMemoryAllocationHob (BEYOND0LTE_WINPRAM_BASE, BEYOND0LTE_WINPRAM_SIZE, EfiRuntimeServicesData);
+
+#if BEYOND0LTE_MEM_GUARD
+      //
+      // m14 M4 test (notes/m14-smp.md m4one2): the M4s die under Windows with no Windows-side fault; theory = the
+      // M4's aggressive prefetch reaches a protected range next to RAM Windows uses. Reserve a 2 MiB-aligned guard
+      // on both sides of every monitor reservation and at every published DRAM entry's edge. A guard is built
+      // only where it lies entirely inside a published RAM entry and clear of the firmware's fixed allocations.
+      //
+      {
+        STATIC CONST UINT64  Fixed[][2] = {
+          { BEYOND0LTE_WINPRAM_BASE,      BEYOND0LTE_WINPRAM_SIZE + BEYOND0LTE_BOOTLOG_SIZE },  // 0x8FE00000..0x90000000
+          { 0x90000000ULL,                0x01000000ULL },                                      // UEFI FD + its runtime
+          { BEYOND0LTE_UFS_DMA_POOL_BASE, BEYOND0LTE_UFS_DMA_POOL_SIZE }
+        };
+        UINT64  Edge[2 * (sizeof (mMonitorReservations) / sizeof (mMonitorReservations[0])) + 2 * 16];
+        UINTN   EdgeCount;
+        UINTN   E;
+        UINTN   T;
+
+        EdgeCount = 0;
+        for (Region = 0; Region < sizeof (mMonitorReservations) / sizeof (mMonitorReservations[0]); Region++) {
+          Edge[EdgeCount++] = mMonitorReservations[Region].Base;
+          Edge[EdgeCount++] = mMonitorReservations[Region].Base + mMonitorReservations[Region].Size;
+        }
+        for (T = 0; (T < Index) && (EdgeCount + 2 <= ARRAY_SIZE (Edge)); T++) {
+          if (Table[T].Attributes == MMAP_DRAM) {
+            Edge[EdgeCount++] = Table[T].PhysicalBase;
+            Edge[EdgeCount++] = Table[T].PhysicalBase + Table[T].Length;
+          }
+        }
+
+        for (E = 0; E < EdgeCount; E++) {
+          UINTN  Side;
+
+          for (Side = 0; Side < 2; Side++) {
+            UINT64   GBase;
+            UINT64   GEnd;
+            BOOLEAN  InRam;
+            BOOLEAN  Clear;
+            UINTN    F;
+
+            // below the edge: [align_down(edge) - 2M, align_down(edge)); above: [align_up(edge), +2M)
+            if (Side == 0) {
+              GEnd  = Edge[E] & ~(UINT64)(SIZE_2MB - 1);
+              GBase = GEnd - SIZE_2MB;
+            } else {
+              GBase = (Edge[E] + SIZE_2MB - 1) & ~(UINT64)(SIZE_2MB - 1);
+              GEnd  = GBase + SIZE_2MB;
+            }
+
+            InRam = FALSE;
+            for (T = 0; T < Index; T++) {
+              if ((Table[T].Attributes == MMAP_DRAM) && (GBase >= Table[T].PhysicalBase) &&
+                  (GEnd <= Table[T].PhysicalBase + Table[T].Length))
+              {
+                InRam = TRUE;
+              }
+            }
+
+            Clear = TRUE;
+            for (F = 0; F < ARRAY_SIZE (Fixed); F++) {
+              if ((GBase < Fixed[F][0] + Fixed[F][1]) && (Fixed[F][0] < GEnd)) {
+                Clear = FALSE;
+              }
+            }
+            for (Region = 0; Region < sizeof (mMonitorReservations) / sizeof (mMonitorReservations[0]); Region++) {
+              if ((GBase < mMonitorReservations[Region].Base + mMonitorReservations[Region].Size) &&
+                  (mMonitorReservations[Region].Base < GEnd))
+              {
+                Clear = FALSE;
+              }
+            }
+            for (F = 0; F < E; F++) {   // same guard requested by an earlier edge
+              if ((Edge[F] & ~(UINT64)(SIZE_2MB - 1)) == (Edge[E] & ~(UINT64)(SIZE_2MB - 1))) {
+                Clear = FALSE;
+              }
+            }
+
+            if (InRam && Clear) {
+              BuildMemoryAllocationHob (GBase, SIZE_2MB, EfiReservedMemoryType);
+              DEBUG ((DEBUG_ERROR, "MemGuard: reserved %lx..%lx (edge %lx)\n", GBase, GEnd, Edge[E]));
+            }
+          }
+        }
+      }
+#endif
     }
   }
 

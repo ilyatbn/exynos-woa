@@ -383,3 +383,11 @@ No device access in this task; build-verified only (Guided, not Ready).
   SETs accepted (GET after: region 1, en 1, err 0) and enabling the LLC hung Windows in phase 0 (LLC enable needs
   more than Linux's probe shows, or Windows' cache maintenance does not cover the LLC). LLC lead closed;
   BEYOND0LTE_SCI_LLC_INIT -> 0 (code kept).
+- Run m4sci1 (boot-m4dvm1, kdrun every-break `!dd [uc] 1a000108 L5` + `!dd [uc] 1a000140 L1`; SCI offsets from
+  LineageOS exynos-sci.c: ErrCnt 0x108, ErrAddrHi/Lo 0x10C/0x110, ErrStatHi/Lo 0x114/0x118): one read at the
+  KeStartAllProcessors-return break: ErrCnt ffff3ce7, ErrAddr/Stat 0, PM_SCI_CTL 3fec8000. Froze within 10 s of
+  that resume (earliest of all runs) - the KD [uc] mapping of SCI registers may itself be unsafe => run contaminated,
+  instrument dropped.
+- Next instrument: the park stub keeps a poll counter (+0xFC0) and CNTVCT ticks per 0x2000-iteration delay loop
+  (+0xFC8) in its mailbox (DRAM). With M4s parked-not-offered, KD reads them per break: M4 clock (did FREQ_REQ
+  520 MHz take? throttling?) and whether the M4 stops before the system freezes.

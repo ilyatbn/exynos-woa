@@ -559,3 +559,14 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
 - Rotation: KMD offers only D3DKMDT_VPPR_IDENTITY (display.c:521-522, 671-684), so s10erotate 90 is refused in GPU
   mode; Basic Display saved Rotation 2 for its monitor, ours Rotation 1. Separate task (rotate in the CPU blt or in
   the DPP; G-channel rotation capability UNVERIFIED).
+- 11:55 photos: Settings (SystemSettings) - every text + icon glyph missing, shapes/Mica drawn; Quick Settings - labels
+  ("S10eTest", "Flight mode", "59%") drawn, most Fluent icon glyphs missing (WiFi icon a fragment); UAC consent - no
+  text, bitmap icon + buttons drawn.
+- New tools/d2dtext (d2dtext.exe, s10e-artifacts\d2dtext-1): D2D DXGI-surface RT on an offscreen BGRA texture, text in
+  grayscale / ClearType / aliased + Segoe Fluent Icons, ink pixel count vs WARP; plus an A8_UNORM UpdateSubresource
+  box (128,64)+16x16, sampled with Load. Run over SSH (session 0): WARP FL 10_1 ink 1331/1549/1367/878; **Mali FL 10_0
+  ink 0/0/0/0** (no text at all); A8 atlas box Load PASS on both. Reproduced offscreen - not DWM, not the present path.
+- 11:58 CPU/GPU snapshot (user: "something feels slower"): CPU 46 % of 6 cores - wuauserv svchost ~64 % of a core,
+  MsMpEng ~64 %, Memory Compression ~32 %, dwm ~30 %, System 20 %, explorer 14 %; RAM 1.2 GB free of 5.4 GB, commit
+  4.3/7.0 GB; explorer WS 755 MB (high - leak in our UMD? unchecked), OneDrive 440 MB; clocks fixed 1456/1794 MHz;
+  PDH GPU Engine 3D = 0.0 % (counter not fed for our adapter).

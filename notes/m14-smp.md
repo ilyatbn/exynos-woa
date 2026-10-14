@@ -467,3 +467,10 @@ No device access in this task; build-verified only (Guided, not Ready).
   M4 would make Windows skip / under-do cache maintenance on the M4 (stale I-cache after code-page copies).
   Next: stub records CTR_EL0 + DCZID_EL0 per core.
 - boot-m4ids1.img c7a72990: stub records MIDR/CTR/DCZID/ISAR0/ISAR1/MMFR0/1/2/PFR0/CLIDR per parked core (+0xF60), UEFI logs them next to the boot CPU's (KD rdmsr is not supported for ARM64 sysregs: 'no such msr').
+- m4ids1 ID registers (UEFILOG via SSH, runs/m4ids1/UEFILOG.txt):
+  boot/A55: MIDR 411FD050 CTR 84448004 DCZID 4 ISAR0 100010211120 ISAR1 100001 MMFR0 101122 MMFR1 10212122 MMFR2 1011
+            PFR0 10112222 CLIDR 82000023
+  A75:      MIDR 412FD0A1 ... MMFR0 101124 (PARange 44-bit) CLIDR C3000123, rest = A55
+  M4:       MIDR 531F0030 CTR 84448004 DCZID 4 ISAR0 = A55, ISAR1 1 (LRCPC 0 vs 1), MMFR1 10211102 (VMIDBits 0 vs 2,
+            HPDS 1 vs 2), MMFR2 1011, PFR0 10112222, CLIDR B200123
+  => CTR_EL0 / DCZID identical: cache-geometry lead OUT. ISA gap: LRCPC (LDAPR) missing on the M4; HPDS2 missing.

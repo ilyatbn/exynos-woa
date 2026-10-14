@@ -324,3 +324,15 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   (first 8 and every 300th) with sizes, formats, flags, primary/opened handles - so the next run shows the real
   windowed path even if this alone does not fix it. Rotation (Blt->Rotate) not handled, only logged.
 - 03:56 h3n deploy: UMD 0054 into System32 (b180f5bb...), ESP gpu\umd-new removed (held 0053), restride.flg kept (ScanoutStride 1088 stays armed). Expect: tlog BltDXGI lines in d3dtri during the cube, DWM present rate following the cube (~30/s) in 150-170 s.
+- **Run h3n (03:57-04:04, runs/h3n; UMD 0054):** d3dtri's tlog: **no BltDXGI call at all**; PresentDXGI every frame
+  with src 540x1140 (not a primary, not opened), dst NULL, Flags 0x1 (Blt), interval 0 - the redirected blt model
+  (MS Learn DXGI_DDI_ARG_PRESENT: dst NULL = "kernel mode will determine the destination"). DWM (pid 1256) in the cube
+  phase 38/75/66 per 10 s - unchanged. Cube 32.0 fps, 0 faults (29441 jobs). So 0054's Blt is right but unused here.
+  The shim presented from its own private surface (ddi.present, made without a resource), which a redirected
+  present cannot hand to DWM.
+- Mesa 0055 (build mali-umd-0055, maliumd 3f4814d7...): BIND_PRESENT 2D single-mip non-MSAA buffers without a
+  primary desc on a GPU screen are created like MISC_SHARED ones (malikm_shared_bo_create with the runtime resource
+  handle -> Panfrost BO; d3dfmt only for BGRA8/BGRX8/RGBA8, else plain); Resource.kmt_present = its allocation
+  (malikm_prime_fd_allocation). _Present of such a buffer: flush + fence_finish (<= 100 ms), then
+  malikm_allocation_present -> pfnPresentCb(hSrcAllocation = that allocation), no readback, no copy; failure falls
+  through to the old path. tlog "CreateResource present ..." and "present allocation n: ...".

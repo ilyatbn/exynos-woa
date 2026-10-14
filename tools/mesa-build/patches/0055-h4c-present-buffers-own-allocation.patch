@@ -1,0 +1,161 @@
+From 3a2985d21acf2b4e19b962a6b39a5f8ec6762994 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 04:06:15 +0300
+Subject: [PATCH] H4c: windowed swap chain buffers (BIND_PRESENT) on a GPU
+ screen are kernel allocations made with the runtime resource handle and
+ presented from themselves (no CPU copy) - DXGI's redirected Blt present names
+ the source DWM composes (exynos-woa tools/mesa-build/patches/0055)
+
+---
+ include/win32-compat/malikm_drm.c           | 38 +++++++++++++++++++++
+ src/gallium/frontends/d3d10umd/DxgiFns.cpp  | 14 ++++++++
+ src/gallium/frontends/d3d10umd/Resource.cpp | 21 +++++++++---
+ src/gallium/frontends/d3d10umd/State.h      |  3 ++
+ 4 files changed, 72 insertions(+), 4 deletions(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 3f109b5..a839f06 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -1579,6 +1579,44 @@ malikm_shared_bo_create(void *hRTResource, unsigned w, unsigned h, unsigned cpp,
+    return ret;
+ }
+ 
++/* exynos-woa H4c (0055): the kernel allocation behind a pseudo dma-buf fd, 0 if none (or a fixed BO). */
++unsigned
++malikm_prime_fd_allocation(int prime_fd)
++{
++   unsigned h = 0;
++   AcquireSRWLockExclusive(&wddm_lock);
++   if (prime_fd & MALIKM_PRIME_FD_BASE) {
++      struct wbo *bo = wddm_bo((uint32_t)prime_fd & ~MALIKM_PRIME_FD_BASE);
++      if (bo && !bo->fixed)
++         h = bo->h;
++   }
++   ReleaseSRWLockExclusive(&wddm_lock);
++   return h;
++}
++
++/* exynos-woa H4c (0055): present a resource's own allocation (a windowed swap chain buffer the GPU rendered into):
++ * the runtime gets it as the source, so a redirected (DWM) present can compose it. 0 if the runtime took it. */
++int
++malikm_allocation_present(unsigned hAlloc, unsigned hDst, void *dxgi_context)
++{
++   int ret = -1;
++   static unsigned n;
++   AcquireSRWLockExclusive(&wddm_lock);
++   if (ddi.on && ddi.dxgi && ddi.dxgi->pfnPresentCb && hAlloc) {
++      DXGIDDICB_PRESENT p = {0};
++      p.hSrcAllocation = hAlloc;
++      p.hDstAllocation = hDst;
++      p.pDXGIContext = dxgi_context;
++      p.hContext = ddi.context;
++      HRESULT phr = ddi.dxgi->pfnPresentCb(ddi.device, &p);
++      ret = phr >= 0 ? 0 : -1;
++      if (n++ < 8 || (n % 300) == 0 || ret)
++         malikm_tlog("present allocation %u: 0x%x -> dst 0x%x: hr 0x%08lx", n, hAlloc, hDst, (unsigned long)phr);
++   }
++   ReleaseSRWLockExclusive(&wddm_lock);
++   return ret;
++}
++
+ /* exynos-woa H3: the size pan_kmod_bo_import would get with lseek on a dma-buf. */
+ uint64_t
+ malikm_prime_fd_size(int prime_fd)
+diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+index 0b45003..51575d6 100644
+--- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
++++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+@@ -41,6 +41,7 @@
+ #include "util/format/u_format.h"
+ 
+ extern "C" void malikm_tlog(const char *fmt, ...);   /* exynos-woa H4: timing/event log (malikm_drm.c) */
++extern "C" int malikm_allocation_present(unsigned hAlloc, unsigned hDst, void *dxgi_context);   /* H4c (0055) */
+ 
+ /* G13 (exynos-woa): whether the present being carried out is a flip (DXGI_DDI_PRESENT_FLAGS.Flip). The target's
+  * flush_frontbuffer (d3d10_gdi.c) reads it: dxgkrnl only flips to allocations created as primaries ("Source of Flip
+@@ -86,6 +87,19 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
+                      (void *)dr, dr ? dr->kmt_primary : 0, pPresentData->Flags.Value,
+                      (unsigned)pPresentData->FlipInterval);
+    }
++   /* exynos-woa H4c (0055): a swap chain buffer with its own kernel allocation is presented from that allocation -
++    * the frame is finished first (DWM or the KMD read it once the present is queued), no CPU copy. */
++   if (pSrcResource && pSrcResource->kmt_present && !pSrcResource->kmt_primary) {
++      struct pipe_fence_handle *fence = NULL;
++      device->pipe->flush(device->pipe, &fence, 0);
++      if (fence) {
++         device->pipe->screen->fence_finish(device->pipe->screen, NULL, fence, 100 * 1000 * 1000ull);
++         device->pipe->screen->fence_reference(device->pipe->screen, &fence, NULL);
++      }
++      unsigned hDst = pPresentData->hDstResource ? CastResource(pPresentData->hDstResource)->kmt_present : 0;
++      if (malikm_allocation_present(pSrcResource->kmt_present, hDst, pPresentData->pDXGIContext) == 0)
++         return S_OK;
++   }
+    d3d10_present_flip = pPresentData->Flags.Flip;
+    d3d10_present_alloc = pSrcResource ? pSrcResource->kmt_primary : 0;
+    d3d10_present_dst = pPresentData->hDstResource ? CastResource(pPresentData->hDstResource)->kmt_primary : 0;
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index fcac4b4..153d759 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -211,6 +211,7 @@ extern "C" bool d3d10_runtime_is_maliwddm(void);
+ extern "C" int malikm_shared_bo_create(void *hRTResource, unsigned w, unsigned h, unsigned cpp, unsigned d3dfmt,
+                                        int *prime_fd, unsigned *pitch);
+ extern "C" int malikm_bo_from_allocation(unsigned hAlloc, int *prime_fd);
++extern "C" unsigned malikm_prime_fd_allocation(int prime_fd);   /* exynos-woa H4c (0055) */
+ extern "C" void malikm_tlog(const char *fmt, ...);   /* exynos-woa H4: timing/event log (malikm_drm.c) */
+ 
+ /* exynos-woa H3: softpipe imports CPU memory (gdi winsys, 0034/0035); a GPU screen imports a BO by fd. */
+@@ -356,7 +357,15 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+     * kept locked and softpipe renders into it (gdi winsys external memory, patch 0035), so what the creator draws is
+     * what an opener of the allocation sees. Single-mip, single-slice only (the shareable case, MS Learn
+     * D3D11_RESOURCE_MISC_SHARED: "2D non-mipmapped textures"); anything else keeps the plain path. */
+-   if ((pCreateResource->MiscFlags & D3D10_DDI_RESOURCE_MISC_SHARED) && !pCreateResource->pPrimaryDesc &&
++   /* exynos-woa H4c (0055, notes/gpu-hw-path.md): a windowed swap chain's buffers (BIND_PRESENT, no primary desc)
++    * on a GPU screen take the same path. With DWM on, DXGI presents them with PresentDXGI Blt and no destination
++    * (run h3n: no BltDXGI call at all) - a redirected present that DWM composes from the presented allocation, so
++    * that allocation must be the resource's own (created with the runtime resource handle), not a private surface
++    * of the shim (run h3m: 637 such presents, none reached the KMD or DWM). */
++   bool present_buffer = (pCreateResource->BindFlags & D3D10_DDI_BIND_PRESENT) && !pCreateResource->pPrimaryDesc &&
++                         !screen_is_softpipe(screen) && templat.nr_samples <= 1;
++   if (((pCreateResource->MiscFlags & D3D10_DDI_RESOURCE_MISC_SHARED) || present_buffer) &&
++       !pCreateResource->pPrimaryDesc &&
+        templat.target == PIPE_TEXTURE_2D && pCreateResource->MipLevels == 1 && pCreateResource->ArraySize == 1 &&
+        d3d10_runtime_is_maliwddm()) {
+       unsigned d3dfmt = 0, hAlloc = 0, pitch = 0;
+@@ -372,11 +381,15 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+       if (!screen_is_softpipe(screen)) {
+          /* exynos-woa H3: Panfrost renders into the shared allocation itself (run h3f: LogonUI's DComp composition
+           * buffer asserted in panfrost_resource_from_handle on the softpipe-style CPU-memory handle). */
+-         if (malikm_shared_bo_create(hRTResource.handle, templat.width0, templat.height0,
++         if (d3dfmt != 0 &&
++             malikm_shared_bo_create(hRTResource.handle, templat.width0, templat.height0,
+                                      util_format_get_blocksize(templat.format), d3dfmt, &prime_fd, &pitch) == 0)
+             pResource->resource = import_bo(screen, &templat, prime_fd, pitch);
+-         malikm_tlog("CreateResource shared %ux%u fmt %u pitch %u: %s", templat.width0, templat.height0, d3dfmt,
+-                     pitch, pResource->resource ? "Panfrost BO" : "FAILED -> plain resource (not shared)");
++         if (pResource->resource && present_buffer)
++            pResource->kmt_present = malikm_prime_fd_allocation(prime_fd);
++         malikm_tlog("CreateResource %s %ux%u fmt %u pitch %u: %s (alloc 0x%x)", present_buffer ? "present" : "shared",
++                     templat.width0, templat.height0, d3dfmt, pitch,
++                     pResource->resource ? "Panfrost BO" : "FAILED -> plain resource", pResource->kmt_present);
+       } else if (malikm_shared_create(hRTResource.handle, templat.width0, templat.height0,
+                                util_format_get_blocksize(templat.format), d3dfmt, &hAlloc, &cpu, &pitch) == 0 &&
+           cpu != NULL) {
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index 2c79223..d65907f 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -176,6 +176,9 @@ struct Resource
+    unsigned kmt_primary;
+    /* G13 (0034): an opened shared allocation whose lock backs the texture (unlocked in DestroyResource), 0 if none. */
+    unsigned kmt_opened_locked;
++   /* exynos-woa H4c (0055): a windowed swap chain buffer (BIND_PRESENT) backed by a kernel allocation created with
++    * the runtime resource handle, Panfrost rendering into it; presents name it (DxgiFns.cpp _Present). 0 if none. */
++   unsigned kmt_present;
+ };
+ 
+ 
+-- 
+2.40.1.windows.1
+

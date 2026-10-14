@@ -306,3 +306,17 @@ No device access in this task; build-verified only (Guided, not Ready).
   values, RecommendMonitorModes, BrightnessQuery, repeated Fail_QueryInterface c00000bb). => BIG at its lowest V/F
   point does NOT fix it (DVFS hypothesis weakened; UEFILOG reply for idx 4 still to read). Both freezes coincide
   with the Mali KMD start (GPU_POWER_ON 1, ESP gpu\full.flg). New suspect: GPU + M4 (coherency / GPU work on M4).
+- m4dvfs1 UEFILOG: FREQ_REQ idx 4 = 520000 -> reply 00080000 0007EF40 (echo = accepted). Back in TWRP 22:54:05. Next m4nogpu1: same image, ESP \S10EDIAG\nogpu.flg set (DSDT GPU0 hidden, no Mali KMD).
+- Run m4nogpu1 (nogpu.flg, same 8-core image): NO Mali KMD at all, still frozen: break-ins +25 s, +49 s ok, dead by
+  +75 s (22:56:04); last output Exynos9820Wlan WDI init. => GPU is NOT the trigger. Freeze ~45-75 s after KD connect
+  in all three runs, during general driver load. Hypothesis (INFERRED, to verify): cross-cluster WFE wake-up - Windows
+  ARM64 spin-waits in WFE expecting the exclusive-monitor clear (lock release) as wake event; if that event does not
+  reach the separate M4 cluster, an M4 waiting at DISPATCH (IRQs masked by PMR) never wakes and everyone deadlocks on
+  it. Linux masks such a defect with the arch-timer event stream (CNTKCTL_EL1.EVNTEN, on by default). Check first
+  whether ntoskrnl writes CNTKCTL_EL1.
+- ntoskrnl.exe (phone, 10 423 200 B, pulled read-only from TWRP) disassembled (llvm-objdump): the only CNTKCTL_EL1
+  write is "mov x8,#3; msr CNTKCTL_EL1,x8" (EL0 counter access, EVNTEN 0; skipped only when [x14+0x18]==3) - Windows
+  never runs the event stream. But the kernel has 1 WFE (KeStallWhileFrozen), 0 SEVL, 714 YIELD: spinlocks spin with
+  YIELD, not WFE => WFE-wake hypothesis RULED OUT.
+  Remaining picture: an M4 wedges (hardware-level: bus/power/attribute), then the other CPUs deadlock on IPIs to it
+  and KD dies with them. Next (m4nogpu2): break-ins every 4 s to catch the window where KD cannot freeze CPU 6/7.

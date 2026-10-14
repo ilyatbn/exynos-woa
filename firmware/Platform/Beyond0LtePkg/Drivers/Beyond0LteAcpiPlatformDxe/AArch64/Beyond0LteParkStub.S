@@ -16,7 +16,8 @@
 //   +0x000 UINT32 ProcessorId   OS writes (firmware initialises 0xFFFFFFFF)
 //   +0x008 UINT64 JumpAddress   OS writes the entry PA; 0 = not yet
 //   +0x800        this stub
-//   +0xFC0 UINT64 polls         m14 self-report: poll iterations so far (alive while it rises)
+//   +0xFB8 UINT32 sleep         m14: firmware sets 1 -> after the alive mark the core sleeps in WFI forever
+//   +0xFC0 UINT64 polls        m14 self-report: poll iterations so far (alive while it rises)
 //   +0xFC8 UINT64 loop ticks    m14: CNTVCT ticks for the last 0x2000-iteration delay loop (core clock)
 //   +0xFD8 UINT32 stage        m14 DVM test: 1 before IC IALLUIS, 2 before TLBI VMALLE1IS, 3 after both
 //   +0xFE0 UINT32 0x5A5ABEEF    alive mark, written by the core itself
@@ -45,6 +46,7 @@
 #define PARK_STAGE_OFF  0xFD8
 #define PARK_CNTFRQ_OFF 0xFF8
 #define PARK_POLLS_OFF      0xFC0
+#define PARK_SLEEP_OFF      0xFB8
 #define PARK_LOOPTICKS_OFF  0xFC8
 
 #ifndef BEYOND0LTE_PARK_DVM_TEST
@@ -89,6 +91,13 @@ ASM_FUNC(Beyond0LteParkStub)
   str   w2, [x1, #PARK_MARK_OFF]
   dsb   sy
 
+  ldr   w3, [x1, #PARK_SLEEP_OFF]   // m14 isolation test: firmware asked this core to sleep, not poll
+  cbz   w3, 0f
+  msr   daifset, #0xf
+3:
+  wfi
+  b     3b
+0:
   mov   x6, #0                      // m14 self-report: poll count
 1:
   mrs   x4, cntvct_el0

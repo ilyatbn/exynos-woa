@@ -401,3 +401,4 @@ No device access in this task; build-verified only (Guided, not Ready).
 - Next: not-offered cores sleep in WFI right after the alive mark (mailbox +0xFB8 flag set by the firmware) -
   M4 cluster powered with ZERO traffic. Freeze anyway => powering the M4 cluster is enough (EL3 / uH / ACPM);
   no freeze => the M4s' traffic.
+- boot-m4wfi1.img: KD flags + PARK 0xFE + OFFER 0x3E + BEYOND0LTE_PARK_SLEEP_UNOFFERED 1 (M4s: alive mark, then DAIF masked + WFI loop; objdump verified).

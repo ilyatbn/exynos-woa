@@ -52,6 +52,10 @@
 #define PARK_MPIDR_OFF      0xFF0u
 #define PARK_CNTFRQ_OFF     0xFF8u   // CNTFRQ_EL0 as the parked core sees it (m14)
 #define PARK_STAGE_OFF      0xFD8u
+#define PARK_SLEEP_OFF      0xFB8u   // m14: 1 = the stub sleeps in WFI (DAIF masked) after the alive mark, never polls
+#ifndef BEYOND0LTE_PARK_SLEEP_UNOFFERED
+#define BEYOND0LTE_PARK_SLEEP_UNOFFERED  0   // m14 isolation test: parked-but-not-offered cores sleep instead of polling
+#endif
 #define PARK_POLLS_OFF      0xFC0u   // m14 stub self-report (poll count, loop ticks) - must stay above the stub code
 #define PARK_LOOPTICKS_OFF  0xFC8u   // m14 DVM test stage (the .S BEYOND0LTE_PARK_DVM_TEST block), 0 if not built
 #define PARK_ID_INVALID     0xFFFFFFFFu
@@ -134,7 +138,7 @@ Beyond0LteParkSecondaries (
   BootMpidr = GET_MPIDR_AFFINITY_BITS (ArmReadMpidr ());
   DEBUG ((DEBUG_ERROR, "PARK: mask=%x boot-mpidr=%lx stub=%u B\n",
           (UINT32)BEYOND0LTE_SMP_PARK_MASK, BootMpidr, (UINT32)StubSize));
-  if ((StubSize == 0) || (PARK_STUB_OFF + StubSize > PARK_POLLS_OFF)) {
+  if ((StubSize == 0) || (PARK_STUB_OFF + StubSize > PARK_SLEEP_OFF)) {
     DEBUG ((DEBUG_ERROR, "PARK: stub size %u does not fit - nothing parked\n", (UINT32)StubSize));
     return;
   }
@@ -222,6 +226,11 @@ Beyond0LteParkSecondaries (
     *(UINT32 *)(UINTN)(Page[Index] + PARK_ID_OFF)   = PARK_ID_INVALID;
     *(UINT64 *)(UINTN)(Page[Index] + PARK_JUMP_OFF) = 0;
     CopyMem ((VOID *)(UINTN)(Page[Index] + PARK_STUB_OFF), Beyond0LteParkStub, StubSize);
+#if BEYOND0LTE_PARK_SLEEP_UNOFFERED
+    if (((BEYOND0LTE_SMP_OFFER_MASK >> Index) & 1u) == 0) {
+      *(UINT32 *)(UINTN)(Page[Index] + PARK_SLEEP_OFF) = 1;   // m14: this core sleeps in WFI after its alive mark
+    }
+#endif
   }
 
   if (Pages != 0) {

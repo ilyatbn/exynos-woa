@@ -237,3 +237,18 @@ Serialise all senders with one FAST_MUTEX/KEVENT in the adapter (brightness DDI 
   from a script without any KMD change. Scratch DT dumps: %TEMP%\claude\...\scratchpad\br\*.dts (not kept).
   No code changes, no commits, no phone access in this task.
 - Review (main session): EXYNOS_DSIM_BASE 0x19080000 VERIFIED in Exynos9820.h:873 (size 0x10000 conservative, three DT ranges); MwQueryInterface adapter.c:319 returns STATUS_NOT_SUPPORTED; display.c:301 reports D3DKMDT_VOT_INTERNAL - all three claims match the tree. DSIM register offsets remain UNVERIFIED (cal_9820 source only).
+
+## Progress log - device work (2026-10-14, over SSH, Windows running, KMD 38)
+- D1 read-only DSIM dump 0x19080000.. (skipping RXFIFO +0x60): VERSION 0x02030000; LINK_STATUS1 (+0x0C) 0x060008c8
+  (CMD_MODE_STATUS 1, line counter moving - 12 samples spread 0x10..0x816: frames stream continuously);
+  MIPI_STATUS (+0x18) 0x20000000 in 15/15 samples (FRM_PROCESSING, never FRM_DONE); DPHY_STATUS 0x0007fc00;
+  CLK_CTRL 0x06131f04; ESCMODE (+0x2C) 0x01400000; RESOL 0x08e80438; CONFIG (+0x4C) 0x04807cff; INTSRC (+0x50)
+  0x01400000 (FRAME_DONE + ABNRMAL_CMD_ST); INTMSK 0x8e7b4447; SFR_CTRL (+0x64) 0x2 = SHADOW_REG_READ_EN;
+  FIFOCTRL (+0x68) 0x00001507 (all empty); CMD_CONFIG (+0x80) 0 (PKT_GO off); CMD_TE_CTRL0/1 0x40 / 0x2c17323a;
+  CMD_STATUS (+0x8C) 0x08 (ABNORMAL_CAUSE 8 - not decoded anywhere in Samsung's code); +0x100 0x00781919,
+  +0x104 0x0f010000. Register map = Samsung cal_9820 regs-dsim.h (fetched; offsets consistent with every value).
+- D2 first TX test (harmless): clear INTSRC PH_EMPTY|RX_DONE, PKTHDR 0x00000137 (max return size 1), PKTHDR 0x01000A06
+  (DCS read 0x0A + BTA). Result: FIFOCTRL 0x00021107 = 2 headers QUEUED, not sent; RX empty; minutes later unchanged.
+  Writing INTSRC bit 22 (W1C) did not clear it (reads back 0x01400000). Open: are reads shadowed (SFR_CTRL bit 1)?
+  is the queue held by the abnormal state, by the continuous HW-triggered frames, or by a TE-protect window?
+  The 2 queued headers are a max-return-size and a power-mode read - harmless whenever they go out.

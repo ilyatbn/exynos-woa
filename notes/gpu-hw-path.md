@@ -522,3 +522,14 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
 - User session 8 (runs\user8, 09:53-10:09): ~9 min, power-menu reboot to TWRP; Application: cpuz.exe crashed twice
   (third-party); no new Display 4101 (last one 03:30 = soak s1), no Kernel-Power 41. TWRP temps after: BIG 69,
   MID/LITTLE 58, G3D 53, ISP 54, battery 34.3 C; battery 67 %.
+- **11:00 user: GpuCheck says "Microsoft Basic Render Driver".** Root cause (my error): the nowdt image was built
+  from the committed tree, where BEYOND0LTE_GPU_POWER_ON defaults to 0 (Beyond0LteGpuProbeDxe.c:52) - #115/#116
+  were built with it set to 1 for the build only (m12-wifi-wificx.md:448 "#115 = main + GPU_POWER_ON 1 for the build
+  only"). With 0, GpuProbe never writes 'GPU0', GPU0._STA = 0 -> no Mali adapter, Basic Display + WARP. So clean
+  boots 1/2 and user sessions 8/9 ran WITHOUT the GPU (the user's first look and the opaque taskbar included; the
+  "audio + HW GPU together" claim for clean boot 2 is therefore wrong - GPU0 was absent).
+- Rebuilt with both build-only settings (WINDOWS_WATCHDOG 0, GPU_POWER_ON 1; both edits reverted after the build):
+  s10e-artifacts\boot116-gpuon-nowdt.img sha256 0c728578... (pack -SkipFreshCheck because of the reverted edits).
+  Binary diff vs #116 not informative (compressed FV). Lesson: the image recipe for #116 lives only in
+  m12-wifi-wificx.md; any rebuild must list every build-only define - recorded in HANDOFF next.
+- WiFi gap in session 9: the user had joined the house WiFi; back on the hotspot at 11:23.

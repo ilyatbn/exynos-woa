@@ -9,7 +9,12 @@
  * plus per contact: down -> up duration, report count, longest gap between reports while down.
  * Header: GetSystemMetrics(SM_DIGITIZER / SM_MAXIMUMTOUCHES) and the per-user Wisp\Touch registry values.
  *
- *   s10etouchlog [seconds]      default 40; output C:\S10eTmp\req\touchlog.txt (Users-writable)
+ *   s10etouchlog [seconds]      default 300; output C:\S10eTmp\req\touchlog.txt (Users-writable)
+ *
+ * 2026-10-14 (user: "add an object to drag and a basic keyboard ... just the keys and an input box"): the window
+ * also has a draggable square, an input box with a calculator-style keypad (keys only, nothing is calculated) and an
+ * X to close. The app is per-monitor DPI aware (physical 1080 x 2280 pixels). It counts "suspicious double taps"
+ * (two pointer DOWNs within 150 ms and 60 px - the touch bug's signature) and logs them as SUSPECT lines.
  */
 
 #include <windows.h>
@@ -30,10 +35,243 @@ typedef struct {
 static FILE      *gLog;
 static ULONGLONG  gStartMs;
 static ULONGLONG  gLastHidMs;
-static unsigned   gSeconds = 40;
+static unsigned   gSeconds = 300;
 static unsigned   gHidReports, gPointerMsgs, gRightClicks, gContextMenus;
 static CONTACT    gContacts[MAX_CONTACT];
 static WCHAR      gStatus[256] = L"";
+
+static ULONGLONG Ms(void);
+static void Log(const char *Fmt, ...);
+
+/* ---- test UI (physical pixels) ---- */
+#define KEY_COLS 4
+#define KEY_ROWS 5
+static const WCHAR *gKeys[KEY_ROWS * KEY_COLS] = {
+    L"7", L"8", L"9", L"/",
+    L"4", L"5", L"6", L"*",
+    L"1", L"2", L"3", L"-",
+    L"0", L".", L"=", L"+",
+    L"C", L"(", L")", L"\x232B",
+};
+static RECT       gSquare = { 400, 520, 640, 760 };
+static BOOL       gDragging;
+static UINT32     gDragPointer;
+static POINT      gDragOffset;
+static unsigned   gDrags, gDragMoves;
+static int        gPressedKey = -1;
+static UINT32     gKeyPointer;
+static WCHAR      gInput[64] = L"";
+static unsigned   gKeyTaps, gSuspectTaps;
+static ULONGLONG  gLastDownMs;
+static POINT      gLastDownPt;
+static HFONT      gFontBig, gFontSmall;
+
+static RECT
+ClientRectOf(HWND Wnd)
+{
+    RECT R;
+    GetClientRect(Wnd, &R);
+    return R;
+}
+
+static RECT
+DragArea(RECT C)
+{
+    RECT R = { 40, 300, C.right - 40, 1080 };
+    return R;
+}
+
+static RECT
+InputBox(RECT C)
+{
+    RECT R = { 40, 1120, C.right - 40, 1260 };
+    return R;
+}
+
+static RECT
+KeyRect(RECT C, int Index)
+{
+    int  top = 1300, bottom = C.bottom - 40, left = 40, right = C.right - 40;
+    int  w = (right - left) / KEY_COLS, h = (bottom - top) / KEY_ROWS;
+    RECT R;
+    R.left = left + (Index % KEY_COLS) * w + 8;
+    R.top = top + (Index / KEY_COLS) * h + 8;
+    R.right = R.left + w - 16;
+    R.bottom = R.top + h - 16;
+    return R;
+}
+
+static RECT
+CloseRect(RECT C)
+{
+    RECT R = { C.right - 180, 20, C.right - 20, 180 };
+    return R;
+}
+
+static int
+KeyAt(RECT C, POINT P)
+{
+    int I;
+    for (I = 0; I < KEY_ROWS * KEY_COLS; I++) {
+        RECT R = KeyRect(C, I);
+        if (PtInRect(&R, P))
+            return I;
+    }
+    return -1;
+}
+
+static void
+PressKey(int Index)
+{
+    size_t n = wcslen(gInput);
+    const WCHAR *k = gKeys[Index];
+
+    gKeyTaps++;
+    if (wcscmp(k, L"C") == 0) {
+        gInput[0] = 0;
+    } else if (k[0] == 0x232B) {
+        if (n > 0)
+            gInput[n - 1] = 0;
+    } else if (n + 1 < ARRAYSIZE(gInput)) {
+        gInput[n] = k[0];
+        gInput[n + 1] = 0;
+    }
+    Log("KEY   '%lc' -> input \"%ls\"", k[0], gInput);
+}
+
+static void
+DrawUi(HWND Wnd, HDC Dc)
+{
+    RECT C = ClientRectOf(Wnd), R;
+    HBRUSH bg = CreateSolidBrush(RGB(245, 245, 245));
+    HBRUSH area = CreateSolidBrush(RGB(225, 232, 240));
+    HBRUSH sq = CreateSolidBrush(gDragging ? RGB(230, 80, 40) : RGB(40, 110, 220));
+    HBRUSH key = CreateSolidBrush(RGB(255, 255, 255));
+    HBRUSH keyDown = CreateSolidBrush(RGB(120, 170, 250));
+    HBRUSH box = CreateSolidBrush(RGB(255, 255, 255));
+    HBRUSH close = CreateSolidBrush(RGB(200, 50, 50));
+    WCHAR  text[128];
+    int    I;
+
+    FillRect(Dc, &C, bg);
+    SetBkMode(Dc, TRANSPARENT);
+    SelectObject(Dc, gFontSmall);
+    R = C;
+    R.left = 40;
+    R.top = 40;
+    R.right -= 220;
+    DrawTextW(Dc, gStatus, -1, &R, DT_WORDBREAK);
+
+    R = CloseRect(C);
+    FillRect(Dc, &R, close);
+    SelectObject(Dc, gFontBig);
+    SetTextColor(Dc, RGB(255, 255, 255));
+    DrawTextW(Dc, L"X", -1, &R, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    SetTextColor(Dc, RGB(0, 0, 0));
+
+    R = DragArea(C);
+    FillRect(Dc, &R, area);
+    SelectObject(Dc, gFontSmall);
+    swprintf_s(text, ARRAYSIZE(text), L"drag the square   (drags %u, moves %u)", gDrags, gDragMoves);
+    R.left += 20;
+    R.top += 16;
+    DrawTextW(Dc, text, -1, &R, DT_SINGLELINE);
+    FillRect(Dc, &gSquare, sq);
+
+    R = InputBox(C);
+    FillRect(Dc, &R, box);
+    FrameRect(Dc, &R, (HBRUSH)GetStockObject(BLACK_BRUSH));
+    SelectObject(Dc, gFontBig);
+    R.left += 24;
+    DrawTextW(Dc, gInput[0] ? gInput : L" ", -1, &R, DT_VCENTER | DT_SINGLELINE);
+
+    for (I = 0; I < KEY_ROWS * KEY_COLS; I++) {
+        R = KeyRect(C, I);
+        FillRect(Dc, &R, I == gPressedKey ? keyDown : key);
+        FrameRect(Dc, &R, (HBRUSH)GetStockObject(GRAY_BRUSH));
+        DrawTextW(Dc, gKeys[I], -1, &R, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    }
+    DeleteObject(bg);
+    DeleteObject(area);
+    DeleteObject(sq);
+    DeleteObject(key);
+    DeleteObject(keyDown);
+    DeleteObject(box);
+    DeleteObject(close);
+}
+
+/* Returns TRUE if the pointer message was consumed by the test UI. */
+static BOOL
+OnUiPointer(HWND Wnd, UINT Msg, UINT32 Id, POINT P)
+{
+    RECT C = ClientRectOf(Wnd);
+    RECT R;
+
+    if (Msg == WM_POINTERDOWN) {
+        ULONGLONG now = Ms();
+        LONG dx = P.x - gLastDownPt.x, dy = P.y - gLastDownPt.y;
+        if (gLastDownMs != 0 && now - gLastDownMs < 150 && dx * dx + dy * dy < 60 * 60) {
+            gSuspectTaps++;
+            Log("SUSPECT second DOWN %llu ms after the previous one, %ld px away", now - gLastDownMs,
+                (long)(dx < 0 ? -dx : dx) + (long)(dy < 0 ? -dy : dy));
+        }
+        gLastDownMs = now;
+        gLastDownPt = P;
+        R = CloseRect(C);
+        if (PtInRect(&R, P)) {
+            Log("CLOSE tapped");
+            DestroyWindow(Wnd);
+            return TRUE;
+        }
+        if (!gDragging && PtInRect(&gSquare, P)) {
+            gDragging = TRUE;
+            gDragPointer = Id;
+            gDragOffset.x = P.x - gSquare.left;
+            gDragOffset.y = P.y - gSquare.top;
+            gDrags++;
+            InvalidateRect(Wnd, NULL, FALSE);
+            return TRUE;
+        }
+        if (gPressedKey < 0) {
+            int k = KeyAt(C, P);
+            if (k >= 0) {
+                gPressedKey = k;
+                gKeyPointer = Id;
+                InvalidateRect(Wnd, NULL, FALSE);
+                return TRUE;
+            }
+        }
+        return FALSE;
+    }
+    if (Msg == WM_POINTERUPDATE && gDragging && Id == gDragPointer) {
+        RECT a = DragArea(C);
+        LONG w = gSquare.right - gSquare.left, h = gSquare.bottom - gSquare.top;
+        LONG x = P.x - gDragOffset.x, y = P.y - gDragOffset.y;
+        if (x < a.left) x = a.left;
+        if (y < a.top + 60) y = a.top + 60;
+        if (x + w > a.right) x = a.right - w;
+        if (y + h > a.bottom) y = a.bottom - h;
+        SetRect(&gSquare, x, y, x + w, y + h);
+        gDragMoves++;
+        InvalidateRect(Wnd, NULL, FALSE);
+        return TRUE;
+    }
+    if (Msg == WM_POINTERUP) {
+        if (gDragging && Id == gDragPointer) {
+            gDragging = FALSE;
+            InvalidateRect(Wnd, NULL, FALSE);
+            return TRUE;
+        }
+        if (gPressedKey >= 0 && Id == gKeyPointer) {
+            if (KeyAt(C, P) == gPressedKey)
+                PressKey(gPressedKey);
+            gPressedKey = -1;
+            InvalidateRect(Wnd, NULL, FALSE);
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
 
 static ULONGLONG
 Ms(void)
@@ -174,6 +412,12 @@ WndProc(HWND Wnd, UINT Msg, WPARAM WParam, LPARAM LParam)
                 Msg == WM_POINTERDOWN ? "DOWN  " : Msg == WM_POINTERUP ? "UP    " : "UPDATE",
                 Id, (unsigned)Type, (unsigned)HIWORD(WParam), (int)(short)LOWORD(LParam), (int)(short)HIWORD(LParam));
         }
+        {
+            POINT P = { (short)LOWORD(LParam), (short)HIWORD(LParam) };
+            ScreenToClient(Wnd, &P);
+            if (OnUiPointer(Wnd, Msg, Id, P))
+                return 0;   // a UI element took it (no synthesized mouse click)
+        }
         break;   // fall through to DefWindowProc: it synthesizes the mouse messages incl. press-and-hold
     }
     case WM_LBUTTONDOWN: Log("MOUSE WM_LBUTTONDOWN"); break;
@@ -187,21 +431,29 @@ WndProc(HWND Wnd, UINT Msg, WPARAM WParam, LPARAM LParam)
             return 0;
         }
         swprintf_s(gStatus, ARRAYSIZE(gStatus),
-                   L"Touch log: press and HOLD a finger still for 2-3 s, lift, repeat a few times.   %llu s left"
-                   L"   HID %u  pointer %u  right-clicks %u",
-                   (ULONGLONG)gSeconds - Ms() / 1000, gHidReports, gPointerMsgs, gRightClicks);
-        InvalidateRect(Wnd, NULL, TRUE);
+                   L"Touch test - %llu s left. Tap keys, drag the square, hold for right-click.\n"
+                   L"key taps %u   suspicious double taps %u   right-clicks %u   HID %u",
+                   (ULONGLONG)gSeconds - Ms() / 1000, gKeyTaps, gSuspectTaps, gRightClicks, gHidReports);
+        InvalidateRect(Wnd, NULL, FALSE);
         return 0;
+    case WM_ERASEBKGND:
+        return 1;   /* the whole client area is painted through a back buffer */
     case WM_PAINT: {
         PAINTSTRUCT Ps;
         RECT        Rect;
         HDC         Dc = BeginPaint(Wnd, &Ps);
+        HDC         Mem;
+        HBITMAP     Bmp, Old;
 
         GetClientRect(Wnd, &Rect);
-        Rect.left += 40;
-        Rect.top += 120;
-        Rect.right -= 40;
-        DrawTextW(Dc, gStatus, -1, &Rect, DT_WORDBREAK);
+        Mem = CreateCompatibleDC(Dc);
+        Bmp = CreateCompatibleBitmap(Dc, Rect.right, Rect.bottom);
+        Old = (HBITMAP)SelectObject(Mem, Bmp);
+        DrawUi(Wnd, Mem);
+        BitBlt(Dc, 0, 0, Rect.right, Rect.bottom, Mem, 0, 0, SRCCOPY);
+        SelectObject(Mem, Old);
+        DeleteObject(Bmp);
+        DeleteDC(Mem);
         EndPaint(Wnd, &Ps);
         return 0;
     }
@@ -223,10 +475,13 @@ wWinMain(HINSTANCE Instance, HINSTANCE Prev, PWSTR Cmd, int Show)
 
     (void)Prev;
     (void)Show;
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    gFontBig = CreateFontW(-72, 0, 0, 0, FW_SEMIBOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+    gFontSmall = CreateFontW(-40, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
     if (Cmd != NULL && *Cmd != 0) {
         gSeconds = (unsigned)_wtoi(Cmd);
         if (gSeconds == 0) {
-            gSeconds = 40;
+            gSeconds = 300;
         }
     }
     CreateDirectoryW(L"C:\\S10eTmp", NULL);
@@ -271,8 +526,9 @@ wWinMain(HINSTANCE Instance, HINSTANCE Prev, PWSTR Cmd, int Show)
                     I, gContacts[I].DownMs, gContacts[I].LastMs);
         }
     }
-    fprintf(gLog, "summary: HID reports %u, pointer messages %u, WM_RBUTTONUP %u, WM_CONTEXTMENU %u\n",
-            gHidReports, gPointerMsgs, gRightClicks, gContextMenus);
+    fprintf(gLog, "summary: HID reports %u, pointer messages %u, WM_RBUTTONUP %u, WM_CONTEXTMENU %u, key taps %u, "
+            "suspicious double taps %u, drags %u (moves %u), input \"%ls\"\n",
+            gHidReports, gPointerMsgs, gRightClicks, gContextMenus, gKeyTaps, gSuspectTaps, gDrags, gDragMoves, gInput);
     fclose(gLog);
     return 0;
 }

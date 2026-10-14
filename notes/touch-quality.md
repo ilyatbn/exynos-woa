@@ -121,3 +121,8 @@ Scope: analysis only; proposed patch in notes/touch-quality.patch; no commit, no
   device; a wrong layout with the drop enabled would kill every touch. Enable after the counters look right.
 - INF DriverVer 6.0.5058.6; built s10e-artifacts\touch-5058-6 (sys sha256 08012fdb3f2e...). Deploy: SYSTEM swap of the
   DriverStore .sys (previous kept), reboot.
+- Touch test app (s10etouchlog, drivers/S10eDiag/S10eTouchLog.c; user request): DPI aware, draggable square, input box
+  + calculator-style keypad (keys only), X to close, default 300 s (desktop "Touch log.cmd" -> 300), counts
+  "suspicious double taps" (2 DOWNs < 150 ms and < 60 px -> SUSPECT log lines), summary line with key taps / drags.
+  Self-test with s10etap before the reboot: drag (520,640)->(800,950) = drags 1 / moves 72, taps 7, 8, * -> "78*",
+  suspect 0 (runs\fbtl.png). Installed to System32 (previous kept as s10etouchlog.prev).

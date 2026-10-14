@@ -1,0 +1,30 @@
+From c02f93df296bd887303c6cc7b328c501094a1862 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 04:15:32 +0300
+Subject: [PATCH] H4c: shared/present kernel allocations get a 64-byte-aligned
+ pitch - Panfrost refused the import of d3dtri's 540-px back buffer (pitch
+ 2160) and it fell back to the CPU present (exynos-woa
+ tools/mesa-build/patches/0056)
+
+---
+ include/win32-compat/malikm_drm.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index a839f06..7f72060 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -1552,7 +1552,9 @@ malikm_shared_bo_create(void *hRTResource, unsigned w, unsigned h, unsigned cpp,
+    D3DDDI_ALLOCATIONINFO ai = {0};
+    D3DDDICB_ALLOCATE a = {0};
+ 
+-   *pitch = w * cpp;
++   /* exynos-woa H4c (0056): Panfrost imports linear surfaces only with a 64-byte-aligned pitch (run h3o: d3dtri's
++    * 540-px back buffer, 2160 B, was refused and fell back to the CPU present); openers read it from the private data. */
++   *pitch = (w * cpp + 63u) & ~63u;
+    if (w == 0 || h == 0 || cpp == 0 || hRTResource == NULL)
+       return -1;
+    AcquireSRWLockExclusive(&wddm_lock);
+-- 
+2.40.1.windows.1
+

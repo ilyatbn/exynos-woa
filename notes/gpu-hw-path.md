@@ -337,3 +337,11 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   malikm_allocation_present -> pfnPresentCb(hSrcAllocation = that allocation), no readback, no copy; failure falls
   through to the old path. tlog "CreateResource present ..." and "present allocation n: ...".
 - 04:06 h3o deploy: UMD 0055 into System32 (3f4814d7...). Risk noted: Explorer/LogonUI windowed swap chains take the new path too - watch logon in agent.log.
+- **Run h3o (04:06-04:14, runs/h3o; UMD 0055):** logon OK (explorer at 45 s). LogonUI's 832x1024 windowed buffers took
+  the new path (CreateResource present ... Panfrost BO, "present allocation" hr 0). d3dtri's 540x1140 buffer did NOT:
+  shared-bo-create allocated 0x400002c0 (BO 7) but import_bo failed - pitch 2160 = 33.75 x 64, Panfrost needs 64-byte
+  linear pitch (LogonUI's 3328 = 52 x 64 happened to be aligned). Cube 32.1 fps through the old CPU path, DWM
+  unchanged in the cube phase. 0 faults (29828 jobs). (Whether Panfrost's failed import GEM_CLOSEs the BO it got -
+  i.e. whether BO 7 stays in every submission list - not checked.)
+- Mesa 0056 (mali-umd-0056, maliumd c831519d...): malikm_shared_bo_create pitch = align(w*cpp, 64) (MW_ALLOCATION_INFO
+  Pitch carries it: KMD blt (command.c:250/260) and malikm_open_shared use the allocation's Pitch).

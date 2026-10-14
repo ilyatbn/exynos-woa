@@ -17,6 +17,11 @@
 
 #include <windows.h>
 #include <stdio.h>
+#pragma warning(push)
+#pragma warning(disable : 4201)     /* nameless unions in the SDK headers (C mode) */
+#include <d3dkmthk.h>
+#pragma warning(pop)
+#include "maliwddm_abi.h"
 
 #define ID_REBOOT    101
 #define ID_RECOVERY  102
@@ -48,6 +53,38 @@ static int
 Px(int Value)
 {
     return MulDiv(Value, gDpi, 96);
+}
+
+// Panel off / on through the display driver (MaliG76Wddm MW_ESCAPE_PANEL_POWER, DCS 0x28 / 0x29), 2026-10-14: the black
+// window alone left the taskbar visible (it sits in a higher z-band than any topmost window); with the panel dark,
+// nothing shows. Windows' own display state stays "on" - it never wakes the display again on this phone.
+static BOOL
+PanelPower(BOOL On)
+{
+    D3DKMT_OPENADAPTERFROMGDIDISPLAYNAME Open = { 0 };
+    D3DKMT_CLOSEADAPTER Close = { 0 };
+    D3DKMT_ESCAPE Escape = { 0 };
+    MW_ESCAPE_PANEL_POWER_DATA Data = { 0 };
+    NTSTATUS Status;
+    wchar_t Text[96];
+
+    wcscpy_s(Open.DeviceName, ARRAYSIZE(Open.DeviceName), L"\\\\.\\DISPLAY1");
+    if (D3DKMTOpenAdapterFromGdiDisplayName(&Open) < 0) {
+        Log(L"panel: cannot open the display adapter");
+        return FALSE;
+    }
+    Data.Code = MW_ESCAPE_PANEL_POWER;
+    Data.On = On ? 1 : 0;
+    Escape.hAdapter = Open.hAdapter;
+    Escape.Type = D3DKMT_ESCAPE_DRIVERPRIVATE;
+    Escape.pPrivateDriverData = &Data;
+    Escape.PrivateDriverDataSize = sizeof(Data);
+    Status = D3DKMTEscape(&Escape);
+    Close.hAdapter = Open.hAdapter;
+    D3DKMTCloseAdapter(&Close);
+    swprintf_s(Text, 96, L"panel: %s -> status 0x%08lx done %lu", On ? L"on" : L"off", (unsigned long)Status, Data.Done);
+    Log(Text);
+    return (Status >= 0) && Data.Done;
 }
 
 static void
@@ -123,6 +160,7 @@ BlankProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
         SetCursor(NULL);
         return TRUE;
     case WM_DESTROY:
+        PanelPower(TRUE);       // whatever closed the window, the panel comes back
         PostQuitMessage(0);
         return 0;
     case WM_CLOSE:
@@ -152,6 +190,7 @@ BlankScreen(HINSTANCE Instance)
                              NULL, NULL, Instance, NULL);
     ShowWindow(Window, SW_SHOW);
     SetForegroundWindow(Window);
+    PanelPower(FALSE);          // the window swallows touches, the dark panel hides everything incl. the taskbar
     while (GetMessageW(&Message, NULL, 0, 0) > 0) {
         DispatchMessageW(&Message);
     }
@@ -304,9 +343,11 @@ wWinMain(HINSTANCE Instance, HINSTANCE Previous, PWSTR CommandLine, int Show)
         }
     } else if (_wcsicmp(CommandLine, L"powermenu") == 0) {
         Log(L"powermenu: shown");
+        PanelPower(TRUE);
         WakeDisplay();
         PowerMenu(Instance);
     } else if (_wcsicmp(CommandLine, L"wake") == 0) {
+        PanelPower(TRUE);
         WakeDisplay();
     } else if ((_wcsicmp(CommandLine, L"volup") == 0) || (_wcsicmp(CommandLine, L"voldown") == 0) ||
                (_wcsicmp(CommandLine, L"mute") == 0)) {

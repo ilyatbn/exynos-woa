@@ -33,7 +33,7 @@ cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /D UNICODE /D _UNICODE /D _CRT_SECU
 if errorlevel 1 exit /b 10
 cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /D UNICODE /D _UNICODE /D _CRT_SECURE_NO_WARNINGS /Fo"%OUT%\S10eScale.obj" /Fe"%OUT%\s10escale.exe" "%SRC%S10eScale.c" /link /MACHINE:ARM64 /SUBSYSTEM:WINDOWS /Brepro user32.lib gdi32.lib advapi32.lib comctl32.lib
 if errorlevel 1 exit /b 11
-cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /D UNICODE /D _UNICODE /D _CRT_SECURE_NO_WARNINGS /Fo"%OUT%\S10eKeys.obj" /Fe"%OUT%\s10ekeys.exe" "%SRC%S10eKeys.c" /link /MACHINE:ARM64 /SUBSYSTEM:WINDOWS /Brepro user32.lib gdi32.lib
+cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /D UNICODE /D _UNICODE /D _CRT_SECURE_NO_WARNINGS /I "%SRC%..\MaliG76Wddm\include" /Fo"%OUT%\S10eKeys.obj" /Fe"%OUT%\s10ekeys.exe" "%SRC%S10eKeys.c" /link /MACHINE:ARM64 /SUBSYSTEM:WINDOWS /Brepro user32.lib gdi32.lib
 if errorlevel 1 exit /b 12
 cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /D _CRT_SECURE_NO_WARNINGS /D WINVER=0x0A00 /D _WIN32_WINNT=0x0A00 /D NTDDI_VERSION=0x0A000006 /Fo"%OUT%\S10eTap.obj" /Fe"%OUT%\s10etap.exe" "%SRC%S10eTap.c" /link /MACHINE:ARM64 /SUBSYSTEM:CONSOLE /Brepro user32.lib
 if errorlevel 1 exit /b 13

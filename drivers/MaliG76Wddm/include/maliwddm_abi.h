@@ -55,6 +55,7 @@ typedef struct _MW_COMMAND {
 #define MW_ESCAPE_STATS         3
 #define MW_ESCAPE_SCANOUT       4       /* exynos-woa H4a: the scan-out framebuffer in the GPU's address space */
 #define MW_ESCAPE_CLOCK         5       /* exynos-woa: GPU cycle counter + QPC, for a live clock reading */
+#define MW_ESCAPE_PANEL_POWER   6       /* exynos-woa: panel display off / on (DCS 0x28 / 0x29) - the power button */
 
 typedef struct _MW_ESCAPE_ALLOC_INFO_DATA {
     mw_u32 Code;                        /* MW_ESCAPE_ALLOC_INFO */
@@ -117,3 +118,11 @@ typedef struct _MW_ESCAPE_CLOCK_DATA {
     mw_u64 Timestamp;                   /* GPU_TIMESTAMP (system counter) */
     mw_u64 Qpc, QpcFreq;                /* KeQueryPerformanceCounter at the read */
 } MW_ESCAPE_CLOCK_DATA;
+
+/* MW_ESCAPE_PANEL_POWER (s10ekeys "screen"): On = 1 lights the panel, 0 darkens it; Windows' own display state is not
+ * touched (it never wakes the display again on this phone - no recognised power button, touch ignored while off). */
+typedef struct _MW_ESCAPE_PANEL_POWER_DATA {
+    mw_u32 Code;                        /* MW_ESCAPE_PANEL_POWER */
+    mw_u32 On;                          /* in */
+    mw_u32 Done;                        /* out: 1 if the DCS command went out */
+} MW_ESCAPE_PANEL_POWER_DATA;

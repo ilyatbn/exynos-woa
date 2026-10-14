@@ -303,12 +303,12 @@ static NTSTATUS APIENTRY MwSetPowerState(IN_CONST_PVOID Context, IN_ULONG Uid,
     MwLog(a, L"SetPowerStateLast", (Uid << 16) | ((ULONG)State << 8) | (ULONG)Action);
     /* The monitor child (ChildUid 0, display.c) = the internal panel: Windows' display off / on (SC_MONITORPOWER,
      * display-off timeout). The adapter itself (DISPLAY_ADAPTER_HW_ID) keeps the old no-op. */
-    if (Uid == 0) {
-        if (State == PowerDeviceD0)
-            MwPanelDisplayPower(a, TRUE);
-        else if (State == PowerDeviceD3)
-            MwPanelDisplayPower(a, FALSE);
-    }
+    /* 1.0.45.1 test (2026-10-14): D3 -> DCS 0x28 worked, but Windows never sends D0 again on this phone (touch is
+     * ignored while the display is off and the power button is not a Windows button), so the panel stayed dark.
+     * Until a Windows-recognised power button exists, D3 is only logged; D0 makes sure the panel is lit. The power
+     * button darkens the panel itself (MW_ESCAPE_PANEL_POWER). */
+    if (Uid == 0 && State == PowerDeviceD0)
+        MwPanelDisplayPower(a, TRUE);
     return STATUS_SUCCESS;
 }
 
@@ -540,6 +540,15 @@ static NTSTATUS APIENTRY MwEscape(IN_CONST_HANDLE hAdapter, const DXGKARG_ESCAPE
         q = KeQueryPerformanceCounter(&f);
         c->Qpc = (mw_u64)q.QuadPart;
         c->QpcFreq = (mw_u64)f.QuadPart;
+        return STATUS_SUCCESS;
+    }
+    case MW_ESCAPE_PANEL_POWER: {
+        MW_ESCAPE_PANEL_POWER_DATA *pp = (MW_ESCAPE_PANEL_POWER_DATA *)Esc->pPrivateDriverData;
+
+        if (Esc->PrivateDriverDataSize < sizeof(MW_ESCAPE_PANEL_POWER_DATA))
+            return STATUS_INVALID_PARAMETER;
+        MwPanelDisplayPower(a, pp->On != 0);
+        pp->Done = (a->PanelDisplayOn == (pp->On != 0)) ? 1u : 0u;
         return STATUS_SUCCESS;
     }
     case MW_ESCAPE_STATS:

@@ -476,3 +476,16 @@ Serialise all senders with one FAST_MUTEX/KEVENT in the adapter (brightness DDI 
   0x00000000 = alpha 0 and DECON blends per pixel, so sboot's warning (on another window) showed through; the old
   checkpoint bands were 0xFFFFFFFF (opaque). clean2 boot otherwise fine: FbPanel boot level 15 % "from Windows" (AOR
   0x08B3) - the hand-off works. clean3: shim fill 0xFF000000 per pixel. Image boot116-gpuon-nowdt-clean3.img d85b7391...
+
+## Power-button screen off (2026-10-14 ~20:40; user: "screen off button leaves a black screen below the taskbar")
+- Old "screen off" (S10eKeys, notes/d8-buttons-agent.md) = a topmost black window; Windows' taskbar sits in a higher
+  z-band, so it stayed visible.
+- KMD 1.0.45.1: DxgkDdiSetPowerState on the monitor child (Uid 0) -> DCS 0x28 / 0x29. Test: SC_MONITORPOWER 2 ->
+  SetPowerStateLast 0x400 (child D3), PanelDisplayPower 0x1 (0x28 sent ok) = panel dark. But Windows never sent D0
+  again (s10ekeys wake = SendInput + ES_DISPLAY_REQUIRED + SC_MONITORPOWER -1; user's touch and power button) - touch is
+  ignored while the display is off and our power key is not a Windows power button. Recovered with a direct DSIM poke
+  (PKTHDR 0x2905 = DCS 0x29).
+- KMD 1.0.46.1 (kmd-46, 92cb7216...): child D3 only logged; D0 -> 0x29; new MW_ESCAPE_PANEL_POWER (6) {On, Done}.
+  s10ekeys (5b96b5c4...): the blank window darkens the panel on show (PanelPower FALSE) and relights it on WM_DESTROY;
+  wake / powermenu relight too. Windows' display state stays on. Parked: a Windows-recognised power button (HID button
+  array / ACPI) so Windows' own display off/on and timeouts work.

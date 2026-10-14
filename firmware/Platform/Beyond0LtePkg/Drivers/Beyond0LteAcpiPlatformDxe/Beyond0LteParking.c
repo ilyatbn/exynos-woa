@@ -277,7 +277,17 @@ Beyond0LteParkSecondaries (
     }
 
     Mark = (Page[Index] != 0) ? ParkRd32 (Page[Index] + PARK_MARK_OFF) : 0;
-    if ((Page[Index] != 0) && (OnStatus[Index] == 0) && (Mark == PARK_ALIVE)) {
+    if ((Page[Index] != 0) && (OnStatus[Index] == 0) && (Mark == PARK_ALIVE) &&
+        (((BEYOND0LTE_SMP_OFFER_MASK >> Index) & 1u) == 0))
+    {
+      //
+      // m14 M4 test: started and spinning in the stub, but NOT offered to Windows (MADT-disabled) - does the SoC
+      // still freeze ~1 min in when the M4 cluster merely runs?
+      //
+      Gicc[Index]->Flags &= ~(UINT32)EFI_ACPI_6_3_GIC_ENABLED;
+      DEBUG ((DEBUG_ERROR, "PARK: gicc%u running in the stub but NOT offered (offer mask %x) mpidr_el1=%lx\n",
+              (UINT32)Index, (UINT32)BEYOND0LTE_SMP_OFFER_MASK, ParkRd64 (Page[Index] + PARK_MPIDR_OFF)));
+    } else if ((Page[Index] != 0) && (OnStatus[Index] == 0) && (Mark == PARK_ALIVE)) {
       Gicc[Index]->ParkingProtocolVersion = PARK_VERSION;
       Gicc[Index]->ParkedAddress          = Page[Index];
       Parked++;

@@ -65,6 +65,11 @@
 #ifndef BEYOND0LTE_SMP_PARK_MASK
 #define BEYOND0LTE_SMP_PARK_MASK  0x3Eu   // m14 runs 17+34: offering any M4 (even M4#1 at its real, non-colliding MPIDR) kills Windows before drivers load - excluded
 #endif
+// Parked cores outside this mask keep spinning in the stub but are MADT-disabled (m14 M4 test: is the ~1 min
+// freeze caused by the M4 cluster merely running, or by Windows running on it?). Default = everything parked.
+#ifndef BEYOND0LTE_SMP_OFFER_MASK
+#define BEYOND0LTE_SMP_OFFER_MASK  BEYOND0LTE_SMP_PARK_MASK
+#endif
 
 #ifndef BEYOND0LTE_FADT_PSCI
 #if BEYOND0LTE_SMP_PARKING

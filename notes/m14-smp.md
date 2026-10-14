@@ -345,3 +345,7 @@ No device access in this task; build-verified only (Guided, not Ready).
   => looks TIME-triggered (~1 min), not workload/instruction-triggered. New suspect: something outside Windows
   (ACPM / EL3 CPU-PM) acting on the M4 cluster after ~60 s (e.g. cluster considered idle/unowned -> power or clock
   change while running). Research agent asked about CPU_INFORM / cpupm / flexpmu.
+- BEYOND0LTE_SMP_OFFER_MASK (default = PARK_MASK, no change for normal builds): parked cores outside it keep
+  spinning in the stub but are MADT-disabled. Test image boot-m4off1.img 43530959 = KD flags + PARK 0xFE + OFFER 0x3E:
+  M4s CPU_ON'd and running (stub poll loop), Windows on 6 cores. Freeze ~1 min in => something outside Windows hits
+  the running M4 cluster; no freeze => it is Windows running on the M4s.

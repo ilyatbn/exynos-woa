@@ -434,3 +434,11 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   previous boot's process.) LogonUI binds, drops its binding at exit ("binding 0 dropped"). Cubes 313.7 / 181.6 fps,
   0 faults (108516 jobs). Cause confirmed: one global binding + one shared Panfrost screen per process.
 - Review of 0060 (b36aec26): checked - every shim-calling d3d10umd DDI selects its device first (CreateResource/OpenResource/DestroyResource/Present/SetDisplayMode/Blt/DestroyDevice: rg malikm_select_device = 7 sites + bind); the ioctl path switches by fd before touching any state; prime fds carry their binding and drmPrimeFDToHandle refuses a cross-binding import (logged). Known limits: a thread's tls_selected can name a slot that another thread's DestroyDevice freed and a new device reused, until that thread's next DDI re-selects; unbind drops the BO table without unlocking (the runtime destroys the device's allocations itself). Swap cost ~1.2 KB memcpy only when the device changes. Nothing to fix now.
+- **Run h3v (05:16-05:23, runs/h3v; UMD 0061): windowed 3D reaches the screen.** d3dtri: "gdi present 540x1140: 1
+  window(s) of that size, using it", 15-47 ms per frame (uncached read of the shared BO, ~160 MB/s). DWM (pid 1212)
+  during the cubes (140-180 s): **286/340/303/283 per 10 s = ~30 fps** (h3t: 26/14/39/35). Cube 33.6 fps (blt model),
+  28.2 fps (flip model) - the app now runs at the rate its frames reach the panel instead of an unseen 320 fps.
+  Explorer/LogonUI 832x1024 present buffers: "0 window(s) of that size" (no visible window of that size - nothing
+  drawn, as designed). 0 GPU faults (53450 jobs), no Render failures.
+  Next cost: a full-screen 1080x2280 window would take ~60-120 ms per frame through this path (CPU-cached or
+  GPU-converted staging would fix it).

@@ -355,3 +355,11 @@ No device access in this task; build-verified only (Guided, not Ready).
   freeze the SoC; the freeze needs Windows running ON the M4s (time ~1 min).
   Next suspect (Windows side): 3 MADT efficiency classes with the M4s (A55 0 / A75 1 / M4 2) vs 2 in every working
   boot; Windows' hetero/PPM policy starts after boot (CPU0 was in PpmCheckStart in m4dvm1). Test m4eff1: EFF_BIG = 1.
+- Research agent done (notes/m14-m4-dvm-research.md, LineageOS exynos9820 kernel a412cfaf). Leads: (1) TIMER - stock
+  DT arch timer "use-clocksource-only; use-physical-timer", MCT does clockevents: Samsung Linux never uses generic
+  timer compare/IRQs on any core, Windows ticks off it; Samsung bootloaders may not set CNTFRQ_EL0 (Exynos 990
+  review). Our ntoskrnl timer init compares CNTFRQ_EL0 with a stored value (0x1404af078). (2) 9820-only dummy
+  `tlbi vaale1is, xzr` after local TLBI VMALLE1 / IC IALLU (6 sites, CONFIG_SOC_EXYNOS9820). (3) LLC: Linux sends
+  ACPM ch10 LLC_REGION_ALLOC / LLC_EN at boot. Ruled out/low: boot QoS, CPU_INFORM (CPU_SUSPEND only), EMA, WDT cl2
+  (bootshim stops it), thermal.
+- m4eff1 image f161ec88: 8-core KD image with EFF_BIG 1 (MADT decoded: uid 0-3 eff 0, uid 4-7 eff 1). Not yet run.

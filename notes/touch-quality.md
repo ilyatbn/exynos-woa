@@ -126,3 +126,15 @@ Scope: analysis only; proposed patch in notes/touch-quality.patch; no commit, no
   "suspicious double taps" (2 DOWNs < 150 ms and < 60 px -> SUSPECT log lines), summary line with key taps / drags.
   Self-test with s10etap before the reboot: drag (520,640)->(800,950) = drags 1 / moves 72, taps 7, 8, * -> "78*",
   suspect 0 (runs\fbtl.png). Installed to System32 (previous kept as s10etouchlog.prev).
+
+## Device result - touch 6.0.5058.6 (2026-10-14 ~18:45, user: "it feels perfect now")
+- ACPI\SCSY0761\0\Device Parameters after the user's session: TouchIrqCount 0xfce (4046), TouchMaxEnergyFlagCount
+  0x282 (642) -> **the 0x3f mask bug was live**: 642 interrupts would each have read 32 phantom events.
+  TouchI2cErrorCount 9, TouchSpbSlowCount 9, TouchSpbMaxMs 0xfb (251 = our 250 ms timeout), TouchSpbLastError
+  0xC00000B5 (STATUS_IO_TIMEOUT) -> 9 SPB transfers still stall past 250 ms (root cause in the HSI2C path, open); with
+  the old code each was a synthetic all-up = a phantom double tap. TouchStaleReleaseCount 0 (no contact had to be
+  force-released after them). TouchNonFingerCount 0 -> only finger ttypes seen; the filter could be enabled, low value.
+  HoldRepeat 0x70b, Coalesce 0xe2, Complete 0x16d1, Overflow 0, QueueFlush 0.
+- s10etouchlog summary: 4957 HID reports, 63 key taps, 1 "suspicious" double DOWN (140 ms / 18 px - repeated digits in
+  the input "44646664" make a genuine fast double tap likely), 5 drags / 4192 moves, no right-click attempted.
+- Open: the >250 ms SPB stalls (HSI2C driver latency), S10e physical touch size, Confidence usage.

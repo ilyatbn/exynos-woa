@@ -12,7 +12,7 @@ As of 2026-10-14 evening (tag alpha1). Windows 11 Pro 23H2, build 22631.6199. Wi
 | Storage (UFS) | 🟡 | works, 6x faster today |
 | Display | 🟢 | our own display driver, brightness works |
 | Screen rotation | 🔴 | portrait only with the GPU driver |
-| Touch | 🟡 | sometimes double taps |
+| Touch | 🟢 | works, smooth; touch keyboard works |
 | Hardware buttons | 🟢 | power, Bixby work |
 | USB (docks, mouse, keyboard, drives) | 🟡 | works, no hot-plug |
 | Battery / charging | 🟡 | works, slow to update |
@@ -39,7 +39,7 @@ As of 2026-10-14 evening (tag alpha1). Windows 11 Pro 23H2, build 22631.6199. Wi
 - **Storage:** works and is safe. Today it went from about 20 MB/s to about 117 MB/s for large reads, after fixing two problems in our driver: the chip asked Windows to split reads into tiny 8 KB pieces, and a leftover debug check was re-reading every block byte by byte. Android still reads faster (about 600 MB/s), so there is more to gain; writes have not been re-measured yet.
 - **Display:** our own display driver (MaliG76Wddm) drives the screen. Brightness works through the normal Windows slider (Settings and quick settings), from the bootloader's brightness at 100% down to about 2 nits at 0%. Automatic dimming when idle doesn't trigger yet. A blank screen saver turns the picture black after 2 minutes idle; the screen itself can't switch off yet.
 - **Screen rotation:** with the GPU driver the screen is portrait only. Two landscape attempts blacked out the screen (Windows hands the driver a rotated picture that the driver doesn't turn yet), so rotation is switched off until that's done. Automatic rotation also needs the motion sensor, which has no driver yet.
-- **Touch:** works, including right-click by holding. A single tap sometimes registers as a double click.
+- **Touch:** works, including right-click by holding. The double taps and jerky dragging were fixed on 2026-10-14 (touch driver 6.0.5058.6). Windows now treats the phone as a tablet: touch-sized taskbar, and the touch keyboard pops up on text fields and types.
 - **Buttons:** power short press turns the screen off and on. Power long press opens a reboot/shutdown menu. Bixby opens Task Manager. Volume keys don't change the volume yet; that comes with sound.
 - **USB:** dock, mouse, keyboard and USB drive all work, but only if plugged in before boot. Plugging in later doesn't work yet. The phone can't charge while a dock is powering USB devices.
 - **Battery:** the battery icon shows the real level, but takes a few seconds to update. If the battery runs out, plugging in the charger boots the phone back up.

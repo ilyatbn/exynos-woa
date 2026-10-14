@@ -1,3 +1,5 @@
+**RESOLVED 2026-10-14** by touch driver 6.0.5058.6 (notes/touch-quality.md): the cause was a synthetic all-up on every SPB read error (plus a wrong event-count mask). User: "it feels perfect now".
+
 # Parked: touch registers a double click on a single tap / hold (user, 2026-10-12)
 
 Symptom: one tap (or the start of a press-and-hold) sometimes arrives in Windows as two clicks.

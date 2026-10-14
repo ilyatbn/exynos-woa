@@ -375,3 +375,4 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
 - Mesa 0058 (mali-umd-0058, maliumd 94ed114f...): update_velems binds an empty cso_velems_state when no layout is set,
   velems_changed = TRUE at device creation; the VEH only in d3dtri*.exe, removed by atexit at DLL unload; Render
   failures go to the tlog ("Render failed n: status, allocations listed/list size/skipped, BOs in batch").
+- 04:35 h3r deploy: UMD 0058 in System32 (94ed114f...).

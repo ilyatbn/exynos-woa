@@ -1,0 +1,55 @@
+From 92a926ac1b37bd8da35faf5c047ee40eb46ce55f Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 19:07:40 +0300
+Subject: [PATCH] d3d10umd: hold the scan-out for MALIKM_ROTATE_FREEZE_MS (700)
+ after an orientation change (exynos-woa 0068: no half-built frames on the
+ panel while DWM rebuilds)
+
+---
+ src/gallium/targets/d3d10umd/d3d10_gdi.c | 30 ++++++++++++++++++++++++
+ 1 file changed, 30 insertions(+)
+
+diff --git a/src/gallium/targets/d3d10umd/d3d10_gdi.c b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+index 78d5f4d..a9ab83c 100644
+--- a/src/gallium/targets/d3d10umd/d3d10_gdi.c
++++ b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+@@ -291,6 +291,36 @@ d3d10_scanout_present(struct pipe_screen *screen, struct pipe_context *pipe, str
+    struct pipe_resource *so = d3d10_get_scanout(screen);
+    int rot = d3d10_primary_rotation >= 1 && d3d10_primary_rotation <= 4 ? d3d10_primary_rotation : 1;
+    bool transposed = rot == 2 || rot == 4;
++
++   /* exynos-woa 0068 (user, 2026-10-14: "freeze the screen as is till the desktop is rebuilt, then switch in an
++    * instant"): after an orientation change DWM's first frames in the new mode are half-built. Keep presenting to
++    * the runtime (pacing, DWM's frame statistics) but leave the scan-out alone for MALIKM_ROTATE_FREEZE_MS (machine
++    * environment, default 700 ms): the panel keeps the last frame of the old orientation, then the finished one
++    * replaces it at once. The hold applies to the GPU copy only; the runtime present below still runs. */
++   {
++      static int last_rot;
++      static DWORD freeze_until, freeze_start;
++      static unsigned frozen;
++      DWORD now = GetTickCount();
++      if (last_rot && rot != last_rot) {
++         DWORD hold = (DWORD)debug_get_num_option("MALIKM_ROTATE_FREEZE_MS", 700);
++         freeze_start = now;
++         freeze_until = now + hold;
++         frozen = 0;
++         malikm_tlog("rotation %d -> %d: scan-out held for %lu ms", last_rot, rot, (unsigned long)hold);
++      }
++      last_rot = rot;
++      if (freeze_until) {
++         if ((LONG)(now - freeze_until) < 0) {
++            frozen++;
++            return malikm_primary_present(d3d10_present_alloc, d3d10_present_dst, NULL, res->width0, res->height0,
++                                          context_private);
++         }
++         malikm_tlog("rotation hold over after %lu ms, %u presents kept off the panel",
++                     (unsigned long)(now - freeze_start), frozen);
++         freeze_until = 0;
++      }
++   }
+    if (so && rot != 1 && res->nr_samples <= 1 &&
+        util_format_is_rgba8_variant(util_format_description(res->format)) &&
+        res->width0 == (transposed ? so->height0 : so->width0) &&
+-- 
+2.40.1.windows.1
+

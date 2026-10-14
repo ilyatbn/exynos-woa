@@ -761,3 +761,10 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   DWM into the 1080x2280 primary (taskbar along the long edge, icons/wallpaper sideways). DWM DOES pre-rotate; the
   rotation attempts 1-2 black screens were the 0067 stale-flag bug. The 0066 rotated-present branch is unused.
   Pending: user's eyes (direction, touch mapping), rotate back to portrait, 180/270, a reboot in landscape.
+- User 19:05: landscape + rotation via button work ("that was fast"); during the switch the panel shows broken
+  half-redrawn frames. Tagged **alpha2** (9a59a46) at the user's request.
+- Mesa 0068 (92a926a, patches/0068-rotation-scanout-hold.patch): after an orientation change d3d10_scanout_present
+  keeps presenting to the runtime but skips the GPU copy into the scan-out for MALIKM_ROTATE_FREEZE_MS (machine env,
+  default 700 ms); logs "rotation a -> b: scan-out held" / "hold over after N ms, M presents kept off the panel".
+  Built mali-umd-0068 (maliumd b1c3a3b7...), installed live (0067 kept as *-0067.dll). MALIKM_TGSI_DIR=C:\S10eTmp\tlog
+  set (machine) for this test only - remove afterwards. Battery 37 %.

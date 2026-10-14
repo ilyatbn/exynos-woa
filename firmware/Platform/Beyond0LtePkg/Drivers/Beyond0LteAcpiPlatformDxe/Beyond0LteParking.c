@@ -50,6 +50,7 @@
 #define PARK_MARK_OFF       0xFE0u
 #define PARK_EL_OFF         0xFE8u
 #define PARK_MPIDR_OFF      0xFF0u
+#define PARK_CNTFRQ_OFF     0xFF8u   // CNTFRQ_EL0 as the parked core sees it (m14)
 #define PARK_STAGE_OFF      0xFD8u   // m14 DVM test stage (the .S BEYOND0LTE_PARK_DVM_TEST block), 0 if not built
 #define PARK_ID_INVALID     0xFFFFFFFFu
 #define PARK_ALIVE          0x5A5ABEEFu
@@ -66,6 +67,18 @@
 
 // Boot progress word page (Beyond0LteBootLog / bootshim: [0] previous boot's last code, [1] this boot's).
 STATIC volatile UINT32  *CONST  mParkProgress = (volatile UINT32 *)(UINTN)0x8FE0F000ULL;
+
+STATIC
+UINT64
+ParkBootCntFrq (
+  VOID
+  )
+{
+  UINT64  Value;
+
+  __asm__ __volatile__ ("mrs %0, cntfrq_el0" : "=r" (Value));
+  return Value;
+}
 
 extern UINT8  Beyond0LteParkStub[];
 extern UINT8  Beyond0LteParkStubEnd[];
@@ -291,10 +304,10 @@ Beyond0LteParkSecondaries (
       Gicc[Index]->ParkingProtocolVersion = PARK_VERSION;
       Gicc[Index]->ParkedAddress          = Page[Index];
       Parked++;
-      DEBUG ((DEBUG_ERROR, "PARK: gicc%u parked mb=%lx el=%lx mpidr_el1=%lx (%u ms)\n",
+      DEBUG ((DEBUG_ERROR, "PARK: gicc%u parked mb=%lx el=%lx mpidr_el1=%lx cntfrq=%lu (boot cpu %lu) (%u ms)\n",
               (UINT32)Index, Page[Index],
               ParkRd64 (Page[Index] + PARK_EL_OFF), ParkRd64 (Page[Index] + PARK_MPIDR_OFF),
-              Arrive[Index]));
+              ParkRd64 (Page[Index] + PARK_CNTFRQ_OFF), ParkBootCntFrq (), Arrive[Index]));
     } else if ((Gicc[Index]->Flags & EFI_ACPI_6_3_GIC_ENABLED) != 0) {
       Gicc[Index]->Flags &= ~(UINT32)EFI_ACPI_6_3_GIC_ENABLED;
       DEBUG ((DEBUG_ERROR, "PARK: gicc%u mpidr=%lx disabled (page=%lx on=%lx mark=%x)\n",

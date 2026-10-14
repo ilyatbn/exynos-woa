@@ -20,6 +20,7 @@
 //   +0xFE0 UINT32 0x5A5ABEEF    alive mark, written by the core itself
 //   +0xFE8 UINT64 CurrentEL     as seen by the stub (EL1 expected: 0x4)
 //   +0xFF0 UINT64 MPIDR_EL1     as seen by the stub
+//   +0xFF8 UINT64 CNTFRQ_EL0    as seen by the stub (m14: is it set on every cluster?)
 //
 // Wait: a polling loop, not WFI/WFE. Windows wakes a parked core with an SGI, but
 // nothing has enabled this core's GIC CPU interface, so a WFI wake is not
@@ -40,6 +41,7 @@
 #define PARK_EL_OFF     0xFE8
 #define PARK_MPIDR_OFF  0xFF0
 #define PARK_STAGE_OFF  0xFD8
+#define PARK_CNTFRQ_OFF 0xFF8
 
 #ifndef BEYOND0LTE_PARK_DVM_TEST
 #define BEYOND0LTE_PARK_DVM_TEST  1   // m14: does a broadcast (DVM) maintenance op + DSB complete on this core?
@@ -76,6 +78,8 @@ ASM_FUNC(Beyond0LteParkStub)
   str   x2, [x1, #PARK_EL_OFF]
   mrs   x2, mpidr_el1
   str   x2, [x1, #PARK_MPIDR_OFF]
+  mrs   x2, cntfrq_el0              // m14: Samsung Linux never relies on it (DT clock); Windows' timer init does
+  str   x2, [x1, #PARK_CNTFRQ_OFF]
   movz  w2, #0xBEEF
   movk  w2, #0x5A5A, lsl #16
   str   w2, [x1, #PARK_MARK_OFF]

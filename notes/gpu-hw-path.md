@@ -473,3 +473,32 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
 - **Soak s2 (05:57-06:09, runs/s2; UMD 0063): clean.** Blt cube 300 s = 9026 frames, 30.1 fps, 0 present failures;
   flip cube 120 s = 28.7 fps, 0 failures; KMD jobs 15453 -> 287204, 0 failed / 0 timed out / 0 faults / **0 resets**;
   no GPU wait >= 100 ms in d3dtri's tlog; the only Display 4101 event is s1's (00:30:44Z). 0063 fixed the TDR.
+
+### 2026-10-14 ~09:40 - hand-back for the user's own look (interactive, no test flags)
+- User: "reboot into windows ... with no debugging modes or auto reboots or your special flags".
+- Firmware: #116 rebuilt with BEYOND0LTE_WINDOWS_WATCHDOG 0 (source edit reverted after the build, not committed):
+  s10e-artifacts\boot116-nowdt-pack.img sha256 5be23ad1... (pack-uefi-beyond0lte.ps1 -Ref ref-recovery.img,
+  18 255 872 B like boot116-fb10m-v2.img; diff vs #116 only in the header id hash + the first 0xBCBD4 B of the
+  kernel blob). Flashed, readback matches.
+- ESP: extra.cmd (soak) -> extra-soak.cmd.off; one-shot extra-clean.cmd (md5 adaf9c0c) as extra.cmd for one
+  unattended boot: deletes the machine-wide MALIKM_TGSI_DIR (tlog files from every GPU process, DWM's too),
+  bcdedit /debug off, records MaliG76Wddm Parameters + WER LocalDumps. Then: extra.cmd removed, stay.flg set.
+- Kept on purpose (the working configuration, not test switches): MaliG76Wddm Parameters (GpuEnable,
+  ScanoutStride 1088 = the H4b re-stride), noaudio.flg (audio rescue: AUD0 hidden), WER LocalDumps (passive).
+- 09:47 clean boot 1 result (s10e-artifacts\runs\clean1): MALIKM_TGSI_DIR deleted (env-after has no MALIKM),
+  bcdedit debug was already off (now explicit "debug No"), MaliG76Wddm Parameters GpuEnable 1, FullAdapter 1,
+  ScanoutStride 0x440. Desktop at 59 s, clean return to TWRP.
+- User: "no audio in the first boot" - noaudio.flg (AUD0 hidden since the GPU bisect) was still set. Audio itself
+  worked on its own on 2026-10-13 (notes/d8-audio-win-a5.md a12: speaker tone, stage D) but has NEVER run together
+  with the HW GPU. Clean boot 2: noaudio.flg removed, extra.cmd = extra-clean-audio.cmd (md5 cb04e6c6) sets stage D
+  (AmpInit/AmpEnable/AboxEnable 1, read at the next boot's PrepareHardware) and records AUD0 + problem devices.
+- 09:52 clean boot 2 result (s10e-artifacts\runs\clean2): first boot with AUD0 + HW GPU together - desktop at 59 s,
+  "Galaxy S10e Audio (ABOX + CS35L40)" Started, run.txt: a 356-packet stream (~3.5 s, the logon sound) released
+  with 0 late timer passes; Parameters were already stage D (AmpInit/AmpEnable/AboxEnable 1). Only problem
+  devices: CPUs 6/7 (known).
+- 09:53 user boot: ESP extra.cmd removed, stay.flg set (no agent restart, no 20-min fallback), firmware watchdog
+  off (nowdt image). Windows up (ping) at 09:53:48. Restore for unattended runs: flash boot116-fb10m-v2.img
+  (watchdog 1), rm stay.flg, extra.cmd from extra-soak.cmd.off.
+- User question: why no translucent desktop. Unknown; Learn (F5 in gpu-windows-prior-art.md): solid when the
+  Transparency effects toggle is off, Battery Saver, or "low-end hardware". Translucency WAS seen in the 10-13
+  software full-mode boots. Asked the user to check the toggle.

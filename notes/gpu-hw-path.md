@@ -456,3 +456,4 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   shaded - windowed D3D reaches the panel. Edge stair-steps = the ~0.1 s uncached dump racing the rotating cube.
   Cubes 29.9 / 25.8 fps; gdi present still 16-31 ms per frame (0062's memcpy did not measurably help at
   GetTickCount's 15.6 ms resolution). 0 faults.
+- 05:43 soak run s1: ESP extra.cmd = extra-gpu-soak.cmd (cube 300 s blt + 120 s flip, fb dumps + KMD counters every 100 s), UMD 0062, KMD 37.

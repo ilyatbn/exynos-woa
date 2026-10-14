@@ -408,3 +408,4 @@ No device access in this task; build-verified only (Guided, not Ready).
   the M4s only shortens it. Root cause is outside Windows and outside the M4s' own activity: something
   (EL3 / uH at EL2 / ACPM / hardware power-thermal) acting once CPUCL2 is up. (Monitor note: a failed break-in can
   show no error - watch for the ABSENCE of successful break-ins.)
+- boot-m4soak1.img da5a41f9: KD flags + PARK 0xFE + OFFER 0x3E (M4s polling, not offered) + BEYOND0LTE_M4_UEFI_SOAK_S 240 (progress 0x68 at ReadyToBoot).

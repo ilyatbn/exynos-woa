@@ -141,6 +141,9 @@
 #ifndef BEYOND0LTE_SCI_LLC_INIT
 #define BEYOND0LTE_SCI_LLC_INIT     0   // m4llc1: ACPM default is LLC OFF (region 0, en 0); enabling it like Linux hung Windows at KD init
 #endif
+#ifndef BEYOND0LTE_M4_UEFI_SOAK_S
+#define BEYOND0LTE_M4_UEFI_SOAK_S   0   // m14: seconds to hold UEFI at ReadyToBoot with the parked M4s powered (0 = off)
+#endif
 #define ACPM_SCI_IPC_CHANNEL        10u
 #define SCI_LLC_IDX_REGION_ALLOC    2u
 #define SCI_LLC_IDX_EN              3u
@@ -957,6 +960,30 @@ OnReadyToBoot (
       }
     }
   }
+
+#if BEYOND0LTE_M4_UEFI_SOAK_S
+  //
+  // m14 isolation test (notes/m14-smp.md m4wfi1): hold UEFI here with the parked M4s powered for N seconds before
+  // anything of Windows runs. Progress 0x68 while soaking: a next boot that reports prev=0x68 froze IN UEFI (pure
+  // platform); Windows connecting to KD afterwards = UEFI survived the soak.
+  //
+  {
+    UINT32  SoakSaved;
+    UINT32  Sec;
+
+    SoakSaved = ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[1];
+    ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[1] = 0x68u;
+    __asm__ __volatile__ ("dsb sy" ::: "memory");
+    DEBUG ((DEBUG_ERROR, "TouchPower: M4 soak %u s in UEFI (progress 0x68)\n", (UINT32)BEYOND0LTE_M4_UEFI_SOAK_S));
+    for (Sec = 0; Sec < BEYOND0LTE_M4_UEFI_SOAK_S; Sec++) {
+      gBS->Stall (1000000);
+    }
+
+    DEBUG ((DEBUG_ERROR, "TouchPower: M4 soak done - UEFI alive after %u s\n", (UINT32)BEYOND0LTE_M4_UEFI_SOAK_S));
+    ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[1] = SoakSaved;
+    __asm__ __volatile__ ("dsb sy" ::: "memory");
+  }
+#endif
 
 #if BEYOND0LTE_SCI_LLC_INIT
   //

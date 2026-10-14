@@ -267,3 +267,8 @@ No device access in this task; build-verified only (Guided, not Ready).
   port 50005, had to be killed) - follow-up fix.
 - m4kd2 attempt 2: WINRUN.FLG gone (cleared by that boot), adb reboot ~22:38, kdrun still listening (to ~22:42 +
   restarted below if needed).
+- m4kd2 attempt 2 (boot-m4kd1, mask 0xFE, 22:36:52 reboot): KD CONNECTED 22:37:16 (24 s), initial break, bps set.
+  KeStartAllProcessors (Phase1InitializationDiscard) -> HalStartNextProcessor -> HalpInterruptStartProcessor(x0=x1=
+  n) -> HalpGicStartProcessor(x1=n) for n = 1..7 (all 7 secondaries incl. both M4s); HalpInterruptGetParking-
+  PageInformation never hit (not on this path). KeStartAllProcessors RETURNED x0=1 at ~22:37:20. => the M4s do NOT
+  kill the processor start; the death (runs 17/34/m4kd1) is later. m4kd1 "KD never attached" = the broken kdrun.

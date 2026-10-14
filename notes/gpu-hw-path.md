@@ -408,3 +408,9 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   Fix = per-device screens + per-fd bindings in the shim (next task, larger).
 - d3dtri-5: D3DTRI_FLIP=1 -> FLIP_SEQUENTIAL swap chain. h3 runs the cube twice: blt model t=40..60 s, flip model
   t=60..80 s (h3-cubeflip.txt), gdi after. ESP extra.cmd + gpu\d3dtri.exe updated. Run h3t = this, no driver change.
+- **Run h3t (04:55-05:03, runs/h3t; d3dtri-5):** blt cube 321 fps, **flip-model cube (FLIP_SEQUENTIAL) 180.5 fps, 0
+  failures**, both presenting their own allocation; DWM (pid 1204) during both cubes 26/14/39/35 per 10 s - neither
+  model reaches DWM, and DWM opened no buffer of the app. So no windowed DXGI swap chain is composed (DComp/XAML
+  surfaces of the shell are - they are opened shared resources). Open question; candidates: the UMD's DXGI DDI level
+  (d3d10umd exposes DXGI 1.0/1.1, flip model wants 1.2+), present-history routing in dxgkrnl. Fallback idea: hand
+  windowed frames to their window with GDI (DWM composes GDI windows at the app's rate - gdi test).

@@ -214,3 +214,17 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
 - Next run h3i: Mesa 0051 (event log: shared create/open path + every present's HRESULT, build mali-umd-0051
   32d9674c...), d3dtri gdi mode (DWM load without app D3D), dwm-sampler.ps1 (8 stack dumps of dwm 1 s apart during
   the gdi phase).
+- 02:53 run h3i started (UMD 0051, d3dtri-4, sampler).
+- **Run h3i (02:53-03:01, runs/h3i, UMD 0051) - the profile:** logon OK, 0 faults. Event log: OpenResource of shared
+  surfaces works (Panfrost BOs, e.g. 1088x2304 pitch 4352, 832x1024, 576x576); all presents hr 0 (DWM "present
+  primary", d3dtri "present blt surface"). DWM frames/10 s: logon 11-29, cube (151-171 s) 4/10 s although d3dtri
+  presented 643 frames, gdi animation (180-205 s, 519 paints = ~20/s) 15-19/10 s = **DWM ~1.5-2 fps under load**.
+  dwm-sampler (8 stack dumps 1 s apart, DWM 0.5-0.65 s CPU per s): DWM Compositor Thread = 2x idle (WaitForWork),
+  **5x in maliumd!_RotateResourceIdentities -> util_resource_copy_region -> util_copy_box -> memcpy** (dxgi
+  CDXGISwapChain::PresentImplCore after DWM's PresentDWM), 1x in d3d10_pan_flush_frontbuffer. d3d10umd rotates the
+  swap chain's buffers by copying each (DxgiFns.cpp, "XXX: Copying is not very efficient") and Panfrost's
+  resource_copy_region IS util_resource_copy_region (pan_resource.c: CPU copy through transfers) -> several 10 MB
+  CPU copies out of uncached GPU memory per DWM frame.
+- Mesa 0052: panfrost_resource_copy_region - same-format, same-sample, non-ZS, non-compressed textures that are
+  render-target/sampler capable go through pctx->blit (GPU); the rest stays util_resource_copy_region. Build
+  mali-umd-0052 fe2db478....

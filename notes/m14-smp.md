@@ -202,3 +202,13 @@ No device access in this task; build-verified only (Guided, not Ready).
   succeeds without one - fixed, 6ccf6a5). Either Windows died before KD init (~4 s) or KDNET-over-USB does not attach
   with today's firmware. Separate them: boot-kd6.img (7810a0bd...) = same KD image, park mask 0x3E (6 cores).
 - Restored boot116-gpuon-nowdt-clean3 in between (TWRP, readback d85b7391 ok).
+- Run kd6 (21:25, boot-kd6 = KD image, park mask 0x3E): UEFILOG gicc1-5 parked, gicc6/7 disabled; Windows booted and
+  KD ATTACHED ("Connected to target 169.254.164.102 on port 50005", s10e-artifacts/runs/kd6/kd-raw.txt). => KDNET over
+  USB works with today's firmware; m4kd1's failure is the M4s killing Windows before KD attached, not KD.
+  (kdrun.exe's own dbgeng session in kd.log never saw the target: a second debugger - a kd.exe - held port 50005.)
+- HOST FREEZE (21:35, user had to reboot the PC): that kd.exe wrote "kd: Could not write to pipe, 1450"
+  (ERROR_NO_SYSTEM_RESOURCES) 163 771 times into kd-raw.txt (5.8 MB in ~7 min) - its stdout pipe reader was gone
+  while Exynos9820Wlan DbgPrint traffic kept streaming. Likely freeze cause (INFERRED). Rule: one debugger on 50005
+  at a time, never kd.exe with a piped stdout left orphaned; kdrun.exe (dbgeng, file log) only, killed at the end.
+- 2026-10-14 21:45 session restart: phone in Windows (kd6, 6 cores, KD on; Wi-Fi not up per user), host shows the
+  "Windows KDNET USB-EEM Network Adapter" Up (Ethernet 6).

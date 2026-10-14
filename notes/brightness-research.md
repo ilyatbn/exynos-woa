@@ -418,3 +418,10 @@ Serialise all senders with one FAST_MUTEX/KEVENT in the adapter (brightness DDI 
   console-lock display-off 8ec4b3a5, hibernate 9d7815a6 all to 0. Changed only 3c0bc021 AC/DC to 600 s (display off
   after 10 min). KMD MwSetPowerState is a no-op returning success, so a display-off request leaves the panel lit
   (panel off via DCS 28/10 = later work). Re-test pending.
+- Idle dim, after a reboot with display-off policy 600 s: nudge 17:05:38, CurrentBrightness 75 at +15..+114 s - no dim.
+  Platform role 8 (PlatformRoleSlate, PowerDeterminePlatformRoleEx(2)), Win32_Battery 1, PowerOnline True: the
+  documented preconditions hold. Not found yet: whether Windows ever enters the dimmed console display state here (a
+  GUID_CONSOLE_DISPLAY_STATE listener would show it), or whether SendInput from a task counts as user input for it.
+  **Parked** (user: idle dim is a later item). Display-off policy and scheme VIDEOIDLE put back to 0 (a display-off
+  would run MwSetPowerState/monitor power paths never tested with the GPU scan-out). VIDEODIM 60 s / 30 % left set
+  (inert while it does not fire).

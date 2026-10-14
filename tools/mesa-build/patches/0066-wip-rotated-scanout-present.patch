@@ -1,0 +1,214 @@
+From 1727018fea10653e4ee1fe9fefa0dbb709ba5f02 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 13:50:37 +0300
+Subject: [PATCH] d3d10umd: log primaries + rotation, rotated scan-out present
+ for transposed frames (exynos-woa 0066, WIP - DWM's rotated primaries are not
+ transposed)
+
+---
+ src/gallium/frontends/d3d10umd/Resource.cpp |   7 +
+ src/gallium/targets/d3d10umd/d3d10_gdi.c    | 147 +++++++++++++++++++-
+ 2 files changed, 153 insertions(+), 1 deletion(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index 1f23cfe..599ffcb 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -196,6 +196,7 @@ subResourceBox(struct pipe_resource *resource, // IN
+ extern "C" int malikm_primary_create(void *hRTResource, unsigned vidpn, unsigned w, unsigned h, unsigned *hAlloc,
+                                      int scanout);
+ extern "C" void malikm_primary_destroy(unsigned hAlloc);
++extern "C" int d3d10_primary_rotation;   /* d3d10_gdi.c: DXGI_DDI_MODE_ROTATION of the last primary created */
+ /* G13 (0034): an opened allocation's description from its private data, and its CPU view if the runtime lets this
+  * process lock it (malikm_drm.c). */
+ extern "C" int malikm_open_shared(const void *priv, unsigned size, unsigned hAlloc, unsigned *w, unsigned *h,
+@@ -444,6 +445,12 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+     * surface (not the presented resource's allocation) and never reached the KMD. Since patch 0026 it is a kernel
+     * primary (Flags.Primary) whatever the scanout argument: dxgkrnl refuses a Blt whose destination is not one. */
+    if (pCreateResource->pPrimaryDesc && templat.target == PIPE_TEXTURE_2D) {
++      /* exynos-woa (0066, notes/gpu-hw-path.md rotation): DWM composes a rotated desktop un-rotated (2280x1080
++       * on the 1080x2280 panel) and the driver rotates (D3DDDIARG_CREATERESOURCE). The scan-out present
++       * (d3d10_gdi.c) reads the mode's rotation from here. */
++      d3d10_primary_rotation = (int)pCreateResource->pPrimaryDesc->ModeDesc.Rotation;
++      malikm_tlog("primary %ux%u rotation %d vidpn %u", templat.width0, templat.height0, d3d10_primary_rotation,
++                  pCreateResource->pPrimaryDesc->VidPnSourceId);
+       unsigned h = 0;
+       if (malikm_primary_create(hRTResource.handle, pCreateResource->pPrimaryDesc->VidPnSourceId,
+                                 templat.width0, templat.height0, &h, !no_scanout) == 0)
+diff --git a/src/gallium/targets/d3d10umd/d3d10_gdi.c b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+index 19541be..78d5f4d 100644
+--- a/src/gallium/targets/d3d10umd/d3d10_gdi.c
++++ b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+@@ -46,6 +46,10 @@
+ #include "util/format/u_format.h"
+ #include "frontend/winsys_handle.h"   /* exynos-woa H4b: the scan-out BO import */
+ #include "drm-uapi/drm_fourcc.h"
++#include "cso_cache/cso_context.h"   /* exynos-woa 0066: the rotated scan-out present */
++#include "util/u_simple_shaders.h"
++#include "util/u_draw_quad.h"
++#include "util/u_sampler.h"
+ 
+ /* Panfrost reads its driconf options from the screen config; the pipe-loader
+  * normally builds that, d3d10umd has none. */
+@@ -160,6 +164,124 @@ d3d10_get_scanout(struct pipe_screen *screen)
+    return d3d10_scanout;
+ }
+ 
++/* exynos-woa (0066, notes/gpu-hw-path.md rotation): DXGI_DDI_MODE_ROTATION of the last primary (Resource.cpp):
++ * 1 identity, 2 = 90, 3 = 180, 4 = 270. With a rotation DWM composes the desktop in its own orientation (2280x1080
++ * on the 1080x2280 scan-out) and the driver rotates; pipe->blit cannot transpose, so the rotated present draws one
++ * textured quad in a private context (DWM's context state stays untouched). */
++int d3d10_primary_rotation = 1;
++static struct pipe_context *d3d10_rot_ctx;
++static struct cso_context *d3d10_rot_cso;
++static void *d3d10_rot_vs, *d3d10_rot_fs;
++
++static int
++d3d10_scanout_rotate(struct pipe_screen *screen, struct pipe_context *pipe, struct pipe_resource *res,
++                     struct pipe_resource *so, int rot)
++{
++   /* DWM's frame must be complete before another context samples it. */
++   struct pipe_fence_handle *f = NULL;
++   pipe->flush(pipe, &f, 0);
++   if (f) {
++      screen->fence_finish(screen, NULL, f, 100 * 1000 * 1000ull);
++      screen->fence_reference(screen, &f, NULL);
++   }
++   if (!d3d10_rot_ctx) {
++      d3d10_rot_ctx = screen->context_create(screen, NULL, 0);
++      if (!d3d10_rot_ctx)
++         return -1;
++      d3d10_rot_cso = cso_create_context(d3d10_rot_ctx, 0);
++      const enum tgsi_semantic names[2] = { TGSI_SEMANTIC_POSITION, TGSI_SEMANTIC_GENERIC };
++      const unsigned idx[2] = { 0, 0 };
++      d3d10_rot_vs = util_make_vertex_passthrough_shader(d3d10_rot_ctx, 2, names, idx, false);
++      d3d10_rot_fs = util_make_fragment_tex_shader(d3d10_rot_ctx, TGSI_TEXTURE_2D, TGSI_RETURN_TYPE_FLOAT,
++                                                   TGSI_RETURN_TYPE_FLOAT, false, false);
++      malikm_tlog("rotate: private context %p, shaders %p %p", (void *)d3d10_rot_ctx, d3d10_rot_vs, d3d10_rot_fs);
++   }
++   struct pipe_context *c = d3d10_rot_ctx;
++   struct cso_context *cso = d3d10_rot_cso;
++   unsigned W = so->width0, H = so->height0;
++
++   struct pipe_blend_state blend;
++   memset(&blend, 0, sizeof blend);
++   blend.rt[0].colormask = PIPE_MASK_RGBA;
++   cso_set_blend(cso, &blend);
++   struct pipe_rasterizer_state rs;
++   memset(&rs, 0, sizeof rs);
++   rs.half_pixel_center = 1;
++   rs.bottom_edge_rule = 1;
++   rs.depth_clip_near = rs.depth_clip_far = 1;
++   cso_set_rasterizer(cso, &rs);
++   struct pipe_depth_stencil_alpha_state dsa;
++   memset(&dsa, 0, sizeof dsa);
++   cso_set_depth_stencil_alpha(cso, &dsa);
++   struct pipe_sampler_state ss;
++   memset(&ss, 0, sizeof ss);
++   ss.wrap_s = ss.wrap_t = ss.wrap_r = PIPE_TEX_WRAP_CLAMP_TO_EDGE;
++   ss.min_img_filter = ss.mag_img_filter = PIPE_TEX_FILTER_NEAREST;
++   ss.min_mip_filter = PIPE_TEX_MIPFILTER_NONE;
++   const struct pipe_sampler_state *ssp = &ss;
++   cso_set_samplers(cso, MESA_SHADER_FRAGMENT, 1, &ssp);
++   struct pipe_sampler_view tmpl, *sv;
++   u_sampler_view_default_template(&tmpl, res, res->format);
++   sv = c->create_sampler_view(c, res, &tmpl);
++   if (!sv)
++      return -1;
++   c->set_sampler_views(c, MESA_SHADER_FRAGMENT, 0, 1, 0, &sv);
++   struct pipe_framebuffer_state fb;
++   memset(&fb, 0, sizeof fb);
++   fb.width = W;
++   fb.height = H;
++   fb.nr_cbufs = 1;
++   fb.cbufs[0].format = so->format;
++   fb.cbufs[0].texture = so;
++   cso_set_framebuffer(cso, &fb);
++   struct pipe_viewport_state vp;
++   memset(&vp, 0, sizeof vp);
++   vp.scale[0] = W * 0.5f; vp.scale[1] = H * 0.5f; vp.scale[2] = 1.0f;
++   vp.translate[0] = W * 0.5f; vp.translate[1] = H * 0.5f;
++   vp.swizzle_x = PIPE_VIEWPORT_SWIZZLE_POSITIVE_X; vp.swizzle_y = PIPE_VIEWPORT_SWIZZLE_POSITIVE_Y;
++   vp.swizzle_z = PIPE_VIEWPORT_SWIZZLE_POSITIVE_Z; vp.swizzle_w = PIPE_VIEWPORT_SWIZZLE_POSITIVE_W;
++   cso_set_viewport(cso, &vp);
++   cso_set_vertex_shader_handle(cso, d3d10_rot_vs);
++   cso_set_fragment_shader_handle(cso, d3d10_rot_fs);
++
++   /* Destination corners top-left, top-right, bottom-left, bottom-right (NDC y -1 = row 0 with this viewport)
++    * and the source texel each one shows. 90 = the source turned clockwise, 270 = counter-clockwise (which
++    * DXGI value is which on this panel: checked by the scan-out dump - the taskbar must sit on the long edge
++    * the user holds at the bottom). */
++   static const float uv[5][4][2] = {
++      { {0, 0}, {1, 0}, {0, 1}, {1, 1} },   /* unused */
++      { {0, 0}, {1, 0}, {0, 1}, {1, 1} },   /* identity */
++      { {0, 1}, {0, 0}, {1, 1}, {1, 0} },   /* 90 */
++      { {1, 1}, {0, 1}, {1, 0}, {0, 0} },   /* 180 */
++      { {1, 0}, {1, 1}, {0, 0}, {0, 1} },   /* 270 */
++   };
++   static const float pos[4][2] = { {-1, -1}, {1, -1}, {-1, 1}, {1, 1} };
++   float v[4][2][4];
++   for (int i = 0; i < 4; i++) {
++      v[i][0][0] = pos[i][0]; v[i][0][1] = pos[i][1]; v[i][0][2] = 0; v[i][0][3] = 1;
++      v[i][1][0] = uv[rot][i][0]; v[i][1][1] = uv[rot][i][1]; v[i][1][2] = 0; v[i][1][3] = 1;
++   }
++   struct cso_velems_state ve;
++   memset(&ve, 0, sizeof ve);
++   ve.count = 2;
++   for (int i = 0; i < 2; i++) {
++      ve.velems[i].src_offset = i * 16;
++      ve.velems[i].src_format = PIPE_FORMAT_R32G32B32A32_FLOAT;
++      ve.velems[i].src_stride = 32;
++   }
++   util_draw_user_vertices(cso, &ve, v, MESA_PRIM_TRIANGLE_STRIP, 4);
++
++   struct pipe_sampler_view *none = NULL;
++   c->set_sampler_views(c, MESA_SHADER_FRAGMENT, 0, 0, 1, &none);
++   c->sampler_view_release(c, sv);
++   c->flush(c, &f, 0);
++   if (f) {
++      screen->fence_finish(screen, NULL, f, 100 * 1000 * 1000ull);
++      screen->fence_reference(screen, &f, NULL);
++   }
++   return 0;
++}
++
+ /* The GPU present: the whole frame blitted into the scan-out, waited for (at most 100 ms) so that the panel shows
+  * it when the runtime's present returns, then the present without pixels. 0 if done. */
+ static int
+@@ -167,9 +289,32 @@ d3d10_scanout_present(struct pipe_screen *screen, struct pipe_context *pipe, str
+                       void *context_private)
+ {
+    struct pipe_resource *so = d3d10_get_scanout(screen);
++   int rot = d3d10_primary_rotation >= 1 && d3d10_primary_rotation <= 4 ? d3d10_primary_rotation : 1;
++   bool transposed = rot == 2 || rot == 4;
++   if (so && rot != 1 && res->nr_samples <= 1 &&
++       util_format_is_rgba8_variant(util_format_description(res->format)) &&
++       res->width0 == (transposed ? so->height0 : so->width0) &&
++       res->height0 == (transposed ? so->width0 : so->height0)) {
++      DWORD r0 = GetTickCount();
++      if (d3d10_scanout_rotate(screen, pipe, res, so, rot) != 0)
++         return -1;
++      DWORD r1 = GetTickCount();
++      int r = malikm_primary_present(d3d10_present_alloc, d3d10_present_dst, NULL, so->width0, so->height0,
++                                     context_private);
++      static unsigned rn;
++      if (rn++ < 8 || (rn % 300) == 0 || r != 0)
++         malikm_tlog("scanout present %u rotated %d: %ux%u, draw+wait %lu ms, present %d", rn, rot, res->width0,
++                     res->height0, (unsigned long)(r1 - r0), r);
++      return r;
++   }
+    if (!so || res->width0 != so->width0 || res->height0 != so->height0 || res->nr_samples > 1 ||
+-       !util_format_is_rgba8_variant(util_format_description(res->format)))
++       !util_format_is_rgba8_variant(util_format_description(res->format))) {
++      static unsigned mn;
++      if (so && mn++ < 8)
++         malikm_tlog("scanout present: %ux%u (rotation %d) does not fit the %ux%u scan-out - CPU path", res->width0,
++                     res->height0, d3d10_primary_rotation, so->width0, so->height0);
+       return -1;
++   }
+    DWORD t0 = GetTickCount();
+    struct pipe_blit_info b;
+    memset(&b, 0, sizeof b);
+-- 
+2.40.1.windows.1
+

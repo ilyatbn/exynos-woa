@@ -711,3 +711,22 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   rotates (textured quad into the scan-out BO by the primary's Rotation) and the KMD DoPresent rotates CPU copies, and
   (3) a mode change must re-create / re-validate the GPU scan-out path (it went black even back in portrait).
   The repo HEAD still has the KMD 40 offer: next commit gates it.
+
+### 2026-10-14 ~13:45 - rotation attempt 2 (UMD 0066 + KMD 41, OfferRotation 1): still black; findings
+- 0066: CreateResource logs primaries + records ModeDesc.Rotation; d3d10_scanout_present draws a rotated textured
+  quad in a private pipe context (cso + util simple shaders) when DWM's frame is the transposed size. Portrait on 0066:
+  fine (primary 1080x2280 rotation 1, scan-out blit path, desktop in the dump).
+- s10erotate 90 (DISP_CHANGE_SUCCESSFUL 2280x1080): DWM re-creates its primaries as **1080x2280 rotation 2** (panel
+  orientation, not transposed) + 3 present buffers 1080x2280 (runs\rot2\dwm.txt). So my "transposed frame" branch
+  never fires: per D3DDDIARG_CREATERESOURCE the driver must apply the rotation to DWM's RENDERING into the rotated
+  primary (DWM draws in desktop coordinates), not only to the final copy. After the rotation the per-frame log
+  switches from "PresentDXGI ... scanout present" to "present primary 0x80001540 -> dst 0x0: hr 0" (a different
+  allocation through malikm_primary_present) and the scan-out stays black - also after s10erotate 0 (same as
+  attempt 1). DPU unchanged (latched 0x08e80440, base ca000000).
+- Recovered: OfferRotation 0, MALIKM_TGSI_DIR removed, ssh reboot -> desktop fine (runs\fbrec-q.png). Phone now:
+  KMD 1.0.41.1 (offer gated off), UMD 0066 (portrait path = 0065 + logging hooks).
+- Open, in this order: (a) why every mode change (even back to identity) kills the scan-out path: DWM's new primaries
+  /present allocations after a mode set vs the shim's GPU-presented marking and d3d10_present_alloc (thread-local)
+  - needs the tlog around the switch; (b) rotation = transform DWM's rendering into rotated primaries (viewport /
+  scissor / copy coordinates swapped in the UMD for resources with rotation 2/4) or render to an un-rotated shadow and
+  rotate at present.

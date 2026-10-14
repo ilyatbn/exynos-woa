@@ -282,3 +282,4 @@ No device access in this task; build-verified only (Guided, not Ready).
   callback mark. => all-system freeze (not a bugcheck) within ~14 s of S10eDiag loading, after all 8 CPUs started.
   Hypotheses: an M4 stops answering IPIs (TB flush / freeze IPIs then hang every CPU); an M4 takes an exception it
   cannot report. Next: periodic break-ins with !running -it to catch the 8-CPU state before/at the freeze.
+- REVIEW 56638a8 (kdrun exit after TWRP reset): committed before its build ran (link failed: the m4kd2 kdrun held the exe); rebuilt after killing it - see next line.

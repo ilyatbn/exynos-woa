@@ -20,6 +20,8 @@
  *   init, before the secondary processors are started); at that first break every non-empty line of the file is
  *   executed (e.g. ".reload", "bp nt!KeStartAllProcessors") instead of the diagnostics, then the target continues.
  *   "go" = neither reboot nor twrp, so a commands file can follow.
+ *   "every" = like go, but the timed break-in repeats every break_after_s seconds (counted from the last resume):
+ *   diagnostics up to the moment a target freezes; the first failed break-in brackets the freeze.
  *
  * Diagnostics: !analyze -v (on a bugcheck), !running -it (every processor's current thread + stack), !prcb per CPU,
  * k on the current processor, lm, vertarget.
@@ -127,7 +129,8 @@ static void Diagnose(IDebugControl *Control, BOOL Bugcheck)
 
 static IDebugControl *gControl;
 static ULONGLONG gTotalMs, gBreakMs;
-static volatile LONG gStop, gBrokeIn, gBreakInPending, gInBreak;   /* gInBreak: main thread is handling a break */
+static volatile LONG gStop, gBrokeIn, gBreakInPending, gInBreak, gRepeat;   /* gInBreak: main thread handles a break */
+static volatile ULONGLONG gLastResume;   /* tick of the last GO after a break (repeat mode measures from it) */
 
 /* time limit -> DEBUG_INTERRUPT_EXIT (WaitForEvent returns); break_after_s after the connection -> one active
  * break-in (a hang leaves no event). SetInterrupt is the dbgeng call meant for other threads. */
@@ -152,8 +155,9 @@ static DWORD WINAPI TimerThread(LPVOID Unused)
         }
         /* never while a break is being handled (initial-break symbol load, diagnostics): the pending flag would
          * mark the NEXT break (e.g. a breakpoint) as the timed one */
-        if (Connected && !gBrokeIn && !gInBreak && Now - Connected >= gBreakMs) {
-            InterlockedExchange(&gBrokeIn, 1);
+        if (Connected && !gBrokeIn && !gInBreak && Now - max(Connected, gLastResume) >= gBreakMs) {
+            if (!gRepeat)
+                InterlockedExchange(&gBrokeIn, 1);
             InterlockedExchange(&gBreakInPending, 1);
             Note("break-in timer expired - interrupting the target");
             gControl->lpVtbl->SetInterrupt(gControl, DEBUG_INTERRUPT_ACTIVE);
@@ -176,7 +180,7 @@ int main(int argc, char **argv)
     KDRUN_DEBUG_CREATE Create;
 
     if (argc < 4) {
-        fprintf(stderr, "usage: kdrun <log> <total_s> <break_after_s> [reboot|twrp|go] [init-cmds]\n");
+        fprintf(stderr, "usage: kdrun <log> <total_s> <break_after_s> [reboot|twrp|go|every] [init-cmds]\n");
         return 1;
     }
     /* shared, so the log can be read while a session runs (fopen_s opens it exclusively) */
@@ -187,6 +191,7 @@ int main(int argc, char **argv)
     BreakS = strtoul(argv[3], NULL, 10);
     Reboot = argc > 4 && _stricmp(argv[4], "reboot") == 0;
     Twrp = argc > 4 && _stricmp(argv[4], "twrp") == 0;
+    gRepeat = argc > 4 && _stricmp(argv[4], "every") == 0;
     InitCmds = argc > 5 ? argv[5] : NULL;
 
     /* The Kits dbgeng.dll by full path: a plain import resolves to the inbox System32\dbgeng.dll (10.0.26100.1),
@@ -255,6 +260,7 @@ int main(int argc, char **argv)
             if (FirstBreak && InitCmds != NULL && !Bugcheck && !Timed) {
                 FirstBreak = FALSE;
                 RunFile(Control, InitCmds);
+                gLastResume = GetTickCount64();
                 InterlockedExchange(&gInBreak, 0);
                 Control->lpVtbl->SetExecutionStatus(Control, DEBUG_STATUS_GO);
                 continue;
@@ -278,6 +284,7 @@ int main(int argc, char **argv)
             } else {
                 Control->lpVtbl->SetExecutionStatus(Control, DEBUG_STATUS_GO);
             }
+            gLastResume = GetTickCount64();
             InterlockedExchange(&gInBreak, 0);
             continue;
         }

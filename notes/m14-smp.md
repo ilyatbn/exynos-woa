@@ -420,3 +420,8 @@ No device access in this task; build-verified only (Guided, not Ready).
   the freeze clock starts with WINDOWS (or our ExitBootServices handlers), not with M4 power-on. Something global
   that the Windows side does (driver, EBS handler, Windows platform setup) breaks once the M4 cluster is powered.
   Next: bisect - hide devices from Windows (ESP flags) / disable EBS handlers.
+- Run m4noaud1 (00:48): boot-m4dvm1 (8 cores offered) + ESP nogpu.flg + noaudio.flg (GPU0 and audio hidden from Windows).
+- Run m4noaud1 (boot-m4dvm1 8 cores, nogpu + noaudio, kdrun WITHOUT init file): KD connected at uptime 3.9 s,
+  "Refreshing KD connection", link dead by the first break-in (+20 s); phone reset to TWRP within ~1 min.
+  debug_history: new entry type "PP" SOFT INFORM3(88ee). Too early to say anything about audio. Note: run without
+  the initial break dies EARLIER (no KD pauses).

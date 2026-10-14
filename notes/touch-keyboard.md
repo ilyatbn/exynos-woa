@@ -101,3 +101,8 @@ no explorer/dwm kill, no drivers.
   Dumps: s10e-artifacts\runs\tih-stacks-1.txt (fresh), tih-stacks-frozen.txt, tih-stacks-frozen2.txt.
 - Next: workaround = EdgeHTML software rendering (IE "UseSWRender"); root cause = what CanPaintNow waits for (D3D
   device state / occlusion / DComp) - disassemble CanPaintNow with the PDB.
+- CanPaintNow (uf with the PDB): GetDispSystem (CWUCLayerManager = Windows.UI.Composition) then a CQPCTick timed loop
+  testing a flag -> sleep: EdgeHTML waits for the compositor to report its previous frame done; on our GPU path that
+  never happens (DWM/DComp frame completion - candidates: KMD software vsync / present statistics / fences).
+- Workaround test 18:25: HKCU\Software\Microsoft\Internet Explorer\Main UseSWRender = 1 (was absent; revert:
+  reg delete ... /v UseSWRender /f), TextInputHost restarted. User to test.

@@ -449,3 +449,7 @@ No device access in this task; build-verified only (Guided, not Ready).
   while the M4 cluster is powered (KD drops at shutdown; SoC soft-reset minutes later by something else).
   The full 8-core runs died earlier (driver load) - possibly a second issue. Test: stay.flg back, M4s powered not
   offered, 10 min.
+- Run m4wfi2 (boot-m4wfi1 7295c459, M4s powered asleep in WFI, not offered; stay.flg RESTORED = no harness restart):
+  break-ins fine through 01:06:58 (+268 s) - far past every earlier not-offered "freeze" (+95..160 s). => those
+  freezes were the harness RESTART hanging while the M4 cluster is powered, not a runtime freeze. Confirming next
+  with a manual restart over SSH.

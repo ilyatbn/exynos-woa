@@ -292,3 +292,17 @@ Serialise all senders with one FAST_MUTEX/KEVENT in the adapter (brightness DDI 
   0x1_9080_000C read faulted is unknown. The guard stays (an unmapped read is still a real hazard).
   Follow-up: after the update finishes, check the build/driver state and pause Windows Update (it can replace
   or roll back test-signed drivers and restart unattended).
+
+## Progress log - D7 DSIM FUNCRST (2026-10-14 ~16:10, build 22631.6199, KMD 41, user watching)
+- Before: SWRST 0, MIPI_STATUS 0x20000000, INTSRC 0x01400000, FIFOCTRL 0x00009507 (bit 15 set again), CMD_STATUS 0x08.
+- poke SWRST (+0x04) = 0x100 (FUNCRST); readback 0 (self-cleared).
+- After: MIPI_STATUS 0x20000000 x 20000 (still FRM_PROCESSING); INTSRC 0x40480000 = SW_RST_RELEASE | ABNRMAL_CMD_ST |
+  UNDER_RUN (FRAME_DONE gone - no frame completed since the reset); FIFOCTRL 0x1507; CMD_STATUS 0x04 (cause 8 -> 4);
+  LINK_STATUS1 line counter frozen at 0x1ff (3000/3000 reads; before the reset it moved). DECON trig still 0x3061.
+  -> the reset cleared cause 8 but the link stopped streaming: DSIM now waits mid-frame (underrun) for pixel data.
+- After FUNCRST, a DCS read 0x0A (PKTHDR 0x137 + 0x01000A06) still queued (FIFOCTRL 0x00021107), CMD_STATUS 4.
+- User: screen frozen (the panel holds its last GRAM frame). A minute later the phone dropped off WiFi/SSH
+  (16:09 dark) before the planned DECON trigger toggle ran - likely the system stalls once scan-out stops
+  (KMD/DWM waiting on a frame that never completes) [INFER]. Needs a force restart.
+- Conclusion D7: FUNCRST alone is not a usable recovery - it stops the link. Whatever holds the command queue,
+  the link must be re-armed afterwards (Samsung never uses FUNCRST without a full dsim/decon re-enable).

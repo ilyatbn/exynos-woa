@@ -449,3 +449,10 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   32-bit reads; dumpram's MmCopyMemory needs RAM, the fb is reserved), shipped as ESP gpu\s10ediag.exe and run as
   C:\S10eTmp\s10ediagx.exe by extra-gpu-h3 at user-task t=50/70/100 s -> ESP out\fb-{cube,flip,gdi}.bin (9922560 B
   each = 4352 x 2280 x 4). ESP extra.cmd md5 521ebec8.... h3x: + UMD 0062.
+- **Run h3x (05:34-05:41, runs/h3x; UMD 0062): visual proof from the scan-out itself** (tools/phone/fb2png.py on the
+  dumpmmio dumps, pitch 4352): fb-cube.png (t=50 s) = the Windows 11 desktop rendered correctly (wallpaper, icons,
+  taskbar, "Test Mode" watermark) - the re-strided scan-out and DWM's GPU-blit present are right; fb-flip.png /
+  fb-gdi.png = the d3dtri cube (540x1140 window at 200 % = the whole panel) on its blue clear colour, correctly
+  shaded - windowed D3D reaches the panel. Edge stair-steps = the ~0.1 s uncached dump racing the rotating cube.
+  Cubes 29.9 / 25.8 fps; gdi present still 16-31 ms per frame (0062's memcpy did not measurably help at
+  GetTickCount's 15.6 ms resolution). 0 faults.

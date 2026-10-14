@@ -134,6 +134,19 @@ _start:
 	str	w17, [x16, #0x28]
 	PROGRESS 0x51                   /* shim entered                              */
 
+	/* ---- 2026-10-14 (user: cover sboot's "not running Samsung's official software" warning at once): paint the
+	 * whole sboot framebuffer black before anything else. sboot leaves DECON scanning it continuously (video mode -
+	 * the old diagnostic bands appeared over the warning), so this shows immediately; SEC then draws the boot screen
+	 * (ArmPlatformLib.c) and SimpleFramebufferDxe pushes it in command mode. 1080 x 2280 x 4 B at 0xCA000000
+	 * (Exynos9820.h EXYNOS_FB_BASE VERIFIED, line 4320 B as FB_ROW below) = 0x964B00 bytes = 16 B x 0x96 4B0. */
+	movz	x9, #0xCA00, lsl #16     /* 0xCA000000                                */
+	movz	x10, #0x4B0
+	movk	x10, #0x96, lsl #16      /* 0x964B0 stores of 16 bytes                */
+1:	stp	xzr, xzr, [x9], #16
+	subs	x10, x10, #1
+	b.ne	1b
+	dsb	sy
+
 	/* ---- W34: THE second-boot hang. PeilessSec's _ModuleEntryPoint takes the
 	 * TransferList base from TPIDRRO_EL0 and only initialises that register when x1
 	 * holds the TL magic, which ours never does. TPIDRRO_EL0 survives a warm reset:

@@ -83,6 +83,58 @@ Beyond0LteInstallDiagVectors (
 //
 STATIC CONST UINTN  mCoresPerCluster[] = { 6, 2 };   // {ananke+prometheus}, {cheetah}
 
+#include "../../Drivers/SimpleFramebufferDxe/BootSplash.h"   // the boot screen (firmware/tools/bootsplash)
+
+BOOLEAN
+ArmPlatformIsPrimaryCore (
+  IN UINTN  MpId
+  );
+
+//
+// 2026-10-14 (user: hide sboot's warning as early as possible): the boot shim painted the framebuffer black; draw the
+// boot screen's non-black pixels now (MMU off, so plain stores land in the scanned framebuffer and show at once - sboot
+// leaves DECON in video mode). Same row-RLE stream and bounds checks as SimpleFramebufferDxe FbDrawBootSplash, which
+// redraws the whole screen later and pushes it in command mode.
+//
+STATIC
+VOID
+Beyond0LteEarlySplash (
+  VOID
+  )
+{
+  volatile UINT32  *Fb = (volatile UINT32 *)(UINTN)EXYNOS_FB_BASE;
+  UINTN            Pos = 0;
+  UINTN            Y;
+  UINTN            X;
+  UINTN            Count;
+  UINTN            Index;
+  UINT16           Token;
+
+  for (Y = 0; Y < BOOT_SPLASH_HEIGHT; Y++) {
+    for (X = 0; X < BOOT_SPLASH_WIDTH; X += Count) {
+      if (Pos + 2 > sizeof (mBootSplash)) {
+        return;
+      }
+      Token = (UINT16)(mBootSplash[Pos] | (mBootSplash[Pos + 1] << 8));
+      Pos  += 2;
+      Count = Token & 0x7FFFu;
+      if ((Count == 0) || (X + Count > BOOT_SPLASH_WIDTH)) {
+        return;
+      }
+      if ((Token & 0x8000u) != 0) {
+        if (Pos + Count * 3 > sizeof (mBootSplash)) {
+          return;
+        }
+        for (Index = 0; Index < Count; Index++, Pos += 3) {
+          Fb[Y * EXYNOS_FB_STRIDE_PIXELS + X + Index] = 0xFF000000u | ((UINT32)mBootSplash[Pos + 2] << 16) |
+                                                        ((UINT32)mBootSplash[Pos + 1] << 8) | mBootSplash[Pos];
+        }
+      }
+    }
+  }
+  __asm__ __volatile__ ("dsb sy" ::: "memory");
+}
+
 /**
    Per-core early init, called very early from PrePi for each booting CPU.
    sboot leaves DRAM and the debug UART configured, so nothing is mandatory yet.
@@ -93,6 +145,9 @@ ArmPlatformInitialize (
   )
 {
   BEYOND0LTE_CHECKPOINT (1420);   // CEntryPoint, SEC stack live (B39)
+  if (ArmPlatformIsPrimaryCore (MpId)) {
+    Beyond0LteEarlySplash ();
+  }
 #if BEYOND0LTE_DIAG_VECTORS
   Beyond0LteInstallDiagVectors ();
 #endif

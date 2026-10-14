@@ -465,3 +465,10 @@ Serialise all senders with one FAST_MUTEX/KEVENT in the adapter (brightness DDI 
   text over the boot screen; ConOut has no device now, the RAM log keeps DEBUG output).
   Image s10e-artifacts\boot116-gpuon-nowdt-clean1.img sha256 d67d5629... (FVMAIN_COMPACT 0xc4000).
   Rollback if it does not boot: flash boot116-gpuon-nowdt-splash1.img (42317618...) from TWRP.
+- Earliest cover for sboot's "not running Samsung's official software" warning (user, 19:5x): the old checkpoint bands
+  showed over it, i.e. sboot leaves DECON scanning 0xCA000000 in video mode, so plain stores show at once. Boot shim:
+  right after PROGRESS 0x51, stp xzr loop over 0x964B00 B (1080 x 2280 x 4) = black (shim 512 -> 544 B). SEC
+  ArmPlatformInitialize (primary core, MMU off): Beyond0LteEarlySplash draws the BootSplash.h literals only (black
+  already there). SimpleFramebufferDxe later redraws + pushes in command mode + boot brightness as before. sboot's own
+  warning time before it jumps to us is out of our hands. Image boot116-gpuon-nowdt-clean2.img sha256 8d4cf769...
+  (FVMAIN_COMPACT 0xe5000: the splash now also lives uncompressed in SEC). Rollback: splash1 (42317618...).

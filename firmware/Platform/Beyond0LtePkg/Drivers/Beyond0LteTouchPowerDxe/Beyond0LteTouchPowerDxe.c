@@ -131,7 +131,22 @@
 #define BEYOND0LTE_DVFS_LITTLE_KHZ  1456000u   // exact LITTLE step (cpu0 scaling_available_frequencies, max 1950000)
 #define BEYOND0LTE_DVFS_MID_KHZ     1794000u   // exact MID step (cpu4 scaling_available_frequencies, max 2314000)
 #define BEYOND0LTE_DVFS_INT_KHZ     400000u    // exact INT step (devfreq_int available_frequencies, max 534000)
-#define BEYOND0LTE_DVFS_BIG_KHZ     520000u    // m14 M4: the LOWEST BIG step (cpu6 scaling_available 2730000..520000;
+//
+// m14 M4 freeze (notes/m14-smp.md, notes/m14-m4-dvm-research.md lead 3): Samsung's Linux (drivers/soc/samsung/
+// exynos-sci.c probe) puts the SCI LLC into region LIT_MID_ALL (M4 cluster EXCLUDED from LLC allocation) and then
+// enables the LLC, over ACPM IPC. Live DT exynos-sci (VERIFIED, TWRP): acpm-ipc-channel 10, use_init_llc_region 1,
+// initial_llc_region 1, llc_enable 1. Command word (exynos_sci_base_cmd): cmd[0] = idx | data << 6 | dir << 12
+// (dir 1 SET / 0 GET; idx 2 LLC_REGION_ALLOC, 3 LLC_EN); reply error = cmd[1] bits 15:13, GET data = bits 11:6.
+//
+#ifndef BEYOND0LTE_SCI_LLC_INIT
+#define BEYOND0LTE_SCI_LLC_INIT     1
+#endif
+#define ACPM_SCI_IPC_CHANNEL        10u
+#define SCI_LLC_IDX_REGION_ALLOC    2u
+#define SCI_LLC_IDX_EN              3u
+#define SCI_LLC_REGION_LIT_MID_ALL  1u
+#define SCI_CMD(Idx, Data, Set)     ((Idx) | ((Data) << 6) | ((Set) << 12))
+#define BEYOND0LTE_DVFS_BIG_KHZ     520000u   // m14 M4: the LOWEST BIG step (cpu6 scaling_available 2730000..520000;
                                                // live DT cpufreq/domain@2 cal-id 0x0b040004 = idx 4, cpus 6-7,
                                                // min-freq 520000) - a defined V/F point for the M4s that can only
                                                // be a decrease from sboot's (unknown) boot rate (no thermals yet)
@@ -942,6 +957,51 @@ OnReadyToBoot (
       }
     }
   }
+
+#if BEYOND0LTE_SCI_LLC_INIT
+  //
+  // LLC like stock Linux: GET region / enable (log ACPM's defaults), SET region LIT_MID_ALL, SET LLC_EN 1, GET again.
+  // Self-healing guard like the DVFS block: progress 0x67 while in flight; a boot after a hang here skips it.
+  //
+  if (((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[0] == 0x67u) {
+    DEBUG ((DEBUG_ERROR, "TouchPower: previous boot hung in the SCI LLC setup (progress 0x67) - skipping it\n"));
+  } else if (!mIpcBroken && !EFI_ERROR (FindChannel (ACPM_SCI_IPC_CHANNEL, &Ch))) {
+    STATIC CONST UINT32  LlcCmd[] = {
+      SCI_CMD (SCI_LLC_IDX_REGION_ALLOC, 0, 0),
+      SCI_CMD (SCI_LLC_IDX_EN, 0, 0),
+      SCI_CMD (SCI_LLC_IDX_REGION_ALLOC, SCI_LLC_REGION_LIT_MID_ALL, 1),
+      SCI_CMD (SCI_LLC_IDX_EN, 1, 1),
+      SCI_CMD (SCI_LLC_IDX_REGION_ALLOC, 0, 0),
+      SCI_CMD (SCI_LLC_IDX_EN, 0, 0)
+    };
+    UINT32  SavedLlc;
+    UINTN   L;
+
+    SavedLlc = ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[1];
+    ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[1] = 0x67u;
+    __asm__ __volatile__ ("dsb sy" ::: "memory");
+    for (L = 0; (L < ARRAY_SIZE (LlcCmd)) && !mIpcBroken; L++) {
+      UINT32  Cmd[4];
+
+      Cmd[0] = LlcCmd[L];
+      Cmd[1] = 0;
+      Cmd[2] = 0;
+      Cmd[3] = 0;
+      if (!EFI_ERROR (AcpmSend (&Ch, Cmd))) {
+        DEBUG ((DEBUG_ERROR, "TouchPower: SCI %a %a -> data %u err %u [reply %08x %08x]\n",
+                ((LlcCmd[L] & 0x3Fu) == SCI_LLC_IDX_EN) ? "LLC_EN" : "LLC_REGION",
+                ((LlcCmd[L] >> 12) & 1u) ? "SET" : "GET", (Cmd[1] >> 6) & 0x3Fu, (Cmd[1] >> 13) & 0x7u,
+                Cmd[0], Cmd[1]));
+      }
+    }
+
+    ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[1] = SavedLlc;
+    __asm__ __volatile__ ("dsb sy" ::: "memory");
+  } else {
+    DEBUG ((DEBUG_ERROR, "TouchPower: SCI LLC setup skipped (ACPM channel %u not found or IPC broken)\n",
+            ACPM_SCI_IPC_CHANNEL));
+  }
+#endif
 }
 
 EFI_STATUS

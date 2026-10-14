@@ -369,3 +369,7 @@ No device access in this task; build-verified only (Guided, not Ready).
   boots without the M4s powered run for hours. => trigger = M4 cluster ON + its memory/maintenance traffic; more
   traffic (Windows on M4) -> ~1 min, stub polling -> ~2.5 min. Fits research lead 3: Samsung Linux keeps CPUCL2 out
   of LLC allocation (ACPM ch10 LLC_REGION_ALLOC LIT_MID_ALL) before LLC_EN. Next: send that from UEFI.
+- Live DT exynos-sci (TWRP hexdump, VERIFIED): acpm-ipc-channel 0xa, use_init_llc_region 1, initial_llc_region 1,
+  llc_enable 1. TouchPower (BEYOND0LTE_SCI_LLC_INIT 1, progress guard 0x67) at ReadyToBoot on ACPM ch 10: GET region,
+  GET en, SET region LIT_MID_ALL (0x1042), SET LLC_EN 1 (0x1043), GET both again - logged. Image boot-m4llc1.img
+  (KD flags, PARK 0xFE, EFF_BIG 2 = the real config, CNTFRQ logging).

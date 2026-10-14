@@ -52,6 +52,7 @@
 #define PARK_MPIDR_OFF      0xFF0u
 #define PARK_CNTFRQ_OFF     0xFF8u   // CNTFRQ_EL0 as the parked core sees it (m14)
 #define PARK_STAGE_OFF      0xFD8u
+#define PARK_GICIF_OFF      0xFB0u   // m14: GICD_ITARGETSR0 byte 0 read by the parked core (its real GIC CPU interface mask)
 #define PARK_SLEEP_OFF      0xFB8u   // m14: 1 = the stub sleeps in WFI (DAIF masked) after the alive mark, never polls
 #ifndef BEYOND0LTE_PARK_SLEEP_UNOFFERED
 #define BEYOND0LTE_PARK_SLEEP_UNOFFERED  0   // m14 isolation test: parked-but-not-offered cores sleep instead of polling
@@ -85,6 +86,8 @@ ParkBootCntFrq (
   __asm__ __volatile__ ("mrs %0, cntfrq_el0" : "=r" (Value));
   return Value;
 }
+
+STATIC_ASSERT (EXYNOS_GICD_BASE == 0x10101000ULL, "Beyond0LteParkStub.S hardcodes GICD 0x10101000 (ITARGETSR0 read)");
 
 extern UINT8  Beyond0LteParkStub[];
 extern UINT8  Beyond0LteParkStubEnd[];
@@ -138,7 +141,7 @@ Beyond0LteParkSecondaries (
   BootMpidr = GET_MPIDR_AFFINITY_BITS (ArmReadMpidr ());
   DEBUG ((DEBUG_ERROR, "PARK: mask=%x boot-mpidr=%lx stub=%u B\n",
           (UINT32)BEYOND0LTE_SMP_PARK_MASK, BootMpidr, (UINT32)StubSize));
-  if ((StubSize == 0) || (PARK_STUB_OFF + StubSize > PARK_SLEEP_OFF)) {
+  if ((StubSize == 0) || (PARK_STUB_OFF + StubSize > PARK_GICIF_OFF)) {
     DEBUG ((DEBUG_ERROR, "PARK: stub size %u does not fit - nothing parked\n", (UINT32)StubSize));
     return;
   }
@@ -315,10 +318,11 @@ Beyond0LteParkSecondaries (
       Gicc[Index]->ParkingProtocolVersion = PARK_VERSION;
       Gicc[Index]->ParkedAddress          = Page[Index];
       Parked++;
-      DEBUG ((DEBUG_ERROR, "PARK: gicc%u parked mb=%lx el=%lx mpidr_el1=%lx cntfrq=%lu (boot cpu %lu) (%u ms)\n",
+      DEBUG ((DEBUG_ERROR, "PARK: gicc%u parked mb=%lx el=%lx mpidr_el1=%lx cntfrq=%lu (boot cpu %lu) gic-if mask %02x (MADT GicId %u, boot cpu mask %02x) (%u ms)\n",
               (UINT32)Index, Page[Index],
               ParkRd64 (Page[Index] + PARK_EL_OFF), ParkRd64 (Page[Index] + PARK_MPIDR_OFF),
-              ParkRd64 (Page[Index] + PARK_CNTFRQ_OFF), ParkBootCntFrq (), Arrive[Index]));
+              ParkRd64 (Page[Index] + PARK_CNTFRQ_OFF), ParkBootCntFrq (), ParkRd32 (Page[Index] + PARK_GICIF_OFF),
+              Gicc[Index]->CPUInterfaceNumber, *(volatile UINT8 *)(UINTN)(EXYNOS_GICD_BASE + 0x800), Arrive[Index]));
     } else if ((Gicc[Index]->Flags & EFI_ACPI_6_3_GIC_ENABLED) != 0) {
       Gicc[Index]->Flags &= ~(UINT32)EFI_ACPI_6_3_GIC_ENABLED;
       DEBUG ((DEBUG_ERROR, "PARK: gicc%u mpidr=%lx disabled (page=%lx on=%lx mark=%x)\n",

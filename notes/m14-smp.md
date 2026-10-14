@@ -431,3 +431,4 @@ No device access in this task; build-verified only (Guided, not Ready).
   TARGETED IPIs / SPI routing hit the wrong core or none -> requester waits forever = silent all-CPU freeze at a
   random time; BROADCAST IPIs (KD freeze, "all others") still work - matches every run. Test: each parked core
   reads its own GICD_ITARGETSR0 byte (GICD 0x10101000 + 0x800) in the stub, logged.
+- boot-m4gic1.img: stub logs each parked core's GICD_ITARGETSR0 byte (its real CPU interface mask) vs MADT GicId (objdump: movz/movk 0x10101800, ldrb).

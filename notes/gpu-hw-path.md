@@ -478,8 +478,8 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
 - User: "reboot into windows ... with no debugging modes or auto reboots or your special flags".
 - Firmware: #116 rebuilt with BEYOND0LTE_WINDOWS_WATCHDOG 0 (source edit reverted after the build, not committed):
   s10e-artifacts\boot116-nowdt-pack.img sha256 5be23ad1... (pack-uefi-beyond0lte.ps1 -Ref ref-recovery.img,
-  18 255 872 B like boot116-fb10m-v2.img; diff vs #116 only in the header id hash + the first 0xBCBD4 B of the
-  kernel blob). Flashed, readback matches.
+  18 255 872 B like boot116-fb10m-v2.img; diff vs #116 only at image offsets 0x240..0xBCBD3 (header id hash + the start of the
+  kernel blob; nothing past the kernel section). Flashed, readback matches.
 - ESP: extra.cmd (soak) -> extra-soak.cmd.off; one-shot extra-clean.cmd (md5 adaf9c0c) as extra.cmd for one
   unattended boot: deletes the machine-wide MALIKM_TGSI_DIR (tlog files from every GPU process, DWM's too),
   bcdedit /debug off, records MaliG76Wddm Parameters + WER LocalDumps. Then: extra.cmd removed, stay.flg set.
@@ -502,3 +502,7 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
 - User question: why no translucent desktop. Unknown; Learn (F5 in gpu-windows-prior-art.md): solid when the
   Transparency effects toggle is off, Battery Saver, or "low-end hardware". Translucency WAS seen in the 10-13
   software full-mode boots. Asked the user to check the toggle.
+- Review of 0e6b2f6: LF-only .cmd matches the other ESP scripts (extra-gpu-soak.cmd also LF; both ran under the
+  agent's cmd.exe); the nowdt diff range was misstated as "first 0xBCBD4 B of the kernel blob" - it is the image
+  offset range incl. the header (fixed above); the watchdog source edit is reverted (git status clean for the
+  firmware tree) - the define stays 1 in the repo, so only the artifact image has 0.

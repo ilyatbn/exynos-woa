@@ -489,3 +489,11 @@ No device access in this task; build-verified only (Guided, not Ready).
   dies (~40-75 s, page-heavy kernel work at the last snapshots). Next: offer ONE M4 (gicc6 only) - per-core vs
   cluster-level.
 - Run m4one1 (boot-m4one1 77225b39: PARK 0x7E = A55x4 + A75x2 + M4#0 offered, nogpu/noaudio, stay.flg): 'MP (7 procs)'; alive at every break-in through 01:30:10 (~+140 s after the processor start) - past every two-M4 death (max +75 s). Still running.
+- m4one1 RESULT (one M4 offered, 7 procs, stay.flg): NOT stable - a reboot loop: each boot reaches "MP (7 procs)",
+  then ~45-60 s after the processor start the target "restarted without notifying the debugger" (KD), new kernel
+  ~20 s later; restarts detected 01:28:58, 01:30:07, 01:31:16, 01:32:25 (~69 s period). No KeBugCheckEx bp hit, no
+  S10eDiag BUGCHECK-callback mark (WINPRAM ring: only "S10eDiag loaded" at 43 s), UEFI "progress prev=0x72 ...
+  previous boot ran Windows (no restart marker) - interactive (stay.flg): saving its PRAM and continuing".
+  debug_history shows only one SOFT INFORM3(12345670) in that window (others not recorded?).
+  => one M4 dies too (same ~1 min), but ends in a FAST reset instead of the two-M4 long hang. Root cause per-core,
+  not cluster-level. Something resets the SoC quickly after the M4 fails (EL3 / uH / PMU?), without a bugcheck.

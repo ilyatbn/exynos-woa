@@ -196,3 +196,9 @@ No device access in this task; build-verified only (Guided, not Ready).
 - Image s10e-artifacts/boot-m4kd1.img b4fe9ac8... = HEAD + build-only WINDOWS_WATCHDOG 0, GPU_POWER_ON 1,
   USB_KD_DEVICE 1 (DWC3 device role -> KDNET over USB EEM, no USB host), SMP_PARK_MASK 0xFE (SAFE mask 0x3E: the M4
   CPU_ONs run behind the 0x65 guard).
+- Run m4kd1 (21:07, boot-m4kd1): user saw a boot loop "before reaching Windows". Next normal boot's UEFILOG: progress
+  prev=0x72 (= ExitBootServices reached: Windows started) -> Windows died early and restarted itself. WINPRAM.BIN marks
+  ring empty (S10eDiag never loaded). kdrun never saw a target (its first "connected" was a false positive: AttachKernel
+  succeeds without one - fixed, 6ccf6a5). Either Windows died before KD init (~4 s) or KDNET-over-USB does not attach
+  with today's firmware. Separate them: boot-kd6.img (7810a0bd...) = same KD image, park mask 0x3E (6 cores).
+- Restored boot116-gpuon-nowdt-clean3 in between (TWRP, readback d85b7391 ok).

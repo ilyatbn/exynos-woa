@@ -482,3 +482,9 @@ No device access in this task; build-verified only (Guided, not Ready).
   echoes a counter the boot CPU writes (cacheable, no maintenance); UEFI runs 100000 round trips with a timeout per
   trip and logs fails/time. Control: an A55 (gicc3) gets the same test.
 - boot-m4coh1.img: PARK 0xFE, OFFER 0x36, SLEEP_UNOFFERED 1, COHERENCY_MASK 0xC8 (A55 gicc3 = control, M4 gicc6/7). objdump verified (table entries 0x80000701/0xC0000701, MAIR 0xFF, TCR 0x803520, SCTLR |= 0x1005).
+- m4coh1 RESULT: COH gicc3 (A55 control) 100000 rounds 0 missed 416660 ticks (~4.2 us/round trip); gicc6 (M4)
+  100000 / 0 missed / 1331600 ticks (~13.3 us); gicc7 (M4) 100000 / 0 / 1352240. => cached snoop coherency between
+  the M4 cluster and the boot A55 WORKS (no maintenance used). Coherency hypothesis OUT.
+  Bare-metal M4 checks all pass: coherency, DVM broadcasts, GIC if 6/7, CNTFRQ, CTR/DCZID. Only Windows ON the M4s
+  dies (~40-75 s, page-heavy kernel work at the last snapshots). Next: offer ONE M4 (gicc6 only) - per-core vs
+  cluster-level.

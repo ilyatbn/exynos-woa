@@ -687,3 +687,9 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   "Direct3D 11 (feature level 10_0), blt-model swap chain / Arm Mali-G76 MP12 (Galaxy S10e, G10/G11) / FPS 28.9 /
   GPU clock 156 MHz / GPU temp n/a" - MW_ESCAPE_CLOCK works from a user process. User: no clock increases before
   thermals (memory thermals-before-clocks). Note: runuser2 -Wait N unregisters the task after N s and kills it.
+- **Correction (user asked "why did you say 60"):** the 59.4 fps soak s3 blt result is NOT a speed-up. Comparable runs
+  today: blt25 (no overlay) 31.3 fps, overlay 60 s 28.9, flip25 27.9. s3 (59.4) and the dead flip run (~200 fps) ran
+  while the phone was idle - most likely the blank screen saver (120 s, enabled 12:16) covered the cube window, so the
+  GDI hand-off (gdi_present) had nothing visible to draw and presents got cheap (inference, not verified). The
+  steady-state cube rate is ~30 fps, bounded by the GDI readback; the overlay costs ~2 fps. Soaks must keep the
+  screen saver off (or disable it for the run) to measure what reaches the panel.

@@ -538,6 +538,9 @@ static int Probes(IDXGIAdapter *Adapter, D3D_DRIVER_TYPE Type, const char *Name)
     static const float Unit[8] = { 0, 0, 0, 1, 1, 0, 1, 1 };
     static const float InstF[4] = { -1, -1, 0, 0 };
     static const short InstS[4] = { -1, -1, 0, 0 };
+    static const short InstS8[8] = { -1, -1, 0, 0, 0, 0, 0, 0 };   /* stride 8: instance 1 at +8 */
+    static const int InstI[4] = { -1, -1, 0, 0 };
+    static const unsigned short InstH[4] = { 0xBC00, 0xBC00, 0, 0 };   /* half -1.0, -1.0 / 0, 0 */
     static const UINT Bits[4] = { 1, 0, 1, 0 };
     static const Probe Ps[] = {
         { "float2 position", "float4 vs(float2 p : POSITION) : SV_Position { return float4(p, 0, 1); }\n"
@@ -560,6 +563,24 @@ static int Probes(IDXGIAdapter *Adapter, D3D_DRIVER_TYPE Type, const char *Name)
           { { "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
             { "TEXCOORD", 0, DXGI_FORMAT_R16G16_SINT, 1, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1 } }, 2,
           Unit, sizeof(Unit), 8, InstS, sizeof(InstS), 4, 4, 2, NULL, 0, 32768, 32768 },
+        { "inst R16G16_SINT stride 8",
+          "float4 vs(float2 p : POSITION, int2 o : TEXCOORD0) : SV_Position { return float4(p + float2(o), 0, 1); }\n"
+          "float4 ps() : SV_Target { return float4(0, 0, 0, 1); }\n",
+          { { "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+            { "TEXCOORD", 0, DXGI_FORMAT_R16G16_SINT, 1, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1 } }, 2,
+          Unit, sizeof(Unit), 8, InstS8, sizeof(InstS8), 8, 4, 2, NULL, 0, 32768, 32768 },
+        { "inst R32G32_SINT stride 8",
+          "float4 vs(float2 p : POSITION, int2 o : TEXCOORD0) : SV_Position { return float4(p + float2(o), 0, 1); }\n"
+          "float4 ps() : SV_Target { return float4(0, 0, 0, 1); }\n",
+          { { "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+            { "TEXCOORD", 0, DXGI_FORMAT_R32G32_SINT, 1, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1 } }, 2,
+          Unit, sizeof(Unit), 8, InstI, sizeof(InstI), 8, 4, 2, NULL, 0, 32768, 32768 },
+        { "inst R16G16_FLOAT stride 4",
+          "float4 vs(float2 p : POSITION, float2 o : TEXCOORD0) : SV_Position { return float4(p + o, 0, 1); }\n"
+          "float4 ps() : SV_Target { return float4(0, 0, 0, 1); }\n",
+          { { "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+            { "TEXCOORD", 0, DXGI_FORMAT_R16G16_FLOAT, 1, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1 } }, 2,
+          Unit, sizeof(Unit), 8, InstH, sizeof(InstH), 4, 4, 2, NULL, 0, 32768, 32768 },
         { "Buffer<uint> ld in PS",
           "Buffer<uint> t : register(t0);\n"
           "float4 vs(float2 p : POSITION) : SV_Position { return float4(p, 0, 1); }\n"
@@ -572,6 +593,13 @@ static int Probes(IDXGIAdapter *Adapter, D3D_DRIVER_TYPE Type, const char *Name)
     printf("%s probes:\n", Name);
     CHECK(D3D11CreateDevice(Adapter, Type, NULL, D3D11_CREATE_DEVICE_BGRA_SUPPORT, Fl, 2, D3D11_SDK_VERSION, &Dev, &Got,
                             &Ctx), "D3D11CreateDevice");
+    {
+        char Path[MAX_PATH] = "(not loaded)";
+        HMODULE Umd = GetModuleHandleA("maliumd.dll");
+        if (Umd != NULL)
+            GetModuleFileNameA(Umd, Path, MAX_PATH);
+        printf("  UMD: %s\n", Path);
+    }
     for (size_t i = 0; i < sizeof(Ps) / sizeof(Ps[0]); i++)
         if (ProbeRun(Dev, Ctx, &Ps[i]) != 0)
             Rc = 4;

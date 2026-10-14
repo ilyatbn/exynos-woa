@@ -584,3 +584,18 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   float2 position ok; R16G16_SINT position ok; instanced float2 offset ok;
   **instanced R16G16_SINT offset 16384 (want 32768) - one of two instances wrong**;
   **Buffer<uint> (R32_UINT SRV) ld in PS: 0 (want 32768) - reads zeros**.
+- **Root causes (Mesa 0064, pan_shader.c):**
+  1. Buffer<uint> = 0: shader_info::texture_buffers is set only by the GLSL linker (gl_nir_lower_samplers_as_deref);
+     tgsi_to_nir leaves it empty, so pan_compiler.c (arch 6-8) adds no attribute slots for texel buffers and
+     panfrost_emit_image_texbuf_attribs() returns early (attribute_count 0) -> loads read nothing. Fix: for TGSI
+     shaders gather GLSL_SAMPLER_DIM_BUF tex units into texture_buffers right after tgsi_to_nir.
+  2. Instanced SINT wrong: TGSI vertex inputs are vec4 float -> load_input dest_type float32 -> bi_emit_load_attr
+     BI_REGISTER_FORMAT_F32 = hardware int->float conversion, then the shader's itof of float bits. Per-vertex
+     R16G16_SINT "passed" only because +-1.06e9 still covers the target after clipping. Fix: for TGSI VS, retype
+     float32 load_input to uint32 -> BI_REGISTER_FORMAT_AUTO (format's own type: ints raw, UNORM/SNORM/FLOAT ->
+     float; D3D has no SCALED formats). Precedent: fs.untyped_color_outputs -> AUTO for TGSI colour outputs.
+- Deployed LIVE over SSH (no reboot): System32 maliumd.dll / libgallium_d3d10.dll renamed to *-0063.dll (in use by
+  DWM until reboot), 0064 copied in (sha256 8567151d...). New processes load 0064.
+- d2dtext with 0064 (session 0): all 8 D2D bands == WARP pixel counts (1331/1549/1367/878/4608/1395/3072/3072), all 8
+  probes ok, atlas PASS -> **d2dtext PASS**. d3dtri tri PASS, tex PASS (no regression).
+- Note: an app-local maliumd.dll next to the exe is NOT used (runtime loads System32's) - test via the live swap.

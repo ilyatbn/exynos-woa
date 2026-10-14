@@ -1,0 +1,101 @@
+From 19608f88527bb82fd5751782c1c6218be6c2e279 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 11:58:50 +0300
+Subject: [PATCH] panfrost: TGSI shaders - record texture buffers, load vertex
+ inputs untyped (exynos-woa 0064)
+
+tgsi_to_nir leaves shader_info::texture_buffers empty (only the GLSL linker
+fills it), so on Bifrost no attribute slots were reserved for texel buffers and
+every Buffer<> load returned 0. TGSI vertex inputs are all typed float32, so
+integer attributes were converted to float by the hardware (F32 register
+format) before the shader's itof. Direct2D (glyph bitmaps in a Buffer<uint>,
+R16G16_SINT/R32_SINT vertices) drew nothing but rectangles.
+---
+ src/gallium/drivers/panfrost/pan_shader.c | 57 +++++++++++++++++++++++
+ 1 file changed, 57 insertions(+)
+
+diff --git a/src/gallium/drivers/panfrost/pan_shader.c b/src/gallium/drivers/panfrost/pan_shader.c
+index ddda519..8f8a3a8 100644
+--- a/src/gallium/drivers/panfrost/pan_shader.c
++++ b/src/gallium/drivers/panfrost/pan_shader.c
+@@ -500,6 +500,56 @@ panfrost_default_shader_key(struct panfrost_uncompiled_shader *so)
+    return key;
+ }
+ 
++/* exynos-woa (notes/gpu-hw-path.md, D2D text): shader_info::texture_buffers is only filled by the GLSL linker
++ * (gl_nir_lower_samplers_as_deref). Shaders from tgsi_to_nir (the d3d10umd frontend) leave it empty, so on Bifrost
++ * (texel buffers are read through attributes) pan_compiler.c reserves no attribute slots for them and
++ * panfrost_emit_image_texbuf_attribs() emits nothing: every Buffer<> load returns 0 - Direct2D's glyph bitmaps among
++ * them. Record the buffer-dimension texture units the shader reads. */
++static void
++pan_gather_texture_buffers(nir_shader *nir)
++{
++   nir_foreach_function_impl(impl, nir) {
++      nir_foreach_block(block, impl) {
++         nir_foreach_instr(instr, block) {
++            if (instr->type != nir_instr_type_tex)
++               continue;
++            nir_tex_instr *tex = nir_instr_as_tex(instr);
++            if (tex->sampler_dim != GLSL_SAMPLER_DIM_BUF)
++               continue;
++            unsigned unit = tex->texture_index;
++            int d = nir_tex_instr_src_index(tex, nir_tex_src_texture_deref);
++            if (d >= 0) {
++               nir_variable *var =
++                  nir_deref_instr_get_variable(nir_src_as_deref(tex->src[d].src));
++               if (var == NULL)
++                  continue;
++               unit = var->data.binding;
++            }
++            if (unit < 128)
++               BITSET_SET(nir->info.texture_buffers, unit);
++         }
++      }
++   }
++}
++
++/* exynos-woa (notes/gpu-hw-path.md, D2D text): TGSI has no typed inputs, so tgsi_to_nir declares every vertex input
++ * vec4 float and nir_lower_io gives the loads dest_type float32. bi_emit_load_attr() turns that into
++ * BI_REGISTER_FORMAT_F32, i.e. the hardware CONVERTS an integer attribute (DXGI ..._SINT/_UINT) to float, and a D3D
++ * shader that reads the bits with itof gets garbage (Direct2D's vertices are all R16G16_SINT / R32_SINT: everything
++ * but plain rectangles landed off-screen). Gallium's contract for pure-integer formats is "raw bits, no conversion"
++ * (softpipe follows it). Untyped 32-bit loads take BI_REGISTER_FORMAT_AUTO = the attribute format's own type:
++ * integers stay integers, UNORM/SNORM/FLOAT become float - D3D's semantics (D3D has no SSCALED/USCALED formats).
++ * Same idea as fs.untyped_color_outputs for TGSI colour outputs. */
++static bool
++pan_untype_tgsi_vs_inputs(nir_builder *b, nir_intrinsic_instr *intr, void *data)
++{
++   if (intr->intrinsic != nir_intrinsic_load_input ||
++       nir_intrinsic_dest_type(intr) != nir_type_float32)
++      return false;
++   nir_intrinsic_set_dest_type(intr, nir_type_uint32);
++   return true;
++}
++
+ static void *
+ panfrost_create_shader_state(struct pipe_context *pctx,
+                              const struct pipe_shader_state *cso)
+@@ -510,6 +560,9 @@ panfrost_create_shader_state(struct pipe_context *pctx,
+                         ? tgsi_to_nir(cso->tokens, pctx->screen, false)
+                         : cso->ir.nir;
+ 
++   if (cso->type == PIPE_SHADER_IR_TGSI && BITSET_IS_EMPTY(nir->info.texture_buffers))
++      pan_gather_texture_buffers(nir);
++
+    struct panfrost_uncompiled_shader *so = panfrost_alloc_shader(nir);
+ 
+    /* The driver gets ownership of the nir_shader for graphics. The NIR is
+@@ -580,6 +633,10 @@ panfrost_create_shader_state(struct pipe_context *pctx,
+     */
+    NIR_PASS(_, nir, nir_opt_constant_folding);
+ 
++   if (cso->type == PIPE_SHADER_IR_TGSI && nir->info.stage == MESA_SHADER_VERTEX)
++      NIR_PASS(_, nir, nir_shader_intrinsics_pass, pan_untype_tgsi_vs_inputs,
++               nir_metadata_all, NULL);
++
+    if (nir->info.stage == MESA_SHADER_FRAGMENT)
+       so->noperspective_varyings =
+          pan_nir_collect_noperspective_varyings_fs(nir);
+-- 
+2.40.1.windows.1
+

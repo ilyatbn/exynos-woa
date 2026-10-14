@@ -20,6 +20,7 @@ ULONG MwModeRefreshExact = 1;
 ULONG MwRefresh601 = 1;
 ULONG MwFlipMmio = 1;
 ULONG MwScanoutStride = 0;
+ULONG MwCddDwmInterop = 1;
 
 /* ---- trace ---- */
 
@@ -369,6 +370,13 @@ static NTSTATUS DriverCaps(MW_ADAPTER *A, const DXGKARG_QUERYADAPTERINFO *Info)
      * STATUS_GRAPHICS_PRESENT_MODE_CHANGED (runs g22-g25) whatever the primary looked like. */
     if (MwFlipMmio)
         caps->FlipCaps.FlipOnVSyncMmIo = 1;
+    /* H4c (notes/gpu-hw-path.md): MS Learn DXGK_PRESENTATIONCAPS.DriverSupportsCddDwmInterop - "supports CDD present
+     * operations to texture allocations that are created by the user-mode driver for the DWM". Windowed D3D swap
+     * chains are presented "redirected" (PresentDXGI Blt, no destination: run h3n) and none of the cube's presents
+     * ever reached DxgkDdiPresent or DWM (runs h3m-h3q) while this was 0. DoPresent's blt is a generic
+     * allocation-to-allocation CPU copy. Parameters\CddDwmInterop (default 1; 0 = the caps before 1.0.37.1). */
+    if (MwCddDwmInterop)
+        caps->PresentationCaps.DriverSupportsCddDwmInterop = 1;
     if (FITS(size, DXGK_DRIVERCAPS, SupportNonVGA))
         caps->SupportNonVGA = TRUE;
     if (FITS(size, DXGK_DRIVERCAPS, SupportSmoothRotation))
@@ -684,6 +692,7 @@ static MW_MODE ReadMode(PUNICODE_STRING RegistryPath, ULONG *PramTrace)
     MwRefresh601 = ReadParameter(params, L"Refresh601", 1) != 0;
     MwFlipMmio = ReadParameter(params, L"FlipMmio", 1) != 0;
     MwScanoutStride = ReadParameter(params, L"ScanoutStride", 0);
+    MwCddDwmInterop = ReadParameter(params, L"CddDwmInterop", 1) != 0;
     if (params != NULL)
         ZwClose(params);
     if (svc != NULL)

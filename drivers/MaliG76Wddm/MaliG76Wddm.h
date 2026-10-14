@@ -77,6 +77,8 @@ extern MW_MODE MwMode;          /* set once in DriverEntry */
 extern ULONG MwSoftVsync;
 /* Parameters\ScanoutStride (default 0 = off): see MW_RESTRIDE_PIXELS (display.c MwRestride). */
 extern ULONG MwScanoutStride;
+/* Parameters\CddDwmInterop (default 1): DXGK_PRESENTATIONCAPS.DriverSupportsCddDwmInterop (adapter.c). */
+extern ULONG MwCddDwmInterop;
 /* Parameters\FlipBlt (default 1): a Flip present is carried out as a CPU copy of the new primary into the GOP
  * framebuffer (command.c); 0 = the original's behaviour (flips are dropped, the panel never shows them). */
 extern ULONG MwFlipBlt;

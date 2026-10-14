@@ -376,3 +376,10 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   velems_changed = TRUE at device creation; the VEH only in d3dtri*.exe, removed by atexit at DLL unload; Render
   failures go to the tlog ("Render failed n: status, allocations listed/list size/skipped, BOs in batch").
 - 04:35 h3r deploy: UMD 0058 in System32 (94ed114f...).
+- h3q ETW: 10358 DxgKrnl events (only that provider decoded), **none from the cube's pid 7860**; Get-WinEvent decodes no
+  task names (PC manifest 26100 vs phone 22621) - not conclusive beyond "the cube's presents leave no DxgKrnl trace".
+- KMD caps: DXGK_PRESENTATIONCAPS was all 0. MS Learn: DriverSupportsCddDwmInterop = "supports CDD present operations
+  to texture allocations that are created by the user-mode driver for the DWM" - the redirected path a windowed D3D
+  present needs (hypothesis, UNVERIFIED). **KMD 1.0.37.1** (s10e-artifacts\mali-kmd-37, sys a7a5e971...):
+  Parameters\CddDwmInterop (default 1) sets it. Risk: GDI/CDD content may route through DxgkDdiPresent (CPU blt) from
+  now on. Roll back: kmd-deploy.sh on C:\S10eTmp\kmd-prev or CddDwmInterop 0.

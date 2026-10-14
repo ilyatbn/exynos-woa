@@ -508,3 +508,8 @@ No device access in this task; build-verified only (Guided, not Ready).
 - Run m4guard1 (one M4 + MEM_GUARD 1): same failure - KD lost the target ~30 s after the processor start, then
   "restarted without notifying" (01:48:48). Guard reservations around every carve-out / DRAM edge do NOT help =>
   memory-map / prefetch-into-protected-memory theory OUT (UEFILOG MemGuard lines still to be checked).
+- m4guard1 UEFILOG: 17 MemGuard reservations at every relevant edge (kaslr, el2_code 0x87000000 both sides, FB,
+  modem block, modem_if, sec_rdx_bootdev, el2_earlymem 0x97E000000, bank0 end 0xBAB00000, bank1 end 0xE0000000,
+  bank2 start 0xE1900000, bank3/4 seam) -> the guard test was valid; theory OUT.
+- 01:52 phone restored for normal use: boot = boot-kd6.img (7810a0bd, 6 cores, KD image, BCD debug on), ESP flags =
+  stay.flg only (nogpu.flg / noaudio.flg removed).

@@ -272,3 +272,13 @@ No device access in this task; build-verified only (Guided, not Ready).
   n) -> HalpGicStartProcessor(x1=n) for n = 1..7 (all 7 secondaries incl. both M4s); HalpInterruptGetParking-
   PageInformation never hit (not on this path). KeStartAllProcessors RETURNED x0=1 at ~22:37:20. => the M4s do NOT
   kill the processor start; the death (runs 17/34/m4kd1) is later. m4kd1 "KD never attached" = the broken kdrun.
+- m4kd2 attempt 2 result: after KeStartAllProcessors returned the only target output was "KDTARGET: Refreshing KD
+  connection"; then the KD link was dead (timed break-in 22:42:16: "Failed to write breakin packet ... 0x2741, HOST
+  cannot communicate with the TARGET"). KeBugCheckEx bp never hit. debug_history: SOFT reset INFORM3(12345670)
+  ~5 min 34 s after the reboot (same spacing as the cycle before: fixed timer), then the boot pair (UEFILOG prev=0x72,
+  "previous boot ran Windows - saving its PRAM, then recovery") -> TWRP.
+  WINPRAM ring: storport UFS init + ~40 verified writes, "S10eDiag loaded" (t=30142), INFORM3 12345670, then NOTHING -
+  no "keys: polling" (good 6-core boots log it ~14 s after "S10eDiag loaded", then "S10eAgent start"), no BUGCHECK
+  callback mark. => all-system freeze (not a bugcheck) within ~14 s of S10eDiag loading, after all 8 CPUs started.
+  Hypotheses: an M4 stops answering IPIs (TB flush / freeze IPIs then hang every CPU); an M4 takes an exception it
+  cannot report. Next: periodic break-ins with !running -it to catch the 8-CPU state before/at the freeze.

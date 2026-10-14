@@ -1443,3 +1443,25 @@ To go back to unattended reboot loops: flash boot116-fb10m-v2.img (watchdog 1), 
   (later), light sensor (much later); (5) landscape (notes/gpu-hw-path.md rotation attempts); (6) thermals.
 - Rules learned today: cube fps is void if scrnsave.scr ran (real ~28-30); check frozen screens yourself (dump, launch,
   dump + DSIM status); cmd chains over SSH: run steps as separate ssh calls.
+
+## 41. Restart point (2026-10-14 ~20:25 local, session end; user: "good enough, mark this as done")
+- **Done this session (after §40):** alpha1 + alpha2 tags (local, not pushed); brightness fade (KMD 1.0.43) and boot
+  brightness hand-off (UEFI sets the last Windows level, 50 % cold; KMD 1.0.44.1 reads/writes WINPRAM progress words
+  [6] 'BR' / [7] 'A0'); landscape/rotation (Mesa 0067 stale GPU-presented flag; 0068 holds the scan-out 700 ms after an
+  orientation change; KMD Parameters\OfferRotation = 1 on the phone, committed default still 0); touch driver
+  6.0.5058.6 (event-count mask, no all-up on SPB errors, precise scan time; user: "feels perfect"); tablet posture
+  (PriorityControl\ConvertibilityEnabled 1) + touch keyboard (TouchKeyboardTapInvoke 2, IE UseSWRender 1 = EdgeHTML
+  software render works around the composition frame-gate hang); s10etap synthetic touch + s10etouchlog test UI;
+  Windows Update disabled; boot screen (shim opaque-black fill, SEC + DXE draw the EXYNOS WOA / NTDEV / "Powered by
+  Windows" splash; checkpoint bands, BDS countdown + GraphicsConsole removed); **TWRP patched** (one-time recovery
+  write approved by the user: /data not auto-mounted, start 133 s -> 36 s; original in s10e-artifacts/twrp).
+- **Phone state:** boot = s10e-artifacts/boot116-gpuon-nowdt-clean3.img (d85b7391..., HEAD 3883ebf + build-only
+  WINDOWS_WATCHDOG 0 / GPU_POWER_ON 1); recovery = twrp/recovery-nodata.img (c7b198c0...); KMD 1.0.44.1 (4fae4048...,
+  .prev = 1.0.43.1, C:\S10eTmp\kmd41.sys); UMD 0068 (System32, older *-00NN.dll kept); touch 6.0.5058.6 (touch5.sys =
+  previous); S10eDiag fa76c6af...; MALIKM_TGSI_DIR removed; idle dim VIDEODIM 60 s / 30 % set but never fires (parked);
+  display-off policy 0; screen saver blank 120 s.
+- **Open / next candidates:** thermals (user's next big item; no clock increases before it), composition frame-gate
+  hang (EdgeHTML CanPaintNow / Settings / Terminal; notes/touch-keyboard.md), ShellExperienceHost gets softpipe in its
+  AppContainer, ~1 s UFS read stall under load (notes/m8-ufs-hc.md), touch SPB >250 ms stalls, Defender real-time
+  protection (user to switch off via Windows Security - Tamper Protection), stereo/earpiece speaker, Android-like shell
+  (parkinglot/android-like-shell.md), make OfferRotation default 1 in the INF/driver.

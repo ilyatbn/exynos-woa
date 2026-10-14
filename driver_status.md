@@ -6,7 +6,7 @@ As of 2026-10-14 evening (tag alpha2). Windows 11 Pro 23H2, build 22631.6199. Wi
 
 | Device | Status | In short |
 |---|---|---|
-| Booting Windows | 🟡 | boots, sometimes hangs |
+| Booting Windows | 🟡 | boots reliably; custom boot screen, remembers brightness |
 | CPU | 🟡 | 6 of 8 cores |
 | RAM | 🟡 | 5.2 of 6 GB |
 | Storage (UFS) | 🟡 | works, 6x faster today |

@@ -518,3 +518,7 @@ No device access in this task; build-verified only (Guided, not Ready).
   Spectre-v2 branch-target-injection mitigation through an SMC on every exception from user mode). If Windows picks
   these front ends for the M4, each user->kernel transition on the M4 calls into Samsung EL3 (SMCCC
   ARCH_WORKAROUND_x) - fits: kernel-only phase fine, death ~1 min in once user mode runs on the M4, reset external.
+- m4spec1 (one M4, kdrun per-break dump of @$prcb-0x940 L20 per CPU): byte at prcb-0x934 (KiDetectBtiMitigationNeeds'
+  per-CPU mitigation type, x22) = 0 on CPU0/4/6; prcb-0x932 (BHB loop count, x24) = 0x20 on all; prcb-0x93A = 0x10
+  on A55/A75, 0x30 on the M4 (extra bit 0x20, meaning unknown). KiSpeculationPsciState = 1 (HAL firmware query
+  failed) -> the SMC (BtiSmc) front ends need firmware support -> SMC theory weakened.

@@ -743,3 +743,16 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   went through with bgrx != NULL (present_copy, CPU) or from a path other than d3d10_pan_flush_frontbuffer.
   Next: find which caller presents the new primary (Resource.cpp / DxgiFns.cpp paths), and why the rotated branch of
   d3d10_scanout_present is never reached. Paused for brightness smoothing (user request).
+
+### 2026-10-14 ~19:00 - landscape: root cause of "any mode change blacks the scan-out" (Mesa 0067)
+- malikm_drm.c kprim slots: malikm_primary_create filled h/cpu/w/hgt but never reset `gpu`; malikm_primary_destroy
+  did not either. After a mode change DWM's new primary (0x80001540 in rot2) landed in a slot whose gpu = 1 from the
+  old primary -> malikm_primary_present skipped MW_ESCAPE_SCANOUT ("is GPU-presented" never logged for it), so the KMD
+  did not know the new allocation is GPU-presented and its flip latch CPU-copied that allocation over the GPU frame
+  -> black, also when rotating back to identity. Fits every line of runs\rot2\dwm.txt (no "GPU-presented", no
+  "frontbuffer", presents ok).
+- Consequence: the attempt-1/2 conclusion "DWM does not pre-rotate" was drawn from black screens caused by this bug
+  and is UNPROVEN either way.
+- Mesa 0067 (4582e33, tools/mesa-build/patches/0067-primary-slot-gpu-flag-reset.patch): gpu = 0 on create and
+  destroy. Built s10e-artifacts\mali-umd-0067 (maliumd sha256 e4c19cc7...), installed live in System32 (0066 kept as
+  *-0066b.dll); KMD Parameters\OfferRotation = 1. Battery 38 %. Next: reboot, check portrait unchanged, rotate.

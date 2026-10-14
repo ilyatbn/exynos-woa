@@ -1,0 +1,37 @@
+From 4582e33667c9c4db2cc701ff2d36acd49b6c5910 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 18:54:43 +0300
+Subject: [PATCH] malikm shim: reset the GPU-presented flag when a primary slot
+ is created or freed (exynos-woa 0067: mode changes left new primaries
+ unmarked, KMD CPU-copied them over the GPU frame -> black)
+
+---
+ include/win32-compat/malikm_drm.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 5bc1fdc..38ad966 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -1258,6 +1258,10 @@ malikm_primary_create(void *hRTResource, unsigned vidpn, unsigned w, unsigned h,
+       kprim[i].cpu = NULL;
+       kprim[i].w = w;
+       kprim[i].hgt = h;
++      /* exynos-woa 0067: a reused slot kept gpu = 1 from the primary it held before, so a primary created by a mode
++       * change (rotation, or back to identity) was never marked GPU-presented (MW_ESCAPE_SCANOUT): the KMD's flip
++       * latch then CPU-copied that allocation over the GPU frame and the panel went black (rotation attempts 1-2). */
++      kprim[i].gpu = 0;
+       *hAlloc = ai.hAllocation;
+       ret = 0;
+       goto out;
+@@ -1279,6 +1283,7 @@ malikm_primary_destroy(unsigned hAlloc)
+        * hResource); only forget it here. */
+       kprim[i].h = 0;
+       kprim[i].cpu = NULL;
++      kprim[i].gpu = 0;   /* 0067 */
+    }
+    ReleaseSRWLockExclusive(&wddm_lock);
+ }
+-- 
+2.40.1.windows.1
+

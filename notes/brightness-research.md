@@ -472,3 +472,7 @@ Serialise all senders with one FAST_MUTEX/KEVENT in the adapter (brightness DDI 
   already there). SimpleFramebufferDxe later redraws + pushes in command mode + boot brightness as before. sboot's own
   warning time before it jumps to us is out of our hands. Image boot116-gpuon-nowdt-clean2.img sha256 8d4cf769...
   (FVMAIN_COMPACT 0xe5000: the splash now also lives uncompressed in SEC). Rollback: splash1 (42317618...).
+- clean2 result (user): the warning stayed until the DXE splash (opaque) replaced it. Cause: the shim filled
+  0x00000000 = alpha 0 and DECON blends per pixel, so sboot's warning (on another window) showed through; the old
+  checkpoint bands were 0xFFFFFFFF (opaque). clean2 boot otherwise fine: FbPanel boot level 15 % "from Windows" (AOR
+  0x08B3) - the hand-off works. clean3: shim fill 0xFF000000 per pixel. Image boot116-gpuon-nowdt-clean3.img d85b7391...

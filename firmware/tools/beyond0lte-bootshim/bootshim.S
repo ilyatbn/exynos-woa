@@ -142,7 +142,11 @@ _start:
 	movz	x9, #0xCA00, lsl #16     /* 0xCA000000                                */
 	movz	x10, #0x4B0
 	movk	x10, #0x96, lsl #16      /* 0x964B0 stores of 16 bytes                */
-1:	stp	xzr, xzr, [x9], #16
+	/* OPAQUE black 0xFF000000 per pixel: 0x00000000 has alpha 0 and DECON blends it, so sboot's warning (another
+	 * window) still showed through (user, 20:0x); the old 0xFFFFFFFF bands were opaque and covered it. */
+	movz	x11, #0xFF00, lsl #16
+	movk	x11, #0xFF00, lsl #48    /* 0xFF000000FF000000 = two opaque black pixels */
+1:	stp	x11, x11, [x9], #16
 	subs	x10, x10, #1
 	b.ne	1b
 	dsb	sy

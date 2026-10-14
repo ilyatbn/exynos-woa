@@ -470,3 +470,6 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   without the runtime present. Runtime present only when no window was found. Allocation count grows over the soak
   (KMD allocations 445 -> 675 between t2 and t3) - to watch in s2.
 - s1 allocation counter (KMD 'allocations' = cumulative CreateAllocation): 295 boot, 441 t1, 445 t2 (+4 in 100 s of cube = no per-frame leak), 675 t3 (device re-creation after the TDR), 734, 737. Not a leak.
+- **Soak s2 (05:57-06:09, runs/s2; UMD 0063): clean.** Blt cube 300 s = 9026 frames, 30.1 fps, 0 present failures;
+  flip cube 120 s = 28.7 fps, 0 failures; KMD jobs 15453 -> 287204, 0 failed / 0 timed out / 0 faults / **0 resets**;
+  no GPU wait >= 100 ms in d3dtri's tlog; the only Display 4101 event is s1's (00:30:44Z). 0063 fixed the TDR.

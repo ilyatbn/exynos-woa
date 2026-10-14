@@ -1401,3 +1401,25 @@ fps for a 540x1140 window; Explorer's multi-device Render failures fixed (0060, 
 sampling test PASS (0058); 0 GPU faults in every run. Tools: tools/phone/kmd-deploy.sh, umd-deploy.sh, pull-run.sh.
 **Next:** visual confirmation of the cube on the webcam; readback cost of the GDI hand-off for big windows (CPU-cached
 staging); DVFS/clock + thermal; long soak (H5); the open question why DXGI windowed presents never reach DWM natively.
+
+## 39. Restart point (2026-10-14 ~12:15 local, unattended after an interactive look by the user; goal: GPU smooth)
+**Phone (interactive config, user's request "no debugging modes or auto reboots or your special flags"):** BOOT =
+s10e-artifacts/boot116-gpuon-nowdt.img (0c728578…) = HEAD firmware built with the two build-only defines
+BEYOND0LTE_WINDOWS_WATCHDOG **0** and BEYOND0LTE_GPU_POWER_ON **1** (both reverted in the tree after the build; the
+committed defaults are 1 and 0 - **any rebuild for GPU work must set GPU_POWER_ON 1**, the first nowdt image forgot it
+and Windows ran on Basic Render). ESP: stay.flg, extra.cmd = extra-ssh-install.cmd (idempotent: sshd + GPU Check copy),
+noaudio.flg removed (audio + HW GPU coexist), WINRUN.FLG left by the firmware. MALIKM_TGSI_DIR removed, BCD debug off.
+KMD **1.0.38.1** (DriverStore; .37 kept beside it and in C:\S10eTmp\kmd-prev), UMD **mali-umd-0064** (System32;
+*-0063.dll kept beside). Parameters GpuEnable 1, FullAdapter 1, ScanoutStride 1088 (persists in the registry).
+**Remote access:** `ssh s10e` (PC key ~/.ssh/s10e_ed25519, user S10e = admin, hotspot only; notes/phone-ssh.md).
+Big files: `sftp` (`get /C:/path`), not scp (stops at 200 KB). Writes into the DriverStore need SYSTEM: one-shot
+scheduled task (C:\S10eTmp\kmdswap.cmd pattern). UMD/KMD can be swapped live by RENAMING the in-use file first.
+Desktop-session programs: run-as-user.ps1 (C:\S10eTmp). Reboot: `ssh s10e shutdown /r /t 5` (stay.flg -> back to
+Windows). Screen: s10ediagx.exe dumpmmio 0xCA000000 9922560 + pitch 4352.
+**Fixed today:** panel shear (H4b never latched: KMD 38 commits GLOBAL|WIN0-5, verifies the latched DPU_DMA copy at
++0x810, LatchedBy 1); Direct2D text/icons/bitmaps (Mesa 0064: TGSI texel buffers + untyped VS inputs); Settings and
+the taskbar render fully (scan-out dumps). User-facing: GPU Check.exe on the desktop.
+**Open, in order:** memory (dwm 334 MB / explorer 346 MB private 2 min after boot - leak or overhead? memwatch
+running), a soak with 0064/38, display rotation (KMD identity-only), GDI hand-off cost, thermal (notes/thermal-research.md
+stage 0), brightness (notes/brightness-research.md), stereo speaker (Parameters\Stereo 1, untested), slow TWRP start.
+To go back to unattended reboot loops: flash boot116-fb10m-v2.img (watchdog 1), rm stay.flg, extra.cmd = a run script.

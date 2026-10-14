@@ -306,3 +306,19 @@ Serialise all senders with one FAST_MUTEX/KEVENT in the adapter (brightness DDI 
   (KMD/DWM waiting on a frame that never completes) [INFER]. Needs a force restart.
 - Conclusion D7: FUNCRST alone is not a usable recovery - it stops the link. Whatever holds the command queue,
   the link must be re-armed afterwards (Samsung never uses FUNCRST without a full dsim/decon re-enable).
+- Correction: the 16:09 "dark" was a WiFi blip (back 16:09:57, no reboot - DSIM still in the post-FUNCRST state).
+- DECON HW_SW_TRIG 0x3070 -> 0x3061 toggle: line counter still frozen at 0x1ff, FRM_PROCESSING, PH queue still 2.
+  Re-triggering DECON does not restart the link. Recovering with `shutdown /r` (sboot re-inits DSIM + panel).
+
+## Progress log - D8 boot snapshot (S10eDiag 956448f, 2026-10-14 16:14 boot)
+- PRAM ring (dumpmmio 0x8FE0A000 0x4000; `dumpram` RAM mode fails with 59 here) at t=4.0 s, S10eDiag load:
+  DECON TRIG 0x3061, DSIM MIPI 0x20000000, INTSRC 0x01400000, FIFO 0x9507, CMDST 0x08,
+  BUSY 5000/5000 (FRM_PROCESSING), LINEMOVED 4997/5000.
+- -> the stuck state exists before MaliG76Wddm touches anything. 0x3061 is exactly UEFI FbDeconPresent's final value
+  (sboot base with MASK_DECON/SW_TRIG cleared, HW_TRIG_EN set; regs-decon.h cal_9820 bit layout = the 9810 one used
+  by UEFI: SW_TRIG_EN 8, HW_TRIG_MASK_DECON 4, HW_TRIG_EN 0 - verified against LineageOS lineage-22.2 cal_9820).
+  Suspects left: sboot itself, or UEFI's SW-trigger edges / switch to TE auto-refresh.
+- D9 build: SimpleFramebufferDxe FbDsimSnapshot (read-only, ~50 ms each) at driver entry and around the first two
+  FbDeconPresent calls -> DEBUG lines "FbDsim <tag>: TRIG MIPI INTSRC FIFO CMDST busy linemoved" in the UEFI RAM log.
+  Image s10e-artifacts\boot116-gpuon-nowdt-d9.img sha256 1ed69ae7... = HEAD + build-only WINDOWS_WATCHDOG 0 and
+  GPU_POWER_ON 1 (both reverted after the build; pack -SkipFreshCheck), same recipe as boot116-gpuon-nowdt.

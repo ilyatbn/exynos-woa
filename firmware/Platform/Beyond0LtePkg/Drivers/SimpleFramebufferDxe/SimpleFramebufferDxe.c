@@ -181,6 +181,49 @@ FbGopSetMode (
 #define HW_SW_TRIG_HW_TRIG_EN    (1u << 0)             // pulse bit that fires the frame
 #define HW_SW_TRIG_HW_TRIG_MASK  (1u << 4)             // 1 = panel TE hardware trigger BLOCKED (sboot default)
 
+//
+// Read-only DSIM snapshot (notes/brightness-research.md D9): is the DSIM command-mode frame state machine already
+// stuck in FRM_PROCESSING when sboot hands over, or only after our SW-trigger presents? Offsets are Samsung
+// cal_9820 regs-dsim.h, UNVERIFIED (device reads under Windows match them); reads only.
+//
+#define DSIM_BASE                EXYNOS_DSIM_BASE      // VERIFIED (dsim@0x19080000)
+#define DSIM_LINK_STATUS1        0x0Cu
+#define DSIM_MIPI_STATUS         0x18u
+#define DSIM_INTSRC              0x50u
+#define DSIM_FIFOCTRL            0x68u
+#define DSIM_CMD_STATUS          0x8Cu
+#define DSIM_FRM_PROCESSING      (1u << 29)
+
+STATIC UINTN  mFbPresentCount;
+
+STATIC
+VOID
+FbDsimSnapshot (
+  IN CONST CHAR8  *Tag
+  )
+{
+  volatile UINT32  *Dsim = (volatile UINT32 *)(UINTN)DSIM_BASE;
+  UINT32           Busy = 0;
+  UINT32           Moved = 0;
+  UINT32           Line0;
+  UINT32           Index;
+
+  Line0 = Dsim[DSIM_LINK_STATUS1 / 4] & 0x1FFF;
+  for (Index = 0; Index < 5000; Index++) {   // ~50 ms
+    if ((Dsim[DSIM_MIPI_STATUS / 4] & DSIM_FRM_PROCESSING) != 0) {
+      Busy++;
+    }
+    if ((Dsim[DSIM_LINK_STATUS1 / 4] & 0x1FFF) != Line0) {
+      Moved++;
+    }
+    gBS->Stall (10);
+  }
+  DEBUG ((DEBUG_ERROR,
+    "FbDsim %a: TRIG %08x MIPI %08x INTSRC %08x FIFO %08x CMDST %08x busy %u/5000 linemoved %u\n",
+    Tag, *(volatile UINT32 *)(UINTN)(EXYNOS_DECON_F_BASE + 0x70u), Dsim[DSIM_MIPI_STATUS / 4],
+    Dsim[DSIM_INTSRC / 4], Dsim[DSIM_FIFOCTRL / 4], Dsim[DSIM_CMD_STATUS / 4], Busy, Moved));
+}
+
 STATIC
 VOID
 FbDeconPresent (
@@ -362,7 +405,14 @@ FbGopBlt (
   // DECON pushes a frame. Trigger one present for any operation that drew.
   //
   if (DidWrite) {
+    if (mFbPresentCount < 2) {
+      FbDsimSnapshot (mFbPresentCount == 0 ? "pre-present1" : "pre-present2");
+    }
     FbDeconPresent ();
+    if (mFbPresentCount < 2) {
+      FbDsimSnapshot (mFbPresentCount == 0 ? "post-present1" : "post-present2");
+    }
+    mFbPresentCount++;
   }
 
   return EFI_SUCCESS;
@@ -399,6 +449,8 @@ SimpleFramebufferDxeEntry (
       "  (0xCC000000, the 9810's, is NOT reusable on this SoC.)\n"));
     return EFI_NOT_READY;
   }
+
+  FbDsimSnapshot ("entry");
 
   Ctx = AllocateZeroPool (sizeof (FB_GOP_INSTANCE));
   if (Ctx == NULL) {

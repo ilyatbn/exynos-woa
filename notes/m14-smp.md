@@ -453,3 +453,16 @@ No device access in this task; build-verified only (Guided, not Ready).
   break-ins fine through 01:06:58 (+268 s) - far past every earlier not-offered "freeze" (+95..160 s). => those
   freezes were the harness RESTART hanging while the M4 cluster is powered, not a runtime freeze. Confirming next
   with a manual restart over SSH.
+- !!! CORRECTION (01:09): the "not offered" runs m4off1 / m4self1 / m4wfi1 / m4soak2 did NOT freeze - their KD logs
+  all contain "Shutdown occurred" (23:11:04 / 23:59:25 / 00:12:38 / 00:42:52) and no "HOST cannot": the harness
+  (collect.cmd without stay.flg) restarted a HEALTHY Windows into TWRP. A manual `shutdown /r` in m4wfi2 also
+  restarted cleanly. => RETRACTED: "M4 cluster merely powered freezes the SoC", "freeze clock starts with Windows",
+  "external agent (EL3/uH/ACPM)". Powered-but-unused M4s are FINE.
+  STANDING FACT: only runs where Windows RUNS ON the M4s die (m4kd2/kd3/dvfs1/nogpu1/nogpu2/dvm1/noaud1: no
+  shutdown, "HOST cannot communicate"). Ruled out so far for that: GPU KMD, BIG 520 MHz DVFS, WFE wake (YIELD
+  spinlocks), CNTFRQ (26 MHz everywhere), GIC CPU interface numbering (6/7), LLC (off; enabling it hangs earlier),
+  DVM broadcast completing on the M4 (in UEFI). Last M4 PC before a death: MiCopyPage after IC IALLUIS + DSB.
+- New lead: CTR_EL0 (cache type: IDC/DIC, IminLine/DminLine) and DCZID_EL0 differ between A55 and M4? Windows takes
+  the boot CPU's values; Linux sanitizes system-wide. A boot CPU with IDC/DIC=1 or a larger line/ZVA size than the
+  M4 would make Windows skip / under-do cache maintenance on the M4 (stale I-cache after code-page copies).
+  Next: stub records CTR_EL0 + DCZID_EL0 per core.

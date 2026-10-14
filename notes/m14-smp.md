@@ -466,3 +466,4 @@ No device access in this task; build-verified only (Guided, not Ready).
   the boot CPU's values; Linux sanitizes system-wide. A boot CPU with IDC/DIC=1 or a larger line/ZVA size than the
   M4 would make Windows skip / under-do cache maintenance on the M4 (stale I-cache after code-page copies).
   Next: stub records CTR_EL0 + DCZID_EL0 per core.
+- boot-m4ids1.img c7a72990: stub records MIDR/CTR/DCZID/ISAR0/ISAR1/MMFR0/1/2/PFR0/CLIDR per parked core (+0xF60), UEFI logs them next to the boot CPU's (KD rdmsr is not supported for ARM64 sysregs: 'no such msr').

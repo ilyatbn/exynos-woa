@@ -87,6 +87,31 @@ ParkBootCntFrq (
   return Value;
 }
 
+#define PARK_IDS_OFF   0xF60u   // m14: 10 UINT64 ID registers written by the stub (order as ParkReadIds)
+#define PARK_ID_COUNT  10u
+
+//
+// The boot CPU's copy of the registers the stub records, same order: MIDR, CTR, DCZID, ISAR0, ISAR1, MMFR0,
+// MMFR1, MMFR2, PFR0, CLIDR.
+//
+STATIC
+VOID
+ParkReadIds (
+  OUT UINT64  *Id
+  )
+{
+  __asm__ __volatile__ ("mrs %0, midr_el1" : "=r" (Id[0]));
+  __asm__ __volatile__ ("mrs %0, ctr_el0" : "=r" (Id[1]));
+  __asm__ __volatile__ ("mrs %0, dczid_el0" : "=r" (Id[2]));
+  __asm__ __volatile__ ("mrs %0, id_aa64isar0_el1" : "=r" (Id[3]));
+  __asm__ __volatile__ ("mrs %0, id_aa64isar1_el1" : "=r" (Id[4]));
+  __asm__ __volatile__ ("mrs %0, id_aa64mmfr0_el1" : "=r" (Id[5]));
+  __asm__ __volatile__ ("mrs %0, id_aa64mmfr1_el1" : "=r" (Id[6]));
+  __asm__ __volatile__ ("mrs %0, id_aa64mmfr2_el1" : "=r" (Id[7]));
+  __asm__ __volatile__ ("mrs %0, id_aa64pfr0_el1" : "=r" (Id[8]));
+  __asm__ __volatile__ ("mrs %0, clidr_el1" : "=r" (Id[9]));
+}
+
 STATIC_ASSERT (EXYNOS_GICD_BASE == 0x10101000ULL, "Beyond0LteParkStub.S hardcodes GICD 0x10101000 (ITARGETSR0 read)");
 
 extern UINT8  Beyond0LteParkStub[];
@@ -141,7 +166,7 @@ Beyond0LteParkSecondaries (
   BootMpidr = GET_MPIDR_AFFINITY_BITS (ArmReadMpidr ());
   DEBUG ((DEBUG_ERROR, "PARK: mask=%x boot-mpidr=%lx stub=%u B\n",
           (UINT32)BEYOND0LTE_SMP_PARK_MASK, BootMpidr, (UINT32)StubSize));
-  if ((StubSize == 0) || (PARK_STUB_OFF + StubSize > PARK_GICIF_OFF)) {
+  if ((StubSize == 0) || (PARK_STUB_OFF + StubSize > PARK_IDS_OFF)) {
     DEBUG ((DEBUG_ERROR, "PARK: stub size %u does not fit - nothing parked\n", (UINT32)StubSize));
     return;
   }
@@ -329,6 +354,31 @@ Beyond0LteParkSecondaries (
       Gicc[Index]->Flags &= ~(UINT32)EFI_ACPI_6_3_GIC_ENABLED;
       DEBUG ((DEBUG_ERROR, "PARK: gicc%u mpidr=%lx disabled (page=%lx on=%lx mark=%x)\n",
               (UINT32)Index, Gicc[Index]->MPIDR, Page[Index], (UINT64)OnStatus[Index], Mark));
+    }
+  }
+
+  //
+  // m14: ID / cache-type registers per core (stub +0xF60..+0xFA8) next to the boot CPU's. Windows samples some
+  // of these on the boot CPU only; a mismatch on the M4s is a candidate for the "Windows on the M4s dies" bug.
+  //
+  {
+    UINT64  Id[PARK_ID_COUNT];
+
+    ParkReadIds (Id);
+    DEBUG ((DEBUG_ERROR, "PARK: boot  ids MIDR %lx CTR %lx DCZID %lx ISAR0 %lx ISAR1 %lx MMFR0 %lx MMFR1 %lx MMFR2 %lx PFR0 %lx CLIDR %lx\n",
+            Id[0], Id[1], Id[2], Id[3], Id[4], Id[5], Id[6], Id[7], Id[8], Id[9]));
+    for (Index = 0; Index < GiccCount; Index++) {
+      if ((Page[Index] == 0) || (ParkRd32 (Page[Index] + PARK_MARK_OFF) != PARK_ALIVE)) {
+        continue;
+      }
+
+      DEBUG ((DEBUG_ERROR, "PARK: gicc%u ids MIDR %lx CTR %lx DCZID %lx ISAR0 %lx ISAR1 %lx MMFR0 %lx MMFR1 %lx MMFR2 %lx PFR0 %lx CLIDR %lx\n",
+              (UINT32)Index,
+              ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x00), ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x08),
+              ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x10), ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x18),
+              ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x20), ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x28),
+              ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x30), ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x38),
+              ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x40), ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x48)));
     }
   }
 

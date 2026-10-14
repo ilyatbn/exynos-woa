@@ -16,7 +16,8 @@
 //   +0x000 UINT32 ProcessorId   OS writes (firmware initialises 0xFFFFFFFF)
 //   +0x008 UINT64 JumpAddress   OS writes the entry PA; 0 = not yet
 //   +0x800        this stub
-//   +0xFB0 UINT32 GIC if mask   m14: GICD_ITARGETSR0 byte 0 as read by this core (its real CPU interface)
+//   +0xF60..0xFA8 UINT64 x10    m14: MIDR, CTR, DCZID, ISAR0, ISAR1, MMFR0, MMFR1, MMFR2, PFR0, CLIDR of this core
+//   +0xFB0 UINT32 GIC if mask  m14: GICD_ITARGETSR0 byte 0 as read by this core (its real CPU interface)
 //   +0xFB8 UINT32 sleep        m14: firmware sets 1 -> after the alive mark the core sleeps in WFI forever
 //   +0xFC0 UINT64 polls        m14 self-report: poll iterations so far (alive while it rises)
 //   +0xFC8 UINT64 loop ticks    m14: CNTVCT ticks for the last 0x2000-iteration delay loop (core clock)
@@ -97,6 +98,30 @@ ASM_FUNC(Beyond0LteParkStub)
   movk  x3, #0x1800
   ldrb  w2, [x3]
   str   w2, [x1, #PARK_GICIF_OFF]
+  //
+  // m14: ID / cache-type registers of this core (Windows samples several on the boot CPU only; Linux sanitizes
+  // them system-wide) - logged next to the boot CPU's own values by Beyond0LteParking.c.
+  //
+  mrs   x2, midr_el1
+  str   x2, [x1, #0xF60]
+  mrs   x2, ctr_el0
+  str   x2, [x1, #0xF68]
+  mrs   x2, dczid_el0
+  str   x2, [x1, #0xF70]
+  mrs   x2, id_aa64isar0_el1
+  str   x2, [x1, #0xF78]
+  mrs   x2, id_aa64isar1_el1
+  str   x2, [x1, #0xF80]
+  mrs   x2, id_aa64mmfr0_el1
+  str   x2, [x1, #0xF88]
+  mrs   x2, id_aa64mmfr1_el1
+  str   x2, [x1, #0xF90]
+  mrs   x2, id_aa64mmfr2_el1
+  str   x2, [x1, #0xF98]
+  mrs   x2, id_aa64pfr0_el1
+  str   x2, [x1, #0xFA0]
+  mrs   x2, clidr_el1
+  str   x2, [x1, #0xFA8]
   movz  w2, #0xBEEF
   movk  w2, #0x5A5A, lsl #16
   str   w2, [x1, #PARK_MARK_OFF]

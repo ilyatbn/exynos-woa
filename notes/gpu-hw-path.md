@@ -442,3 +442,4 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   drawn, as designed). 0 GPU faults (53450 jobs), no Render failures.
   Next cost: a full-screen 1080x2280 window would take ~60-120 ms per frame through this path (CPU-cached or
   GPU-converted staging would fix it).
+- Mesa 0062 (mali-umd-0062, maliumd 1c2efd6d...): gdi_present memcpy's each row out of the uncached mapping into malloc'd memory first (wide loads), swizzles there, GDI reads cached memory. To measure against h3v's 15-47 ms per 540x1140 frame.

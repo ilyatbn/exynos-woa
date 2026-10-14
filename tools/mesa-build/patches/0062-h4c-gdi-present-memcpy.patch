@@ -1,0 +1,52 @@
+From c06c4aefe86ac644b84fa63e0eca794407ed85e2 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 05:26:50 +0300
+Subject: [PATCH] H4c: the GDI hand-off copies the frame out of the uncached
+ mapping with memcpy first (wide loads) and swizzles in cached memory
+ (exynos-woa tools/mesa-build/patches/0062)
+
+---
+ src/gallium/frontends/d3d10umd/DxgiFns.cpp | 24 ++++++++++++----------
+ 1 file changed, 13 insertions(+), 11 deletions(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+index 28d1ffd..bddc90c 100644
+--- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
++++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+@@ -128,20 +128,22 @@ gdi_present(struct pipe_context *pipe, struct pipe_resource *res)
+    const void *bits = map;
+    uint32_t *tmp = NULL;
+    unsigned stride_px = xfer->stride / 4;
+-   if (rgba || (xfer->stride % 4) != 0) {
+-      tmp = (uint32_t *)malloc((size_t)w * h * 4);
+-      if (tmp) {
+-         for (unsigned y = 0; y < h; y++) {
+-            const uint32_t *src = (const uint32_t *)(map + (size_t)y * xfer->stride);
+-            uint32_t *dst = tmp + (size_t)y * w;
+-            for (unsigned x = 0; x < w; x++) {
+-               uint32_t px = src[x];
+-               dst[x] = rgba ? (px & 0xff00ff00u) | ((px & 0xffu) << 16) | ((px >> 16) & 0xffu) : px;
+-            }
++   /* exynos-woa H4c (0062): always copy out first - the mapping is uncached GPU memory, and memcpy's wide loads read
++    * it several times faster than GDI's (or the swizzle loop's) 4-byte ones (run h3v: 15-47 ms per 540x1140 frame
++    * straight from the mapping). The swizzle then runs in cached memory. */
++   tmp = (uint32_t *)malloc((size_t)w * h * 4);
++   if (tmp) {
++      for (unsigned y = 0; y < h; y++)
++         memcpy(tmp + (size_t)y * w, map + (size_t)y * xfer->stride, (size_t)w * 4);
++      if (rgba)
++         for (size_t i = 0; i < (size_t)w * h; i++) {
++            uint32_t px = tmp[i];
++            tmp[i] = (px & 0xff00ff00u) | ((px & 0xffu) << 16) | ((px >> 16) & 0xffu);
+          }
+-      }
+       bits = tmp;
+       stride_px = w;
++   } else if (rgba || (xfer->stride % 4) != 0) {
++      bits = NULL;
+    }
+    if (bits) {
+       BITMAPINFO bmi;
+-- 
+2.40.1.windows.1
+

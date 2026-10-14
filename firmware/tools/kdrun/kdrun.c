@@ -27,6 +27,7 @@
 
 #include <windows.h>
 #include <stdio.h>
+#include <share.h>
 #include <initguid.h>
 #include <dbgeng.h>
 
@@ -140,7 +141,9 @@ int main(int argc, char **argv)
         fprintf(stderr, "usage: kdrun <log> <total_s> <break_after_s> [reboot|twrp|go] [init-cmds]\n");
         return 1;
     }
-    if (fopen_s(&gLog, argv[1], "a") != 0 || gLog == NULL)
+    /* shared, so the log can be read while a session runs (fopen_s opens it exclusively) */
+    gLog = _fsopen(argv[1], "a", _SH_DENYNO);
+    if (gLog == NULL)
         return 2;
     TotalS = strtoul(argv[2], NULL, 10);
     BreakS = strtoul(argv[3], NULL, 10);

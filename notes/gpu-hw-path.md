@@ -275,3 +275,7 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   clear. Cleared -> Fb.Pitch 4352 (step 0). Not cleared -> SRC_SIZE and rows put back (step 4). Logs
   RestrideSrcBefore/Img/Base/ShadowReq/TrigControl/ShadowMs/ShadowAfter/SrcAfter. Not validated on the device.
 - extra-gpu-h3.cmd: marks the KMD's Restride*/ScanoutStride/FbPitch/Build trace values (type | findstr, since reg export is UTF-16 - tested on the PC with a fake export) and arms the NEXT boot: gpu\restride.flg -> Parameters\ScanoutStride 1088, absent -> deleted.
+- 03:36 deploy for run h3l: firmware #116 flashed (boot readback 740d97fe...), KMD 1.0.36.1 swapped into the DriverStore
+  by tools/phone/kmd-deploy.sh (previous .sys fdd3adb3... kept as C:\S10eTmp\kmd-prev), ESP extra.cmd =
+  extra-gpu-h3 (md5 e79ea5a7...), gpu\restride.flg set. h3l = baseline with #116 + KMD 36, ScanoutStride still absent
+  (expect "RestrideStep" absent, ScanoutStride 0); its script arms 1088 for h3m.

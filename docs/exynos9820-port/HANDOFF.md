@@ -1375,3 +1375,16 @@ restarts save PRAM to WINPRAM-RESTART.BIN; never fsck NTFS from TWRP (read-only 
 Windows after every hard reset). ESP: extra.cmd = extra-wifi-gfx.cmd (extra-wifi-state snapshot, then gfxperf),
 stay.flg, gpuull.flg + bench.flg, noaudio.flg; BCD = original (KD off). Next: validate WiFi on #115
 (notes/m12-wifi-wificx.md), then the power-menu "reboot to TWRP" failure and slow TWRP start, then GpuEnable 1.
+
+## 37. Restart point (2026-10-14 ~03:50 local, unattended; goal: GPU smooth in Windows)
+**Phone:** BOOT = **#116** (s10e-artifacts/boot116-fb10m-v2.img 740d97fe…: #115 + 10 MiB framebuffer reservation,
+a1dd2e2). KMD **MaliG76Wddm 1.0.36.1** swapped into the DriverStore (tools/phone/kmd-deploy.sh; previous .sys kept as
+C:\S10eTmp\kmd-prev). UMD in System32 = mali-umd-0052. Parameters GpuEnable 1 / FullAdapter 1, DWM on Panfrost.
+ESP: extra.cmd = drivers/S10eDiag/esp/extra-gpu-h3.cmd, gpu\restride.flg set (arms Parameters\ScanoutStride 1088 for
+the NEXT boot), gpu\{gpu,full,bench}.flg, noaudio.flg. Run h3l (03:35, baseline #116 + KMD 36) in flight.
+**H4b plan (notes/gpu-hw-path.md has every step):** h3m = first boot with ScanoutStride 1088 + UMD 0053 (put in ESP
+gpu\umd-new\): the KMD widens DPU G0's source line to 4352 B (RestrideStep 0 in trace.reg = done), the UMD blits DWM's
+frame into the scan-out on the GPU (tlog "scanout:" lines). Check: RestrideStep, tlog, DWM fps in summary, webcam.
+Back out: delete gpu\restride.flg (next-but-one boot is GOP layout again), MALIKM_NO_SCANOUT=1, or the old UMD.
+**Then:** windowed D3D presents never reach DWM (d3dtri cube: 4 DWM frames per 10 s), tex test crash (WER dump armed),
+DVFS/clock + thermal, stability (H5).

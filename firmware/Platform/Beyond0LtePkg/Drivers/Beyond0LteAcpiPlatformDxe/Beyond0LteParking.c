@@ -87,6 +87,15 @@ ParkBootCntFrq (
   return Value;
 }
 
+#ifndef BEYOND0LTE_PARK_COHERENCY_MASK
+#define BEYOND0LTE_PARK_COHERENCY_MASK  0u   // m14: parked, not-offered cores that run the cached ping-pong test
+#endif
+#define PARK_COH_PING_OFF   0x100u   // boot CPU writes the token here (own cache line)
+#define PARK_COH_ECHO_OFF   0x140u   // the test core copies it here (own cache line)
+#define PARK_COH_READY      0xC0C00003u
+#define PARK_COH_ROUNDS     100000u
+#define PARK_COH_SPIN       2000000u // per round, plain loads (~ms) before counting a miss
+
 #define PARK_IDS_OFF   0xF60u   // m14: 10 UINT64 ID registers written by the stub (order as ParkReadIds)
 #define PARK_ID_COUNT  10u
 
@@ -255,7 +264,9 @@ Beyond0LteParkSecondaries (
     *(UINT64 *)(UINTN)(Page[Index] + PARK_JUMP_OFF) = 0;
     CopyMem ((VOID *)(UINTN)(Page[Index] + PARK_STUB_OFF), Beyond0LteParkStub, StubSize);
 #if BEYOND0LTE_PARK_SLEEP_UNOFFERED
-    if (((BEYOND0LTE_SMP_OFFER_MASK >> Index) & 1u) == 0) {
+    if (((BEYOND0LTE_PARK_COHERENCY_MASK >> Index) & 1u) != 0) {
+      *(UINT32 *)(UINTN)(Page[Index] + PARK_SLEEP_OFF) = 3;   // m14 coherency test core (never offered)
+    } else if (((BEYOND0LTE_SMP_OFFER_MASK >> Index) & 1u) == 0) {
       // m14: 1 = this core sleeps in WFI after its alive mark, 2 = it calls PSCI CPU_OFF instead
       *(UINT32 *)(UINTN)(Page[Index] + PARK_SLEEP_OFF) = BEYOND0LTE_PARK_SLEEP_UNOFFERED;
     }
@@ -380,6 +391,54 @@ Beyond0LteParkSecondaries (
               ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x30), ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x38),
               ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x40), ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x48)));
     }
+  }
+
+  //
+  // m14 coherency test: the test core runs cached (stub sleep flag 3) and echoes +0x100 into +0x140. Plain
+  // volatile accesses here, NO cache maintenance (ParkRd32 would clean/invalidate and hide the bug).
+  //
+  for (Index = 0; Index < GiccCount; Index++) {
+    volatile UINT32  *Ping;
+    volatile UINT32  *Echo;
+    UINT32           Round;
+    UINT32           Spin;
+    UINT32           Misses;
+    UINT32           Step;
+    UINT64           T0;
+    UINT64           T1;
+
+    if ((((BEYOND0LTE_PARK_COHERENCY_MASK >> Index) & 1u) == 0) || (Page[Index] == 0)) {
+      continue;
+    }
+
+    for (Step = 0; (Step < 200) && (ParkRd32 (Page[Index] + PARK_SLEEP_OFF) != PARK_COH_READY); Step++) {
+      MicroSecondDelay (1000);
+    }
+
+    if (ParkRd32 (Page[Index] + PARK_SLEEP_OFF) != PARK_COH_READY) {
+      DEBUG ((DEBUG_ERROR, "PARK: COH gicc%u never reported cached mode (flag %x)\n",
+              (UINT32)Index, ParkRd32 (Page[Index] + PARK_SLEEP_OFF)));
+      continue;
+    }
+
+    Ping   = (volatile UINT32 *)(UINTN)(Page[Index] + PARK_COH_PING_OFF);
+    Echo   = (volatile UINT32 *)(UINTN)(Page[Index] + PARK_COH_ECHO_OFF);
+    Misses = 0;
+    __asm__ __volatile__ ("mrs %0, cntvct_el0" : "=r" (T0));
+    for (Round = 1; (Round <= PARK_COH_ROUNDS) && (Misses < 20); Round++) {
+      *Ping = Round;
+      for (Spin = 0; (Spin < PARK_COH_SPIN) && (*Echo != Round); Spin++) {
+      }
+
+      if (*Echo != Round) {
+        Misses++;
+      }
+    }
+
+    __asm__ __volatile__ ("mrs %0, cntvct_el0" : "=r" (T1));
+    *Ping = 0xFFFFFFFFu;
+    DEBUG ((DEBUG_ERROR, "PARK: COH gicc%u %u rounds, %u missed (echo %x), %lu ticks @26MHz\n",
+            (UINT32)Index, Round - 1, Misses, *Echo, T1 - T0));
   }
 
 #if BEYOND0LTE_SMP_REAL_MPIDR

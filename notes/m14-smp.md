@@ -481,3 +481,4 @@ No device access in this task; build-verified only (Guided, not Ready).
   (m4coh1): sleep flag 3 = the parked core builds a 1 GiB-block identity map in its mailbox, enables MMU + caches,
   echoes a counter the boot CPU writes (cacheable, no maintenance); UEFI runs 100000 round trips with a timeout per
   trip and logs fails/time. Control: an A55 (gicc3) gets the same test.
+- boot-m4coh1.img: PARK 0xFE, OFFER 0x36, SLEEP_UNOFFERED 1, COHERENCY_MASK 0xC8 (A55 gicc3 = control, M4 gicc6/7). objdump verified (table entries 0x80000701/0xC0000701, MAIR 0xFF, TCR 0x803520, SCTLR |= 0x1005).

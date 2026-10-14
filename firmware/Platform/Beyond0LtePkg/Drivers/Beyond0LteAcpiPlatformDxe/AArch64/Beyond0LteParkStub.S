@@ -130,6 +130,8 @@ ASM_FUNC(Beyond0LteParkStub)
   ldr   w3, [x1, #PARK_SLEEP_OFF]   // m14 isolation test: firmware asked this core to sleep, not poll
   cbz   w3, 0f
   msr   daifset, #0xf
+  cmp   w3, #3
+  b.eq  5f
   cmp   w3, #2
   b.ne  3f
   //
@@ -148,6 +150,53 @@ ASM_FUNC(Beyond0LteParkStub)
 3:
   wfi
   b     3b
+
+  //
+  // sleep flag 3 (m14 coherency test): run CACHED. Identity map in this mailbox page at +0x200 (level-1 table,
+  // T0SZ 32, 4 KiB granule): entries 2 and 3 = 1 GiB blocks 0x80000000 / 0xC0000000, Normal WB (MAIR attr0 0xFF),
+  // inner shareable, AF, EL1 RW, executable. Then echo: whenever the word at +0x100 (written by the boot CPU)
+  // changes, copy it to +0x140 (own cache line); 0xFFFFFFFF ends the test -> WFI. No cache maintenance anywhere:
+  // only hardware coherency can make the two cores see each other.
+  //
+5:
+  add   x5, x1, #0x200              // table PA (64-byte aligned inside the mailbox page)
+  str   xzr, [x5, #0x00]            // [0] 0x00000000 - invalid
+  str   xzr, [x5, #0x08]            // [1] 0x40000000 - invalid
+  movz  x6, #0x8000, lsl #16
+  movk  x6, #0x0701                 // block | SH inner (3 << 8) | AF (1 << 10), AttrIndx 0
+  str   x6, [x5, #0x10]             // [2] 0x80000000
+  movz  x6, #0xC000, lsl #16
+  movk  x6, #0x0701
+  str   x6, [x5, #0x18]             // [3] 0xC0000000
+  dsb   sy
+  mov   x6, #0xFF                   // MAIR attr0 = Normal WB RW-allocate
+  msr   mair_el1, x6
+  movz  x6, #0x0080, lsl #16        // EPD1 (bit 23)
+  movk  x6, #0x3520                 // SH0 3 | ORGN0 1 | IRGN0 1 | T0SZ 32, TG0 4K, IPS 32-bit
+  msr   tcr_el1, x6
+  msr   ttbr0_el1, x5
+  isb
+  tlbi  vmalle1
+  dsb   nsh
+  isb
+  mrs   x6, sctlr_el1
+  movz  x7, #0x1005                 // I (bit 12) | C (bit 2) | M (bit 0)
+  orr   x6, x6, x7
+  msr   sctlr_el1, x6
+  isb
+  movz  w3, #0x0003
+  movk  w3, #0xC0C0, lsl #16
+  str   w3, [x1, #PARK_SLEEP_OFF]   // 0xC0C00003: running cached, echo loop entered
+  mov   w8, #0                      // last value echoed
+6:
+  ldr   w4, [x1, #0x100]
+  cmp   w4, w8
+  b.eq  6b
+  cmn   w4, #1
+  b.eq  3b                          // 0xFFFFFFFF: test over -> WFI (still cached; this core is never offered)
+  str   w4, [x1, #0x140]
+  mov   w8, w4
+  b     6b
 0:
   mov   x6, #0                      // m14 self-report: poll count
 1:

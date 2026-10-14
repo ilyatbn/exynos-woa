@@ -383,3 +383,14 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   present needs (hypothesis, UNVERIFIED). **KMD 1.0.37.1** (s10e-artifacts\mali-kmd-37, sys a7a5e971...):
   Parameters\CddDwmInterop (default 1) sets it. Risk: GDI/CDD content may route through DxgkDdiPresent (CPU blt) from
   now on. Roll back: kmd-deploy.sh on C:\S10eTmp\kmd-prev or CddDwmInterop 0.
+- **Run h3r (04:35-04:43, runs/h3r; UMD 0058, KMD 36):** **tex -> PASS** (Sample/Load/GetDimensions quadrants right
+  on Panfrost - the no-input-layout fix). No new crash events: the app-crashes dwm/LogonUI entries are from the h3q
+  boot (0057's handler) and the LogonUI 0xC0000409 series is dated 2026-10-13 20:35 GMT (old, not this work's runs).
+  Cube 314 fps, 0 faults (65504 jobs). Explorer: "Render failed n: 0xc0000001" from 41.6 s on, 100+ times, 44-54
+  allocations listed of 256, 9-14 BOs per batch; preceded by its 832x1024 present buffer (alloc 0x40000680, BO 18)
+  presented once at 33.6 s. 0xC0000001 is not a KMD Render status (command.c returns INVALID_PARAMETER /
+  INVALID_USER_BUFFER) -> dxgkrnl refused the submission; hypothesis: a runtime-freed allocation still listed (0040
+  lists every live BO; Panfrost may keep a destroyed resource's BO referenced).
+- Mesa 0059 (mali-umd-0059, maliumd e23cf496...): Resource.kmt_runtime_alloc for created-shared/present and opened
+  GPU resources; DestroyResource -> malikm_allocation_gone(h): every runtime-owned BO on it is marked gone (unlocked,
+  never listed again, forgotten at GEM_CLOSE); tlog "allocation 0x.. gone" (first 16).

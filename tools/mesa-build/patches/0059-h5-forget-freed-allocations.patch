@@ -1,0 +1,154 @@
+From e5722265884949d69cfe76753f9098394c6c6981 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 04:45:14 +0300
+Subject: [PATCH] H5: allocations the runtime frees with a resource (created
+ shared/present or opened) are no longer listed in submissions once
+ DestroyResource runs - a stale handle failed every later Render (Explorer
+ 0xC0000001) (exynos-woa tools/mesa-build/patches/0059)
+
+---
+ include/win32-compat/malikm_drm.c           | 30 ++++++++++++++++++---
+ src/gallium/frontends/d3d10umd/Resource.cpp | 14 +++++++++-
+ src/gallium/frontends/d3d10umd/State.h      |  3 +++
+ 3 files changed, 42 insertions(+), 5 deletions(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index b3ee626..04e20d5 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -702,6 +702,8 @@ struct wbo {
+    uint32_t mark;    /* exynos-woa H2: the submission that last listed it */
+    uint32_t runtime_owned;   /* exynos-woa H3: a shared resource's allocation (created with the runtime resource
+                               * handle, or opened): the runtime frees it, GEM_CLOSE only forgets it */
++   uint32_t gone;            /* exynos-woa H5 (0059): the runtime freed its allocation (DestroyResource): never
++                              * listed again, forgotten at GEM_CLOSE */
+    uint32_t fixed;           /* exynos-woa H4b: not an allocation - memory the KMD keeps mapped in the GPU address
+                               * space for good (the scan-out framebuffer, h = WBO_FIXED): never listed in a
+                               * submission, never locked, GEM_CLOSE only forgets it */
+@@ -1568,7 +1570,7 @@ wbo_add(D3DKMT_HANDLE hAlloc, uint64_t size, uint64_t va, uint32_t runtime_owned
+       h = wbo_cap + 1;
+       wbo_cap = cap;
+    }
+-   wbo[h - 1] = (struct wbo){hAlloc, size, va, NULL, 0, runtime_owned, hAlloc == WBO_FIXED};
++   wbo[h - 1] = (struct wbo){hAlloc, size, va, NULL, 0, runtime_owned, 0, hAlloc == WBO_FIXED};
+    return h;
+ }
+ 
+@@ -1648,6 +1650,26 @@ malikm_shared_bo_create(void *hRTResource, unsigned w, unsigned h, unsigned cpp,
+    return ret;
+ }
+ 
++/* exynos-woa H5 (0059): the runtime is about to free (or close) this allocation - stop listing every BO on it. */
++void
++malikm_allocation_gone(unsigned hAlloc)
++{
++   unsigned n = 0;
++   AcquireSRWLockExclusive(&wddm_lock);
++   for (uint32_t i = 0; i < wbo_cap; i++)
++      if (wbo[i].h == hAlloc && wbo[i].runtime_owned && !wbo[i].gone) {
++         if (wbo[i].cpu)
++            w_unlock(wbo[i].h);
++         wbo[i].cpu = NULL;
++         wbo[i].gone = 1;
++         n++;
++      }
++   ReleaseSRWLockExclusive(&wddm_lock);
++   static unsigned logged;
++   if (logged++ < 16)
++      malikm_tlog("allocation 0x%x gone: %u BO(s) no longer listed", hAlloc, n);
++}
++
+ /* exynos-woa H4c (0055): the kernel allocation behind a pseudo dma-buf fd, 0 if none (or a fixed BO). */
+ unsigned
+ malikm_prime_fd_allocation(int prime_fd)
+@@ -1784,7 +1806,7 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+          struct wbo *bo = wddm_bo(bos[i]);
+          if (!bo)
+             return -MK_ENOENT;
+-         if (bo->mark == gen || bo->fixed)
++         if (bo->mark == gen || bo->fixed || bo->gone)
+             continue;
+          if (n == walloc_size)
+             return -MK_E2BIG;
+@@ -1796,7 +1818,7 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+       }
+       uint32_t skipped = 0;
+       for (uint32_t i = 0; i < wbo_cap; i++) {
+-         if (!wbo[i].h || wbo[i].mark == gen || wbo[i].fixed)
++         if (!wbo[i].h || wbo[i].mark == gen || wbo[i].fixed || wbo[i].gone)
+             continue;
+          if (n == walloc_size) {
+             skipped++;
+@@ -1839,7 +1861,7 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+          memset(bo, 0, sizeof(*bo));
+          return 0;
+       }
+-      if (bo->cpu)
++      if (bo->cpu && !bo->gone)
+          w_unlock(bo->h);
+       if (bo->runtime_owned) {
+          /* exynos-woa H3: a shared resource's allocation - the runtime frees it with the resource */
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index 153d759..612dfff 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -212,6 +212,7 @@ extern "C" int malikm_shared_bo_create(void *hRTResource, unsigned w, unsigned h
+                                        int *prime_fd, unsigned *pitch);
+ extern "C" int malikm_bo_from_allocation(unsigned hAlloc, int *prime_fd);
+ extern "C" unsigned malikm_prime_fd_allocation(int prime_fd);   /* exynos-woa H4c (0055) */
++extern "C" void malikm_allocation_gone(unsigned hAlloc);         /* exynos-woa H5 (0059) */
+ extern "C" void malikm_tlog(const char *fmt, ...);   /* exynos-woa H4: timing/event log (malikm_drm.c) */
+ 
+ /* exynos-woa H3: softpipe imports CPU memory (gdi winsys, 0034/0035); a GPU screen imports a BO by fd. */
+@@ -385,8 +386,10 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+              malikm_shared_bo_create(hRTResource.handle, templat.width0, templat.height0,
+                                      util_format_get_blocksize(templat.format), d3dfmt, &prime_fd, &pitch) == 0)
+             pResource->resource = import_bo(screen, &templat, prime_fd, pitch);
++         if (pResource->resource)
++            pResource->kmt_runtime_alloc = malikm_prime_fd_allocation(prime_fd);
+          if (pResource->resource && present_buffer)
+-            pResource->kmt_present = malikm_prime_fd_allocation(prime_fd);
++            pResource->kmt_present = pResource->kmt_runtime_alloc;
+          malikm_tlog("CreateResource %s %ux%u fmt %u pitch %u: %s (alloc 0x%x)", present_buffer ? "present" : "shared",
+                      templat.width0, templat.height0, d3dfmt, pitch,
+                      pResource->resource ? "Panfrost BO" : "FAILED -> plain resource", pResource->kmt_present);
+@@ -609,6 +612,8 @@ OpenResource(D3D10DDI_HDEVICE hDevice,                            // IN
+       cpu = NULL;
+       if (malikm_bo_from_allocation(pOpenResource->pOpenAllocationInfo[0].hAllocation, &prime_fd) == 0)
+          pResource->resource = import_bo(screen, &templat, prime_fd, pitch);
++      if (pResource->resource)
++         pResource->kmt_runtime_alloc = pOpenResource->pOpenAllocationInfo[0].hAllocation;
+       malikm_tlog("OpenResource 0x%x %ux%u fmt %u pitch %u: %s", pOpenResource->pOpenAllocationInfo[0].hAllocation,
+                   w, h, fmt, pitch, pResource->resource ? "Panfrost BO" : "FAILED -> blank texture");
+    }
+@@ -682,6 +687,13 @@ DestroyResource(D3D10DDI_HDEVICE hDevice,       // IN
+       pResource->kmt_primary = 0;
+    }
+    pipe_resource_reference(&pResource->resource, NULL);
++   if (pResource->kmt_runtime_alloc) {
++      /* exynos-woa H5 (0059): the runtime frees (or closes) this allocation when we return, but Panfrost may hold
++       * the BO longer (batches in flight); a submission that still lists it fails as a whole - run h3r: Explorer's
++       * Render failed 0xC0000001 from 41 s on, 100+ times, after its 832x1024 swap chain buffer went away. */
++      malikm_allocation_gone(pResource->kmt_runtime_alloc);
++      pResource->kmt_runtime_alloc = 0;
++   }
+    if (pResource->kmt_opened_locked) {
+       /* after the texture that used the locked memory is gone (G13 0034) */
+       malikm_close_shared(pResource->kmt_opened_locked);
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index d65907f..65c90d6 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -179,6 +179,9 @@ struct Resource
+    /* exynos-woa H4c (0055): a windowed swap chain buffer (BIND_PRESENT) backed by a kernel allocation created with
+     * the runtime resource handle, Panfrost rendering into it; presents name it (DxgiFns.cpp _Present). 0 if none. */
+    unsigned kmt_present;
++   /* exynos-woa H5 (0059): a kernel allocation the runtime frees with this resource (created shared/present, or
++    * opened) that the shim lists as a BO; DestroyResource tells the shim it is gone. 0 if none. */
++   unsigned kmt_runtime_alloc;
+ };
+ 
+ 
+-- 
+2.40.1.windows.1
+

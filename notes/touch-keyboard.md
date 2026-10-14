@@ -106,3 +106,7 @@ no explorer/dwm kill, no drivers.
   never happens (DWM/DComp frame completion - candidates: KMD software vsync / present statistics / fences).
 - Workaround test 18:25: HKCU\Software\Microsoft\Internet Explorer\Main UseSWRender = 1 (was absent; revert:
   reg delete ... /v UseSWRender /f), TextInputHost restarted. User to test.
+- **RESULT (user, ~18:27): with UseSWRender = 1 the touch keyboard pops up AND types ("works").** EdgeHTML's software
+  render path does not wait on the composition frame gate. Workaround only: the root cause (composition frame completion
+  never reported to EdgeHTML/XAML apps on the Mali path - likely also Settings/Terminal) stays open for the GPU work.
+  Revert: reg delete "HKCU\Software\Microsoft\Internet Explorer\Main" /v UseSWRender /f.

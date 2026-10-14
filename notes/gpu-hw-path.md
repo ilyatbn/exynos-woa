@@ -259,3 +259,11 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   (firmware-only state), but the re-stride must never happen while the firmware console is live.
   Image s10e-artifacts\boot116-fb10m-v2.img sha256 740d97fe...; not flashed yet (phone runs #115).
 - Review of a1dd2e2: no reservation between 0xCA965000 and 0xD0000000 (rg of Exynos9820.h RSVD bases: seclog 0xC0000000, modem_spare 0xD0000000) - OK; SimpleFramebufferDxe still reports FrameBufferSize = EXYNOS_FB_SIZE (correct: the GOP mode is unchanged, the KMD maps the larger range itself); fixed a stale 'page-rounded' comment in PlatformMemoryMapLib.c (own commit).
+- **TWRP DT reads (2026-10-14, root):** decon_f@0x19030000 reg 0x19030000 size 0x10000 (VERIFIED); dsi_mode 0,
+  trig_mode 0 (DECON_HW_TRIG), psr_mode 2 (= DECON_MIPI_COMMAND_MODE in dpu20 decon.h: the panel refreshes on TE
+  with the HW trigger, so shadow registers latch at the next TE frame). dpp@0x19071000 reg: DPU_DMA ch 0x19071000
+  +0x1000, DPP 0x19021000 +0x1000, DMA common 0x19070000 +0x110; src_f_w range {16, 65534, step 1} -> 1088 is a
+  legal full width. DPU sysmmus 0x190A0000/0x190B0000/0x190C0000 exist (Linux probes them; it enables them only when
+  decon attaches, and keeps s3cfb.bootloaderfb=0xca000000 mapped). Our DPU address 0xCA000000 in IN_BASE_ADDR_Y is
+  the PA as given by sboot -> sysmmu bypass assumed at hand-off (UNVERIFIED; a fault would show as a frozen or black
+  panel, recoverable by disarming).

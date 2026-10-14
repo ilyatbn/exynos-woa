@@ -865,6 +865,11 @@
 #define EXYNOS_DECON_F_SIZE       0x0000000000010000ULL   // VERIFIED
 #define EXYNOS_DECON_T_BASE       0x0000000019050000ULL   // VERIFIED (decon_t@0x19050000)
 #define EXYNOS_DECON_T_SIZE       0x0000000000010000ULL   // VERIFIED (live DTB reg, notes/s10e-dtb-mmio.md S02)
+// DPU_DMA (IDMA) scan-out channel G0: dpp@0x19071000 reg[0] (TWRP DT read 2026-10-14, notes/gpu-hw-path.md) and
+// live peek run h3k: IN_BASE_ADDR_Y (+0x40) = 0xCA000000, SRC_SIZE (+0x10) = IMG_SIZE (+0x18) = 2280 << 16 | 1080.
+// DECON SHADOW_REG_UPDATE_REQ +0x60 (GLOBAL bit 31) from Samsung cal_9820/regs-decon.h (offset not read on device).
+#define EXYNOS_DPU_DMA_G0_BASE    0x0000000019071000ULL   // VERIFIED (dpp@0x19071000 reg + h3k peek)
+#define EXYNOS_DPU_DMA_G0_SIZE    0x0000000000001000ULL   // VERIFIED (dpp@0x19071000 reg size 0x1000)
 #define EXYNOS_DSIM_BASE          0x0000000019080000ULL   // VERIFIED (dsim@0x19080000)
 #define EXYNOS_DSIM_SIZE          0x0000000000010000ULL   // CONSERVATIVE: the live DTB declares THREE ranges - 0x19080000+0x300, 0x19161000+0x800, 0x19160000+0x100 - so 0x10000 is a superset of the first and the extent discrepancy stays open (notes/s10e-dtb-mmio.md S02)
 

@@ -768,3 +768,11 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   default 700 ms); logs "rotation a -> b: scan-out held" / "hold over after N ms, M presents kept off the panel".
   Built mali-umd-0068 (maliumd b1c3a3b7...), installed live (0067 kept as *-0067.dll). MALIKM_TGSI_DIR=C:\S10eTmp\tlog
   set (machine) for this test only - remove afterwards. Battery 37 %.
+- 19:1x ShellExperienceHost (Quick Settings) crash loop 0xC0000409 ucrtbase fail-fast x11 + StartMenuExperienceHost x2
+  after the 19:10 boot (which came up in landscape) -> AppX re-registered ShellExperienceHost ("give us a minute,
+  we're updating..."); user: Start and the tray flyouts did not open. tlog dir C:\S10eTmp\tlog was not writable for
+  DWM/AppContainers -> switched MALIKM_TGSI_DIR back to C:\S10eTmp\tgsi and granted ALL APPLICATION PACKAGES (S-1-15-2-1) M.
+- After a portrait reboot (19:16): runtime rotation 0 -> 90 logged "rotation 1 -> 2: scan-out held for 700 ms",
+  "scanout: primary 0xc0001500 is GPU-presented" (0067 works), "hold over after 719 ms, 20 presents kept off the panel"
+  (0068 works). Start + Quick Settings open fine in landscape after the runtime switch (user). Hypothesis: the shell
+  hosts crash when the session STARTS rotated. Test: reboot in landscape with traces.

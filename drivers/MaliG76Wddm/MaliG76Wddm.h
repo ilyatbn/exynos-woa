@@ -93,7 +93,10 @@
 #define MW_DSIM_CMD_STATUS          0x8Cu       /* logged only (ABNORMAL_CAUSE, 8 from sboot) */
 #define MW_DSIM_WRITE_TIMEOUT_MS    50u         /* Samsung dsim.h MIPI_WR_TIMEOUT */
 #define MW_DSIM_READ_TIMEOUT_MS     100u        /* MIPI_RD_TIMEOUT */
-#define MW_DSI_DCS_LONG_WRITE       0x39u       /* MIPI DSI data types (spec, not SoC-specific) */
+#define MW_DSI_DCS_LONG_WRITE       0x39u
+#define MW_DSI_DCS_SHORT_WRITE      0x05u
+#define MW_DCS_DISPLAY_OFF          0x28u       /* MIPI DCS set_display_off */
+#define MW_DCS_DISPLAY_ON           0x29u       /* MIPI DCS set_display_on */       /* MIPI DSI data types (spec, not SoC-specific) */
 #define MW_DSI_SET_MAX_RETURN       0x37u
 #define MW_DSI_DCS_READ             0x06u
 #define MW_DSI_RESP_SHORT1          0x21u
@@ -300,6 +303,8 @@ struct _MW_ADAPTER {
     volatile UCHAR Brightness;  /* target level from Windows (0-100) */
     USHORT PanelAor0, PanelAor; /* sboot's AOR, and the one now on the panel */
     ULONG PanelRxUnexpected;    /* last DCS reply word that was not the expected short response (0 = none) */
+    BOOLEAN PanelDisplayOn;     /* last DCS display on/off sent (TRUE at start: sboot leaves it on) */
+    volatile LONG PanelPowerChanges;
     KEVENT RampEvent;           /* brightness fade (panel.c PanelRampThread): set by SetBrightness */
     PVOID RampThread;           /* referenced thread object, NULL when not running */
     volatile LONG RampStop;
@@ -310,6 +315,7 @@ struct _MW_ADAPTER {
 /* panel.c */
 void MwPanelStart(MW_ADAPTER *A);
 void MwPanelStop(MW_ADAPTER *A);
+void MwPanelDisplayPower(MW_ADAPTER *A, BOOLEAN On);
 NTSTATUS MwPanelQueryInterface(MW_ADAPTER *A, PQUERY_INTERFACE Qi);
 
 /* ---- trace: Seen_<ddi>, Fail_<ddi> in the device's registry key ---- */

@@ -298,10 +298,17 @@ static NTSTATUS APIENTRY MwDispatchIoRequest(IN_CONST_PVOID Context, IN_ULONG So
 static NTSTATUS APIENTRY MwSetPowerState(IN_CONST_PVOID Context, IN_ULONG Uid,
                                          IN_DEVICE_POWER_STATE State, IN_POWER_ACTION Action)
 {
-    UNREFERENCED_PARAMETER(Context);
-    UNREFERENCED_PARAMETER(Uid);
-    UNREFERENCED_PARAMETER(State);
-    UNREFERENCED_PARAMETER(Action);
+    MW_ADAPTER *a = (MW_ADAPTER *)Context;
+
+    MwLog(a, L"SetPowerStateLast", (Uid << 16) | ((ULONG)State << 8) | (ULONG)Action);
+    /* The monitor child (ChildUid 0, display.c) = the internal panel: Windows' display off / on (SC_MONITORPOWER,
+     * display-off timeout). The adapter itself (DISPLAY_ADAPTER_HW_ID) keeps the old no-op. */
+    if (Uid == 0) {
+        if (State == PowerDeviceD0)
+            MwPanelDisplayPower(a, TRUE);
+        else if (State == PowerDeviceD3)
+            MwPanelDisplayPower(a, FALSE);
+    }
     return STATUS_SUCCESS;
 }
 

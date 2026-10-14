@@ -84,6 +84,13 @@ static BOOLEAN DsimQueueLong(MW_ADAPTER *A, const UCHAR *Bytes, ULONG Count)
     return TRUE;
 }
 
+/* DCS short write without a parameter (DT 0x05), e.g. 0x28 display off / 0x29 display on. */
+static BOOLEAN DsimShortWrite(MW_ADAPTER *A, UCHAR Command)
+{
+    Wr(A->PanelDsim, MW_DSIM_PKTHDR, MW_DSI_DCS_SHORT_WRITE | ((ULONG)Command << 8));
+    return DsimWaitSent(A);
+}
+
 static BOOLEAN DsimLongWrite(MW_ADAPTER *A, const UCHAR *Bytes, ULONG Count)
 {
     return DsimQueueLong(A, Bytes, Count) && DsimWaitSent(A);
@@ -264,6 +271,7 @@ void MwPanelStart(MW_ADAPTER *A)
 
     ExInitializeFastMutex(&A->PanelLock);
     A->PanelOk = FALSE;
+    A->PanelDisplayOn = TRUE;
     A->Brightness = 100;
     MwLog(A, L"PanelCmdMode", MwPanelCmdMode);
     if (!MwPanelCmdMode)
@@ -384,6 +392,27 @@ void MwPanelStop(MW_ADAPTER *A)
         MmUnmapIoSpace((PVOID)A->PanelHandoff, PAGE_SIZE);
         A->PanelHandoff = NULL;
     }
+}
+
+/* Display power for the internal panel (DxgkDdiSetPowerState on the monitor child, PASSIVE_LEVEL; user 2026-10-14:
+ * the power button's "screen off" left the taskbar showing over a black window). DCS 0x28 display off / 0x29 display
+ * on (MIPI DCS, the panel stays awake - no sleep in/out, no re-init): AMOLED pixels go dark, the scan-out keeps
+ * running, so turning back on is instant. */
+void MwPanelDisplayPower(MW_ADAPTER *A, BOOLEAN On)
+{
+    BOOLEAN ok = FALSE;
+
+    if (A->PanelDsim == NULL)
+        return;
+    ExAcquireFastMutex(&A->PanelLock);
+    if (A->PanelOk)
+        ok = DsimShortWrite(A, On ? MW_DCS_DISPLAY_ON : MW_DCS_DISPLAY_OFF);
+    if (ok)
+        A->PanelDisplayOn = On;
+    ExReleaseFastMutex(&A->PanelLock);
+    InterlockedIncrement(&A->PanelPowerChanges);
+    MwLog(A, L"PanelDisplayPower", (On ? 0x100u : 0u) | (ok ? 1u : 0u));
+    MwLog(A, L"PanelPowerChanges", (ULONG)A->PanelPowerChanges);
 }
 
 /* ---- DXGK_BRIGHTNESS_INTERFACE_2 (Monitor.sys, PASSIVE_LEVEL) ---- */

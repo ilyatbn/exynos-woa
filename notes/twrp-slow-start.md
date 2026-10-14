@@ -32,3 +32,13 @@
   B. Shrink C: (DISM /StartComponentCleanup, SoftwareDistribution\Download, CbsTemp) - partial, grows back.
   C. Avoid TWRP for routine work: flash by-name/boot from Windows over SSH (raw write of the boot partition's LBA range on
      the UFS disk) - TWRP only for emergencies. Also a ground-rule change (boot written from Windows instead of TWRP).
+- **User chose A (2026-10-14 ~20:15, "do it"); ground-rule exception: the recovery partition is written once.**
+  Backup: s10e-artifacts/twrp/recovery-orig.img = dd of by-name/recovery (sda15, 67 633 152 B) sha256 f101bf73...
+  Tool firmware/tools/twrp-nodata/twrp_nodata.py (generic for TWRP images, header v0-v2, gzip or legacy-lzma ramdisk):
+  comments out the /data line(s) of etc/recovery.fstab / etc/twrp.fstab, recompresses the ramdisk the same way
+  (lzma: props 5d, dict 8 MiB, size field -1 + end marker as the original), recomputes ramdisk_size / recovery_dtbo_offset
+  / SHA-1 id, keeps everything else byte for byte, pads to the partition size. Self-checks: round-trip decompress,
+  re-parse. Result recovery-nodata.img sha256 c7b198c0...: kernel + recovery DTBO identical, header bytes identical
+  except ramdisk size/id, ramdisk 10 905 981 -> 10 907 856 B, 3546/3546 cpio entries identical except
+  etc/recovery.fstab (its /data line now "#exynos-woa: ... # /data ext4 .../by-name/userdata ...").
+  Rollback: dd recovery-orig.img to by-name/recovery (from Windows-free TWRP or Odin).

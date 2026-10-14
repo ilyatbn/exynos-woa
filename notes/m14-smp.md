@@ -414,3 +414,9 @@ No device access in this task; build-verified only (Guided, not Ready).
   handler tripped it at ~82 s -> straight to TWRP (dark 00:28:13 -> TWRP 00:30:36). The soak boot never wrote a
   UEFILOG (flush comes after). Fix: the soak reloads WTCNT every second. Re-run as m4soak2.
 - boot-m4soak2.img 60cbd050 (soak 240 s with WTCNT reloads).
+- Run m4soak2 (boot-m4soak2 60cbd050: M4s parked+polling, not offered, 240 s UEFI soak with WDT reloads): UEFI
+  SURVIVED the soak (KD connected 00:41:12 = 4 min 24 s after the reboot). Windows (6 procs) then froze between
+  00:42:42 (+90 s after KD connect) and ~00:43:05. => the M4s were powered > 6 min, 4 of them in UEFI without harm;
+  the freeze clock starts with WINDOWS (or our ExitBootServices handlers), not with M4 power-on. Something global
+  that the Windows side does (driver, EBS handler, Windows platform setup) breaks once the M4 cluster is powered.
+  Next: bisect - hide devices from Windows (ESP flags) / disable EBS handlers.

@@ -707,9 +707,13 @@ NTSTATUS APIENTRY MwEnumVidPnCofuncModality(IN_CONST_HANDLE hAdapter,
                 /* 2026-10-14 (user: landscape does not work): offer the rotations. The source mode stays the
                  * panel's 1080x2280 and QueryVidPnHWCapability reports no hardware rotation, so the OS (DWM) is
                  * expected to compose the desktop rotated into it - verified or refuted by the scan-out dump. */
-                upd.ContentTransformation.RotationSupport.Rotate90 = 1;
-                upd.ContentTransformation.RotationSupport.Rotate180 = 1;
-                upd.ContentTransformation.RotationSupport.Rotate270 = 1;
+                /* 13:05 run: DWM does NOT pre-rotate - with the offer on, a rotation blacked out the GPU scan-out
+                 * path (notes/gpu-hw-path.md). Off unless Parameters\OfferRotation = 1, until the presents rotate. */
+                if (MwOfferRotation) {
+                    upd.ContentTransformation.RotationSupport.Rotate90 = 1;
+                    upd.ContentTransformation.RotationSupport.Rotate180 = 1;
+                    upd.ContentTransformation.RotationSupport.Rotate270 = 1;
+                }
             }
             r = topoIf->pfnUpdatePathSupportInfo(topo, &upd);
         }

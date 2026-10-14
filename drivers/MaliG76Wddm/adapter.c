@@ -20,6 +20,7 @@ ULONG MwModeRefreshExact = 1;
 ULONG MwRefresh601 = 1;
 ULONG MwFlipMmio = 1;
 ULONG MwScanoutStride = 0;
+ULONG MwOfferRotation = 0;      /* Parameters\OfferRotation: 1 = offer 90/180/270 (needs a rotating present path) */
 ULONG MwCddDwmInterop = 1;
 
 /* ---- trace ---- */
@@ -704,6 +705,7 @@ static MW_MODE ReadMode(PUNICODE_STRING RegistryPath, ULONG *PramTrace)
     MwRefresh601 = ReadParameter(params, L"Refresh601", 1) != 0;
     MwFlipMmio = ReadParameter(params, L"FlipMmio", 1) != 0;
     MwScanoutStride = ReadParameter(params, L"ScanoutStride", 0);
+    MwOfferRotation = ReadParameter(params, L"OfferRotation", 0);
     MwCddDwmInterop = ReadParameter(params, L"CddDwmInterop", 1) != 0;
     if (params != NULL)
         ZwClose(params);

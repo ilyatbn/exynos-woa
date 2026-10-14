@@ -379,3 +379,7 @@ Serialise all senders with one FAST_MUTEX/KEVENT in the adapter (brightness DDI 
   the dumps differ, fbB.png = desktop with the new Notepad window. (IDMA latched base 0xCA000000, pitch 4352.)
 - Not yet known: why video mode capped presents at ~28 fps (the KMD/UMD present path waits on something that only
   completes per DECON frame in one mode or the other) [open].
+- **CORRECTION (user):** the 226.8 fps cube runs were screen-saver artefacts (the blank screen saver covered the cube
+  window - scrnsave.scr was found running right after them), exactly like the earlier 59.4 fps soak. A valid cube run
+  is ~28-30 fps. Nothing is known about command mode vs video mode for present rate; the "open" item above is void.
+  Rule for cube runs: kill scrnsave.scr (or check it is not running) before and after the run, else the number is void.

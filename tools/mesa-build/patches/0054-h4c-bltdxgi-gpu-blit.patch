@@ -1,0 +1,104 @@
+From ac03853cd1a1f652ff740c7885ba9ca0f53ed044 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 03:56:24 +0300
+Subject: [PATCH] H4c: d3d10umd BltDXGI as a GPU blit (stretch/convert/resolve)
+ - with DWM on, DXGI moves a windowed swap chain's frame into DWM's shared
+ surface only through it and it was a stub; event log of BltDXGI and
+ PresentDXGI arguments (exynos-woa tools/mesa-build/patches/0054)
+
+---
+ src/gallium/frontends/d3d10umd/DxgiFns.cpp | 61 +++++++++++++++++++++-
+ 1 file changed, 60 insertions(+), 1 deletion(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+index 96e8028..0b45003 100644
+--- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
++++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+@@ -40,6 +40,8 @@
+ 
+ #include "util/format/u_format.h"
+ 
++extern "C" void malikm_tlog(const char *fmt, ...);   /* exynos-woa H4: timing/event log (malikm_drm.c) */
++
+ /* G13 (exynos-woa): whether the present being carried out is a flip (DXGI_DDI_PRESENT_FLAGS.Flip). The target's
+  * flush_frontbuffer (d3d10_gdi.c) reads it: dxgkrnl only flips to allocations created as primaries ("Source of Flip
+  * must be primary", DxgKrnl ETW, run g21full), so a flip needs a primary present surface. Per thread. */
+@@ -72,6 +74,18 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
+    Resource *pSrcResource = CastResource(pPresentData->hSurfaceToPresent);
+ 
+    device->pipe->flush(device->pipe, NULL, 0);
++   {
++      /* exynos-woa H4c: what DXGI presents (windowed with DWM on, DWM-off and full screen differ). */
++      static unsigned n;
++      Resource *dr = pPresentData->hDstResource ? CastResource(pPresentData->hDstResource) : NULL;
++      if (n++ < 8 || (n % 300) == 0)
++         malikm_tlog("PresentDXGI %u: src %ux%u primary 0x%x opened 0x%x, dst %p primary 0x%x, flags 0x%x interval %u",
++                     n, pSrcResource && pSrcResource->resource ? pSrcResource->resource->width0 : 0,
++                     pSrcResource && pSrcResource->resource ? pSrcResource->resource->height0 : 0,
++                     pSrcResource ? pSrcResource->kmt_primary : 0, pSrcResource ? pSrcResource->kmt_opened_locked : 0,
++                     (void *)dr, dr ? dr->kmt_primary : 0, pPresentData->Flags.Value,
++                     (unsigned)pPresentData->FlipInterval);
++   }
+    d3d10_present_flip = pPresentData->Flags.Flip;
+    d3d10_present_alloc = pSrcResource ? pSrcResource->kmt_primary : 0;
+    d3d10_present_dst = pPresentData->hDstResource ? CastResource(pPresentData->hDstResource)->kmt_primary : 0;
+@@ -276,10 +290,55 @@ _RotateResourceIdentities( DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResour
+  * ----------------------------------------------------------------------
+  */
+ 
++/* exynos-woa H4c (notes/gpu-hw-path.md): with DWM on, a windowed swap chain reaches the desktop only through this
++ * call - DXGI copies the back buffer into DWM's shared surface with BltDXGI (Flags.Present) and DWM composes that
++ * surface (MS Learn "DXGI Presentation Path"). It was a stub, so windowed D3D frames never reached DWM (run h3m:
++ * d3dtri 32 fps, DWM 3-7 composes/s). Now one pipe->blit (stretch, format conversion and MSAA resolve are what
++ * blit does), flushed. Rotation is not done (logged). */
++
+ HRESULT APIENTRY
+ _Blt(DXGI_DDI_ARG_BLT *Blt)
+ {
+-   LOG_UNSUPPORTED_ENTRYPOINT();
++   LOG_ENTRYPOINT();
+ 
++   struct Device *device = CastDevice(Blt->hDevice);
++   Resource *dst = CastResource(Blt->hDstResource);
++   Resource *src = CastResource(Blt->hSrcResource);
++   static unsigned n;
++   if (!device || !dst || !src || !dst->resource || !src->resource) {
++      malikm_tlog("BltDXGI: missing resource (dst %p src %p)", (void *)dst, (void *)src);
++      return S_OK;
++   }
++   struct pipe_context *pipe = device->pipe;
++   struct pipe_resource *dr = dst->resource, *sr = src->resource;
++   struct pipe_blit_info b;
++   memset(&b, 0, sizeof b);
++   b.src.resource = sr;
++   b.src.level = Blt->SrcSubresource % (sr->last_level + 1);
++   b.src.format = sr->format;
++   b.src.box.z = Blt->SrcSubresource / (sr->last_level + 1);
++   b.src.box.width = u_minify(sr->width0, b.src.level);
++   b.src.box.height = u_minify(sr->height0, b.src.level);
++   b.src.box.depth = 1;
++   b.dst.resource = dr;
++   b.dst.level = Blt->DstSubresource % (dr->last_level + 1);
++   b.dst.format = dr->format;
++   b.dst.box.x = Blt->DstLeft;
++   b.dst.box.y = Blt->DstTop;
++   b.dst.box.z = Blt->DstSubresource / (dr->last_level + 1);
++   b.dst.box.width = Blt->DstRight - Blt->DstLeft;
++   b.dst.box.height = Blt->DstBottom - Blt->DstTop;
++   b.dst.box.depth = 1;
++   b.mask = util_format_get_mask(dr->format);
++   b.filter = (b.src.box.width != b.dst.box.width || b.src.box.height != b.dst.box.height) ?
++              PIPE_TEX_FILTER_LINEAR : PIPE_TEX_FILTER_NEAREST;
++   if (b.dst.box.width > 0 && b.dst.box.height > 0)
++      pipe->blit(pipe, &b);
++   pipe->flush(pipe, NULL, 0);
++   if (n++ < 8 || (n % 300) == 0)
++      malikm_tlog("BltDXGI %u: %ux%u fmt %u (x%u) -> %ux%u fmt %u at %u,%u %ux%u, flags 0x%x rotate %u, dst opened 0x%x "
++                  "primary 0x%x", n, sr->width0, sr->height0, sr->format, sr->nr_samples, dr->width0, dr->height0,
++                  dr->format, Blt->DstLeft, Blt->DstTop, b.dst.box.width, b.dst.box.height, Blt->Flags.Value,
++                  (unsigned)Blt->Rotate, dst->kmt_opened_locked, dst->kmt_primary);
+    return S_OK;
+ }
+-- 
+2.40.1.windows.1
+

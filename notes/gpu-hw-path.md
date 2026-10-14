@@ -314,3 +314,12 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   presents (31.9 fps, 0 failures) still do not drive DWM. 0 GPU faults (29330 jobs). Webcam: panel lit with a blue
   and white image (Windows' blue wallpaper/lock screen colours) under even horizontal PWM bands; no shear visible.
   tex still 0xC0000005; LogonUI crash events as before.
+- **H4c - windowed D3D presents never reached DWM:** h3m KMD stats: 1696 DxgkDdiPresent calls = DWM's 1633 primary
+  presents + 68 boot blts, so d3dtri's 637 presents (pfnPresentCb hr 0, "present blt surface") never reached the KMD,
+  and no process opened a shared surface during the cube. MS Learn "DXGI Presentation Path": windowed with DWM on,
+  DXGI opens a shared surface (render target for the app, texture for DWM) and calls the UMD's **BltDXGI** (Flags.Present)
+  to copy the back buffer into it. d3d10umd's _Blt (DxgiFns.cpp) was LOG_UNSUPPORTED + S_OK - frames dropped.
+- Mesa 0054 (build mali-umd-0054, maliumd b180f5bb...): _Blt = one pipe->blit (src subresource whole -> dst rect,
+  LINEAR filter when stretched, resolve/convert by blit), flushed; tlog "BltDXGI n: ..." and "PresentDXGI n: ..."
+  (first 8 and every 300th) with sizes, formats, flags, primary/opened handles - so the next run shows the real
+  windowed path even if this alone does not fix it. Rotation (Blt->Rotate) not handled, only logged.

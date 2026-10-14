@@ -542,6 +542,10 @@ static int Probes(IDXGIAdapter *Adapter, D3D_DRIVER_TYPE Type, const char *Name)
     static const int InstI[4] = { -1, -1, 0, 0 };
     static const unsigned short InstH[4] = { 0xBC00, 0xBC00, 0, 0 };   /* half -1.0, -1.0 / 0, 0 */
     static const UINT Bits[4] = { 1, 0, 1, 0 };
+    /* position float2 + RGBA8 colour, 12-byte stride: white, and green = 64/255 = 0.25 */
+    struct PC { float X, Y; UINT C; };
+    static const PC QuadC[4] = { { -1, -1, 0xFFFFFFFF }, { -1, 1, 0xFFFFFFFF }, { 1, -1, 0xFFFFFFFF }, { 1, 1, 0xFFFFFFFF } };
+    static const PC QuadG[4] = { { -1, -1, 0xFF404040 }, { -1, 1, 0xFF404040 }, { 1, -1, 0xFF404040 }, { 1, 1, 0xFF404040 } };
     static const Probe Ps[] = {
         { "float2 position", "float4 vs(float2 p : POSITION) : SV_Position { return float4(p, 0, 1); }\n"
                              "float4 ps() : SV_Target { return float4(0, 0, 0, 1); }\n",
@@ -581,6 +585,20 @@ static int Probes(IDXGIAdapter *Adapter, D3D_DRIVER_TYPE Type, const char *Name)
           { { "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
             { "TEXCOORD", 0, DXGI_FORMAT_R16G16_FLOAT, 1, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1 } }, 2,
           Unit, sizeof(Unit), 8, InstH, sizeof(InstH), 4, 4, 2, NULL, 0, 32768, 32768 },
+        { "R8G8B8A8_UNORM colour (white)",
+          "struct V { float4 p : SV_Position; float4 c : COLOR; };\n"
+          "V vs(float2 p : POSITION, float4 c : COLOR) { V o; o.p = float4(p, 0, 1); o.c = c; return o; }\n"
+          "float4 ps(V i) : SV_Target { return i.c; }\n",
+          { { "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+            { "COLOR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, 8, D3D11_INPUT_PER_VERTEX_DATA, 0 } }, 2,
+          QuadC, sizeof(QuadC), 12, NULL, 0, 0, 4, 0, NULL, 0, 0, 0 },
+        { "R8G8B8A8_UNORM colour (grey)",
+          "struct V { float4 p : SV_Position; float4 c : COLOR; };\n"
+          "V vs(float2 p : POSITION, float4 c : COLOR) { V o; o.p = float4(p, 0, 1); o.c = c; return o; }\n"
+          "float4 ps(V i) : SV_Target { return i.c.g > 0.2 && i.c.g < 0.3 ? float4(0, 0, 0, 1) : float4(1, 1, 1, 1); }\n",
+          { { "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+            { "COLOR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, 8, D3D11_INPUT_PER_VERTEX_DATA, 0 } }, 2,
+          QuadG, sizeof(QuadG), 12, NULL, 0, 0, 4, 0, NULL, 0, 65536, 65536 },
         { "Buffer<uint> ld in PS",
           "Buffer<uint> t : register(t0);\n"
           "float4 vs(float2 p : POSITION) : SV_Position { return float4(p, 0, 1); }\n"

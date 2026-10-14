@@ -599,3 +599,8 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
 - d2dtext with 0064 (session 0): all 8 D2D bands == WARP pixel counts (1331/1549/1367/878/4608/1395/3072/3072), all 8
   probes ok, atlas PASS -> **d2dtext PASS**. d3dtri tri PASS, tex PASS (no regression).
 - Note: an app-local maliumd.dll next to the exe is NOT used (runtime loads System32's) - test via the live swap.
+- Review of db193b6 (0064): the AUTO register format was proven only for SINT and R16G16_FLOAT; UNORM colours (common
+  in DWM/D2D/app vertex data) were untested. Added probes "R8G8B8A8_UNORM colour" white (expect 0 dark) and grey
+  0x40 -> 0.25 (shader checks 0.2 < g < 0.3): Mali with 0064 ok/ok, WARP ok/ok (d2dtext-7). Remaining unverified:
+  SNORM and R10G10B10A2 vertex formats through AUTO. pan_gather_texture_buffers only runs when the set is empty
+  (GLSL-linked NIR untouched); the untype pass only touches TGSI vertex shaders.

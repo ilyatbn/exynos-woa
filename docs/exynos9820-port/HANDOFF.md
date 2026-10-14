@@ -1489,3 +1489,11 @@ To go back to unattended reboot loops: flash boot116-fb10m-v2.img (watchdog 1), 
   reset_reason_extra_info right after a one-M4 death, without an intermediate reset); M4 under Windows with fewer
   features (e.g. TCR/SCTLR bits Windows sets from boot-CPU ID registers: HPD/HWU from HPDS2, hardware DBM/AF);
   KD bp on processor 6 exception paths (KiSystemServiceHandler / KiSErrorException / KiUndefinedInstructionException).
+- **§42 update (01:52):** ONE M4 offered (PARK 0x7E) also dies: a fast reset loop (~69 s period, KD "restarted
+  without notifying the debugger"), with stopping breakpoints on every Windows fatal path (SError/FIQ/fatal
+  exception/HAL reboot/KeBugCheck2/WHEA) never hit => the reset is external to Windows (EL3/uH). 2 MiB guard
+  reservations around every carve-out and DRAM edge do not help (prefetch theory out). M4 ID registers: CTR/DCZID
+  equal to the A55; missing LRCPC and HPDS2. Phone restored: boot-kd6.img (6 cores), ESP stay.flg only.
+  Next ideas: time trapped EL1 sysreg writes (TTBR/TCR/SCTLR) in the stub on M4 vs A55 to see what uH traps; read
+  Samsung debug-snapshot memory (0xFD900000.., carved out) from UEFI after an M4 death for EL3's register dump;
+  find which Windows-programmed EL1 setting differs on the M4 (TCR HPD/HWU from HPDS2, hardware DBM/AF).

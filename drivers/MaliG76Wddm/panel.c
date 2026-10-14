@@ -216,18 +216,22 @@ static VOID PanelRampThread(PVOID Context)
             PanelFail(a, 12);
         MwLog(a, L"BrightnessLast", ((ULONG)a->RampLevel << 24) | ((ULONG)a->PanelAor << 8) | (ok ? 0 : 1));
         MwLog(a, L"BrightnessRamp", (steps << 16) | (ms & 0xFFFF));
+        /* The next boot's firmware starts at this level (survives a warm reset; a cold boot falls back to 50 %). */
+        if (ok && a->PanelHandoff != NULL)
+            a->PanelHandoff[MW_PANEL_HANDOFF_LEVEL] = ((ULONG)MW_PANEL_TAG_LEVEL << 16) | a->RampLevel;
     }
     PsTerminateSystemThread(STATUS_SUCCESS);
 }
 
-static void PanelRampStart(MW_ADAPTER *A)
+static void PanelRampStart(MW_ADAPTER *A, UCHAR StartLevel)
 {
     HANDLE h;
     NTSTATUS st;
 
     KeInitializeEvent(&A->RampEvent, SynchronizationEvent, FALSE);
     A->RampStop = 0;
-    A->RampLevel = 100;     /* sboot's AOR = 100 % */
+    A->RampLevel = StartLevel;      /* where the panel is now (firmware boot level, or sboot's 100 %) */
+    A->Brightness = StartLevel;
     st = PsCreateSystemThread(&h, THREAD_ALL_ACCESS, NULL, NULL, NULL, PanelRampThread, A);
     if (NT_SUCCESS(st)) {
         st = ObReferenceObjectByHandle(h, SYNCHRONIZE, *PsThreadType, KernelMode, &A->RampThread, NULL);
@@ -254,8 +258,9 @@ static void PanelRampStop(MW_ADAPTER *A)
 void MwPanelStart(MW_ADAPTER *A)
 {
     PHYSICAL_ADDRESS pa;
-    ULONG gc, cfg, idle = 0, i, ms, step;
+    ULONG gc, cfg, idle = 0, i, ms, step, startLevel = 100;
     UCHAR aor[2];
+    BOOLEAN fromFirmware = FALSE;
 
     ExInitializeFastMutex(&A->PanelLock);
     A->PanelOk = FALSE;
@@ -308,27 +313,48 @@ void MwPanelStart(MW_ADAPTER *A)
         return;
     }
     /* MwLog writes only at PASSIVE_LEVEL and the FAST_MUTEX raises to APC_LEVEL: log after the release. */
+    /* The firmware hand-off page (UEFI SimpleFramebufferDxe, 2026-10-14): UEFI may already have dimmed the panel for
+     * the boot screen; it publishes sboot's own AOR (= our 100 %) in word [7]. Without it the panel still shows
+     * sboot's value and the read below is 100 %. */
+    pa.QuadPart = (LONGLONG)MW_PANEL_HANDOFF_PA;
+    A->PanelHandoff = (volatile ULONG *)MmMapIoSpaceEx(pa, PAGE_SIZE, PAGE_READWRITE | PAGE_NOCACHE);
     ExAcquireFastMutex(&A->PanelLock);
     if (!DsimLongWrite(A, KeyOn, 3) || !DsimRead(A, 0xB1, 2, aor) || !DsimLongWrite(A, KeyOff, 3)) {
         step = 5;
     } else {
-        A->PanelAor0 = (USHORT)((aor[0] << 8) | aor[1]);
-        A->PanelAor = A->PanelAor0;
+        A->PanelAor = (USHORT)((aor[0] << 8) | aor[1]);
+        A->PanelAor0 = A->PanelAor;
+        if (A->PanelHandoff != NULL &&
+            (A->PanelHandoff[MW_PANEL_HANDOFF_AOR0] >> 16) == MW_PANEL_TAG_AOR0) {
+            A->PanelAor0 = (USHORT)A->PanelHandoff[MW_PANEL_HANDOFF_AOR0];
+            fromFirmware = TRUE;
+        }
         if (A->PanelAor0 >= MW_PANEL_AOR_MIN_LUMA) {    /* sboot already dimmer than our floor: nothing to map */
             step = 6;
         } else {
             A->BrightnessOk = TRUE;
             step = 0;
+            /* The level the panel is at now: the step whose AOR the firmware set (100 if it set none). */
+            startLevel = 100;
+            for (i = 0; i <= 100; i++) {
+                if (LevelToAor(A, (UCHAR)i) == A->PanelAor) {
+                    startLevel = i;
+                    break;
+                }
+            }
         }
     }
     ExReleaseFastMutex(&A->PanelLock);
+    MwLog(A, L"PanelHandoff", fromFirmware ? 1u : 0u);
+    MwLog(A, L"PanelAorNow", A->PanelAor);
+    MwLog(A, L"PanelStartLevel", startLevel);
     if (step == 5)
         PanelFail(A, 5);
     MwLog(A, L"PanelAor0", A->PanelAor0);
     MwLog(A, L"PanelRxUnexpected", A->PanelRxUnexpected);
     MwLog(A, L"PanelStep", step);
     if (A->BrightnessOk)
-        PanelRampStart(A);
+        PanelRampStart(A, (UCHAR)startLevel);
 }
 
 void MwPanelStop(MW_ADAPTER *A)
@@ -353,6 +379,10 @@ void MwPanelStop(MW_ADAPTER *A)
     if (A->PanelDecon != NULL) {
         MmUnmapIoSpace((PVOID)A->PanelDecon, PAGE_SIZE);
         A->PanelDecon = NULL;
+    }
+    if (A->PanelHandoff != NULL) {
+        MmUnmapIoSpace((PVOID)A->PanelHandoff, PAGE_SIZE);
+        A->PanelHandoff = NULL;
     }
 }
 

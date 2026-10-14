@@ -182,46 +182,216 @@ FbGopSetMode (
 #define HW_SW_TRIG_HW_TRIG_MASK  (1u << 4)             // 1 = panel TE hardware trigger BLOCKED (sboot default)
 
 //
-// Read-only DSIM snapshot (notes/brightness-research.md D9): is the DSIM command-mode frame state machine already
-// stuck in FRM_PROCESSING when sboot hands over, or only after our SW-trigger presents? Offsets are Samsung
-// cal_9820 regs-dsim.h, UNVERIFIED (device reads under Windows match them); reads only.
+// DSIM registers (Samsung cal_9820 regs-dsim.h; exercised on the device in brightness D1-D10, 2026-10-14).
 //
 #define DSIM_BASE                EXYNOS_DSIM_BASE      // VERIFIED (dsim@0x19080000)
-#define DSIM_LINK_STATUS1        0x0Cu
 #define DSIM_MIPI_STATUS         0x18u
 #define DSIM_INTSRC              0x50u
 #define DSIM_FIFOCTRL            0x68u
-#define DSIM_CMD_STATUS          0x8Cu
 #define DSIM_FRM_PROCESSING      (1u << 29)
 
 STATIC UINTN  mFbPresentCount;
 
+//
+// Boot brightness (user, 2026-10-14: "the bootloader screen is super bright - same as Windows, or ~50 %").
+// Same mechanism as the Windows driver (drivers/MaliG76Wddm/panel.c, notes/brightness-research.md D10): sboot leaves
+// DECON_F in VIDEO operation mode, so DSIM never reaches a frame boundary and DCS commands never leave; DECON goes to
+// command mode first (FbPanelCommandMode, before the first SW-trigger present), then once TE-driven frames run, the
+// panel's AOR (B1, inside the F0 5A 5A level-2 key, latched by F7 03) is set (FbPanelBootBrightness).
+// Hand-off words in the WINPRAM progress page (SEC clears only words [2]..[4]; [6]/[7] survive a warm reset):
+//   [6] 0x8FE0F018 'BR' << 16 | level 0..100 - written by the Windows driver after every brightness change
+//   [7] 0x8FE0F01C 'A0' << 16 | AOR         - sboot's own AOR (= Windows 100 %), written here every boot
+// DSIM/DECON offsets and the packet recipe were exercised on the device in D10 (Windows, 2026-10-14).
+//
+#define DECON_GLOBAL_CONTROL      0x0000u               // D10: 0x1011 from sboot, 0x1111 in command mode
+#define DECON_GLOBAL_OPMODE_CMD   (1u << 8)
+#define DECON_GLOBAL_RUN_STATUS   (1u << 4)
+#define DSIM_CONFIG               0x4Cu                 // D1: bit 18 = video mode (0 here)
+#define DSIM_CONFIG_VIDEO_MODE    (1u << 18)
+#define DSIM_PKTHDR               0x58u
+#define DSIM_PAYLOAD              0x5Cu
+#define DSIM_RXFIFO               0x60u
+#define DSIM_INTSRC_RX_DATA_DONE  (1u << 18)
+#define DSIM_FIFOCTRL_EMPTY_RX    (1u << 12)
+#define DSIM_FIFOCTRL_EMPTY_PH    (1u << 10)
+#define DSI_DCS_LONG_WRITE        0x39u                 // MIPI DSI data types (spec)
+#define DSI_SET_MAX_RETURN        0x37u
+#define DSI_DCS_READ              0x06u
+#define DSI_RESP_SHORT2           0x22u
+#define PANEL_AOR_MIN_LUMA        0x08D4u               // Samsung's 2-nit AOR row (= Windows 0 %), UNVERIFIED as luminance
+#define PANEL_BOOT_LEVEL_DEFAULT  50u
+#define PANEL_HANDOFF_LEVEL       ((volatile UINT32 *)(UINTN)0x8FE0F018ULL)
+#define PANEL_HANDOFF_AOR0        ((volatile UINT32 *)(UINTN)0x8FE0F01CULL)
+#define PANEL_TAG_LEVEL           0x4252u               // 'BR'
+#define PANEL_TAG_AOR0            0x4130u               // 'A0'
+
+STATIC BOOLEAN  mPanelCmdMode;
+
+// (p/100)^2.2 x 1000 per 5 % step - the Windows driver's table (panel.c MwBrightnessCurve), so a level means the same.
+STATIC CONST UINT16  mBrightnessCurve[21] = {
+  0, 1, 6, 15, 29, 47, 71, 99, 133, 173, 218, 268, 325, 388, 456, 531, 612, 699, 793, 893, 1000
+};
+
 STATIC
-VOID
-FbDsimSnapshot (
-  IN CONST CHAR8  *Tag
+BOOLEAN
+FbDsimWaitSent (
+  VOID
   )
 {
   volatile UINT32  *Dsim = (volatile UINT32 *)(UINTN)DSIM_BASE;
-  UINT32           Busy = 0;
-  UINT32           Moved = 0;
-  UINT32           Line0;
-  UINT32           Index;
+  UINTN            Ms;
 
-  Line0 = Dsim[DSIM_LINK_STATUS1 / 4] & 0x1FFF;
-  for (Index = 0; Index < 5000; Index++) {   // ~50 ms
-    if ((Dsim[DSIM_MIPI_STATUS / 4] & DSIM_FRM_PROCESSING) != 0) {
-      Busy++;
+  for (Ms = 0; Ms < 50; Ms++) {
+    if ((Dsim[DSIM_FIFOCTRL / 4] & DSIM_FIFOCTRL_EMPTY_PH) != 0) {
+      return TRUE;
     }
-    if ((Dsim[DSIM_LINK_STATUS1 / 4] & 0x1FFF) != Line0) {
-      Moved++;
-    }
-    gBS->Stall (10);
+    gBS->Stall (1000);
   }
-  DEBUG ((DEBUG_ERROR,
-    "FbDsim %a: TRIG %08x MIPI %08x INTSRC %08x FIFO %08x CMDST %08x busy %u/5000 linemoved %u\n",
-    Tag, *(volatile UINT32 *)(UINTN)(EXYNOS_DECON_F_BASE + 0x70u), Dsim[DSIM_MIPI_STATUS / 4],
-    Dsim[DSIM_INTSRC / 4], Dsim[DSIM_FIFOCTRL / 4], Dsim[DSIM_CMD_STATUS / 4], Busy, Moved));
+  return FALSE;
+}
+
+STATIC
+BOOLEAN
+FbDsimLongWrite (
+  IN CONST UINT8  *Bytes,
+  IN UINT32       Count
+  )
+{
+  volatile UINT32  *Dsim = (volatile UINT32 *)(UINTN)DSIM_BASE;
+  UINT32           Index;
+  UINT32           Word;
+
+  for (Index = 0; Index < Count; Index += 4) {
+    Word = 0;
+    if (Index + 0 < Count) { Word |= (UINT32)Bytes[Index + 0]; }
+    if (Index + 1 < Count) { Word |= (UINT32)Bytes[Index + 1] << 8; }
+    if (Index + 2 < Count) { Word |= (UINT32)Bytes[Index + 2] << 16; }
+    if (Index + 3 < Count) { Word |= (UINT32)Bytes[Index + 3] << 24; }
+    Dsim[DSIM_PAYLOAD / 4] = Word;
+  }
+  Dsim[DSIM_PKTHDR / 4] = DSI_DCS_LONG_WRITE | (Count << 8);
+  return FbDsimWaitSent ();
+}
+
+// DCS read of 2 bytes (short response 0x22). Leftover RX words are drained (D10: a stray word follows some replies).
+STATIC
+BOOLEAN
+FbDsimRead2 (
+  IN  UINT8   Reg,
+  OUT UINT16  *Value
+  )
+{
+  volatile UINT32  *Dsim = (volatile UINT32 *)(UINTN)DSIM_BASE;
+  UINTN            Ms;
+  UINT32           Word;
+  BOOLEAN          Ok = FALSE;
+
+  Dsim[DSIM_INTSRC / 4] = DSIM_INTSRC_RX_DATA_DONE;
+  Dsim[DSIM_PKTHDR / 4] = DSI_SET_MAX_RETURN | (2u << 8);
+  Dsim[DSIM_PKTHDR / 4] = DSI_DCS_READ | ((UINT32)Reg << 8) | (1u << 24);
+  for (Ms = 0; Ms < 100; Ms++) {
+    if ((Dsim[DSIM_INTSRC / 4] & DSIM_INTSRC_RX_DATA_DONE) != 0) {
+      break;
+    }
+    gBS->Stall (1000);
+  }
+  if ((Ms < 100) && ((Dsim[DSIM_FIFOCTRL / 4] & DSIM_FIFOCTRL_EMPTY_RX) == 0)) {
+    Word = Dsim[DSIM_RXFIFO / 4];
+    if ((Word & 0xFF) == DSI_RESP_SHORT2) {
+      *Value = (UINT16)((((Word >> 8) & 0xFF) << 8) | ((Word >> 16) & 0xFF));
+      Ok = TRUE;
+    }
+  }
+  for (Ms = 0; (Ms < 16) && ((Dsim[DSIM_FIFOCTRL / 4] & DSIM_FIFOCTRL_EMPTY_RX) == 0); Ms++) {
+    (VOID)Dsim[DSIM_RXFIFO / 4];
+  }
+  return Ok;
+}
+
+// Before the first present: DECON into command mode, only from the state D10 was taken from (running, video mode,
+// DSIM in command mode). Committed by the global shadow request the first FbDeconPresent issues anyway.
+STATIC
+VOID
+FbPanelCommandMode (
+  VOID
+  )
+{
+  volatile UINT32  *Decon = (volatile UINT32 *)(UINTN)EXYNOS_DECON_F_BASE;
+  volatile UINT32  *Dsim = (volatile UINT32 *)(UINTN)DSIM_BASE;
+  UINT32           Gc = Decon[DECON_GLOBAL_CONTROL / 4];
+
+  if (((Gc & DECON_GLOBAL_RUN_STATUS) == 0) || ((Dsim[DSIM_CONFIG / 4] & DSIM_CONFIG_VIDEO_MODE) != 0)) {
+    DEBUG ((DEBUG_ERROR, "FbPanel: not switching DECON (GLOBAL %08x DSIM CONFIG %08x)\n", Gc, Dsim[DSIM_CONFIG / 4]));
+    return;
+  }
+  if ((Gc & DECON_GLOBAL_OPMODE_CMD) == 0) {
+    Decon[DECON_GLOBAL_CONTROL / 4] = Gc | DECON_GLOBAL_OPMODE_CMD;
+  }
+  mPanelCmdMode = TRUE;
+  DEBUG ((DEBUG_ERROR, "FbPanel: DECON GLOBAL %08x -> command mode\n", Gc));
+}
+
+// After the first present (TE-driven frames running): read sboot's AOR, publish it, set the boot level.
+STATIC
+VOID
+FbPanelBootBrightness (
+  VOID
+  )
+{
+  STATIC CONST UINT8  KeyOn[3] = { 0xF0, 0x5A, 0x5A };
+  STATIC CONST UINT8  KeyOff[3] = { 0xF0, 0xA5, 0xA5 };
+  STATIC CONST UINT8  GammaUpdate[2] = { 0xF7, 0x03 };
+  volatile UINT32     *Dsim = (volatile UINT32 *)(UINTN)DSIM_BASE;
+  UINT32              Handoff = *PANEL_HANDOFF_LEVEL;
+  UINT32              Level = PANEL_BOOT_LEVEL_DEFAULT;
+  UINT32              Idle = 0;
+  UINT32              Index;
+  UINT32              Frac;
+  UINT32              F;
+  UINT16              Aor0 = 0;
+  UINT16              Aor;
+  UINT8               B1[3];
+  BOOLEAN             Ok;
+
+  if (!mPanelCmdMode) {
+    return;
+  }
+  for (Index = 0; Index < 2000; Index++) {   // ~50 ms: the link must reach frame boundaries (D10: ~20 % idle)
+    if ((Dsim[DSIM_MIPI_STATUS / 4] & DSIM_FRM_PROCESSING) == 0) {
+      Idle++;
+    }
+    gBS->Stall (25);
+  }
+  if (Idle == 0) {
+    DEBUG ((DEBUG_ERROR, "FbPanel: DSIM never idle - boot brightness skipped\n"));
+    return;
+  }
+  Dsim[DSIM_INTSRC / 4] = 0xFFFFFFFFu;     // W1C the sboot-era sticky bits
+  if ((Handoff >> 16) == PANEL_TAG_LEVEL && (Handoff & 0xFFFF) <= 100) {
+    Level = Handoff & 0xFFFF;
+  }
+  Ok = FbDsimLongWrite (KeyOn, 3) && FbDsimRead2 (0xB1, &Aor0);
+  if (!Ok || (Aor0 >= PANEL_AOR_MIN_LUMA)) {
+    (VOID)FbDsimLongWrite (KeyOff, 3);
+    DEBUG ((DEBUG_ERROR, "FbPanel: AOR read %a (0x%04x) - boot brightness skipped\n", Ok ? "out of range" : "failed", Aor0));
+    return;
+  }
+  *PANEL_HANDOFF_AOR0 = ((UINT32)PANEL_TAG_AOR0 << 16) | Aor0;
+  if (Level >= 100) {
+    Aor = Aor0;
+  } else {
+    Index = Level / 5;
+    Frac = Level % 5;
+    F = (mBrightnessCurve[Index] * (5 - Frac) + mBrightnessCurve[Index + 1] * Frac) / 5;
+    Aor = (UINT16)(PANEL_AOR_MIN_LUMA - ((UINT32)(PANEL_AOR_MIN_LUMA - Aor0) * F) / 1000);
+  }
+  B1[0] = 0xB1;
+  B1[1] = (UINT8)(Aor >> 8);
+  B1[2] = (UINT8)Aor;
+  Ok = FbDsimLongWrite (B1, 3) && FbDsimLongWrite (GammaUpdate, 2);
+  (VOID)FbDsimLongWrite (KeyOff, 3);
+  DEBUG ((DEBUG_ERROR, "FbPanel: sboot AOR 0x%04x, boot level %u%% (%a) -> AOR 0x%04x: %a\n", Aor0, Level,
+    (Handoff >> 16) == PANEL_TAG_LEVEL ? "from Windows" : "default", Aor, Ok ? "ok" : "FAILED"));
 }
 
 STATIC
@@ -405,12 +575,12 @@ FbGopBlt (
   // DECON pushes a frame. Trigger one present for any operation that drew.
   //
   if (DidWrite) {
-    if (mFbPresentCount < 2) {
-      FbDsimSnapshot (mFbPresentCount == 0 ? "pre-present1" : "pre-present2");
+    if (mFbPresentCount == 0) {
+      FbPanelCommandMode ();
     }
     FbDeconPresent ();
-    if (mFbPresentCount < 2) {
-      FbDsimSnapshot (mFbPresentCount == 0 ? "post-present1" : "post-present2");
+    if (mFbPresentCount == 0) {
+      FbPanelBootBrightness ();
     }
     mFbPresentCount++;
   }
@@ -449,8 +619,6 @@ SimpleFramebufferDxeEntry (
       "  (0xCC000000, the 9810's, is NOT reusable on this SoC.)\n"));
     return EFI_NOT_READY;
   }
-
-  FbDsimSnapshot ("entry");
 
   Ctx = AllocateZeroPool (sizeof (FB_GOP_INSTANCE));
   if (Ctx == NULL) {

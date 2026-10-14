@@ -62,6 +62,13 @@
 #define BEYOND0LTE_FB_CONSOLE  0
 #endif
 
+// 2026-10-14 (user: "remove all the prints ... the white lines, all the debugging"): the progress bar is off by
+// default - the boot screen stays the sboot logo. -DBEYOND0LTE_FB_PROGRESS=1 brings it back. The RAM log and the
+// exception text (CpuExceptionHandlerLib banner -> text on the panel) are unaffected.
+#ifndef BEYOND0LTE_FB_PROGRESS
+#define BEYOND0LTE_FB_PROGRESS  0
+#endif
+
 // Progress track (console off): above the undrawn flag strip, clear of the splash's centre.
 #define BAR_H       12u
 #define BAR_Y0      (EXYNOS_FB_HEIGHT - 120u)
@@ -213,7 +220,7 @@ FbNewLine (
   FbClearLine ((St->Row + 1 < ROWS) ? St->Row + 1 : 0);
 }
 
-#if !BEYOND0LTE_FB_CONSOLE
+#if !BEYOND0LTE_FB_CONSOLE && BEYOND0LTE_FB_PROGRESS
 /** Fill columns [X0, X1) of the progress track with Color. **/
 STATIC
 VOID
@@ -280,7 +287,7 @@ FbState (
 #if BEYOND0LTE_FB_CONSOLE
     FbClearLine (0);
     FbClearLine (1);
-#else
+#elif BEYOND0LTE_FB_PROGRESS
     FbBarColumns (0, BAR_W, BAR_TRACK);
     FbBarColumns (0, BAR_BLK, BAR_FG);
 #endif
@@ -356,7 +363,9 @@ SerialPortWrite (
 
 #if !BEYOND0LTE_FB_CONSOLE
   if (FB_FROZEN != CON_MAGIC) {
+#if BEYOND0LTE_FB_PROGRESS
     FbBarTick (St);   // normal boot: no text on the panel, the log is in the RAM ring / UEFILOG.TXT
+#endif
     __asm__ __volatile__ ("dsb sy" ::: "memory");
     return NumberOfBytes;
   }

@@ -101,6 +101,13 @@
 /* AOR (B1) 0x08D4 = Samsung's 2-nit row (s6e3fa7 dimming_aor_table row 0, UNVERIFIED on device as a luminance): the
  * value used for brightness 0 %. Never exceeded, and 100 % is sboot's own AOR read back at start (D10: 0x0014). */
 #define MW_PANEL_AOR_MIN_LUMA       0x08D4u
+/* Firmware hand-off (UEFI SimpleFramebufferDxe): the WINPRAM progress page, a firmware choice (Beyond0LteBootLog.h
+ * BEYOND0LTE_WINPRAM_BASE + 0xF000), reserved RAM that survives a warm reset; SEC clears only words [2]..[4]. */
+#define MW_PANEL_HANDOFF_PA         0x8FE0F000ULL
+#define MW_PANEL_HANDOFF_LEVEL      6u          /* word [6]: 'BR' << 16 | level 0..100, written after every fade */
+#define MW_PANEL_HANDOFF_AOR0       7u          /* word [7]: 'A0' << 16 | sboot's AOR, written by UEFI every boot */
+#define MW_PANEL_TAG_LEVEL          0x4252u     /* 'BR' */
+#define MW_PANEL_TAG_AOR0           0x4130u     /* 'A0' */
 #define MW_PANEL_RAMP_STEP          5u          /* brightness fade: levels per tick (user: steps of 5 % every tick) */
 #define MW_PANEL_RAMP_TICK_MS       16u         /* ~one 60 Hz frame; the write itself waits for a frame gap too */
 
@@ -286,7 +293,7 @@ struct _MW_ADAPTER {
     volatile LONG IsrCalls, DpcCalls, VsyncTicks;
 
     /* Panel commands and brightness (panel.c). PanelLock serialises every DSIM packet. */
-    volatile ULONG *PanelDsim, *PanelDecon;
+    volatile ULONG *PanelDsim, *PanelDecon, *PanelHandoff;
     FAST_MUTEX PanelLock;
     BOOLEAN PanelOk;            /* DECON in command mode, DSIM reaching frame boundaries, no command failure yet */
     BOOLEAN BrightnessOk;       /* sboot's AOR read back: the brightness interface is offered */

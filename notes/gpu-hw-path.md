@@ -776,3 +776,7 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   "scanout: primary 0xc0001500 is GPU-presented" (0067 works), "hold over after 719 ms, 20 presents kept off the panel"
   (0068 works). Start + Quick Settings open fine in landscape after the runtime switch (user). Hypothesis: the shell
   hosts crash when the session STARTS rotated. Test: reboot in landscape with traces.
+- 19:2x user: after several more switches Start/Quick Settings keep working since the traces were on; landscape boot
+  (DWM 1320 primaries rotation 2) also fine. ShellExperienceHost's AppContainer gets "Panfrost found no Mali device,
+  using softpipe" (falls back to softpipe + CPU blt presents) - harmless, later item. Most likely the crash loop was the
+  ShellExperienceHost package state, repaired by the AppX re-register at 13:21:40. Not reproduced; parked.

@@ -436,3 +436,19 @@ Serialise all senders with one FAST_MUTEX/KEVENT in the adapter (brightness DDI 
   (4 steps, 58 ms). User session 17:22-17:23: slider 30/100/75/80/10/90/0, fades 7..17 steps, 110-325 ms, no failure.
   (The "level 0 at boot" seen earlier was the user's last slider position.) User: "its fine by me ... as good as done".
   MILESTONES G14 -> done.
+
+## Boot brightness + debug cleanup (2026-10-14 ~19:30; user: bootloader screen "super bright", "remove all the prints ...
+## the white lines, all the debugging modifications we dont need anymore")
+- UEFI SimpleFramebufferDxe: FbPanelCommandMode before the first present (DECON GLOBAL_CONTROL |= CMD, only from
+  running + video mode with DSIM in command mode; committed by that present's global shadow request), then after it
+  FbPanelBootBrightness: DSIM idle check, F0 5A 5A + read B1 (sboot AOR) -> hand-off word [7] 0x8FE0F01C = 'A0'<<16|AOR,
+  level from word [6] 0x8FE0F018 'BR'<<16|level (written by the KMD) else 50 %, same (p/100)^2.2 curve -> B1 + F7 03,
+  F0 A5 A5. Logs "FbPanel: ..." in the RAM log only.
+- KMD 1.0.44.1 (kmd-44, MaliG76Wddm.sys 4FAE4048...): maps the hand-off page; PanelAor0 = word [7] when tagged (else the
+  B1 read); start level = the step whose AOR the panel shows now; the fade thread writes word [6] after every fade.
+  Logs PanelHandoff / PanelAorNow / PanelStartLevel.
+- Cleanup: UEFI progress bar off (BEYOND0LTE_FB_PROGRESS 0; exception text and RAM log kept); the D9 FbDsimSnapshot
+  (~250 ms per boot) removed; S10eDiag boot DSIM snapshot (D8, 50 ms) reverted (S10eDiag.sys fa76c6af...);
+  MALIKM_TGSI_DIR removed (UMD tracing off at the next boot). Shim diagnostics were already off (2026-10-11).
+- Image s10e-artifacts\boot116-gpuon-nowdt-br1.img sha256 2572a7e1... = HEAD + build-only WINDOWS_WATCHDOG 0 /
+  GPU_POWER_ON 1 (reverted after the build).

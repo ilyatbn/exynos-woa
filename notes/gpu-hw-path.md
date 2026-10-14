@@ -550,3 +550,12 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
 - So the IDMA SRC_SIZE shadow is NOT committed by DECON's GLOBAL request; the readback shows the shadow (pending)
   value, not the active one. KMD fix: after SRC_SIZE, the window request and/or IDMA SFR_UPDATE_FORCE, and a check
   that cannot be fooled by the shadow readback (UNVERIFIED which register shows the active value).
+- 11:40-11:50 user session (GPU mode, panel fixed by the poke): transparency WORKS (taskbar shows the wallpaper).
+  Taskbar: Start/Explorer/Edge/Store icons drawn, "^" drawn, clock + tray icons NOT drawn but clickable ("its just not
+  drawing them ... i can click the invisible stuff and it loads fine") - a rendering defect, not layout. Same symptom
+  noted in earlier GPU boots ("taskbar clock cut off"). No Application errors, all shell processes up (tasklist).
+  Hypothesis (inference): DirectWrite/D2D text (clock + Segoe Fluent Icons glyphs) through our UMD - glyph atlas
+  format (A8/R8) or a D2D shader path renders nothing. UAC consent UI also "did not draw properly" (photos pending).
+- Rotation: KMD offers only D3DKMDT_VPPR_IDENTITY (display.c:521-522, 671-684), so s10erotate 90 is refused in GPU
+  mode; Basic Display saved Rotation 2 for its monitor, ours Rotation 1. Separate task (rotate in the CPU blt or in
+  the DPP; G-channel rotation capability UNVERIFIED).

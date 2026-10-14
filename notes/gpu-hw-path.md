@@ -457,3 +457,15 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   Cubes 29.9 / 25.8 fps; gdi present still 16-31 ms per frame (0062's memcpy did not measurably help at
   GetTickCount's 15.6 ms resolution). 0 faults.
 - 05:43 soak run s1: ESP extra.cmd = extra-gpu-soak.cmd (cube 300 s blt + 120 s flip, fb dumps + KMD counters every 100 s), UMD 0062, KMD 37.
+- **Soak s1 (05:43-05:55, runs/s1; UMD 0062, KMD 37, extra-gpu-soak.cmd): one TDR.** Blt-model cube for 300 s: GPU
+  waits in d3dtri's tlog of 703 ms (136.9 s) and 1016 ms (347.9 s), then every wait times out (10 s, ret -110); System
+  event 4101 "Display driver MaliG76Wddm stopped responding and has successfully recovered" (00:30:44Z); KMD resets
+  0 -> 1 between the t2 and t3 counters, but 0 jobs failed / timed out, 0 faults, and after the reset fence
+  156663/156663, nothing queued - the GPU did not hang. The cube then got 0x887A0005 (DXGI_ERROR_DEVICE_REMOVED) on
+  406797 presents ("panfrost_batch_init failed"); the following flip-model cube (new device) ran 120 s at 27 fps
+  with 0 failures. Windows, DWM and the shell survived. Diagnosis: every windowed present still went to the runtime
+  (redirected-blt token for DWM, never consumed - h3m-h3t) besides the GDI hand-off; the context queue backed up
+  behind them until dxgkrnl's 2 s watchdog fired.
+- Mesa 0063 (mali-umd-0063, maliumd 5826aa4c...): gdi_present returns whether it drew; if it did, _Present returns
+  without the runtime present. Runtime present only when no window was found. Allocation count grows over the soak
+  (KMD allocations 445 -> 675 between t2 and t3) - to watch in s2.

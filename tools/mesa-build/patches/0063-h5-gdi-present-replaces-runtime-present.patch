@@ -1,0 +1,103 @@
+From 72fc1a8db5624c64559757655b6216301961ce92 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 05:57:19 +0300
+Subject: [PATCH] H5: a windowed frame drawn into its window with GDI skips the
+ runtime present - unconsumed redirected-present tokens stalled the context
+ into a TDR after minutes (exynos-woa tools/mesa-build/patches/0063)
+
+---
+ src/gallium/frontends/d3d10umd/DxgiFns.cpp | 24 ++++++++++++++--------
+ 1 file changed, 15 insertions(+), 9 deletions(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+index bddc90c..f7d7985 100644
+--- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
++++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+@@ -86,7 +86,7 @@ gdi_find_cb(HWND hwnd, LPARAM lp)
+    return TRUE;
+ }
+ 
+-static void
++static bool
+ gdi_present(struct pipe_context *pipe, struct pipe_resource *res)
+ {
+    static HWND cached;
+@@ -95,14 +95,14 @@ gdi_present(struct pipe_context *pipe, struct pipe_resource *res)
+    if (off < 0)
+       off = getenv("MALIKM_NO_GDI_PRESENT") != NULL;
+    if (off || res->target != PIPE_TEXTURE_2D || res->nr_samples > 1)
+-      return;
++      return false;
+    enum pipe_format f = res->format;
+    bool bgra = f == PIPE_FORMAT_B8G8R8A8_UNORM || f == PIPE_FORMAT_B8G8R8X8_UNORM ||
+                f == PIPE_FORMAT_B8G8R8A8_SRGB;
+    bool rgba = f == PIPE_FORMAT_R8G8B8A8_UNORM || f == PIPE_FORMAT_R8G8B8X8_UNORM ||
+                f == PIPE_FORMAT_R8G8B8A8_SRGB;
+    if (!bgra && !rgba)
+-      return;
++      return false;
+    unsigned w = res->width0, h = res->height0;
+    HWND hwnd = NULL;
+    RECT r;
+@@ -119,12 +119,12 @@ gdi_present(struct pipe_context *pipe, struct pipe_resource *res)
+       ch = h;
+    }
+    if (!hwnd)
+-      return;
++      return false;
+    DWORD t0 = GetTickCount();
+    struct pipe_transfer *xfer = NULL;
+    const uint8_t *map = (const uint8_t *)pipe_texture_map(pipe, res, 0, 0, PIPE_MAP_READ, 0, 0, w, h, &xfer);
+    if (!map)
+-      return;
++      return false;
+    const void *bits = map;
+    uint32_t *tmp = NULL;
+    unsigned stride_px = xfer->stride / 4;
+@@ -145,6 +145,7 @@ gdi_present(struct pipe_context *pipe, struct pipe_resource *res)
+    } else if (rgba || (xfer->stride % 4) != 0) {
+       bits = NULL;
+    }
++   bool drew = false;
+    if (bits) {
+       BITMAPINFO bmi;
+       memset(&bmi, 0, sizeof bmi);
+@@ -156,7 +157,7 @@ gdi_present(struct pipe_context *pipe, struct pipe_resource *res)
+       bmi.bmiHeader.biCompression = BI_RGB;
+       HDC dc = GetDC(hwnd);
+       if (dc) {
+-         SetDIBitsToDevice(dc, 0, 0, w, h, 0, 0, 0, h, bits, &bmi, DIB_RGB_COLORS);
++         drew = SetDIBitsToDevice(dc, 0, 0, w, h, 0, 0, 0, h, bits, &bmi, DIB_RGB_COLORS) != 0;
+          ReleaseDC(hwnd, dc);
+       }
+    }
+@@ -164,6 +165,7 @@ gdi_present(struct pipe_context *pipe, struct pipe_resource *res)
+    pipe_texture_unmap(pipe, xfer);
+    if (n++ < 4 || (n % 300) == 0)
+       malikm_tlog("gdi present %u: %ux%u in %lu ms", n, w, h, (unsigned long)(GetTickCount() - t0));
++   return drew;
+ }
+ 
+ 
+@@ -210,11 +212,15 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
+          device->pipe->screen->fence_finish(device->pipe->screen, NULL, fence, 100 * 1000 * 1000ull);
+          device->pipe->screen->fence_reference(device->pipe->screen, &fence, NULL);
+       }
++      /* exynos-woa H5 (0063): drawn into its window -> no runtime present. Each redirected present queues a token
++       * for DWM, which never consumes them on this stack: run s1 (5-minute cube) the context stalled behind them
++       * (GPU waits of 0.7 s, 1 s, then > 2 s) until dxgkrnl reset the GPU (TDR, Display 4101) and removed the
++       * device (0x887A0005). Only without a window to draw into does the frame go through the runtime. */
++      if (gdi_present(device->pipe, pSrcResource->resource))   /* H4c (0061): what DWM does compose */
++         return S_OK;
+       unsigned hDst = pPresentData->hDstResource ? CastResource(pPresentData->hDstResource)->kmt_present : 0;
+-      if (malikm_allocation_present(pSrcResource->kmt_present, hDst, pPresentData->pDXGIContext) == 0) {
+-         gdi_present(device->pipe, pSrcResource->resource);   /* H4c (0061): what DWM does compose */
++      if (malikm_allocation_present(pSrcResource->kmt_present, hDst, pPresentData->pDXGIContext) == 0)
+          return S_OK;
+-      }
+    }
+    d3d10_present_flip = pPresentData->Flags.Flip;
+    d3d10_present_alloc = pSrcResource ? pSrcResource->kmt_primary : 0;
+-- 
+2.40.1.windows.1
+

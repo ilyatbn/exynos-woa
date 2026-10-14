@@ -131,6 +131,10 @@
 #define BEYOND0LTE_DVFS_LITTLE_KHZ  1456000u   // exact LITTLE step (cpu0 scaling_available_frequencies, max 1950000)
 #define BEYOND0LTE_DVFS_MID_KHZ     1794000u   // exact MID step (cpu4 scaling_available_frequencies, max 2314000)
 #define BEYOND0LTE_DVFS_INT_KHZ     400000u    // exact INT step (devfreq_int available_frequencies, max 534000)
+#define BEYOND0LTE_DVFS_BIG_KHZ     520000u    // m14 M4: the LOWEST BIG step (cpu6 scaling_available 2730000..520000;
+                                               // live DT cpufreq/domain@2 cal-id 0x0b040004 = idx 4, cpus 6-7,
+                                               // min-freq 520000) - a defined V/F point for the M4s that can only
+                                               // be a decrease from sboot's (unknown) boot rate (no thermals yet)
 
 //
 // S2MPS19 addressing through ACPM: speedy channel 0 (s2mps19_core.c:55, stock dtbo acpm-speedy-channel 0),
@@ -896,8 +900,9 @@ OnReadyToBoot (
       // Domain idx = cal_id & 0xFFFF (shipped DT: dm_cpu_cl0 0xb040002, cl1 0xb040003, devfreq_int 0xb040001).
       // ~75-78 % of each CPU cap (no Windows thermal management yet); INT one step below max (UFS/FSYS bus).
       //
-      STATIC CONST UINT32  ReqIdx[] = { 2, 3, 1 };
-      STATIC CONST UINT32  ReqKhz[] = { BEYOND0LTE_DVFS_LITTLE_KHZ, BEYOND0LTE_DVFS_MID_KHZ, BEYOND0LTE_DVFS_INT_KHZ };
+      STATIC CONST UINT32  ReqIdx[] = { 2, 3, 1, 4 };
+      STATIC CONST UINT32  ReqKhz[] = { BEYOND0LTE_DVFS_LITTLE_KHZ, BEYOND0LTE_DVFS_MID_KHZ, BEYOND0LTE_DVFS_INT_KHZ,
+                                        BEYOND0LTE_DVFS_BIG_KHZ };
       UINT32  Req[4];
       UINT32  Saved;
       UINTN   R;

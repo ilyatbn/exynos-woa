@@ -294,3 +294,8 @@ No device access in this task; build-verified only (Guided, not Ready).
   Silent all-system freeze while drivers load = load on the M4s. Suspects: M4 cluster DVFS (clock/voltage left by
   sboot, UEFI only sets LITTLE/MID) and M4-cluster coherency/snoop. kdrun 'every' BUG: a failed break-in never
   resumes, so gLastResume never advances and the timer fires every 0.5 s - fix next.
+- BIG DVFS (22:55): TWRP cpufreq: cpu6/7 policy cur 2080000, ladder 2730000..520000 (21 steps), related 6-7; live DT
+  cpufreq/domain@2 cal-id 0x0b040004 (idx 4), sibling-cpus "6-7", min-freq 520000, max-freq 2080000 (VERIFIED, TWRP
+  root hexdump). No boot-freq property (sboot's BIG rate unknown; FREQ_GET returns 0 on this firmware, m15).
+  UEFI never requested a BIG rate. Change: TouchPowerDxe FREQ_REQ list += idx 4 = 520000 kHz (lowest step = can only
+  lower the M4 clock; ACPM sets the matching voltage). Test: if the 8-core freeze goes, the M4 V/F state was it.

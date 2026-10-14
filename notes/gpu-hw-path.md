@@ -652,3 +652,15 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   the scan-out BO when the primary carries a rotation (CreateResource pPrimaryDesc->Rotation). (4) GDI hand-off and
   touch: the touch driver's coordinates need the same transform (separate driver). Validation: s10erotate 90 + scan-out
   dump shows a landscape desktop rotated into the portrait buffer, both present paths.
+
+### 2026-10-14 ~12:50 - the GPU runs at 156 MHz, not 260 (measured)
+- Mali CYCLE_COUNT (+0x90/0x94) and TIMESTAMP (+0x98/0x9C) read 0 under Windows (never started). Started with
+  GPU_COMMAND (+0x30) = 5 (CYCLE_COUNT_START, what Panfrost does for timestamps) via s10ediag poke 0x18500030 5.
+- Two back-to-back reads (cube soak running): dcycles 0x98a6cbef-0x9804ad65 = 10 624 650, dtimestamp 0x5bd05ca4 -
+  0x5bb557a4 = 1 770 752 -> ratio 6.000 -> **156 MHz** if TIMESTAMP runs at the 26 MHz system counter (UNVERIFIED
+  rate: CNTFRQ / DT timer clock-frequency to be read). Cross-check with a QPC-timed 2.26 s window: ~157 MHz.
+- = the lowest row of the G3D DVFS table (702/650/572/433/377/325/260/200/156). UEFI asks ACPM ch 0 FREQ_REQ {10,
+  260000} (gpu-m16-g3don.md) - either it is not honoured or something lowered it since. All "260 MHz" in these notes
+  is the request, not the measured clock.
+- User asked for counters on the cube (fps, GPU model, GPU clock, temperature): KMD escape for cycle count + QPC
+  (live MHz), d3dtri D2D overlay.

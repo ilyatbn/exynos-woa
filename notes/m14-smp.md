@@ -435,3 +435,9 @@ No device access in this task; build-verified only (Guided, not Ready).
 - m4gic1 result: GIC CPU interface masks (banked GICD_ITARGETSR0 read by each core): boot 01, gicc1-5 02/04/08/10/20
   (UEFILOG), M4 gicc6 0x40, gicc7 0x80 (mailbox +0xFB0, read via KD !dd [uc] ba245fb0/ba246fb0 from the running
   6-core Windows). == MADT GicId 6/7. GIC numbering hypothesis OUT.
+- Live DT cpufreq/domain@2/dm-constraints (TWRP): mif-perf (dm-type 3 = MIF, const-type 0) table pairs (BIG kHz ->
+  MIF min kHz): 2912000..2210000 -> 2093000, 2080000 and below -> 0. mif-skew: ect-name "dvfs_cpucl2" (table in the
+  ECT blob, not in the DT), const-type 0. devfreq_mif cur 2093000 (max), ladder 421000..2093000. => no MIF minimum
+  applies at BIG <= 2.08 GHz; skew content unknown (ECT). Not pursued further for now.
+- Next structural test (m4off2): M4s CPU_ON'd, alive mark, then PSCI CPU_OFF (0x84000002) from the stub; UEFI
+  checks AFFINITY_INFO; Windows 6 cores. Freeze => CPU_ON leaves something armed; none => the powered cluster.

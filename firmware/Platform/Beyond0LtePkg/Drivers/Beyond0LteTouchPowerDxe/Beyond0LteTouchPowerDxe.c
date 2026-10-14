@@ -139,7 +139,7 @@
 // (dir 1 SET / 0 GET; idx 2 LLC_REGION_ALLOC, 3 LLC_EN); reply error = cmd[1] bits 15:13, GET data = bits 11:6.
 //
 #ifndef BEYOND0LTE_SCI_LLC_INIT
-#define BEYOND0LTE_SCI_LLC_INIT     1
+#define BEYOND0LTE_SCI_LLC_INIT     0   // m4llc1: ACPM default is LLC OFF (region 0, en 0); enabling it like Linux hung Windows at KD init
 #endif
 #define ACPM_SCI_IPC_CHANNEL        10u
 #define SCI_LLC_IDX_REGION_ALLOC    2u

@@ -378,3 +378,8 @@ No device access in this task; build-verified only (Guided, not Ready).
   "HOST cannot" either - the link stayed up, the kernel never answered). Phone dark 20 min, no self-reset (KD image
   = watchdog off). => the LLC sequence as sent hangs (or deadlocks) the kernel in phase 0. UEFILOG replies needed
   (default region/enable values, SET errors). Needs a force restart (user).
+- m4llc1 UEFILOG: CNTFRQ_EL0 = 26000000 on ALL cores incl. M4 (= boot CPU) -> CNTFRQ lead OUT. ACPM ch10 defaults:
+  LLC_REGION 0 (DISABLE), LLC_EN 0 -> the LLC was OFF in every earlier run, so the freeze is not M4 LLC allocation.
+  SETs accepted (GET after: region 1, en 1, err 0) and enabling the LLC hung Windows in phase 0 (LLC enable needs
+  more than Linux's probe shows, or Windows' cache maintenance does not cover the LLC). LLC lead closed;
+  BEYOND0LTE_SCI_LLC_INIT -> 0 (code kept).

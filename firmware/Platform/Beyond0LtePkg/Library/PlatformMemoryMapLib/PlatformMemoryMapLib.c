@@ -116,7 +116,7 @@ STATIC CONST MONITOR_RESERVATION  mMonitorReservations[] = {
   //
   // Bank1/bank2 carve-outs (W2, notes/m10-windows-deploy-plan.md): with those banks published as
   // RAM, these stay out of it. seclog (live read), the boot framebuffer (mapped as DEVICE below,
-  // page-rounded), the modem block modem_spare..s5100_msi (modem_spare is a live read; IF2/CP2CP/
+  // EXYNOS_FB_RESERVED_SIZE), the modem block modem_spare..s5100_msi (modem_spare is a live read; IF2/CP2CP/
   // MSI are vendor-DT values - carved conservatively), and everything from modem_if up to 4 GiB
   // (modem_if, cp_ram_logging, debug_snapshot, log_bcm - live reads).
   //

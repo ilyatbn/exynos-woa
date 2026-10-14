@@ -258,3 +258,4 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   at EXYNOS_FB_BASE + EXYNOS_FB_SIZE, which a 4352-pitch scan-out covers - harmless after ExitBootServices
   (firmware-only state), but the re-stride must never happen while the firmware console is live.
   Image s10e-artifacts\boot116-fb10m-v2.img sha256 740d97fe...; not flashed yet (phone runs #115).
+- Review of a1dd2e2: no reservation between 0xCA965000 and 0xD0000000 (rg of Exynos9820.h RSVD bases: seclog 0xC0000000, modem_spare 0xD0000000) - OK; SimpleFramebufferDxe still reports FrameBufferSize = EXYNOS_FB_SIZE (correct: the GOP mode is unchanged, the KMD maps the larger range itself); fixed a stale 'page-rounded' comment in PlatformMemoryMapLib.c (own commit).

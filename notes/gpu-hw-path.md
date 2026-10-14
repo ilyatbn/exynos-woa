@@ -423,3 +423,8 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   takes a fresh binding per device; DestroyDevice -> malikm_unbind_device after the screen is destroyed.
   src/util/os_file.c: os_same_file_description returns "different" on _WIN32 -> one Panfrost screen per device.
   tlog: "bind device %p: binding n", "binding n: fd", "binding n dropped", "prime fd ... refused".
+- Mesa 0061 (mali-umd-0061, maliumd 230e7a48..., on top of 0060): after a windowed present-buffer present (0055 path),
+  gdi_present maps the buffer (linear shared BO), and SetDIBitsToDevice's it into the one visible window/child
+  window of the process whose client size equals the buffer (cached; none or several -> nothing, tlog "gdi present
+  WxH: n window(s)"); RGBA formats swizzled in a temp copy. MALIKM_NO_GDI_PRESENT=1 disables. Not deployed yet
+  (h3u = 0060 alone, to see 0060's effect first).

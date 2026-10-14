@@ -1,0 +1,155 @@
+From f9d6f27b60f722862628dab913d8b35341cd3f75 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 05:09:07 +0300
+Subject: [PATCH] H4c: windowed swap chain frames are also drawn into their
+ window with GDI after the runtime present - DWM composes GDI windows but
+ never composed a DXGI windowed present on this stack (exynos-woa
+ tools/mesa-build/patches/0061)
+
+---
+ src/gallium/frontends/d3d10umd/DxgiFns.cpp | 114 ++++++++++++++++++++-
+ 1 file changed, 113 insertions(+), 1 deletion(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+index d010db8..28d1ffd 100644
+--- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
++++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+@@ -39,6 +39,7 @@
+ #include "Debug.h"
+ 
+ #include "util/format/u_format.h"
++#include "util/u_inlines.h"
+ 
+ extern "C" void malikm_tlog(const char *fmt, ...);   /* exynos-woa H4: timing/event log (malikm_drm.c) */
+ extern "C" void malikm_select_device(void *hRTDevice);   /* exynos-woa H5 (0060) */
+@@ -55,6 +56,115 @@ extern "C" __declspec(thread) unsigned d3d10_present_alloc = 0;
+ extern "C" __declspec(thread) unsigned d3d10_present_dst = 0;
+ 
+ 
++/* exynos-woa H4c (0061, notes/gpu-hw-path.md): no windowed DXGI swap chain reached DWM through the runtime present
++ * (runs h3m-h3t: blt and flip model, DWM opened nothing, composed nothing new), while GDI drawing into a window is
++ * composed at the app's rate (d3dtri gdi, 21 paints/s). So after the runtime present, the frame is also drawn into
++ * the swap chain's window with GDI. The window: the one visible window (top-level or child) of this process whose
++ * client area has the buffer's size - DXGI_DDI_ARG_PRESENT does not name it; none or several -> nothing is drawn.
++ * One CPU read of the (linear, shared) buffer per frame. MALIKM_NO_GDI_PRESENT=1 turns it off. */
++struct gdi_find {
++   DWORD pid;
++   LONG w, h;
++   HWND hit;
++   int n;
++};
++
++static BOOL CALLBACK
++gdi_find_cb(HWND hwnd, LPARAM lp)
++{
++   struct gdi_find *f = (struct gdi_find *)lp;
++   DWORD pid = 0;
++   RECT r;
++   GetWindowThreadProcessId(hwnd, &pid);
++   if (pid != f->pid || !IsWindowVisible(hwnd))
++      return TRUE;
++   if (GetClientRect(hwnd, &r) && r.right - r.left == f->w && r.bottom - r.top == f->h) {
++      f->hit = hwnd;
++      f->n++;
++   }
++   EnumChildWindows(hwnd, gdi_find_cb, lp);
++   return TRUE;
++}
++
++static void
++gdi_present(struct pipe_context *pipe, struct pipe_resource *res)
++{
++   static HWND cached;
++   static unsigned cw, ch, n;
++   static int off = -1;
++   if (off < 0)
++      off = getenv("MALIKM_NO_GDI_PRESENT") != NULL;
++   if (off || res->target != PIPE_TEXTURE_2D || res->nr_samples > 1)
++      return;
++   enum pipe_format f = res->format;
++   bool bgra = f == PIPE_FORMAT_B8G8R8A8_UNORM || f == PIPE_FORMAT_B8G8R8X8_UNORM ||
++               f == PIPE_FORMAT_B8G8R8A8_SRGB;
++   bool rgba = f == PIPE_FORMAT_R8G8B8A8_UNORM || f == PIPE_FORMAT_R8G8B8X8_UNORM ||
++               f == PIPE_FORMAT_R8G8B8A8_SRGB;
++   if (!bgra && !rgba)
++      return;
++   unsigned w = res->width0, h = res->height0;
++   HWND hwnd = NULL;
++   RECT r;
++   if (cached && cw == w && ch == h && IsWindow(cached) && GetClientRect(cached, &r) &&
++       (unsigned)(r.right - r.left) == w && (unsigned)(r.bottom - r.top) == h)
++      hwnd = cached;
++   if (!hwnd) {
++      struct gdi_find find = { GetCurrentProcessId(), (LONG)w, (LONG)h, NULL, 0 };
++      EnumWindows(gdi_find_cb, (LPARAM)&find);
++      hwnd = find.n == 1 ? find.hit : NULL;
++      malikm_tlog("gdi present %ux%u: %d window(s) of that size, %s", w, h, find.n, hwnd ? "using it" : "none drawn");
++      cached = hwnd;
++      cw = w;
++      ch = h;
++   }
++   if (!hwnd)
++      return;
++   DWORD t0 = GetTickCount();
++   struct pipe_transfer *xfer = NULL;
++   const uint8_t *map = (const uint8_t *)pipe_texture_map(pipe, res, 0, 0, PIPE_MAP_READ, 0, 0, w, h, &xfer);
++   if (!map)
++      return;
++   const void *bits = map;
++   uint32_t *tmp = NULL;
++   unsigned stride_px = xfer->stride / 4;
++   if (rgba || (xfer->stride % 4) != 0) {
++      tmp = (uint32_t *)malloc((size_t)w * h * 4);
++      if (tmp) {
++         for (unsigned y = 0; y < h; y++) {
++            const uint32_t *src = (const uint32_t *)(map + (size_t)y * xfer->stride);
++            uint32_t *dst = tmp + (size_t)y * w;
++            for (unsigned x = 0; x < w; x++) {
++               uint32_t px = src[x];
++               dst[x] = rgba ? (px & 0xff00ff00u) | ((px & 0xffu) << 16) | ((px >> 16) & 0xffu) : px;
++            }
++         }
++      }
++      bits = tmp;
++      stride_px = w;
++   }
++   if (bits) {
++      BITMAPINFO bmi;
++      memset(&bmi, 0, sizeof bmi);
++      bmi.bmiHeader.biSize = sizeof(bmi.bmiHeader);
++      bmi.bmiHeader.biWidth = (LONG)stride_px;
++      bmi.bmiHeader.biHeight = -(LONG)h;   /* top-down */
++      bmi.bmiHeader.biPlanes = 1;
++      bmi.bmiHeader.biBitCount = 32;
++      bmi.bmiHeader.biCompression = BI_RGB;
++      HDC dc = GetDC(hwnd);
++      if (dc) {
++         SetDIBitsToDevice(dc, 0, 0, w, h, 0, 0, 0, h, bits, &bmi, DIB_RGB_COLORS);
++         ReleaseDC(hwnd, dc);
++      }
++   }
++   free(tmp);
++   pipe_texture_unmap(pipe, xfer);
++   if (n++ < 4 || (n % 300) == 0)
++      malikm_tlog("gdi present %u: %ux%u in %lu ms", n, w, h, (unsigned long)(GetTickCount() - t0));
++}
++
++
+ /*
+  * ----------------------------------------------------------------------
+  *
+@@ -99,8 +209,10 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
+          device->pipe->screen->fence_reference(device->pipe->screen, &fence, NULL);
+       }
+       unsigned hDst = pPresentData->hDstResource ? CastResource(pPresentData->hDstResource)->kmt_present : 0;
+-      if (malikm_allocation_present(pSrcResource->kmt_present, hDst, pPresentData->pDXGIContext) == 0)
++      if (malikm_allocation_present(pSrcResource->kmt_present, hDst, pPresentData->pDXGIContext) == 0) {
++         gdi_present(device->pipe, pSrcResource->resource);   /* H4c (0061): what DWM does compose */
+          return S_OK;
++      }
+    }
+    d3d10_present_flip = pPresentData->Flags.Flip;
+    d3d10_present_alloc = pSrcResource ? pSrcResource->kmt_primary : 0;
+-- 
+2.40.1.windows.1
+

@@ -350,3 +350,24 @@ Serialise all senders with one FAST_MUTEX/KEVENT in the adapter (brightness DDI 
 - Test plan: GLOBAL_CONTROL |= OPERATION_MODE_CMD (bit 8), SHADOW_REG_UPDATE_REQ |= GLOBAL (bit 31; GLOBAL_CONTROL is
   in the shadowed 0x0000-0x011C range), keep HW trigger 0x3061 (TE-driven frames). Then FRAME_COUNT, MIPI_STATUS
   histogram, PH FIFO, DCS read 0x0A. Recovery: ssh shutdown /r.
+- **D10 result - commands flow.** poke GLOBAL_CONTROL 0x1011 -> 0x1111 (CMD mode), SHADOW_REG_UPDATE_REQ 0x8000003f:
+  GLOBAL_CONTROL reads 0x1111; FRAME_COUNT 0x3940 -> 0x3949 (frames continue); MIPI_STATUS 20000 reads:
+  0x00000000 x 4549, 0x20000000 x 15451 (**idle 23 %** - the link now reaches frame boundaries).
+  INTSRC/CMD_STATUS unchanged at first (0x01400000 / 8; cause 8 stays latched, harmless).
+- DCS read RDDPM: INTSRC W1C 0x10040000, PKTHDR 0x137 (max return 1), PKTHDR 0x01000A06 (DCS read 0x0A + BTA)
+  -> FIFOCTRL 0x0507 (PH empty = sent, RX not empty), INTSRC 0x13540000 (PH_EMPTY, BTA, FRAME_DONE, RX_DATA_DONE,
+  BTA_TOUT bit 20 also set). RXFIFO: 0x02009e21 = DT 0x21 (DCS short read resp, 1 B) data **0x9E**
+  (booster on, sleep out, normal mode, display on); next pop 0x07690400 (unparsed; RX then empty, FIFO 0x1507).
+  -> **first DSI command round trip under Windows.** The panel is the screen the user is looking at; nothing changed.
+- Panel ID (DCS read 0x04, max return 3): RX 0x1600031c (DT 0x1c long read resp, WC 3) + payload 0x00150191 ->
+  ID bytes **91 01 15**.
+- 0xB1 without the level-2 key: DT 0x22, data 00 00 (+ a 0x02 error-report word 0xc048b002). With `F0 5A 5A` (long
+  write: PAYLOAD 0x005A5AF0, PKTHDR 0x339) first: DT 0x22 data **00 14** -> sboot baseline AOR A0 = 0x0014 (near
+  full brightness, consistent with the AOR table). Key relocked with `F0 A5 A5`; FIFO empty after each write.
+- D10 step 3 (no-op write): INTSRC W1C all, then F0 5A 5A / B1 00 14 / F7 03 (long write, 2 B) / readback / F0 A5 A5:
+  FIFO 0x5507 after the writes (PH+PL empty), INTSRC 0x31000000 (no INVALID_SFR, no ABNORMAL - bit 22 now clears
+  with the frame boundaries back), B1 reads 00 14. CMD_STATUS still reads 8 (stale cause register).
+- D10 step 4 (one real step, darker only): B1 04 74 (A0 + (0x08D4 - A0)/2) + F7 03 -> B1 reads back **04 74**.
+  The webcam cannot see the phone (it faces the room), so the visual check is the user's; panel left at 04 74.
+  Packet recipe that works: PAYLOAD = bytes LE (B1 hi lo -> 0x00<lo><hi>B1), PKTHDR 0x339 (DT 0x39, WC 3);
+  F7 03 as DT 0x39 WC 2. Reads: PKTHDR 0x0n37 (max return n), then 0x0100<reg>06; RXFIFO word = DT | d0<<8 | d1<<16.

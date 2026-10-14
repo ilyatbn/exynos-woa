@@ -428,3 +428,8 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   window of the process whose client size equals the buffer (cached; none or several -> nothing, tlog "gdi present
   WxH: n window(s)"); RGBA formats swizzled in a temp copy. MALIKM_NO_GDI_PRESENT=1 disables. Not deployed yet
   (h3u = 0060 alone, to see 0060's effect first).
+- **Run h3u (05:07-05:15, runs/h3u; UMD 0060): Explorer's Render failures are GONE.** h3u's Explorer (pid 916) binds
+  two devices - binding 0 at 30.6 s, **binding 1 at 40.6 s** (the moment the failures used to start) - each with its
+  own screen fd (6, 7); 0 "Render failed", empty stderr. (The failing malikm-Explorer.EXE-4144 log in the folder is a
+  previous boot's process.) LogonUI binds, drops its binding at exit ("binding 0 dropped"). Cubes 313.7 / 181.6 fps,
+  0 faults (108516 jobs). Cause confirmed: one global binding + one shared Panfrost screen per process.

@@ -392,3 +392,12 @@ No device access in this task; build-verified only (Guided, not Ready).
   (+0xFC8) in its mailbox (DRAM). With M4s parked-not-offered, KD reads them per break: M4 clock (did FREQ_REQ
   520 MHz take? throttling?) and whether the M4 stops before the system freezes.
 - Stub self-report built: +0xFC0 poll count, +0xFC8 CNTVCT ticks per 0x2000-iteration delay loop (objdump verified, stub 0xB4 B, guard now stops at 0xFC0). Image boot-m4self1.img = KD flags + PARK 0xFE + OFFER 0x3E (M4s parked, not offered) + BIG 520 MHz FREQ_REQ at ReadyToBoot.
+- Run m4self1 (boot-m4self1 6eb76df9, M4s parked NOT offered, kdrun every 15 s with !dq [uc] ba245fc0/ba246fc0):
+  loop ticks ~0xBB00-0xC040 (~48k ticks / 0x2000 iterations = ~230 ns per iteration: MMU-off stub fetches every
+  instruction uncached from DRAM -> measures DRAM latency, NOT the core clock; the parked M4s generate continuous
+  uncached DRAM traffic). Poll counters kept rising at every break (last good 23:59:20, +101 s); froze before
+  23:59:35 (+116 s): break-ins stopped landing (no "HOST cannot" this time), phone back in TWRP by 00:08.
+  => no sign that an M4 stops before the system does (15 s resolution).
+- Next: not-offered cores sleep in WFI right after the alive mark (mailbox +0xFB8 flag set by the firmware) -
+  M4 cluster powered with ZERO traffic. Freeze anyway => powering the M4 cluster is enough (EL3 / uH / ACPM);
+  no freeze => the M4s' traffic.

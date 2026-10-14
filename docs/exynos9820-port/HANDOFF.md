@@ -1388,3 +1388,16 @@ frame into the scan-out on the GPU (tlog "scanout:" lines). Check: RestrideStep,
 Back out: delete gpu\restride.flg (next-but-one boot is GOP layout again), MALIKM_NO_SCANOUT=1, or the old UMD.
 **Then:** windowed D3D presents never reach DWM (d3dtri cube: 4 DWM frames per 10 s), tex test crash (WER dump armed),
 DVFS/clock + thermal, stability (H5).
+
+## 38. Restart point (2026-10-14 ~05:30 local, unattended; goal: GPU smooth in Windows)
+**Phone:** BOOT #116 (10 MiB fb reservation). KMD **MaliG76Wddm 1.0.37.1** in the DriverStore (CddDwmInterop cap;
+C:\S10eTmp\kmd-prev = 1.0.36.1). UMD **mali-umd-0061** in System32 (Mesa patches 0053-0061). Parameters: GpuEnable 1,
+FullAdapter 1, ScanoutStride 1088 (re-armed every boot by extra-gpu-h3 while ESP gpu\restride.flg exists).
+ESP extra.cmd = drivers/S10eDiag/esp/extra-gpu-h3.cmd (md5 293fe153..., cubes in blt + flip model, ETW cube trace,
+gdi phase), gpu\d3dtri.exe = d3dtri-5.
+**State (notes/gpu-hw-path.md, runs h3l-h3v):** zero-copy scan-out works (KMD re-stride + GPU blit present): DWM ~41
+fps at logon, keeps up with a 21/s GDI load; windowed D3D apps reach the panel through the GDI hand-off (0061) at ~30
+fps for a 540x1140 window; Explorer's multi-device Render failures fixed (0060, binding + screen per device); tex
+sampling test PASS (0058); 0 GPU faults in every run. Tools: tools/phone/kmd-deploy.sh, umd-deploy.sh, pull-run.sh.
+**Next:** visual confirmation of the cube on the webcam; readback cost of the GDI hand-off for big windows (CPU-cached
+staging); DVFS/clock + thermal; long soak (H5); the open question why DXGI windowed presents never reach DWM natively.

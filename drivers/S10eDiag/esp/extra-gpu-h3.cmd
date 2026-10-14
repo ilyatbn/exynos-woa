@@ -65,6 +65,10 @@ rem process holds open any more (earlier boots, exited tests) are deleted after 
 mkdir "%X%\tlog" > nul 2>&1
 copy /y C:\S10eTmp\tgsi\malikm-*.txt "%X%\tlog\" > nul 2>&1
 del /q C:\S10eTmp\tgsi\malikm-*.txt > nul 2>&1
+rem H4 zero-copy scan-out research (READ ONLY): the DPU_DMA channels G0..VGRF at 0x19071000 + n*0x1000 (Samsung
+rem kernel cal_9820/regs-dpp.h: IDMA_ENABLE +0x0, IN_CON +0x8, SRC_SIZE +0x10 (width 15:0, height 29:16), SRC_OFFSET
+rem +0x14, IMG_SIZE +0x18, IN_BASE_ADDR_Y +0x40) - which channel scans 0xCA000000, with which source width
+for %%C in (1 2 3 4 5 6) do s10ediag peek 0x1907%%C000 0x60 >> "%X%\dpu-dma-peek.txt" 2>&1
 s10ediag peek 0x8FE04000 0x4000 > "%X%\maliwddm-pram-peek.txt" 2>&1
 reg export "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SAMS9828\0\Device Parameters\MaliG76Wddm" "%X%\trace.reg" /y > nul 2>&1
 

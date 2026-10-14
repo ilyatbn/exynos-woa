@@ -228,3 +228,16 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
 - Mesa 0052: panfrost_resource_copy_region - same-format, same-sample, non-ZS, non-compressed textures that are
   render-target/sampler capable go through pctx->blit (GPU); the rest stays util_resource_copy_region. Build
   mali-umd-0052 fe2db478....
+- 03:05 run h3j started (UMD 0052).
+- **Run h3j (03:05-03:13, runs/h3j, UMD 0052): GPU copies tripled DWM's rate.** DWM frames/10 s: logon 73 (was 29),
+  gdi animation 42-65 (was 15-19) = **~5-6.5 fps**; KMD 2686 jobs before the tests (was 896), 8936 after, 0 faults.
+  Per DWM frame now (gdi phase): gap median 156 ms = frontbuffer **convert ~105 ms** (CPU readback of the rendered
+  frame from uncached memory, 32-bit loads + swizzle) + GPU idle waits 30-47 ms + present memcpy 0-16 ms. The
+  readback is now 2/3 of the frame.
+- **Zero-copy research:** Samsung kernel cal_9820/regs-dpp.h ([ianmacd/d2s](https://github.com/ianmacd/d2s/blob/master/drivers/video/fbdev/exynos/dpu20/cal_9820/regs-dpp.h)):
+  DPU_DMA base 0x19070000, channels G0 +0x1000, G1 +0x2000, VG0 +0x3000, VG1 +0x4000, VGF0 +0x5000, VGRF +0x6000;
+  per channel IDMA_ENABLE +0x0 (SRESET bit24, SFR_UPDATE_FORCE bit4), IDMA_IN_CON +0x8, IDMA_SRC_SIZE +0x10
+  (WIDTH 15:0, HEIGHT 29:16), IDMA_SRC_OFFSET +0x14, IDMA_IMG_SIZE +0x18, IDMA_IN_BASE_ADDR_Y +0x40. UNVERIFIED on
+  this phone: h3 now peeks 0x19071000..0x19076000 (0x60 each, read only) to find the channel scanning 0xCA000000.
+  If SRC_WIDTH is the line stride in pixels, 1088 -> pitch 4352 = 68 x 64 B (Panfrost-aligned); the fb carve-out
+  (Exynos9820.h EXYNOS_FB_SIZE = 9849600, page-rounded reservation) must grow to >= 4352 x 2280 = 9922560 B.

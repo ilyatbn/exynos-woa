@@ -228,5 +228,5 @@ No device access in this task; build-verified only (Guided, not Ready).
   not verified - run kd6b checks it (is the initial break reported with 1 processor?). The commit also carried the
   2b0ec94 review note (notes only).
 - "No Wi-Fi in the KD boot" (user, 21:50): not KD - the phone's WLAN driver scans for S10eTest (kd6 kd-raw), the PC's
-  Mobile Hotspot, which was Off after the PC reboot. User moves the phone to home Wi-Fi: phonestate needs
-  WINIP=<arp lookup of a8-db-03-06-3c-ef>. kdrun kd6b (init break + twrp after 240 s) waiting for the next boot.
+  Mobile Hotspot, which was Off after the PC reboot. User moved the phone to home Wi-Fi (phonestate needs WINIP
+  set to its home-network address). kdrun kd6b (init break + twrp after 240 s) waiting for the next boot.

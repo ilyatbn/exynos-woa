@@ -11,8 +11,10 @@ last=""; lastkd=""; lastok=$(date +%s); gapsaid=0
 while :; do
   a=$($A devices 2>/dev/null | awk 'NR>1 && $2 {print $2; exit}'); a=${a:-none}
   raw=down; [ -n "$WINIP" ] && ping -n 1 -w 800 "$WINIP" 2>/dev/null | grep -q "TTL=" && raw=up
-  # debounce: Wi-Fi power save and KD break-ins drop single pings - flip only after 2 equal readings in a row
-  if [ "$raw" = "$prevraw" ]; then p=$raw; fi; prevraw=$raw; p=${p:-$raw}
+  # debounce: Wi-Fi power save (~10 s naps when idle) and KD break-ins drop pings - flip only after 4 equal
+  # readings in a row (~20 s)
+  if [ "$raw" = "$prevraw" ]; then same=$((same+1)); else same=1; fi; prevraw=$raw
+  if [ -z "$p" ] || [ $same -ge 4 ]; then p=$raw; fi
   s=closed; [ "$p" = up ] && (exec 3<>/dev/tcp/$WINIP/22) 2>/dev/null && s=open
   cur="adb=$a win-ping=$p ssh=$s"
   [ "$cur" != "$last" ] && { echo "$(date +%T) $cur"; last=$cur; }

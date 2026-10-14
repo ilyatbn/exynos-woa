@@ -302,3 +302,15 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   comes from the tlog (frontbuffer lines). next-stride: ScanoutStride 1088 armed.
 - 03:46 h3m deploy: UMD 0053 into System32 by umd-deploy.sh (a2c7f60f..., also in ESP gpu\umd-new - same files).
   h3m = first re-stride boot + GPU present. Expect trace RestrideStep 0, tlog "scanout: ... imported: yes".
+- 03:46 h3m webcam (scratchpad h3m-cam1/2.jpg): panel lit, blue/white image with evenly spaced full-width horizontal dark bands, unchanged over 27 s - looks like OLED PWM vs rolling shutter, not a stride shear (that would tear diagonally); undecided until the trace.
+- **Run h3m (03:44-03:52, runs/h3m; #116, KMD 36 with ScanoutStride 1088, UMD 0053) - H4b WORKS:**
+  KMD trace: RestrideSrcBefore/Img 0x08e80438, Base 0xca000000, TrigControl 0x3061, ShadowReq 0 before; after the
+  GLOBAL request it cleared in 10 ms, SrcAfter 0x08e80440 (width 1088), RestrideStep 0, Restrided 1 (the
+  DECON SHADOW_REG_UPDATE_REQ +0x60 bit 31 latches IDMA SRC_SIZE - now VERIFIED by this run). UMD tlog: "scanout: va
+  0x2000000 1080x2280 pitch 4352 format 22 ... imported: yes", primary 0x40001300 GPU-presented, every present
+  "present 0", blit+wait 0-16 ms (first 47). DWM presents per 10 s (tlog "present primary", h3m dwm pid 1212 vs h3l
+  pid 1232 with UMD 0052): logon 403/414 vs 67/59 (**~41 fps vs ~6.5**); gdi phase (190-210 s, app 532 paints/25 s =
+  21/s) 211/214 vs 65/66 (**DWM keeps up with the app**); cube phase (150-180 s) 35-74 vs 8-22 - the cube's own
+  presents (31.9 fps, 0 failures) still do not drive DWM. 0 GPU faults (29330 jobs). Webcam: panel lit with a blue
+  and white image (Windows' blue wallpaper/lock screen colours) under even horizontal PWM bands; no shear visible.
+  tex still 0xC0000005; LogonUI crash events as before.

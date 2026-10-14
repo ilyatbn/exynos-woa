@@ -506,3 +506,19 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   agent's cmd.exe); the nowdt diff range was misstated as "first 0xBCBD4 B of the kernel blob" - it is the image
   offset range incl. the header (fixed above); the watchdog source edit is reverted (git status clean for the
   firmware tree) - the define stays 1 in the repo, so only the artifact image has 0.
+
+### 2026-10-14 ~10:15 - GpuCheck (user-facing "is the GPU working" app) + user session 8
+- User: "How do i see that the gpu is working myself? ... I tried launching gpu-z and it saw nothing". GPU-Z has no
+  support for our adapter; Task Manager's GPU page needs WDDM 2.x (ours is 1.3).
+- New drivers/MaliG76Wddm/tools/gpucheck (GpuCheck.exe, GUI): d3dtri's cube (blt model, DPI-unaware, fixed-size
+  child window = the soak-tested present path) under a text panel updated every second: DXGI adapter + hardware vs
+  software, feature level, first-frame centre-pixel readback, fps, PDH "GPU Engine(*engtype_3D)" summed for the
+  adapter LUID, KMD MW_ESCAPE_STATS jobs/s, total, failed, timed out, resets, GPU_ID (escapes only on the Mali
+  adapter). x64 smoke test on the PC (AMD adapter): renders, panel correct, "not available" for the Mali-only lines.
+  ARM64 s10e-artifacts\gpucheck-1\gpucheck.exe sha256 40d0b8ae... NOT yet run on the phone.
+- Deploy: the Windows NTFS mounted read-only in TWRP (unclean -> no fsck by rule), so GpuCheck.exe went to
+  ESP \S10EDIAG\gpu\ and extra.cmd = extra-desktop-apps.cmd (copy to C:\Users\Public\Desktop\GPU Check.exe ~1 min
+  after logon; stay.flg still set).
+- User session 8 (runs\user8, 09:53-10:09): ~9 min, power-menu reboot to TWRP; Application: cpuz.exe crashed twice
+  (third-party); no new Display 4101 (last one 03:30 = soak s1), no Kernel-Power 41. TWRP temps after: BIG 69,
+  MID/LITTLE 58, G3D 53, ISP 54, battery 34.3 C; battery 67 %.

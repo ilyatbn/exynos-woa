@@ -977,6 +977,9 @@ OnReadyToBoot (
     DEBUG ((DEBUG_ERROR, "TouchPower: M4 soak %u s in UEFI (progress 0x68)\n", (UINT32)BEYOND0LTE_M4_UEFI_SOAK_S));
     for (Sec = 0; Sec < BEYOND0LTE_M4_UEFI_SOAK_S; Sec++) {
       gBS->Stall (1000000);
+      // the early-UEFI dead-man watchdog (ArmPlatformLib W25, 82 s, reason = recovery) is only re-armed by
+      // BootLog's later ReadyToBoot handler - reload it here or the soak itself trips it (m4soak1 went to TWRP)
+      MmioWrite32 ((UINTN)EXYNOS_WDT_BASE + EXYNOS_WDT_WTCNT_OFFSET, EXYNOS_WDT_COUNT_82S);
     }
 
     DEBUG ((DEBUG_ERROR, "TouchPower: M4 soak done - UEFI alive after %u s\n", (UINT32)BEYOND0LTE_M4_UEFI_SOAK_S));

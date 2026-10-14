@@ -409,3 +409,8 @@ No device access in this task; build-verified only (Guided, not Ready).
   (EL3 / uH at EL2 / ACPM / hardware power-thermal) acting once CPUCL2 is up. (Monitor note: a failed break-in can
   show no error - watch for the ABSENCE of successful break-ins.)
 - boot-m4soak1.img da5a41f9: KD flags + PARK 0xFE + OFFER 0x3E (M4s polling, not offered) + BEYOND0LTE_M4_UEFI_SOAK_S 240 (progress 0x68 at ReadyToBoot).
+- m4soak1 INVALID: the early-UEFI dead-man watchdog (ArmPlatformLib W25: WDT cl0 82 s, INFORM3 = recovery) is only
+  re-armed by BootLog's ReadyToBoot handler, which runs AFTER TouchPower's; the 240 s soak inside TouchPower's
+  handler tripped it at ~82 s -> straight to TWRP (dark 00:28:13 -> TWRP 00:30:36). The soak boot never wrote a
+  UEFILOG (flush comes after). Fix: the soak reloads WTCNT every second. Re-run as m4soak2.
+- boot-m4soak2.img 60cbd050 (soak 240 s with WTCNT reloads).

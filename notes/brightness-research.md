@@ -278,3 +278,17 @@ Serialise all senders with one FAST_MUTEX/KEVENT in the adapter (brightness DDI 
   the read hung the phone (SSH and ping dead). No watchdog in boot116-gpuon-nowdt -> needs a manual force restart
   (Vol Down + Power). Lesson: S10eDiag maps any PA it is given; the tool must refuse addresses outside a
   verified-MMIO whitelist (follow-up task).
+- Analysis while the phone was down: Android's kernel (dsim_reg_init: "already enabled in bootloader" -> no re-init)
+  sends DCS commands fine from sboot's DSIM state, so the stuck FRM_PROCESSING/abnormal state most likely appears
+  after sboot: UEFI SimpleFramebufferDxe FbDeconPresent drives DECON HW_SW_TRIG with SW-trigger edges using the
+  9810 offsets/bits (UNVERIFIED on 9820), then the KMD sets 0x3061. Transfer math says the link should idle
+  ~3.7 ms per frame (1143 Mbps x 4 lanes -> 7.39 MB in ~12.9 ms of 16.7 ms), so 20000/20000 FRM_PROCESSING is
+  a stuck FSM, not back-to-back frames.
+- Next (needs the user watching the screen): DSIM FUNCRST (SWRST +0x04 bit 8, self-clearing; Samsung
+  dsim_reg_function_reset; keeps SFRs, resets the link FSMs), then re-read MIPI_STATUS/CMD_STATUS/INTSRC and,
+  if FRM_PROCESSING drops, repeat the harmless DCS read 0x0A. Recovery if the panel blanks: `ssh s10e shutdown /r`.
+- CORRECTION (user, same hour): the phone was not hung - the screen showed a Windows Update install ("24%").
+  So SSH/ping loss was Windows restarting into an update, not (necessarily) the bad-PA read; whether the
+  0x1_9080_000C read faulted is unknown. The guard stays (an unmapped read is still a real hazard).
+  Follow-up: after the update finishes, check the build/driver state and pause Windows Update (it can replace
+  or roll back test-signed drivers and restart unattended).

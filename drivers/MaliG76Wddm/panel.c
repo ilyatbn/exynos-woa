@@ -107,7 +107,7 @@ static BOOLEAN DsimRead(MW_ADAPTER *A, UCHAR Reg, ULONG Count, UCHAR *Out)
                 Out[1] = (UCHAR)(w >> 16);
             ok = TRUE;
         } else {
-            MwLog(A, L"PanelReadUnexpected", w);
+            A->PanelRxUnexpected = w;   /* logged by the caller after PanelLock (MwLog needs PASSIVE) */
         }
     }
     for (i = 0; i < 16 && !(Rd(A->PanelDsim, MW_DSIM_FIFOCTRL) & MW_DSIM_FIFOCTRL_EMPTY_RX); i++)
@@ -128,7 +128,7 @@ static BOOLEAN PanelSetAor(MW_ADAPTER *A, USHORT Aor)
     b1[2] = (UCHAR)Aor;
     if (!DsimLongWrite(A, KeyOn, 3) || !DsimLongWrite(A, b1, 3) || !DsimLongWrite(A, GammaUpdate, 2) ||
         !DsimLongWrite(A, KeyOff, 3)) {
-        PanelFail(A, 10);
+        A->PanelOk = FALSE;     /* PanelFail (it logs) runs after the caller drops PanelLock */
         return FALSE;
     }
     A->PanelAor = Aor;
@@ -149,7 +149,7 @@ static USHORT LevelToAor(MW_ADAPTER *A, UCHAR Level)
 void MwPanelStart(MW_ADAPTER *A)
 {
     PHYSICAL_ADDRESS pa;
-    ULONG gc, cfg, idle = 0, i, ms;
+    ULONG gc, cfg, idle = 0, i, ms, step;
     UCHAR aor[2];
 
     ExInitializeFastMutex(&A->PanelLock);
@@ -202,33 +202,41 @@ void MwPanelStart(MW_ADAPTER *A)
         MwLog(A, L"PanelStep", 4);
         return;
     }
+    /* MwLog writes only at PASSIVE_LEVEL and the FAST_MUTEX raises to APC_LEVEL: log after the release. */
     ExAcquireFastMutex(&A->PanelLock);
     if (!DsimLongWrite(A, KeyOn, 3) || !DsimRead(A, 0xB1, 2, aor) || !DsimLongWrite(A, KeyOff, 3)) {
-        PanelFail(A, 5);
+        step = 5;
     } else {
         A->PanelAor0 = (USHORT)((aor[0] << 8) | aor[1]);
         A->PanelAor = A->PanelAor0;
-        MwLog(A, L"PanelAor0", A->PanelAor0);
         if (A->PanelAor0 >= MW_PANEL_AOR_MIN_LUMA) {    /* sboot already dimmer than our floor: nothing to map */
-            MwLog(A, L"PanelStep", 6);
-            A->PanelAor0 = 0;
+            step = 6;
         } else {
             A->BrightnessOk = TRUE;
-            MwLog(A, L"PanelStep", 0);
+            step = 0;
         }
     }
     ExReleaseFastMutex(&A->PanelLock);
+    if (step == 5)
+        PanelFail(A, 5);
+    MwLog(A, L"PanelAor0", A->PanelAor0);
+    MwLog(A, L"PanelRxUnexpected", A->PanelRxUnexpected);
+    MwLog(A, L"PanelStep", step);
 }
 
 void MwPanelStop(MW_ADAPTER *A)
 {
+    BOOLEAN restoreFailed = FALSE;
+
     if (A->PanelDsim != NULL && A->PanelDecon != NULL) {
         /* Leave the panel as sboot set it for whoever drives the screen next (Basic Display has no brightness). */
         ExAcquireFastMutex(&A->PanelLock);
-        if (A->PanelOk && A->BrightnessOk && A->PanelAor != A->PanelAor0)
-            (void)PanelSetAor(A, A->PanelAor0);
+        if (A->PanelOk && A->BrightnessOk && A->PanelAor != A->PanelAor0 && !PanelSetAor(A, A->PanelAor0))
+            restoreFailed = TRUE;
         A->BrightnessOk = FALSE;
         ExReleaseFastMutex(&A->PanelLock);
+        if (restoreFailed)
+            PanelFail(A, 11);
     }
     if (A->PanelDsim != NULL) {
         MmUnmapIoSpace((PVOID)A->PanelDsim, PAGE_SIZE);
@@ -278,6 +286,8 @@ static NTSTATUS BrSet(PVOID Context, UCHAR Brightness)
             a->Brightness = Brightness;
     }
     ExReleaseFastMutex(&a->PanelLock);
+    if (st == STATUS_IO_TIMEOUT)
+        PanelFail(a, 10);
     InterlockedIncrement(&a->BrightnessSets);
     MwLog(a, L"BrightnessLast", ((ULONG)Brightness << 24) | ((ULONG)a->PanelAor << 8) | (NT_SUCCESS(st) ? 0 : 1));
     return st;

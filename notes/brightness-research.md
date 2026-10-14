@@ -396,3 +396,12 @@ Serialise all senders with one FAST_MUTEX/KEVENT in the adapter (brightness DDI 
 - MwPanelStop (MwDisplayStop): restores A0, unmaps. Known limit: a driver restart without a reboot reads the current
   (possibly dimmed) AOR as A0.
 - DSIM offsets/bits in MaliG76Wddm.h are marked D10 (exercised on the device), AOR 0x08D4 stays UNVERIFIED as luminance.
+- **KMD 1.0.42.1 on the device (16:5x boot):** PanelDeconGlobal 0x1011 -> PanelDeconGlobalAfter 0x1111 (PanelShadowMs 2),
+  PanelIdleOf2000 0x198 (408 = 20 % idle), BrightnessQuery 0x00580202 (v2 GUID, Version 2, Size 0x58) -> offered;
+  Windows applied its stored level at once: BrightnessLast 0x4b042f00 (75 % -> AOR 0x042F, ok).
+  WmiMonitorBrightness: CurrentBrightness 75, Active True (= Settings/quick-settings slider exists).
+  WmiSetBrightness 100 / 30 / 75 -> CurrentBrightness 100 / 30 / 75, BrightnessLast AOR 0x0014 / 0x0835 / 0x042F, all ok.
+- Review finding: PanelAor0 and PanelStep 0 are missing from the registry log - they are written while PanelLock (a
+  FAST_MUTEX, APC_LEVEL) is held and MwLog only writes at PASSIVE. Follow-up: log after the release (1.0.42.2).
+- KMD 1.0.42.2 (s10e-artifacts\kmd-42b, MaliG76Wddm.sys sha256 3CED0E5B...): every MwLog moved out of PanelLock
+  (PanelAor0, PanelStep, PanelRxUnexpected, PanelFail* after release). Built; not deployed yet. MILESTONES G14 added.

@@ -290,6 +290,7 @@ struct _MW_ADAPTER {
     BOOLEAN BrightnessOk;       /* sboot's AOR read back: the brightness interface is offered */
     UCHAR Brightness;           /* last level set (0-100) */
     USHORT PanelAor0, PanelAor; /* sboot's AOR, and the one now on the panel */
+    ULONG PanelRxUnexpected;    /* last DCS reply word that was not the expected short response (0 = none) */
     volatile LONG BrightnessQueries, BrightnessSets;
 };
 

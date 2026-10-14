@@ -735,3 +735,11 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
 - Same KMD 1.0.41.1 / UMD 0066 / d3dtri-6, runuser2 `d3dtri cube 60`: 1664 frames in 60 s = **27.7 fps**, 0 present
   failures (steady 28-29). Before the update, the clean flip rerun was 27.9 fps and the overlay cube ~28-30 -> within
   ~1 fps; the user saw a ~1-1.5 fps drop by eye. Not investigated further (user: does not matter for now).
+
+### 2026-10-14 ~17:20 - landscape: offline look at runs\rot2\dwm.txt (no device work)
+- After the switch (104609 "primary 1080x2280 rotation 2"), DWM's presents arrive as `present primary 0x80001540 -> dst
+  0x0: hr 0` (malikm_primary_present matched a kprim entry) but there is no "scanout: primary 0x80001540 is
+  GPU-presented", no "scanout present N rotated", no "does not fit" and no "frontbuffer" line - i.e. the present
+  went through with bgrx != NULL (present_copy, CPU) or from a path other than d3d10_pan_flush_frontbuffer.
+  Next: find which caller presents the new primary (Resource.cpp / DxgiFns.cpp paths), and why the rotated branch of
+  d3d10_scanout_present is never reached. Paused for brightness smoothing (user request).

@@ -279,3 +279,13 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   by tools/phone/kmd-deploy.sh (previous .sys fdd3adb3... kept as C:\S10eTmp\kmd-prev), ESP extra.cmd =
   extra-gpu-h3 (md5 e79ea5a7...), gpu\restride.flg set. h3l = baseline with #116 + KMD 36, ScanoutStride still absent
   (expect "RestrideStep" absent, ScanoutStride 0); its script arms 1088 for h3m.
+- 03:37 run h3l: firmware #116 boots to Windows (ping at 03:37:00, ~80 s after reboot as before).
+- **Mesa 0053 (H4b UMD half, build mali-umd-0053, maliumd a2c7f60f...):** shim malikm_scanout_bo (MW_ESCAPE_SCANOUT
+  once per process; only if GpuVa != 0 and Pitch % 64 == 0) registers the scan-out as a "fixed" BO (h WBO_FIXED:
+  never listed in submissions, never locked/mapped, GEM_CLOSE forgets it); d3d10_gdi imports it as a linear
+  B8G8R8A8 render target (resource_from_handle, PIPE_BIND_SCANOUT); d3d10_pan_flush_frontbuffer: a runtime primary
+  (d3d10_present_alloc) of the panel's size on a GPU screen -> pipe->blit into it, flush + fence_finish (<= 100 ms),
+  then malikm_primary_present(bgrx NULL): marks the kprim GPU-presented (MW_ESCAPE_SCANOUT hAllocation, once) and
+  calls pfnPresentCb with no copy. Anything else (no re-stride, other size, MSAA, failure) -> the old CPU path.
+  Requires KMD 1.0.35.1+ (escape 4) - KMD 36 is deployed. MALIKM_NO_SCANOUT=1 turns it off. tlog lines "scanout:".
+  KMD jobs end with JS_CONFIG_END_FLUSH_CLEAN_INVALIDATE (maligpu.c:439), so the frame is in DRAM for the DPU.

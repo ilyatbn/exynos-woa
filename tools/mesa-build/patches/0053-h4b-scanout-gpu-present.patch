@@ -1,0 +1,325 @@
+From 1adbdf73ced5cf7632aeea35f267b8197ac1e46f Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 03:41:21 +0300
+Subject: [PATCH] H4b: DXGI primaries of the panel's size are presented by a
+ GPU blit into the scan-out framebuffer (MW_ESCAPE_SCANOUT, imported as a
+ linear BGRA8 BO when its pitch is 64-byte aligned; KMD re-stride) - no
+ readback, no CPU copy; the runtime present only paces and the KMD skips its
+ blt for GPU-presented primaries (exynos-woa tools/mesa-build/patches/0053)
+
+---
+ include/win32-compat/malikm_drm.c        | 79 +++++++++++++++++++--
+ include/win32-compat/maliwddm_abi.h      | 17 ++++-
+ src/gallium/targets/d3d10umd/d3d10_gdi.c | 88 ++++++++++++++++++++++++
+ 3 files changed, 176 insertions(+), 8 deletions(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index a13eb7b..3f109b5 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -389,6 +389,7 @@ drmPrimeHandleToFD(int fd, uint32_t handle, uint32_t flags, int *prime_fd)
+  * passes this pseudo fd, which only these functions understand. */
+ #define MALIKM_PRIME_FD_BASE 0x40000000
+ static struct wbo *wddm_bo(uint32_t h);
++static uint32_t wbo_add(D3DKMT_HANDLE hAlloc, uint64_t size, uint64_t va, uint32_t runtime_owned);
+ 
+ int
+ drmPrimeFDToHandle(int fd, int prime_fd, uint32_t *handle)
+@@ -634,7 +635,11 @@ struct wbo {
+    uint32_t mark;    /* exynos-woa H2: the submission that last listed it */
+    uint32_t runtime_owned;   /* exynos-woa H3: a shared resource's allocation (created with the runtime resource
+                               * handle, or opened): the runtime frees it, GEM_CLOSE only forgets it */
++   uint32_t fixed;           /* exynos-woa H4b: not an allocation - memory the KMD keeps mapped in the GPU address
++                              * space for good (the scan-out framebuffer, h = WBO_FIXED): never listed in a
++                              * submission, never locked, GEM_CLOSE only forgets it */
+ };
++#define WBO_FIXED 0xffffffffu
+ static struct wbo *wbo;
+ static uint32_t wbo_cap;
+ static uint32_t wsubmit_gen, wlist_overflows;
+@@ -988,7 +993,7 @@ wddm_idle(void)
+  * Flags.Primary, so dxgkrnl ties them to the swap-chain resource; kept locked for CPU writes. */
+ static int present_copy(D3DKMT_HANDLE h, const void *bgrx, unsigned w, unsigned hgt);   /* below (G13 0024) */
+ #define MAX_KPRIM 16
+-static struct { D3DKMT_HANDLE h; void *cpu; unsigned w, hgt; } kprim[MAX_KPRIM];
++static struct { D3DKMT_HANDLE h; void *cpu; unsigned w, hgt, gpu; } kprim[MAX_KPRIM];   /* gpu: H4b, marked */
+ 
+ int
+ malikm_primary_create(void *hRTResource, unsigned vidpn, unsigned w, unsigned h, unsigned *hAlloc, int scanout)
+@@ -1202,7 +1207,22 @@ malikm_primary_present(unsigned hAlloc, unsigned hDst, const void *bgrx, unsigne
+          continue;
+       if (kprim[i].w != w || kprim[i].hgt != h)
+          goto out;
+-      if (present_copy(kprim[i].h, bgrx, w, h) != 0)
++      /* exynos-woa H4b: bgrx NULL = the frame is in the scan-out framebuffer already (the UMD blitted it there on
++       * the GPU): the allocation is marked GPU-presented once (MW_ESCAPE_SCANOUT), so the KMD's blt / flip latch
++       * skips its CPU copy, and only the present itself goes to the runtime (pacing, vsync, DWM's frame stats). */
++      if (bgrx == NULL) {
++         if (!kprim[i].gpu) {
++            MW_ESCAPE_SCANOUT_DATA so = {0};
++            so.Code = MW_ESCAPE_SCANOUT;
++            so.hAllocation = kprim[i].h;
++            if (w_escape(&so, sizeof(so)) < 0 || so.GpuVa == 0) {
++               malikm_tlog("scanout: marking primary 0x%x failed", kprim[i].h);
++               goto out;
++            }
++            kprim[i].gpu = 1;
++            malikm_tlog("scanout: primary 0x%x is GPU-presented", kprim[i].h);
++         }
++      } else if (present_copy(kprim[i].h, bgrx, w, h) != 0)
+          goto out;
+       DXGIDDICB_PRESENT p = {0};
+       p.hSrcAllocation = kprim[i].h;
+@@ -1221,6 +1241,48 @@ out:
+    return ret;
+ }
+ 
++/* exynos-woa H4b (notes/gpu-hw-path.md): the framebuffer the panel scans as a Panfrost BO, at the GPU address the
++ * KMD mapped it (MW_ESCAPE_SCANOUT), so the UMD can blit DWM's frame into it on the GPU instead of reading it back
++ * to the CPU (2/3 of each DWM frame, run h3j). Only for a linear 32-bit framebuffer whose pitch Panfrost can render
++ * to (64-byte aligned: the KMD's re-stride to 4352, Parameters\ScanoutStride). One BO per process, kept. 0 and
++ * *prime_fd for drmPrimeFDToHandle on success. */
++static uint32_t scanout_h;
++
++int
++malikm_scanout_bo(int *prime_fd, unsigned *w, unsigned *h, unsigned *pitch, unsigned *d3dfmt)
++{
++   int ret = -1;
++   static int tried;
++   static MW_ESCAPE_SCANOUT_DATA so;
++
++   AcquireSRWLockExclusive(&wddm_lock);
++   if (!ddi.on || wddm != 1)
++      goto out;
++   if (!tried) {
++      tried = 1;
++      so.Code = MW_ESCAPE_SCANOUT;
++      if (w_escape(&so, sizeof(so)) < 0)
++         so.GpuVa = 0;
++      malikm_tlog("scanout: va 0x%llx %ux%u pitch %u format %u", (unsigned long long)so.GpuVa, so.Width, so.Height,
++                  so.Pitch, so.Format);
++   }
++   if (so.GpuVa == 0 || so.Width == 0 || so.Height == 0 || (so.Pitch % 64) != 0 || so.Pitch < so.Width * 4)
++      goto out;
++   if (!scanout_h || !wddm_bo(scanout_h) || !wddm_bo(scanout_h)->fixed)
++      scanout_h = wbo_add(WBO_FIXED, (uint64_t)so.Pitch * so.Height, so.GpuVa, 0);
++   if (!scanout_h)
++      goto out;
++   *prime_fd = (int)(MALIKM_PRIME_FD_BASE | scanout_h);
++   *w = so.Width;
++   *h = so.Height;
++   *pitch = so.Pitch;
++   *d3dfmt = so.Format;
++   ret = 0;
++out:
++   ReleaseSRWLockExclusive(&wddm_lock);
++   return ret;
++}
++
+ /* G13 (exynos-woa, patch 0024): copy a frame into a present surface with the allocation locked only for the
+  * copy. The surfaces used to stay locked for their whole life, and dxgkrnl does not run a present whose source
+  * allocation is CPU-locked: run g27full, DWM's 4 Blt presents were accepted (ETW 184 status 0) but never reached
+@@ -1439,7 +1501,7 @@ wbo_add(D3DKMT_HANDLE hAlloc, uint64_t size, uint64_t va, uint32_t runtime_owned
+       h = wbo_cap + 1;
+       wbo_cap = cap;
+    }
+-   wbo[h - 1] = (struct wbo){hAlloc, size, va, NULL, 0, runtime_owned};
++   wbo[h - 1] = (struct wbo){hAlloc, size, va, NULL, 0, runtime_owned, hAlloc == WBO_FIXED};
+    return h;
+ }
+ 
+@@ -1615,7 +1677,7 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+          struct wbo *bo = wddm_bo(bos[i]);
+          if (!bo)
+             return -MK_ENOENT;
+-         if (bo->mark == gen)
++         if (bo->mark == gen || bo->fixed)
+             continue;
+          if (n == walloc_size)
+             return -MK_E2BIG;
+@@ -1627,7 +1689,7 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+       }
+       uint32_t skipped = 0;
+       for (uint32_t i = 0; i < wbo_cap; i++) {
+-         if (!wbo[i].h || wbo[i].mark == gen)
++         if (!wbo[i].h || wbo[i].mark == gen || wbo[i].fixed)
+             continue;
+          if (n == walloc_size) {
+             skipped++;
+@@ -1660,6 +1722,11 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+       struct wbo *bo = wddm_bo(((struct drm_gem_close *)b)->handle);
+       if (!bo)
+          return -MK_EINVAL;
++      if (bo->fixed) {
++         /* exynos-woa H4b: the scan-out framebuffer - the KMD keeps it mapped */
++         memset(bo, 0, sizeof(*bo));
++         return 0;
++      }
+       if (bo->cpu)
+          w_unlock(bo->h);
+       if (bo->runtime_owned) {
+@@ -1731,7 +1798,7 @@ wddm_ioctl(DWORD code, void *buf, DWORD len)
+       MALIKM_MAP *m = (MALIKM_MAP *)(h + 1);
+       struct wbo *bo = wddm_bo(MALIKM_MMAP_HANDLE(m->Offset));
+       h->Result = -MK_EINVAL;
+-      if (bo && m->Size <= bo->size) {
++      if (bo && !bo->fixed && m->Size <= bo->size) {
+          if (!bo->cpu)
+             bo->cpu = w_lock(bo->h);
+          if (bo->cpu) {
+diff --git a/include/win32-compat/maliwddm_abi.h b/include/win32-compat/maliwddm_abi.h
+index 49df8ff..7f0831c 100644
+--- a/include/win32-compat/maliwddm_abi.h
++++ b/include/win32-compat/maliwddm_abi.h
+@@ -53,6 +53,7 @@ typedef struct _MW_COMMAND {
+ #define MW_ESCAPE_ALLOC_INFO    1
+ #define MW_ESCAPE_GPU_INFO      2
+ #define MW_ESCAPE_STATS         3
++#define MW_ESCAPE_SCANOUT       4       /* exynos-woa H4a: the scan-out framebuffer in the GPU's address space */
+ 
+ typedef struct _MW_ESCAPE_ALLOC_INFO_DATA {
+     mw_u32 Code;                        /* MW_ESCAPE_ALLOC_INFO */
+@@ -61,6 +62,17 @@ typedef struct _MW_ESCAPE_ALLOC_INFO_DATA {
+     mw_u64 Size;                        /* out */
+ } MW_ESCAPE_ALLOC_INFO_DATA;
+ 
++/* exynos-woa H4a: the framebuffer the panel scans, mapped at GpuVa (0 = not mapped: no GPU half / no framebuffer),
++ * linear, Format a D3DDDIFORMAT. hAllocation != 0: from now on that allocation (a primary the UMD presents from)
++ * is "GPU-presented" - the UMD has copied its frame into the framebuffer with the GPU already, so the KMD's CPU
++ * blt / latch copy of it to the framebuffer is skipped. */
++typedef struct _MW_ESCAPE_SCANOUT_DATA {
++    mw_u32 Code;                        /* MW_ESCAPE_SCANOUT */
++    mw_u32 hAllocation;                 /* in: D3DKMT allocation to mark GPU-presented, or 0 */
++    mw_u64 GpuVa;                       /* out */
++    mw_u32 Width, Height, Pitch, Format;    /* out */
++} MW_ESCAPE_SCANOUT_DATA;
++
+ /* GET_PARAM's values for the UMD, by Panfrost parameter number. */
+ #define MW_GPU_PARAMS           45
+ typedef struct _MW_ESCAPE_GPU_INFO_DATA {
+@@ -90,6 +102,7 @@ typedef struct _MW_ESCAPE_STATS_DATA {
+      * patched DMA buffer, first entry. */
+     mw_u32 Patches, PatchAllocations, PatchPatchLocations, PatchSegment0;
+     mw_u64 PatchAddress0;
+-    /* Presents carried out on the CPU, and skipped (no pages known). */
+-    mw_u32 PresentBlts, PresentFills, PresentSkips, Reserved0;
++    /* Presents carried out on the CPU, and skipped (no pages known); PresentGpu (was Reserved0): presents from a
++     * GPU-presented allocation, whose CPU copy was skipped (exynos-woa H4a). */
++    mw_u32 PresentBlts, PresentFills, PresentSkips, PresentGpu;
+ } MW_ESCAPE_STATS_DATA;
+diff --git a/src/gallium/targets/d3d10umd/d3d10_gdi.c b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+index 25e7b85..19541be 100644
+--- a/src/gallium/targets/d3d10umd/d3d10_gdi.c
++++ b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+@@ -44,6 +44,8 @@
+ #include "util/xmlconfig.h"
+ #include "util/u_inlines.h"
+ #include "util/format/u_format.h"
++#include "frontend/winsys_handle.h"   /* exynos-woa H4b: the scan-out BO import */
++#include "drm-uapi/drm_fourcc.h"
+ 
+ /* Panfrost reads its driconf options from the screen config; the pipe-loader
+  * normally builds that, d3d10umd has none. */
+@@ -114,6 +116,88 @@ extern __declspec(thread) unsigned d3d10_present_alloc;   /* frontend DxgiFns.cp
+ extern __declspec(thread) unsigned d3d10_present_dst;     /* frontend DxgiFns.cpp (G13 0025) */
+ int malikm_primary_present(unsigned hAlloc, unsigned hDst, const void *bgrx, unsigned w, unsigned h,
+                            void *dxgi_context);
++int malikm_scanout_bo(int *prime_fd, unsigned *w, unsigned *h, unsigned *pitch, unsigned *d3dfmt);
++
++/* exynos-woa H4b (notes/gpu-hw-path.md): the scan-out framebuffer imported as a linear B8G8R8A8 render target of
++ * this screen (malikm_scanout_bo), NULL if the KMD offers none Panfrost can render to (e.g. the GOP's 4320-byte
++ * pitch without the KMD's re-stride). A DXGI primary of the panel's size is then presented by a GPU blit into it
++ * - no readback, no CPU copy - and the runtime present only paces (malikm_primary_present with no pixels). */
++static struct pipe_resource *d3d10_scanout;
++static struct pipe_screen *d3d10_scanout_screen;
++static int d3d10_scanout_tried;
++
++static struct pipe_resource *
++d3d10_get_scanout(struct pipe_screen *screen)
++{
++   if (d3d10_scanout_screen == screen)
++      return d3d10_scanout;
++   if (d3d10_scanout_tried)
++      return NULL;   /* one screen only (DWM has one device) */
++   d3d10_scanout_tried = 1;
++   int fd;
++   unsigned w, h, pitch, fmt;
++   if (debug_get_bool_option("MALIKM_NO_SCANOUT", false) ||
++       malikm_scanout_bo(&fd, &w, &h, &pitch, &fmt) != 0)
++      return NULL;
++   struct pipe_resource templat;
++   memset(&templat, 0, sizeof templat);
++   templat.target = PIPE_TEXTURE_2D;
++   templat.format = PIPE_FORMAT_B8G8R8A8_UNORM;   /* GOP PixelBlueGreenRedReserved8, as the KMD's CPU blt copies */
++   templat.width0 = w;
++   templat.height0 = h;
++   templat.depth0 = 1;
++   templat.array_size = 1;
++   templat.bind = PIPE_BIND_RENDER_TARGET | PIPE_BIND_SCANOUT | PIPE_BIND_SHARED;
++   struct winsys_handle wh;
++   memset(&wh, 0, sizeof wh);
++   wh.type = WINSYS_HANDLE_TYPE_FD;
++   wh.handle = (HANDLE)(intptr_t)fd;
++   wh.stride = pitch;
++   wh.modifier = DRM_FORMAT_MOD_LINEAR;
++   d3d10_scanout = screen->resource_from_handle(screen, &templat, &wh, PIPE_HANDLE_USAGE_FRAMEBUFFER_WRITE);
++   d3d10_scanout_screen = d3d10_scanout ? screen : NULL;
++   malikm_tlog("scanout: %ux%u pitch %u d3dfmt %u imported: %s", w, h, pitch, fmt, d3d10_scanout ? "yes" : "no");
++   return d3d10_scanout;
++}
++
++/* The GPU present: the whole frame blitted into the scan-out, waited for (at most 100 ms) so that the panel shows
++ * it when the runtime's present returns, then the present without pixels. 0 if done. */
++static int
++d3d10_scanout_present(struct pipe_screen *screen, struct pipe_context *pipe, struct pipe_resource *res,
++                      void *context_private)
++{
++   struct pipe_resource *so = d3d10_get_scanout(screen);
++   if (!so || res->width0 != so->width0 || res->height0 != so->height0 || res->nr_samples > 1 ||
++       !util_format_is_rgba8_variant(util_format_description(res->format)))
++      return -1;
++   DWORD t0 = GetTickCount();
++   struct pipe_blit_info b;
++   memset(&b, 0, sizeof b);
++   b.src.resource = res;
++   b.src.format = res->format;
++   b.src.box.width = res->width0;
++   b.src.box.height = res->height0;
++   b.src.box.depth = 1;
++   b.dst.resource = so;
++   b.dst.format = so->format;
++   b.dst.box = b.src.box;
++   b.mask = PIPE_MASK_RGBA;
++   b.filter = PIPE_TEX_FILTER_NEAREST;
++   pipe->blit(pipe, &b);
++   struct pipe_fence_handle *fence = NULL;
++   pipe->flush(pipe, &fence, 0);
++   if (fence) {
++      screen->fence_finish(screen, NULL, fence, 100 * 1000 * 1000ull);
++      screen->fence_reference(screen, &fence, NULL);
++   }
++   DWORD t1 = GetTickCount();
++   int r = malikm_primary_present(d3d10_present_alloc, d3d10_present_dst, NULL, res->width0, res->height0,
++                                  context_private);
++   static unsigned n;
++   if (n++ < 8 || (n % 300) == 0 || r != 0)
++      malikm_tlog("scanout present %u: blit+wait %lu ms, present %d", n, (unsigned long)(t1 - t0), r);
++   return r;
++}
+ 
+ /* G13 (exynos-woa, notes/gpu-full-adapter-hang.md): the same present also serves the software screen on the
+  * hardware runtime. softpipe's own flush_frontbuffer draws with GDI into a window (the sw winsys), which never
+@@ -134,6 +218,10 @@ d3d10_pan_flush_frontbuffer(struct pipe_screen *screen, struct pipe_context *pip
+ 
+    if (!pipe || !desc || desc->block.bits != 32)
+       return;
++   /* H4b: a runtime primary on a GPU screen goes to the scan-out by a GPU blit when it can. */
++   if (d3d10_present_alloc && !d3d10_sw_flush_frontbuffer &&
++       d3d10_scanout_present(screen, pipe, res, context_private) == 0)
++      return;
+    DWORD t0 = GetTickCount();
+    const uint8_t *map = pipe_texture_map(pipe, res, level, layer, PIPE_MAP_READ,
+                                          0, 0, w, h, &xfer);
+-- 
+2.40.1.windows.1
+

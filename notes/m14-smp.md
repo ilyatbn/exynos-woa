@@ -223,3 +223,10 @@ No device access in this task; build-verified only (Guided, not Ready).
   KERNEL32.dll (byte scan), a 15 s run prints "Debugger Version 10.0.26100.6584"; build-kdrun.cmd no longer links
   dbgeng.lib. Overclaim in the message: "never connected" is not proven to be the inbox engine's fault - the Kits
   kd.exe also failed to reconnect to that same (possibly stuck) target. Closes only on the next target boot.
+- Commit f9caaf3 (kdrun initial-break commands file). REVIEW: the code comment "KDNET connects in phase-0 kernel init,
+  before the secondary processors are started" is INFERRED (m17: connection at uptime 0:00:04 with 1 processor),
+  not verified - run kd6b checks it (is the initial break reported with 1 processor?). The commit also carried the
+  2b0ec94 review note (notes only).
+- "No Wi-Fi in the KD boot" (user, 21:50): not KD - the phone's WLAN driver scans for S10eTest (kd6 kd-raw), the PC's
+  Mobile Hotspot, which was Off after the PC reboot. User moves the phone to home Wi-Fi: phonestate needs
+  WINIP=<arp lookup of a8-db-03-06-3c-ef>. kdrun kd6b (init break + twrp after 240 s) waiting for the next boot.

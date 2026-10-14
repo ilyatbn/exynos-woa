@@ -183,3 +183,16 @@ No device access in this task; build-verified only (Guided, not Ready).
   Built; compiled MADT decoded: uid 0-3 eff 0, uid 4-5 eff 1, uid 6-7 eff 2. Device effect UNVERIFIED (expect
   foreground threads on CPU 4/5; check Task Manager per-core load under a single-threaded load).
 - No DVFS from Windows (no PEP/_CPC): clocks are fixed by UEFI (LITTLE 1.456 GHz, MID 1.794 GHz, notes/m15-perf.md).
+
+## M4 big cores under KD (2026-10-14 ~21:05, user: "get the 2 last cpu cores running ... debug what you need")
+- Known (notes/cpu-ram-plan-20261012.md): CPU_ON of both M4s works (they reach the park stub); offering either to
+  Windows kills it before drivers load (runs 17/34). Linux: M4 MIDR 0x531f0030 lacks LRCPC (ISAR1[23:20] 0 vs 1) and
+  16-bit VMID (MMFR1 VMIDBits 0 vs 2, HPDS 1 vs 2) relative to the A55 boot CPU. Never looked at under KD.
+- Host tool firmware/tools/kdrun (dbgeng, x64): attaches net:port=50005,key=1.2.3.4, logs, diagnoses every break
+  (!analyze -v on bugchecks, !running -it, !prcb per CPU, k, lm), timed break-in for hangs, "twrp" mode resets the
+  phone into TWRP afterwards (S10eDiag hard-reset writes via !ed [uc]).
+- Phone BCD: bcdedit /dbgsettings net hostip:169.254.255.255 port:50005 key:1.2.3.4, busparams 0, dhcp No, /debug on
+  (set from Windows over SSH; was debug No, debugtype Local). Battery 35 %.
+- Image s10e-artifacts/boot-m4kd1.img b4fe9ac8... = HEAD + build-only WINDOWS_WATCHDOG 0, GPU_POWER_ON 1,
+  USB_KD_DEVICE 1 (DWC3 device role -> KDNET over USB EEM, no USB host), SMP_PARK_MASK 0xFE (SAFE mask 0x3E: the M4
+  CPU_ONs run behind the 0x65 guard).

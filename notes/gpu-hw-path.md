@@ -616,3 +616,9 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   denied; the rename had already happened -> restored at once, verified a7a5e971 = 37 back in place). Done as SYSTEM
   via a one-shot scheduled task (C:\S10eTmp\kmdswap.cmd: copy as .new, rename .sys -> .37, .new -> .sys):
   DriverStore MaliG76Wddm.sys = a2cc2dc0. KMD 37 kept as MaliG76Wddm.37 there and C:\S10eTmp\kmd-prev\MaliG76Wddm-37.sys.
+- **12:05 reboot test (KMD 1.0.38.1 + UMD 0064, both live-swapped, reboot via `ssh s10e shutdown /r`):** Restride log
+  ShadowMs 4, SrcAfter 0x08E80440, **RestrideLatched1 0x08E80440, RestrideLatchedBy 1** (the GLOBAL|WIN0-5 request
+  latches; IDMA force not needed -> poke 2 was the live fix). peek 0x19071810 = 08e80440. Framebuffer dump
+  (runs\fb64.png, fb64-taskbar.png): taskbar complete - clock "8:24 AM 10/14/2026", WiFi/volume/battery/keyboard
+  glyphs, notification bell, ^ - all drawn (DWM + explorer on 0064). Panel itself not seen (user away); latched
+  copy = 1088 is the evidence.

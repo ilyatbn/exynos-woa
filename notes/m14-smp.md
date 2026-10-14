@@ -373,3 +373,8 @@ No device access in this task; build-verified only (Guided, not Ready).
   llc_enable 1. TouchPower (BEYOND0LTE_SCI_LLC_INIT 1, progress guard 0x67) at ReadyToBoot on ACPM ch 10: GET region,
   GET en, SET region LIT_MID_ALL (0x1042), SET LLC_EN 1 (0x1043), GET both again - logged. Image boot-m4llc1.img
   (KD flags, PARK 0xFE, EFF_BIG 2 = the real config, CNTFRQ logging).
+- Run m4llc1 (boot-m4llc1 4c7d52c7, LLC region LIT_MID_ALL + LLC_EN at ReadyToBoot): KD connected 23:29:44 at uptime
+  0:00:03.9 ("Initial Breakpoint requested") but the initial break NEVER arrived and no later break-in landed (no
+  "HOST cannot" either - the link stayed up, the kernel never answered). Phone dark 20 min, no self-reset (KD image
+  = watchdog off). => the LLC sequence as sent hangs (or deadlocks) the kernel in phase 0. UEFILOG replies needed
+  (default region/enable values, SET errors). Needs a force restart (user).

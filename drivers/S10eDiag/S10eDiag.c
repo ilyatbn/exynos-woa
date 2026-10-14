@@ -23,6 +23,16 @@
 #define S10E_PMU_INFORM3           0x080CUL        // EXYNOS_PMU_INFORM3_OFFSET
 #define S10E_PMU_SWRESET           0x3A00UL        // EXYNOS_PMU_SWRESET_OFFSET
 #define S10E_PMU_SWRESET_VALUE     0x2UL           // EXYNOS_PMU_SWRESET_VALUE
+// DSIM / DECON snapshot at load (notes/brightness-research.md D8): where does the stuck FRM_PROCESSING state start?
+#define S10E_DSIM_PHYSICAL_BASE    0x19080000ULL   // EXYNOS_DSIM_BASE (VERIFIED)
+#define S10E_DECON_PHYSICAL_BASE   0x19030000ULL   // EXYNOS_DECON_F_BASE (VERIFIED)
+#define S10E_DSIM_LINK_STATUS1     0x0CUL          // offsets: Samsung cal_9820 regs-dsim.h, UNVERIFIED (read-only use)
+#define S10E_DSIM_MIPI_STATUS      0x18UL
+#define S10E_DSIM_INTSRC           0x50UL
+#define S10E_DSIM_FIFOCTRL         0x68UL
+#define S10E_DSIM_CMD_STATUS       0x8CUL
+#define S10E_DSIM_FRM_PROCESSING   (1UL << 29)
+#define S10E_DECON_HW_SW_TRIG      0x70UL          // regs-decon.h, UNVERIFIED (read-only use)
 #define S10E_REBOOT_RECOVERY       0x12345674UL    // EXYNOS_REBOOT_REASON_BASE | EXYNOS_REBOOT_MODE_RECOVERY
 
 DRIVER_INITIALIZE DriverEntry;
@@ -132,6 +142,53 @@ S10eMarkHex(const CHAR *Prefix, ULONGLONG Value)
 }
 
 static VOID S10eHardResetToRecovery(VOID);
+
+// Read-only: logs the display link state as UEFI left it, before MaliG76Wddm starts (it is a PnP display
+// driver, S10eDiag is SYSTEM start; ordering is not guaranteed - the DECON trigger value tells which ran).
+static VOID
+S10eMarkDisplayState(VOID)
+{
+    PHYSICAL_ADDRESS Physical;
+    volatile UCHAR *Dsim;
+    volatile UCHAR *Decon;
+    ULONG Index;
+    ULONG Busy = 0;
+    ULONG LineFirst;
+    ULONG LineMoved = 0;
+
+    Physical.QuadPart = (LONGLONG)S10E_DSIM_PHYSICAL_BASE;
+    Dsim = (volatile UCHAR *)MmMapIoSpaceEx(Physical, PAGE_SIZE, PAGE_READWRITE | PAGE_NOCACHE);
+    Physical.QuadPart = (LONGLONG)S10E_DECON_PHYSICAL_BASE;
+    Decon = (volatile UCHAR *)MmMapIoSpaceEx(Physical, PAGE_SIZE, PAGE_READWRITE | PAGE_NOCACHE);
+    if ((Dsim == NULL) || (Decon == NULL)) {
+        S10eMarkRaw("dsim map failed", 15);
+    } else {
+        S10eMarkHex("DECON TRIG", READ_REGISTER_ULONG((volatile ULONG *)(Decon + S10E_DECON_HW_SW_TRIG)));
+        S10eMarkHex("DSIM MIPI", READ_REGISTER_ULONG((volatile ULONG *)(Dsim + S10E_DSIM_MIPI_STATUS)));
+        S10eMarkHex("DSIM INTSRC", READ_REGISTER_ULONG((volatile ULONG *)(Dsim + S10E_DSIM_INTSRC)));
+        S10eMarkHex("DSIM FIFO", READ_REGISTER_ULONG((volatile ULONG *)(Dsim + S10E_DSIM_FIFOCTRL)));
+        S10eMarkHex("DSIM CMDST", READ_REGISTER_ULONG((volatile ULONG *)(Dsim + S10E_DSIM_CMD_STATUS)));
+        LineFirst = READ_REGISTER_ULONG((volatile ULONG *)(Dsim + S10E_DSIM_LINK_STATUS1)) & 0x1FFF;
+        // ~50 ms of samples (10 us apart): FRM_PROCESSING count out of 5000, and whether the line counter moves.
+        for (Index = 0; Index < 5000; Index++) {
+            if (READ_REGISTER_ULONG((volatile ULONG *)(Dsim + S10E_DSIM_MIPI_STATUS)) & S10E_DSIM_FRM_PROCESSING) {
+                Busy++;
+            }
+            if ((READ_REGISTER_ULONG((volatile ULONG *)(Dsim + S10E_DSIM_LINK_STATUS1)) & 0x1FFF) != LineFirst) {
+                LineMoved++;
+            }
+            KeStallExecutionProcessor(10);
+        }
+        S10eMarkHex("DSIM BUSY/5000", Busy);
+        S10eMarkHex("DSIM LINEMOVED", LineMoved);
+    }
+    if (Dsim != NULL) {
+        MmUnmapIoSpace((PVOID)Dsim, PAGE_SIZE);
+    }
+    if (Decon != NULL) {
+        MmUnmapIoSpace((PVOID)Decon, PAGE_SIZE);
+    }
+}
 
 static VOID
 S10eBugcheckCallback(PVOID Buffer, ULONG Length)
@@ -438,6 +495,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
         }
         S10eMark("S10eDiag loaded", 15);
         S10eMarkHex("INFORM3", (gPmu != NULL) ? READ_REGISTER_ULONG((volatile ULONG *)(gPmu + S10E_PMU_INFORM3)) : 0);
+        S10eMarkDisplayState();
     }
     gAuxKlibReady = NT_SUCCESS(AuxKlibInitialize());
     KeInitializeCallbackRecord(&gBugcheckRecord);

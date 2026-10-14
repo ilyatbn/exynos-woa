@@ -730,3 +730,8 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   - needs the tlog around the switch; (b) rotation = transform DWM's rendering into rotated primaries (viewport /
   scissor / copy coordinates swapped in the UMD for resources with rotation 2/4) or render to an un-rotated shadow and
   rotate at present.
+
+### 2026-10-14 ~16:05 - cube after Windows update KB5068865 (22631.6199)
+- Same KMD 1.0.41.1 / UMD 0066 / d3dtri-6, runuser2 `d3dtri cube 60`: 1664 frames in 60 s = **27.7 fps**, 0 present
+  failures (steady 28-29). Before the update, the clean flip rerun was 27.9 fps and the overlay cube ~28-30 -> within
+  ~1 fps; the user saw a ~1-1.5 fps drop by eye. Not investigated further (user: does not matter for now).

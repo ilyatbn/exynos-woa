@@ -488,3 +488,4 @@ No device access in this task; build-verified only (Guided, not Ready).
   Bare-metal M4 checks all pass: coherency, DVM broadcasts, GIC if 6/7, CNTFRQ, CTR/DCZID. Only Windows ON the M4s
   dies (~40-75 s, page-heavy kernel work at the last snapshots). Next: offer ONE M4 (gicc6 only) - per-core vs
   cluster-level.
+- Run m4one1 (boot-m4one1 77225b39: PARK 0x7E = A55x4 + A75x2 + M4#0 offered, nogpu/noaudio, stay.flg): 'MP (7 procs)'; alive at every break-in through 01:30:10 (~+140 s after the processor start) - past every two-M4 death (max +75 s). Still running.

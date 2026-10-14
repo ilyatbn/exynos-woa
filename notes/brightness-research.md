@@ -371,3 +371,11 @@ Serialise all senders with one FAST_MUTEX/KEVENT in the adapter (brightness DDI 
   The webcam cannot see the phone (it faces the room), so the visual check is the user's; panel left at 04 74.
   Packet recipe that works: PAYLOAD = bytes LE (B1 hi lo -> 0x00<lo><hi>B1), PKTHDR 0x339 (DT 0x39, WC 3);
   F7 03 as DT 0x39 WC 2. Reads: PKTHDR 0x0n37 (max return n), then 0x0100<reg>06; RXFIFO word = DT | d0<<8 | d1<<16.
+- DECON in command mode, GPU path check: `d3dtri cube 10` = **2268 frames / 10 s = 226.8 fps, 0 present failures**
+  (27.7 fps in video mode an hour earlier, same KMD 41 / UMD 0066). Runs with -Wait 60 were cut by runuser2 (startup is
+  slow), not hung. FRAME_COUNT keeps counting; MIPI idle ~23 %.
+- Self-check of the screen (user's method: screenshot, launch, screenshot): the first two dumps were black = the blank
+  screen saver (scrnsave.scr in session 1); after taskkill scrnsave.scr: dump, `start notepad` via runuser2, dump ->
+  the dumps differ, fbB.png = desktop with the new Notepad window. (IDMA latched base 0xCA000000, pitch 4352.)
+- Not yet known: why video mode capped presents at ~28 fps (the KMD/UMD present path waits on something that only
+  completes per DECON frame in one mode or the other) [open].

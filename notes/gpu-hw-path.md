@@ -533,3 +533,20 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   Binary diff vs #116 not informative (compressed FV). Lesson: the image recipe for #116 lives only in
   m12-wifi-wificx.md; any rebuild must list every build-only define - recorded in HANDOFF next.
 - WiFi gap in session 9: the user had joined the house WiFi; back on the hotspot at 11:23.
+
+### 2026-10-14 ~11:30 - first human look at a re-strided panel: SHEARED (H4b never worked on the panel)
+- Boot with boot116-gpuon-nowdt (GPU0 present, KMD 1.0.37.1, ScanoutStride 1088): the user's photos show the desktop
+  sheared into diagonal bands (~17 wraps over the height = 32 B per line = the panel reading 4320-byte lines while
+  the buffer is 4352). Every earlier H4b "success" was register readback (SRC_SIZE 0x08E80440, shadow request
+  cleared in ~6-10 ms) and dumpmmio of the buffer - the webcam never resolved the panel. Correction to the H4b /
+  h3x claims: the scan-out CONTENT was right, what the panel showed was never checked.
+- Live (via the new SSH, notes/phone-ssh.md): KMD log Restrided 1, RestrideShadowMs 6, SrcAfter 0x08E80440;
+  peek G0 0x19071000.. = 00000004 00010401 02000000 ff000000 / 08e80440 0 08e80438 0 / base ca000000; DECON +0x60 = 0,
+  +0x70 = 0x3061. dumpmmio of the buffer at pitch 4352 = a correct desktop (runs\fbnow.png).
+- Poke 1: DECON SHADOW_REG_UPDATE_REQ (+0x60) = 0x80000000 (GLOBAL) -> user: no change.
+- Poke 2: +0x60 = 0x8000003F (GLOBAL + WIN0-5) and, ~1 min later, poke 3: DPU_DMA G0 IDMA_ENABLE (0x19071000) =
+  0x14 (bit 4 SFR_UPDATE_FORCE on top of the read value 0x04; reads back 0x04 = self-clearing) -> user: "now it
+  worked". Which of 2/3 did it is not yet separated (asked the user; else separate on the next boot).
+- So the IDMA SRC_SIZE shadow is NOT committed by DECON's GLOBAL request; the readback shows the shadow (pending)
+  value, not the active one. KMD fix: after SRC_SIZE, the window request and/or IDMA SFR_UPDATE_FORCE, and a check
+  that cannot be fooled by the shadow readback (UNVERIFIED which register shows the active value).

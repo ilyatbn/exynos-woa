@@ -212,3 +212,10 @@ No device access in this task; build-verified only (Guided, not Ready).
   at a time, never kd.exe with a piped stdout left orphaned; kdrun.exe (dbgeng, file log) only, killed at the end.
 - 2026-10-14 21:45 session restart: phone in Windows (kd6, 6 cores, KD on; Wi-Fi not up per user), host shows the
   "Windows KDNET USB-EEM Network Adapter" Up (Ethernet 6).
+- kdrun.exe validation (21:42, live kd6 Windows): 150 s, never saw the target. Its banner reads "Debugger Version
+  10.0.26100.1" = the inbox C:\Windows\System32\dbgeng.dll (exe dir, then System32, before the cwd in the DLL search
+  order), not the Kits 10.0.26100.6584 one that kd.exe uses and that connected in kd6. => m4kd1's "KD never attached"
+  is UNPROVEN either way: kdrun may simply never have connected. Fix: load the Kits dbgeng.dll by full path.
+  Kits kd.exe (60 s, file log only) also did not reconnect to the already-running target ("Waiting to reconnect...")
+  - the target may be stuck after the orphaned kd.exe (user: Wi-Fi not working in this Windows session, possibly the
+  WLAN driver's DbgPrint stuck on the dead debugger - INFERRED). A target reboot is needed to re-test.

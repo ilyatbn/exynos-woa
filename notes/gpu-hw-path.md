@@ -267,3 +267,10 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   decon attaches, and keeps s3cfb.bootloaderfb=0xca000000 mapped). Our DPU address 0xCA000000 in IN_BASE_ADDR_Y is
   the PA as given by sboot -> sysmmu bypass assumed at hand-off (UNVERIFIED; a fault would show as a frozen or black
   panel, recoverable by disarming).
+- **KMD 1.0.36.1 (H4b, KMD re-stride; s10e-artifacts\mali-kmd-36, sys sha256 95c188d8...):** Parameters\ScanoutStride
+  (default 0); = 1088 and FbMatchesGop -> MwRestride (display.c): refuses if [0xCA000000, +4352*2280) overlaps any
+  MmGetPhysicalMemoryRanges RAM (firmware #115, RestrideStep 5); maps G0 and DECON pages, requires SRC = IMG =
+  2280<<16|1080 and base 0xCA000000 (else step 2); remaps the fb at 9922560 B, moves rows bottom-up, zeroes the
+  32 B tails, writes SRC_SIZE 2280<<16|1088, sets DECON SHADOW_REG_UPDATE_REQ bit 31 and polls up to 200 ms for it to
+  clear. Cleared -> Fb.Pitch 4352 (step 0). Not cleared -> SRC_SIZE and rows put back (step 4). Logs
+  RestrideSrcBefore/Img/Base/ShadowReq/TrigControl/ShadowMs/ShadowAfter/SrcAfter. Not validated on the device.

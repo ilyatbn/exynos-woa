@@ -19,6 +19,7 @@ ULONG MwSegmentCpuVisible = 1;
 ULONG MwModeRefreshExact = 1;
 ULONG MwRefresh601 = 1;
 ULONG MwFlipMmio = 1;
+ULONG MwScanoutStride = 0;
 
 /* ---- trace ---- */
 
@@ -682,6 +683,7 @@ static MW_MODE ReadMode(PUNICODE_STRING RegistryPath, ULONG *PramTrace)
     MwModeRefreshExact = ReadParameter(params, L"ModeRefreshExact", 1) != 0;
     MwRefresh601 = ReadParameter(params, L"Refresh601", 1) != 0;
     MwFlipMmio = ReadParameter(params, L"FlipMmio", 1) != 0;
+    MwScanoutStride = ReadParameter(params, L"ScanoutStride", 0);
     if (params != NULL)
         ZwClose(params);
     if (svc != NULL)

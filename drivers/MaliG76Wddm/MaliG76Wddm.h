@@ -49,6 +49,21 @@
 #define MW_GOP_HEIGHT           2280u           /* EXYNOS_FB_HEIGHT (VERIFIED) */
 #define MW_GOP_PITCH            (1080u * 4u)    /* EXYNOS_FB_STRIDE_PIXELS * 4 (GOP PixelBlueGreenRedReserved8) */
 
+/* ---- H4b: re-striding the scan-out to a Panfrost-aligned line (notes/gpu-hw-path.md) ----
+ * Panfrost renders linear surfaces only with a 64-byte-aligned pitch; the GOP's 4320 is not. With
+ * Parameters\ScanoutStride = 1088 (pixels) the KMD widens the DPU's source buffer to 1088 px = 4352 B per line
+ * (IMG_SIZE, the visible 1080 px, unchanged), moves the rows and reports Fb.Pitch 4352. Any other value = off. */
+#define MW_FB_RESERVED          0x00A00000u     /* EXYNOS_FB_RESERVED_SIZE (firmware #116; #115 reserves 0x965000) */
+#define MW_DPU_G0_PA            0x19071000ULL   /* EXYNOS_DPU_DMA_G0_BASE (VERIFIED: DT + h3k peek) */
+#define MW_IDMA_SRC_SIZE        0x10u           /* WIDTH 15:0, HEIGHT 29:16 = the full buffer (Samsung regs-dpp.h) */
+#define MW_IDMA_IMG_SIZE        0x18u           /* the cropped image */
+#define MW_IDMA_IN_BASE_ADDR_Y  0x40u
+#define MW_DECON_PA             0x19030000ULL   /* EXYNOS_DECON_F_BASE (VERIFIED) */
+#define MW_DECON_SHADOW_REQ     0x60u           /* SHADOW_REG_UPDATE_REQ (Samsung cal_9820/regs-decon.h; UNVERIFIED) */
+#define MW_DECON_SHADOW_GLOBAL  0x80000000u     /* SHADOW_REG_UPDATE_REQ_GLOBAL bit 31 (UNVERIFIED) */
+#define MW_DECON_TRIG_CONTROL   0x70u           /* HW_SW_TRIG_CONTROL, logged only */
+#define MW_RESTRIDE_PIXELS      1088u           /* 1088 * 4 = 4352 = 68 * 64 */
+
 /* ---- modes ---- */
 typedef enum _MW_MODE {
     MwModeDisplayOnly = 0,      /* KMDOD */
@@ -60,6 +75,8 @@ extern MW_MODE MwMode;          /* set once in DriverEntry */
 /* Parameters\SoftVsync (default 1): the full adapter reports a 60 Hz software vsync while dxgkrnl has it enabled
  * (command.c); 0 = the original's behaviour (ControlInterrupt says yes, no vsync is ever reported). */
 extern ULONG MwSoftVsync;
+/* Parameters\ScanoutStride (default 0 = off): see MW_RESTRIDE_PIXELS (display.c MwRestride). */
+extern ULONG MwScanoutStride;
 /* Parameters\FlipBlt (default 1): a Flip present is carried out as a CPU copy of the new primary into the GOP
  * framebuffer (command.c); 0 = the original's behaviour (flips are dropped, the panel never shows them). */
 extern ULONG MwFlipBlt;

@@ -90,6 +90,110 @@ void MwModeRefresh(MW_ADAPTER *A, D3DDDI_RATIONAL *Refresh)
 
 /* ---- the firmware framebuffer ---- */
 
+/* TRUE if [Pa, Pa + Size) overlaps memory Windows owns as RAM: on firmware #115 the GOP reservation ends at
+ * 0xCA965000 and the pages behind it are RAM, so the wider layout must not be used there. */
+static BOOLEAN RangeIsRam(ULONG64 Pa, SIZE_T Size)
+{
+    PPHYSICAL_MEMORY_RANGE r = MmGetPhysicalMemoryRanges(), i;
+    BOOLEAN ram = TRUE;     /* unknown = refuse */
+
+    if (r == NULL)
+        return TRUE;
+    ram = FALSE;
+    for (i = r; i->BaseAddress.QuadPart != 0 || i->NumberOfBytes.QuadPart != 0; i++)
+        if ((ULONG64)i->BaseAddress.QuadPart < Pa + Size &&
+            Pa < (ULONG64)i->BaseAddress.QuadPart + (ULONG64)i->NumberOfBytes.QuadPart)
+            ram = TRUE;
+    ExFreePool(r);
+    return ram;
+}
+
+/* H4b: widen the DPU's source line from 1080 to MW_RESTRIDE_PIXELS (Parameters\ScanoutStride) so that Panfrost can
+ * render into the scan-out. Called with the GOP framebuffer mapped (FbVa, FbSize = 4320 x 2280). Only when the DPU
+ * channel G0 scans exactly what the GOP describes (base, 1080 x 2280 source and image). Rows move bottom-up into
+ * the wider lines, SRC_SIZE gets the new width and DECON's global shadow-update request commits it at the next TE
+ * frame (command mode, HW trigger). If the request never completes, everything is put back. Every step is logged
+ * (Restride*). Returns TRUE if Fb.Pitch / FbVa / FbSize now describe the 4352-byte layout. */
+static BOOLEAN MwRestride(MW_ADAPTER *A)
+{
+    PHYSICAL_ADDRESS pa;
+    volatile ULONG *g0, *decon;
+    PUCHAR va;
+    ULONG src, img, base, req = 0, newPitch = MW_RESTRIDE_PIXELS * 4, oldPitch = A->Fb.Pitch, h = A->Fb.Height;
+    ULONG want = (MW_GOP_HEIGHT << 16) | MW_GOP_WIDTH, ms;
+    SIZE_T newSize = (SIZE_T)newPitch * h;
+    LONG y;
+    BOOLEAN done = FALSE;
+
+    if (newSize > MW_FB_RESERVED)
+        return FALSE;
+    if (RangeIsRam((ULONG64)A->Fb.PhysicAddress.QuadPart, newSize)) {
+        MwLog(A, L"RestrideStep", 5);
+        return FALSE;
+    }
+    pa.QuadPart = MW_DPU_G0_PA;
+    g0 = (volatile ULONG *)MmMapIoSpaceEx(pa, PAGE_SIZE, PAGE_READWRITE | PAGE_NOCACHE);
+    pa.QuadPart = MW_DECON_PA;
+    decon = (volatile ULONG *)MmMapIoSpaceEx(pa, PAGE_SIZE, PAGE_READWRITE | PAGE_NOCACHE);
+    if (g0 == NULL || decon == NULL) {
+        MwLog(A, L"RestrideStep", 1);
+        goto out;
+    }
+    src = g0[MW_IDMA_SRC_SIZE / 4];
+    img = g0[MW_IDMA_IMG_SIZE / 4];
+    base = g0[MW_IDMA_IN_BASE_ADDR_Y / 4];
+    MwLog(A, L"RestrideSrcBefore", src);
+    MwLog(A, L"RestrideImg", img);
+    MwLog(A, L"RestrideBase", base);
+    MwLog(A, L"RestrideShadowReq", decon[MW_DECON_SHADOW_REQ / 4]);
+    MwLog(A, L"RestrideTrigControl", decon[MW_DECON_TRIG_CONTROL / 4]);
+    if (src != want || img != want || base != (ULONG)MW_GOP_FB_PA) {
+        MwLog(A, L"RestrideStep", 2);
+        goto out;
+    }
+    /* The reservation behind the GOP buffer (firmware #116 makes it 10 MiB; it is not RAM to Windows). */
+    va = (PUCHAR)MmMapIoSpaceEx(A->Fb.PhysicAddress, newSize, PAGE_READWRITE | PAGE_WRITECOMBINE);
+    if (va == NULL) {
+        MwLog(A, L"RestrideStep", 3);
+        goto out;
+    }
+    MmUnmapIoSpace(A->FbVa, A->FbSize);
+    A->FbVa = va;
+    A->FbSize = newSize;
+    for (y = (LONG)h - 1; y > 0; y--)
+        RtlMoveMemory(va + (SIZE_T)y * newPitch, va + (SIZE_T)y * oldPitch, oldPitch);
+    for (y = 0; y < (LONG)h; y++)       /* the 32 bytes past each visible line, never shown */
+        RtlZeroMemory(va + (SIZE_T)y * newPitch + oldPitch, newPitch - oldPitch);
+    g0[MW_IDMA_SRC_SIZE / 4] = (MW_GOP_HEIGHT << 16) | MW_RESTRIDE_PIXELS;
+    decon[MW_DECON_SHADOW_REQ / 4] = decon[MW_DECON_SHADOW_REQ / 4] | MW_DECON_SHADOW_GLOBAL;
+    for (ms = 0; ms < 200; ms++) {      /* one TE frame is 16.7 ms */
+        req = decon[MW_DECON_SHADOW_REQ / 4];
+        if ((req & MW_DECON_SHADOW_GLOBAL) == 0)
+            break;
+        KeStallExecutionProcessor(1000);
+    }
+    MwLog(A, L"RestrideShadowMs", ms);
+    MwLog(A, L"RestrideShadowAfter", req);
+    MwLog(A, L"RestrideSrcAfter", g0[MW_IDMA_SRC_SIZE / 4]);
+    if (ms < 200) {
+        A->Fb.Pitch = newPitch;
+        done = TRUE;
+        MwLog(A, L"RestrideStep", 0);
+    } else {
+        /* Not committed (or not by this request): back to the GOP layout. */
+        g0[MW_IDMA_SRC_SIZE / 4] = want;
+        for (y = 1; y < (LONG)h; y++)
+            RtlMoveMemory(va + (SIZE_T)y * oldPitch, va + (SIZE_T)y * newPitch, oldPitch);
+        MwLog(A, L"RestrideStep", 4);
+    }
+out:
+    if (g0 != NULL)
+        MmUnmapIoSpace((PVOID)g0, PAGE_SIZE);
+    if (decon != NULL)
+        MmUnmapIoSpace((PVOID)decon, PAGE_SIZE);
+    return done;
+}
+
 NTSTATUS MwDisplayStart(MW_ADAPTER *A)
 {
     PHYSICAL_ADDRESS pa;
@@ -119,6 +223,9 @@ NTSTATUS MwDisplayStart(MW_ADAPTER *A)
     A->FbVa = (PUCHAR)MmMapIoSpaceEx(pa, A->FbSize, PAGE_READWRITE | PAGE_WRITECOMBINE);
     if (A->FbVa == NULL)
         return STATUS_INSUFFICIENT_RESOURCES;
+    MwLog(A, L"ScanoutStride", MwScanoutStride);
+    if (gop && MwScanoutStride == MW_RESTRIDE_PIXELS)
+        MwLog(A, L"Restrided", MwRestride(A) ? 1 : 0);
     A->SourceVisible = TRUE;
     A->PathActive = TRUE;
     return STATUS_SUCCESS;

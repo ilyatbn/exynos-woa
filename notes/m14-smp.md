@@ -349,3 +349,9 @@ No device access in this task; build-verified only (Guided, not Ready).
   spinning in the stub but are MADT-disabled. Test image boot-m4off1.img 43530959 = KD flags + PARK 0xFE + OFFER 0x3E:
   M4s CPU_ON'd and running (stub poll loop), Windows on 6 cores. Freeze ~1 min in => something outside Windows hits
   the running M4 cluster; no freeze => it is Windows running on the M4s.
+- m4dvm1 UEFILOG: all 7 secondaries 'dvm stage 3' (M4 gicc6/7 too) - VERIFIED the broadcasts complete on the M4s in UEFI.
+- Run m4off1 (boot-m4off1 43530959: M4s CPU_ON'd, running the stub poll loop, NOT offered; Windows 6 procs): alive
+  past +92 s (every 8-core run was frozen by +75 s), Wi-Fi associates. => the M4 cluster merely running does NOT
+  freeze the SoC; the freeze needs Windows running ON the M4s (time ~1 min).
+  Next suspect (Windows side): 3 MADT efficiency classes with the M4s (A55 0 / A75 1 / M4 2) vs 2 in every working
+  boot; Windows' hetero/PPM policy starts after boot (CPU0 was in PpmCheckStart in m4dvm1). Test m4eff1: EFF_BIG = 1.

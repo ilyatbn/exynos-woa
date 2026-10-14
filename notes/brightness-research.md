@@ -489,3 +489,4 @@ Serialise all senders with one FAST_MUTEX/KEVENT in the adapter (brightness DDI 
   s10ekeys (5b96b5c4...): the blank window darkens the panel on show (PanelPower FALSE) and relights it on WM_DESTROY;
   wake / powermenu relight too. Windows' display state stays on. Parked: a Windows-recognised power button (HID button
   array / ACPI) so Windows' own display off/on and timeouts work.
+- User (21:0x): power-button screen off/on works on the device (panel dark incl. taskbar, back on with the next press).

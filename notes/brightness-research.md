@@ -452,3 +452,9 @@ Serialise all senders with one FAST_MUTEX/KEVENT in the adapter (brightness DDI 
   MALIKM_TGSI_DIR removed (UMD tracing off at the next boot). Shim diagnostics were already off (2026-10-11).
 - Image s10e-artifacts\boot116-gpuon-nowdt-br1.img sha256 2572a7e1... = HEAD + build-only WINDOWS_WATCHDOG 0 /
   GPU_POWER_ON 1 (reverted after the build).
+- Boot screen (user-approved mock-up, 19:40): firmware/tools/bootsplash/make_splash.py renders black + "EXYNOS WOA" +
+  NTDEV logo (bootsplash/ntdev.png, the user's file) + "Powered by [Win11 logo] Windows" (Segoe UI), row-RLE coded
+  into SimpleFramebufferDxe/BootSplash.h (137 952 B; FVMAIN_COMPACT 0xbe000 -> 0xc5000 after LZMA). Entry: command
+  mode, FbDrawBootSplash (bounds-checked decode into the GOP fb), FbDeconPresent, FbPanelBootBrightness.
+  Image s10e-artifacts\boot116-gpuon-nowdt-splash1.img (supersedes the unflashed br1 image) = HEAD + build-only
+  WINDOWS_WATCHDOG 0 / GPU_POWER_ON 1.

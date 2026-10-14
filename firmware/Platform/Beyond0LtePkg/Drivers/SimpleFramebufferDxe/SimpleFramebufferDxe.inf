@@ -22,6 +22,7 @@
 
 [Sources]
   SimpleFramebufferDxe.c
+  BootSplash.h
 
 [Packages]
   MdePkg/MdePkg.dec

@@ -38,6 +38,7 @@
 #include <Platform/Exynos9820.h>
 
 #include "../../Library/PlatformMemoryMapLib/Beyond0LteCheckpoint.h"
+#include "BootSplash.h"     // the boot screen (firmware/tools/bootsplash/make_splash.py)
 
 #define FB_PIXEL_SIZE  ((UINTN)EXYNOS_FB_BYTES_PER_PIXEL)
 
@@ -588,6 +589,60 @@ FbGopBlt (
   return EFI_SUCCESS;
 }
 
+//
+// Boot screen (user, 2026-10-14): black, "EXYNOS WOA", the NTDEV logo, "Powered by Windows" - replaces sboot's
+// splash as soon as this driver starts. mBootSplash is row-run-length coded (make_splash.py): per row, 16-bit LE
+// tokens; bit 15 clear = that many black pixels, set = (token & 0x7FFF) literal B,G,R pixels follow. A malformed
+// stream stops drawing instead of running past the array or the framebuffer.
+//
+STATIC
+BOOLEAN
+FbDrawBootSplash (
+  VOID
+  )
+{
+  volatile UINT32  *Fb = (volatile UINT32 *)(UINTN)EXYNOS_FB_BASE;
+  UINTN            Pos = 0;
+  UINTN            Y;
+  UINTN            X;
+  UINTN            Count;
+  UINTN            Index;
+  UINT16           Token;
+
+  STATIC_ASSERT (BOOT_SPLASH_WIDTH == EXYNOS_FB_WIDTH, "splash width = panel width");
+  STATIC_ASSERT (BOOT_SPLASH_HEIGHT == EXYNOS_FB_HEIGHT, "splash height = panel height");
+
+  for (Y = 0; Y < BOOT_SPLASH_HEIGHT; Y++) {
+    volatile UINT32  *Row = Fb + Y * EXYNOS_FB_STRIDE_PIXELS;
+
+    for (X = 0; X < BOOT_SPLASH_WIDTH; X += Count) {
+      if (Pos + 2 > sizeof (mBootSplash)) {
+        return FALSE;
+      }
+      Token = (UINT16)(mBootSplash[Pos] | (mBootSplash[Pos + 1] << 8));
+      Pos  += 2;
+      Count = Token & 0x7FFFu;
+      if ((Count == 0) || (X + Count > BOOT_SPLASH_WIDTH)) {
+        return FALSE;
+      }
+      if ((Token & 0x8000u) == 0) {
+        for (Index = 0; Index < Count; Index++) {
+          Row[X + Index] = 0xFF000000u;
+        }
+      } else {
+        if (Pos + Count * 3 > sizeof (mBootSplash)) {
+          return FALSE;
+        }
+        for (Index = 0; Index < Count; Index++, Pos += 3) {
+          Row[X + Index] = 0xFF000000u | ((UINT32)mBootSplash[Pos + 2] << 16) |
+                           ((UINT32)mBootSplash[Pos + 1] << 8) | mBootSplash[Pos];
+        }
+      }
+    }
+  }
+  return Pos == sizeof (mBootSplash);
+}
+
 EFI_STATUS
 EFIAPI
 SimpleFramebufferDxeEntry (
@@ -623,6 +678,20 @@ SimpleFramebufferDxeEntry (
   Ctx = AllocateZeroPool (sizeof (FB_GOP_INSTANCE));
   if (Ctx == NULL) {
     return EFI_OUT_OF_RESOURCES;
+  }
+
+  //
+  // The boot screen, pushed to the panel at once (DECON to command mode first, so the SW-trigger present works),
+  // then the boot brightness. Later GOP presents (if anything draws) go through FbGopBlt as before.
+  //
+  FbPanelCommandMode ();
+  if (FbDrawBootSplash ()) {
+    FbDeconPresent ();
+    FbPanelBootBrightness ();
+    mFbPresentCount = 1;
+    DEBUG ((DEBUG_INFO, "SimpleFramebufferDxe: boot screen drawn\n"));
+  } else {
+    DEBUG ((DEBUG_ERROR, "SimpleFramebufferDxe: boot screen data malformed - not shown\n"));
   }
 
   Ctx->FrameBuffer  = (UINT32 *)(UINTN)EXYNOS_FB_BASE;

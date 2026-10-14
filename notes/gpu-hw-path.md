@@ -756,3 +756,8 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
 - Mesa 0067 (4582e33, tools/mesa-build/patches/0067-primary-slot-gpu-flag-reset.patch): gpu = 0 on create and
   destroy. Built s10e-artifacts\mali-umd-0067 (maliumd sha256 e4c19cc7...), installed live in System32 (0066 kept as
   *-0066b.dll); KMD Parameters\OfferRotation = 1. Battery 38 %. Next: reboot, check portrait unchanged, rotate.
+- **19:01 LANDSCAPE WORKS** (UMD 0067 + KMD 1.0.43.1 OfferRotation 1): portrait after reboot normal (runs\fbr0.png);
+  `s10erotate 90` -> "rotate to 90 deg -> 0 (2280x1080)"; scan-out dump runs\fbr1.png = the desktop rendered rotated by
+  DWM into the 1080x2280 primary (taskbar along the long edge, icons/wallpaper sideways). DWM DOES pre-rotate; the
+  rotation attempts 1-2 black screens were the 0067 stale-flag bug. The 0066 rotated-present branch is unused.
+  Pending: user's eyes (direction, touch mapping), rotate back to portrait, 180/270, a reboot in landscape.

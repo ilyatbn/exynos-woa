@@ -497,3 +497,10 @@ No device access in this task; build-verified only (Guided, not Ready).
   debug_history shows only one SOFT INFORM3(12345670) in that window (others not recorded?).
   => one M4 dies too (same ~1 min), but ends in a FAST reset instead of the two-M4 long hang. Root cause per-core,
   not cluster-level. Something resets the SoC quickly after the M4 fails (EL3 / uH / PMU?), without a bugcheck.
+- Run m4one2 (one M4, stopping bps on KiAsyncSystemErrorException, KiFIQException, KiFatalExceptionHandler/Filter,
+  HalpRebootNow, HalpReboot, HalReturnToFirmware, KiBugCheckDebugBreak, KeBugCheck2, WheaReportFatalHw...): all
+  resolved (bl), NONE hit; the SoC restarted anyway (KD "restarted without notifying", 01:39:50). => the reset is
+  not initiated by Windows and no SError/FIQ reaches Windows: external (EL3 takes external aborts / secure FIQs on
+  Samsung; debug_history logs a SOFT reset). Theory: the M4 (aggressive OoO / prefetch) touches a physical range the
+  A55/A75 never touch - e.g. a protected carve-out missing from our memory map. Test: BCD truncatememory to the low
+  bank, then the one-M4 boot again.

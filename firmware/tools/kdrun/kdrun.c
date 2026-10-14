@@ -20,6 +20,7 @@
  *   init, before the secondary processors are started); at that first break every non-empty line of the file is
  *   executed (e.g. ".reload", "bp nt!KeStartAllProcessors") instead of the diagnostics, then the target continues.
  *   "go" = neither reboot nor twrp, so a commands file can follow.
+ *   every-break-cmds (argv[6]): a file run after the diagnostics of EVERY break (e.g. MMIO register dumps).
  *   "every" = like go, but the timed break-in repeats every break_after_s seconds (counted from the last resume):
  *   diagnostics up to the moment a target freezes; the first failed break-in brackets the freeze.
  *
@@ -109,6 +110,10 @@ static void RunFile(IDebugControl *Control, const char *Path)
     fclose(F);
 }
 
+static const char *gBreakCmds;   /* optional file run at the end of every diagnostics pass (argv[6]) */
+
+static void RunFile(IDebugControl *Control, const char *Path);
+
 static void Diagnose(IDebugControl *Control, BOOL Bugcheck)
 {
     ULONG Count = 0, I;
@@ -125,6 +130,8 @@ static void Diagnose(IDebugControl *Control, BOOL Bugcheck)
     }
     Run(Control, "k 40");
     Run(Control, "lm");
+    if (gBreakCmds != NULL)
+        RunFile(Control, gBreakCmds);
 }
 
 static IDebugControl *gControl;
@@ -181,7 +188,7 @@ int main(int argc, char **argv)
     KDRUN_DEBUG_CREATE Create;
 
     if (argc < 4) {
-        fprintf(stderr, "usage: kdrun <log> <total_s> <break_after_s> [reboot|twrp|go|every] [init-cmds]\n");
+        fprintf(stderr, "usage: kdrun <log> <total_s> <break_after_s> [reboot|twrp|go|every] [init-cmds|\"\"] [every-break-cmds]\n");
         return 1;
     }
     /* shared, so the log can be read while a session runs (fopen_s opens it exclusively) */
@@ -193,7 +200,8 @@ int main(int argc, char **argv)
     Reboot = argc > 4 && _stricmp(argv[4], "reboot") == 0;
     Twrp = argc > 4 && _stricmp(argv[4], "twrp") == 0;
     gRepeat = argc > 4 && _stricmp(argv[4], "every") == 0;
-    InitCmds = argc > 5 ? argv[5] : NULL;
+    InitCmds = argc > 5 && argv[5][0] ? argv[5] : NULL;
+    gBreakCmds = argc > 6 ? argv[6] : NULL;
 
     /* The Kits dbgeng.dll by full path: a plain import resolves to the inbox System32\dbgeng.dll (10.0.26100.1),
      * which never connected to the phone (notes/m14-smp.md, kdtest 21:42). ALTERED_SEARCH_PATH makes its own

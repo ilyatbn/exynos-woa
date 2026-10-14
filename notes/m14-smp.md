@@ -255,3 +255,15 @@ No device access in this task; build-verified only (Guided, not Ready).
   unattended chain (connect, initial break, symbols, timed break, TWRP reset) WORKS.
 - M4 run prep (22:16): ESP \S10EDIAG\stay.flg -> stay.flg.m4off so a silent Windows death lands in TWRP (boot pair)
   instead of looping into Windows. RESTORE stay.flg after the M4 runs (user's interactive setup).
+- Run m4kd2 prep (22:18): boot-m4kd1.img (b4fe9ac8, park mask 0xFE) flashed, readback b4fe9ac8 = image.
+  kdrun 1500 s / break 300 s / twrp, init file s10e-artifacts/runs/m4kd2/init.txt: auto-continue logging bps
+  ("M4BP ...") on KeStartAllProcessors (+ its return), HalpInterruptStartProcessor, HalpGicStartProcessor,
+  HalpInterruptGetParkingPageInformation; stopping bp on KeBugCheckEx.
+- m4kd2 attempt 1 (22:17) TESTED NOTHING: UEFILOG line 1267 "previous boot ran Windows - saving its PRAM, then
+  recovery" - kdrun's twrp hard reset (kd6c) goes straight to recovery, so \WINRUN.FLG stayed on the ESP and the next
+  UEFI boot took the boot pair (dump + recovery) without starting Windows. PARK lines in that boot: all 7
+  secondaries parked incl. gicc6/7 M4 (mpidr_el1 80000100/80000101). Rule: after a kdrun twrp reset, the next boot
+  is consumed by the boot pair (or delete \WINRUN.FLG from TWRP first). Also: kdrun hung after its twrp reset (held
+  port 50005, had to be killed) - follow-up fix.
+- m4kd2 attempt 2: WINRUN.FLG gone (cleared by that boot), adb reboot ~22:38, kdrun still listening (to ~22:42 +
+  restarted below if needed).

@@ -617,3 +617,18 @@ buttons (notes/d8-buttons-agent.md).
   A/B (10/6 %) and the exclusive 0.1-amplitude tone below the mic floor (quiet by the user's request); other hits
   are 0.3 s broadband amp pops at stream start/stop (follow-up: pop suppression).
 - Open: physical Vol+/Vol- -> s10ediag-m20 S10eAgent/s10ekeys (built, deploying), headphone path in Windows, pops.
+
+## A13 (2026-10-14): user report - only the bottom speaker plays
+- User (first interactive boot with audio + HW GPU): "Only one speaker works. The one near the usbc." The earpiece
+  ("rcv", top) is silent.
+- Cause = by design, not a fault: Parameters\Stereo defaults to 0 (Driver.c:68). With 0, AmpPowerUp skips the earpiece
+  amp @0x41 (AmpI2c.c:764) and Render.c:560 mixes (L+R)/2 into slot 1 (loudspeaker @0x40) only. Stereo = 1 powers
+  @0x41 with the same errata/OTP/config sequence and sends L to slot 0 (earpiece), R to slot 1 (loudspeaker).
+- Safety of Stereo = 1: earpiece digital volume = loudspeaker fixed -10 dB (AMP_SPK_FIXED_STEPS -80) plus
+  AMP_RCV_TRIM_STEPS -48 = -16 dB; analog gain 0x0A as the loudspeaker (the m3-amp plan wanted <= 0x06 for the
+  earpiece - inference, the stock mixer value is still unread); a failed @0x41 power-up is logged and skipped, the
+  loudspeaker loop continues. @0x41 answered the DEVID read (CS35L40) in the UEFI probe (d8-audio-m1.md:537) but has
+  never been powered.
+- Easy fix to try: reg add HKLM\SYSTEM\CurrentControlSet\Services\Exynos9820Audio\Parameters /v Stereo /t
+  REG_DWORD /d 1 /f, then restart (read at PrepareHardware). Expect run.txt power-up rows for "L/rcv" and sound from
+  the top. Open: channel orientation vs screen rotation (stock swaps L/R in landscape), earpiece analog gain.

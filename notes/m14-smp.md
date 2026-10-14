@@ -526,3 +526,8 @@ No device access in this task; build-verified only (Guided, not Ready).
   BtiSmc/BtiHvc/Bhb*); KiSpeculationFeatures dword0 = 0x05000000. => Windows issues no SMC on exception entry ->
   Spectre-v2 SMC theory OUT.
 - boot-m4trap1.img d55ac6e3: stub flag 4 = EL2 trap timing (1000 self-writes each of TTBR0/TCR/SCTLR/MAIR/CONTEXTIDR + nop baseline, CNTVCT ticks at mailbox +0x300); TRAPTIME_MASK 0xD8 (A55 gicc3, A75 gicc4, M4 gicc6/7), OFFER 0x26.
+- m4trap1 RESULT (CNTVCT ticks per 1000 iterations, MMU-off stub): gicc3 A55 nop 50 | TTBR0 346 TCR 569 SCTLR 174
+  MAIR 346 CONTEXTIDR 346; gicc4 A75 nop 13144 | 12626 / 7103 / 11345 / 7388 / 12244; gicc6 M4 nop 3542 | 3582 /
+  3615 / 7117 / 3456 / 3725; gicc7 M4 nop 3640 | 3660 / 3745 / 7487 / 3449 / 3873. A trap to EL2 would add >= ~26
+  ticks per write (>= 26000 per 1000): none seen on any core (baseline differences = uncached instruction fetch with
+  the MMU off / I-cache state). => uH does NOT trap TTBR0/TCR/SCTLR/MAIR/CONTEXTIDR writes; uH-trap hypothesis OUT.

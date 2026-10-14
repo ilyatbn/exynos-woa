@@ -105,6 +105,21 @@ ASM_FUNC(Beyond0LteParkStub)
   ldr   w3, [x1, #PARK_SLEEP_OFF]   // m14 isolation test: firmware asked this core to sleep, not poll
   cbz   w3, 0f
   msr   daifset, #0xf
+  cmp   w3, #2
+  b.ne  3f
+  //
+  // sleep flag 2 (m14): power this core back off through Samsung's PSCI 0.1 CPU_OFF (live DT /psci cpu_off =
+  // 0x84000002, VERIFIED). Must not return; if it does, mark +0xFB8 = 0xDEAD0002 and fall into the WFI loop.
+  //
+  mov   x19, x1                     // SMCCC: x0-x17 may be clobbered, x19 is preserved
+  movz  x0, #0x8400, lsl #16
+  movk  x0, #0x0002
+  smc   #0
+  mov   x1, x19
+  movz  w3, #0x0002
+  movk  w3, #0xDEAD, lsl #16
+  str   w3, [x1, #PARK_SLEEP_OFF]
+  dsb   sy
 3:
   wfi
   b     3b

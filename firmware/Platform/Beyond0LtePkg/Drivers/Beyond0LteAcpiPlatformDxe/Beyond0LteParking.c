@@ -231,7 +231,8 @@ Beyond0LteParkSecondaries (
     CopyMem ((VOID *)(UINTN)(Page[Index] + PARK_STUB_OFF), Beyond0LteParkStub, StubSize);
 #if BEYOND0LTE_PARK_SLEEP_UNOFFERED
     if (((BEYOND0LTE_SMP_OFFER_MASK >> Index) & 1u) == 0) {
-      *(UINT32 *)(UINTN)(Page[Index] + PARK_SLEEP_OFF) = 1;   // m14: this core sleeps in WFI after its alive mark
+      // m14: 1 = this core sleeps in WFI after its alive mark, 2 = it calls PSCI CPU_OFF instead
+      *(UINT32 *)(UINTN)(Page[Index] + PARK_SLEEP_OFF) = BEYOND0LTE_PARK_SLEEP_UNOFFERED;
     }
 #endif
   }
@@ -312,8 +313,9 @@ Beyond0LteParkSecondaries (
       // still freeze ~1 min in when the M4 cluster merely runs?
       //
       Gicc[Index]->Flags &= ~(UINT32)EFI_ACPI_6_3_GIC_ENABLED;
-      DEBUG ((DEBUG_ERROR, "PARK: gicc%u running in the stub but NOT offered (offer mask %x) mpidr_el1=%lx\n",
-              (UINT32)Index, (UINT32)BEYOND0LTE_SMP_OFFER_MASK, ParkRd64 (Page[Index] + PARK_MPIDR_OFF)));
+      DEBUG ((DEBUG_ERROR, "PARK: gicc%u running in the stub but NOT offered (offer mask %x) mpidr_el1=%lx gic-if %02x sleep %x\n",
+              (UINT32)Index, (UINT32)BEYOND0LTE_SMP_OFFER_MASK, ParkRd64 (Page[Index] + PARK_MPIDR_OFF),
+              ParkRd32 (Page[Index] + PARK_GICIF_OFF), ParkRd32 (Page[Index] + PARK_SLEEP_OFF)));
     } else if ((Page[Index] != 0) && (OnStatus[Index] == 0) && (Mark == PARK_ALIVE)) {
       Gicc[Index]->ParkingProtocolVersion = PARK_VERSION;
       Gicc[Index]->ParkedAddress          = Page[Index];

@@ -441,3 +441,4 @@ No device access in this task; build-verified only (Guided, not Ready).
   applies at BIG <= 2.08 GHz; skew content unknown (ECT). Not pursued further for now.
 - Next structural test (m4off2): M4s CPU_ON'd, alive mark, then PSCI CPU_OFF (0x84000002) from the stub; UEFI
   checks AFFINITY_INFO; Windows 6 cores. Freeze => CPU_ON leaves something armed; none => the powered cluster.
+- boot-m4cpuoff1.img: KD flags + PARK 0xFE + OFFER 0x3E + SLEEP_UNOFFERED 2 (M4s: alive mark, then PSCI CPU_OFF 0x84000002 from the stub; mailbox pointer saved in x19 across the SMC; objdump verified).

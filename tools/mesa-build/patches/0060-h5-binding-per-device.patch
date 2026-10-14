@@ -1,0 +1,586 @@
+From 3e46e9fe675b8d8c7bdcd3d9e8863abef67da132 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 05:07:50 +0300
+Subject: [PATCH] H5: one shim binding per runtime device (state swapped by
+ screen fd / selected device / prime fd) and one Panfrost screen per device on
+ Windows - a second D3D device in a process overwrote the single binding and
+ shared the screen, its submissions listed the other device's allocations
+ (Explorer Render 0xC0000001) (exynos-woa tools/mesa-build/patches/0060)
+
+---
+ include/win32-compat/malikm_drm.c           | 229 ++++++++++++++++++--
+ src/gallium/frontends/d3d10umd/Device.cpp   |   6 +
+ src/gallium/frontends/d3d10umd/DxgiFns.cpp  |   4 +
+ src/gallium/frontends/d3d10umd/Resource.cpp |   4 +
+ src/util/os_file.c                          |   8 +
+ 5 files changed, 232 insertions(+), 19 deletions(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 04e20d5..5bc1fdc 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -38,7 +38,7 @@
+ /* The maliwddm backend, below. */
+ static int wddm_on(void);
+ static int wddm_init(void);
+-static void wddm_ioctl(DWORD code, void *buf, DWORD len);
++static void wddm_ioctl(int fd, DWORD code, void *buf, DWORD len);
+ 
+ /* Linux errno, as the driver reports it, to the CRT's. Most agree. */
+ static int
+@@ -252,7 +252,7 @@ call(int fd, DWORD code, void *buf, DWORD len)
+       if (fake_on())
+          fake_ioctl(code, buf, len);
+       else
+-         wddm_ioctl(code, buf, len);
++         wddm_ioctl(fd, code, buf, len);
+       int r = ((MALIKM_DRM_HEADER *)buf)->Result;
+       if (r < 0) {
+          errno = crt_errno(-r);
+@@ -399,7 +399,7 @@ drmGetVersion(int fd)
+    if (fake_on())
+       fake_ioctl(IOCTL_MALIKM_VERSION, &v, sizeof(v));
+    else if (wddm_on())
+-      wddm_ioctl(IOCTL_MALIKM_VERSION, &v, sizeof(v));
++      wddm_ioctl(fd, IOCTL_MALIKM_VERSION, &v, sizeof(v));
+    else if (h == INVALID_HANDLE_VALUE ||
+             !DeviceIoControl(h, IOCTL_MALIKM_VERSION, &v, sizeof(v), &v, sizeof(v), &got, NULL) ||
+             got < sizeof(v)) {
+@@ -455,19 +455,34 @@ drmPrimeHandleToFD(int fd, uint32_t handle, uint32_t flags, int *prime_fd)
+  * a kernel allocation; d3d10umd registers it as a BO (malikm_shared_bo_create / malikm_bo_from_allocation) and
+  * passes this pseudo fd, which only these functions understand. */
+ #define MALIKM_PRIME_FD_BASE 0x40000000
++/* exynos-woa H5 (0060): the pseudo fd also names the runtime-device binding whose BO table holds the handle:
++ * bits 29..20 = binding + 1, 19..0 = BO handle. */
++#define PRIME_FD(b, h) ((int)(MALIKM_PRIME_FD_BASE | ((uint32_t)((b) + 1) << 20) | ((uint32_t)(h) & 0xfffffu)))
++#define PRIME_FD_H(fd) ((uint32_t)(fd) & 0xfffffu)
++#define PRIME_FD_B(fd) ((int)(((uint32_t)(fd) >> 20) & 0x3ffu) - 1)
+ static struct wbo *wddm_bo(uint32_t h);
+ static uint32_t wbo_add(D3DKMT_HANDLE hAlloc, uint64_t size, uint64_t va, uint32_t runtime_owned);
++static SRWLOCK wddm_lock;
++static int bind_for_fd(int fd);
++static void bind_switch(int i);
++static int cur_bind;
+ 
+ int
+ drmPrimeFDToHandle(int fd, int prime_fd, uint32_t *handle)
+ {
+-   (void)fd;
+-   if ((prime_fd & MALIKM_PRIME_FD_BASE) && wddm_bo((uint32_t)prime_fd & ~MALIKM_PRIME_FD_BASE)) {
+-      *handle = (uint32_t)prime_fd & ~MALIKM_PRIME_FD_BASE;
+-      return 0;
++   int ret = -ENOSYS;
++   AcquireSRWLockExclusive(&wddm_lock);
++   bind_switch(bind_for_fd(fd));
++   if ((prime_fd & MALIKM_PRIME_FD_BASE) && PRIME_FD_B(prime_fd) == cur_bind && wddm_bo(PRIME_FD_H(prime_fd))) {
++      *handle = PRIME_FD_H(prime_fd);
++      ret = 0;
++   } else if (prime_fd & MALIKM_PRIME_FD_BASE) {
++      malikm_tlog("prime fd 0x%x: binding %d, this screen's %d - refused", prime_fd, PRIME_FD_B(prime_fd), cur_bind);
+    }
+-   errno = ENOSYS;
+-   return -ENOSYS;
++   ReleaseSRWLockExclusive(&wddm_lock);
++   if (ret)
++      errno = ENOSYS;
++   return ret;
+ }
+ 
+ /* ---- syncobjs: return conventions as libdrm's ---- */
+@@ -728,7 +743,7 @@ static SRWLOCK wddm_lock = SRWLOCK_INIT;
+  * its kernel callbacks replace the D3DKMT calls: the buffers then are the
+  * runtime device's allocations, which Present needs. malikm_bind_d3dddi()
+  * switches over before the device's screen is created. */
+-static struct {
++struct ddi_state {
+    int on;
+    HANDLE adapter, device, context;
+    D3DDDI_DEVICECALLBACKS cb;
+@@ -749,7 +764,8 @@ static struct {
+     * last_event is older than it and waiting on it alone would return
+     * early. wddm_idle() polls the KMD's fences instead while this is set. */
+    int last_unsignalled;
+-} ddi;
++};
++static struct ddi_state ddi;
+ 
+ /* Allocations whose BO is closed but which a job submitted earlier may
+  * still use. Linux's panfrost keeps a BO alive until its jobs are done,
+@@ -1062,7 +1078,141 @@ wddm_idle(void)
+  * Flags.Primary, so dxgkrnl ties them to the swap-chain resource; kept locked for CPU writes. */
+ static int present_copy(D3DKMT_HANDLE h, const void *bgrx, unsigned w, unsigned hgt);   /* below (G13 0024) */
+ #define MAX_KPRIM 16
+-static struct { D3DKMT_HANDLE h; void *cpu; unsigned w, hgt, gpu; } kprim[MAX_KPRIM];   /* gpu: H4b, marked */
++struct kprim_entry { D3DKMT_HANDLE h; void *cpu; unsigned w, hgt, gpu; };   /* gpu: H4b, marked */
++static struct kprim_entry kprim[MAX_KPRIM];
++static uint32_t scanout_h;   /* H4b: the scan-out framebuffer's BO */
++
++/* exynos-woa H5 (0060, notes/gpu-hw-path.md): one binding per runtime device. The shim had ONE: every
++ * malikm_bind_d3dddi overwrote the device, context, command buffer and allocation list, and the BO table was the
++ * process's - a process with two D3D devices (Explorer) submitted one device's allocations on the other's context
++ * and dxgkrnl refused them (run h3r/h3s: Render 0xC0000001, 100+ times). The code below still works on the globals;
++ * they are the CURRENT binding's state, swapped under wddm_lock by bind_switch(): by fd for the DRM calls (each
++ * device has its own Panfrost screen and fd - os_same_file_description, 0060), by the device d3d10umd selected for
++ * this thread (malikm_select_device) for the API calls, by the pseudo fd for prime fds. */
++#define MAX_BINDINGS 16
++#define MAX_BIND_FDS 8
++struct binding {
++   int used;
++   HANDLE device;
++   int fds[MAX_BIND_FDS], nfds;
++   struct ddi_state ddi;
++   struct wbo *wbo;
++   uint32_t wbo_cap, wsubmit_gen;
++   void *wcmd;
++   UINT wcmd_size, walloc_size, wpatch_size;
++   D3DDDI_ALLOCATIONLIST *walloc;
++   D3DDDI_PATCHLOCATIONLIST *wpatch;
++   MW_ESCAPE_GPU_INFO_DATA wgpu;
++   uint64_t wseq;
++   D3DKMT_HANDLE *wdead;
++   uint32_t wdead_n, wdead_cap;
++   struct kprim_entry kprim[MAX_KPRIM];
++   uint32_t scanout_h;
++};
++static struct binding binds[MAX_BINDINGS];
++static int cur_bind = -1;                      /* whose state the globals hold */
++static __declspec(thread) int tls_pending = -1;  /* bound on this thread, its screen's fd not seen yet */
++static __declspec(thread) int tls_selected = -1; /* d3d10umd's device for this thread's API calls */
++
++static void
++bind_save(struct binding *b)
++{
++   b->ddi = ddi;
++   b->wbo = wbo; b->wbo_cap = wbo_cap; b->wsubmit_gen = wsubmit_gen;
++   b->wcmd = wcmd; b->wcmd_size = wcmd_size;
++   b->walloc = walloc; b->walloc_size = walloc_size;
++   b->wpatch = wpatch; b->wpatch_size = wpatch_size;
++   b->wgpu = wgpu; b->wseq = wseq;
++   b->wdead = wdead; b->wdead_n = wdead_n; b->wdead_cap = wdead_cap;
++   memcpy(b->kprim, kprim, sizeof(kprim));
++   b->scanout_h = scanout_h;
++}
++
++static void
++bind_load(const struct binding *b)
++{
++   ddi = b->ddi;
++   wbo = b->wbo; wbo_cap = b->wbo_cap; wsubmit_gen = b->wsubmit_gen;
++   wcmd = b->wcmd; wcmd_size = b->wcmd_size;
++   walloc = b->walloc; walloc_size = b->walloc_size;
++   wpatch = b->wpatch; wpatch_size = b->wpatch_size;
++   wgpu = b->wgpu; wseq = b->wseq;
++   wdead = b->wdead; wdead_n = b->wdead_n; wdead_cap = b->wdead_cap;
++   memcpy(kprim, b->kprim, sizeof(kprim));
++   scanout_h = b->scanout_h;
++}
++
++/* wddm_lock held. i < 0: keep the current binding. */
++static void
++bind_switch(int i)
++{
++   if (i < 0 || i >= MAX_BINDINGS || !binds[i].used || i == cur_bind)
++      return;
++   if (cur_bind >= 0)
++      bind_save(&binds[cur_bind]);
++   bind_load(&binds[i]);
++   cur_bind = i;
++}
++
++/* wddm_lock held. The binding a screen's fd belongs to; an fd not seen yet is the screen this thread's last
++ * malikm_bind_d3dddi created (Panfrost dups the fd it is given). -1 if neither. */
++static int
++bind_for_fd(int fd)
++{
++   for (int i = 0; i < MAX_BINDINGS; i++)
++      if (binds[i].used)
++         for (int k = 0; k < binds[i].nfds; k++)
++            if (binds[i].fds[k] == fd)
++               return i;
++   int p = tls_pending;
++   if (p >= 0 && binds[p].used && binds[p].nfds < MAX_BIND_FDS) {
++      binds[p].fds[binds[p].nfds++] = fd;
++      malikm_tlog("binding %d (device %p): fd %d", p, binds[p].device, fd);
++      return p;
++   }
++   return -1;
++}
++
++static int
++bind_for_device(HANDLE device)
++{
++   for (int i = 0; i < MAX_BINDINGS; i++)
++      if (binds[i].used && binds[i].device == device)
++         return i;
++   return -1;
++}
++
++/* d3d10umd: the runtime device the API calls of this thread are for (called at the top of its DDIs). */
++void
++malikm_select_device(void *hRTDevice)
++{
++   AcquireSRWLockExclusive(&wddm_lock);
++   tls_selected = bind_for_device(hRTDevice);
++   ReleaseSRWLockExclusive(&wddm_lock);
++}
++
++/* d3d10umd DestroyDevice: the runtime frees the device's allocations and context with it. The binding's tables
++ * are dropped (nothing is destroyed through the callbacks any more). */
++void
++malikm_unbind_device(void *hRTDevice)
++{
++   AcquireSRWLockExclusive(&wddm_lock);
++   int i = bind_for_device(hRTDevice);
++   if (i >= 0) {
++      bind_switch(i);
++      free(wbo);
++      free(wdead);
++      struct binding empty;
++      memset(&empty, 0, sizeof(empty));
++      bind_load(&empty);   /* the globals: nothing bound */
++      memset(&binds[i], 0, sizeof(binds[i]));
++      cur_bind = -1;
++      malikm_tlog("binding %d (device %p) dropped", i, hRTDevice);
++   }
++   if (tls_selected == i)
++      tls_selected = -1;
++   ReleaseSRWLockExclusive(&wddm_lock);
++}
+ 
+ int
+ malikm_primary_create(void *hRTResource, unsigned vidpn, unsigned w, unsigned h, unsigned *hAlloc, int scanout)
+@@ -1070,6 +1220,7 @@ malikm_primary_create(void *hRTResource, unsigned vidpn, unsigned w, unsigned h,
+    int ret = -1;
+ 
+    AcquireSRWLockExclusive(&wddm_lock);
++   bind_switch(tls_selected);
+    if (!ddi.on || !ddi.cb.pfnAllocateCb)
+       goto out;
+    for (int i = 0; i < MAX_KPRIM; i++) {
+@@ -1120,6 +1271,7 @@ void
+ malikm_primary_destroy(unsigned hAlloc)
+ {
+    AcquireSRWLockExclusive(&wddm_lock);
++   bind_switch(tls_selected);
+    for (int i = 0; i < MAX_KPRIM; i++) {
+       if (kprim[i].h != hAlloc)
+          continue;
+@@ -1154,6 +1306,7 @@ malikm_shared_create(void *hRTResource, unsigned w, unsigned h, unsigned cpp, un
+    if (w == 0 || h == 0 || cpp == 0 || hRTResource == NULL)
+       return -1;
+    AcquireSRWLockExclusive(&wddm_lock);
++   bind_switch(tls_selected);
+    if (!ddi.on || !ddi.cb.pfnAllocateCb)
+       goto out;
+    pi.Version = MW_ABI_VERSION;
+@@ -1199,6 +1352,7 @@ malikm_set_display_mode(unsigned hAlloc)
+    long hr = 1;
+ 
+    AcquireSRWLockExclusive(&wddm_lock);
++   bind_switch(tls_selected);
+    if (ddi.on && ddi.cb.pfnSetDisplayModeCb && hAlloc) {
+       D3DDDICB_SETDISPLAYMODE m = {0};
+       m.hPrimaryAllocation = hAlloc;
+@@ -1232,6 +1386,7 @@ malikm_open_shared(const void *priv, unsigned size, unsigned hAlloc, unsigned *w
+    *pitch = pi->Pitch ? pi->Pitch : pi->Width * 4;
+    *d3dfmt = pi->Format;
+    AcquireSRWLockExclusive(&wddm_lock);
++   bind_switch(tls_selected);
+    if (ddi.on && ddi.cb.pfnLockCb) {
+       D3DDDICB_LOCK l = {0};
+       HRESULT hr;
+@@ -1254,6 +1409,7 @@ malikm_close_shared(unsigned hAlloc)
+ {
+    D3DKMT_HANDLE hk = hAlloc;
+    AcquireSRWLockExclusive(&wddm_lock);
++   bind_switch(tls_selected);
+    if (ddi.on && ddi.cb.pfnUnlockCb) {
+       D3DDDICB_UNLOCK u = {0};
+       u.NumAllocations = 1;
+@@ -1269,6 +1425,7 @@ malikm_primary_present(unsigned hAlloc, unsigned hDst, const void *bgrx, unsigne
+    int ret = -1;
+ 
+    AcquireSRWLockExclusive(&wddm_lock);
++   bind_switch(tls_selected);
+    if (!ddi.on || !ddi.dxgi || !ddi.dxgi->pfnPresentCb)
+       goto out;
+    for (int i = 0; i < MAX_KPRIM; i++) {
+@@ -1315,8 +1472,6 @@ out:
+  * to the CPU (2/3 of each DWM frame, run h3j). Only for a linear 32-bit framebuffer whose pitch Panfrost can render
+  * to (64-byte aligned: the KMD's re-stride to 4352, Parameters\ScanoutStride). One BO per process, kept. 0 and
+  * *prime_fd for drmPrimeFDToHandle on success. */
+-static uint32_t scanout_h;
+-
+ int
+ malikm_scanout_bo(int *prime_fd, unsigned *w, unsigned *h, unsigned *pitch, unsigned *d3dfmt)
+ {
+@@ -1325,6 +1480,7 @@ malikm_scanout_bo(int *prime_fd, unsigned *w, unsigned *h, unsigned *pitch, unsi
+    static MW_ESCAPE_SCANOUT_DATA so;
+ 
+    AcquireSRWLockExclusive(&wddm_lock);
++   bind_switch(tls_selected);
+    if (!ddi.on || wddm != 1)
+       goto out;
+    if (!tried) {
+@@ -1341,7 +1497,7 @@ malikm_scanout_bo(int *prime_fd, unsigned *w, unsigned *h, unsigned *pitch, unsi
+       scanout_h = wbo_add(WBO_FIXED, (uint64_t)so.Pitch * so.Height, so.GpuVa, 0);
+    if (!scanout_h)
+       goto out;
+-   *prime_fd = (int)(MALIKM_PRIME_FD_BASE | scanout_h);
++   *prime_fd = PRIME_FD(cur_bind, scanout_h);
+    *w = so.Width;
+    *h = so.Height;
+    *pitch = so.Pitch;
+@@ -1418,6 +1574,7 @@ malikm_present_d3dddi(const void *bgrx, unsigned w, unsigned h, void *dxgi_conte
+    int ret = -1;
+ 
+    AcquireSRWLockExclusive(&wddm_lock);
++   bind_switch(tls_selected);
+    if (!ddi.on || !ddi.dxgi || !ddi.dxgi->pfnPresentCb)
+       goto out;
+    if (primary) {
+@@ -1495,6 +1652,26 @@ malikm_bind_d3dddi(HANDLE hRTAdapter, HANDLE hRTDevice, const void *pKTCallbacks
+    if (!cb || !cb->pfnEscapeCb || !cb->pfnAllocateCb || !cb->pfnRenderCb || !cb->pfnCreateContextCb)
+       return -1;
+    AcquireSRWLockExclusive(&wddm_lock);
++   /* exynos-woa H5 (0060): a fresh binding (state) for this runtime device; the screen created next is its own */
++   int bi = bind_for_device(hRTDevice);
++   if (bi < 0)
++      for (int i = 0; i < MAX_BINDINGS && bi < 0; i++)
++         if (!binds[i].used)
++            bi = i;
++   if (bi < 0) {
++      ReleaseSRWLockExclusive(&wddm_lock);
++      malikm_tlog("bind device %p: no free binding (%d in use)", hRTDevice, MAX_BINDINGS);
++      return -1;
++   }
++   if (cur_bind >= 0)
++      bind_save(&binds[cur_bind]);
++   memset(&binds[bi], 0, sizeof(binds[bi]));
++   binds[bi].used = 1;
++   binds[bi].device = hRTDevice;
++   bind_load(&binds[bi]);
++   cur_bind = bi;
++   tls_pending = bi;
++   tls_selected = bi;
+    /* Ask the adapter through the callbacks: a software runtime routes them
+     * to d3d10umd's own D3DKMT stubs, which fail. */
+    D3DDDICB_ESCAPE e = {0};
+@@ -1538,7 +1715,12 @@ malikm_bind_d3dddi(HANDLE hRTAdapter, HANDLE hRTDevice, const void *pKTCallbacks
+          ret = 0;
+       }
+    }
++   if (ret < 0) {
++      memset(&binds[bi], 0, sizeof(binds[bi]));
++      cur_bind = -1;
++   }
+    ReleaseSRWLockExclusive(&wddm_lock);
++   malikm_tlog("bind device %p: binding %d, ret %d", hRTDevice, ret < 0 ? -1 : bi, ret);
+    if (trace_on())
+       fprintf(stderr, "malikm: bind to the runtime device %p: %s\n", hRTDevice,
+               ret == 0 ? "yes, through its callbacks" :
+@@ -1592,7 +1774,7 @@ wbo_from_allocation_locked(unsigned hAlloc, int *prime_fd)
+                (unsigned long long)where.Size);
+    if (!h)
+       return -1;
+-   *prime_fd = (int)(MALIKM_PRIME_FD_BASE | h);
++   *prime_fd = PRIME_FD(cur_bind, h);
+    if (trace_on())
+       fprintf(stderr, "malikm-wddm: allocation 0x%x as BO %u at 0x%llx, %llu bytes\n", hAlloc, h,
+               (unsigned long long)where.GpuVa, (unsigned long long)where.Size);
+@@ -1604,6 +1786,7 @@ malikm_bo_from_allocation(unsigned hAlloc, int *prime_fd)
+ {
+    int ret = -1;
+    AcquireSRWLockExclusive(&wddm_lock);
++   bind_switch(tls_selected);
+    if (ddi.on && wddm == 1)
+       ret = wbo_from_allocation_locked(hAlloc, prime_fd);
+    ReleaseSRWLockExclusive(&wddm_lock);
+@@ -1627,6 +1810,7 @@ malikm_shared_bo_create(void *hRTResource, unsigned w, unsigned h, unsigned cpp,
+    if (w == 0 || h == 0 || cpp == 0 || hRTResource == NULL)
+       return -1;
+    AcquireSRWLockExclusive(&wddm_lock);
++   bind_switch(tls_selected);
+    if (ddi.on && wddm == 1 && ddi.cb.pfnAllocateCb) {
+       pi.Version = MW_ABI_VERSION;
+       pi.Flags = MW_ALLOC_NOEXEC;
+@@ -1656,6 +1840,7 @@ malikm_allocation_gone(unsigned hAlloc)
+ {
+    unsigned n = 0;
+    AcquireSRWLockExclusive(&wddm_lock);
++   bind_switch(tls_selected);
+    for (uint32_t i = 0; i < wbo_cap; i++)
+       if (wbo[i].h == hAlloc && wbo[i].runtime_owned && !wbo[i].gone) {
+          if (wbo[i].cpu)
+@@ -1676,8 +1861,10 @@ malikm_prime_fd_allocation(int prime_fd)
+ {
+    unsigned h = 0;
+    AcquireSRWLockExclusive(&wddm_lock);
++   bind_switch(tls_selected);
+    if (prime_fd & MALIKM_PRIME_FD_BASE) {
+-      struct wbo *bo = wddm_bo((uint32_t)prime_fd & ~MALIKM_PRIME_FD_BASE);
++      bind_switch(PRIME_FD_B(prime_fd));
++      struct wbo *bo = wddm_bo(PRIME_FD_H(prime_fd));
+       if (bo && !bo->fixed)
+          h = bo->h;
+    }
+@@ -1693,6 +1880,7 @@ malikm_allocation_present(unsigned hAlloc, unsigned hDst, void *dxgi_context)
+    int ret = -1;
+    static unsigned n;
+    AcquireSRWLockExclusive(&wddm_lock);
++   bind_switch(tls_selected);
+    if (ddi.on && ddi.dxgi && ddi.dxgi->pfnPresentCb && hAlloc) {
+       DXGIDDICB_PRESENT p = {0};
+       p.hSrcAllocation = hAlloc;
+@@ -1714,8 +1902,10 @@ malikm_prime_fd_size(int prime_fd)
+ {
+    uint64_t size = 0;
+    AcquireSRWLockExclusive(&wddm_lock);
++   bind_switch(tls_selected);
+    if (prime_fd & MALIKM_PRIME_FD_BASE) {
+-      struct wbo *bo = wddm_bo((uint32_t)prime_fd & ~MALIKM_PRIME_FD_BASE);
++      bind_switch(PRIME_FD_B(prime_fd));
++      struct wbo *bo = wddm_bo(PRIME_FD_H(prime_fd));
+       if (bo)
+          size = bo->size;
+    }
+@@ -1911,12 +2101,13 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+ }
+ 
+ static void
+-wddm_ioctl(DWORD code, void *buf, DWORD len)
++wddm_ioctl(int fd, DWORD code, void *buf, DWORD len)
+ {
+    MALIKM_DRM_HEADER *h = buf;
+    (void)len;
+ 
+    AcquireSRWLockExclusive(&wddm_lock);
++   bind_switch(bind_for_fd(fd));   /* exynos-woa H5 (0060): this screen's runtime device */
+    switch (code) {
+    case IOCTL_MALIKM_VERSION: {
+       MALIKM_VERSION *v = buf;
+diff --git a/src/gallium/frontends/d3d10umd/Device.cpp b/src/gallium/frontends/d3d10umd/Device.cpp
+index 38e31f6..522be27 100644
+--- a/src/gallium/frontends/d3d10umd/Device.cpp
++++ b/src/gallium/frontends/d3d10umd/Device.cpp
+@@ -332,6 +332,9 @@ CreateDevice(D3D10DDI_HADAPTER hAdapter,                 // IN
+  * ----------------------------------------------------------------------
+  */
+ 
++extern "C" void malikm_select_device(void *hRTDevice);   /* exynos-woa H5 (0060), malikm_drm.c */
++extern "C" void malikm_unbind_device(void *hRTDevice);
++
+ void APIENTRY
+ DestroyDevice(D3D10DDI_HDEVICE hDevice)   // IN
+ {
+@@ -340,6 +343,8 @@ DestroyDevice(D3D10DDI_HDEVICE hDevice)   // IN
+    LOG_ENTRYPOINT();
+ 
+    Device *pDevice = CastDevice(hDevice);
++   void *hRT = pDevice->hDevice;
++   malikm_select_device(hRT);
+    struct pipe_context *pipe = pDevice->pipe;
+ 
+    pipe->flush(pipe, NULL, 0);
+@@ -380,6 +385,7 @@ DestroyDevice(D3D10DDI_HDEVICE hDevice)   // IN
+ 
+    pipe->destroy(pipe);
+    pDevice->screen->destroy(pDevice->screen);
++   malikm_unbind_device(hRT);   /* exynos-woa H5 (0060): after the screen's last GEM_CLOSE */
+ }
+ 
+ 
+diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+index 51575d6..d010db8 100644
+--- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
++++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+@@ -41,6 +41,7 @@
+ #include "util/format/u_format.h"
+ 
+ extern "C" void malikm_tlog(const char *fmt, ...);   /* exynos-woa H4: timing/event log (malikm_drm.c) */
++extern "C" void malikm_select_device(void *hRTDevice);   /* exynos-woa H5 (0060) */
+ extern "C" int malikm_allocation_present(unsigned hAlloc, unsigned hDst, void *dxgi_context);   /* H4c (0055) */
+ 
+ /* G13 (exynos-woa): whether the present being carried out is a flip (DXGI_DDI_PRESENT_FLAGS.Flip). The target's
+@@ -70,6 +71,7 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
+ {
+ 
+    LOG_ENTRYPOINT();
++   malikm_select_device(CastDevice(pPresentData->hDevice)->hDevice);   /* exynos-woa H5 (0060): the shim works for this device */
+ 
+    struct Device *device = CastDevice(pPresentData->hDevice);
+    Resource *pSrcResource = CastResource(pPresentData->hSurfaceToPresent);
+@@ -163,6 +165,7 @@ HRESULT APIENTRY
+ _SetDisplayMode( DXGI_DDI_ARG_SETDISPLAYMODE *SetDisplayMode )
+ {
+    LOG_ENTRYPOINT();
++   malikm_select_device(CastDevice(SetDisplayMode->hDevice)->hDevice);   /* exynos-woa H5 (0060): the shim works for this device */
+ 
+    Resource *pResource = SetDisplayMode->hResource ? CastResource(SetDisplayMode->hResource) : NULL;
+    long hr = malikm_set_display_mode(pResource ? pResource->kmt_primary : 0);
+@@ -314,6 +317,7 @@ HRESULT APIENTRY
+ _Blt(DXGI_DDI_ARG_BLT *Blt)
+ {
+    LOG_ENTRYPOINT();
++   malikm_select_device(CastDevice(Blt->hDevice)->hDevice);   /* exynos-woa H5 (0060): the shim works for this device */
+ 
+    struct Device *device = CastDevice(Blt->hDevice);
+    Resource *dst = CastResource(Blt->hDstResource);
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index 612dfff..1f23cfe 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -213,6 +213,7 @@ extern "C" int malikm_shared_bo_create(void *hRTResource, unsigned w, unsigned h
+ extern "C" int malikm_bo_from_allocation(unsigned hAlloc, int *prime_fd);
+ extern "C" unsigned malikm_prime_fd_allocation(int prime_fd);   /* exynos-woa H4c (0055) */
+ extern "C" void malikm_allocation_gone(unsigned hAlloc);         /* exynos-woa H5 (0059) */
++extern "C" void malikm_select_device(void *hRTDevice);           /* exynos-woa H5 (0060) */
+ extern "C" void malikm_tlog(const char *fmt, ...);   /* exynos-woa H4: timing/event log (malikm_drm.c) */
+ 
+ /* exynos-woa H3: softpipe imports CPU memory (gdi winsys, 0034/0035); a GPU screen imports a BO by fd. */
+@@ -241,6 +242,7 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+                D3D10DDI_HRTRESOURCE hRTResource)                        // IN
+ {
+    LOG_ENTRYPOINT();
++   malikm_select_device(CastDevice(hDevice)->hDevice);   /* exynos-woa H5 (0060): the shim works for this device */
+ 
+    if ((pCreateResource->MiscFlags & D3D10_DDI_RESOURCE_MISC_SHARED) ||
+        (pCreateResource->pPrimaryDesc &&
+@@ -558,6 +560,7 @@ OpenResource(D3D10DDI_HDEVICE hDevice,                            // IN
+     * D3D10DDIARG_OPENRESOURCE carry no format or size); its texture storage is the allocation itself, locked
+     * read-only, when the runtime allows the opener to lock it (GDI non-managed primaries), else a blank texture. */
+    LOG_ENTRYPOINT();
++   malikm_select_device(CastDevice(hDevice)->hDevice);   /* exynos-woa H5 (0060): the shim works for this device */
+ 
+    struct pipe_context *pipe = CastPipeContext(hDevice);
+    struct pipe_screen *screen = pipe->screen;
+@@ -662,6 +665,7 @@ DestroyResource(D3D10DDI_HDEVICE hDevice,       // IN
+                 D3D10DDI_HRESOURCE hResource)   // IN
+ {
+    LOG_ENTRYPOINT();
++   malikm_select_device(CastDevice(hDevice)->hDevice);   /* exynos-woa H5 (0060): the shim works for this device */
+ 
+    struct pipe_context *pipe = CastPipeContext(hDevice);
+    Resource *pResource = CastResource(hResource);
+diff --git a/src/util/os_file.c b/src/util/os_file.c
+index 7d99383..a57453b 100644
+--- a/src/util/os_file.c
++++ b/src/util/os_file.c
+@@ -243,6 +243,14 @@ os_same_file_description(int fd1, int fd2)
+    if (fd1 == fd2)
+       return 0;
+ 
++#ifdef _WIN32
++   /* exynos-woa H5 (0060): every DRM "fd" here is its own _open() of the malikm shim (one per D3D device); a
++    * dup is only taken by the screen that owns it. Different numbers = different descriptions, so each device gets
++    * its own Panfrost screen (with -1 here, u_screen assumed "same" and shared one screen between the devices of a
++    * process, whose allocations belong to different runtime devices). */
++   return 1;
++#endif
++
+ #if DETECT_OS_LINUX
+    /* Use F_DUPFD_QUERY if available. */
+    int r = fcntl(fd1, F_DUPFD_QUERY, fd2);
+-- 
+2.40.1.windows.1
+

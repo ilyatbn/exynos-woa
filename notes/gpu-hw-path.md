@@ -414,3 +414,12 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   surfaces of the shell are - they are opened shared resources). Open question; candidates: the UMD's DXGI DDI level
   (d3d10umd exposes DXGI 1.0/1.1, flip model wants 1.2+), present-history routing in dxgkrnl. Fallback idea: hand
   windowed frames to their window with GDI (DWM composes GDI windows at the app's rate - gdi test).
+- **Mesa 0060 (mali-umd-0060, maliumd b36aec26...): per-device bindings.** malikm_drm.c: struct binding (ddi state,
+  BO table, command/allocation/patch lists, GPU info, submit seq, dead list, kprim, scanout BO) x16; the old globals
+  stay the code's working set and bind_switch() swaps them under wddm_lock - by fd in wddm_ioctl (fd->binding; an
+  unknown fd joins this thread's last bind = Panfrost's dup), by pseudo prime fd (binding encoded in bits 29..20),
+  by malikm_select_device(hRTDevice) (thread-local; d3d10umd calls it at the top of CreateResource, OpenResource,
+  DestroyResource, Present, SetDisplayMode, Blt, DestroyDevice) for every API lock site (15). malikm_bind_d3dddi
+  takes a fresh binding per device; DestroyDevice -> malikm_unbind_device after the screen is destroyed.
+  src/util/os_file.c: os_same_file_description returns "different" on _WIN32 -> one Panfrost screen per device.
+  tlog: "bind device %p: binding n", "binding n: fd", "binding n dropped", "prime fd ... refused".

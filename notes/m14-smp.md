@@ -513,3 +513,8 @@ No device access in this task; build-verified only (Guided, not Ready).
   bank2 start 0xE1900000, bank3/4 seam) -> the guard test was valid; theory OUT.
 - 01:52 phone restored for normal use: boot = boot-kd6.img (7810a0bd, 6 cores, KD image, BCD debug on), ESP flags =
   stay.flg only (nogpu.flg / noaudio.flg removed).
+- NEW LEAD (02:00): ntoskrnl has 20 SMC / 22 HVC sites: HalpInvokeSmc/Hvc, KiPreflightReturnToUserMode, and
+  exception-vector front ends FrontendBtiSmcKiUserExceptionHandler / ...KiUser32SystemErrorHandler / ... (BTI =
+  Spectre-v2 branch-target-injection mitigation through an SMC on every exception from user mode). If Windows picks
+  these front ends for the M4, each user->kernel transition on the M4 calls into Samsung EL3 (SMCCC
+  ARCH_WORKAROUND_x) - fits: kernel-only phase fine, death ~1 min in once user mode runs on the M4, reset external.

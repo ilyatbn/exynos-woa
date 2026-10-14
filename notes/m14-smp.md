@@ -287,3 +287,10 @@ No device access in this task; build-verified only (Guided, not Ready).
   "MP (8 procs)"; !running -it: CPU0 in Phase1InitializationDiscard, CPUs 1-7 (incl. M4 6/7) idle, all in
   KiFreezeTargetExecution via KiIpiServiceRoutine => the freeze IPI reaches and is answered by both M4s.
   "M4 does not take IPIs" hypothesis OUT (at least at t+4 s).
+- m4kd3 freeze bracket: break-ins at +16 s, +30 s, +43 s (22:46:08/22:46:22/22:46:35) all fine (8 CPUs idle or in
+  DPCs; at 22:46:35 CPU0 in kdnic!RxReceiveIndicateDpc). Resume 22:46:38 -> next break-in 22:46:48 FAILED (link
+  dead). The target printed NOTHING after the 22:46:38 resume. In flight around then: MaliG76Wddm start (GpuEnable 1
+  FullAdapter 1, QueryInterface failures), Exynos9820Wlan firmware download + WDI init, Exynos9820Audio amp init.
+  Silent all-system freeze while drivers load = load on the M4s. Suspects: M4 cluster DVFS (clock/voltage left by
+  sboot, UEFI only sets LITTLE/MID) and M4-cluster coherency/snoop. kdrun 'every' BUG: a failed break-in never
+  resumes, so gLastResume never advances and the timer fires every 0.5 s - fix next.

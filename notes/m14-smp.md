@@ -336,3 +336,12 @@ No device access in this task; build-verified only (Guided, not Ready).
   stage 2 -> TLBI VMALLE1IS; DSB SY; ISB -> stage 3 -> alive mark; "PARK: CPU_ON ... dvm stage N" logs it. Stub
   0x90 B (llvm-objdump of the obj matches the source). Size guard now stops at the stage word (0xFD8).
   Image boot-m4dvm1.img (KD flags + mask 0xFE as m4kd1). A wedged core = stage 1/2, no mark, MADT-disabled.
+- Run m4dvm1 (boot-m4dvm1 4c22575e, nogpu.flg): 8 procs after start => both M4s passed the stub DVM self-test
+  (IC IALLUIS + TLBI VMALLE1IS + DSB complete on an M4 with MMU off; UEFILOG stages to confirm). Windows froze
+  between +59 s and +72 s after KD connect (23:05:12 ok, 23:05:25 dead). Last good break: CPU6 (M4) CI!memcmp <-
+  qsort <- CI!I_MapFileHashes (catalog parsing), CPU7 (M4) InterlockedExchange_acq in KiAcquirePrcbLocksForIsolation
+  Unit <- KiQuantumEnd, CPU0 in PpmCheckStart/PpmUpdatePerformanceFeedback, rest idle. Plain work, no common op.
+  Freeze windows after connect, all runs: m4kd3 43-56 s, m4dvfs1 41-59, m4nogpu1 49-75, m4nogpu2 61-68, m4dvm1 59-72.
+  => looks TIME-triggered (~1 min), not workload/instruction-triggered. New suspect: something outside Windows
+  (ACPM / EL3 CPU-PM) acting on the M4 cluster after ~60 s (e.g. cluster considered idle/unowned -> power or clock
+  change while running). Research agent asked about CPU_INFORM / cpupm / flexpmu.

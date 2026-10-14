@@ -129,6 +129,31 @@ static BOOLEAN SoftReset(MK_GPU *Gpu)
     MK_WR(Gpu, JOB_INT_CLEAR, 0xffffffff);
     MK_WR(Gpu, MMU_INT_CLEAR, 0xffffffff);
     MK_WR(Gpu, GPU_INT_MASK, GPU_IRQ_FAULT | GPU_IRQ_MULTIPLE_FAULT);
+    /* The cycle/timestamp counters for MW_ESCAPE_CLOCK (a reset stops them). 2026-10-14: with them running the GPU
+     * measured 156 MHz against the 260 MHz UEFI requests (notes/gpu-hw-path.md). */
+    MK_WR(Gpu, GPU_CMD, GPU_CMD_CYCLE_COUNT_START);
+    return TRUE;
+}
+
+/* A torn-free 64-bit read of a LO/HI counter pair. */
+static ULONG64 Rd64(MK_GPU *Gpu, ULONG Lo, ULONG Hi)
+{
+    ULONG h, l, h2;
+
+    do {
+        h = MK_RD(Gpu, Hi);
+        l = MK_RD(Gpu, Lo);
+        h2 = MK_RD(Gpu, Hi);
+    } while (h != h2);
+    return ((ULONG64)h << 32) | l;
+}
+
+BOOLEAN MkReadClock(MK_GPU *Gpu, ULONG64 *Cycles, ULONG64 *Timestamp)
+{
+    if (Gpu->Regs == NULL || !MkPowered(Gpu))
+        return FALSE;
+    *Cycles = Rd64(Gpu, GPU_CYCLE_COUNT_LO, GPU_CYCLE_COUNT_HI);
+    *Timestamp = Rd64(Gpu, GPU_TIMESTAMP_LO, GPU_TIMESTAMP_HI);
     return TRUE;
 }
 

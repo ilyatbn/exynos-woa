@@ -68,6 +68,11 @@
 
 #define GPU_CMD_SOFT_RESET      0x01
 #define GPU_CMD_HARD_RESET      0x02
+#define GPU_CMD_CYCLE_COUNT_START 0x05     /* panfrost_regs.h GPU_CMD_CYCLE_COUNT_START */
+#define GPU_CYCLE_COUNT_LO      0x090       /* panfrost_regs.h; counts GPU clock cycles once started */
+#define GPU_CYCLE_COUNT_HI      0x094
+#define GPU_TIMESTAMP_LO        0x098
+#define GPU_TIMESTAMP_HI        0x09C
 #define GPU_IRQ_FAULT           (1u << 0)
 #define GPU_IRQ_MULTIPLE_FAULT  (1u << 7)
 #define GPU_IRQ_RESET_COMPLETED (1u << 8)
@@ -201,6 +206,7 @@ void MkGpuQuiet(MK_GPU *Gpu);
 NTSTATUS MkGpuInit(MK_GPU *Gpu);
 BOOLEAN MkGpuBringup(MK_GPU *Gpu);
 void MkGpuStop(MK_GPU *Gpu);
+BOOLEAN MkReadClock(MK_GPU *Gpu, ULONG64 *Cycles, ULONG64 *Timestamp);   /* MW_ESCAPE_CLOCK */
 
 /* Page tables and addresses. MkVaAlloc keeps executable ranges inside one
  * 16 MB window (the shader program counter is 24 bits). */

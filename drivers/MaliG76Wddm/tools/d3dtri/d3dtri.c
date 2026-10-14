@@ -38,6 +38,11 @@
 #include <d3dcompiler.h>
 #pragma warning(pop)
 
+/* overlay.cpp: fps / GPU model / GPU clock / temperature drawn with Direct2D (D3DTRI_NOOVERLAY=1 = off) */
+int OverlayInit(IDXGISwapChain *Sc, IDXGIAdapter *Adapter);
+void OverlayTick(void);
+void OverlayDraw(double Fps);
+
 static volatile const char *Step = "start";
 static DWORD WatchdogMs;
 
@@ -393,6 +398,8 @@ static int Cube(ID3D11Device *Dev, ID3D11DeviceContext *Ctx, DWORD Seconds)
     ULONG Frames = 0, SecFrames = 0, PresentFails = 0;
     HRESULT FirstFail = S_OK;
     float Mvp[16];
+    BOOL Overlay = FALSE;
+    double Fps = 0.0;
 
     Mark("window");
     Wc.lpfnWndProc = WndProc;
@@ -433,6 +440,11 @@ static int Cube(ID3D11Device *Dev, ID3D11DeviceContext *Ctx, DWORD Seconds)
     CHECK(IDXGIFactory_CreateSwapChain(Xf, (IUnknown *)Dev, &Scd, &Sc), "CreateSwapChain");
     CHECK(IDXGISwapChain_GetBuffer(Sc, 0, &IID_ID3D11Texture2D, (void **)&Bb), "GetBuffer");
     CHECK(ID3D11Device_CreateRenderTargetView(Dev, (ID3D11Resource *)Bb, NULL, &Rtv), "CreateRenderTargetView");
+    if (GetEnvironmentVariableA("D3DTRI_NOOVERLAY", NULL, 0) == 0) {
+        Mark("overlay");
+        Overlay = OverlayInit(Sc, Xa) == 0;
+        printf("overlay %s\n", Overlay ? "on" : "off (init failed)");
+    }
     Td.Width = W;
     Td.Height = H;
     Td.MipLevels = Td.ArraySize = 1;
@@ -520,6 +532,8 @@ static int Cube(ID3D11Device *Dev, ID3D11DeviceContext *Ctx, DWORD Seconds)
             }
             Mark("frames");
         }
+        if (Overlay)
+            OverlayDraw(Fps);
         hr = IDXGISwapChain_Present(Sc, 0, 0);
         if (FAILED(hr)) {
             if (PresentFails++ == 0)
@@ -530,6 +544,9 @@ static int Cube(ID3D11Device *Dev, ID3D11DeviceContext *Ctx, DWORD Seconds)
         Pump();
         if ((ULONG64)(Now.QuadPart - Sec.QuadPart) >= (ULONG64)Freq.QuadPart) {
             printf("t %5.1f fps %lu\n", T, SecFrames);
+            Fps = (double)SecFrames * (double)Freq.QuadPart / (double)(Now.QuadPart - Sec.QuadPart);
+            if (Overlay)
+                OverlayTick();
             fflush(stdout);
             SecFrames = 0;
             Sec = Now;

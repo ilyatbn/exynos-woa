@@ -524,6 +524,18 @@ static NTSTATUS APIENTRY MwEscape(IN_CONST_HANDLE hAdapter, const DXGKARG_ESCAPE
         if (Esc->PrivateDriverDataSize < sizeof(MW_ESCAPE_SCANOUT_DATA))
             return STATUS_INVALID_PARAMETER;
         return MwEscapeScanout(a, Esc, (MW_ESCAPE_SCANOUT_DATA *)Esc->pPrivateDriverData);
+    case MW_ESCAPE_CLOCK: {
+        MW_ESCAPE_CLOCK_DATA *c = (MW_ESCAPE_CLOCK_DATA *)Esc->pPrivateDriverData;
+        LARGE_INTEGER f, q;
+
+        if (Esc->PrivateDriverDataSize < sizeof(MW_ESCAPE_CLOCK_DATA))
+            return STATUS_INVALID_PARAMETER;
+        c->Valid = a->GpuUp && MkReadClock(&a->Gpu, &c->Cycles, &c->Timestamp);
+        q = KeQueryPerformanceCounter(&f);
+        c->Qpc = (mw_u64)q.QuadPart;
+        c->QpcFreq = (mw_u64)f.QuadPart;
+        return STATUS_SUCCESS;
+    }
     case MW_ESCAPE_STATS:
         if (Esc->PrivateDriverDataSize < sizeof(MW_ESCAPE_STATS_DATA))
             return STATUS_INVALID_PARAMETER;

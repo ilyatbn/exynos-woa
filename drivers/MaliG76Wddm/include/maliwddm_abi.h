@@ -54,6 +54,7 @@ typedef struct _MW_COMMAND {
 #define MW_ESCAPE_GPU_INFO      2
 #define MW_ESCAPE_STATS         3
 #define MW_ESCAPE_SCANOUT       4       /* exynos-woa H4a: the scan-out framebuffer in the GPU's address space */
+#define MW_ESCAPE_CLOCK         5       /* exynos-woa: GPU cycle counter + QPC, for a live clock reading */
 
 typedef struct _MW_ESCAPE_ALLOC_INFO_DATA {
     mw_u32 Code;                        /* MW_ESCAPE_ALLOC_INFO */
@@ -106,3 +107,13 @@ typedef struct _MW_ESCAPE_STATS_DATA {
      * GPU-presented allocation, whose CPU copy was skipped (exynos-woa H4a). */
     mw_u32 PresentBlts, PresentFills, PresentSkips, PresentGpu;
 } MW_ESCAPE_STATS_DATA;
+
+/* MW_ESCAPE_CLOCK: two calls a known time apart give the GPU clock: (Cycles2 - Cycles1) * QpcFreq / (Qpc2 - Qpc1).
+ * The KMD starts the cycle counter (GPU_CMD 5) after every reset. Valid 0 = GPU not powered / not up. */
+typedef struct _MW_ESCAPE_CLOCK_DATA {
+    mw_u32 Code;                        /* MW_ESCAPE_CLOCK */
+    mw_u32 Valid;
+    mw_u64 Cycles;                      /* GPU_CYCLE_COUNT */
+    mw_u64 Timestamp;                   /* GPU_TIMESTAMP (system counter) */
+    mw_u64 Qpc, QpcFreq;                /* KeQueryPerformanceCounter at the read */
+} MW_ESCAPE_CLOCK_DATA;

@@ -664,3 +664,22 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   is the request, not the measured clock.
 - User asked for counters on the cube (fps, GPU model, GPU clock, temperature): KMD escape for cycle count + QPC
   (live MHz), d3dtri D2D overlay.
+
+### 2026-10-14 ~12:50 - soak s3 (KMD 38 + UMD 0065), cube overlay, KMD 1.0.39.1 (clock escape)
+- s3 via SSH (runuser2): blt cube 300 s = 17816 frames, **59.4 fps** (s2: 30.1), 0 present failures; KMD jobs
+  43696 -> 261987, 0 failed / timed out / faults / resets; no new Display 4101. The flip half died after 8 s twice
+  while the user was opening apps; a clean rerun: flip 25 s = 27.9 fps, 0 failures, cube in the scan-out dump
+  (runs\fbflip-q.png); blt rerun also visible (runs\fbcube-q.png).
+- **Windows Terminal crashes** (7x today, always d3d11.dll+0x46f4, c0000005): dump runs\wt\wt.dmp -
+  d3d11!NDXGI::CDevice::WaitTrackedFenceImpl+0x1c `ldr x8,[x21]` with x21 = 0x8 <- WaitForFence <-
+  dxgi!CDXGISwapChain::AcquireBuffer <- d3d11 OMSetRenderTargets <- d2d1 EndDraw <- Terminal AtlasEngine
+  BackendD2D::Render. A composition (DirectComposition) flip swap chain re-acquiring its buffer waits on a tracked
+  fence the runtime never got from our D3D10-DDI UMD. Open task: repro with CreateSwapChainForComposition.
+- GPU clock re-measured after the user lifted the phone off the table: ratio 6.000 x3 = 156 MHz, constant - no
+  throttling exists under Windows; the clock is simply fixed low.
+- KMD 1.0.39.1: SoftReset ends with GPU_CMD CYCLE_COUNT_START; MkReadClock (torn-free 64-bit reads);
+  MW_ESCAPE_CLOCK (5) returns Cycles, Timestamp, QPC, QPC freq (Valid = GpuUp && powered). Swapped in as SYSTEM
+  (kmdswap.cmd; previous = MaliG76Wddm.prev in the DriverStore folder).
+- d3dtri overlay (overlay.cpp, D2D/DirectWrite into the back buffer before Present; D3DTRI_NOOVERLAY=1 off):
+  "Direct3D 11 (feature level x_y), blt/flip-model swap chain" / adapter / FPS / GPU clock (MW_ESCAPE_CLOCK once a
+  second) / "GPU temp n/a". Font = buffer width / 32 (cube is DPI-unaware: 540x1140 at 200 %). d3dtri-6 on the phone.

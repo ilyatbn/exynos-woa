@@ -219,3 +219,7 @@ No device access in this task; build-verified only (Guided, not Ready).
   Kits kd.exe (60 s, file log only) also did not reconnect to the already-running target ("Waiting to reconnect...")
   - the target may be stuck after the orphaned kd.exe (user: Wi-Fi not working in this Windows session, possibly the
   WLAN driver's DbgPrint stuck on the dead debugger - INFERRED). A target reboot is needed to re-test.
+- Commit 2b0ec94 (kdrun loads the Kits dbgeng by full path). REVIEW: verified mechanically - kdrun.exe imports only
+  KERNEL32.dll (byte scan), a 15 s run prints "Debugger Version 10.0.26100.6584"; build-kdrun.cmd no longer links
+  dbgeng.lib. Overclaim in the message: "never connected" is not proven to be the inbox engine's fault - the Kits
+  kd.exe also failed to reconnect to that same (possibly stuck) target. Closes only on the next target boot.

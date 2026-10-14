@@ -3,7 +3,7 @@
  * notes/m14-smp.md "M4 under KD": the M4 big cores hang/kill Windows early; a person is not always there to press
  * Ctrl+Break, so this does it:
  *
- *   kdrun <log> <total_s> <break_after_s> [reboot|twrp]
+ *   kdrun <log> <total_s> <break_after_s> [reboot|twrp|go] [<initial-break commands file>]
  *
  *   - attaches to KDNET (net:port=50005,key=1.2.3.4 - the phone's DBG2/BCD settings, notes/m17-usb-kd.md)
  *   - every event that breaks in (bugcheck, exception, initial break) runs the diagnostics below and continues,
@@ -15,6 +15,11 @@
  *   twrp: after the diagnostics of the first bugcheck or of the timed break-in, reset the phone into TWRP the way
  *   S10eDiag's hard reset does (progress 0x81, PMU INFORM3 = recovery, RSTSTAT = 0, SWRESET; constants VERIFIED in
  *   drivers/S10eDiag/S10eDiag.c) and stop - the unattended way out of a hung test image.
+ *
+ *   commands file: the engine asks the kernel for an initial break when it connects (KDNET connects in phase-0 kernel
+ *   init, before the secondary processors are started); at that first break every non-empty line of the file is
+ *   executed (e.g. ".reload", "bp nt!KeStartAllProcessors") instead of the diagnostics, then the target continues.
+ *   "go" = neither reboot nor twrp, so a commands file can follow.
  *
  * Diagnostics: !analyze -v (on a bugcheck), !running -it (every processor's current thread + stack), !prcb per CPU,
  * k on the current processor, lm, vertarget.
@@ -84,6 +89,23 @@ static void ResetToTwrp(IDebugControl *Control)
     Run(Control, "!ed [uc] 15863a00 2");
 }
 
+static void RunFile(IDebugControl *Control, const char *Path)
+{
+    FILE *F;
+    char Line[256];
+
+    if (fopen_s(&F, Path, "r") != 0 || F == NULL) {
+        Note("cannot open the initial-break commands file");
+        return;
+    }
+    while (fgets(Line, sizeof(Line), F) != NULL) {
+        Line[strcspn(Line, "\r\n")] = 0;
+        if (Line[0])
+            Run(Control, Line);
+    }
+    fclose(F);
+}
+
 static void Diagnose(IDebugControl *Control, BOOL Bugcheck)
 {
     ULONG Count = 0, I;
@@ -108,13 +130,14 @@ int main(int argc, char **argv)
     IDebugControl *Control = NULL;
     ULONGLONG Start, Connected = 0;
     ULONG TotalS, BreakS;
-    BOOL Reboot, Twrp, BrokeIn = FALSE;
+    BOOL Reboot, Twrp, BrokeIn = FALSE, FirstBreak = TRUE;
+    const char *InitCmds;
     HRESULT Hr;
     HMODULE Engine;
     KDRUN_DEBUG_CREATE Create;
 
     if (argc < 4) {
-        fprintf(stderr, "usage: kdrun <log> <total_s> <break_after_s> [reboot]\n");
+        fprintf(stderr, "usage: kdrun <log> <total_s> <break_after_s> [reboot|twrp|go] [init-cmds]\n");
         return 1;
     }
     if (fopen_s(&gLog, argv[1], "a") != 0 || gLog == NULL)
@@ -123,6 +146,7 @@ int main(int argc, char **argv)
     BreakS = strtoul(argv[3], NULL, 10);
     Reboot = argc > 4 && _stricmp(argv[4], "reboot") == 0;
     Twrp = argc > 4 && _stricmp(argv[4], "twrp") == 0;
+    InitCmds = argc > 5 ? argv[5] : NULL;
 
     /* The Kits dbgeng.dll by full path: a plain import resolves to the inbox System32\dbgeng.dll (10.0.26100.1),
      * which never connected to the phone (notes/m14-smp.md, kdtest 21:42). ALTERED_SEARCH_PATH makes its own
@@ -142,6 +166,8 @@ int main(int argc, char **argv)
     Client->lpVtbl->SetOutputCallbacks(Client, &gOut);
     Control->lpVtbl->Execute(Control, DEBUG_OUTCTL_ALL_CLIENTS,
                              ".symfix+ C:\\Users\\ilya\\code\\s10e-artifacts\\sym", DEBUG_EXECUTE_ECHO);
+    if (InitCmds != NULL)
+        Control->lpVtbl->AddEngineOptions(Control, DEBUG_ENGOPT_INITIAL_BREAK);
     Hr = Client->lpVtbl->AttachKernel(Client, DEBUG_ATTACH_KERNEL_CONNECTION, "net:port=50005,key=1.2.3.4");
     Note(SUCCEEDED(Hr) ? "AttachKernel ok - waiting for the target" : "AttachKernel FAILED");
     if (FAILED(Hr))
@@ -173,6 +199,13 @@ int main(int argc, char **argv)
                                                      &DescLen);
             Bugcheck = strstr(Desc, "ugcheck") != NULL || strstr(Desc, "ug check") != NULL;
             Note(Desc[0] ? Desc : "break (no description)");
+            if (FirstBreak && InitCmds != NULL && !Bugcheck) {
+                FirstBreak = FALSE;
+                RunFile(Control, InitCmds);
+                Control->lpVtbl->SetExecutionStatus(Control, DEBUG_STATUS_GO);
+                continue;
+            }
+            FirstBreak = FALSE;
             Diagnose(Control, Bugcheck);
             if (Bugcheck && Twrp) {
                 ResetToTwrp(Control);

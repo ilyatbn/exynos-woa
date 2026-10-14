@@ -336,3 +336,4 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   (malikm_prime_fd_allocation). _Present of such a buffer: flush + fence_finish (<= 100 ms), then
   malikm_allocation_present -> pfnPresentCb(hSrcAllocation = that allocation), no readback, no copy; failure falls
   through to the old path. tlog "CreateResource present ..." and "present allocation n: ...".
+- 04:06 h3o deploy: UMD 0055 into System32 (3f4814d7...). Risk noted: Explorer/LogonUI windowed swap chains take the new path too - watch logon in agent.log.

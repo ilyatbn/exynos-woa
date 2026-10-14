@@ -638,3 +638,17 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   tri/tex PASS (before the reboot, new processes on 0065). Re-stride latched by the window request again (LatchedBy 1).
 - Proper fix later: grow heaps on GPU MMU faults in the KMD (Linux panfrost_mmu.c behaviour), then the default can go
   back up for heavy geometry.
+
+### Rotation plan (not started; user: "it still doesnt rotate but its a separate issue")
+- Today: KMD offers RotationSupport.Identity only (display.c MwEnumVidPnCofuncModality, RecommendFunctionalVidPn
+  path :521-522), so s10erotate 90 is refused in GPU mode; SupportSmoothRotation TRUE in caps already.
+- Learn (D3DDDIARG_CREATERESOURCE): a primary created with Rotation 90 is allocated in the physical (scan-out)
+  orientation and the driver rotates when rendering to it; D3DKMDT_VPPR_ROTATE90 = 90 deg counter-clockwise; the
+  _OFFSETxx values (Win 8.1 Update) are for path-independent rotation clones, not this panel.
+- Work: (1) KMD: offer Identity|Rotate90|Rotate180|Rotate270 when the rotation is unpinned, accept a pinned one,
+  source mode set gets the swapped 2280x1080 mode for 90/270; record the committed rotation (CommitVidPn). (2) KMD CPU
+  present path (MwPresent / blt into the scan-out) rotates by the committed angle (Arg->Flags.Rotate). (3) UMD
+  scan-out present (0053 d3d10_scanout_present, pipe->blit) cannot rotate: a textured quad with rotated texcoords into
+  the scan-out BO when the primary carries a rotation (CreateResource pPrimaryDesc->Rotation). (4) GDI hand-off and
+  touch: the touch driver's coordinates need the same transform (separate driver). Validation: s10erotate 90 + scan-out
+  dump shows a landscape desktop rotated into the portrait buffer, both present paths.

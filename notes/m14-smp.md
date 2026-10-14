@@ -432,3 +432,6 @@ No device access in this task; build-verified only (Guided, not Ready).
   random time; BROADCAST IPIs (KD freeze, "all others") still work - matches every run. Test: each parked core
   reads its own GICD_ITARGETSR0 byte (GICD 0x10101000 + 0x800) in the stub, logged.
 - boot-m4gic1.img: stub logs each parked core's GICD_ITARGETSR0 byte (its real CPU interface mask) vs MADT GicId (objdump: movz/movk 0x10101800, ldrb).
+- m4gic1 result: GIC CPU interface masks (banked GICD_ITARGETSR0 read by each core): boot 01, gicc1-5 02/04/08/10/20
+  (UEFILOG), M4 gicc6 0x40, gicc7 0x80 (mailbox +0xFB0, read via KD !dd [uc] ba245fb0/ba246fb0 from the running
+  6-core Windows). == MADT GicId 6/7. GIC numbering hypothesis OUT.

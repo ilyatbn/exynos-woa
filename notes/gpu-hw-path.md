@@ -295,3 +295,10 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   primary, MSAA, a softpipe process or a failed mark falls back to the CPU path. Known limits (not bugs): once a
   primary is marked GPU-presented a later CPU-path present of it would be skipped by the KMD (stale frame) - only if
   the GPU path fails after having worked; tearing (no vblank sync of the blit). Nothing to fix.
+- **Run h3l (03:35-03:43, runs/h3l; #116 + KMD 36, ScanoutStride absent, UMD 0052):** boots fine on #116, KMD 36
+  Build 0x24, FbMatchesGop 1, FbPitch 4320, ScanoutStride 0 (no re-stride, as intended), ScanoutGpuVa 0x2000000
+  (MwMapScanout OK); 0 GPU faults (8970 jobs), cube 30.9 fps, tex still exits 0xC0000005, LogonUI crash events
+  (as before). gfxperf's "dwm fps" counter reads 0.7 in every run (h3j/h3k too) - not a measure; DWM's frame rate
+  comes from the tlog (frontbuffer lines). next-stride: ScanoutStride 1088 armed.
+- 03:46 h3m deploy: UMD 0053 into System32 by umd-deploy.sh (a2c7f60f..., also in ESP gpu\umd-new - same files).
+  h3m = first re-stride boot + GPU present. Expect trace RestrideStep 0, tlog "scanout: ... imported: yes".

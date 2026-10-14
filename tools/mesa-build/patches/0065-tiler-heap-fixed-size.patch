@@ -1,0 +1,46 @@
+From 917729bc8a47e5fae34725278d1bd89ad6528dd7 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 12:09:20 +0300
+Subject: [PATCH] panfrost: fixed-size tiler heap on Windows,
+ MALIKM_TILER_HEAP_MB (default 32) (exynos-woa 0065)
+
+The Windows KMD commits every BO in full and each D3D device has its own
+screen, so the GROWABLE 128 MiB tiler heap cost 128 MiB of RAM per device.
+---
+ src/gallium/drivers/panfrost/pan_device.c | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/src/gallium/drivers/panfrost/pan_device.c b/src/gallium/drivers/panfrost/pan_device.c
+index 962f8a0..a9747a4 100644
+--- a/src/gallium/drivers/panfrost/pan_device.c
++++ b/src/gallium/drivers/panfrost/pan_device.c
+@@ -10,6 +10,7 @@
+ #include "util/macros.h"
+ #include "util/u_math.h"
+ #include "util/u_thread.h"
++#include "util/u_debug.h"
+ #include "pan_bo.h"
+ #include "pan_device.h"
+ #include "pan_encoder.h"
+@@ -98,8 +99,17 @@ panfrost_open_device(void *memctx, int fd, struct panfrost_device *dev)
+     */
+ 
+    if (dev->arch < 10) {
++      size_t heap_size = 128 * 1024 * 1024;
++#ifdef _WIN32
++      /* exynos-woa (notes/gpu-hw-path.md, memory): the Linux kernel backs a GROWABLE BO on GPU page faults, so the
++       * 128 MiB is mostly address space there. The Windows KMD (malikm_drm.c CREATE_BO) commits every BO in full,
++       * and each D3D device has its own screen (0060) - DWM and Explorer paid 128 MiB per device (+2.5 GB system
++       * RAM). Fixed size until the KMD grows heaps on faults: MALIKM_TILER_HEAP_MB (default 32; an overflow shows as
++       * a tiler out-of-memory job fault in the KMD counters). */
++      heap_size = (size_t)CLAMP(debug_get_num_option("MALIKM_TILER_HEAP_MB", 32), 4, 128) * 1024 * 1024;
++#endif
+       dev->tiler_heap = panfrost_bo_create(
+-         dev, 128 * 1024 * 1024, PAN_BO_INVISIBLE | PAN_BO_GROWABLE, "Tiler heap");
++         dev, heap_size, PAN_BO_INVISIBLE | PAN_BO_GROWABLE, "Tiler heap");
+       if (!dev->tiler_heap)
+          goto err_free_kmod_dev;
+    }
+-- 
+2.40.1.windows.1
+

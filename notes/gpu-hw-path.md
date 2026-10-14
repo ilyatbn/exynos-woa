@@ -625,3 +625,16 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
 - 12:06 Settings opened in the user session over SSH (run-as-user.ps1 + Start-Process ms-settings:) and the scan-out
   dumped (runs\fb64b-s.png): every heading, body text, Fluent icon, account/app logos and buttons render (before
   0064: only the shapes). The text bug is fixed for the shell and UWP/XAML apps.
+
+### 2026-10-14 ~12:25 - memory: per-device 128 MiB tiler heaps (Mesa 0065)
+- User: "memory usage also went way up. used to be 1.5gb now its over 4 already".
+- memwatch (runs\memwatch1.txt, 10 x 1 min, idle, UMD 0064): dwm 333-353 MB private, explorer 344-346 MB, free RAM
+  ~2.0-2.25 GB - flat, no leak; fixed overhead.
+- Cause: pan_device.c creates a 128 MiB PAN_BO_GROWABLE tiler heap per screen; Linux backs it on GPU faults, the
+  Windows shim (malikm_drm.c CREATE_BO, w_create) commits every BO in full; since 0060 each D3D device has its own
+  screen. **0065**: fixed heap, MALIKM_TILER_HEAP_MB (default 32, clamp 4..128).
+- After reboot with 0065 (60 s after logon): dwm 195 MB (was 334), explorer 152 MB (was 346), free 2.9 GB (was 2.2),
+  commit 3.2 GB (was 4.3). m5test: jobs 16762 done, 0 failed, 0 timed out, 0 faults, 0 resets. d2dtext PASS, d3dtri
+  tri/tex PASS (before the reboot, new processes on 0065). Re-stride latched by the window request again (LatchedBy 1).
+- Proper fix later: grow heaps on GPU MMU faults in the KMD (Linux panfrost_mmu.c behaviour), then the default can go
+  back up for heavy geometry.

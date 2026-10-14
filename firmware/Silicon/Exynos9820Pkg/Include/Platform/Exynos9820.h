@@ -909,6 +909,11 @@
 #define EXYNOS_FB_STRIDE_PIXELS   EXYNOS_FB_WIDTH         // width*4, as on the 9810
 #define EXYNOS_FB_SIZE            ((UINT64)EXYNOS_FB_STRIDE_PIXELS * \
                                    EXYNOS_FB_HEIGHT * EXYNOS_FB_BYTES_PER_PIXEL)
+// H4b (notes/gpu-hw-path.md): what the memory map reserves for the framebuffer. Larger than EXYNOS_FB_SIZE so that
+// the Windows display driver can re-stride the scan-out to a 64-byte-aligned line (DPU_DMA G0 IDMA_SRC_SIZE width
+// 1088 px = 4352 B x 2280 = 9922560 B, which Panfrost can render into). A choice, not a hardware constant:
+// nothing is reserved between 0xCA000000 and EXYNOS_RSVD_MODEM_SPARE_BASE 0xD0000000 (this file).
+#define EXYNOS_FB_RESERVED_SIZE   0x0000000000A00000ULL   // 10 MiB: 0xCA000000 .. 0xCA9FFFFF
 
 //
 // ---------------------------------------------------------------------------

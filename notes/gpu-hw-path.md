@@ -241,3 +241,20 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   this phone: h3 now peeks 0x19071000..0x19076000 (0x60 each, read only) to find the channel scanning 0xCA000000.
   If SRC_WIDTH is the line stride in pixels, 1088 -> pitch 4352 = 68 x 64 B (Panfrost-aligned); the fb carve-out
   (Exynos9820.h EXYNOS_FB_SIZE = 9849600, page-rounded reservation) must grow to >= 4352 x 2280 = 9922560 B.
+- 03:15 run h3k started (DPU peek).
+- **Run h3k (runs/h3k, DPU peek, read only):** G0 0x19071000 is the scan-out channel: IDMA_ENABLE 0x4,
+  IN_CON 0x02000000, SRC_SIZE 0x08e80438 (h 2280, w 1080), IMG_SIZE 0x08e80438, IN_BASE_ADDR_Y 0xca000000.
+  Channels G1/VG0/VG1/VGF0/VGRF (+0x2000..+0x6000) idle. Samsung dpp_reg.c (dma_reg_set_src_size):
+  SRC_SIZE = the full buffer f_w x f_h, i.e. the line stride in pixels; IMG_SIZE = the cropped image -> width 1088
+  in SRC_SIZE with IMG_SIZE left at 1080 should scan 1080 px out of 4352-byte lines.
+- Samsung cal_9820/regs-decon.h: DECON base (decon_f) 0x19030000; SHADOW_REG_UPDATE_REQ +0x0060 (GLOBAL bit31,
+  DQE bit28, WIN(n) bit n, FOR_DECON 0x3f); HW_SW_TRIG_CONTROL +0x0070 (SW_TRIG_EN bit8, HW_TRIG_EN bit0,
+  HW_SW_TRIG_HS_STATUS bit28). decon_reg.c commits window/DPP changes with
+  decon_write_mask(SHADOW_REG_UPDATE_REQ, ~0, GLOBAL or WIN(idx)). Whether IDMA SRC_SIZE is latched by that
+  request or by IDMA_ENABLE SFR_UPDATE_FORCE (bit4) is not stated: the KMD tries the DECON GLOBAL request, then
+  re-reads SRC_SIZE and the camera says whether the panel follows. All UNVERIFIED on this phone until that run.
+- Firmware #116 (H4b): EXYNOS_FB_RESERVED_SIZE 10 MiB (0xCA000000..0xCA9FFFFF) replaces the page-rounded
+  EXYNOS_FB_SIZE in the carve-out list and in the MMU map. Note: Beyond0LteFbSerialPortLib keeps its FB_CON_STATE
+  at EXYNOS_FB_BASE + EXYNOS_FB_SIZE, which a 4352-pitch scan-out covers - harmless after ExitBootServices
+  (firmware-only state), but the re-stride must never happen while the firmware console is live.
+  Image s10e-artifacts\boot116-fb10m-v2.img sha256 740d97fe...; not flashed yet (phone runs #115).

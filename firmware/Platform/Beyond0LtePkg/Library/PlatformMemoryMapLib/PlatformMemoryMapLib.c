@@ -121,7 +121,7 @@ STATIC CONST MONITOR_RESERVATION  mMonitorReservations[] = {
   // (modem_if, cp_ram_logging, debug_snapshot, log_bcm - live reads).
   //
   { EXYNOS_RSVD_SECLOG_BASE,  EXYNOS_RSVD_SECLOG_SIZE  },  // seclog 0xC0000000
-  { EXYNOS_FB_BASE,           ((EXYNOS_FB_SIZE + 0xFFFULL) & ~0xFFFULL) },  // boot framebuffer
+  { EXYNOS_FB_BASE,           EXYNOS_FB_RESERVED_SIZE },  // boot framebuffer (+ room to re-stride it, H4b)
   { EXYNOS_RSVD_MODEM_SPARE_BASE,
       (EXYNOS_RSVD_S5100_MSI_BASE + EXYNOS_RSVD_S5100_MSI_SIZE - EXYNOS_RSVD_MODEM_SPARE_BASE) },  // modem block
   { EXYNOS_RSVD_MODEM_IF_BASE, 0x0000000100000000ULL - EXYNOS_RSVD_MODEM_IF_BASE },  // modem_if .. 4 GiB
@@ -382,7 +382,7 @@ ArmPlatformGetVirtualMemoryMap (
   if (EXYNOS_FB_BASE != 0) {
     Table[Index].PhysicalBase = EXYNOS_FB_BASE;
     Table[Index].VirtualBase  = EXYNOS_FB_BASE;
-    Table[Index].Length       = EFI_PAGES_TO_SIZE (EFI_SIZE_TO_PAGES (EXYNOS_FB_SIZE));
+    Table[Index].Length       = EXYNOS_FB_RESERVED_SIZE;   // H4b: the whole reservation, as the carve-out list
     Table[Index].Attributes   = MMAP_DEV;
     Index++;
   }

@@ -320,3 +320,9 @@ No device access in this task; build-verified only (Guided, not Ready).
   YIELD, not WFE => WFE-wake hypothesis RULED OUT.
   Remaining picture: an M4 wedges (hardware-level: bus/power/attribute), then the other CPUs deadlock on IPIs to it
   and KD dies with them. Next (m4nogpu2): break-ins every 4 s to catch the window where KD cannot freeze CPU 6/7.
+- Run m4nogpu2 (break-ins every 4 s): 8 good breaks, last at 22:59:45 (~61 s after connect), dead by 22:59:52.
+  Last good !running -it: CPUs 0-5 idle (0 in kdnic DPC); CPU 6 (M4) in nt!MiCopyPage <- MiCopyOnWrite <-
+  MiUserFault (page copy, user COW fault); CPU 7 (M4) in rdyboost!ST_STORE::StDmPageRemove <- SmStWorker (memory
+  compression store). => the freeze comes when the M4s do page-sized memory work. Candidates: cache-geometry
+  mismatch (CTR_EL0 line sizes / DCZID_EL0 block size read on the boot CPU and assumed everywhere), cache
+  maintenance by VA on the M4, coherency. Next: TWRP dmesg "SANITY CHECK: Unexpected variation" (Linux cpufeature).

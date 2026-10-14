@@ -245,3 +245,13 @@ No device access in this task; build-verified only (Guided, not Ready).
   TWRP reset. Fixed in the follow-up (gInBreak). A narrow race remains (timer reads gInBreak 0, the target breaks
   before SetInterrupt) - accepted. (2) the 12 s limit exited after 29 s: SetInterrupt(EXIT) waited out a KDNET
   reconnect - harmless, noted. (3) diagnostics text unchanged.
+- Run kd6c (22:13, live kd6 Windows, fixed kdrun): connected, initial break taken, init file ran, symbols
+  (.reload) in ~1 s. Target: 22621.1 arm64fre ni_release, "MP (6 procs)". Start-path symbols (HAL is inside nt):
+  nt!KeStartAllProcessors, nt!HalpInterruptStartProcessor, nt!HalpGicStartProcessor,
+  nt!HalpInterruptStartProcessorPsci, nt!HalpInterruptGetParkingPageInformation (parking protocol),
+  HalpHvStartProcessor, HalpBcm2836StartProcessor. A second break (80000003) came 3 s after the first (the engine's
+  reconnect break) and got the plain diagnostics + go.
+- kd6c end: timed break-in at +60 s, diagnostics, "!ed [uc]" hard-reset -> TWRP 22:15:14 (bat 34 %). The whole
+  unattended chain (connect, initial break, symbols, timed break, TWRP reset) WORKS.
+- M4 run prep (22:16): ESP \S10EDIAG\stay.flg -> stay.flg.m4off so a silent Windows death lands in TWRP (boot pair)
+  instead of looping into Windows. RESTORE stay.flg after the M4 runs (user's interactive setup).

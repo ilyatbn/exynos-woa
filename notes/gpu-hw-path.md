@@ -622,3 +622,6 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   (runs\fb64.png, fb64-taskbar.png): taskbar complete - clock "8:24 AM 10/14/2026", WiFi/volume/battery/keyboard
   glyphs, notification bell, ^ - all drawn (DWM + explorer on 0064). Panel itself not seen (user away); latched
   copy = 1088 is the evidence.
+- 12:06 Settings opened in the user session over SSH (run-as-user.ps1 + Start-Process ms-settings:) and the scan-out
+  dumped (runs\fb64b-s.png): every heading, body text, Fluent icon, account/app logos and buttons render (before
+  0064: only the shapes). The text bug is fixed for the shell and UWP/XAML apps.

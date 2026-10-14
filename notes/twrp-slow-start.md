@@ -42,3 +42,10 @@
   except ramdisk size/id, ramdisk 10 905 981 -> 10 907 856 B, 3546/3546 cpio entries identical except
   etc/recovery.fstab (its /data line now "#exynos-woa: ... # /data ext4 .../by-name/userdata ...").
   Rollback: dd recovery-orig.img to by-name/recovery (from Windows-free TWRP or Odin).
+- **Result (20:21):** flashed recovery-nodata.img to by-name/recovery (readback of the whole partition = c7b198c0...).
+  `adb reboot recovery` -> TWRP on adb in **36 s wall** (incl. sboot + its warning; was 133 s from reset), uptime 19.5 s
+  at the first adb read; init starts 'recovery' at 7.7 s. recovery.log: no /data setup, no mount.ntfs, no "Data backup
+  size"; "Settings storage is '/external_sd'" (TWRP settings now on the microSD). Logs runs/twrp-fast.
+- Side effects: TWRP's "Internal Storage"/MTP and Data backup/wipe of userdata are gone (they were the Windows volume
+  anyway); our deploy scripts mount userdata themselves (mount.ntfs to /tmp/win) and are unaffected.
+- Future phones: run twrp_nodata.py on that phone's TWRP image (dump by-name/recovery first, keep it as the rollback).

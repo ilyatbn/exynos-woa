@@ -240,3 +240,9 @@ test is deliberately NOT run on the tree.
 Still UNVERIFIED after the port (keep marked): mclk ticks/us (HCI_1US_CNT), mclk-period
 fallback (UFS_MCLK_PRD 10u), opt-suite DME value, RefClk-26MHz category enum, SMC_CMD_*
 family codes (EL3 monitor, not MMIO), PHY_ISO (zeroed), iocoh mask (kernel-faithful).
+
+## 2026-10-14 ~18:50 - observation under load (user installing software; read-only typeperf over SSH)
+- 8 x 2 s samples: disk idle 57-88 %, Avg sec/Read 1-13 ms, sec/Write 0.5-12 ms, read 5-61 MB/s, write 0.3-5.7 MB/s,
+  queue 0-1 - EXCEPT one sample: queue 228, Avg sec/Read 1.157 s (a ~1 s stall of every queued read, then recovery).
+  No disk/storport/UFS events in the System log. CPU 60-95 %, MsMpEng (Defender real-time scan) ~1 core + 3.5 MB/s
+  reads = the install's bottleneck. Open: the 1 s UFS stall (driver queue / HC timeout path?).

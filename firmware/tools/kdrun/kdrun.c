@@ -265,7 +265,11 @@ int main(int argc, char **argv)
             Diagnose(Control, Bugcheck);
             if ((Bugcheck || Timed) && Twrp) {
                 ResetToTwrp(Control);
-                break;
+                /* the target is gone: DetachProcesses / EndSession then block forever and keep port 50005
+                 * (kd6c had to be killed before the next session could attach) */
+                Note("target reset - exiting without detach");
+                fclose(gLog);
+                ExitProcess(0);
             }
             if ((Bugcheck || Timed) && Reboot) {
                 Run(Control, ".reboot");

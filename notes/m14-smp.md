@@ -230,3 +230,13 @@ No device access in this task; build-verified only (Guided, not Ready).
 - "No Wi-Fi in the KD boot" (user, 21:50): not KD - the phone's WLAN driver scans for S10eTest (kd6 kd-raw), the PC's
   Mobile Hotspot, which was Off after the PC reboot. User moved the phone to home Wi-Fi (phonestate needs WINIP
   set to its home-network address). kdrun kd6b (init break + twrp after 240 s) waiting for the next boot.
+- Run kd6b (21:50-22:10, Kits engine 26100.6584, initial-break file, phone restarted over SSH 21:59, Windows back
+  22:02): kdrun NEVER connected, no "Waiting to reconnect..." line (kd.exe prints it right after "Opened WinSock").
+  => the engine's transport loop is not running under kdrun; suspect WaitForEvent failing (its HRESULT was ignored).
+- ROOT CAUSE of kdrun never connecting: WaitForEvent(timeout 1000) returns 0x80004001 E_NOTIMPL with execution status
+  7 (NO_DEBUGGEE) before a kernel target is connected - the KDNET transport never started ("Waiting to reconnect..."
+  never printed). Fix: WaitForEvent(INFINITE) on the main thread + a timer thread doing SetInterrupt(ACTIVE) for the
+  timed break-in and SetInterrupt(EXIT) for the time limit. Test 22:11 against the still-running kd6b Windows:
+  "Waiting to reconnect..." then "Connected to target ... on port 50005" within 2 s - first kdrun connection ever.
+  (KDNET then logged "target machine restarted without notifying the debugger" + reconnect: a reattach quirk.)
+  => m4kd1's "KD never attached" says NOTHING about the M4s; the M4 run must be repeated with this kdrun.

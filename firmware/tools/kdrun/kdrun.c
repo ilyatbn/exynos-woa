@@ -125,15 +125,51 @@ static void Diagnose(IDebugControl *Control, BOOL Bugcheck)
     Run(Control, "lm");
 }
 
+static IDebugControl *gControl;
+static ULONGLONG gTotalMs, gBreakMs;
+static volatile LONG gStop, gBrokeIn, gBreakInPending;
+
+/* time limit -> DEBUG_INTERRUPT_EXIT (WaitForEvent returns); break_after_s after the connection -> one active
+ * break-in (a hang leaves no event). SetInterrupt is the dbgeng call meant for other threads. */
+static DWORD WINAPI TimerThread(LPVOID Unused)
+{
+    ULONGLONG Start = GetTickCount64(), Connected = 0;
+
+    (void)Unused;
+    while (!gStop) {
+        ULONGLONG Now = GetTickCount64();
+
+        if (gSawConnect && !Connected) {
+            Connected = Now;
+            Note("target connected");
+        } else if (!gSawConnect) {
+            Connected = 0;
+        }
+        if (Now - Start >= gTotalMs) {
+            InterlockedExchange(&gStop, 1);
+            gControl->lpVtbl->SetInterrupt(gControl, DEBUG_INTERRUPT_EXIT);
+            break;
+        }
+        if (Connected && !gBrokeIn && Now - Connected >= gBreakMs) {
+            InterlockedExchange(&gBrokeIn, 1);
+            InterlockedExchange(&gBreakInPending, 1);
+            Note("break-in timer expired - interrupting the target");
+            gControl->lpVtbl->SetInterrupt(gControl, DEBUG_INTERRUPT_ACTIVE);
+        }
+        Sleep(500);
+    }
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     IDebugClient *Client = NULL;
     IDebugControl *Control = NULL;
-    ULONGLONG Start, Connected = 0;
     ULONG TotalS, BreakS;
-    BOOL Reboot, Twrp, BrokeIn = FALSE, FirstBreak = TRUE;
+    BOOL Reboot, Twrp, FirstBreak = TRUE;
     const char *InitCmds;
-    HRESULT Hr;
+    HRESULT Hr, LastWaitHr;
+    ULONG LastStatus;
     HMODULE Engine;
     KDRUN_DEBUG_CREATE Create;
 
@@ -176,74 +212,70 @@ int main(int argc, char **argv)
     if (FAILED(Hr))
         return 4;
 
-    Start = GetTickCount64();
-    while (GetTickCount64() - Start < (ULONGLONG)TotalS * 1000) {
+    /* dbgeng cannot wait with a timeout before a kernel target is connected (WaitForEvent(1000) returned E_NOTIMPL,
+     * status NO_DEBUGGEE, so the transport never started - runs m4kd1 / kd6b). Wait INFINITE here; the timer thread
+     * interrupts for the timed break-in and for the time limit. */
+    gControl = Control;
+    gTotalMs = (ULONGLONG)TotalS * 1000;
+    gBreakMs = (ULONGLONG)BreakS * 1000;
+    CloseHandle(CreateThread(NULL, 0, TimerThread, NULL, 0, NULL));
+    LastWaitHr = S_OK;
+    LastStatus = ~0UL;
+    while (!gStop) {
         ULONG Status = 0;
 
-        Hr = Control->lpVtbl->WaitForEvent(Control, 0, 1000);
+        Hr = Control->lpVtbl->WaitForEvent(Control, 0, INFINITE);
         Control->lpVtbl->GetExecutionStatus(Control, &Status);
-        /* AttachKernel succeeds without a target; only the engine's own "Connected to ..." line means the phone
-         * is there (the first m4kd1 run reported a connection that never happened). */
-        if (!Connected && gSawConnect) {
-            Connected = GetTickCount64();
-            Note("target connected");
+        if (Hr != LastWaitHr || Status != LastStatus) {
+            char Line[96];
+            _snprintf_s(Line, sizeof(Line), _TRUNCATE, "WaitForEvent 0x%08lx, execution status %lu", Hr, Status);
+            Note(Line);
+            LastWaitHr = Hr;
+            LastStatus = Status;
         }
+        if (gStop)
+            break;
         if (Hr == S_OK && Status == DEBUG_STATUS_BREAK) {
             ULONG Type = 0, Pid = 0, Tid = 0;
             char Desc[512] = "";
             ULONG DescLen = 0;
-            BOOL Bugcheck;
+            BOOL Bugcheck, Timed;
 
-            if (!Connected) {
-                Connected = GetTickCount64();
-                Note("target connected (first break)");
-            }
+            /* AttachKernel succeeds without a target; only the engine's own "Connected to ..." line or a break means
+             * the phone is there (the first m4kd1 run reported a connection that never happened). */
+            InterlockedExchange(&gSawConnect, 1);
             Control->lpVtbl->GetLastEventInformation(Control, &Type, &Pid, &Tid, NULL, 0, NULL, Desc, sizeof(Desc),
                                                      &DescLen);
             Bugcheck = strstr(Desc, "ugcheck") != NULL || strstr(Desc, "ug check") != NULL;
+            Timed = InterlockedExchange(&gBreakInPending, 0) != 0 && !Bugcheck;
             Note(Desc[0] ? Desc : "break (no description)");
-            if (FirstBreak && InitCmds != NULL && !Bugcheck) {
+            if (FirstBreak && InitCmds != NULL && !Bugcheck && !Timed) {
                 FirstBreak = FALSE;
                 RunFile(Control, InitCmds);
                 Control->lpVtbl->SetExecutionStatus(Control, DEBUG_STATUS_GO);
                 continue;
             }
             FirstBreak = FALSE;
+            if (Timed)
+                Note("timed break-in");
             Diagnose(Control, Bugcheck);
-            if (Bugcheck && Twrp) {
+            if ((Bugcheck || Timed) && Twrp) {
                 ResetToTwrp(Control);
                 break;
             }
-            if (Bugcheck && Reboot) {
+            if ((Bugcheck || Timed) && Reboot) {
                 Run(Control, ".reboot");
-                Connected = 0;
+                InterlockedExchange(&gSawConnect, 0);
+                InterlockedExchange(&gBrokeIn, 0);
             } else {
                 Control->lpVtbl->SetExecutionStatus(Control, DEBUG_STATUS_GO);
             }
             continue;
         }
-        if (Connected && !BrokeIn && GetTickCount64() - Connected > (ULONGLONG)BreakS * 1000) {
-            BrokeIn = TRUE;
-            Note("break-in timer expired - interrupting the target");
-            Control->lpVtbl->SetInterrupt(Control, DEBUG_INTERRUPT_ACTIVE);
-            if (Control->lpVtbl->WaitForEvent(Control, 0, 30000) == S_OK) {
-                Diagnose(Control, FALSE);
-                if (Twrp) {
-                    ResetToTwrp(Control);
-                    break;
-                }
-                if (Reboot) {
-                    Run(Control, ".reboot");
-                    Connected = 0;
-                } else {
-                    Control->lpVtbl->SetExecutionStatus(Control, DEBUG_STATUS_GO);
-                }
-            } else {
-                Note("the target did not break in within 30 s");
-            }
-        }
+        if (FAILED(Hr))
+            Sleep(1000);    /* no spin if the engine keeps refusing */
     }
-    Note("time limit - detaching");
+    Note(gStop ? "time limit - detaching" : "detaching");
     Client->lpVtbl->DetachProcesses(Client);
     Client->lpVtbl->EndSession(Client, DEBUG_END_ACTIVE_DETACH);
     fclose(gLog);

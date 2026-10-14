@@ -3,6 +3,7 @@
  *
  *   s10ediag info
  *   s10ediag peek <phys> [bytes]        MMIO, 32-bit reads, hex dump
+ *   s10ediag sample <phys> <count> [mask]   one MMIO register read <count> times, histogram of (value & mask)
  *   s10ediag dumpram <phys> <bytes> <file>
  *   s10ediag dumpmmio <phys> <bytes> <file>    as dumpram, through an uncached mapping (non-RAM, e.g. the framebuffer)
  *   s10ediag poke <phys> <value>
@@ -17,6 +18,22 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "S10eDiagIoctl.h"
+
+// S10eDiag.sys maps whatever PA it is given; a read of an unmapped PA hangs the bus (2026-10-14, a typo'd
+// 0x19080000c). MMIO accesses must fall in the SoC SFR window or in DRAM (framebuffer dumps).
+static unsigned long long
+CheckMmio(unsigned long long Address, unsigned long long Length)
+{
+    int InSfr = Address >= 0x10000000ull && Address + Length <= 0x20000000ull;
+    int InDram = Address >= 0x80000000ull && Address + Length <= 0x100000000ull;
+
+    if (!InSfr && !InDram) {
+        fprintf(stderr, "refused: 0x%llx+0x%llx is outside the SFR window 0x10000000-0x1fffffff and DRAM "
+                        "0x80000000-0xffffffff\n", Address, Length);
+        exit(3);
+    }
+    return Address;
+}
 
 static HANDLE
 OpenDiag(void)
@@ -79,6 +96,52 @@ Peek(unsigned long long Address, unsigned long Length)
     return 0;
 }
 
+// Reads one 32-bit register Count times on one handle and prints each distinct (value & Mask) with its count.
+// No PRAM mark (a status register sampled thousands of times would flood the ring).
+static int
+Sample(unsigned long long Address, unsigned long Count, unsigned long Mask)
+{
+    enum { MaxValues = 64 };
+    unsigned long Values[MaxValues];
+    unsigned long Hits[MaxValues];
+    unsigned long Distinct = 0, Other = 0, Index, Done;
+    HANDLE Handle = OpenDiag();
+    ULONGLONG Start = GetTickCount64();
+
+    for (Done = 0; Done < Count; Done++) {
+        unsigned long Buffer[4] = { 0 };
+        S10EDIAG_READ_IN In = { Address, 4, S10EDIAG_READ_MMIO };
+        DWORD Returned = 0;
+
+        memcpy(Buffer, &In, sizeof(In));
+        if (!DeviceIoControl(Handle, IOCTL_S10EDIAG_READ_PHYS, Buffer, sizeof(In), Buffer, 4, &Returned, NULL) ||
+            Returned != 4) {
+            fprintf(stderr, "read failed at sample %lu: %lu\n", Done, GetLastError());
+            break;
+        }
+        Buffer[0] &= Mask;
+        for (Index = 0; Index < Distinct && Values[Index] != Buffer[0]; Index++) {
+        }
+        if (Index < Distinct) {
+            Hits[Index]++;
+        } else if (Distinct < MaxValues) {
+            Values[Distinct] = Buffer[0];
+            Hits[Distinct++] = 1;
+        } else {
+            Other++;
+        }
+    }
+    CloseHandle(Handle);
+    printf("sample %010llx mask %08lx: %lu reads in %llu ms\n", Address, Mask, Done, GetTickCount64() - Start);
+    for (Index = 0; Index < Distinct; Index++) {
+        printf("  %08lx x %lu\n", Values[Index], Hits[Index]);
+    }
+    if (Other) {
+        printf("  (other values) x %lu\n", Other);
+    }
+    return Done == Count ? 0 : 1;
+}
+
 static int
 DumpRam(unsigned long long Address, unsigned long Length, const char *Path, unsigned Mode)
 {
@@ -121,16 +184,22 @@ main(int argc, char **argv)
         return 0;
     }
     if (argc >= 3 && strcmp(argv[1], "peek") == 0) {
-        return Peek(_strtoui64(argv[2], NULL, 0), argc >= 4 ? strtoul(argv[3], NULL, 0) : 4);
+        unsigned long Length = argc >= 4 ? strtoul(argv[3], NULL, 0) : 4;
+        return Peek(CheckMmio(_strtoui64(argv[2], NULL, 0), Length), Length);
+    }
+    if (argc >= 4 && strcmp(argv[1], "sample") == 0) {
+        return Sample(CheckMmio(_strtoui64(argv[2], NULL, 0), 4), strtoul(argv[3], NULL, 0),
+                      argc >= 5 ? strtoul(argv[4], NULL, 0) : 0xFFFFFFFFul);
     }
     if (argc >= 5 && strcmp(argv[1], "dumpram") == 0) {
         return DumpRam(_strtoui64(argv[2], NULL, 0), strtoul(argv[3], NULL, 0), argv[4], S10EDIAG_READ_RAM);
     }
     if (argc >= 5 && strcmp(argv[1], "dumpmmio") == 0) {
-        return DumpRam(_strtoui64(argv[2], NULL, 0), strtoul(argv[3], NULL, 0), argv[4], S10EDIAG_READ_MMIO);
+        return DumpRam(CheckMmio(_strtoui64(argv[2], NULL, 0), strtoul(argv[3], NULL, 0)), strtoul(argv[3], NULL, 0),
+                       argv[4], S10EDIAG_READ_MMIO);
     }
     if (argc >= 4 && strcmp(argv[1], "poke") == 0) {
-        S10EDIAG_WRITE32_IN In = { _strtoui64(argv[2], NULL, 0), strtoul(argv[3], NULL, 0), 0 };
+        S10EDIAG_WRITE32_IN In = { CheckMmio(_strtoui64(argv[2], NULL, 0), 4), strtoul(argv[3], NULL, 0), 0 };
         return Ioctl(IOCTL_S10EDIAG_WRITE32, &In, sizeof(In), NULL, 0, NULL);
     }
     if (argc >= 3 && strcmp(argv[1], "mark") == 0) {
@@ -190,7 +259,7 @@ main(int argc, char **argv)
     }
 
     fprintf(stderr,
-            "usage: s10ediag info | peek <phys> [bytes] | dumpram|dumpmmio <phys> <bytes> <file> | poke <phys> <value>\n"
+            "usage: s10ediag info | peek <phys> [bytes] | sample <phys> <count> [mask] | dumpram|dumpmmio <phys> <bytes> <file> | poke <phys> <value>\n"
             "                | recovery | hardreset | fallback <seconds>\n");
     return 1;
 }

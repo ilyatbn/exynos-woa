@@ -265,3 +265,16 @@ Serialise all senders with one FAST_MUTEX/KEVENT in the adapter (brightness DDI 
   KMD learns the full DSIM/panel init sequence). The 2 queued headers are harmless and cleared by the next reboot.
 - Screen-off meanwhile: blank screen saver after 120 s (HKCU Control Panel\Desktop + SPI_SETSCREENSAVETIMEOUT/ACTIVE
   in the session); powercfg monitor timeout stays 0 until the KMD can really switch the panel off (DCS 0x28/0x10).
+
+## Progress log - D6 (2026-10-14, fresh boot after rotation recovery, KMD 41, nothing written to DSIM this boot)
+- Fresh-boot state, before any DSIM write: MIPI_STATUS 0x20000000, INTSRC 0x01400000, FIFOCTRL 0x00001507,
+  CMD_STATUS 0x08 -> the ABNORMAL_CMD_ST / cause 8 state exists at every Windows boot (not caused by D2-D5).
+- New `s10ediag sample <phys> <count> [mask]` (one handle, histogram, no PRAM mark), deployed as C:\S10eTmp\s10ed2.exe:
+  - MIPI_STATUS (+0x18): 20000 reads in 93 ms (~6 frames at 60 Hz) -> 0x20000000 x 20000. FRM_PROCESSING never
+    drops, not even for one sample between frames -> DSIM's command-mode frame state machine never reaches idle,
+    so SFR packets (which go between frames) never get a slot. This is consistent with the queued PH entries in D2.
+  - LINK_STATUS1 & 0xfc000000: 0x04000000 x 20000 (CMD_MODE_STATUS active, always).
+- INCIDENT: the same SSH command line had a typo `sample 0x19080000c` (9 hex digits = PA 0x1_9080_000C, unmapped) ->
+  the read hung the phone (SSH and ping dead). No watchdog in boot116-gpuon-nowdt -> needs a manual force restart
+  (Vol Down + Power). Lesson: S10eDiag maps any PA it is given; the tool must refuse addresses outside a
+  verified-MMIO whitelist (follow-up task).

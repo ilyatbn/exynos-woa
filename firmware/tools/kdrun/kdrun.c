@@ -26,6 +26,7 @@
 #include <dbgeng.h>
 
 static FILE *gLog;
+static volatile LONG gSawConnect;   /* the engine printed "Connected to" / "Kernel Debugger connection established" */
 
 /* ---- output callbacks -> log + stdout ---- */
 static HRESULT STDMETHODCALLTYPE OutQueryInterface(IDebugOutputCallbacks *This, REFIID Iid, void **Out)
@@ -43,6 +44,8 @@ static HRESULT STDMETHODCALLTYPE OutOutput(IDebugOutputCallbacks *This, ULONG Ma
 {
     (void)This;
     (void)Mask;
+    if (strstr(Text, "Connected to") || strstr(Text, "connection established"))
+        InterlockedExchange(&gSawConnect, 1);
     fputs(Text, gLog);
     fflush(gLog);
     fputs(Text, stdout);
@@ -135,13 +138,11 @@ int main(int argc, char **argv)
 
         Hr = Control->lpVtbl->WaitForEvent(Control, 0, 1000);
         Control->lpVtbl->GetExecutionStatus(Control, &Status);
-        if (!Connected && Hr != E_UNEXPECTED) {
-            ULONG Class = 0, Qual = 0;
-            if (SUCCEEDED(Control->lpVtbl->GetDebuggeeType(Control, &Class, &Qual)) && Class == DEBUG_CLASS_KERNEL &&
-                Hr != S_FALSE) {
-                Connected = GetTickCount64();
-                Note("target connected");
-            }
+        /* AttachKernel succeeds without a target; only the engine's own "Connected to ..." line means the phone
+         * is there (the first m4kd1 run reported a connection that never happened). */
+        if (!Connected && gSawConnect) {
+            Connected = GetTickCount64();
+            Note("target connected");
         }
         if (Hr == S_OK && Status == DEBUG_STATUS_BREAK) {
             ULONG Type = 0, Pid = 0, Tid = 0;

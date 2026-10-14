@@ -283,3 +283,7 @@ No device access in this task; build-verified only (Guided, not Ready).
   Hypotheses: an M4 stops answering IPIs (TB flush / freeze IPIs then hang every CPU); an M4 takes an exception it
   cannot report. Next: periodic break-ins with !running -it to catch the 8-CPU state before/at the freeze.
 - REVIEW 56638a8 (kdrun exit after TWRP reset): committed before its build ran (link failed: the m4kd2 kdrun held the exe); rebuilt after killing it - see next line.
+- Run m4kd3 (22:45, boot-m4kd1, kdrun 'every' 10 s): KeStartAllProcessors returned (uptime 0:00:04.5), vertarget
+  "MP (8 procs)"; !running -it: CPU0 in Phase1InitializationDiscard, CPUs 1-7 (incl. M4 6/7) idle, all in
+  KiFreezeTargetExecution via KiIpiServiceRoutine => the freeze IPI reaches and is answered by both M4s.
+  "M4 does not take IPIs" hypothesis OUT (at least at t+4 s).

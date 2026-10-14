@@ -683,3 +683,7 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
 - d3dtri overlay (overlay.cpp, D2D/DirectWrite into the back buffer before Present; D3DTRI_NOOVERLAY=1 off):
   "Direct3D 11 (feature level x_y), blt/flip-model swap chain" / adapter / FPS / GPU clock (MW_ESCAPE_CLOCK once a
   second) / "GPU temp n/a". Font = buffer width / 32 (cube is DPI-unaware: 540x1140 at 200 %). d3dtri-6 on the phone.
+- 12:55 after reboot into KMD 1.0.39.1 (GpuUp 1, RestrideLatchedBy 1): overlay cube (runs\fbov-top.png) reads
+  "Direct3D 11 (feature level 10_0), blt-model swap chain / Arm Mali-G76 MP12 (Galaxy S10e, G10/G11) / FPS 28.9 /
+  GPU clock 156 MHz / GPU temp n/a" - MW_ESCAPE_CLOCK works from a user process. User: no clock increases before
+  thermals (memory thermals-before-clocks). Note: runuser2 -Wait N unregisters the task after N s and kills it.

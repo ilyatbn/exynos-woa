@@ -402,3 +402,9 @@ No device access in this task; build-verified only (Guided, not Ready).
   M4 cluster powered with ZERO traffic. Freeze anyway => powering the M4 cluster is enough (EL3 / uH / ACPM);
   no freeze => the M4s' traffic.
 - boot-m4wfi1.img: KD flags + PARK 0xFE + OFFER 0x3E + BEYOND0LTE_PARK_SLEEP_UNOFFERED 1 (M4s: alive mark, then DAIF masked + WFI loop; objdump verified).
+- Run m4wfi1 (boot-m4wfi1 7295c459: M4s CPU_ON'd, alive mark, then DAIF masked + WFI forever; not offered; Windows
+  6 procs): break-ins fine through 00:12:34 (+95 s after connect), then none landed (no "HOST cannot"); phone back in
+  TWRP. => the M4 cluster merely POWERED, with ZERO M4 traffic, still freezes the SoC (~1.5-2.5 min); Windows load on
+  the M4s only shortens it. Root cause is outside Windows and outside the M4s' own activity: something
+  (EL3 / uH at EL2 / ACPM / hardware power-thermal) acting once CPUCL2 is up. (Monitor note: a failed break-in can
+  show no error - watch for the ABSENCE of successful break-ins.)

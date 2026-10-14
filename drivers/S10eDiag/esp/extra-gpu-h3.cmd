@@ -44,12 +44,16 @@ for /f "usebackq delims=" %%L in (`findstr /c:"tex ->" /c:"WRONG" /c:"TIMEOUT" "
 >> %T%\h3-user.ps1 echo Start-Sleep -Seconds 40
 >> %T%\h3-user.ps1 echo $env:GALLIUM_DRIVER = 'panfrost'
 >> %T%\h3-user.ps1 echo C:\S10eTmp\d3dtri.exe cube 20 ^> C:\S10eTmp\h3-cube.txt 2^>^&1
+rem H4c: the same cube with a flip-model swap chain (D3DTRI_FLIP=1, d3dtri-5) right after, t=60..80 s
+>> %T%\h3-user.ps1 echo $env:D3DTRI_FLIP = '1'
+>> %T%\h3-user.ps1 echo C:\S10eTmp\d3dtri.exe cube 20 ^> C:\S10eTmp\h3-cubeflip.txt 2^>^&1
+>> %T%\h3-user.ps1 echo Remove-Item Env:D3DTRI_FLIP
 rem H4: a pure DWM composition load (GDI square moving every 33 ms) at t=70 s for 25 s, while dwm-sampler.ps1 (SYSTEM,
 rem started below) takes 8 stack dumps of dwm 1 s apart from t=78 s
 >> %T%\h3-user.ps1 echo Start-Sleep -Seconds 8
 >> %T%\h3-user.ps1 echo C:\S10eTmp\d3dtri.exe gdi 25 ^> C:\S10eTmp\h3-gdi.txt 2^>^&1
 >> %T%\h3-user.ps1 echo $g.WaitForExit(150000) ^| Out-Null
-for %%F in (h3-gfxperf.txt h3-cube.txt h3-gdi.txt) do if exist %T%\%%F del /f /q %T%\%%F
+for %%F in (h3-gfxperf.txt h3-cube.txt h3-cubeflip.txt h3-gdi.txt) do if exist %T%\%%F del /f /q %T%\%%F
 if exist "%X%\dwmsamples" rmdir /s /q "%X%\dwmsamples"
 rem H4c: where the cube's redirected Blt presents go (run h3p: pfnPresentCb hr 0, but neither DWM nor the KMD sees
 rem them) - an ETW session of DxgKrnl, DXGI and Dwm-Core (GUIDs as extra-gpu-mode.cmd) for 10 s of the cube
@@ -58,7 +62,7 @@ if exist C:\S10eTmp\cube.etl del /f /q C:\S10eTmp\cube.etl
 start "cube-etw" /b cmd /c "timeout /t 42 /nobreak > nul & logman start MaliCube -ets -p {802EC45A-1E99-4B83-9920-87C98277BA9D} 0xffffffffffffffff 5 -o C:\S10eTmp\cube.etl -bs 1024 -nb 16 256 -max 96 -mode Sequential > %X%\etw.txt 2>&1 & logman update MaliCube -ets -p {CA11C036-0102-4A2D-A6AD-F03CFED5D3C9} 0xffffffffffffffff 5 >> %X%\etw.txt 2>&1 & logman update MaliCube -ets -p {9E9BBA3C-2E38-40CB-99F4-9E8281425164} 0xffffffffffffffff 5 >> %X%\etw.txt 2>&1 & timeout /t 10 /nobreak > nul & logman stop MaliCube -ets >> %X%\etw.txt 2>&1"
 s10ediag mark x: gfxperf 120 s + cube at 40 s
 powershell -NoProfile -ExecutionPolicy Bypass -File %T%\run-as-user.ps1 -Script %T%\h3-user.ps1 -Wait 200 > "%X%\user-task.txt" 2>&1
-for %%F in (h3-gfxperf.txt h3-cube.txt h3-gdi.txt) do if exist %T%\%%F copy /y %T%\%%F "%X%\%%F" > nul
+for %%F in (h3-gfxperf.txt h3-cube.txt h3-cubeflip.txt h3-gdi.txt) do if exist %T%\%%F copy /y %T%\%%F "%X%\%%F" > nul
 %T%\m5test.exe > "%X%\m5test-1.txt" 2>&1
 powershell -NoProfile -ExecutionPolicy Bypass -File %T%\livedump.ps1 -Out "%X%\dump" -Names dwm > "%X%\livedump.txt" 2>&1
 rem the cube ETW trace (up to 96 MB) goes next to out\last, not into h3-history

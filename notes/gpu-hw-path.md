@@ -395,3 +395,16 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   GPU resources; DestroyResource -> malikm_allocation_gone(h): every runtime-owned BO on it is marked gone (unlocked,
   never listed again, forgotten at GEM_CLOSE); tlog "allocation 0x.. gone" (first 16).
 - 04:45 h3s deploy: UMD 0059 (e23cf496...) + KMD 1.0.37.1 (a7a5e971...; C:\S10eTmp\kmd-prev now = KMD 36 95c188d8...).
+- **Run h3s (04:48-04:53, runs/h3s; UMD 0059 + KMD 1.0.37.1 CddDwmInterop):** no regressions (logon at 28 s, 0 faults
+  of 65494 jobs, restride OK, Build 0x25), KMD blts 101 (h3r 75) - but DWM still does not follow the cube (130-150 s:
+  5/48/7 per 10 s) and Explorer's "Render failed 0xc0000001" is unchanged with no "allocation gone" line before it -
+  the freed-allocation hypothesis (0059) is wrong (0059 stays: harmless, correct on its own).
+- **Real cause of Explorer's failures (code read):** malikm_bind_d3dddi keeps ONE global binding (ddi.device/context,
+  command buffer, allocation list) and every new D3D device in the process overwrites it; and Panfrost's
+  u_pipe_screen_lookup_or_create shares one screen per "file description" - on Windows os_same_file_description
+  cannot tell ("couldn't determine ... assume ... same", in every stderr), so all devices of a process share one
+  Panfrost screen (shader pools, BO cache) while their allocations belong to different runtime devices. A second
+  device => submissions on its context listing the first device's allocations => dxgkrnl STATUS_UNSUCCESSFUL.
+  Fix = per-device screens + per-fd bindings in the shim (next task, larger).
+- d3dtri-5: D3DTRI_FLIP=1 -> FLIP_SEQUENTIAL swap chain. h3 runs the cube twice: blt model t=40..60 s, flip model
+  t=60..80 s (h3-cubeflip.txt), gdi after. ESP extra.cmd + gpu\d3dtri.exe updated. Run h3t = this, no driver change.

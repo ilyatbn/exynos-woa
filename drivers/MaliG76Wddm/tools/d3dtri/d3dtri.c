@@ -19,6 +19,7 @@
  * GALLIUM_DRIVER overrides it (set GALLIUM_DRIVER=panfrost / softpipe to choose). Each step is logged before it
  * runs with its HRESULT; a watchdog thread ends the process with "TIMEOUT in <step>" (a GPU hang must not hang the
  * harness). Must run in the interactive session for "cube" (run-as-user.ps1); "tri" also works in session 0.
+ * D3DTRI_FLIP=1 makes the swap chain flip model (FLIP_SEQUENTIAL) instead of DISCARD.
  * D3DTRI_ANY=1 takes the first adapter instead (testing the program itself on a PC).
  * Exit: 0 PASS, 1 no Mali adapter, 2 a step failed, 3 timeout, 4 wrong pixels. Build: build-d3dtri.cmd.
  */
@@ -424,6 +425,11 @@ static int Cube(ID3D11Device *Dev, ID3D11DeviceContext *Ctx, DWORD Seconds)
     Scd.OutputWindow = Wnd;
     Scd.Windowed = TRUE;
     Scd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+    /* D3DTRI_FLIP=1: the flip model most current apps use (DWM composes the swap chain's shared buffers) instead
+     * of the legacy blt model, whose redirected presents DWM never composed on the S10e (notes/gpu-hw-path.md H4c). */
+    if (GetEnvironmentVariableA("D3DTRI_FLIP", NULL, 0) != 0)
+        Scd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    printf("swap effect %s\n", Scd.SwapEffect == DXGI_SWAP_EFFECT_DISCARD ? "discard (blt model)" : "flip sequential");
     CHECK(IDXGIFactory_CreateSwapChain(Xf, (IUnknown *)Dev, &Scd, &Sc), "CreateSwapChain");
     CHECK(IDXGISwapChain_GetBuffer(Sc, 0, &IID_ID3D11Texture2D, (void **)&Bb), "GetBuffer");
     CHECK(ID3D11Device_CreateRenderTargetView(Dev, (ID3D11Resource *)Bb, NULL, &Rtv), "CreateRenderTargetView");

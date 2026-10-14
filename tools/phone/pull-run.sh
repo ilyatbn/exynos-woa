@@ -14,7 +14,7 @@ $A shell 'umount /tmp/win 2>/dev/null; true'
 X="$D/$STEP"
 u16() { iconv -f utf-16 -t utf-8 "$1" 2>/dev/null || cat "$1"; }
 echo "== $R"
-for f in tex-s0.txt h3-cube.txt; do [ -f "$X/$f" ] && { echo "-- $f"; u16 "$X/$f" | tr -d '\r' | grep -a -E "PASS|FAIL|WRONG|ssertion|Unhandled|TIMEOUT|cube:|exit" | tail -4; }; done
+for f in tex-s0.txt h3-cube.txt h3-cubeflip.txt; do [ -f "$X/$f" ] && { echo "-- $f"; u16 "$X/$f" | tr -d '\r' | grep -a -E "PASS|FAIL|WRONG|ssertion|Unhandled|TIMEOUT|cube:|exit" | tail -4; }; done
 [ -f "$X/summary.txt" ] && tr -d '\r' < "$X/summary.txt"
 grep -a -E "no explorer|explorer.exe appeared|desktop:" "$D/agent.log" | tr -d '\r' | head -2
 [ -f "$X/app-crashes.txt" ] && tr -d '\r\0' < "$X/app-crashes.txt" | grep -a "Faulting application name" | head -4

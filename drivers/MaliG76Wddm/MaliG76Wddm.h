@@ -71,6 +71,37 @@
                                                    +0x800): +0x810 read 0x08E80440 only once the panel was right */
 #define MW_RESTRIDE_PIXELS      1088u           /* 1088 * 4 = 4352 = 68 * 64 */
 
+/* ---- panel commands (panel.c; notes/brightness-research.md D1-D10). Offsets/bits are Samsung cal_9820 regs-decon.h /
+ * regs-dsim.h; "D10" = exercised on the S10e under Windows on 2026-10-14 with the expected result. ---- */
+#define MW_DECON_GLOBAL_CONTROL     0x00u       /* D10: reads 0x1011 from sboot, 0x1111 after the switch */
+#define MW_DECON_GLOBAL_OPMODE_CMD  0x100u      /* OPERATION_MODE bit 8: 1 = command mode (D10) */
+#define MW_DECON_GLOBAL_RUN_STATUS  0x10u       /* RUN_STATUS bit 4 (read only here) */
+#define MW_DSIM_PA                  0x19080000ULL   /* EXYNOS_DSIM_BASE (VERIFIED, Exynos9820.h) */
+#define MW_DSIM_MIPI_STATUS         0x18u       /* D6/D10 */
+#define MW_DSIM_MIPI_FRM_PROCESSING 0x20000000u /* bit 29 (D10: drops between frames once DECON is in command mode) */
+#define MW_DSIM_CONFIG              0x4Cu       /* D1: 0x04807cff */
+#define MW_DSIM_CONFIG_VIDEO_MODE   0x40000u    /* bit 18, 0 = command mode (D1) */
+#define MW_DSIM_INTSRC              0x50u       /* write-1-to-clear (D10) */
+#define MW_DSIM_INTSRC_RX_DATA_DONE 0x40000u    /* bit 18 (D10) */
+#define MW_DSIM_PKTHDR              0x58u       /* DT | data0 << 8 | data1 << 16 | BTA << 24 (D10) */
+#define MW_DSIM_PKTHDR_BTA          0x01000000u
+#define MW_DSIM_PAYLOAD             0x5Cu       /* D10 */
+#define MW_DSIM_RXFIFO              0x60u       /* D10: DT | d0 << 8 | d1 << 16 for short responses */
+#define MW_DSIM_FIFOCTRL            0x68u
+#define MW_DSIM_FIFOCTRL_EMPTY_RX   0x1000u     /* bit 12 (D10) */
+#define MW_DSIM_FIFOCTRL_EMPTY_PH   0x400u      /* bit 10 (D10) */
+#define MW_DSIM_CMD_STATUS          0x8Cu       /* logged only (ABNORMAL_CAUSE, 8 from sboot) */
+#define MW_DSIM_WRITE_TIMEOUT_MS    50u         /* Samsung dsim.h MIPI_WR_TIMEOUT */
+#define MW_DSIM_READ_TIMEOUT_MS     100u        /* MIPI_RD_TIMEOUT */
+#define MW_DSI_DCS_LONG_WRITE       0x39u       /* MIPI DSI data types (spec, not SoC-specific) */
+#define MW_DSI_SET_MAX_RETURN       0x37u
+#define MW_DSI_DCS_READ             0x06u
+#define MW_DSI_RESP_SHORT1          0x21u
+#define MW_DSI_RESP_SHORT2          0x22u
+/* AOR (B1) 0x08D4 = Samsung's 2-nit row (s6e3fa7 dimming_aor_table row 0, UNVERIFIED on device as a luminance): the
+ * value used for brightness 0 %. Never exceeded, and 100 % is sboot's own AOR read back at start (D10: 0x0014). */
+#define MW_PANEL_AOR_MIN_LUMA       0x08D4u
+
 /* ---- modes ---- */
 typedef enum _MW_MODE {
     MwModeDisplayOnly = 0,      /* KMDOD */
@@ -85,6 +116,9 @@ extern ULONG MwSoftVsync;
 /* Parameters\ScanoutStride (default 0 = off): see MW_RESTRIDE_PIXELS (display.c MwRestride). */
 extern ULONG MwScanoutStride;
 extern ULONG MwOfferRotation;
+/* Parameters\PanelCmdMode / PanelBrightness (default 1 / 1): panel.c. */
+extern ULONG MwPanelCmdMode;
+extern ULONG MwPanelBrightness;
 /* Parameters\CddDwmInterop (default 1): DXGK_PRESENTATIONCAPS.DriverSupportsCddDwmInterop (adapter.c). */
 extern ULONG MwCddDwmInterop;
 /* Parameters\FlipBlt (default 1): a Flip present is carried out as a CPU copy of the new primary into the GOP
@@ -248,7 +282,21 @@ struct _MW_ADAPTER {
     volatile LONG StdRefused;           /* bit per refused standard allocation type */
     volatile LONG Latches;
     volatile LONG IsrCalls, DpcCalls, VsyncTicks;
+
+    /* Panel commands and brightness (panel.c). PanelLock serialises every DSIM packet. */
+    volatile ULONG *PanelDsim, *PanelDecon;
+    FAST_MUTEX PanelLock;
+    BOOLEAN PanelOk;            /* DECON in command mode, DSIM reaching frame boundaries, no command failure yet */
+    BOOLEAN BrightnessOk;       /* sboot's AOR read back: the brightness interface is offered */
+    UCHAR Brightness;           /* last level set (0-100) */
+    USHORT PanelAor0, PanelAor; /* sboot's AOR, and the one now on the panel */
+    volatile LONG BrightnessQueries, BrightnessSets;
 };
+
+/* panel.c */
+void MwPanelStart(MW_ADAPTER *A);
+void MwPanelStop(MW_ADAPTER *A);
+NTSTATUS MwPanelQueryInterface(MW_ADAPTER *A, PQUERY_INTERFACE Qi);
 
 /* ---- trace: Seen_<ddi>, Fail_<ddi> in the device's registry key ---- */
 void MwLog(MW_ADAPTER *A, PCWSTR Name, ULONG Value);

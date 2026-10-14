@@ -319,9 +319,7 @@ static VOID APIENTRY MwUnload(VOID)
 
 static NTSTATUS APIENTRY MwQueryInterface(IN_CONST_PVOID Context, IN_PQUERY_INTERFACE Qi)
 {
-    UNREFERENCED_PARAMETER(Context);
-    UNREFERENCED_PARAMETER(Qi);
-    return STATUS_NOT_SUPPORTED;
+    return MwPanelQueryInterface((MW_ADAPTER *)Context, Qi);    /* brightness only (panel.c) */
 }
 
 /* ---- interrupts (full adapter only; the display-only mode registers none) ---- */
@@ -706,6 +704,8 @@ static MW_MODE ReadMode(PUNICODE_STRING RegistryPath, ULONG *PramTrace)
     MwFlipMmio = ReadParameter(params, L"FlipMmio", 1) != 0;
     MwScanoutStride = ReadParameter(params, L"ScanoutStride", 0);
     MwOfferRotation = ReadParameter(params, L"OfferRotation", 0);
+    MwPanelCmdMode = ReadParameter(params, L"PanelCmdMode", 1);
+    MwPanelBrightness = ReadParameter(params, L"PanelBrightness", 1);
     MwCddDwmInterop = ReadParameter(params, L"CddDwmInterop", 1) != 0;
     if (params != NULL)
         ZwClose(params);

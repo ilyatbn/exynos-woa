@@ -383,3 +383,16 @@ Serialise all senders with one FAST_MUTEX/KEVENT in the adapter (brightness DDI 
   window - scrnsave.scr was found running right after them), exactly like the earlier 59.4 fps soak. A valid cube run
   is ~28-30 fps. Nothing is known about command mode vs video mode for present rate; the "open" item above is void.
   Rule for cube runs: kill scrnsave.scr (or check it is not running) before and after the run, else the number is void.
+
+## KMD 1.0.42.1 - panel.c (built, s10e-artifacts\kmd-42, MaliG76Wddm.sys sha256 2F034F08...)
+- MwPanelStart (end of MwDisplayStart, after the re-stride): maps DSIM + DECON; only if DECON RUN_STATUS and DSIM is in
+  command mode: GLOBAL_CONTROL |= OPERATION_MODE_CMD + SHADOW GLOBAL request (if not already set), then requires DSIM
+  idle in >= 1 of 2000 MIPI_STATUS samples (~50 ms) -> PanelOk; INTSRC W1C all. Reads sboot's AOR (key, B1, unkey)
+  -> PanelAor0, BrightnessOk if < 0x08D4. Registry: Parameters\PanelCmdMode (1), PanelBrightness (1). Logs Panel*.
+- MwQueryInterface -> GUID_DEVINTERFACE_BRIGHTNESS_2 / _1 (only when BrightnessOk): levels 0..100 step 5;
+  Set: AOR = 0x08D4 - (0x08D4 - A0) * (p/100)^2.2 (table x1000, linear between 5 % steps), F0 5A 5A / B1 / F7 03 /
+  F0 A5 A5; caps 0 (no smooth/adaptive); SetBrightnessState(smooth) NOT_SUPPORTED; backlight optimisation accepted
+  (no-op), reduction 0. Any write/read timeout -> PanelOk FALSE for the boot (no reset/retry), logged PanelFail*.
+- MwPanelStop (MwDisplayStop): restores A0, unmaps. Known limit: a driver restart without a reboot reads the current
+  (possibly dimmed) AOR as A0.
+- DSIM offsets/bits in MaliG76Wddm.h are marked D10 (exercised on the device), AOR 0x08D4 stays UNVERIFIED as luminance.

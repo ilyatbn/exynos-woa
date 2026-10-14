@@ -248,6 +248,7 @@ NTSTATUS MwDisplayStart(MW_ADAPTER *A)
     MwLog(A, L"ScanoutStride", MwScanoutStride);
     if (gop && MwScanoutStride == MW_RESTRIDE_PIXELS)
         MwLog(A, L"Restrided", MwRestride(A) ? 1 : 0);
+    MwPanelStart(A);
     A->SourceVisible = TRUE;
     A->PathActive = TRUE;
     return STATUS_SUCCESS;
@@ -255,6 +256,7 @@ NTSTATUS MwDisplayStart(MW_ADAPTER *A)
 
 void MwDisplayStop(MW_ADAPTER *A)
 {
+    MwPanelStop(A);
     if (A->FbVa != NULL) {
         MmUnmapIoSpace(A->FbVa, A->FbSize);
         A->FbVa = NULL;

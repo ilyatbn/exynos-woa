@@ -50,6 +50,7 @@
     <ClCompile Include="command.c" />
     <ClCompile Include="maligpu.c" />
     <ClCompile Include="pram.c" />
+    <ClCompile Include="panel.c" />
     <FilesToPackage Include="$(TargetPath)" />
   </ItemGroup>
   <Target Name="ValidateOfflineBuild" BeforeTargets="PrepareForBuild">

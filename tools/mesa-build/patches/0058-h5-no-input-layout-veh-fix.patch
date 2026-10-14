@@ -1,0 +1,100 @@
+From 9a0bb5681b1ad6bf77c122d1bceb4b80f26be6ec Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 04:35:28 +0300
+Subject: [PATCH] H5: empty vertex elements state when no input layout is bound
+ (Panfrost dereferenced NULL - d3dtri tex crash); the access-violation handler
+ only in d3dtri and removed at DLL unload (0057's stale handler crashed
+ LogonUI); Render failures logged with status (exynos-woa
+ tools/mesa-build/patches/0058)
+
+---
+ include/win32-compat/malikm_drm.c         | 27 ++++++++++++++++++++++-
+ src/gallium/frontends/d3d10umd/Device.cpp |  1 +
+ src/gallium/frontends/d3d10umd/Draw.cpp   |  7 ++++++
+ 3 files changed, 34 insertions(+), 1 deletion(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 8f0c87e..b3ee626 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -201,6 +201,16 @@ malikm_veh(EXCEPTION_POINTERS *e)
+    return EXCEPTION_CONTINUE_SEARCH;
+ }
+ 
++static void *malikm_veh_handle;
++
++static void
++malikm_veh_remove(void)
++{
++   if (malikm_veh_handle)
++      RemoveVectoredExceptionHandler(malikm_veh_handle);
++   malikm_veh_handle = NULL;
++}
++
+ void
+ malikm_diag_init(void)
+ {
+@@ -219,7 +229,17 @@ malikm_diag_init(void)
+       if (freopen(p, "a", stderr))
+          setvbuf(stderr, NULL, _IONBF, 0);
+    }
+-   AddVectoredExceptionHandler(1, malikm_veh);
++   /* exynos-woa H5 (0058): only in the test (d3dtri), and removed when this DLL unloads. Run h3q: LogonUI unloads
++    * the UMD; the handler 0057 left registered then ran in unloaded memory on the next exception (an ordinary
++    * RPC cancel), faulted, recursed and overflowed the stack - 0057 itself crashed LogonUI. */
++   char exe[MAX_PATH] = "x";
++   GetModuleFileNameA(NULL, exe, MAX_PATH);
++   const char *b = strrchr(exe, '\\');
++   b = b ? b + 1 : exe;
++   if (_strnicmp(b, "d3dtri", 6) == 0) {
++      malikm_veh_handle = AddVectoredExceptionHandler(1, malikm_veh);
++      atexit(malikm_veh_remove);   /* a DLL's atexit runs at its unload (DLL_PROCESS_DETACH) */
++   }
+ }
+ 
+ static int
+@@ -1796,6 +1816,11 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+       c->Jc = a->jc;
+       NTSTATUS st = w_render(sizeof(*c), n);
+       if (st < 0) {
++         static unsigned fails;
++         /* exynos-woa H5 (0058): run h3q - 174 "panfrost_batch_submit failed: 5" in Explorer with no reason */
++         if (fails++ < 8 || (fails % 100) == 0)
++            malikm_tlog("Render failed %u: 0x%08lx, %u allocations listed (list %u, skipped %u), %u BOs in the batch",
++                        fails, (unsigned long)st, n, walloc_size, skipped, a->bo_handle_count);
+          if (trace_on())
+             fprintf(stderr, "malikm-wddm: Render failed 0x%08lx\n", (unsigned long)st);
+          return -MK_EIO;
+diff --git a/src/gallium/frontends/d3d10umd/Device.cpp b/src/gallium/frontends/d3d10umd/Device.cpp
+index 11b0907..38e31f6 100644
+--- a/src/gallium/frontends/d3d10umd/Device.cpp
++++ b/src/gallium/frontends/d3d10umd/Device.cpp
+@@ -150,6 +150,7 @@ CreateDevice(D3D10DDI_HADAPTER hAdapter,                 // IN
+    pDevice->screen = screen;
+    pDevice->pipe = pipe;
+    pDevice->cso = cso_create_context(pipe, CSO_NO_VBUF);
++   pDevice->velems_changed = TRUE;   /* exynos-woa H5 (0058): the first draw binds a (possibly empty) layout */
+ 
+    pDevice->empty_vs = CreateEmptyShader(pDevice, MESA_SHADER_VERTEX);
+    pDevice->empty_fs = CreateEmptyShader(pDevice, MESA_SHADER_FRAGMENT);
+diff --git a/src/gallium/frontends/d3d10umd/Draw.cpp b/src/gallium/frontends/d3d10umd/Draw.cpp
+index 3bf231e..d135934 100644
+--- a/src/gallium/frontends/d3d10umd/Draw.cpp
++++ b/src/gallium/frontends/d3d10umd/Draw.cpp
+@@ -64,6 +64,13 @@ update_velems(Device *pDevice)
+       for (unsigned i = 0; i < state->count; i++)
+          state->velems[i].src_stride = pDevice->vertex_strides[state->velems[i].vertex_buffer_index];
+       cso_set_vertex_elements(pDevice->cso, state);
++   } else {
++      /* exynos-woa H5 (0058, notes/gpu-hw-path.md): no input layout is legal in D3D10 (vertices from SV_VertexID
++       * only) but nothing was bound, and Panfrost dereferences its vertex elements state on every draw (run h3q:
++       * d3dtri tex, access violation reading 0 in panfrost_emit_vertex_data). Bind an empty one. */
++      struct cso_velems_state empty;
++      memset(&empty, 0, sizeof empty);
++      cso_set_vertex_elements(pDevice->cso, &empty);
+    }
+ 
+    pDevice->velems_changed = false;
+-- 
+2.40.1.windows.1
+

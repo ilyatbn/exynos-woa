@@ -360,3 +360,18 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
 - h3q: extra-gpu-h3 replaces the dwm-sampler with a 10 s ETW session (DxgKrnl {802EC45A...}, DXGI {CA11C036...},
   Dwm-Core {9E9BBA3C...}, all keywords, level 5) at user-task t=42..52 s (cube), .etl copied to ESP out\cube.etl
   (not into h3-history); ESP extra.cmd md5 766b8fff.... UMD 0057 (crash evidence) in System32.
+- **Run h3q (04:24-04:32, runs/h3q; UMD 0057):** cube 314.6 fps; ETW cube.etl 6 MB pulled (runs/h3q/cube.etl).
+  * d3dtri tex: "ACCESS VIOLATION (first chance) at maliumd.dll+0x36b878, read address 0x0" -> llvm-symbolizer with
+    libgallium_d3d10.pdb: panfrost_emit_vertex_data (pan_cmdstream.c:2334) <- panfrost_update_state_3d <- draw:
+    ctx->vertex NULL. The tex test draws with no input layout (SV_VertexID), d3d10umd's update_velems binds nothing
+    then (and velems_changed starts FALSE), Panfrost dereferences the vertex elements CSO on every draw.
+  * Explorer (pid 4240) stderr: 174x "MESA: error: panfrost_batch_submit failed: 5" = the shim's Render (w_render)
+    failing; status not logged.
+  * LogonUI dump (WER, 13 MB): **0057's vectored handler crashed it** - LogonUI unloads maliumd.dll, the handler
+    stayed registered, the next exception (an ordinary rpcrt4 RpcRaiseException from WTSUnRegisterSessionNotification
+    in logoncontroller's monitor thread) called into the unloaded DLL, faulted, recursed to a stack overflow.
+    The pre-0057 LogonUI 0xC0000409 crashes remain unexplained (that stderr file was empty).
+  * DWM restarted once (pids 1188 + 5252 both with stderr files) - to check.
+- Mesa 0058 (mali-umd-0058, maliumd 94ed114f...): update_velems binds an empty cso_velems_state when no layout is set,
+  velems_changed = TRUE at device creation; the VEH only in d3dtri*.exe, removed by atexit at DLL unload; Render
+  failures go to the tlog ("Render failed n: status, allocations listed/list size/skipped, BOs in batch").

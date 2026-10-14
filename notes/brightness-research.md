@@ -458,3 +458,10 @@ Serialise all senders with one FAST_MUTEX/KEVENT in the adapter (brightness DDI 
   mode, FbDrawBootSplash (bounds-checked decode into the GOP fb), FbDeconPresent, FbPanelBootBrightness.
   Image s10e-artifacts\boot116-gpuon-nowdt-splash1.img (supersedes the unflashed br1 image) = HEAD + build-only
   WINDOWS_WATCHDOG 0 / GPU_POWER_ON 1.
+- Clean boot screen, round 2 (user photo 19:5x: five white 100-row bands over the Samsung splash, "Press ESCAPE for
+  boot options", a loading bar): bands = BEYOND0LTE_CHECKPOINT (B39 bring-up, rows 1300/1420/1540/1660/1780) -> now
+  BEYOND0LTE_CHECKPOINTS 0; the bar + prompt = ArmPkg PlatformBootManagerWaitCallback/BootLogoUpdateProgress during
+  PcdPlatformBootTimeOut 3 -> 0 (also 3 s faster); GraphicsConsoleDxe removed (it cleared the panel and printed BDS
+  text over the boot screen; ConOut has no device now, the RAM log keeps DEBUG output).
+  Image s10e-artifacts\boot116-gpuon-nowdt-clean1.img sha256 d67d5629... (FVMAIN_COMPACT 0xc4000).
+  Rollback if it does not boot: flash boot116-gpuon-nowdt-splash1.img (42317618...) from TWRP.

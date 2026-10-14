@@ -226,7 +226,7 @@
   INF MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe.inf
   INF MdeModulePkg/Universal/Console/ConPlatformDxe/ConPlatformDxe.inf
   INF MdeModulePkg/Universal/Console/ConSplitterDxe/ConSplitterDxe.inf
-  INF MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsoleDxe.inf
+  # GraphicsConsoleDxe removed 2026-10-14 (clean boot screen; see Beyond0LtePkg.dsc).
   INF MdeModulePkg/Universal/SerialDxe/SerialDxe.inf
 
   #

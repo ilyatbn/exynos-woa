@@ -28,7 +28,11 @@
 
 #include <Platform/Exynos9820.h>
 
-#define BEYOND0LTE_CHECKPOINTS  1
+// 2026-10-14 (user: "5 large white lines from way before ... they appear on the samsung bootloader too"): off.
+// The RAM boot log and the progress words carry this information now; -DBEYOND0LTE_CHECKPOINTS=1 brings the bands back.
+#ifndef BEYOND0LTE_CHECKPOINTS
+#define BEYOND0LTE_CHECKPOINTS  0
+#endif
 
 #if BEYOND0LTE_CHECKPOINTS
 #define BEYOND0LTE_CHECKPOINT(Row)                                                        \

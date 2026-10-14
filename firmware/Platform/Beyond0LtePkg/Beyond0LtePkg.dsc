@@ -492,8 +492,9 @@
   #     partition is future work (see docs/08-edk2-internals.md). ---
   gEfiMdeModulePkgTokenSpaceGuid.PcdEmuVariableNvModeEnable|TRUE
 
-  # --- BDS: short timeout; show the boot menu only briefly. ---
-  gEfiMdePkgTokenSpaceGuid.PcdPlatformBootTimeOut|3
+  # --- BDS: no countdown (2026-10-14, user: clean boot screen). ArmPkg's PlatformBootManagerWaitCallback drew a
+  #     white progress bar + "Press ESCAPE for boot options" for these seconds; 0 skips the wait (and 3 s per boot).
+  gEfiMdePkgTokenSpaceGuid.PcdPlatformBootTimeOut|0
 
 ################################################################################
 #
@@ -572,7 +573,9 @@
   MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe.inf
   MdeModulePkg/Universal/Console/ConPlatformDxe/ConPlatformDxe.inf
   MdeModulePkg/Universal/Console/ConSplitterDxe/ConSplitterDxe.inf
-  MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsoleDxe.inf
+  # GraphicsConsoleDxe removed 2026-10-14 (user: clean boot screen): it cleared the panel and rendered BDS text
+  # ("Press ESCAPE for boot options", the firmware version) over the boot screen. ConOut is then serial only (the RAM
+  # log); Windows Boot Manager draws through the GOP itself.
   MdeModulePkg/Universal/SerialDxe/SerialDxe.inf
 
   # --- ACPI (FADT/MADT/GTDT/PPTT + DSDT) and the installer that publishes them.

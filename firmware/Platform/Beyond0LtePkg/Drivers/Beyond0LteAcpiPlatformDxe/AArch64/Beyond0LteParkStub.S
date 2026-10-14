@@ -16,6 +16,7 @@
 //   +0x000 UINT32 ProcessorId   OS writes (firmware initialises 0xFFFFFFFF)
 //   +0x008 UINT64 JumpAddress   OS writes the entry PA; 0 = not yet
 //   +0x800        this stub
+//   +0xFD8 UINT32 stage         m14 DVM test: 1 before IC IALLUIS, 2 before TLBI VMALLE1IS, 3 after both
 //   +0xFE0 UINT32 0x5A5ABEEF    alive mark, written by the core itself
 //   +0xFE8 UINT64 CurrentEL     as seen by the stub (EL1 expected: 0x4)
 //   +0xFF0 UINT64 MPIDR_EL1     as seen by the stub
@@ -38,10 +39,38 @@
 #define PARK_MARK_OFF   0xFE0
 #define PARK_EL_OFF     0xFE8
 #define PARK_MPIDR_OFF  0xFF0
+#define PARK_STAGE_OFF  0xFD8
+
+#ifndef BEYOND0LTE_PARK_DVM_TEST
+#define BEYOND0LTE_PARK_DVM_TEST  1   // m14: does a broadcast (DVM) maintenance op + DSB complete on this core?
+#endif
 
 ASM_FUNC(Beyond0LteParkStub)
   adr   x1, .                       // PA of this copy (MMU off: VA == PA)
   and   x1, x1, #0xFFFFFFFFFFFFF000 // -> mailbox page base
+
+#if BEYOND0LTE_PARK_DVM_TEST
+  //
+  // m14 M4 freeze (notes/m14-smp.md): Windows froze right after an M4 ran IC IALLUIS + DSB. Issue the same
+  // inner-shareable broadcasts here, one stage mark before each, so a core that wedges in the DSB is visible in
+  // the firmware log (stage stuck at 1 or 2, no alive mark -> the core is MADT-disabled, Windows boots without it).
+  //
+  mov   w3, #1
+  str   w3, [x1, #PARK_STAGE_OFF]
+  dsb   sy
+  ic    ialluis
+  dsb   sy
+  isb
+  mov   w3, #2
+  str   w3, [x1, #PARK_STAGE_OFF]
+  dsb   sy
+  tlbi  vmalle1is
+  dsb   sy
+  isb
+  mov   w3, #3
+  str   w3, [x1, #PARK_STAGE_OFF]
+  dsb   sy
+#endif
 
   mrs   x2, CurrentEL
   str   x2, [x1, #PARK_EL_OFF]

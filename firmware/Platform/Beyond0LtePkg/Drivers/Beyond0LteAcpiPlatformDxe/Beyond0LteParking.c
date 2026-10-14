@@ -50,6 +50,7 @@
 #define PARK_MARK_OFF       0xFE0u
 #define PARK_EL_OFF         0xFE8u
 #define PARK_MPIDR_OFF      0xFF0u
+#define PARK_STAGE_OFF      0xFD8u   // m14 DVM test stage (the .S BEYOND0LTE_PARK_DVM_TEST block), 0 if not built
 #define PARK_ID_INVALID     0xFFFFFFFFu
 #define PARK_ALIVE          0x5A5ABEEFu
 #define PARK_VERSION        1u
@@ -118,7 +119,7 @@ Beyond0LteParkSecondaries (
   BootMpidr = GET_MPIDR_AFFINITY_BITS (ArmReadMpidr ());
   DEBUG ((DEBUG_ERROR, "PARK: mask=%x boot-mpidr=%lx stub=%u B\n",
           (UINT32)BEYOND0LTE_SMP_PARK_MASK, BootMpidr, (UINT32)StubSize));
-  if ((StubSize == 0) || (PARK_STUB_OFF + StubSize > PARK_MARK_OFF)) {
+  if ((StubSize == 0) || (PARK_STUB_OFF + StubSize > PARK_STAGE_OFF)) {
     DEBUG ((DEBUG_ERROR, "PARK: stub size %u does not fit - nothing parked\n", (UINT32)StubSize));
     return;
   }
@@ -255,9 +256,9 @@ Beyond0LteParkSecondaries (
       }
     }
 
-    DEBUG ((DEBUG_ERROR, "PARK: CPU_ON gicc%u mpidr=%lx entry=%lx -> %lx, mark after %d ms\n",
+    DEBUG ((DEBUG_ERROR, "PARK: CPU_ON gicc%u mpidr=%lx entry=%lx -> %lx, mark after %d ms, dvm stage %u\n",
             (UINT32)Index, Gicc[Index]->MPIDR, Page[Index] + PARK_STUB_OFF, (UINT64)Smc.Arg0,
-            (INT32)Arrive[Index]));
+            (INT32)Arrive[Index], ParkRd32 (Page[Index] + PARK_STAGE_OFF)));
   }
 
   mParkProgress[1] = SavedProgress;   // every started core reported in or timed out - no SoC hang here

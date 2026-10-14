@@ -332,3 +332,7 @@ No device access in this task; build-verified only (Guided, not Ready).
   Hypothesis (INFERRED): DVM/snoop between the M4 cluster (CPUCL2) and the DSU cluster is not fully enabled; a DSB
   waiting for DVM-sync completion wedges a core in hardware -> IPI deadlock -> all-system freeze. Linux works, so
   either EL3 or a kernel PMUCAL "cluster on" sequence enables it there - find which.
+- DVM test (park stub): BEYOND0LTE_PARK_DVM_TEST 1 - every parked core writes stage 1 -> IC IALLUIS; DSB SY; ISB ->
+  stage 2 -> TLBI VMALLE1IS; DSB SY; ISB -> stage 3 -> alive mark; "PARK: CPU_ON ... dvm stage N" logs it. Stub
+  0x90 B (llvm-objdump of the obj matches the source). Size guard now stops at the stage word (0xFD8).
+  Image boot-m4dvm1.img (KD flags + mask 0xFE as m4kd1). A wedged core = stage 1/2, no mark, MADT-disabled.

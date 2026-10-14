@@ -123,3 +123,11 @@ USI mode slots (samsung,exynos-usi, each reg = 4 bytes in sysreg 0x10421000): 'i
 - Installed from TWRP into BOTH DriverStore copies (…40e80cfbb0f9f994, …b05675c579e4165b; old sys sha
   50b836df…/207066747c…), new sys 63ad6ab5…. Not yet validated on device.
 - 2026-10-11 run m16-4: **user confirms right-click (press-and-hold) works** with driver 6.0.5058.5.
+
+## 2026-10-14 - s10etap: synthetic touch for remote testing
+- drivers/S10eDiag/S10eTap.c (built by build.bat, deployed C:\S10eTmp\s10etap.exe): CreateSyntheticPointerDevice(PT_TOUCH)
+  + InjectSyntheticPointerInput; `tap x y [ms]`, `hold x y [ms]`, `drag x1 y1 x2 y2 [ms]`, physical pixels, run in the
+  user session via runuser2.ps1. Bypasses our touch driver (no virtual HID digitizer).
+- First use (17:34): tap (104,2230) opened Start (screenshots runs\fbt1/fbt2). Taps on the touch keyboard keys n,o,t,e
+  ((592,2000) (740,1854) (446,1854) (300,1854)) with Start search focused: no key highlight, no text (fbt3) - the touch
+  keyboard window is frozen (user report confirmed). Start's "Pinned" grid was empty (unexplained, noted).

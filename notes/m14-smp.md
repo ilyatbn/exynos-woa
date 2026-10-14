@@ -363,3 +363,9 @@ No device access in this task; build-verified only (Guided, not Ready).
   ACPM ch10 LLC_REGION_ALLOC / LLC_EN at boot. Ruled out/low: boot QoS, CPU_INFORM (CPU_SUSPEND only), EMA, WDT cl2
   (bootshim stops it), thermal.
 - m4eff1 image f161ec88: 8-core KD image with EFF_BIG 1 (MADT decoded: uid 0-3 eff 0, uid 4-7 eff 1). Not yet run.
+- CORRECTION m4off1: it ALSO froze, later - last good break-in 23:10:59 (+144 s after connect), dead by 23:11:15
+  (break-ins failing from then until the kdrun limit), then the boot pair took it to TWRP. Windows used only 6 CPUs;
+  the M4s only ran the park-stub poll loop (DC CIVAC + DSB SY on their mailbox line every ~0x2000 loops). 6-core
+  boots without the M4s powered run for hours. => trigger = M4 cluster ON + its memory/maintenance traffic; more
+  traffic (Windows on M4) -> ~1 min, stub polling -> ~2.5 min. Fits research lead 3: Samsung Linux keeps CPUCL2 out
+  of LLC allocation (ACPM ch10 LLC_REGION_ALLOC LIT_MID_ALL) before LLC_EN. Next: send that from UEFI.

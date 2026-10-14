@@ -289,3 +289,9 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   calls pfnPresentCb with no copy. Anything else (no re-stride, other size, MSAA, failure) -> the old CPU path.
   Requires KMD 1.0.35.1+ (escape 4) - KMD 36 is deployed. MALIKM_NO_SCANOUT=1 turns it off. tlog lines "scanout:".
   KMD jobs end with JS_CONFIG_END_FLUSH_CLEAN_INVALIDATE (maligpu.c:439), so the frame is in DRAM for the DPU.
+- Review of 112b664 / 0053: checked - the fixed BO is skipped in both submission loops (the blit job lists it in
+  bo_handles), MAP refuses it, GEM_CLOSE forgets it; panfrost kmod import only does PrimeFDToHandle + GET_BO_OFFSET
+  (va from wbo) and lseek size (malikm_prime_fd_size = pitch*h = 9922560 with the re-stride); a landscape/odd-size
+  primary, MSAA, a softpipe process or a failed mark falls back to the CPU path. Known limits (not bugs): once a
+  primary is marked GPU-presented a later CPU-path present of it would be skipped by the KMD (stale frame) - only if
+  the GPU path fails after having worked; tearing (no vblank sync of the blit). Nothing to fix.

@@ -62,6 +62,13 @@
 #define MW_DECON_SHADOW_REQ     0x60u           /* SHADOW_REG_UPDATE_REQ (Samsung cal_9820/regs-decon.h; UNVERIFIED) */
 #define MW_DECON_SHADOW_GLOBAL  0x80000000u     /* SHADOW_REG_UPDATE_REQ_GLOBAL bit 31 (UNVERIFIED) */
 #define MW_DECON_TRIG_CONTROL   0x70u           /* HW_SW_TRIG_CONTROL, logged only */
+/* 2026-10-14 (first human look at a re-strided panel: sheared): GLOBAL alone never moved the active SRC_SIZE. */
+#define MW_DECON_SHADOW_WINS    0x0000003Fu     /* WIN(0..5) = Samsung's FOR_DECON mask; GLOBAL|WINS fixed the panel
+                                                   live (poke 2) - or poke 3 did, see below; which one is logged */
+#define MW_IDMA_ENABLE          0x00u           /* IDMA_ENABLE (Samsung regs-dpp.h): bit 2 OP_STATUS (reads 0x04) */
+#define MW_IDMA_SFR_UPDATE_FORCE 0x10u          /* IDMA_SFR_UPDATE_FORCE bit 4 (regs-dpp.h; self-clearing on device) */
+#define MW_IDMA_LATCHED         0x800u          /* the latched SFR copy (dpp_reg.c "DPU_DMA SHADOW SFR DUMP" at
+                                                   +0x800): +0x810 read 0x08E80440 only once the panel was right */
 #define MW_RESTRIDE_PIXELS      1088u           /* 1088 * 4 = 4352 = 68 * 64 */
 
 /* ---- modes ---- */

@@ -604,3 +604,15 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   0x40 -> 0.25 (shader checks 0.2 < g < 0.3): Mali with 0064 ok/ok, WARP ok/ok (d2dtext-7). Remaining unverified:
   SNORM and R10G10B10A2 vertex formats through AUTO. pan_gather_texture_buffers only runs when the set is empty
   (GLSL-linked NIR untouched); the untype pass only touches TGSI vertex shaders.
+- **Latched copy found:** Samsung dpp_reg.c dumps "DPU_DMA%d SHADOW SFR" at dma_regs + 0x800 (len 0x74). Live peek
+  0x19071800.. after the user's fix: +0x810 = 0x08E80440 (latched 1088), +0x840 = ca000000. This is the register the
+  panel follows - the KMD can verify without a camera. Samsung's dpp_reg.c never uses IDMA_SFR_UPDATE_FORCE (rg: no
+  hit); it commits layers with DECON GLOBAL | WIN(n).
+- **KMD 1.0.38.1** (display.c MwRestride): request GLOBAL | WIN0-5 (0x8000003F), poll, read the latched +0x810;
+  if not 1088 set IDMA_ENABLE bit 4 (SFR_UPDATE_FORCE), wait 40 ms, read again. Logs RestrideLatched1/2 and
+  RestrideLatchedBy (1 window request, 2 IDMA force, 0 neither -> rollback, itself committed both ways, logs
+  RestrideLatchedBack). Success = latched, no longer "request bit cleared". s10e-artifacts\kmd-38 sys a2cc2dc0...
+- Deploy over SSH: the admin account may RENAME in the DriverStore folder but not create files (copy -> Access
+  denied; the rename had already happened -> restored at once, verified a7a5e971 = 37 back in place). Done as SYSTEM
+  via a one-shot scheduled task (C:\S10eTmp\kmdswap.cmd: copy as .new, rename .sys -> .37, .new -> .sys):
+  DriverStore MaliG76Wddm.sys = a2cc2dc0. KMD 37 kept as MaliG76Wddm.37 there and C:\S10eTmp\kmd-prev\MaliG76Wddm-37.sys.

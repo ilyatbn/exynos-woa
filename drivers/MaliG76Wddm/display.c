@@ -120,6 +120,7 @@ static BOOLEAN MwRestride(MW_ADAPTER *A)
     volatile ULONG *g0, *decon;
     PUCHAR va;
     ULONG src, img, base, req = 0, newPitch = MW_RESTRIDE_PIXELS * 4, oldPitch = A->Fb.Pitch, h = A->Fb.Height;
+    ULONG latched, by;
     ULONG want = (MW_GOP_HEIGHT << 16) | MW_GOP_WIDTH, ms;
     SIZE_T newSize = (SIZE_T)newPitch * h;
     LONG y;
@@ -165,25 +166,46 @@ static BOOLEAN MwRestride(MW_ADAPTER *A)
     for (y = 0; y < (LONG)h; y++)       /* the 32 bytes past each visible line, never shown */
         RtlZeroMemory(va + (SIZE_T)y * newPitch + oldPitch, newPitch - oldPitch);
     g0[MW_IDMA_SRC_SIZE / 4] = (MW_GOP_HEIGHT << 16) | MW_RESTRIDE_PIXELS;
-    decon[MW_DECON_SHADOW_REQ / 4] = decon[MW_DECON_SHADOW_REQ / 4] | MW_DECON_SHADOW_GLOBAL;
+    /* The register at +0x10 reads back what was written (the pending copy); the panel follows the latched copy at
+     * +0x800 + 0x10. 2026-10-14: GLOBAL alone left it at 1080 (sheared panel, 6 ms "success"). Request the global
+     * and every window update (Samsung commits a layer with GLOBAL | WIN(n)), then check the latched copy; only if
+     * that did not take, force the IDMA SFR update. RestrideLatchedBy: 1 = window request, 2 = IDMA force, 0 = neither. */
+    decon[MW_DECON_SHADOW_REQ / 4] = decon[MW_DECON_SHADOW_REQ / 4] | MW_DECON_SHADOW_GLOBAL | MW_DECON_SHADOW_WINS;
     for (ms = 0; ms < 200; ms++) {      /* one TE frame is 16.7 ms */
         req = decon[MW_DECON_SHADOW_REQ / 4];
-        if ((req & MW_DECON_SHADOW_GLOBAL) == 0)
+        if ((req & (MW_DECON_SHADOW_GLOBAL | MW_DECON_SHADOW_WINS)) == 0)
             break;
         KeStallExecutionProcessor(1000);
     }
     MwLog(A, L"RestrideShadowMs", ms);
     MwLog(A, L"RestrideShadowAfter", req);
     MwLog(A, L"RestrideSrcAfter", g0[MW_IDMA_SRC_SIZE / 4]);
-    if (ms < 200) {
+    latched = g0[(MW_IDMA_LATCHED + MW_IDMA_SRC_SIZE) / 4];
+    MwLog(A, L"RestrideLatched1", latched);
+    by = (latched == ((MW_GOP_HEIGHT << 16) | MW_RESTRIDE_PIXELS)) ? 1 : 0;
+    if (by == 0) {
+        g0[MW_IDMA_ENABLE / 4] = g0[MW_IDMA_ENABLE / 4] | MW_IDMA_SFR_UPDATE_FORCE;
+        KeStallExecutionProcessor(40000);   /* > 2 TE frames */
+        latched = g0[(MW_IDMA_LATCHED + MW_IDMA_SRC_SIZE) / 4];
+        MwLog(A, L"RestrideLatched2", latched);
+        if (latched == ((MW_GOP_HEIGHT << 16) | MW_RESTRIDE_PIXELS))
+            by = 2;
+    }
+    MwLog(A, L"RestrideLatchedBy", by);
+    if (by != 0) {
         A->Fb.Pitch = newPitch;
         done = TRUE;
         MwLog(A, L"RestrideStep", 0);
     } else {
-        /* Not committed (or not by this request): back to the GOP layout. */
-        g0[MW_IDMA_SRC_SIZE / 4] = want;
+        /* Not latched by either request: back to the GOP layout, committed the same two ways (the scan-out keeps
+         * reading 1080-pixel lines, so the rows go back first). */
         for (y = 1; y < (LONG)h; y++)
             RtlMoveMemory(va + (SIZE_T)y * oldPitch, va + (SIZE_T)y * newPitch, oldPitch);
+        g0[MW_IDMA_SRC_SIZE / 4] = want;
+        decon[MW_DECON_SHADOW_REQ / 4] = decon[MW_DECON_SHADOW_REQ / 4] | MW_DECON_SHADOW_GLOBAL | MW_DECON_SHADOW_WINS;
+        KeStallExecutionProcessor(40000);
+        g0[MW_IDMA_ENABLE / 4] = g0[MW_IDMA_ENABLE / 4] | MW_IDMA_SFR_UPDATE_FORCE;
+        MwLog(A, L"RestrideLatchedBack", g0[(MW_IDMA_LATCHED + MW_IDMA_SRC_SIZE) / 4]);
         MwLog(A, L"RestrideStep", 4);
     }
 out:

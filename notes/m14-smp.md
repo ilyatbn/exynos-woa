@@ -522,3 +522,6 @@ No device access in this task; build-verified only (Guided, not Ready).
   per-CPU mitigation type, x22) = 0 on CPU0/4/6; prcb-0x932 (BHB loop count, x24) = 0x20 on all; prcb-0x93A = 0x10
   on A55/A75, 0x30 on the M4 (extra bit 0x20, meaning unknown). KiSpeculationPsciState = 1 (HAL firmware query
   failed) -> the SMC (BtiSmc) front ends need firmware support -> SMC theory weakened.
+- m4spec1: KeArm64VectorBase = { KiArm64ExceptionVectors, KiArm64ExceptionKvaVectors } (the PLAIN tables, not
+  BtiSmc/BtiHvc/Bhb*); KiSpeculationFeatures dword0 = 0x05000000. => Windows issues no SMC on exception entry ->
+  Spectre-v2 SMC theory OUT.

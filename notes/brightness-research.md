@@ -252,3 +252,16 @@ Serialise all senders with one FAST_MUTEX/KEVENT in the adapter (brightness DDI 
   Writing INTSRC bit 22 (W1C) did not clear it (reads back 0x01400000). Open: are reads shadowed (SFR_CTRL bit 1)?
   is the queue held by the abnormal state, by the continuous HW-triggered frames, or by a TE-protect window?
   The 2 queued headers are a max-return-size and a power-mode read - harmless whenever they go out.
+- D3 SFR_CTRL 0 (shadow read off): FIFOCTRL 0x00029107 (bit 15 undocumented), still 2 queued; restored to 0x2.
+- D4 CMD_TE_CTRL1 TE_PROTECT_ON 0x2c17 -> 0x0001 (TOUT kept): no change; restored 0x2c17323a. Samsung derives both
+  from hs_clk 1143 MHz: 15.8 ms protect (1143*158/16 = 0x2c17), 18 ms timeout (0x323a) - values match exactly.
+- D5 DECON HW_SW_TRIG_CONTROL 0x3061 -> 0x3070 (HW_TRIG_EN 0, HW_TRIG_MASK_DECON 1 = Samsung's DECON_TRIG_DISABLE):
+  no TX, MIPI_STATUS still FRM_PROCESSING; restored 0x3061 (frames continue: line counter moving). Android masks the
+  trigger whenever the screen is idle and sends commands then; under Windows DECON triggers every TE forever.
+- ABNORMAL_CAUSE 8: no definition found (Samsung cal_9820, LineageOS, web search). Leading hypothesis: the command
+  engine latched an abnormal state at the sboot -> UEFI -> Windows hand-off (INTSRC bit 22 is not W1C-clearable while
+  set) and holds the PH FIFO until a DSIM function reset (SWRST FUNCRST bit 8) or FIFO init (FIFOCTRL INIT_PH/PL/RX)
+  - both can blank the panel until the link is re-initialised -> do them only with someone watching (or after the
+  KMD learns the full DSIM/panel init sequence). The 2 queued headers are harmless and cleared by the next reboot.
+- Screen-off meanwhile: blank screen saver after 120 s (HKCU Control Panel\Desktop + SPI_SETSCREENSAVETIMEOUT/ACTIVE
+  in the session); powercfg monitor timeout stays 0 until the KMD can really switch the panel off (DCS 0x28/0x10).

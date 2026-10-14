@@ -51,12 +51,19 @@ rem started below) takes 8 stack dumps of dwm 1 s apart from t=78 s
 >> %T%\h3-user.ps1 echo $g.WaitForExit(150000) ^| Out-Null
 for %%F in (h3-gfxperf.txt h3-cube.txt h3-gdi.txt) do if exist %T%\%%F del /f /q %T%\%%F
 if exist "%X%\dwmsamples" rmdir /s /q "%X%\dwmsamples"
-start "dwm-sampler" /b cmd /c "powershell -NoProfile -ExecutionPolicy Bypass -File %T%\dwm-sampler.ps1 -Out %X%\dwmsamples -Delay 80 -Count 8 -Interval 1000 > %X%\dwm-sampler.txt 2>&1"
+rem H4c: where the cube's redirected Blt presents go (run h3p: pfnPresentCb hr 0, but neither DWM nor the KMD sees
+rem them) - an ETW session of DxgKrnl, DXGI and Dwm-Core (GUIDs as extra-gpu-mode.cmd) for 10 s of the cube
+rem (user task t=42..52 s); the .etl is decoded on the PC. Replaces the dwm-sampler (H4 profile done).
+if exist C:\S10eTmp\cube.etl del /f /q C:\S10eTmp\cube.etl
+start "cube-etw" /b cmd /c "timeout /t 42 /nobreak > nul & logman start MaliCube -ets -p {802EC45A-1E99-4B83-9920-87C98277BA9D} 0xffffffffffffffff 5 -o C:\S10eTmp\cube.etl -bs 1024 -nb 16 256 -max 96 -mode Sequential > %X%\etw.txt 2>&1 & logman update MaliCube -ets -p {CA11C036-0102-4A2D-A6AD-F03CFED5D3C9} 0xffffffffffffffff 5 >> %X%\etw.txt 2>&1 & logman update MaliCube -ets -p {9E9BBA3C-2E38-40CB-99F4-9E8281425164} 0xffffffffffffffff 5 >> %X%\etw.txt 2>&1 & timeout /t 10 /nobreak > nul & logman stop MaliCube -ets >> %X%\etw.txt 2>&1"
 s10ediag mark x: gfxperf 120 s + cube at 40 s
 powershell -NoProfile -ExecutionPolicy Bypass -File %T%\run-as-user.ps1 -Script %T%\h3-user.ps1 -Wait 200 > "%X%\user-task.txt" 2>&1
 for %%F in (h3-gfxperf.txt h3-cube.txt h3-gdi.txt) do if exist %T%\%%F copy /y %T%\%%F "%X%\%%F" > nul
 %T%\m5test.exe > "%X%\m5test-1.txt" 2>&1
 powershell -NoProfile -ExecutionPolicy Bypass -File %T%\livedump.ps1 -Out "%X%\dump" -Names dwm > "%X%\livedump.txt" 2>&1
+rem the cube ETW trace (up to 96 MB) goes next to out\last, not into h3-history
+logman stop MaliCube -ets >> "%X%\etw.txt" 2>&1
+if exist C:\S10eTmp\cube.etl copy /y C:\S10eTmp\cube.etl "%ESP%\S10EDIAG\out\cube.etl" >> "%X%\etw.txt" 2>&1
 wevtutil qe Application /q:"*[System[(EventID=1000 or EventID=1002)]]" /c:10 /rd:true /f:text > "%X%\app-crashes.txt" 2>&1
 wevtutil qe Application /q:"*[System[Provider[@Name='Desktop Window Manager']]]" /c:20 /rd:true /f:text > "%X%\ev-dwm.txt" 2>&1
 wevtutil qe System /q:"*[System[Provider[@Name='Display']]]" /c:20 /rd:true /f:text > "%X%\ev-display.txt" 2>&1

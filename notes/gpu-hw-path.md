@@ -352,3 +352,11 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   <dir>\malikm-<exe>-<pid>-stderr.txt; a vectored handler logs the first 4 first-chance access violations
   ("ACCESS VIOLATION ... at <module>+0x<off>") to the tlog. The h3 script copies only malikm-*.txt - the stderr files
   match that pattern too.
+- **Run h3p (04:15-04:23, runs/h3p; UMD 0056):** d3dtri's buffer now pitch 2176 -> Panfrost BO, every present
+  "present allocation ... hr 0" from its own allocation - the cube reports **320.8 fps** (presents return at once:
+  no copy, no pacing), 0 faults (64141 jobs). But DWM (pid 1212) in the cube phase 40/73/54 per 10 s - unchanged; DWM
+  opened nothing, the KMD saw no extra presents (1741 = DWM's + 75 blts). dxgkrnl takes the redirected Blt present
+  and neither consumer sees it.
+- h3q: extra-gpu-h3 replaces the dwm-sampler with a 10 s ETW session (DxgKrnl {802EC45A...}, DXGI {CA11C036...},
+  Dwm-Core {9E9BBA3C...}, all keywords, level 5) at user-task t=42..52 s (cube), .etl copied to ESP out\cube.etl
+  (not into h3-history); ESP extra.cmd md5 766b8fff.... UMD 0057 (crash evidence) in System32.

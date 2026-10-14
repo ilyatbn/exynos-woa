@@ -474,3 +474,10 @@ No device access in this task; build-verified only (Guided, not Ready).
   M4:       MIDR 531F0030 CTR 84448004 DCZID 4 ISAR0 = A55, ISAR1 1 (LRCPC 0 vs 1), MMFR1 10211102 (VMIDBits 0 vs 2,
             HPDS 1 vs 2), MMFR2 1011, PFR0 10112222, CLIDR B200123
   => CTR_EL0 / DCZID identical: cache-geometry lead OUT. ISA gap: LRCPC (LDAPR) missing on the M4; HPDS2 missing.
+- ntoskrnl's only LDAPR(B) is a constant in KiIsLoadAcquireStoreReleaseOpcode (decoder), not executed -> LRCPC gap
+  is not a kernel-mode cause.
+- New lead: the M4s have never run CACHED outside Windows (stub = MMU off, Device accesses; the UEFI DVM test passed
+  in that mode). Windows runs them cached -> needs working snoop coherency between CPUCL2 and the DSU cluster. Test
+  (m4coh1): sleep flag 3 = the parked core builds a 1 GiB-block identity map in its mailbox, enables MMU + caches,
+  echoes a counter the boot CPU writes (cacheable, no maintenance); UEFI runs 100000 round trips with a timeout per
+  trip and logs fails/time. Control: an A55 (gicc3) gets the same test.

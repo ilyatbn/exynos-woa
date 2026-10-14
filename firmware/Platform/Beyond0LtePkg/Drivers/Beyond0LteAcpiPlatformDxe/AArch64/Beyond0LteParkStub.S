@@ -132,6 +132,8 @@ ASM_FUNC(Beyond0LteParkStub)
   msr   daifset, #0xf
   cmp   w3, #3
   b.eq  5f
+  cmp   w3, #4
+  b.eq  7f
   cmp   w3, #2
   b.ne  3f
   //
@@ -197,6 +199,87 @@ ASM_FUNC(Beyond0LteParkStub)
   str   w4, [x1, #0x140]
   mov   w8, w4
   b     6b
+
+  //
+  // sleep flag 4 (m14 trap timing): write each EL1 register back with its own value 1000 times and store the
+  // CNTVCT ticks at +0x300 (baseline nop loop), +0x308 TTBR0, +0x310 TCR, +0x318 SCTLR, +0x320 MAIR,
+  // +0x328 CONTEXTIDR. A write trapped to EL2 (uH) costs microseconds, an untrapped one a few ns. Then WFI.
+  //
+7:
+  mov   x9, #1000
+  mrs   x4, cntvct_el0
+71:
+  nop
+  subs  x9, x9, #1
+  b.ne  71b
+  mrs   x5, cntvct_el0
+  sub   x5, x5, x4
+  str   x5, [x1, #0x300]
+
+  mrs   x6, ttbr0_el1
+  mov   x9, #1000
+  mrs   x4, cntvct_el0
+72:
+  msr   ttbr0_el1, x6
+  subs  x9, x9, #1
+  b.ne  72b
+  isb
+  mrs   x5, cntvct_el0
+  sub   x5, x5, x4
+  str   x5, [x1, #0x308]
+
+  mrs   x6, tcr_el1
+  mov   x9, #1000
+  mrs   x4, cntvct_el0
+73:
+  msr   tcr_el1, x6
+  subs  x9, x9, #1
+  b.ne  73b
+  isb
+  mrs   x5, cntvct_el0
+  sub   x5, x5, x4
+  str   x5, [x1, #0x310]
+
+  mrs   x6, sctlr_el1
+  mov   x9, #1000
+  mrs   x4, cntvct_el0
+74:
+  msr   sctlr_el1, x6
+  subs  x9, x9, #1
+  b.ne  74b
+  isb
+  mrs   x5, cntvct_el0
+  sub   x5, x5, x4
+  str   x5, [x1, #0x318]
+
+  mrs   x6, mair_el1
+  mov   x9, #1000
+  mrs   x4, cntvct_el0
+75:
+  msr   mair_el1, x6
+  subs  x9, x9, #1
+  b.ne  75b
+  isb
+  mrs   x5, cntvct_el0
+  sub   x5, x5, x4
+  str   x5, [x1, #0x320]
+
+  mrs   x6, contextidr_el1
+  mov   x9, #1000
+  mrs   x4, cntvct_el0
+76:
+  msr   contextidr_el1, x6
+  subs  x9, x9, #1
+  b.ne  76b
+  isb
+  mrs   x5, cntvct_el0
+  sub   x5, x5, x4
+  str   x5, [x1, #0x328]
+  movz  w3, #0x0004
+  movk  w3, #0xC0C0, lsl #16
+  str   w3, [x1, #PARK_SLEEP_OFF]   // 0xC0C00004: trap timing done
+  dsb   sy
+  b     3b
 0:
   mov   x6, #0                      // m14 self-report: poll count
 1:

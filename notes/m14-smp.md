@@ -525,3 +525,4 @@ No device access in this task; build-verified only (Guided, not Ready).
 - m4spec1: KeArm64VectorBase = { KiArm64ExceptionVectors, KiArm64ExceptionKvaVectors } (the PLAIN tables, not
   BtiSmc/BtiHvc/Bhb*); KiSpeculationFeatures dword0 = 0x05000000. => Windows issues no SMC on exception entry ->
   Spectre-v2 SMC theory OUT.
+- boot-m4trap1.img d55ac6e3: stub flag 4 = EL2 trap timing (1000 self-writes each of TTBR0/TCR/SCTLR/MAIR/CONTEXTIDR + nop baseline, CNTVCT ticks at mailbox +0x300); TRAPTIME_MASK 0xD8 (A55 gicc3, A75 gicc4, M4 gicc6/7), OFFER 0x26.

@@ -90,6 +90,11 @@ ParkBootCntFrq (
 #ifndef BEYOND0LTE_PARK_COHERENCY_MASK
 #define BEYOND0LTE_PARK_COHERENCY_MASK  0u   // m14: parked, not-offered cores that run the cached ping-pong test
 #endif
+#ifndef BEYOND0LTE_PARK_TRAPTIME_MASK
+#define BEYOND0LTE_PARK_TRAPTIME_MASK   0u   // m14: parked, not-offered cores that time EL1 sysreg writes (EL2 traps?)
+#endif
+#define PARK_TRAP_DONE      0xC0C00004u
+#define PARK_TRAP_OFF       0x300u   // 6 x UINT64: nop, TTBR0, TCR, SCTLR, MAIR, CONTEXTIDR (1000 each, CNTVCT ticks)
 #define PARK_COH_PING_OFF   0x100u   // boot CPU writes the token here (own cache line)
 #define PARK_COH_ECHO_OFF   0x140u   // the test core copies it here (own cache line)
 #define PARK_COH_READY      0xC0C00003u
@@ -264,7 +269,9 @@ Beyond0LteParkSecondaries (
     *(UINT64 *)(UINTN)(Page[Index] + PARK_JUMP_OFF) = 0;
     CopyMem ((VOID *)(UINTN)(Page[Index] + PARK_STUB_OFF), Beyond0LteParkStub, StubSize);
 #if BEYOND0LTE_PARK_SLEEP_UNOFFERED
-    if (((BEYOND0LTE_PARK_COHERENCY_MASK >> Index) & 1u) != 0) {
+    if (((BEYOND0LTE_PARK_TRAPTIME_MASK >> Index) & 1u) != 0) {
+      *(UINT32 *)(UINTN)(Page[Index] + PARK_SLEEP_OFF) = 4;   // m14 EL2 trap timing core (never offered)
+    } else if (((BEYOND0LTE_PARK_COHERENCY_MASK >> Index) & 1u) != 0) {
       *(UINT32 *)(UINTN)(Page[Index] + PARK_SLEEP_OFF) = 3;   // m14 coherency test core (never offered)
     } else if (((BEYOND0LTE_SMP_OFFER_MASK >> Index) & 1u) == 0) {
       // m14: 1 = this core sleeps in WFI after its alive mark, 2 = it calls PSCI CPU_OFF instead
@@ -391,6 +398,27 @@ Beyond0LteParkSecondaries (
               ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x30), ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x38),
               ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x40), ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x48)));
     }
+  }
+
+  //
+  // m14 EL2 trap timing (stub sleep flag 4): 1000 writes of each register with its own value, CNTVCT ticks at 26 MHz.
+  //
+  for (Index = 0; Index < GiccCount; Index++) {
+    UINT32  Wait;
+
+    if ((((BEYOND0LTE_PARK_TRAPTIME_MASK >> Index) & 1u) == 0) || (Page[Index] == 0)) {
+      continue;
+    }
+
+    for (Wait = 0; (Wait < 500) && (ParkRd32 (Page[Index] + PARK_SLEEP_OFF) != PARK_TRAP_DONE); Wait++) {
+      MicroSecondDelay (1000);
+    }
+
+    DEBUG ((DEBUG_ERROR, "PARK: TRAP gicc%u (flag %x) ticks/1000: nop %lu TTBR0 %lu TCR %lu SCTLR %lu MAIR %lu CONTEXTIDR %lu\n",
+            (UINT32)Index, ParkRd32 (Page[Index] + PARK_SLEEP_OFF),
+            ParkRd64 (Page[Index] + PARK_TRAP_OFF + 0x00), ParkRd64 (Page[Index] + PARK_TRAP_OFF + 0x08),
+            ParkRd64 (Page[Index] + PARK_TRAP_OFF + 0x10), ParkRd64 (Page[Index] + PARK_TRAP_OFF + 0x18),
+            ParkRd64 (Page[Index] + PARK_TRAP_OFF + 0x20), ParkRd64 (Page[Index] + PARK_TRAP_OFF + 0x28)));
   }
 
   //

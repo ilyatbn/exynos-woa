@@ -1465,3 +1465,27 @@ To go back to unattended reboot loops: flash boot116-fb10m-v2.img (watchdog 1), 
   AppContainer, ~1 s UFS read stall under load (notes/m8-ufs-hc.md), touch SPB >250 ms stalls, Defender real-time
   protection (user to switch off via Windows Security - Tamper Protection), stereo/earpiece speaker, Android-like shell
   (parkinglot/android-like-shell.md), make OfferRotation default 1 in the INF/driver.
+
+## 42. Restart point (2026-10-15 ~01:40 local, unattended; goal: all 8 cores in Windows; notes/m14-smp.md)
+- **State:** the M4 big cores are NOT working yet. Windows starts all 8 (KeStartAllProcessors returns, all answer IPIs),
+  then any boot where Windows RUNS ON an M4 dies within ~1 min (two M4s: silent all-CPU hang, "HOST cannot
+  communicate"; one M4 (PARK 0x7E): fast reset loop every ~69 s, no bugcheck). Powered-but-unused M4s are fine
+  (the "not offered" runs were clean harness restarts - see the CORRECTION entry in notes/m14-smp.md).
+- **Ruled out (with data):** GPU KMD, audio (inconclusive), BIG 520 MHz DVFS, WFE wake (Windows spins with YIELD),
+  CNTFRQ (26 MHz on all), GIC CPU interface numbering (M4 = 6/7), LLC (off by default; enabling it like Linux hangs
+  Windows at KD init), cache geometry (CTR/DCZID identical), cached snoop coherency (100k ping-pongs, 0 misses), DVM
+  broadcasts on the M4 (UEFI), CPU_ON history (CPU_OFF works). Remaining ISA gaps on the M4: LRCPC, HPDS2.
+- **Tools built this session (committed):** kdrun fixed and extended (Kits dbgeng by path, INFINITE wait + timer thread,
+  shared log, initial-break commands file, 'every' mode, per-break commands file, exit after TWRP reset);
+  tools/phone/watchall.sh (state-change monitor; address in gitignored local/phone.env); park-stub diagnostics behind
+  flags: DVM self-test, CNTFRQ, poll counter, GIC if mask, ID registers, WFI / CPU_OFF sleep modes, cached coherency
+  ping-pong; BEYOND0LTE_SMP_OFFER_MASK; TouchPower BIG 520 MHz FREQ_REQ (default on), SCI LLC setup (default off),
+  UEFI soak (default off). All test flags default to the old behaviour; defaults: PARK 0x3E (6 cores).
+- **Phone:** boot = s10e-artifacts/boot-m4one1.img or later test image (KD image family: WATCHDOG 0, GPU_POWER_ON 1,
+  USB_KD_DEVICE 1); BCD debug ON (KDNET USB, port 50005, key 1.2.3.4). ESP: stay.flg restored; nogpu.flg and
+  noaudio.flg ADDED this session (remove for normal use). Daily image before this work: boot116-gpuon-nowdt-clean3
+  (d85b7391) - restoring it needs BCD debug off (or a KD-capable image).
+- **Next candidates:** what resets the SoC quickly after an M4 fails (Samsung uH at EL2 / EL3 - read
+  reset_reason_extra_info right after a one-M4 death, without an intermediate reset); M4 under Windows with fewer
+  features (e.g. TCR/SCTLR bits Windows sets from boot-CPU ID registers: HPD/HWU from HPDS2, hardware DBM/AF);
+  KD bp on processor 6 exception paths (KiSystemServiceHandler / KiSErrorException / KiUndefinedInstructionException).

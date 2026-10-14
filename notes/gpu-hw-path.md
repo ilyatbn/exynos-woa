@@ -274,3 +274,4 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   32 B tails, writes SRC_SIZE 2280<<16|1088, sets DECON SHADOW_REG_UPDATE_REQ bit 31 and polls up to 200 ms for it to
   clear. Cleared -> Fb.Pitch 4352 (step 0). Not cleared -> SRC_SIZE and rows put back (step 4). Logs
   RestrideSrcBefore/Img/Base/ShadowReq/TrigControl/ShadowMs/ShadowAfter/SrcAfter. Not validated on the device.
+- extra-gpu-h3.cmd: marks the KMD's Restride*/ScanoutStride/FbPitch/Build trace values (type | findstr, since reg export is UTF-16 - tested on the PC with a fake export) and arms the NEXT boot: gpu\restride.flg -> Parameters\ScanoutStride 1088, absent -> deleted.

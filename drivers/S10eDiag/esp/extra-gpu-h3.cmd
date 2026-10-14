@@ -78,6 +78,17 @@ findstr /c:"cube:" /c:"TIMEOUT" "%X%\h3-cube.txt" >> "%X%\summary.txt" 2>nul
 for %%F in (m5test-0.txt m5test-1.txt) do for /f "usebackq delims=" %%L in (`findstr /c:"jobs done" "%X%\%%F"`) do echo %%F %%L>> "%X%\summary.txt"
 for /f "usebackq delims=" %%L in ("%X%\summary.txt") do s10ediag mark "x: %%L"
 
+rem H4b: what the KMD's re-stride did this boot (KMD 1.0.36.1 MwLog values: RestrideStep 0 = 4352-byte lines, 2 = DPU not
+rem as expected, 4 = shadow update never completed (put back), 5 = range is RAM (firmware #115)); and for the NEXT boot
+rem \S10EDIAG\gpu\restride.flg -> Parameters\ScanoutStride = 1088, absent -> deleted (the GOP layout)
+for /f "usebackq tokens=1,2 delims==" %%A in (`type "%X%\trace.reg" ^| findstr /i "Restride ScanoutStride FbPitch Build"`) do s10ediag mark "x: %%~A=%%B"
+if exist "%ESP%\S10EDIAG\gpu\restride.flg" (
+  reg add HKLM\SYSTEM\CurrentControlSet\Services\MaliG76Wddm\Parameters /v ScanoutStride /t REG_DWORD /d 1088 /f > "%X%\next-stride.txt" 2>&1
+  s10ediag mark x: next boot ScanoutStride 1088
+) else (
+  reg delete HKLM\SYSTEM\CurrentControlSet\Services\MaliG76Wddm\Parameters /v ScanoutStride /f > "%X%\next-stride.txt" 2>&1
+  s10ediag mark x: next boot ScanoutStride off
+)
 rem renderer for the NEXT boot
 if exist "%ESP%\S10EDIAG\gpu\softpipe.flg" (
   reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v GALLIUM_DRIVER /t REG_SZ /d softpipe /f > "%X%\next-boot.txt" 2>&1

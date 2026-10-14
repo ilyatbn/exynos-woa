@@ -570,3 +570,17 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   MsMpEng ~64 %, Memory Compression ~32 %, dwm ~30 %, System 20 %, explorer 14 %; RAM 1.2 GB free of 5.4 GB, commit
   4.3/7.0 GB; explorer WS 755 MB (high - leak in our UMD? unchecked), OneDrive 440 MB; clocks fixed 1456/1794 MHz;
   PDH GPU Engine 3D = 0.0 % (counter not fed for our adapter).
+
+### 2026-10-14 ~12:30 - D2D text: root-caused to two Panfrost bugs (user now away; unattended with SSH)
+- softpipe split (GALLIUM_DRIVER=softpipe, same d3d10umd + shim): all 8 D2D bands == WARP -> the bug is in the
+  Panfrost backend, not the D3D10 frontend / shim. PAN_MESA_DEBUG sync / nofp16 / noafbc / linear: no change.
+- d2dtext bands (Mali): FillRectangle ok; text (all modes), icon font, glyph-outline FillGeometry, A8 FillOpacityMask,
+  BGRA DrawBitmap all 0 ink. No d3d10umd DebugPrintf (in-process DBG_PRINTEXCEPTION catcher) and no tlog errors.
+- D2DTEXT_HOOK=1 (vtable patches on the Mali device; context draw hooks did not fire - D2D reaches the context some
+  other way): D2D's layouts = POSITION R16G16_SINT (fmt 38) + per-instance TEXCOORD0-2 R16G16_SINT and TEXCOORD3
+  R32_SINT in slot 1 (APPEND_ALIGNED offsets, step 1); and POSITION R32G32_FLOAT + TEXCOORD0 R16G16_SINT. Text PS =
+  dcl_resource_buffer (uint) t0 + ld (glyph bits in a typed buffer), min2_8f hints. Log: d2dtext-4\hook-run.txt.
+- Feature probes (d2dtext-5, 256x256, dark-pixel counts), WARP all ok; **Mali**:
+  float2 position ok; R16G16_SINT position ok; instanced float2 offset ok;
+  **instanced R16G16_SINT offset 16384 (want 32768) - one of two instances wrong**;
+  **Buffer<uint> (R32_UINT SRV) ld in PS: 0 (want 32768) - reads zeros**.

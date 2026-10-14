@@ -1,0 +1,93 @@
+From b5a1deb34dfdc01e3a0ee860d8486c8a7dd423c6 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 04:17:15 +0300
+Subject: [PATCH] H5: crash evidence - a process without stderr gets one in
+ MALIKM_TGSI_DIR (LogonUI's Mesa assert text), the first 4 access violations
+ go to the tlog with module+offset (exynos-woa tools/mesa-build/patches/0057)
+
+---
+ include/win32-compat/malikm_drm.c          | 47 ++++++++++++++++++++++
+ src/gallium/frontends/d3d10umd/Adapter.cpp |  2 +
+ 2 files changed, 49 insertions(+)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 7f72060..8f0c87e 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -175,6 +175,53 @@ malikm_tlog(const char *fmt, ...)
+    fprintf(f, "%lu %s\n", (unsigned long)GetTickCount(), line);
+ }
+ 
++/* exynos-woa H5 (notes/gpu-hw-path.md): crash evidence from processes nobody watches. LogonUI dies in abort()
++ * (0xC0000409 in ucrtbase, every run since h3g) - a Mesa assert whose text went to a stderr that does not exist; the
++ * d3dtri tex test dies with 0xC0000005 at its draw and leaves no WER event. With MALIKM_TGSI_DIR set: a process
++ * without a stderr gets one in the tlog directory (malikm-<exe>-<pid>-stderr.txt), and the first 4 access
++ * violations (first chance - also ones that are handled) go to the tlog with module + offset, for the PDB. */
++static LONG CALLBACK
++malikm_veh(EXCEPTION_POINTERS *e)
++{
++   static volatile LONG n;
++   if (e->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && InterlockedIncrement(&n) <= 4) {
++      void *pc = e->ExceptionRecord->ExceptionAddress;
++      HMODULE m = NULL;
++      char name[MAX_PATH] = "?";
++      GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
++                         (LPCSTR)pc, &m);
++      if (m)
++         GetModuleFileNameA(m, name, MAX_PATH);
++      const char *b = strrchr(name, '\\');
++      malikm_tlog("ACCESS VIOLATION (first chance) at %s+0x%llx, %s address 0x%llx, thread %lu", b ? b + 1 : name,
++                  (unsigned long long)((uintptr_t)pc - (uintptr_t)m),
++                  e->ExceptionRecord->ExceptionInformation[0] ? "write" : "read",
++                  (unsigned long long)e->ExceptionRecord->ExceptionInformation[1], GetCurrentThreadId());
++   }
++   return EXCEPTION_CONTINUE_SEARCH;
++}
++
++void
++malikm_diag_init(void)
++{
++   static int done;
++   const char *d = getenv("MALIKM_TGSI_DIR");
++   if (done || !d || !*d)
++      return;
++   done = 1;
++   HANDLE h = GetStdHandle(STD_ERROR_HANDLE);
++   if (h == NULL || h == INVALID_HANDLE_VALUE) {
++      char exe[MAX_PATH] = "x", p[MAX_PATH];
++      GetModuleFileNameA(NULL, exe, MAX_PATH);
++      const char *b = strrchr(exe, '\\');
++      b = b ? b + 1 : exe;
++      snprintf(p, sizeof(p), "%s\\malikm-%s-%lu-stderr.txt", d, b, (unsigned long)GetCurrentProcessId());
++      if (freopen(p, "a", stderr))
++         setvbuf(stderr, NULL, _IONBF, 0);
++   }
++   AddVectoredExceptionHandler(1, malikm_veh);
++}
++
+ static int
+ call(int fd, DWORD code, void *buf, DWORD len)
+ {
+diff --git a/src/gallium/frontends/d3d10umd/Adapter.cpp b/src/gallium/frontends/d3d10umd/Adapter.cpp
+index 52959c7..404ee94 100644
+--- a/src/gallium/frontends/d3d10umd/Adapter.cpp
++++ b/src/gallium/frontends/d3d10umd/Adapter.cpp
+@@ -40,6 +40,7 @@
+ #include "util/u_memory.h"
+ 
+ #include <stdlib.h>
++extern "C" void malikm_diag_init(void);
+ 
+ 
+ EXTERN_C struct pipe_screen *
+@@ -81,6 +82,7 @@ OpenAdapterCommon(__inout D3D10DDIARG_OPENADAPTER *pOpenData)   // IN
+    if (numAdapters == 1) {
+       _set_error_mode(_OUT_TO_STDERR);
+       _set_abort_behavior(0, _WRITE_ABORT_MSG);
++      malikm_diag_init();   /* exynos-woa H5 (0057): stderr file + access-violation log (malikm_drm.c) */
+    }
+ 
+    Adapter *pAdaptor = (Adapter *)calloc(sizeof *pAdaptor, 1);
+-- 
+2.40.1.windows.1
+

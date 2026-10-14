@@ -345,3 +345,10 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   i.e. whether BO 7 stays in every submission list - not checked.)
 - Mesa 0056 (mali-umd-0056, maliumd c831519d...): malikm_shared_bo_create pitch = align(w*cpp, 64) (MW_ALLOCATION_INFO
   Pitch carries it: KMD blt (command.c:250/260) and malikm_open_shared use the allocation's Pitch).
+- H5 crash leads (h3o): LogonUI dies 0xC0000409 in ucrtbase (= abort(): a Mesa assert, patch 0042 sends its text to a
+  stderr LogonUI does not have) in every run since h3g; d3dtri tex dies 0xC0000005 at "draw" and leaves no WER event
+  and no tlog (nothing logged before the crash). Mesa 0057 (mali-umd-0057, maliumd afaa798e...): malikm_diag_init
+  (from Adapter.cpp with the 0042 CRT settings): with MALIKM_TGSI_DIR set, a process with no stderr handle gets
+  <dir>\malikm-<exe>-<pid>-stderr.txt; a vectored handler logs the first 4 first-chance access violations
+  ("ACCESS VIOLATION ... at <module>+0x<off>") to the tlog. The h3 script copies only malikm-*.txt - the stderr files
+  match that pattern too.

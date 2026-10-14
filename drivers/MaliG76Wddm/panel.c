@@ -65,8 +65,9 @@ static void PanelFail(MW_ADAPTER *A, ULONG Step)
     MwLog(A, L"PanelFailMipi", Rd(A->PanelDsim, MW_DSIM_MIPI_STATUS));
 }
 
-/* DCS long write (DT 0x39). Bytes go into the payload FIFO little-endian, then the header. */
-static BOOLEAN DsimLongWrite(MW_ADAPTER *A, const UCHAR *Bytes, ULONG Count)
+/* DCS long write (DT 0x39) queued: bytes into the payload FIFO little-endian, then the header. Several packets may be
+ * queued and then waited for once (DsimWaitSent) - they go out in order at the next frame boundary. */
+static BOOLEAN DsimQueueLong(MW_ADAPTER *A, const UCHAR *Bytes, ULONG Count)
 {
     ULONG i, w;
     if (Count == 0 || Count > 8)
@@ -80,7 +81,12 @@ static BOOLEAN DsimLongWrite(MW_ADAPTER *A, const UCHAR *Bytes, ULONG Count)
         Wr(A->PanelDsim, MW_DSIM_PAYLOAD, w);
     }
     Wr(A->PanelDsim, MW_DSIM_PKTHDR, MW_DSI_DCS_LONG_WRITE | (Count << 8));
-    return DsimWaitSent(A);
+    return TRUE;
+}
+
+static BOOLEAN DsimLongWrite(MW_ADAPTER *A, const UCHAR *Bytes, ULONG Count)
+{
+    return DsimQueueLong(A, Bytes, Count) && DsimWaitSent(A);
 }
 
 /* DCS read of up to 2 bytes (short response DT 0x21/0x22). Anything left in the RX FIFO afterwards is drained
@@ -119,19 +125,29 @@ static const UCHAR KeyOn[3] = { 0xF0, 0x5A, 0x5A };
 static const UCHAR KeyOff[3] = { 0xF0, 0xA5, 0xA5 };
 static const UCHAR GammaUpdate[2] = { 0xF7, 0x03 };
 
-/* Caller holds PanelLock and has checked PanelOk. */
-static BOOLEAN PanelSetAor(MW_ADAPTER *A, USHORT Aor)
+/* B1 + F7 03, queued together and sent in one frame gap. Caller holds PanelLock, checked PanelOk and has the level-2
+ * key open (F0 5A 5A). */
+static BOOLEAN PanelWriteAor(MW_ADAPTER *A, USHORT Aor)
 {
     UCHAR b1[3];
     b1[0] = 0xB1;
     b1[1] = (UCHAR)(Aor >> 8);
     b1[2] = (UCHAR)Aor;
-    if (!DsimLongWrite(A, KeyOn, 3) || !DsimLongWrite(A, b1, 3) || !DsimLongWrite(A, GammaUpdate, 2) ||
-        !DsimLongWrite(A, KeyOff, 3)) {
+    if (!DsimQueueLong(A, b1, 3) || !DsimQueueLong(A, GammaUpdate, 2) || !DsimWaitSent(A)) {
         A->PanelOk = FALSE;     /* PanelFail (it logs) runs after the caller drops PanelLock */
         return FALSE;
     }
     A->PanelAor = Aor;
+    return TRUE;
+}
+
+/* One AOR change with the key opened and closed around it. Caller holds PanelLock and has checked PanelOk. */
+static BOOLEAN PanelSetAor(MW_ADAPTER *A, USHORT Aor)
+{
+    if (!DsimLongWrite(A, KeyOn, 3) || !PanelWriteAor(A, Aor) || !DsimLongWrite(A, KeyOff, 3)) {
+        A->PanelOk = FALSE;
+        return FALSE;
+    }
     return TRUE;
 }
 
@@ -144,6 +160,95 @@ static USHORT LevelToAor(MW_ADAPTER *A, UCHAR Level)
     frac = Level % 5;
     f = (MwBrightnessCurve[idx] * (5 - frac) + MwBrightnessCurve[idx + 1] * frac) / 5;    /* x1000 */
     return (USHORT)(MW_PANEL_AOR_MIN_LUMA - ((ULONG)(MW_PANEL_AOR_MIN_LUMA - A->PanelAor0) * f) / 1000);
+}
+
+/* The fade (user request 2026-10-14: no light-switch jumps): SetBrightness only records the target; this thread walks
+ * the panel there MW_PANEL_RAMP_STEP levels per tick (~one frame), through the same perceptual curve, so 100 -> 0 takes
+ * ~20 ticks. A new target mid-fade simply redirects it. The key stays open for the whole fade. */
+static VOID PanelRampThread(PVOID Context)
+{
+    MW_ADAPTER *a = (MW_ADAPTER *)Context;
+    ULONG64 t0;
+    ULONG steps, ms;
+    UCHAR level, target;
+    BOOLEAN ok, keyOpen;
+
+    for (;;) {
+        KeWaitForSingleObject(&a->RampEvent, Executive, KernelMode, FALSE, NULL);
+        if (a->RampStop)
+            break;
+        ok = TRUE;
+        keyOpen = FALSE;
+        steps = 0;
+        t0 = KeQueryInterruptTime();
+        ExAcquireFastMutex(&a->PanelLock);
+        while (!a->RampStop && a->PanelOk && a->BrightnessOk && a->RampLevel != a->Brightness) {
+            target = a->Brightness;     /* re-read every step: a new slider position redirects the fade */
+            level = a->RampLevel;
+            if (target > level)
+                level = (UCHAR)(target - level > MW_PANEL_RAMP_STEP ? level + MW_PANEL_RAMP_STEP : target);
+            else
+                level = (UCHAR)(level - target > MW_PANEL_RAMP_STEP ? level - MW_PANEL_RAMP_STEP : target);
+            if (LevelToAor(a, level) != a->PanelAor) {
+                if (!keyOpen) {
+                    ok = DsimLongWrite(a, KeyOn, 3);
+                    keyOpen = ok;
+                }
+                if (ok)
+                    ok = PanelWriteAor(a, LevelToAor(a, level));
+                if (!ok) {
+                    a->PanelOk = FALSE;
+                    break;
+                }
+            }
+            a->RampLevel = level;
+            steps++;
+            if (level != a->Brightness)
+                MwSleepMs(MW_PANEL_RAMP_TICK_MS);
+        }
+        if (keyOpen && !DsimLongWrite(a, KeyOff, 3)) {
+            a->PanelOk = FALSE;
+            ok = FALSE;
+        }
+        ExReleaseFastMutex(&a->PanelLock);
+        ms = (ULONG)((KeQueryInterruptTime() - t0) / 10000);
+        if (!ok)
+            PanelFail(a, 12);
+        MwLog(a, L"BrightnessLast", ((ULONG)a->RampLevel << 24) | ((ULONG)a->PanelAor << 8) | (ok ? 0 : 1));
+        MwLog(a, L"BrightnessRamp", (steps << 16) | (ms & 0xFFFF));
+    }
+    PsTerminateSystemThread(STATUS_SUCCESS);
+}
+
+static void PanelRampStart(MW_ADAPTER *A)
+{
+    HANDLE h;
+    NTSTATUS st;
+
+    KeInitializeEvent(&A->RampEvent, SynchronizationEvent, FALSE);
+    A->RampStop = 0;
+    A->RampLevel = 100;     /* sboot's AOR = 100 % */
+    st = PsCreateSystemThread(&h, THREAD_ALL_ACCESS, NULL, NULL, NULL, PanelRampThread, A);
+    if (NT_SUCCESS(st)) {
+        st = ObReferenceObjectByHandle(h, SYNCHRONIZE, *PsThreadType, KernelMode, &A->RampThread, NULL);
+        ZwClose(h);
+    }
+    if (!NT_SUCCESS(st)) {
+        A->RampThread = NULL;
+        A->BrightnessOk = FALSE;    /* no fade thread, no brightness interface */
+    }
+    MwLog(A, L"BrightnessRampThread", (ULONG)st);
+}
+
+static void PanelRampStop(MW_ADAPTER *A)
+{
+    if (A->RampThread == NULL)
+        return;
+    InterlockedExchange(&A->RampStop, 1);
+    KeSetEvent(&A->RampEvent, IO_NO_INCREMENT, FALSE);
+    KeWaitForSingleObject(A->RampThread, Executive, KernelMode, FALSE, NULL);
+    ObDereferenceObject(A->RampThread);
+    A->RampThread = NULL;
 }
 
 void MwPanelStart(MW_ADAPTER *A)
@@ -222,12 +327,15 @@ void MwPanelStart(MW_ADAPTER *A)
     MwLog(A, L"PanelAor0", A->PanelAor0);
     MwLog(A, L"PanelRxUnexpected", A->PanelRxUnexpected);
     MwLog(A, L"PanelStep", step);
+    if (A->BrightnessOk)
+        PanelRampStart(A);
 }
 
 void MwPanelStop(MW_ADAPTER *A)
 {
     BOOLEAN restoreFailed = FALSE;
 
+    PanelRampStop(A);       /* before the restore: the fade thread may hold PanelLock */
     if (A->PanelDsim != NULL && A->PanelDecon != NULL) {
         /* Leave the panel as sboot set it for whoever drives the screen next (Basic Display has no brightness). */
         ExAcquireFastMutex(&A->PanelLock);
@@ -267,30 +375,19 @@ static NTSTATUS BrGetPossible(PVOID Context, ULONG BufferSize, PUCHAR LevelCount
     return STATUS_SUCCESS;
 }
 
+/* Records the target and wakes the fade thread; returns at once (Monitor.sys calls this for every slider move). */
 static NTSTATUS BrSet(PVOID Context, UCHAR Brightness)
 {
     MW_ADAPTER *a = (MW_ADAPTER *)Context;
-    NTSTATUS st = STATUS_SUCCESS;
-    USHORT aor;
 
     if (Brightness > 100)
         Brightness = 100;
-    ExAcquireFastMutex(&a->PanelLock);
-    if (!a->PanelOk || !a->BrightnessOk) {
-        st = STATUS_DEVICE_NOT_READY;
-    } else {
-        aor = LevelToAor(a, Brightness);
-        if (aor != a->PanelAor && !PanelSetAor(a, aor))
-            st = STATUS_IO_TIMEOUT;
-        else
-            a->Brightness = Brightness;
-    }
-    ExReleaseFastMutex(&a->PanelLock);
-    if (st == STATUS_IO_TIMEOUT)
-        PanelFail(a, 10);
     InterlockedIncrement(&a->BrightnessSets);
-    MwLog(a, L"BrightnessLast", ((ULONG)Brightness << 24) | ((ULONG)a->PanelAor << 8) | (NT_SUCCESS(st) ? 0 : 1));
-    return st;
+    if (!a->PanelOk || !a->BrightnessOk || a->RampThread == NULL)
+        return STATUS_DEVICE_NOT_READY;
+    a->Brightness = Brightness;
+    KeSetEvent(&a->RampEvent, IO_NO_INCREMENT, FALSE);
+    return STATUS_SUCCESS;
 }
 
 static NTSTATUS BrGet(PVOID Context, PUCHAR Brightness)

@@ -425,3 +425,10 @@ Serialise all senders with one FAST_MUTEX/KEVENT in the adapter (brightness DDI 
   **Parked** (user: idle dim is a later item). Display-off policy and scheme VIDEOIDLE put back to 0 (a display-off
   would run MwSetPowerState/monitor power paths never tested with the GPU scan-out). VIDEODIM 60 s / 30 % left set
   (inert while it does not fire).
+
+## KMD 1.0.43.1 - brightness fade (user request 2026-10-14 ~17:25: "like a light switch you turn", 5 % per tick)
+- SetBrightness only stores the target and signals RampEvent; PanelRampThread (system thread) walks RampLevel toward
+  it MW_PANEL_RAMP_STEP 5 levels per MW_PANEL_RAMP_TICK_MS 16 ms through the same (p/100)^2.2 curve; a new target
+  mid-fade redirects it. Key F0 5A 5A open once per fade; each step queues B1 + F7 03 and waits once (DsimQueueLong /
+  PanelWriteAor). Logs per fade: BrightnessLast (level/AOR/fail), BrightnessRamp (steps << 16 | ms). Thread stopped in
+  MwPanelStop before the A0 restore. Built s10e-artifacts\kmd-43 (MaliG76Wddm.sys B0CA2CF3...), not deployed yet.

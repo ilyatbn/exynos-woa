@@ -101,6 +101,8 @@
 /* AOR (B1) 0x08D4 = Samsung's 2-nit row (s6e3fa7 dimming_aor_table row 0, UNVERIFIED on device as a luminance): the
  * value used for brightness 0 %. Never exceeded, and 100 % is sboot's own AOR read back at start (D10: 0x0014). */
 #define MW_PANEL_AOR_MIN_LUMA       0x08D4u
+#define MW_PANEL_RAMP_STEP          5u          /* brightness fade: levels per tick (user: steps of 5 % every tick) */
+#define MW_PANEL_RAMP_TICK_MS       16u         /* ~one 60 Hz frame; the write itself waits for a frame gap too */
 
 /* ---- modes ---- */
 typedef enum _MW_MODE {
@@ -288,9 +290,13 @@ struct _MW_ADAPTER {
     FAST_MUTEX PanelLock;
     BOOLEAN PanelOk;            /* DECON in command mode, DSIM reaching frame boundaries, no command failure yet */
     BOOLEAN BrightnessOk;       /* sboot's AOR read back: the brightness interface is offered */
-    UCHAR Brightness;           /* last level set (0-100) */
+    volatile UCHAR Brightness;  /* target level from Windows (0-100) */
     USHORT PanelAor0, PanelAor; /* sboot's AOR, and the one now on the panel */
     ULONG PanelRxUnexpected;    /* last DCS reply word that was not the expected short response (0 = none) */
+    KEVENT RampEvent;           /* brightness fade (panel.c PanelRampThread): set by SetBrightness */
+    PVOID RampThread;           /* referenced thread object, NULL when not running */
+    volatile LONG RampStop;
+    volatile UCHAR RampLevel;   /* level now on the panel (Brightness = the target) */
     volatile LONG BrightnessQueries, BrightnessSets;
 };
 

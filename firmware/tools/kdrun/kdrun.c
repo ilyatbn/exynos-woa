@@ -25,6 +25,10 @@
 #include <initguid.h>
 #include <dbgeng.h>
 
+#define DBGENG_PATH "C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x64\\dbgeng.dll"
+
+typedef HRESULT (STDAPICALLTYPE *KDRUN_DEBUG_CREATE)(REFIID InterfaceId, PVOID *Interface);
+
 static FILE *gLog;
 static volatile LONG gSawConnect;   /* the engine printed "Connected to" / "Kernel Debugger connection established" */
 
@@ -106,6 +110,8 @@ int main(int argc, char **argv)
     ULONG TotalS, BreakS;
     BOOL Reboot, Twrp, BrokeIn = FALSE;
     HRESULT Hr;
+    HMODULE Engine;
+    KDRUN_DEBUG_CREATE Create;
 
     if (argc < 4) {
         fprintf(stderr, "usage: kdrun <log> <total_s> <break_after_s> [reboot]\n");
@@ -118,7 +124,16 @@ int main(int argc, char **argv)
     Reboot = argc > 4 && _stricmp(argv[4], "reboot") == 0;
     Twrp = argc > 4 && _stricmp(argv[4], "twrp") == 0;
 
-    Hr = DebugCreate(&IID_IDebugClient, (void **)&Client);
+    /* The Kits dbgeng.dll by full path: a plain import resolves to the inbox System32\dbgeng.dll (10.0.26100.1),
+     * which never connected to the phone (notes/m14-smp.md, kdtest 21:42). ALTERED_SEARCH_PATH makes its own
+     * dependencies (dbghelp, dbgmodel, kdnet transports) load from the Kits folder too. */
+    Engine = LoadLibraryExA(DBGENG_PATH, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
+    Create = Engine ? (KDRUN_DEBUG_CREATE)GetProcAddress(Engine, "DebugCreate") : NULL;
+    if (Create == NULL) {
+        fprintf(gLog, "cannot load %s (%lu)\n", DBGENG_PATH, GetLastError());
+        return 3;
+    }
+    Hr = Create(&IID_IDebugClient, (void **)&Client);
     if (FAILED(Hr)) {
         fprintf(gLog, "DebugCreate 0x%08lx\n", Hr);
         return 3;

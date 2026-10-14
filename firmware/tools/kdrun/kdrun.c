@@ -127,7 +127,7 @@ static void Diagnose(IDebugControl *Control, BOOL Bugcheck)
 
 static IDebugControl *gControl;
 static ULONGLONG gTotalMs, gBreakMs;
-static volatile LONG gStop, gBrokeIn, gBreakInPending;
+static volatile LONG gStop, gBrokeIn, gBreakInPending, gInBreak;   /* gInBreak: main thread is handling a break */
 
 /* time limit -> DEBUG_INTERRUPT_EXIT (WaitForEvent returns); break_after_s after the connection -> one active
  * break-in (a hang leaves no event). SetInterrupt is the dbgeng call meant for other threads. */
@@ -150,7 +150,9 @@ static DWORD WINAPI TimerThread(LPVOID Unused)
             gControl->lpVtbl->SetInterrupt(gControl, DEBUG_INTERRUPT_EXIT);
             break;
         }
-        if (Connected && !gBrokeIn && Now - Connected >= gBreakMs) {
+        /* never while a break is being handled (initial-break symbol load, diagnostics): the pending flag would
+         * mark the NEXT break (e.g. a breakpoint) as the timed one */
+        if (Connected && !gBrokeIn && !gInBreak && Now - Connected >= gBreakMs) {
             InterlockedExchange(&gBrokeIn, 1);
             InterlockedExchange(&gBreakInPending, 1);
             Note("break-in timer expired - interrupting the target");
@@ -244,6 +246,7 @@ int main(int argc, char **argv)
             /* AttachKernel succeeds without a target; only the engine's own "Connected to ..." line or a break means
              * the phone is there (the first m4kd1 run reported a connection that never happened). */
             InterlockedExchange(&gSawConnect, 1);
+            InterlockedExchange(&gInBreak, 1);
             Control->lpVtbl->GetLastEventInformation(Control, &Type, &Pid, &Tid, NULL, 0, NULL, Desc, sizeof(Desc),
                                                      &DescLen);
             Bugcheck = strstr(Desc, "ugcheck") != NULL || strstr(Desc, "ug check") != NULL;
@@ -252,6 +255,7 @@ int main(int argc, char **argv)
             if (FirstBreak && InitCmds != NULL && !Bugcheck && !Timed) {
                 FirstBreak = FALSE;
                 RunFile(Control, InitCmds);
+                InterlockedExchange(&gInBreak, 0);
                 Control->lpVtbl->SetExecutionStatus(Control, DEBUG_STATUS_GO);
                 continue;
             }
@@ -270,6 +274,7 @@ int main(int argc, char **argv)
             } else {
                 Control->lpVtbl->SetExecutionStatus(Control, DEBUG_STATUS_GO);
             }
+            InterlockedExchange(&gInBreak, 0);
             continue;
         }
         if (FAILED(Hr))

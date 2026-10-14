@@ -240,3 +240,8 @@ No device access in this task; build-verified only (Guided, not Ready).
   "Waiting to reconnect..." then "Connected to target ... on port 50005" within 2 s - first kdrun connection ever.
   (KDNET then logged "target machine restarted without notifying the debugger" + reconnect: a reattach quirk.)
   => m4kd1's "KD never attached" says NOTHING about the M4s; the M4 run must be repeated with this kdrun.
+- REVIEW 00332b5: (1) BUG - the timer could interrupt while a break was being handled (initial-break symbol load
+  > break_after_s), leaving gBreakInPending set so the NEXT break (a breakpoint) counted as the timed one -> premature
+  TWRP reset. Fixed in the follow-up (gInBreak). A narrow race remains (timer reads gInBreak 0, the target breaks
+  before SetInterrupt) - accepted. (2) the 12 s limit exited after 29 s: SetInterrupt(EXIT) waited out a KDNET
+  reconnect - harmless, noted. (3) diagnostics text unchanged.

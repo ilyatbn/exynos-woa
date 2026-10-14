@@ -114,3 +114,10 @@ Scope: analysis only; proposed patch in notes/touch-quality.patch; no commit, no
   TouchMaxEnergyFlagCount>0 confirms the 0x3f bug was live; TouchI2cErrorCount/TouchSpbMaxMs/TouchSpbLastError
   quantify stalls; TouchStaleReleaseCount = lifts we still force; touchlog scan deltas no longer multiples of 156
   and never 0; PTR DOWN count == tap count.
+
+## Applied (main session, 2026-10-14 ~18:35) - touch 6.0.5058.6
+- notes/touch-quality.patch applied as reviewed, with one change: the non-finger ttype filter is COUNT-ONLY
+  (TouchNonFingerCount + TouchLastNonFingerKind) - the ttype bit layout is from sec_ts y771 source, not seen on the
+  device; a wrong layout with the drop enabled would kill every touch. Enable after the counters look right.
+- INF DriverVer 6.0.5058.6; built s10e-artifacts\touch-5058-6 (sys sha256 08012fdb3f2e...). Deploy: SYSTEM swap of the
+  DriverStore .sys (previous kept), reboot.

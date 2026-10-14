@@ -97,6 +97,7 @@ typedef struct _S6SY761_CONTACT_STATE
     BOOLEAN ReleasePending;
     USHORT  X;
     USHORT  Y;
+    ULONGLONG LastEventTime;    // KeQueryInterruptTime of the last controller event for this contact
 } S6SY761_CONTACT_STATE;
 
 DRIVER_INITIALIZE                   DriverEntry;
@@ -105,6 +106,15 @@ EVT_WDF_TIMER                       EvtTimerFunc;
 EVT_WDF_TIMER                       TouchHoldTimerFunc;
 
 #define S6SY761_HOLD_REPEAT_MS              20
+
+// touch-quality (notes/touch-quality.md): after a failed SPB read, contacts are NOT lifted at once (that
+// produced a synthetic up + a new down = a second tap). A contact that has had no controller event for this
+// long after the failure is released instead (the failed read may have swallowed its RELEASE event).
+// Tuning value, not a hardware constant: it must stay above the ~16 ms event spacing seen while moving and
+// below Windows' press-and-hold time.
+#define S6SY761_ERROR_STALE_MS              300
+// SPB transfers slower than this are counted (TouchSpbSlowCount); diagnostic only.
+#define S6SY761_SPB_SLOW_MS                 20
 EVT_WDF_OBJECT_CONTEXT_CLEANUP      EvtDriverCleanup;
 
 EVT_WDF_DEVICE_PREPARE_HARDWARE      OnPrepareHardware;
@@ -143,6 +153,18 @@ typedef struct _DEVICE_CONTEXT
     volatile LONG           InputQueueFlushCount;
     volatile LONG           InputReportCoalesceCount;
     volatile LONG           InputReportCompleteCount;
+
+    // touch-quality diagnostics + recovery (notes/touch-quality.md)
+    USHORT                  LastScanTime;           // last scan time handed out (100 us units)
+    BOOLEAN                 InputErrorPending;      // an SPB read failed; stale contacts not yet resolved
+    ULONGLONG               InputErrorTime;         // KeQueryInterruptTime of that failure
+    volatile LONG           InputNonFingerCount;    // PRESS/MOVE events with a non-finger ttype (counted, not dropped yet)
+    volatile LONG           InputLastNonFingerKind; // the last such ttype
+    volatile LONG           InputMaxEnergyFlagCount;// events whose byte 7 bit 5 (max_energy_flag) was set
+    volatile LONG           InputStaleReleaseCount; // contacts released by the post-error stale check
+    volatile LONG           SpbSlowCount;           // SPB transfers > S6SY761_SPB_SLOW_MS
+    volatile LONG           SpbMaxMs;               // slowest SPB transfer since D0Entry
+    volatile LONG           SpbLastErrorStatus;
 
     // m12 right-click (notes/m12-touch.md, s10etouchlog run m16-3): the S6SY761 only raises events when a
     // finger moves; Windows lifts a pointer ~200 ms after the last report, so a held finger became a burst

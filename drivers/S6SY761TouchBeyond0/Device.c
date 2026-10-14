@@ -73,12 +73,19 @@ RequestGetHidXferPacket_ToWriteToDevice(
 }
 
 
-#define S6SY761_MASK_LEFT_EVENTS 0x3f
+// Event byte 7 on the S10e firmware = left_event:5 | max_energy_flag:1 | ttype_1_0:2, byte 6 = z:6 | ttype_3_2:2
+// (Samsung sec_ts y771 = CONFIG_TOUCHSCREEN_SEC_TS_Y771 of beyond0lte: sec_ts.h:591-607, sec_ts.c:1120 masks
+// left_event with 0x1F, MAX_EVENT_COUNT 31). The 0x3f mask inherited from mainline s6sy761.c counted the
+// max_energy_flag as 32 extra events (notes/touch-quality.md).
+#define S6SY761_MASK_LEFT_EVENTS 0x1f
+#define S6SY761_MASK_MAX_ENERGY 0x20
+#define S6SY761_MAX_EVENT_COUNT 31
 #define S6SY761_EVENT_SIZE  8
-#define S6SY761_EVENT_COUNT  (S6SY761_MASK_LEFT_EVENTS + 1)
+#define S6SY761_EVENT_COUNT  64		// event buffer slots (unchanged); at most S6SY761_MAX_EVENT_COUNT are used
 #define S6SY761_SPB_TIMEOUT_MS 250
 
 C_ASSERT(S6SY761_EVENT_COUNT == 64);
+C_ASSERT(S6SY761_MAX_EVENT_COUNT <= S6SY761_EVENT_COUNT);
 C_ASSERT(S6SY761_INPUT_REPORT_QUEUE_DEPTH >= S6SY761_EVENT_COUNT);
 
 #define S6SY761_MASK_TOUCH_STATE 0xc0
@@ -91,6 +98,12 @@ C_ASSERT(S6SY761_INPUT_REPORT_QUEUE_DEPTH >= S6SY761_EVENT_COUNT);
 #define S6SY761_TS_PRESS 0x01
 #define S6SY761_TS_MOVE 0x02
 #define S6SY761_TS_RELEASE 0x03
+
+// sec_ts touch types (sec_ts.h:278-286); sec_ts.c only reports NORMAL / GLOVE / PALM / WET as finger contacts.
+#define S6SY761_TTYPE_NORMAL 0
+#define S6SY761_TTYPE_GLOVE 3
+#define S6SY761_TTYPE_PALM 5
+#define S6SY761_TTYPE_WET 6
 
 /* event id */
 #define S6SY761_EVENT_ID_COORDINATE	0x00
@@ -188,14 +201,24 @@ TouchResetInputStateLocked(
 static
 VOID
 TouchInitializeReport(
+	_Inout_ PDEVICE_CONTEXT DeviceContext,
 	_Out_ inputReport54_t* Report
 )
 {
-	ULONGLONG scanTime;
+	ULONG64 qpc;
+	USHORT scanTime;
 
 	RtlZeroMemory(Report, sizeof(*Report));
 	Report->reportId = CONTROL_FEATURE_REPORT_ID;
-	scanTime = KeQueryInterruptTime() / 1000ULL;
+	// KeQueryInterruptTime only advances once per clock tick (15.625 ms): scan times were quantised to
+	// 156 x 100 us and two different frames could carry the same value (touchlog run m16-3). Windows wants
+	// deltas that reflect the scan frequency, so use the precise interrupt time and never repeat a value.
+	scanTime = (USHORT)(KeQueryInterruptTimePrecise(&qpc) / 1000ULL);
+	if (scanTime == DeviceContext->LastScanTime)
+	{
+		scanTime++;
+	}
+	DeviceContext->LastScanTime = scanTime;
 	Report->DIG_TouchScreenScanTimeLow = (BYTE)(scanTime & 0xff);
 	Report->DIG_TouchScreenScanTimeHigh =
 		(BYTE)((scanTime >> 8) & 0xff);
@@ -233,7 +256,7 @@ TouchBuildCurrentReportLocked(
 {
 	ULONG contactId;
 
-	TouchInitializeReport(Report);
+	TouchInitializeReport(DeviceContext, Report);
 
 	for (contactId = 0; contactId < S6SY761_MAX_CONTACTS; contactId++)
 	{
@@ -271,7 +294,7 @@ TouchBuildAllUpReportLocked(
 {
 	ULONG contactId;
 
-	TouchInitializeReport(Report);
+	TouchInitializeReport(DeviceContext, Report);
 
 	for (contactId = 0; contactId < S6SY761_MAX_CONTACTS; contactId++)
 	{
@@ -605,10 +628,38 @@ TouchHoldTimerFunc(
 	queued = FALSE;
 
 	WdfWaitLockAcquire(pDevice->InputLock, NULL);
+	if (pDevice->InputErrorPending && !pDevice->InputStopping &&
+		((KeQueryInterruptTime() - pDevice->InputErrorTime) >=
+			(ULONGLONG)S6SY761_ERROR_STALE_MS * 10000ULL))
+	{
+		// A failed SPB read may have swallowed a RELEASE. Lift only the contacts the controller has not
+		// mentioned since the failure; contacts that kept moving continue without a synthetic up/down.
+		ULONG contactId;
+		BOOLEAN released = FALSE;
+
+		for (contactId = 0; contactId < S6SY761_MAX_CONTACTS; contactId++)
+		{
+			S6SY761_CONTACT_STATE* contact = &pDevice->Contacts[contactId];
+
+			if (contact->Active &&
+				(contact->LastEventTime <= pDevice->InputErrorTime))
+			{
+				contact->Active = FALSE;
+				contact->ReleasePending = TRUE;
+				released = TRUE;
+				InterlockedIncrement(&pDevice->InputStaleReleaseCount);
+			}
+		}
+		pDevice->InputErrorPending = FALSE;
+		if (released)
+		{
+			queued = TouchQueueCurrentReportLocked(pDevice, FALSE);
+		}
+	}
 	anyActive = !pDevice->InputStopping && TouchAnyContactActiveLocked(pDevice);
 	if (anyActive && (pDevice->InputReportCount == 0))
 	{
-		queued = TouchQueueCurrentReportLocked(pDevice, TRUE);
+		queued = TouchQueueCurrentReportLocked(pDevice, TRUE) || queued;
 	}
 	WdfWaitLockRelease(pDevice->InputLock);
 
@@ -658,6 +709,91 @@ TouchQueueAllUpReport(
 	{
 		TouchDrainInputReports(DeviceContext);
 	}
+}
+
+//
+// Diagnostics for notes/touch-quality.md. The counters used to be written only in OnD0Exit, which never runs
+// on the S10e (the phone is reset, not shut down), so they were never observable. Written on SPB errors and
+// on a new slowest transfer - both rare - so the registry is not hammered.
+//
+static
+VOID
+TouchRecordDiagnostics(
+	_In_ PDEVICE_CONTEXT DeviceContext
+)
+{
+	WDFDEVICE device = DeviceContext->Device;
+
+	RecordStartValue(device, L"TouchIrqCount", (ULONG)DeviceContext->InputInterruptCount);
+	RecordStartValue(device, L"TouchI2cErrorCount", (ULONG)DeviceContext->InputI2cErrorCount);
+	RecordStartValue(device, L"TouchOverflowCount", (ULONG)DeviceContext->InputOverflowCount);
+	RecordStartValue(device, L"TouchQueueFlushCount", (ULONG)DeviceContext->InputQueueFlushCount);
+	RecordStartValue(device, L"TouchReportCoalesceCount", (ULONG)DeviceContext->InputReportCoalesceCount);
+	RecordStartValue(device, L"TouchReportCompleteCount", (ULONG)DeviceContext->InputReportCompleteCount);
+	RecordStartValue(device, L"TouchHoldRepeatCount", (ULONG)DeviceContext->HoldRepeatCount);
+	RecordStartValue(device, L"TouchNonFingerCount", (ULONG)DeviceContext->InputNonFingerCount);
+	RecordStartValue(device, L"TouchLastNonFingerKind", (ULONG)DeviceContext->InputLastNonFingerKind);
+	RecordStartValue(device, L"TouchMaxEnergyFlagCount", (ULONG)DeviceContext->InputMaxEnergyFlagCount);
+	RecordStartValue(device, L"TouchStaleReleaseCount", (ULONG)DeviceContext->InputStaleReleaseCount);
+	RecordStartValue(device, L"TouchSpbSlowCount", (ULONG)DeviceContext->SpbSlowCount);
+	RecordStartValue(device, L"TouchSpbMaxMs", (ULONG)DeviceContext->SpbMaxMs);
+	RecordStartValue(device, L"TouchSpbLastError", (ULONG)DeviceContext->SpbLastErrorStatus);
+}
+
+static
+VOID
+TouchNoteSpbLatency(
+	_Inout_ PDEVICE_CONTEXT DeviceContext,
+	_In_ ULONGLONG StartTime
+)
+{
+	ULONG64 qpc;
+	LONG elapsedMs;
+
+	elapsedMs = (LONG)((KeQueryInterruptTimePrecise(&qpc) - StartTime) / 10000ULL);
+	if (elapsedMs > S6SY761_SPB_SLOW_MS)
+	{
+		InterlockedIncrement(&DeviceContext->SpbSlowCount);
+	}
+	if (elapsedMs > DeviceContext->SpbMaxMs)
+	{
+		InterlockedExchange(&DeviceContext->SpbMaxMs, elapsedMs);
+		if (elapsedMs > S6SY761_SPB_SLOW_MS)
+		{
+			TouchRecordDiagnostics(DeviceContext);
+		}
+	}
+}
+
+//
+// An SPB read in the ISR failed (the HSI2C telemetry shows STATUS_CANCELLED = our 250 ms send timeout).
+// The old code lifted every contact here; the next event of a finger that was still down then became a new
+// contact = a second tap / a dropped drag. Samsung's sec_ts just returns on an I2C error. Keep the contacts
+// and let TouchHoldTimerFunc release the ones the controller stays silent about (S6SY761_ERROR_STALE_MS).
+//
+static
+VOID
+TouchNoteSpbError(
+	_Inout_ PDEVICE_CONTEXT DeviceContext,
+	_In_ NTSTATUS Status
+)
+{
+	BOOLEAN anyActive;
+
+	InterlockedIncrement(&DeviceContext->InputI2cErrorCount);
+	InterlockedExchange(&DeviceContext->SpbLastErrorStatus, (LONG)Status);
+
+	WdfWaitLockAcquire(DeviceContext->InputLock, NULL);
+	DeviceContext->InputErrorPending = TRUE;
+	DeviceContext->InputErrorTime = KeQueryInterruptTime();
+	anyActive = !DeviceContext->InputStopping && TouchAnyContactActiveLocked(DeviceContext);
+	WdfWaitLockRelease(DeviceContext->InputLock);
+
+	if (anyActive)
+	{
+		TouchArmHoldTimer(DeviceContext);
+	}
+	TouchRecordDiagnostics(DeviceContext);
 }
 
 static
@@ -1730,6 +1866,13 @@ OnD0Entry(
 	InterlockedExchange(&pDevice->InputQueueFlushCount, 0);
 	InterlockedExchange(&pDevice->InputReportCoalesceCount, 0);
 	InterlockedExchange(&pDevice->InputReportCompleteCount, 0);
+	InterlockedExchange(&pDevice->InputNonFingerCount, 0);
+	InterlockedExchange(&pDevice->InputMaxEnergyFlagCount, 0);
+	InterlockedExchange(&pDevice->InputStaleReleaseCount, 0);
+	InterlockedExchange(&pDevice->SpbSlowCount, 0);
+	InterlockedExchange(&pDevice->SpbMaxMs, 0);
+	InterlockedExchange(&pDevice->SpbLastErrorStatus, 0);
+	pDevice->InputErrorPending = FALSE;
 
 	RecordStartValues(FxDevice, 20, STATUS_SUCCESS);
 	TouchConfigureInterrupt(pDevice);
@@ -1803,30 +1946,7 @@ OnD0Exit(
 	TouchSetInterruptMasked(pDevice, TRUE);
 	TouchAcknowledgeInterrupt(pDevice);
 	TouchQueueAllUpReport(pDevice);
-	RecordStartValue(
-		FxDevice,
-		L"TouchIrqCount",
-		(ULONG)pDevice->InputInterruptCount);
-	RecordStartValue(
-		FxDevice,
-		L"TouchI2cErrorCount",
-		(ULONG)pDevice->InputI2cErrorCount);
-	RecordStartValue(
-		FxDevice,
-		L"TouchOverflowCount",
-		(ULONG)pDevice->InputOverflowCount);
-	RecordStartValue(
-		FxDevice,
-		L"TouchQueueFlushCount",
-		(ULONG)pDevice->InputQueueFlushCount);
-	RecordStartValue(
-		FxDevice,
-		L"TouchReportCoalesceCount",
-		(ULONG)pDevice->InputReportCoalesceCount);
-	RecordStartValue(
-		FxDevice,
-		L"TouchReportCompleteCount",
-		(ULONG)pDevice->InputReportCompleteCount);
+	TouchRecordDiagnostics(pDevice);
 	TouchStopInput(pDevice);
 	SpbDeviceClose(pDevice);
 
@@ -2874,8 +2994,9 @@ OnInterruptIsr(
 	NTSTATUS                status;
 	BOOLEAN                 queued;
 	BOOLEAN                 anyActive;
-	BYTE                    touchType, touchId;
+	BYTE                    touchType, touchId, touchKind;
 	UINT8					event_id, * event;
+	ULONGLONG               eventTime;
 	UNREFERENCED_PARAMETER(MessageID);
 
 	device = WdfInterruptGetDevice(FxInterrupt);
@@ -2883,13 +3004,13 @@ OnInterruptIsr(
 	InterlockedIncrement(&pDevice->InputInterruptCount);
 	RtlZeroMemory(eventbuf, sizeof(eventbuf));
 	queued = FALSE;
+	eventTime = KeQueryInterruptTime();
 
 	// get some
 	status = SpbDeviceWriteRead(pDevice, S6SY761_READ_ONE_EVENT, eventbuf, 1, S6SY761_EVENT_SIZE);
 	if (!NT_SUCCESS(status))
 	{
-		InterlockedIncrement(&pDevice->InputI2cErrorCount);
-		TouchQueueAllUpReport(pDevice);
+		TouchNoteSpbError(pDevice, status);
 		goto Exit;
 	}
 	if (!eventbuf[0])
@@ -2901,7 +3022,7 @@ OnInterruptIsr(
 
 	// get some more
 	remain = eventbuf[7] & S6SY761_MASK_LEFT_EVENTS;
-	if (remain > S6SY761_EVENT_COUNT - 1)
+	if (remain > S6SY761_MAX_EVENT_COUNT - 1)
 	{
 		InterlockedIncrement(&pDevice->InputOverflowCount);
 		TouchQueueAllUpReport(pDevice);
@@ -2921,8 +3042,7 @@ OnInterruptIsr(
         status = SpbDeviceWriteRead(pDevice, S6SY761_READ_ALL_EVENTS, eventbuf + S6SY761_EVENT_SIZE, 1, remain * S6SY761_EVENT_SIZE);
 		if (!NT_SUCCESS(status))
 		{
-			InterlockedIncrement(&pDevice->InputI2cErrorCount);
-			TouchQueueAllUpReport(pDevice);
+			TouchNoteSpbError(pDevice, status);
 			goto Exit;
 		}
 	}
@@ -2955,6 +3075,11 @@ OnInterruptIsr(
 			}
             touchId = ((event[0] & S6SY761_MASK_TID) >> 2) - 1;
             touchType = (event[0] & S6SY761_MASK_TOUCH_STATE) >> 6;
+			touchKind = (BYTE)(((event[6] >> 6) << 2) | (event[7] >> 6));
+			if (event[7] & S6SY761_MASK_MAX_ENERGY)
+			{
+				InterlockedIncrement(&pDevice->InputMaxEnergyFlagCount);
+			}
 			if (touchType == S6SY761_TS_NONE ||
 				touchId >= S6SY761_MAX_CONTACTS)
 			{
@@ -2962,6 +3087,22 @@ OnInterruptIsr(
 			}
 
 			contact = &pDevice->Contacts[touchId];
+			contact->LastEventTime = eventTime;
+
+			// sec_ts only reports NORMAL/GLOVE/PALM/WET as fingers (hover, proximity, cover, jig are not).
+			// COUNT ONLY in this build: the ttype bit layout (byte 6 bits 7:6, byte 7 bits 7:6) is read from
+			// sec_ts y771 and not yet seen on the device - if it were wrong, dropping these would kill every
+			// touch. TouchNonFingerCount / TouchLastNonFingerKind show what a filter would drop; enable the
+			// filter (break here) only after they look right on the device.
+			if ((touchType != S6SY761_TS_RELEASE) && !contact->Active &&
+				(touchKind != S6SY761_TTYPE_NORMAL) &&
+				(touchKind != S6SY761_TTYPE_GLOVE) &&
+				(touchKind != S6SY761_TTYPE_PALM) &&
+				(touchKind != S6SY761_TTYPE_WET))
+			{
+				InterlockedIncrement(&pDevice->InputNonFingerCount);
+				InterlockedExchange(&pDevice->InputLastNonFingerKind, (LONG)touchKind);
+			}
 			x = (event[1] << 4) | ((event[3] & 0xf0) >> 4);
 			y = (event[2] << 4) | (event[3] & 0x0f);
 
@@ -3203,14 +3344,20 @@ SpbDeviceWriteRead(
 		&options,
 		WDF_REL_TIMEOUT_IN_MS(S6SY761_SPB_TIMEOUT_MS));
 
-	status = WdfIoTargetSendIoctlSynchronously(
-		pDevice->SpbController,
-		request,
-		IOCTL_SPB_EXECUTE_SEQUENCE,
-		&sequenceDescriptor,
-		NULL,
-		&options,
-		&bytesTransferred);
+	{
+		ULONG64 qpc;
+		ULONGLONG startTime = KeQueryInterruptTimePrecise(&qpc);
+
+		status = WdfIoTargetSendIoctlSynchronously(
+			pDevice->SpbController,
+			request,
+			IOCTL_SPB_EXECUTE_SEQUENCE,
+			&sequenceDescriptor,
+			NULL,
+			&options,
+			&bytesTransferred);
+		TouchNoteSpbLatency(pDevice, startTime);
+	}
 	if (NT_SUCCESS(status) &&
 		bytesTransferred != inputBufferLength + outputBufferLength)
 	{

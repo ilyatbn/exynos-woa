@@ -432,3 +432,7 @@ Serialise all senders with one FAST_MUTEX/KEVENT in the adapter (brightness DDI 
   mid-fade redirects it. Key F0 5A 5A open once per fade; each step queues B1 + F7 03 and waits once (DsimQueueLong /
   PanelWriteAor). Logs per fade: BrightnessLast (level/AOR/fail), BrightnessRamp (steps << 16 | ms). Thread stopped in
   MwPanelStop before the A0 restore. Built s10e-artifacts\kmd-43 (MaliG76Wddm.sys B0CA2CF3...), not deployed yet.
+- 1.0.43.1 on the device: WmiSetBrightness 0 -> 100: BrightnessRamp 0x140151 (20 steps, 337 ms); 100 -> 80: 0x4003a
+  (4 steps, 58 ms). User session 17:22-17:23: slider 30/100/75/80/10/90/0, fades 7..17 steps, 110-325 ms, no failure.
+  (The "level 0 at boot" seen earlier was the user's last slider position.) User: "its fine by me ... as good as done".
+  MILESTONES G14 -> done.

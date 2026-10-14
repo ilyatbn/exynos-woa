@@ -425,3 +425,9 @@ No device access in this task; build-verified only (Guided, not Ready).
   "Refreshing KD connection", link dead by the first break-in (+20 s); phone reset to TWRP within ~1 min.
   debug_history: new entry type "PP" SOFT INFORM3(88ee). Too early to say anything about audio. Note: run without
   the initial break dies EARLIER (no KD pauses).
+- HYPOTHESIS (strong, testable): the GIC is GICv2 (GIC-400, Exynos9820.h VERIFIED); Windows takes each core's GIC
+  CPU INTERFACE NUMBER from the MADT GICC GicId (ours: logical order 0-7, M4 = 6/7, never verified). Linux reads the
+  real one from the banked GICD_ITARGETSR0 per CPU. If the M4s are wired to other interface numbers, Windows'
+  TARGETED IPIs / SPI routing hit the wrong core or none -> requester waits forever = silent all-CPU freeze at a
+  random time; BROADCAST IPIs (KD freeze, "all others") still work - matches every run. Test: each parked core
+  reads its own GICD_ITARGETSR0 byte (GICD 0x10101000 + 0x800) in the stub, logged.

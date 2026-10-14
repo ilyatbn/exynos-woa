@@ -300,3 +300,9 @@ No device access in this task; build-verified only (Guided, not Ready).
   UEFI never requested a BIG rate. Change: TouchPowerDxe FREQ_REQ list += idx 4 = 520000 kHz (lowest step = can only
   lower the M4 clock; ACPM sets the matching voltage). Test: if the 8-core freeze goes, the M4 V/F state was it.
 - kdrun 'every' re-fire fix: the timer sets gLastResume at each fire, so a break-in to a dead target repeats every break_after_s, not every 500 ms.
+- Run m4dvfs1 (22:51): boot-m4dvfs1.img ac667cf0 (= 2dba65a + KD flags as m4kd1: WATCHDOG 0, GPU_POWER_ON 1, USB_KD_DEVICE 1, PARK_MASK 0xFE), readback ok; kdrun every 15 s.
+- Run m4dvfs1 (BIG FREQ_REQ 520 MHz): 8 CPUs started, break-ins +22 s, +41 s fine (later than m4kd3's freeze), then
+  frozen by +59 s (22:53:20 "HOST cannot communicate"). Last target output: MaliG76Wddm bring-up (panel/restride
+  values, RecommendMonitorModes, BrightnessQuery, repeated Fail_QueryInterface c00000bb). => BIG at its lowest V/F
+  point does NOT fix it (DVFS hypothesis weakened; UEFILOG reply for idx 4 still to read). Both freezes coincide
+  with the Mali KMD start (GPU_POWER_ON 1, ESP gpu\full.flg). New suspect: GPU + M4 (coherency / GPU work on M4).

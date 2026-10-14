@@ -704,6 +704,12 @@ NTSTATUS APIENTRY MwEnumVidPnCofuncModality(IN_CONST_HANDLE hAdapter,
                 RtlZeroMemory(&upd.ContentTransformation.RotationSupport,
                               sizeof(upd.ContentTransformation.RotationSupport));
                 upd.ContentTransformation.RotationSupport.Identity = 1;
+                /* 2026-10-14 (user: landscape does not work): offer the rotations. The source mode stays the
+                 * panel's 1080x2280 and QueryVidPnHWCapability reports no hardware rotation, so the OS (DWM) is
+                 * expected to compose the desktop rotated into it - verified or refuted by the scan-out dump. */
+                upd.ContentTransformation.RotationSupport.Rotate90 = 1;
+                upd.ContentTransformation.RotationSupport.Rotate180 = 1;
+                upd.ContentTransformation.RotationSupport.Rotate270 = 1;
             }
             r = topoIf->pfnUpdatePathSupportInfo(topo, &upd);
         }
@@ -783,8 +789,11 @@ NTSTATUS APIENTRY MwCommitVidPn(IN_CONST_HANDLE hAdapter, const DXGKARG_COMMITVI
 NTSTATUS APIENTRY MwUpdateActiveVidPnPresentPath(IN_CONST_HANDLE hAdapter,
                                                  const DXGKARG_UPDATEACTIVEVIDPNPRESENTPATH *Arg)
 {
-    UNREFERENCED_PARAMETER(hAdapter);
-    UNREFERENCED_PARAMETER(Arg);
+    MW_ADAPTER *dev = (MW_ADAPTER *)hAdapter;
+
+    /* Smooth rotation (SupportSmoothRotation) changes the path's rotation here without a mode set. */
+    MwLog(dev, L"ActivePathRotation", (ULONG)Arg->VidPnPresentPathInfo.ContentTransformation.Rotation);
+    dev->Rotation = (ULONG)Arg->VidPnPresentPathInfo.ContentTransformation.Rotation;
     return STATUS_SUCCESS;
 }
 

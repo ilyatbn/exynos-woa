@@ -186,6 +186,7 @@ struct _MW_ADAPTER {
     PUCHAR FbVa;
     SIZE_T FbSize;
     BOOLEAN SourceVisible, PathActive;
+    ULONG Rotation;                 /* D3DKMDT_VIDPN_PRESENT_PATH_ROTATION of the active path (UpdateActiveVidPnPresentPath) */
 
     /* GPU. MmuLock serialises the address allocator and the page tables. */
     MK_GPU Gpu;

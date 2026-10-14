@@ -299,3 +299,4 @@ No device access in this task; build-verified only (Guided, not Ready).
   root hexdump). No boot-freq property (sboot's BIG rate unknown; FREQ_GET returns 0 on this firmware, m15).
   UEFI never requested a BIG rate. Change: TouchPowerDxe FREQ_REQ list += idx 4 = 520000 kHz (lowest step = can only
   lower the M4 clock; ACPM sets the matching voltage). Test: if the 8-core freeze goes, the M4 V/F state was it.
+- kdrun 'every' re-fire fix: the timer sets gLastResume at each fire, so a break-in to a dead target repeats every break_after_s, not every 500 ms.

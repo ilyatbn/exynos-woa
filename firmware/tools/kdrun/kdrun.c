@@ -158,6 +158,7 @@ static DWORD WINAPI TimerThread(LPVOID Unused)
         if (Connected && !gBrokeIn && !gInBreak && Now - max(Connected, gLastResume) >= gBreakMs) {
             if (!gRepeat)
                 InterlockedExchange(&gBrokeIn, 1);
+            gLastResume = Now;      /* a break-in that never lands (dead target) must not re-fire every 500 ms */
             InterlockedExchange(&gBreakInPending, 1);
             Note("break-in timer expired - interrupting the target");
             gControl->lpVtbl->SetInterrupt(gControl, DEBUG_INTERRUPT_ACTIVE);

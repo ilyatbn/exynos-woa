@@ -93,3 +93,9 @@ Source: https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/set
 5. ExplorerPatcher: only if full-screen Start is wanted - install ep_setup_arm64.exe 70.3 (stable), immediately set taskbar back to Windows 11, Start = Windows 10 + Display mode Full screen Start, Updates = do not check, Advanced = symbols download off. Have a USB-OTG keyboard attached (Ctrl+Alt+Shift recovery) and know the offline fallback (delete C:\Windows\dxgi.dll + the copy in StartMenuExperienceHost folder from TWRP/mass storage). Risk medium-high. Revert: `ep_setup_arm64.exe /uninstall`.
 
 - 2026-10-14: research complete; final report sent to caller.
+
+## Applied (main session, 2026-10-14 ~17:50, user approved tablet posture only - no scaling change, keep transparency/animations)
+- Before: HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl had ConvertibleSlateMode 0, no ConvertibilityEnabled.
+- `reg add HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl /v ConvertibilityEnabled /t REG_DWORD /d 1 /f`; read back 1.
+  Takes effect after a reboot (pending: waiting for the keyboard agent to finish). Revert:
+  `reg delete HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl /v ConvertibilityEnabled /f` + reboot.

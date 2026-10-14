@@ -1423,3 +1423,23 @@ the taskbar render fully (scan-out dumps). User-facing: GPU Check.exe on the des
 running), a soak with 0064/38, display rotation (KMD identity-only), GDI hand-off cost, thermal (notes/thermal-research.md
 stage 0), brightness (notes/brightness-research.md), stereo speaker (Parameters\Stereo 1, untested), slow TWRP start.
 To go back to unattended reboot loops: flash boot116-fb10m-v2.img (watchdog 1), rm stay.flg, extra.cmd = a run script.
+
+## 40. Restart point (2026-10-14 ~17:10 local, unattended; user priorities: brightness, then landscape, then thermals)
+- **Phone state:** firmware `s10e-artifacts\boot116-gpuon-nowdt-d9.img` (1ed69ae7..., = HEAD 3d32793 + build-only
+  WINDOWS_WATCHDOG 0 / GPU_POWER_ON 1; adds read-only UEFI DSIM snapshots) on by-name/boot (readback verified);
+  Windows 22631.6199 (KB5068865 installed itself 15:45; **Windows Update now disabled**, `tools/phone/wuoff.cmd`,
+  notes/phone-ssh.md); KMD **1.0.42.2** (sha256 3CED0E5B..., 41 kept as C:\S10eTmp\kmd41.sys, also DriverStore
+  MaliG76Wddm.prev = 42.1); UMD 0066; S10eDiag with boot DSIM snapshot (956448f); s10ediag CLI with `sample` + PA guard
+  at C:\S10eTmp\s10ed3.exe (System32 copy is old). OfferRotation 0. Screen saver blank 120 s.
+- **Brightness works** (MILESTONES G14 doing): root cause = sboot leaves DECON_F in VIDEO operation mode while DSIM is in
+  command mode -> DSIM never reaches a frame boundary, DCS commands never leave. KMD panel.c switches DECON to command
+  mode (as Samsung's decon_reg_init_probe does), then the brightness interface v2 maps 0-100 % to AOR (B1) between
+  sboot's 0x0014 and 0x08D4. Windows sees it (WmiMonitorBrightness Active, levels set 100/30/75 reach the panel).
+  notes/brightness-research.md D6-D10 + KMD sections.
+- In flight: idle dim. powercfg VIDEODIM 60 s, dimmed 30 % (relative), display-off policy 3c0bc021 changed 0 -> 600 s
+  (sleep/hibernate policies untouched); dim had not fired before the policy change; post-reboot retest running.
+- Next order: (1) user visual check of the slider + 3rd boot -> G14 PASS; (2) idle dim result; (3) panel off/on for
+  display-off (DCS 28/10, 11/29) in MwSetPowerState - then the screen saver can go; (4) hardware brightness keys
+  (later), light sensor (much later); (5) landscape (notes/gpu-hw-path.md rotation attempts); (6) thermals.
+- Rules learned today: cube fps is void if scrnsave.scr ran (real ~28-30); check frozen screens yourself (dump, launch,
+  dump + DSIM status); cmd chains over SSH: run steps as separate ssh calls.

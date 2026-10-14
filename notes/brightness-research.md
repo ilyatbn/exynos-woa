@@ -405,3 +405,16 @@ Serialise all senders with one FAST_MUTEX/KEVENT in the adapter (brightness DDI 
   FAST_MUTEX, APC_LEVEL) is held and MwLog only writes at PASSIVE. Follow-up: log after the release (1.0.42.2).
 - KMD 1.0.42.2 (s10e-artifacts\kmd-42b, MaliG76Wddm.sys sha256 3CED0E5B...): every MwLog moved out of PanelLock
   (PanelAor0, PanelStep, PanelRxUnexpected, PanelFail* after release). Built; not deployed yet. MILESTONES G14 added.
+- KMD 1.0.42.2 on the device (boot 2 with brightness): PanelShadowMs 1, GlobalAfter 0x1111, IdleOf2000 408, PanelAor0
+  0x14, PanelRxUnexpected 0, PanelStep 0, BrightnessQuery v2, BrightnessLast 75 % / 0x042F; WMI CurrentBrightness 75.
+- Idle dim (Windows' own, through the same interface): powercfg SUB_VIDEO "Dim display after" (17aaa29b-..., was
+  hidden: -attributes -ATTRIB_HIDE) = 60 s AC/DC, "Dimmed display brightness" (f1fbfde2-...) = 30 % AC/DC, setactive.
+  Blank screen saver stays at 120 s. Check pending: BrightnessLast after >60 s without input.
+- Idle dim did not fire with display-off = never: 85 s idle (setting applied while already idle) and again 30/50/~80 s
+  after a SendInput nudge (tools: C:\S10eTmp\nudge.ps1 via runuser2 - SendInput returns 0 while scrnsave.scr owns the
+  desktop, 2 after taskkill) -> BrightnessLast stayed 75 %. MS Learn (Automatic display dimming, dn613880): the dim
+  timeout "can be extended up to the display power-off time-out" - dimming is tied to a display-off timeout.
+  Provisioning policies (HKLM\SOFTWARE\Policies\Microsoft\Power\PowerSettings) pin sleep 29f6c1db, display-off 3c0bc021,
+  console-lock display-off 8ec4b3a5, hibernate 9d7815a6 all to 0. Changed only 3c0bc021 AC/DC to 600 s (display off
+  after 10 min). KMD MwSetPowerState is a no-op returning success, so a display-off request leaves the panel lit
+  (panel off via DCS 28/10 = later work). Re-test pending.

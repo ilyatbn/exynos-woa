@@ -16,7 +16,9 @@
 //   +0x000 UINT32 ProcessorId   OS writes (firmware initialises 0xFFFFFFFF)
 //   +0x008 UINT64 JumpAddress   OS writes the entry PA; 0 = not yet
 //   +0x800        this stub
-//   +0xFD8 UINT32 stage         m14 DVM test: 1 before IC IALLUIS, 2 before TLBI VMALLE1IS, 3 after both
+//   +0xFC0 UINT64 polls         m14 self-report: poll iterations so far (alive while it rises)
+//   +0xFC8 UINT64 loop ticks    m14: CNTVCT ticks for the last 0x2000-iteration delay loop (core clock)
+//   +0xFD8 UINT32 stage        m14 DVM test: 1 before IC IALLUIS, 2 before TLBI VMALLE1IS, 3 after both
 //   +0xFE0 UINT32 0x5A5ABEEF    alive mark, written by the core itself
 //   +0xFE8 UINT64 CurrentEL     as seen by the stub (EL1 expected: 0x4)
 //   +0xFF0 UINT64 MPIDR_EL1     as seen by the stub
@@ -42,6 +44,8 @@
 #define PARK_MPIDR_OFF  0xFF0
 #define PARK_STAGE_OFF  0xFD8
 #define PARK_CNTFRQ_OFF 0xFF8
+#define PARK_POLLS_OFF      0xFC0
+#define PARK_LOOPTICKS_OFF  0xFC8
 
 #ifndef BEYOND0LTE_PARK_DVM_TEST
 #define BEYOND0LTE_PARK_DVM_TEST  1   // m14: does a broadcast (DVM) maintenance op + DSB complete on this core?
@@ -85,11 +89,18 @@ ASM_FUNC(Beyond0LteParkStub)
   str   w2, [x1, #PARK_MARK_OFF]
   dsb   sy
 
+  mov   x6, #0                      // m14 self-report: poll count
 1:
+  mrs   x4, cntvct_el0
   movz  w3, #0x2000
 2:
   subs  w3, w3, #1
   b.ne  2b
+  mrs   x5, cntvct_el0
+  sub   x5, x5, x4
+  str   x5, [x1, #PARK_LOOPTICKS_OFF] // 26 MHz ticks per 0x2000 delay iterations -> this core's clock
+  add   x6, x6, #1
+  str   x6, [x1, #PARK_POLLS_OFF]   // keeps rising while the core is alive in the stub
   dc    civac, x1
   dsb   sy
   ldr   x2, [x1, #8]                // JumpAddress

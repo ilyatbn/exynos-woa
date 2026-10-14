@@ -51,7 +51,9 @@
 #define PARK_EL_OFF         0xFE8u
 #define PARK_MPIDR_OFF      0xFF0u
 #define PARK_CNTFRQ_OFF     0xFF8u   // CNTFRQ_EL0 as the parked core sees it (m14)
-#define PARK_STAGE_OFF      0xFD8u   // m14 DVM test stage (the .S BEYOND0LTE_PARK_DVM_TEST block), 0 if not built
+#define PARK_STAGE_OFF      0xFD8u
+#define PARK_POLLS_OFF      0xFC0u   // m14 stub self-report (poll count, loop ticks) - must stay above the stub code
+#define PARK_LOOPTICKS_OFF  0xFC8u   // m14 DVM test stage (the .S BEYOND0LTE_PARK_DVM_TEST block), 0 if not built
 #define PARK_ID_INVALID     0xFFFFFFFFu
 #define PARK_ALIVE          0x5A5ABEEFu
 #define PARK_VERSION        1u
@@ -132,7 +134,7 @@ Beyond0LteParkSecondaries (
   BootMpidr = GET_MPIDR_AFFINITY_BITS (ArmReadMpidr ());
   DEBUG ((DEBUG_ERROR, "PARK: mask=%x boot-mpidr=%lx stub=%u B\n",
           (UINT32)BEYOND0LTE_SMP_PARK_MASK, BootMpidr, (UINT32)StubSize));
-  if ((StubSize == 0) || (PARK_STUB_OFF + StubSize > PARK_STAGE_OFF)) {
+  if ((StubSize == 0) || (PARK_STUB_OFF + StubSize > PARK_POLLS_OFF)) {
     DEBUG ((DEBUG_ERROR, "PARK: stub size %u does not fit - nothing parked\n", (UINT32)StubSize));
     return;
   }

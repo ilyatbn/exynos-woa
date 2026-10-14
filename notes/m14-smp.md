@@ -391,3 +391,4 @@ No device access in this task; build-verified only (Guided, not Ready).
 - Next instrument: the park stub keeps a poll counter (+0xFC0) and CNTVCT ticks per 0x2000-iteration delay loop
   (+0xFC8) in its mailbox (DRAM). With M4s parked-not-offered, KD reads them per break: M4 clock (did FREQ_REQ
   520 MHz take? throttling?) and whether the M4 stops before the system freezes.
+- Stub self-report built: +0xFC0 poll count, +0xFC8 CNTVCT ticks per 0x2000-iteration delay loop (objdump verified, stub 0xB4 B, guard now stops at 0xFC0). Image boot-m4self1.img = KD flags + PARK 0xFE + OFFER 0x3E (M4s parked, not offered) + BIG 520 MHz FREQ_REQ at ReadyToBoot.

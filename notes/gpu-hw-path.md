@@ -469,3 +469,4 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
 - Mesa 0063 (mali-umd-0063, maliumd 5826aa4c...): gdi_present returns whether it drew; if it did, _Present returns
   without the runtime present. Runtime present only when no window was found. Allocation count grows over the soak
   (KMD allocations 445 -> 675 between t2 and t3) - to watch in s2.
+- s1 allocation counter (KMD 'allocations' = cumulative CreateAllocation): 295 boot, 441 t1, 445 t2 (+4 in 100 s of cube = no per-frame leak), 675 t3 (device re-creation after the TDR), 734, 737. Not a leak.

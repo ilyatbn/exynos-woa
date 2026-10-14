@@ -693,3 +693,21 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   GDI hand-off (gdi_present) had nothing visible to draw and presents got cheap (inference, not verified). The
   steady-state cube rate is ~30 fps, bounded by the GDI readback; the overlay costs ~2 fps. Soaks must keep the
   screen saver off (or disable it for the run) to measure what reaches the panel.
+
+### 2026-10-14 ~13:05-13:40 - rotation experiment (KMD 1.0.40.1) broke the desktop; reverted to 1.0.39.1
+- KMD 40 offered Rotate90/180/270 in EnumCofuncModality. s10erotate 90 in the user session -> DISP_CHANGE_SUCCESSFUL,
+  2280x1080; it went through CommitVidPn (no ActivePathRotation log = no smooth-rotation call). Scan-out dump: all
+  black; KMD log Fail_Present 0xC000000D; present counters still rising. **DWM does not pre-rotate** for us - the
+  driver must rotate: UMD present into a rotated primary and the KMD CPU copy (D3DDDIARG_CREATERESOURCE: a rotated
+  primary is allocated in scan-out orientation, "when rendering to the surface, the driver should perform the 90
+  degree rotation").
+- s10erotate 0 -> 1080x2280 back, but the scan-out stayed black (the GPU scan-out path did not survive the mode
+  change; DWM's frames are marked GpuPresented so the KMD skips its CPU copy). The user: "pretty much broken ... shows
+  random broken frames then goes back to black". Restarting DWM over SSH was refused by the permission classifier.
+- Recovery: user rebooted to TWRP; NTFS unclean -> kmd-deploy refused (no fsck by rule); one Windows boot (desktop
+  fine in portrait: Welcome screen in the dump), KMD 39 swapped back as SYSTEM (DriverStore 58fef2d1), clean reboot:
+  desktop correct (runs\fbchk2-q.png), RestrideLatchedBy 1.
+- Before rotation can ship: (1) the offer must stay off (registry-gated, default off) until (2) the UMD scan-out present
+  rotates (textured quad into the scan-out BO by the primary's Rotation) and the KMD DoPresent rotates CPU copies, and
+  (3) a mode change must re-create / re-validate the GPU scan-out path (it went black even back in portrait).
+  The repo HEAD still has the KMD 40 offer: next commit gates it.

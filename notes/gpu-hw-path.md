@@ -443,3 +443,9 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   Next cost: a full-screen 1080x2280 window would take ~60-120 ms per frame through this path (CPU-cached or
   GPU-converted staging would fix it).
 - Mesa 0062 (mali-umd-0062, maliumd 1c2efd6d...): gdi_present memcpy's each row out of the uncached mapping into malloc'd memory first (wide loads), swizzles there, GDI reads cached memory. To measure against h3v's 15-47 ms per 540x1140 frame.
+- Webcam can't verify the panel: the lit OLED saturates it (h3w shots: white/cyan blobs + horizontal bands), and
+  camshot's new -ExposureMs (tools/phone/camshot.ps1) reports "exposure control not supported" for this camera.
+  Instead: s10ediag gains `dumpmmio <phys> <bytes> <file>` (S10eDiagCtl.c, user mode only: READ_MMIO = uncached
+  32-bit reads; dumpram's MmCopyMemory needs RAM, the fb is reserved), shipped as ESP gpu\s10ediag.exe and run as
+  C:\S10eTmp\s10ediagx.exe by extra-gpu-h3 at user-task t=50/70/100 s -> ESP out\fb-{cube,flip,gdi}.bin (9922560 B
+  each = 4352 x 2280 x 4). ESP extra.cmd md5 521ebec8.... h3x: + UMD 0062.

@@ -4,6 +4,7 @@
  *   s10ediag info
  *   s10ediag peek <phys> [bytes]        MMIO, 32-bit reads, hex dump
  *   s10ediag dumpram <phys> <bytes> <file>
+ *   s10ediag dumpmmio <phys> <bytes> <file>    as dumpram, through an uncached mapping (non-RAM, e.g. the framebuffer)
  *   s10ediag poke <phys> <value>
  *   s10ediag recovery                   next reset (clean `shutdown /r`) goes to TWRP
  *   s10ediag hardreset                  INFORM3 = recovery + SWRESET now
@@ -79,7 +80,7 @@ Peek(unsigned long long Address, unsigned long Length)
 }
 
 static int
-DumpRam(unsigned long long Address, unsigned long Length, const char *Path)
+DumpRam(unsigned long long Address, unsigned long Length, const char *Path, unsigned Mode)
 {
     FILE *File = fopen(Path, "wb");
     unsigned char *Buffer = (unsigned char *)malloc(S10EDIAG_READ_MAX);
@@ -91,7 +92,7 @@ DumpRam(unsigned long long Address, unsigned long Length, const char *Path)
     }
     while (Done < Length) {
         unsigned long Chunk = (Length - Done > S10EDIAG_READ_MAX) ? S10EDIAG_READ_MAX : Length - Done;
-        S10EDIAG_READ_IN In = { Address + Done, Chunk, S10EDIAG_READ_RAM };
+        S10EDIAG_READ_IN In = { Address + Done, Chunk, Mode };
         DWORD Returned = 0;
 
         memcpy(Buffer, &In, sizeof(In));
@@ -123,7 +124,10 @@ main(int argc, char **argv)
         return Peek(_strtoui64(argv[2], NULL, 0), argc >= 4 ? strtoul(argv[3], NULL, 0) : 4);
     }
     if (argc >= 5 && strcmp(argv[1], "dumpram") == 0) {
-        return DumpRam(_strtoui64(argv[2], NULL, 0), strtoul(argv[3], NULL, 0), argv[4]);
+        return DumpRam(_strtoui64(argv[2], NULL, 0), strtoul(argv[3], NULL, 0), argv[4], S10EDIAG_READ_RAM);
+    }
+    if (argc >= 5 && strcmp(argv[1], "dumpmmio") == 0) {
+        return DumpRam(_strtoui64(argv[2], NULL, 0), strtoul(argv[3], NULL, 0), argv[4], S10EDIAG_READ_MMIO);
     }
     if (argc >= 4 && strcmp(argv[1], "poke") == 0) {
         S10EDIAG_WRITE32_IN In = { _strtoui64(argv[2], NULL, 0), strtoul(argv[3], NULL, 0), 0 };
@@ -186,7 +190,7 @@ main(int argc, char **argv)
     }
 
     fprintf(stderr,
-            "usage: s10ediag info | peek <phys> [bytes] | dumpram <phys> <bytes> <file> | poke <phys> <value>\n"
+            "usage: s10ediag info | peek <phys> [bytes] | dumpram|dumpmmio <phys> <bytes> <file> | poke <phys> <value>\n"
             "                | recovery | hardreset | fallback <seconds>\n");
     return 1;
 }

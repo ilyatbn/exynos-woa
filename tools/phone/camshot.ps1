@@ -1,4 +1,4 @@
-param([string]$Out = "$env:TEMP\camshot.jpg")
+param([string]$Out = "$env:TEMP\camshot.jpg", [double]$ExposureMs = 0)
 # One JPEG from the integrated (RGB) camera via WinRT MediaCapture.
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 $m = [System.WindowsRuntimeSystemExtensions].GetMethods()
@@ -19,7 +19,19 @@ $s.VideoDeviceId = $dev.Id
 $s.StreamingCaptureMode = [Windows.Media.Capture.StreamingCaptureMode]::Video
 $mc = New-Object Windows.Media.Capture.MediaCapture
 AwaitA ($mc.InitializeAsync($s))
-Start-Sleep -Milliseconds 1500   # let auto-exposure settle
+# -ExposureMs n: manual exposure (the lit phone in a dark room saturates under auto exposure); 0 = auto
+if ($ExposureMs -gt 0) {
+    $ec = $mc.VideoDeviceController.ExposureControl
+    if ($ec.Supported) {
+        AwaitA ($ec.SetAutoAsync($false))
+        $t = [TimeSpan]::FromMilliseconds($ExposureMs)
+        if ($t -lt $ec.Min) { $t = $ec.Min }
+        if ($t -gt $ec.Max) { $t = $ec.Max }
+        AwaitA ($ec.SetValueAsync($t))
+        "exposure $($t.TotalMilliseconds) ms (range $($ec.Min.TotalMilliseconds)..$($ec.Max.TotalMilliseconds))"
+    } else { "exposure control not supported" }
+}
+Start-Sleep -Milliseconds 1500   # let exposure settle
 $dir = Split-Path $Out; $name = Split-Path $Out -Leaf
 $folder = Await ([Windows.Storage.StorageFolder]::GetFolderFromPathAsync($dir)) ([Windows.Storage.StorageFolder])
 $file = Await ($folder.CreateFileAsync($name, [Windows.Storage.CreationCollisionOption]::ReplaceExisting)) ([Windows.Storage.StorageFile])

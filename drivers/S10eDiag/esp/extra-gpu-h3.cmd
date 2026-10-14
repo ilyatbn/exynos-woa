@@ -59,6 +59,11 @@ rem H4c: where the cube's redirected Blt presents go (run h3p: pfnPresentCb hr 0
 rem them) - an ETW session of DxgKrnl, DXGI and Dwm-Core (GUIDs as extra-gpu-mode.cmd) for 10 s of the cube
 rem (user task t=42..52 s); the .etl is decoded on the PC. Replaces the dwm-sampler (H4 profile done).
 if exist C:\S10eTmp\cube.etl del /f /q C:\S10eTmp\cube.etl
+rem H4b/H4c visual check without the webcam (it saturates on the lit panel): what the DPU scans - the framebuffer,
+rem 4352 x 2280 x 4 when re-strided - dumped with s10ediag dumpmmio (gpu\s10ediag.exe, newer than System32's) at
+rem user-task t=50 s (blt cube), 70 s (flip cube), 100 s (gdi phase) into ESP out\ (decoded on the PC).
+copy /y "%ESP%\S10EDIAG\gpu\s10ediag.exe" %T%\s10ediagx.exe > nul 2>&1
+start "fb-dump" /b cmd /c "timeout /t 50 /nobreak > nul & %T%\s10ediagx.exe dumpmmio 0xCA000000 9922560 %ESP%\S10EDIAG\out\fb-cube.bin > %X%\fbdump.txt 2>&1 & timeout /t 18 /nobreak > nul & %T%\s10ediagx.exe dumpmmio 0xCA000000 9922560 %ESP%\S10EDIAG\out\fb-flip.bin >> %X%\fbdump.txt 2>&1 & timeout /t 28 /nobreak > nul & %T%\s10ediagx.exe dumpmmio 0xCA000000 9922560 %ESP%\S10EDIAG\out\fb-gdi.bin >> %X%\fbdump.txt 2>&1"
 start "cube-etw" /b cmd /c "timeout /t 42 /nobreak > nul & logman start MaliCube -ets -p {802EC45A-1E99-4B83-9920-87C98277BA9D} 0xffffffffffffffff 5 -o C:\S10eTmp\cube.etl -bs 1024 -nb 16 256 -max 96 -mode Sequential > %X%\etw.txt 2>&1 & logman update MaliCube -ets -p {CA11C036-0102-4A2D-A6AD-F03CFED5D3C9} 0xffffffffffffffff 5 >> %X%\etw.txt 2>&1 & logman update MaliCube -ets -p {9E9BBA3C-2E38-40CB-99F4-9E8281425164} 0xffffffffffffffff 5 >> %X%\etw.txt 2>&1 & timeout /t 10 /nobreak > nul & logman stop MaliCube -ets >> %X%\etw.txt 2>&1"
 s10ediag mark x: gfxperf 120 s + cube at 40 s
 powershell -NoProfile -ExecutionPolicy Bypass -File %T%\run-as-user.ps1 -Script %T%\h3-user.ps1 -Wait 200 > "%X%\user-task.txt" 2>&1

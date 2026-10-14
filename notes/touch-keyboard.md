@@ -83,3 +83,21 @@ no explorer/dwm kill, no drivers.
   was ABSENT -> REG_DWORD 2 (Always show on text-field tap). Read back 0x2.
   Revert: reg delete "HKCU\Software\Microsoft\TabletTip\1.7" /v TouchKeyboardTapInvoke /f
 - Main session set PriorityControl ConvertibilityEnabled=1 (not this task), reboot pending.
+
+## Main session, 2026-10-14 ~18:00-18:20 (agent stopped while stalled)
+- User: tablet posture (ConvertibilityEnabled 1) + TouchKeyboardTapInvoke 2 -> keyboard now POPS UP on text-field
+  tap, but its keys still ignore taps (user + s10etap). Touch-optimised taskbar shows (collapses to a bar).
+- UMD bisect: maliumd/libgallium 0063 (05:57 build) swapped in for new processes, TextInputHost restarted: keys blank,
+  still frozen -> not a 0064-0066 regression. Restored 0066 (sha 36ec8d74 verified). The "worked yesterday" sessions
+  most likely ran without the GPU (the GPU_POWER_ON 0 image, Basic Render/WARP).
+- cdb ARM64 (Windows Kits Debuggers\arm64 -> C:\S10eTmp\dbg) non-invasive (-pv) stack dumps of TextInputHost, no
+  symbols on the phone (srv* hung on the phone's network - killed; use -y C:\S10eTmp\nosym). Fresh process: all idle.
+  Frozen (user popped it up and tapped): thread "InputPanel" (the keyboard UI thread) in KERNELBASE!SleepEx under
+  edgehtml, identical in two dumps 5 s apart. edgehtml.dll pulled to the PC + public PDB (symchk) + cdb -z ln:
+  GlobalWndProc -> GlobalWndOnPaintPriorityMethodCall -> HTML5EventLoopDriver -> ... CPaintBeat::OnPaintTimer ->
+  CPaintBeat::ProcessRenderingLoop -> CPaintController::RunRenderingLoop -> CDoc::PaintInPlace -> CDoc::PaintWorker ->
+  **CPaintController::CanPaintNow** -> SleepEx (loop). EdgeHTML's paint gate never opens on our GPU path; the UI thread
+  never returns to process input. No thread is inside d3d11/dxgi/maliumd at the moment of the dump.
+  Dumps: s10e-artifacts\runs\tih-stacks-1.txt (fresh), tih-stacks-frozen.txt, tih-stacks-frozen2.txt.
+- Next: workaround = EdgeHTML software rendering (IE "UseSWRender"); root cause = what CanPaintNow waits for (D3D
+  device state / occlusion / DComp) - disassemble CanPaintNow with the PDB.

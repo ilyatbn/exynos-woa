@@ -323,3 +323,4 @@ Side items (GPU-mode bugs seen by the user): desktop wider than the panel in ful
   LINEAR filter when stretched, resolve/convert by blit), flushed; tlog "BltDXGI n: ..." and "PresentDXGI n: ..."
   (first 8 and every 300th) with sizes, formats, flags, primary/opened handles - so the next run shows the real
   windowed path even if this alone does not fix it. Rotation (Blt->Rotate) not handled, only logged.
+- 03:56 h3n deploy: UMD 0054 into System32 (b180f5bb...), ESP gpu\umd-new removed (held 0053), restride.flg kept (ScanoutStride 1088 stays armed). Expect: tlog BltDXGI lines in d3dtri during the cube, DWM present rate following the cube (~30/s) in 150-170 s.

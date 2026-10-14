@@ -326,3 +326,9 @@ No device access in this task; build-verified only (Guided, not Ready).
   compression store). => the freeze comes when the M4s do page-sized memory work. Candidates: cache-geometry
   mismatch (CTR_EL0 line sizes / DCZID_EL0 block size read on the boot CPU and assumed everywhere), cache
   maintenance by VA on the M4, coherency. Next: TWRP dmesg "SANITY CHECK: Unexpected variation" (Linux cpufeature).
+- MiCopyPage+0x324 (CPU 6's PC in the last good break; dbh: MiCopyPage RVA 0x44A090) disassembled: memmove(page) ->
+  KeSystemFullyCacheCoherent+0x18 helper (cache clean by range) -> dsb sy -> `sys #0,c7,c1,#0` = IC IALLUIS (I-cache
+  invalidate all, inner-shareable BROADCAST) -> dsb sy -> isb (PC). => the M4 was doing DVM broadcast maintenance.
+  Hypothesis (INFERRED): DVM/snoop between the M4 cluster (CPUCL2) and the DSU cluster is not fully enabled; a DSB
+  waiting for DVM-sync completion wedges a core in hardware -> IPI deadlock -> all-system freeze. Linux works, so
+  either EL3 or a kernel PMUCAL "cluster on" sequence enables it there - find which.

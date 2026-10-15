@@ -532,3 +532,7 @@ No device access in this task; build-verified only (Guided, not Ready).
   ticks per write (>= 26000 per 1000): none seen on any core (baseline differences = uncached instruction fetch with
   the MMU off / I-cache state). => uH does NOT trap TTBR0/TCR/SCTLR/MAIR/CONTEXTIDR writes; uH-trap hypothesis OUT.
 - BEYOND0LTE_DSS_DUMP (BootLogDxe, default 0): on the stay.flg 'previous boot ran Windows (no restart marker)' path also dump 1 MiB of log_s2d (0xEB310000) and log_arraydump (0xEC810000) to \S2D.BIN / \ARRAYDUMP.BIN. Image boot-m4dss1.img 7f6c01e4 = one M4 (PARK 0x7E) + KD flags + DSS_DUMP 1.
+- Run m4dss1 (one M4, kdrun PASSIVE: no break-ins): KD connected 03:59:20, "MP (7 procs)", then the target was lost
+  and there was NO restart for 24+ min - a plain hang (the phone stays dark). => the one-M4 "fast reset loop" of
+  m4one1/m4one2 was likely provoked by the KD break-ins (timed break during the failing window); the underlying M4
+  failure is a HANG, same as with two M4s. No dump written (the dump boot never happened). Needs a force restart.

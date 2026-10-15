@@ -213,3 +213,9 @@ free.
   VOLTAGE_NOW 3.845-3.892 V, TEMP 32.7-33.1 C, POWER_NOW 533-858. top: 83.5 % idle, /sbin/recovery (GUI) 13 % of one
   core (load average was still rising from boot). Wall charger (user): 13 -> 50 % in ~20 min ~ 1.1 Ah / 0.33 h ~ 3 A
   into the battery = Samsung AFC (9 V) negotiated by the Linux charger stack. Windows measurement next, same cable.
+- Vendor charger driver (ianmacd/winnerx drivers/battery_v2/max77705_charger.c, 2026-10-16): Linux programs, per
+  cable type, the CHGIN input current limit CHG_CNFG_09 = 0xC0 (25 mA steps, reg = I/25 - 1, max 3200 mA;
+  max77705_set_input_current :590-625) and the fast-charge current CHG_CNFG_02 = 0xB9 (CHG_CC, 50 mA steps,
+  <= 2 -> 100 mA, max 3150; max77705_set_charge_current :627-648); register addresses in max77705-private.h:77/84.
+  S10eBattery reads only CHG_DETAILS_00/01 and never sets these -> under Windows the charger runs with whatever was
+  left by the bootloader/power-on defaults. Next: read 0xB9 / 0xC0 under Windows (read-only) and compare.

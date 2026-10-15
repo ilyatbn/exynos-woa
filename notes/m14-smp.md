@@ -657,3 +657,10 @@ No device access in this task; build-verified only (Guided, not Ready).
   Needs WINDOWS_WATCHDOG 1 to turn a hang into a reset - the old boot-kd6.img has it OFF (a hang there stays dark).
 - SAFEGUARD VERIFIED 11:34: boot-m4w8.img (4b8c8730, 8 cores, WINDOWS_WATCHDOG 1) with stay.flg ON came back to TWRP
   by itself ~3.5 min after the reboot; UEFILOG "Windows died 2 times in a row - ignoring stay.flg, going to TWRP".
+- Verbose KD prints (Kd_*_Mask = ffffffff at the initial break, runs verbose8/verbose8b): the release kernel adds
+  almost nothing (one asyncsspi line); the last output before the 8-core death is routine MaliG76Wddm start-up.
+  Not useful for locating the hang. (verbose8: UEFI hung before ReadyToBoot once -> dead-man -> TWRP; verbose8b ran.)
+- M4 stress in the stub (BEYOND0LTE_PARK_STRESS_MASK, stub flag 6): a parked, NOT offered core turns on the flag-3
+  identity map (Normal WB, inner shareable) and copies 4 MiB -> 4 MiB inside an 8 MiB firmware-reserved scratch
+  block forever, with DC CIVAC + IC IALLUIS + TLBI VMALLE1IS + DSB ISH after every pass; passes at mailbox +0x340.
+  Question: does a BUSY, CACHED M4 kill the SoC on its own while Windows runs on the 6 small cores?

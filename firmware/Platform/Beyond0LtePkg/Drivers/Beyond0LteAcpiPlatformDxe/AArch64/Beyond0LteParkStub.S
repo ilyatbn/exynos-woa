@@ -137,6 +137,8 @@ ASM_FUNC(Beyond0LteParkStub)
   b.eq  7f
   cmp   w3, #5
   b.eq  8f
+  cmp   w3, #6
+  b.eq  5f                          // flag 6: cached stress - same MMU set-up as flag 3, then 10:
   cmp   w3, #2
   b.ne  3f
   //
@@ -164,6 +166,7 @@ ASM_FUNC(Beyond0LteParkStub)
   // only hardware coherency can make the two cores see each other.
   //
 5:
+  mov   w12, w3                     // 3 = echo test, 6 = stress (checked after the MMU is on)
   add   x5, x1, #0x200              // table PA (64-byte aligned inside the mailbox page)
   str   xzr, [x5, #0x00]            // [0] 0x00000000 - invalid
   str   xzr, [x5, #0x08]            // [1] 0x40000000 - invalid
@@ -189,6 +192,8 @@ ASM_FUNC(Beyond0LteParkStub)
   orr   x6, x6, x7
   msr   sctlr_el1, x6
   isb
+  cmp   w12, #6
+  b.eq  10f
   movz  w3, #0x0003
   movk  w3, #0xC0C0, lsl #16
   str   w3, [x1, #PARK_SLEEP_OFF]   // 0xC0C00003: running cached, echo loop entered
@@ -202,6 +207,42 @@ ASM_FUNC(Beyond0LteParkStub)
   str   w4, [x1, #0x140]
   mov   w8, w4
   b     6b
+
+  //
+  // sleep flag 6 (m14 cached stress, notes/m14-smp.md "M4 stress in the stub"): with the flag-3 identity map
+  // (Normal WB, inner shareable) copy the lower half of the firmware-reserved scratch block (+0x500 PA, below
+  // 4 GiB; +0x508 half size) onto the upper half forever. After every pass: DC CIVAC, IC IALLUIS, TLBI VMALLE1IS,
+  // DSB ISH (the broadcast maintenance Windows issues), then +0x340 = passes done (cleaned to DRAM for readers).
+  //
+10:
+  movz  w3, #0x0006
+  movk  w3, #0xC0C0, lsl #16
+  str   w3, [x1, #PARK_SLEEP_OFF]   // 0xC0C00006: stress loop running (cached)
+  ldr   x20, [x1, #0x500]
+  ldr   x21, [x1, #0x508]
+  mov   x23, #0
+11:
+  mov   x24, x20
+  add   x25, x20, x21
+  mov   x26, x21
+12:
+  ldp   x4, x5, [x24], #16
+  ldp   x6, x7, [x24], #16
+  stp   x4, x5, [x25], #16
+  stp   x6, x7, [x25], #16
+  subs  x26, x26, #32
+  b.ne  12b
+  dc    civac, x20
+  ic    ialluis
+  tlbi  vmalle1is
+  dsb   ish
+  isb
+  add   x23, x23, #1
+  str   x23, [x1, #0x340]
+  add   x4, x1, #0x340
+  dc    civac, x4
+  dsb   sy
+  b     11b
 
   //
   // sleep flag 4 (m14 trap timing): write each EL1 register back with its own value 1000 times and store the

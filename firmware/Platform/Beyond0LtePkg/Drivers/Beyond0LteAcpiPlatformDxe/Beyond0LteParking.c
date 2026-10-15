@@ -105,6 +105,14 @@ ParkBootCntFrq (
 #define PARK_PCS_GO_OFF     0x460u   // firmware sets 1 after every CPU_ON finished (bases filled) - sampler starts
 #define PARK_PCS_FAULT_OFF  0x608u   // ESR, FAR, count, ELR (UINT64 each) written by Beyond0LteParkFault
 #define PARK_PCS_PERIOD     6500000u // CNTVCT ticks at 26 MHz = 0.25 s -> 1023 records = 255 s of history
+#ifndef BEYOND0LTE_PARK_STRESS_MASK
+#define BEYOND0LTE_PARK_STRESS_MASK     0u   // m14: parked, not-offered cores that run the cached copy stress (stub flag 6)
+#endif
+#define PARK_STRESS_READY   0xC0C00006u
+#define PARK_STRESS_BUF_OFF 0x500u   // scratch PA (reserved here, below 4 GiB: the stub maps 0x80000000..0xFFFFFFFF)
+#define PARK_STRESS_HALF_OFF 0x508u  // half the scratch size (copy lower half -> upper half)
+#define PARK_STRESS_BEAT_OFF 0x340u  // passes done, written by the core
+#define PARK_STRESS_PAGES   2048u    // 8 MiB per stress core
 #define PARK_TRAP_DONE      0xC0C00004u
 #define PARK_TRAP_OFF       0x300u   // 6 x UINT64: nop, TTBR0, TCR, SCTLR, MAIR, CONTEXTIDR (1000 each, CNTVCT ticks)
 #define PARK_COH_PING_OFF   0x100u   // boot CPU writes the token here (own cache line)
@@ -365,6 +373,18 @@ Beyond0LteParkSecondaries (
 #if BEYOND0LTE_PARK_SLEEP_UNOFFERED
     if (((BEYOND0LTE_PARK_PCSAMPLE_MASK >> Index) & 1u) != 0) {
       ParkPcSampleSetup (Page[Index]);   // m14 PC sampler core (never offered)
+    } else if (((BEYOND0LTE_PARK_STRESS_MASK >> Index) & 1u) != 0) {
+      EFI_PHYSICAL_ADDRESS  Scratch;
+
+      Scratch = EXYNOS_DRAM_BASE + EXYNOS_DRAM_BANK0_SIZE - 1;
+      if (!EFI_ERROR (gBS->AllocatePages (AllocateMaxAddress, EfiReservedMemoryType, PARK_STRESS_PAGES, &Scratch))) {
+        *(UINT64 *)(UINTN)(Page[Index] + PARK_STRESS_BUF_OFF)  = Scratch;   // m14 cached stress core (never offered)
+        *(UINT64 *)(UINTN)(Page[Index] + PARK_STRESS_HALF_OFF) = EFI_PAGES_TO_SIZE (PARK_STRESS_PAGES) / 2;
+        *(UINT32 *)(UINTN)(Page[Index] + PARK_SLEEP_OFF)       = 6;
+        WriteBackInvalidateDataCacheRange ((VOID *)(UINTN)Scratch, EFI_PAGES_TO_SIZE (PARK_STRESS_PAGES));
+        DEBUG ((DEBUG_ERROR, "PARK: STRESS gicc%u scratch %lx + %x\n", (UINT32)Index, Scratch,
+                (UINT32)EFI_PAGES_TO_SIZE (PARK_STRESS_PAGES)));
+      }
     } else if (((BEYOND0LTE_PARK_TRAPTIME_MASK >> Index) & 1u) != 0) {
       *(UINT32 *)(UINTN)(Page[Index] + PARK_SLEEP_OFF) = 4;   // m14 EL2 trap timing core (never offered)
     } else if (((BEYOND0LTE_PARK_COHERENCY_MASK >> Index) & 1u) != 0) {
@@ -540,6 +560,22 @@ Beyond0LteParkSecondaries (
       DEBUG ((DEBUG_ERROR, "PARK: PCS   cpu%u pc %08x%08x edscr %x vid %x prsr %x authstatus %x (mailbox %lx)\n",
               (UINT32)Core, W[3], W[0], W[1], W[2], W[4], W[5], Page[Core]));
     }
+  }
+
+  //
+  // m14 cached stress (stub sleep flag 6): the core must report the stress mode and its pass counter must move.
+  //
+  for (Index = 0; Index < GiccCount; Index++) {
+    UINT64  Beat0;
+
+    if ((((BEYOND0LTE_PARK_STRESS_MASK >> Index) & 1u) == 0) || (Page[Index] == 0)) {
+      continue;
+    }
+
+    Beat0 = ParkRd64 (Page[Index] + PARK_STRESS_BEAT_OFF);
+    MicroSecondDelay (200000);
+    DEBUG ((DEBUG_ERROR, "PARK: STRESS gicc%u flag %x passes %lu -> %lu in 200 ms\n", (UINT32)Index,
+            ParkRd32 (Page[Index] + PARK_SLEEP_OFF), Beat0, ParkRd64 (Page[Index] + PARK_STRESS_BEAT_OFF)));
   }
 
   //

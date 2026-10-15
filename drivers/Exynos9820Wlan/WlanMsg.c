@@ -1845,7 +1845,10 @@ BuildOwnRsn(_Inout_ PMSG_STATE S)
     S->OwnRsn[15] = 0;
     RtlCopyMemory(S->OwnRsn + 16, Oui, 3);
     S->OwnRsn[19] = RSN_AKM_PSK_SUITE;
-    S->OwnRsn[20] = 0;
+    /* RSN capabilities: PTKSA replay counter subfield (bits 2-3) = 3 -> 16 replay counters, one per TID, as a QoS STA
+       uses them (802.11-2016 9.4.2.25.4); the AP here announces 0x008C = the same 16 + MFPC. 0 (one shared counter)
+       was the value until 1.0.10.4, with no Block Ack session ever set up (notes/wifi-throughput.md). No MFP. */
+    S->OwnRsn[20] = 0x0C;
     S->OwnRsn[21] = 0;
     S->OwnRsnLen  = 22;
     return TRUE;

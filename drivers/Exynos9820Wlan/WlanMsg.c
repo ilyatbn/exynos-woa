@@ -2528,6 +2528,25 @@ WlanMsgSetKey(PWLAN_MSG_CTX M, PWLAN_REPORT R, ULONG Index, const UCHAR *Key, co
     return Rc;
 }
 
+/* Port authorized: the host supplicant (Windows) finished the 4-way handshake. dhd tells the firmware with
+   WLC_SCB_AUTHORIZE + the peer MAC (wl_cfg80211.c:9390, station mode via cfg80211 change_station AUTHORIZED); the
+   firmware only sets up Block Ack (A-MPDU) for an authorized peer. Without it: txaddbareq 5 / rxaddbaresp 0,
+   ini_off, tot_ampdus 0 (notes/wifi-throughput.md). */
+_Use_decl_annotations_
+ULONG
+WlanMsgScbAuthorize(PWLAN_MSG_CTX M, PWLAN_REPORT R, const UCHAR *Peer)
+{
+    PMSG_STATE S = Live(M, R);
+    ULONG      Rc;
+
+    if (S == NULL) {
+        return MSG_SKIPPED;
+    }
+    Rc = Ioctl(S, WLC_SCB_AUTHORIZE, Peer, 6, 0, "scb authorize");
+    ReportLine(R, "[key] SCB_AUTHORIZE -> MSG %lu (status %ld)\r\n", Rc, S->RespStatus);
+    return Rc;
+}
+
 /* Firmware text statistics: GET_VAR "dump" with the section name as the value (dhd "wl dump <section>"), reply = NUL-
    terminated text; logged line by line (notes/wifi-throughput.md: why ~14 Mbit/s on a 130-144 Mbit/s link). */
 _Use_decl_annotations_

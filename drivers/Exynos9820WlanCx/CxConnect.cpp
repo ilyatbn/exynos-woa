@@ -478,6 +478,10 @@ CxSetAddKeys(PCX_DEVICE Dev, PCX_CMD Cmd, const UINT8 *Tlv, ULONG TlvLen)
             Status = STATUS_UNSUCCESSFUL;
         } else if (Pairwise) {
             Dev->KeysSet = TRUE;
+            /* the pairwise key = the OS supplicant finished the 4-way handshake: port authorized (dhd does the same,
+               WlanMsgScbAuthorize) - lets the firmware set up Block Ack (notes/wifi-throughput.md) */
+            (VOID)WlanMsgScbAuthorize(&Dev->Msg, Dev->RunR,
+                                      K->Optional.PeerMacAddress_IsPresent ? K->PeerMacAddress.Address : Dev->Bssid);
         }
     }
     CleanupParsedWdiSetAddCipherKeys(P);

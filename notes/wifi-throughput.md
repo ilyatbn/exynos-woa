@@ -52,3 +52,9 @@ User report 2026-10-15: ~18 Mbit/s while copying a 725 MB file to the phone over
   sides; Block Ack still never set up. Leading hypothesis: timing/authorization - firmware's ADDBA requests (5) go
   out before Windows' supplicant finishes the 4-way handshake, AP ignores them, firmware gives up (ini_off 1);
   AP-side ADDBA never comes. Next experiment: firmware "send ADDBA" iovar for TID 0 to the AP after keys are set.
+- 2026-10-16 00:10 **likely root cause: the firmware is never told the port is authorized.** dhd (Samsung bcmdhd_101_16,
+  LineageOS exynos9820 tree) wl_cfg80211.c:9340-9394: after the host supplicant's 4-way handshake cfg80211 calls
+  change_station(AUTHORIZED) -> wldev_ioctl_set(WLC_SCB_AUTHORIZE, peer mac) in station mode. WLC_SCB_AUTHORIZE = 121
+  (wlioctl_defs.h:764; fmac fwil.h:59 BRCMF_C_SET_SCB_AUTHORIZE). Our WlanCx never sent it (Windows' supplicant
+  plumbs keys via WDI_SET_ADD_CIPHER_KEYS -> wsec_key only). 1.0.10.2: WlanMsgScbAuthorize(peer) right after the
+  pairwise key is installed. Verify: '[key] SCB_AUTHORIZE -> MSG 0', then 'dump ampdu' tot_ampdus > 0, rxaddbaresp > 0.

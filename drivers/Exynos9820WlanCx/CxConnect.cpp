@@ -482,6 +482,10 @@ CxSetAddKeys(PCX_DEVICE Dev, PCX_CMD Cmd, const UINT8 *Tlv, ULONG TlvLen)
                WlanMsgScbAuthorize) - lets the firmware set up Block Ack (notes/wifi-throughput.md) */
             (VOID)WlanMsgScbAuthorize(&Dev->Msg, Dev->RunR,
                                       K->Optional.PeerMacAddress_IsPresent ? K->PeerMacAddress.Address : Dev->Bssid);
+            /* 1.0.10.2 still showed ini_off / txaddbareq 5 rxaddbaresp 0: reset TID 0's initiator now that the port
+               is authorized, so the firmware tries ADDBA again (WlanMsgAmpduTid) */
+            (VOID)WlanMsgAmpduTid(&Dev->Msg, Dev->RunR, 0, FALSE);
+            (VOID)WlanMsgAmpduTid(&Dev->Msg, Dev->RunR, 0, TRUE);
         }
     }
     CleanupParsedWdiSetAddCipherKeys(P);

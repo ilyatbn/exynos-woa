@@ -98,6 +98,7 @@ _IRQL_requires_(PASSIVE_LEVEL)
 ULONG WlanMsgConnect(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_ const WLAN_CONNECT *C,
                      _Out_ PWLAN_ASSOC_INFO A);                            /* JOIN_*: associated + flowring */
 _IRQL_requires_(PASSIVE_LEVEL)
+ULONG WlanMsgAmpduTid(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_ UCHAR Tid, _In_ BOOLEAN Enable);  /* MSG_* */
 ULONG WlanMsgScbAuthorize(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_reads_(6) const UCHAR *Peer);  /* MSG_* */
 ULONG WlanMsgDump(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_z_ PCSTR Section);  /* MSG_* */
 ULONG WlanMsgGetIntVar(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_z_ PCSTR Name, _Out_ PULONG Value);

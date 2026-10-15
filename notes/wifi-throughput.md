@@ -58,3 +58,4 @@ User report 2026-10-15: ~18 Mbit/s while copying a 725 MB file to the phone over
   (wlioctl_defs.h:764; fmac fwil.h:59 BRCMF_C_SET_SCB_AUTHORIZE). Our WlanCx never sent it (Windows' supplicant
   plumbs keys via WDI_SET_ADD_CIPHER_KEYS -> wsec_key only). 1.0.10.2: WlanMsgScbAuthorize(peer) right after the
   pairwise key is installed. Verify: '[key] SCB_AUTHORIZE -> MSG 0', then 'dump ampdu' tot_ampdus > 0, rxaddbaresp > 0.
+- 00:20 1.0.10.2 on device: '[key] SCB_AUTHORIZE -> MSG 0 (status 0)' after the pairwise key, but dump unchanged (txaddbareq 5 rxaddbaresp 0, ini_off 1, tot_ampdus 0, rxaddbareq 0); 20 MiB raw = 1.08 / 1.25 MB/s. Authorization alone is not it. Timing hypothesis: the 5 ADDBA attempts happen during the handshake (EAPOL goes out as prio 0 on the tid-0 flowring -> TID 0 traffic), unanswered, initiator off. 1.0.10.3: after authorize, ampdu_tid {0,off} then {0,on} (wlioctl.h:6395, dhd_linux.c:12194) to restart the initiator.

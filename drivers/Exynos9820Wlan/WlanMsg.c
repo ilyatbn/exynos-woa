@@ -2528,6 +2528,27 @@ WlanMsgSetKey(PWLAN_MSG_CTX M, PWLAN_REPORT R, ULONG Index, const UCHAR *Key, co
     return Rc;
 }
 
+/* SET_VAR "ampdu_tid" {u8 tid, u8 enable} (dhd wlioctl.h:6395 struct ampdu_tid_control, used by dhd_linux.c:12194-
+   12205). Toggled off/on for TID 0 after the port is authorized: the firmware's initiator had given up ("ini_off")
+   after its early ADDBA attempts went unanswered during the 4-way handshake (notes/wifi-throughput.md). */
+_Use_decl_annotations_
+ULONG
+WlanMsgAmpduTid(PWLAN_MSG_CTX M, PWLAN_REPORT R, UCHAR Tid, BOOLEAN Enable)
+{
+    PMSG_STATE S = Live(M, R);
+    UCHAR      V[2];
+    ULONG      Rc;
+
+    if (S == NULL) {
+        return MSG_SKIPPED;
+    }
+    V[0] = Tid;
+    V[1] = Enable ? 1 : 0;
+    Rc = IoctlVar(S, TRUE, "ampdu_tid", V, sizeof(V), 0);
+    ReportLine(R, "[key] ampdu_tid %u %s -> MSG %lu (status %ld)\r\n", Tid, Enable ? "on" : "off", Rc, S->RespStatus);
+    return Rc;
+}
+
 /* Port authorized: the host supplicant (Windows) finished the 4-way handshake. dhd tells the firmware with
    WLC_SCB_AUTHORIZE + the peer MAC (wl_cfg80211.c:9390, station mode via cfg80211 change_station AUTHORIZED); the
    firmware only sets up Block Ack (A-MPDU) for an authorized peer. Without it: txaddbareq 5 / rxaddbaresp 0,

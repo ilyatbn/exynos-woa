@@ -52,3 +52,8 @@ FVMAIN_COMPACT (verification build) - watch image space on main.
   %12%\mfc_fw.bin (package copy from the phone, never committed) into a physically contiguous non-cached buffer
   below 4 GiB, boots it (R3) and SYS_INITs it (R4) with the R2H interrupt; V-W2 decode one H.264 stream via private
   IOCTLs (instance open, seq header, frame decode - vendor mfc_cmd/mfc_nal flow); V-W3 Media Foundation integration.
+- **V-W1 PASSED in Windows (vidc1 82abd47c + Exynos9820Mfc a196552, 14:31):** KD: "fw 687912 B at PA 0xef600000:
+  R2H 12, MFC_VERSION 0x1300, FW_VERSION 0x45210720", "SYS_INIT: R2H 1", "boot 0x00000000", "interrupt test: ISR ran
+  1 time(s), last R2H cmd 1, R2H int now 0". => the Windows driver boots + initialises the MFC firmware from disk
+  (MmAllocateContiguousMemorySpecifyCache, non-cached, < 4 GiB, 1 MiB aligned) and the R2H interrupt (GSIV 370)
+  reaches the ISR. Next: V-W2 decode (instance open / seq header / buffers / frame decode).

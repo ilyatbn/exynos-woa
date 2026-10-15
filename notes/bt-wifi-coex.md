@@ -20,3 +20,7 @@ UART HCI link clean (no line errors/throttles). => radio time-sharing on the com
   link runs at normal priority in the coex arbiter. Plan: the transport injects 0xFC57 {handle, 0xFF} after an ACL
   Connection Complete and swallows its Command Complete; must respect HCI command flow control.
 - 22:18 Exynos9820Bt 1.0.0.11: ACL priority injection (Driver.h CoexLock/HostCmdOutstanding/CoexInFlight/CoexPendingHandle/CoexDeferred; Io.c CoexOnEvent in ReadH4PacketComplete, CoexHostCommand from FdoWriteDeviceIO). Review note: if the controller never answers 0xFC57, the held BthPort command stays held (CoexInFlight stuck) - Broadcom answers unsupported vendor commands with an error Command Complete, so accepted; revisit if seen.
+- 2026-10-15 ~22:20 1.0.0.11 on device (Wi-Fi on 2.4 GHz ch 9): driver restart path verified (HCI_RESET ff at 115200,
+  00 at 1625000); KD: "coex: Set ACL Priority high -> status 00" x3 (one per ACL connection, ok 3 failed 0) - the
+  BCM4375 accepts 0xFC57. Stats: 0 line errors, 0 throttles, 0 TX ring waits. (1.0.0.10's stats before: 169 KB TX,
+  peak ring 868 B, 438 TXD irqs - TX is not a bottleneck.) KD detached for the listening test.

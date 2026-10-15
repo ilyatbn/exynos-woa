@@ -45,3 +45,10 @@ User report 2026-10-15: ~18 Mbit/s while copying a 725 MB file to the phone over
   "assoc_req_ies"), compare with what Android's dhd joins with; check whether action frames from the AP reach the
   firmware. Paused for battery (12 %). State: BT 1.0.0.15 (= 1.0.0.10 code), Wi-Fi 1.0.10.0 (dump every ~1 min).
 - 23:55 load test #2 with BT 1.0.0.16 (ACL priority high while streaming): user 'its good' / 'bluetooth is still working fine' during the BBB phone->PC copy (scp -O), copy steady 1.2-1.6 MB/s (first sample inflated). Speedtest on the phone: 8 Mbit/s. Exynos9820WlanCx 1.0.10.1: [ie req]/[ie resp] dump of the association elements (ids+lens; full bytes only for HT cap 45, HT op 61, ext cap 127, VHT 191/192, WMM) to see what A-MPDU parameters are negotiated.
+- 2026-10-16 00:00 1.0.10.1 association elements (no SSID/addresses kept): ours HT cap 2D 00 1B FF FF 00.. = LDPC, SMPS
+  disabled, SGI20, A-MPDU exp 3 (64 KB) density 6, MCS 0-15; ext cap present; WMM info 00 50 F2 02 00 01 00.
+  AP: HT cap 6F 10 17 FF FF FF.., HT op prim ch 9 (40 MHz bits set), VHT cap/op, ext cap, WMM parameter element.
+  Firmware: ampdu 1, ampdu_tx 1, ampdu_rx 1, ba_wsize 64, wme -1 (auto), wme_apsd 1. => capabilities fine on both
+  sides; Block Ack still never set up. Leading hypothesis: timing/authorization - firmware's ADDBA requests (5) go
+  out before Windows' supplicant finishes the 4-way handshake, AP ignores them, firmware gives up (ini_off 1);
+  AP-side ADDBA never comes. Next experiment: firmware "send ADDBA" iovar for TID 0 to the AP after keys are set.

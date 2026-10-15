@@ -351,3 +351,13 @@ exynos9820/cmucal-sfr.c + cmucal-node.c, drivers/pinctrl/samsung/pinctrl-exynos-
   phone "pairing request: kind 8 (ConfirmPinMatch) -> accept, pair result: Paired", PC "numeric comparison ...
   accept -> 0", same 6-digit value on both sides; the phone lists the PC as paired. => classic discovery + Secure
   Simple Pairing work end to end over the BthxDDI transport. (Cleanup: btpair unpair <name>, PC Settings.)
+- **RFCOMM data PASSED (2026-10-15 17:03, Exynos9820Bt 1.0.0.3):** tools/phone/btspp (Win32, x64 PC server / ARM64
+  phone client; custom service UUID in SDP; names only, no addresses). History: 1.0.0.1 connected (SDP + RFCOMM
+  ~2.5 s) but the echo stalled at exactly 3030 B with "H4 out of sync"; 1.0.0.2 added UMCON AFC (hardware RTS/CTS,
+  serial_s3c.h:143 S3C2410_UMCOM_AFC, trigger AFC_63) + counter logging -> still 3030 B, log showed RX ring
+  overflows 8611 and 0 UART line errors: the 4 KiB software ring overflowed because the DPC was starved (BtUartTx
+  busy-waits per byte at DISPATCH during a sustained send) while the ISR kept emptying the FIFO into the full ring.
+  1.0.0.3: ring full -> ISR stops draining + masks RX, bytes wait in the FIFO, AFC drops RTS, the DPC unmasks after
+  draining (16 KiB ring). Result: 262144 B sent, 262144 B echoed, 0 mismatched, 24.4 s = 10.5 KiB/s each way
+  concurrently (= the 115200 baud ceiling), 1 throttle event, no sync loss. Open: higher baud (BCM vendor command +
+  UBRDIV), interrupt-driven TX (the busy-wait is why the DPC starves).

@@ -392,6 +392,19 @@ static NTSTATUS DriverCaps(MW_ADAPTER *A, const DXGKARG_QUERYADAPTERINFO *Info)
         caps->SupportNonVGA = TRUE;
     if (FITS(size, DXGK_DRIVERCAPS, SupportSmoothRotation))
         caps->SupportSmoothRotation = TRUE;
+    /* G15 S1 run 2 (notes/gpu-wddm2-design.md): run 1's 2.0 adapter was failed by dxgkrnl right after this query.
+     * MS Learn "TDR in Windows 8 and later": per-engine TDR is Mandatory for full graphics drivers (WDDM 1.2+) - the
+     * three DDIs are implemented (command.c MwResetEngine/MwQueryEngineStatus/MwQueryDependentEngineGroup); "GPU
+     * preemption": WDDM 1.2+ KMDs must support the Windows 8 preemption model - we preempt only between DMA buffers,
+     * so DMA_BUFFER_BOUNDARY is the honest granularity. 2.0 only; the 1.3 answer is unchanged. */
+    if (MwWddm2) {
+        if (FITS(size, DXGK_DRIVERCAPS, SupportPerEngineTDR))
+            caps->SupportPerEngineTDR = TRUE;
+        if (FITS(size, DXGK_DRIVERCAPS, PreemptionCaps)) {
+            caps->PreemptionCaps.GraphicsPreemptionGranularity = D3DKMDT_GRAPHICS_PREEMPTION_DMA_BUFFER_BOUNDARY;
+            caps->PreemptionCaps.ComputePreemptionGranularity = D3DKMDT_COMPUTE_PREEMPTION_DMA_BUFFER_BOUNDARY;
+        }
+    }
     return STATUS_SUCCESS;
 }
 

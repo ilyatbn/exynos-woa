@@ -317,3 +317,8 @@ GpuMmu (S7): ~1500-2500 lines across KMD + winsys, multi-week.
   Next (documented/empirical only - no further static RE of OS binaries): compare our DRIVERCAPS/init table against
   the documented WDDM 2.0 requirements (Learn "WDDM 2.0 and Windows 10" feature list, DXGK_VIDSCHCAPS/preemption
   docs) and toggle candidates one per run behind Parameters (SupportPerEngineTDR, PreemptionCaps, ...).
+- 19:30 S1 run 2 prep: KMD 1.0.48.1 (build 48, sys 10e5181f) - Wddm2 only: DRIVERCAPS.SupportPerEngineTDR = 1
+  (Learn "TDR in Windows 8 and later": Mandatory for full graphics drivers; ResetEngine/QueryEngineStatus/
+  QueryDependentEngineGroup already implemented in command.c) + PreemptionCaps DMA_BUFFER_BOUNDARY (graphics and
+  compute; Learn "GPU preemption": WDDM 1.2+ KMDs use the Windows 8 preemption model). Swapped in via the SYSTEM
+  task (hash checked on the device). 1.3 path unchanged.

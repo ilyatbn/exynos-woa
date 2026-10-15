@@ -81,3 +81,11 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   64870/65525" = cluster-0 WDT armed and petted (counter near full); RWD1 record = all zeros (that PRAM handshake is
   not in use on this build; UFS_LOW_WDT_PRAM_ENABLE 0) -> WTCNT is the evidence to watch at the next silent reset.
   Post-boot temps LITTLE up to 68.5 C (boot load).
+- 18:20 **the "cube stall" was not a GPU stall.** cubelife.ps1 (process sampler): d3dtri ran its full time, but the
+  wrapper cmd.exe died with it (no "exit" line, no runuser2 done marker, stdout tail + summary lost). Cause:
+  Windows 11 default-terminal delegation - every console started in the user session (runuser2's cmd.exe) is hosted
+  by Windows Terminal, which crash-loops (d3d11 WaitTrackedFenceImpl, above) and takes the console session (cmd +
+  child) down. Fix for the harness: user S10e HKCU\Console\%%Startup DelegationConsole = DelegationTerminal =
+  {B23D10C0-E52E-411E-9D5B-C09FDF709C7D} (Console Host). Rerun: d3dtri cube 10 s complete, "d3dtri: done, exit 0",
+  marker written; fps 391/448/396/296/313/296/290/270/275 (G3D 572 MHz, CPU 1.74/2.10 GHz).
+  (A first attempt wrote the key as "%%%%Startup" - deleted.) Remaining real GPU bug: Terminal's d3d11 crash.

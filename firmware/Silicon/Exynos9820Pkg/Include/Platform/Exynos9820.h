@@ -599,6 +599,58 @@
 #define BCM4375_CHIP_ID           0x4375                  // VERIFIED (bcmdevs.h:520, read from chipcommon over BAR0 window)
 #define BCM4375_FW_RAM_BASE       0x00170000              // VERIFIED (CR4_4369_RAM_BASE, sbchipc.h:3285; dhd_pcie.c:1600-1602 maps 4375 to it)
 
+//
+// ---------------------------------------------------------------------------
+// Bluetooth: the BT function of the SAME BCM4375, on a dedicated UART (D4c, notes/bt-driver.md B3 + B6).
+// Ported from origin/drivers; bt_en and the clock/pin offsets are from B6 (this phone + lineage-22.2 tables).
+//
+// Transport: uart@10840000 (uart1, PERIC1 block), a USI v2 FIFO UART; its mode-select register is the 4-byte
+// usi@10821000. USI v2 UART quirks: USI_CON written 1 then 0 releases the reset, USI_OPTION bit1 CLKREQ_ON.
+// ---------------------------------------------------------------------------
+//
+#define EXYNOS_UART_BT_BASE       0x0000000010840000ULL   // VERIFIED (base.dtb uart@10840000 reg)
+#define EXYNOS_UART_BT_SIZE       0x0000000000000100ULL   // VERIFIED (same reg, size cell; fifo-size 0x100)
+#define EXYNOS_USI_BT_MODE_BASE   0x0000000010821000ULL   // VERIFIED (base.dtb usi@10821000 reg)
+#define EXYNOS_USI_BT_MODE_SIZE   0x0000000000000004ULL   // VERIFIED
+#define EXYNOS_USI_MODE_UART      0x1                     // VERIFIED (usi_v2.c UART_SW_CONF=1<<0)
+#define EXYNOS_UART_USI_CON_OFF   0xC4                    // VERIFIED (serial_s3c.h:46; 1=SET_RESET, 0=release)
+#define EXYNOS_UART_USI_OPT_OFF   0xC8                    // VERIFIED (serial_s3c.h:47; bit1 CLKREQ_ON, bit2 CLKSTOP_ON)
+#define EXYNOS_UART_BT_GSIV       440                     // VERIFIED (interrupts <0 0x198 0>: SPI 408 + 32)
+//
+// CMU_PERIC1 (EXYNOS_CMU_PERIC1_BASE) registers of the BT UART clock (cmucal-sfr.c / cmucal-node.c, B6).
+// The user mux's parent 0 is OSCCLK_PERIC1 (26 MHz), parent 1 CLKCMU_PERIC1_IP from CMU_TOP.
+//
+#define EXYNOS_CMU_PERIC1_UART_BT_MUX    0x01C0u          // VERIFIED (PLL_CON0_MUX_CLKCMU_PERIC1_UART_BT_USER: SEL bit4, BUSY bit7)
+#define EXYNOS_CMU_PERIC1_UART_BT_DIV    0x1814u          // VERIFIED (CLK_CON_DIV_DIV_CLK_PERIC1_UART_BT: ratio [3:0], BUSY bit16)
+#define EXYNOS_CMU_PERIC1_UART_BT_IPCLK  0x2098u          // VERIFIED (GOUT UART_BT IPCLK: CG_VAL bit21, MANUAL bit20)
+#define EXYNOS_CMU_PERIC1_UART_BT_PCLK   0x209Cu          // VERIFIED (GOUT UART_BT PCLK)
+#define EXYNOS_CMU_PERIC1_UART_BT_RSTN   0x2020u          // VERIFIED (RSTNSYNC_CLK_PERIC1_UART_BT clk gate)
+#define EXYNOS_CMU_PERIC1_UART_BT_QCH    0x3038u          // VERIFIED (QCH_CON_UART_BT_QCH: ENABLE bit0)
+#define EXYNOS_OSCCLK_HZ                 26000000u        // VERIFIED (CNTFRQ 26 MHz on every core; WDT fin_pll 26 MHz)
+//
+// Pins (base.dtb pinctrl states + exynos9820_pin_banks*, B6). Bank registers: CON +0 (4 bits/pin), DAT +4, PUD +8.
+//   ALIVE pinctrl@15850000: uart1-bus = gpq0-3..0 function 2 (UART); bt_hostwake = gpa2-3.
+//   PERIC0 pinctrl@10430000: bt_wake = gpg2-0 (function 1, out).
+//   CMGP pinctrl@15C30000: bt_en = gpm8-0 (this phone, androidboot.revision 26: live /proc/device-tree/bluetooth
+//   gpios[0] -> pinctrl@15C30000/gpm8; NOT the PCAL6524 expander of the older overlay).
+//
+#define EXYNOS_ALIVE_GPQ0_OFFSET  0x0A0u                  // VERIFIED (exynos9820_pin_banks0 "gpq0")
+#define EXYNOS_ALIVE_GPA2_OFFSET  0x040u                  // VERIFIED (exynos9820_pin_banks0 "gpa2")
+#define EXYNOS_PERIC0_GPG2_OFFSET 0x0C0u                  // VERIFIED (exynos9820_pin_banks5 "gpg2"; bank base EXYNOS_PERIC0_GPIO_BASE)
+#define EXYNOS_CMGP_GPM8_OFFSET   0x100u                  // VERIFIED (exynos9820_pin_banks2 "gpm8")
+#define EXYNOS_BT_UART_FN         0x2u                    // VERIFIED (uart1-bus samsung,pin-function <2>)
+#define EXYNOS_BT_UART_PINS       4u                      // gpq0-0 RXD, -1 TXD, -2 RTS, -3 CTS (uart1-bus pins 0..3)
+#define EXYNOS_BT_HOST_WAKE_PIN   3u                      // VERIFIED (gpa2-3)
+#define EXYNOS_BT_WAKE_PIN        0u                      // VERIFIED (gpg2-0)
+#define EXYNOS_BT_EN_PIN          0u                      // VERIFIED (gpm8-0, live read)
+//
+// Broadcom BT-over-UART vendor opcodes (semantics from mainline btbcm.c / hci_bcm.c, GPL reference only):
+#define BCM_HCI_OP_SET_BAUDRATE   0xFC18                  // VERIFIED (hci_bcm.c; u16 zero + u32 baud)
+#define BCM_HCI_OP_SET_UART_CLOCK 0xFC45                  // VERIFIED (hci_bcm.c; 1-byte clock type, used >3 Mbaud)
+#define BCM_HCI_OP_START_DOWNLOAD 0xFC2E                  // VERIFIED (btbcm.c btbcm_patchram start)
+#define BCM_HCI_OP_WRITE_RAM      0xFC4C                  // VERIFIED (record opcode of the device .hcd)
+#define BCM_HCI_OP_LAUNCH_RAM     0xFC4E                  // VERIFIED (last .hcd record)
+
 // USI_CMGP3 mode register (hsi2c_45 is the USI_CMGP3 USI block). VERIFIED from the live DT (TWRP,
 // 2026-10-11): __symbols__/usi_03_cmgp -> /usi@15C22030, compatible "samsung,exynos-usi-v2",
 // usi_v2_mode "i2c", reg <0x15C22030 0x4>. M16 run 4: at UEFI handoff the USI was held in reset

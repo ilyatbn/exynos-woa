@@ -585,3 +585,9 @@ No device access in this task; build-verified only (Guided, not Ready).
   feature (PC sampling, halting, ITR) is fused/strapped off on this retail part. EDSCR also aborts while OSLK is set.
   => The CoreSight route to an "EL3/hardware view" is CLOSED. The sampler stays useful only as a reset-surviving
   per-core power/reset/halt timeline (EDPRSR) with the death time.
+- LEAD (09:46): the stock Samsung kernel config (/proc/config.gz in TWRP, same tree) has `# CONFIG_ARM64_HW_AFDBM is not set`
+  -> Linux on the 9820 NEVER enables hardware Access Flag / dirty-bit management (TCR_EL1.HA/HD), although every core
+  reports HAFDBS 2. (Also: ARM64_ERRATUM_1024718 (A55 DBM) =y, PAN/UAO/LSE =y, VHE off, SSBD/HARDEN_BP =y.)
+  Windows decides HA/HD from the boot CPU's ID_AA64MMFR1 -> very likely ON for every core, M4 included. A broken
+  hardware AF/DBM update on the M4 would hang the M4 inside a table walk (no exception) and then the whole SoC.
+  Fits: deaths during memory-heavy work (MiCopyPage, rdyboost store, memcmp), no fatal path, all cores still powered.

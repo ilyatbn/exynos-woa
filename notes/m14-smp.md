@@ -591,3 +591,11 @@ No device access in this task; build-verified only (Guided, not Ready).
   Windows decides HA/HD from the boot CPU's ID_AA64MMFR1 -> very likely ON for every core, M4 included. A broken
   hardware AF/DBM update on the M4 would hang the M4 inside a table walk (no exception) and then the whole SoC.
   Fits: deaths during memory-heavy work (MiCopyPage, rdyboost store, memcmp), no fatal path, all cores still powered.
+- KD read (m4pcs3 boot, boot CPU A55 r1p0 MIDR 411FD050): TCR_EL1 = 0x00000695B5513511 -> T0SZ/T1SZ 17, 4K/4K, IPS 5,
+  AS 1, **HA 1** (hardware Access flag ON), HD 0 (no hardware dirty), HPD0/HPD1 1, HWU 0, TBI 0. SCTLR_EL1 = 0x30D0591D
+  (M C SA SA0 SED EOS I DZE TSCXT EIS SPAN nTLSMD LSMAOE; no WXN/IESB). MAIR 0x444400FF444400FF.
+  Secondaries get TCR from the boot CPU's saved state: nt!HalpStartupStub+0x40 `ldr x4,[x2,#0xC0]; msr TCR_EL1,x4`.
+- Test m4noha1: patch HalpStartupStub+0x44 at the KD initial break (MP 1 procs, before KeStartAllProcessors) to
+  `and x4,x4,#~(1<<39)` (9258F884, clang-verified) + `msr TCR_EL1,x4` (the next MAIR isb synchronizes) -> every
+  SECONDARY runs with HA 0 (boot A55 keeps HA 1). Image m4pcs2 (both M4 offered + sampler). One timed break ~20 s
+  after the kernel start dumps MIDR/SCTLR/ACTLR/CPACR/TCR from every KPRCB to verify the patch reached the M4s.

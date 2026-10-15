@@ -40,6 +40,9 @@
 
 #define BEYOND0LTE_AUTO_RECOVERY  1   // W21: after the dump + flush, reboot into TWRP
 #define BEYOND0LTE_WINDOWS_PAIR   1   // W23: the boot after a Windows run saves \WINPRAM.BIN and goes to TWRP
+#ifndef BEYOND0LTE_DSS_DUMP
+#define BEYOND0LTE_DSS_DUMP  0   // m14: after a Windows death (stay.flg path) save log_s2d / log_arraydump heads to the ESP
+#endif
 #define BEYOND0LTE_HANDOFF_WATCHDOG  1   // W24: arm WDT cl0 (82 s) at ExitBootServices - bring-up only
 //
 // W37 (user: "disable the reboot watchdog (add a flag)"): 1 = the 82 s watchdog stays armed into Windows
@@ -584,6 +587,14 @@ OnReadyToBoot (
             DEBUG ((DEBUG_ERROR, "BootLog: previous boot ran Windows (no restart marker) - interactive (stay.flg): "
                     "saving its PRAM and continuing\n"));
             DumpMemoryToEsp (L"\\WINPRAM.BIN", (UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);
+ #if BEYOND0LTE_DSS_DUMP
+            //
+            // m14: Samsung debug-snapshot areas a debug reset may have filled (live DT: log_s2d 0xEB310000,
+            // log_arraydump 0xEC810000 - both inside bank2, mapped as RAM here). First 1 MiB of each.
+            //
+            DumpMemoryToEsp (L"\\S2D.BIN", (UINTN)0xEB310000ULL, SIZE_1MB);
+            DumpMemoryToEsp (L"\\ARRAYDUMP.BIN", (UINTN)0xEC810000ULL, SIZE_1MB);
+ #endif
             //
             // This boot continues into Windows: keep the progress page (0x8FE0F000, the last 4 KiB of the
             // dump). Its words [2..5] are this boot's 'USBH'/'WLAN'/'GPU0'/'NOAU' (set by the DXEs before

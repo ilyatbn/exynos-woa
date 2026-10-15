@@ -531,3 +531,4 @@ No device access in this task; build-verified only (Guided, not Ready).
   3615 / 7117 / 3456 / 3725; gicc7 M4 nop 3640 | 3660 / 3745 / 7487 / 3449 / 3873. A trap to EL2 would add >= ~26
   ticks per write (>= 26000 per 1000): none seen on any core (baseline differences = uncached instruction fetch with
   the MMU off / I-cache state). => uH does NOT trap TTBR0/TCR/SCTLR/MAIR/CONTEXTIDR writes; uH-trap hypothesis OUT.
+- BEYOND0LTE_DSS_DUMP (BootLogDxe, default 0): on the stay.flg 'previous boot ran Windows (no restart marker)' path also dump 1 MiB of log_s2d (0xEB310000) and log_arraydump (0xEC810000) to \S2D.BIN / \ARRAYDUMP.BIN. Image boot-m4dss1.img 7f6c01e4 = one M4 (PARK 0x7E) + KD flags + DSS_DUMP 1.

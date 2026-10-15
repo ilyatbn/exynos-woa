@@ -34,3 +34,14 @@ User (2026-10-15 ~16:10): "Forget native windows players" -> a free third-party 
 - 16:22 the phone reset silently (ping/ssh gone ~2 min, back 16:24 via stay.flg): Kernel-Power 41 (unclean), KD log
   just stops (no bugcheck). MFC idle at that time (last session 15:40; mftest -enum only opened a handle). Same
   family as the earlier intermittent silent resets; not attributed to the MFC.
+- 16:27 phone (ssh, C:\S10eTmp\mpv = mpv.exe + 60-file DLL closure, 62 MB, our 7 ffmpeg DLLs + ffmpeg.exe):
+  ffmpeg -c:v h264_exynos c1080.mp4 -benchmark: 60 frames in 0.78 s (77 fps, 2.56x realtime, utime 0.11 s);
+  framemd5 (both -pix_fmt nv12) h264_exynos vs FFmpeg's software h264: **60/60 identical incl. pts**
+  (the first compare differed only because the software decoder outputs planar yuv420p).
+- 16:30 **mpv plays on the MFC.** vd=lavc:h264_exynos is ignored (mpv opened software h264): mpv treats decoders
+  with a wrapper_name + AV_CODEC_CAP_HARDWARE as hwdec methods "<wrapper>-copy" -> portable_config/mpv.conf
+  hwdec=exynosmfc-copy (tools/mfc/ffmpeg/mpv.conf). Log: "Looking at hwdec h264_exynos-exynosmfc-copy... Using
+  underlying hw-decoder 'h264_exynos' ... Using hardware decoding (exynosmfc-copy)", decoder format 1920x1080 nv12;
+  VO gpu/d3d11 on the Mali-G76 WDDM adapter (feature level 10_0, shaderc). c1080.mp4 x4 (--loop-file=3, 8 s of
+  video) finished at 9.0 s incl. ~0.3 s start-up -> real time, no frame drops logged. Launched in the desktop
+  session with tools/phone/runuser2.ps1 (non-elevated user: opening the device worked).

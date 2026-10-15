@@ -177,6 +177,7 @@ typedef struct _MFC_TEST
     ULONG   Height;
     ULONG   Stride;
     ULONG   LumaSize;
+    ULONG   ChromaOffset;   // page aligned inside the slot (vendor: each plane its own page-aligned buffer)
     ULONG   ChromaSize;
     ULONG   SlotSize;
     ULONG   NumDpb;
@@ -300,7 +301,8 @@ MfcTestInitBuffers(_In_ PMFC_DEVICE M, _In_ PMFC_TEST T)
     Plane         = T->Stride * ((T->Height + 15u) & ~15u);
     T->LumaSize   = max(Plane + 256u, Rd(M, MFC_REG_D_MIN_FIRST_PLANE));
     T->ChromaSize = max(Plane / 2u + 256u, Rd(M, MFC_REG_D_MIN_SECOND_PLANE));
-    T->SlotSize   = (T->LumaSize + T->ChromaSize + PAGE_SIZE - 1u) & ~(PAGE_SIZE - 1u);   // chroma at +LumaSize
+    T->ChromaOffset = (T->LumaSize + PAGE_SIZE - 1u) & ~(PAGE_SIZE - 1u);
+    T->SlotSize   = (T->ChromaOffset + T->ChromaSize + PAGE_SIZE - 1u) & ~(PAGE_SIZE - 1u);
     T->NumDpb     = min(MinDpb + 2u, MFC_TEST_MAX_DPB);
     MvSize        = ((((T->Width + 15u) / 16u) * ((((T->Height + 15u) / 16u) + 1u) / 2u) * 2u * 64u + 1024u) + 31u) & ~31u;
     if ((MinDpb == 0) || (MinDpb > T->NumDpb) || (T->NumDpb * T->SlotSize > MFC_TEST_DPB_SIZE) ||
@@ -364,7 +366,7 @@ MfcTestDecodeOne(_In_ PMFC_DEVICE M, _In_ PMFC_TEST T, _Inout_ PULONG Offset, _I
     Wr(M, MFC_REG_D_FIRST_PLANE_SIZE, T->LumaSize);
     Wr(M, MFC_REG_D_SECOND_PLANE_SIZE, T->ChromaSize);
     Wr(M, MFC_REG_D_FIRST_PLANE_DPB0 + Idx * 4u, Base);
-    Wr(M, MFC_REG_D_SECOND_PLANE_DPB0 + Idx * 4u, Base + T->LumaSize);
+    Wr(M, MFC_REG_D_SECOND_PLANE_DPB0 + Idx * 4u, Base + T->ChromaOffset);
     Wr(M, MFC_REG_D_NAL_START_OPTIONS, Rd(M, MFC_REG_D_NAL_START_OPTIONS) & ~0x8u);
     Wr(M, MFC_REG_D_DYN_DPB_LOWER, 1u << Idx);
     Wr(M, MFC_REG_D_DYN_DPB_UPPER, 0);
@@ -404,7 +406,7 @@ MfcTestDecodeOne(_In_ PMFC_DEVICE M, _In_ PMFC_TEST T, _Inout_ PULONG Offset, _I
             {
                 MfcTrace("test: frame %u %ux%u type %u: luma fnv 0x%08x chroma fnv 0x%08x\n", T->Frames, T->Width,
                          T->Height, Type, MfcFnv(Va, T->Width, T->Height, T->Stride),
-                         MfcFnv(Va + T->LumaSize, T->Width, T->Height / 2u, T->Stride));
+                         MfcFnv(Va + T->ChromaOffset, T->Width, T->Height / 2u, T->Stride));
                 T->Frames++;
             }
         }

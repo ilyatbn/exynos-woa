@@ -554,3 +554,16 @@ No device access in this task; build-verified only (Guided, not Ready).
 - Risk handled: an aborting debug read would kill the sampler (no vectors after CPU_ON) -> the sampler gets a
   VBAR_EL1 table in its own mailbox OS half (it is never offered, Windows never sees that page) that records
   ESR/FAR/ELR, skips the load and keeps going.
+- 09:26 TWRP: ESP held S2D.BIN / ARRAYDUMP.BIN from 00:57 (an earlier DSS_DUMP boot): both 1 MiB ALL ZERO -> Samsung's
+  debug-snapshot s2d/arraydump areas get nothing from EL3 for this hang. That idea is closed.
+- Phone could not be reached by SSH at 09:20 (TCP accept, then reset before the banner); kdrun twrp mode got it to TWRP.
+- boot-m4pcs1.img 7b77128c: PARK 0xFE, OFFER 0xF6 (gicc3 = sampler, not offered), SLEEP_UNOFFERED 1, PCSAMPLE_MASK 0x08,
+  KD flags (GPU_POWER_ON 1, USB_KD_DEVICE 1), WINDOWS_WATCHDOG 1 (default) -> a hang resets in <= 82 s. stay.flg removed
+  so the boot after Windows saves WINPRAM.BIN + PCSAMP.BIN and goes to TWRP.
+- m4pcs1 RESULT: back in TWRP 2.5 min after the reboot, no KD, UEFILOG.TXT NOT rewritten (still the 10-14 file), no
+  PCSAMP.BIN -> UEFI hung before ReadyToBoot and the 82 s dead-man WDT went to recovery. Cause (most likely): the
+  sampler (gicc3) started sampling at once, while gicc4..7 (A75 + the whole M4 cluster) were not yet CPU_ON'd -
+  external-debug reads of a powered-off core's block can stall the APB.
+- Fix: the sampler waits for a go word (mailbox +0x460) that Parking writes after the CPU_ON loop, and only the boot
+  core + cores with an alive mark get a debug base (others stay 0 = skipped). Ring header +0x28 = core being read
+  (0xFF between samples) so a hang inside a read names the core; the next boot logs it ("was reading core").

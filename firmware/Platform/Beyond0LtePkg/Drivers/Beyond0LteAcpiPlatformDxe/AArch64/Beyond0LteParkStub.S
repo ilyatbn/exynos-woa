@@ -289,7 +289,7 @@ ASM_FUNC(Beyond0LteParkStub)
   // PC sample (EDPCSRlo +0xA0 first - the read latches EDCIDSR +0xA4, EDVIDSR +0xA8, EDPCSRhi +0xAC) and EDPRSR
   // (+0x314) into a ring that survives a warm reset. Parameters (written by Beyond0LteParking.c, placed between the
   // vector slots): +0x408 ring PA, +0x410 ring slots (256 B each, slot 0 = header), +0x418 period in CNTVCT ticks,
-  // +0x420 8 x UINT64 debug block bases (0 = skip). VBAR_EL1 = this mailbox page: the firmware put a branch to
+  // +0x420 8 x UINT64 debug block bases (0 = skip), +0x460 go word. VBAR_EL1 = this mailbox page: the firmware put a branch to
   // Beyond0LteParkFault in every vector slot, so an aborting debug read is recorded and skipped (value stays
   // 0xFAFAFAFA) instead of killing the core. x1 must stay the mailbox base (the fault handler uses it).
   // Header: +0 'PCS1', +4 slots, +8 next slot, +0x10 samples taken, +0x18 CNTVCT of the last sample, +0x20 period.
@@ -315,6 +315,17 @@ ASM_FUNC(Beyond0LteParkStub)
   movk  w3, #0xC0C0, lsl #16
   str   w3, [x1, #PARK_SLEEP_OFF]   // 0xC0C00005: sampler running
   dsb   sy
+  //
+  // Wait for the firmware's go word (+0x460) - written only after every CPU_ON finished, so no debug block of a
+  // still powered-off core is touched (m4pcs1: sampling from the start hung UEFI). Bases of cores that did not
+  // come up stay 0 and are skipped.
+  //
+  add   x5, x1, #0x460
+86:
+  dc    civac, x5
+  dsb   sy
+  ldr   x4, [x5]
+  cbz   x4, 86b
 81:
   mrs   x4, cntvct_el0
   add   x5, x20, x25, lsl #8        // record
@@ -331,6 +342,8 @@ ASM_FUNC(Beyond0LteParkStub)
   mov   w13, w10
   mov   w14, w10
   cbz   x8, 83f
+  str   w7, [x20, #0x28]            // header +0x28: core being read (a hang leaves it here), 0xFF = idle
+  dsb   sy
   ldr   w10, [x8, #0xA0]
   ldr   w11, [x8, #0xA4]
   ldr   w12, [x8, #0xA8]
@@ -344,6 +357,8 @@ ASM_FUNC(Beyond0LteParkStub)
   add   x7, x7, #1
   cmp   x7, #8
   b.ne  82b
+  mov   w9, #0xFF
+  str   w9, [x20, #0x28]
   add   x24, x24, #1
   add   x25, x25, #1
   cmp   x25, x23

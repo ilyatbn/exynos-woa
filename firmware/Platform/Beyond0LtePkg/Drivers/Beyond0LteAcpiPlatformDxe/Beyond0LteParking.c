@@ -102,6 +102,7 @@ ParkBootCntFrq (
 #define PARK_PCS_SLOTS_OFF  0x410u
 #define PARK_PCS_PERIOD_OFF 0x418u
 #define PARK_PCS_BASES_OFF  0x420u   // 8 x UINT64 debug block bases, MADT GICC order
+#define PARK_PCS_GO_OFF     0x460u   // firmware sets 1 after every CPU_ON finished (bases filled) - sampler starts
 #define PARK_PCS_FAULT_OFF  0x608u   // ESR, FAR, count, ELR (UINT64 each) written by Beyond0LteParkFault
 #define PARK_PCS_PERIOD     6500000u // CNTVCT ticks at 26 MHz = 0.25 s -> 1023 records = 255 s of history
 #define PARK_TRAP_DONE      0xC0C00004u
@@ -170,8 +171,9 @@ ParkPcSampleSetup (
   Live = (volatile UINT32 *)(UINTN)BEYOND0LTE_PCSAMP_LIVE;   // uncached handoff window (PlatformMemoryMapLib)
   if (Live[0] == BEYOND0LTE_PCSAMP_MAGIC) {
     CopyMem ((VOID *)(UINTN)BEYOND0LTE_PCSAMP_PREV, (VOID *)(UINTN)BEYOND0LTE_PCSAMP_LIVE, (UINTN)BEYOND0LTE_PCSAMP_SIZE);
-    DEBUG ((DEBUG_ERROR, "PARK: PCS previous ring kept (%lu samples, last cntvct %lx)\n",
-            *(volatile UINT64 *)(UINTN)(BEYOND0LTE_PCSAMP_LIVE + 0x10), *(volatile UINT64 *)(UINTN)(BEYOND0LTE_PCSAMP_LIVE + 0x18)));
+    DEBUG ((DEBUG_ERROR, "PARK: PCS previous ring kept (%lu samples, last cntvct %lx, was reading core %x)\n",
+            *(volatile UINT64 *)(UINTN)(BEYOND0LTE_PCSAMP_LIVE + 0x10), *(volatile UINT64 *)(UINTN)(BEYOND0LTE_PCSAMP_LIVE + 0x18),
+            *(volatile UINT32 *)(UINTN)(BEYOND0LTE_PCSAMP_LIVE + 0x28)));
   }
 
   Live[0] = 0;
@@ -186,8 +188,39 @@ ParkPcSampleSetup (
   *(UINT64 *)(UINTN)(Page + PARK_PCS_RING_OFF)   = BEYOND0LTE_PCSAMP_LIVE;
   *(UINT64 *)(UINTN)(Page + PARK_PCS_SLOTS_OFF)  = BEYOND0LTE_PCSAMP_SIZE / BEYOND0LTE_PCSAMP_SLOT;
   *(UINT64 *)(UINTN)(Page + PARK_PCS_PERIOD_OFF) = PARK_PCS_PERIOD;
-  CopyMem ((VOID *)(UINTN)(Page + PARK_PCS_BASES_OFF), mParkDbgBase, sizeof (mParkDbgBase));
-  *(UINT32 *)(UINTN)(Page + PARK_SLEEP_OFF) = 5;
+  ZeroMem ((VOID *)(UINTN)(Page + PARK_PCS_BASES_OFF), sizeof (mParkDbgBase));   // filled by ParkPcSampleGo
+  *(UINT64 *)(UINTN)(Page + PARK_PCS_GO_OFF) = 0;
+  *(UINT32 *)(UINTN)(Page + PARK_SLEEP_OFF)  = 5;
+}
+
+/**
+  m14 PC sampler: after every CPU_ON, publish the debug bases of the cores that are up (the boot core and every
+  core whose alive mark is set) and release the sampler. A powered-off core's debug block is never read
+  (m4pcs1: sampling while later cores were still off hung UEFI).
+**/
+STATIC
+VOID
+ParkPcSampleGo (
+  IN UINT64                      SamplerPage,
+  IN EFI_ACPI_6_3_GIC_STRUCTURE  **Gicc,
+  IN UINT64                      *Page,
+  IN UINTN                       GiccCount,
+  IN UINT64                      BootMpidr
+  )
+{
+  UINTN  Index;
+
+  for (Index = 0; (Index < GiccCount) && (Index < PARK_MAX_GICC); Index++) {
+    if ((GET_MPIDR_AFFINITY_BITS (Gicc[Index]->MPIDR) == BootMpidr) ||
+        ((Page[Index] != 0) && (ParkRd32 (Page[Index] + PARK_MARK_OFF) == PARK_ALIVE)))
+    {
+      *(volatile UINT64 *)(UINTN)(SamplerPage + PARK_PCS_BASES_OFF + Index * 8) = mParkDbgBase[Index];
+    }
+  }
+
+  WriteBackInvalidateDataCacheRange ((VOID *)(UINTN)SamplerPage, EFI_PAGE_SIZE);
+  *(volatile UINT64 *)(UINTN)(SamplerPage + PARK_PCS_GO_OFF) = 1;
+  WriteBackInvalidateDataCacheRange ((VOID *)(UINTN)(SamplerPage + PARK_PCS_GO_OFF), sizeof (UINT64));
 }
 #endif // BEYOND0LTE_PARK_SLEEP_UNOFFERED
 
@@ -397,6 +430,16 @@ Beyond0LteParkSecondaries (
   mParkProgress[1] = SavedProgress;   // every started core reported in or timed out - no SoC hang here
   ArmDataSynchronizationBarrier ();
 
+#if BEYOND0LTE_PARK_SLEEP_UNOFFERED
+  for (Index = 0; Index < GiccCount; Index++) {
+    if ((((BEYOND0LTE_PARK_PCSAMPLE_MASK >> Index) & 1u) != 0) && (Page[Index] != 0) &&
+        (ParkRd32 (Page[Index] + PARK_MARK_OFF) == PARK_ALIVE))
+    {
+      ParkPcSampleGo (Page[Index], Gicc, Page, GiccCount, BootMpidr);
+    }
+  }
+#endif
+
   //
   // Patch the MADT: parked -> version 1 + mailbox; any other enabled secondary
   // -> disabled. The boot core is never touched.
@@ -482,6 +525,8 @@ Beyond0LteParkSecondaries (
 
     Next = *(volatile UINT64 *)(UINTN)(BEYOND0LTE_PCSAMP_LIVE + 0x8);
     Rec  = (volatile UINT8 *)(UINTN)(BEYOND0LTE_PCSAMP_LIVE + ((Next > 1) ? Next - 1 : 1) * BEYOND0LTE_PCSAMP_SLOT);
+    DEBUG ((DEBUG_ERROR, "PARK: PCS gicc%u reading core %x (0xFF = between samples)\n", (UINT32)Index,
+            *(volatile UINT32 *)(UINTN)(BEYOND0LTE_PCSAMP_LIVE + 0x28)));
     DEBUG ((DEBUG_ERROR, "PARK: PCS gicc%u flag %x magic %x samples %lu faults %lu (esr %lx far %lx elr %lx)\n",
             (UINT32)Index, ParkRd32 (Page[Index] + PARK_SLEEP_OFF), *(volatile UINT32 *)(UINTN)BEYOND0LTE_PCSAMP_LIVE,
             *(volatile UINT64 *)(UINTN)(BEYOND0LTE_PCSAMP_LIVE + 0x10), ParkRd64 (Page[Index] + PARK_PCS_FAULT_OFF + 0x10),

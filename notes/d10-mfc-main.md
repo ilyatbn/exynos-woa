@@ -57,3 +57,8 @@ FVMAIN_COMPACT (verification build) - watch image space on main.
   1 time(s), last R2H cmd 1, R2H int now 0". => the Windows driver boots + initialises the MFC firmware from disk
   (MmAllocateContiguousMemorySpecifyCache, non-cached, < 4 GiB, 1 MiB aligned) and the R2H interrupt (GSIV 370)
   reaches the ISR. Next: V-W2 decode (instance open / seq header / buffers / frame decode).
+- **VIDC gate (boot hazard fix):** the MFC driver is now installed in Windows, but DSDT VIDC was always present
+  (_STA 0x0F) - on a build/boot where pd-mfc is off the driver would touch an unpowered MFC. VIDC._STA now reads
+  progress word [13] (0x8FE0F034) = 'VIDC' (0x43444956); Beyond0LteMfcDxe clears it at entry and sets it only when
+  MfcPowered() (also with all MFC switches off - a read-only PMU check). Word [13] was free (SEC clears [2..4],
+  BT owns [11], the death counter [12]). Build clean; device check with the next image (VIDC must stay Started).

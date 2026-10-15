@@ -432,6 +432,8 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
         // NOT in _CRS: pd-mfc (sboot leaves it on, UEFI R1 read), CMU_MFC clocks (on at hand-off), the two SYSMMUs
         // (left in reset bypass: the driver uses physically contiguous buffers below 4 GiB, as UEFI R3/R4 proved).
         // _HID SAMS982A (the branch's SAMS9828 is GPU0 on main).
+        // Present only when this boot's Beyond0LteMfcDxe saw pd-mfc on: progress word [13] = 'VIDC' (0x43444956) at
+        // 0x8FE0F034; the DXE clears it at entry every boot.
         Device (VIDC)
         {
             Name (_HID, "SAMS982A")
@@ -445,7 +447,13 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
                     370  // VERIFIED: DT cell 0x152 = SPI 338 + 32
                 }
             })
-            Method (_STA, 0, NotSerialized) { Return (0x0F) }
+            OperationRegion (VDST, SystemMemory, 0x8FE0F034, 4)
+            Field (VDST, DWordAcc, NoLock, Preserve) { VDNS, 32 }
+            Method (_STA, 0, NotSerialized)
+            {
+                If (LEqual (VDNS, 0x43444956)) { Return (0x0F) }
+                Return (Zero)
+            }
         }
 
         // Battery (notes/battery-driver-m1.md): the MAX77705 fuel gauge (7-bit 0x36) and charger (0x69) sit on

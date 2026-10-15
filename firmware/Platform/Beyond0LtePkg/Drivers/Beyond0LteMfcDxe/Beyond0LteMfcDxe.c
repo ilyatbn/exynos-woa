@@ -59,6 +59,8 @@
 #define MFC_FW_FILE_GUID  { 0x5d7c1b1e, 0x93a6, 0x4f1e, { 0x9a, 0x3c, 0x6a, 0x0e, 0x21, 0x7b, 0x4d, 0x10 } }
 
 #define MFC_PROGRESS_TRYING  0x6Cu
+#define MFC_DSDT_WORD        13u           // progress word [13] (0x8FE0F034) = 'VIDC' -> DSDT VIDC present
+#define MFC_DSDT_PRESENT     0x43444956u   // 'VIDC'
 STATIC volatile UINT32  *CONST  mProgress = (volatile UINT32 *)(UINTN)0x8FE0F000ULL;
 
 STATIC
@@ -206,7 +208,16 @@ Beyond0LteMfcEntry (
   UINT32  Saved;
   UINTN   Wait;
 
+  //
+  // DSDT VIDC._STA reads progress word [13]: 'VIDC' only when THIS boot saw pd-mfc on, so the Windows driver never
+  // touches an unpowered MFC (a value surviving a warm reset is cleared here first).
+  //
+  mProgress[MFC_DSDT_WORD] = 0;
   if (!BEYOND0LTE_MFC_PROBE && !BEYOND0LTE_MFC_POWER && !BEYOND0LTE_MFC_FWBOOT) {
+    if (MfcPowered ()) {
+      mProgress[MFC_DSDT_WORD] = MFC_DSDT_PRESENT;
+    }
+
     return EFI_SUCCESS;
   }
 
@@ -238,6 +249,10 @@ Beyond0LteMfcEntry (
     }
   } else {
     DEBUG ((DEBUG_ERROR, "[MFC] pd-mfc is off - no CMU_MFC / MFC reads (R2 powers it on)\n"));
+  }
+
+  if (MfcPowered ()) {
+    mProgress[MFC_DSDT_WORD] = MFC_DSDT_PRESENT;
   }
 
   mProgress[1] = Saved;

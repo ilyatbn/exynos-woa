@@ -579,3 +579,9 @@ No device access in this task; build-verified only (Guided, not Ready).
   Kernel start = parking + 3.75 s, secondaries + 9.5 s.
 - Next: per-core word CIDSR -> EDSCR (0x088), pad -> DBGAUTHSTATUS (0xFB8) to see whether invasive debug (halt + ITR)
   is permitted; control run with the M4s parked but NOT offered to prove the sampler itself is harmless.
+- m4pcs3 CONTROL (8b49c112, PARK 0xFE, OFFER 0x36: M4s parked in WFI, not offered; gicc3 samples): Windows fine, Wi-Fi
+  + SSH up, harness clean restart ("Shutdown occurred" 09:43:12) -> torecovery path. The sampler is harmless.
+- DBGAUTHSTATUS = 0xAA on ALL 8 cores (NSID/NSNID/SID/SNID all "implemented, disabled") -> every external debug
+  feature (PC sampling, halting, ITR) is fused/strapped off on this retail part. EDSCR also aborts while OSLK is set.
+  => The CoreSight route to an "EL3/hardware view" is CLOSED. The sampler stays useful only as a reset-surviving
+  per-core power/reset/halt timeline (EDPRSR) with the death time.

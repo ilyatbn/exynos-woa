@@ -39,3 +39,8 @@ User report 2026-10-15: ~18 Mbit/s while copying a 725 MB file to the phone over
   Next suspect: the association is not QoS/WMM (BA requires a QoS association) -> check iovar 'wme' and the WMM IE
   in our join/assoc request (WDI WMMQoSEnabled path, notes/m12-wifi-wificx.md:318); then ADDBA action-frame handling.
 - Battery 12 % at 23:20 - user asked to pause below 10 % to charge.
+- 23:25 WMM is negotiated ('[join] association result: status 0, phy 8, wmm 1, req 164 B resp 219 B') -> QoS is not the
+  blocker. Open: why our ADDBA requests (5) get no ADDBA response and the AP never initiates one (rxaddbareq 0) although
+  it sends us HT MCS7. Next: decode the HT Capabilities element in our 164 B association request (A-MPDU params /
+  "assoc_req_ies"), compare with what Android's dhd joins with; check whether action frames from the AP reach the
+  firmware. Paused for battery (12 %). State: BT 1.0.0.15 (= 1.0.0.10 code), Wi-Fi 1.0.10.0 (dump every ~1 min).

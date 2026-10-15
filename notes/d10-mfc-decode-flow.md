@@ -126,3 +126,18 @@ F. CLOSE_INSTANCE H2R 6 -> R2H 6 (INSTANCE_ID first). DPB_FLUSH H2R 10 -> R2H 10
   could complete the next command early (only after a timeout) - follow-up if timeouts ever show up.
 - 15:12 vidc5: TWRP-deployed 1.0.0.5 (sys 8B42879D) + C:\S10eTmp\mfc {mfcdec.exe, c720/c1080/cbase.h264}, stay.flg set (Windows stays up for ssh). kd-vidc5.log.
 - 15:20 vidc5: SSH broken - ssh config host stale (address changed) and on the current address sshd resets during the banner exchange (kex_exchange_identification). Switching the mfcdec run to the boot agent (extra-mfcdec.cmd, also collects sshd state); kdrun twrp to leave the stay.flg boot.
+- **15:26 V3 PASSED (vidc6, 1.0.0.5 + mfcdec cb04155 via extra-mfcdec.cmd): user-mode IOCTL decode is bit-exact vs
+  libavcodec on real x264 streams** (per-frame FNV of the cropped NV12, diffed against mkclip.py output):
+  | clip | frames | result | wall fps | hw wait |
+  | cbase 640x360 baseline (coded 640x368, crop b8) | 30/30 | IDENTICAL | 143.1 | 1.94 ms/frame |
+  | c720 1280x720 high, 2 B-frames | 30/30 | IDENTICAL | 45.6 | 4.92 ms/frame |
+  | c1080 1920x1080 high, 2 B-frames (coded 1088, crop b8) | 60/60 | IDENTICAL | 17.9 | 15.38 ms/frame |
+  KD: min dpb 4/6/6 -> dpb 6/8/8; 1080p slot 0x2ff000, scratch 0x15500, mv 5 x 0x7fc00; CLOSE R2H 6 each; 0 errors.
+  Hardware decode ~15 ms per 1080p frame (~65 fps capability); the wall rate is bound by copies: each call copies
+  the input window (up to 4 MiB, I/O manager + CPB) and reads the NV12 picture out of NON-CACHED memory, and
+  mfcdec hashes 3 MB per frame byte-by-byte. To do: smaller input windows, cached/faster copy-out, -q timing run.
+- **SSH root cause (vidc6 OpenSSH/Operational log):** "sshd: drop connection ... penalty: connections without
+  attempting authentication" - OpenSSH 10 PerSourcePenalties. tools/phone/watchall.sh opens TCP 22 every 5 s
+  without authenticating, so sshd penalises the PC's address and drops every real login (banner aborts). Also the
+  PC ssh config's host entry is stale (the phone's address changed; local/phone.env is current). Fix: sshd_config
+  "PerSourcePenalties no" (from TWRP) + config host from phone.env.

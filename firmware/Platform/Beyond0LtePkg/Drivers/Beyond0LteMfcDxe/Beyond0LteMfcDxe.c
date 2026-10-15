@@ -49,6 +49,12 @@
 #define MFC_REG_REG_CLEAR_BEGIN      0xF000u   // mfc_regs.h:491
 #define MFC_REG_REG_CLEAR_COUNT      1024u     // mfc_regs.h:492
 #define MFC_R2H_FW_STATUS_RET        12u       // mfc_regs.h:526
+#define MFC_REG_CONTEXT_MEM_ADDR     0xF014u   // mfc_regs.h:45
+#define MFC_REG_CONTEXT_MEM_SIZE     0xF018u   // mfc_regs.h:46
+#define MFC_H2R_CMD_SYS_INIT         1u        // mfc_regs.h:498
+#define MFC_R2H_SYS_INIT_RET         1u        // mfc_regs.h:517
+#define MFC_DEV_CTX_SIZE             0x8000u   // mfc.c mfc_ctx_buf_size.dev_ctx = PAGE_ALIGN(0x7800)
+#define MFC_CTX_OFFSET               0x400000u // common context buffer: 4 MiB into the 8 MiB firmware buffer
 #define MFC_FW_BUFFER_PAGES          2048u     // 8 MiB: image (688 KiB) + room for the firmware's own working memory
 #define MFC_FW_FILE_GUID  { 0x5d7c1b1e, 0x93a6, 0x4f1e, { 0x9a, 0x3c, 0x6a, 0x0e, 0x21, 0x7b, 0x4d, 0x10 } }
 
@@ -159,6 +165,32 @@ MfcFwBoot (
           MmioRead32 (Mfc + MFC_REG_RISC2HOST_INT), R2h, MFC_R2H_FW_STATUS_RET));
   DEBUG ((DEBUG_ERROR, "[MFC] R3: FW_VERSION %08x MFC_VERSION %08x RISC_ON %x\n", MmioRead32 (Mfc + MFC_REG_FW_VERSION),
           MmioRead32 (Mfc + MFC_REG_MFC_VERSION), MmioRead32 (Mfc + MFC_REG_RISC_ON)));
+
+  //
+  // R4: SYS_INIT (vendor mfc_cmd_sys_init + mfc_cmd_host2risc): CONTEXT_MEM_ADDR/SIZE = the common context buffer
+  // (dev_ctx = PAGE_ALIGN(0x7800) = 0x8000, mfc.c mfc_ctx_buf_size), clean R2H, H2R cmd 1 + H2R int, wait R2H 1.
+  //
+  if (R2h == MFC_R2H_FW_STATUS_RET) {
+    MmioWrite32 (Mfc + MFC_REG_RISC2HOST_CMD, 0);
+    MmioWrite32 (Mfc + MFC_REG_RISC2HOST_INT, 0);
+    MmioWrite32 (Mfc + MFC_REG_CONTEXT_MEM_ADDR, (UINT32)(Buf + MFC_CTX_OFFSET));
+    MmioWrite32 (Mfc + MFC_REG_CONTEXT_MEM_SIZE, MFC_DEV_CTX_SIZE);
+    MmioWrite32 (Mfc + MFC_REG_HOST2RISC_CMD, MFC_H2R_CMD_SYS_INIT);
+    MmioWrite32 (Mfc + MFC_REG_HOST2RISC_INT, 1);
+    R2h = 0;
+    for (Wait = 0; Wait < 1000; Wait++) {
+      if (MmioRead32 (Mfc + MFC_REG_RISC2HOST_INT) != 0) {
+        R2h = MmioRead32 (Mfc + MFC_REG_RISC2HOST_CMD);
+        break;
+      }
+
+      MicroSecondDelay (1000);
+    }
+
+    DEBUG ((DEBUG_ERROR, "[MFC] R4: SYS_INIT ctx %lx + %x -> R2H after %u ms: cmd %u (SYS_INIT_RET %u expected); FW_VERSION %08x\n",
+            Buf + MFC_CTX_OFFSET, MFC_DEV_CTX_SIZE, (UINT32)Wait, R2h, MFC_R2H_SYS_INIT_RET,
+            MmioRead32 (Mfc + MFC_REG_FW_VERSION)));
+  }
 
   MmioWrite32 (Mfc + MFC_REG_RISC_ON, 0);                  // quiet again for Windows
   MfcReset ();

@@ -42,3 +42,13 @@ FVMAIN_COMPACT (verification build) - watch image space on main.
   from non-secure UEFI with the SYSMMUs in reset bypass (device address = physical) and no TZPC block (sboot left
   pd-mfc on and configured; no need_smc call was needed). MFC put back into reset afterwards; Windows booted fine.
 - Next: R4 SYS_INIT (mfc_cmd_sys_init), then the Windows side.
+- **R4 PASSED (btmfc3 2e5a27a4, 14:16 boot):** after FW_STATUS_RET: CONTEXT_MEM_ADDR = 0xEFB00000 (buffer + 4 MiB),
+  CONTEXT_MEM_SIZE = 0x8000, H2R cmd 1 + H2R int -> R2H cmd 1 = SYS_INIT_RET after 1 ms; FW_VERSION 45210720 stays.
+  => MFC firmware boots AND initialises from non-secure UEFI (physical addressing, SYSMMUs in reset bypass).
+  (The first btmfc3 boot at 14:14 came back to TWRP after ~50 s with no UEFILOG written and no explanation - the
+  identical image then ran cleanly; logged as an intermittent early-boot reset, second unexplained one today after
+  the verbose8 UEFI hang.)
+- Windows plan: V-W1 KMDF driver Exynos9820Mfc on DSDT VIDC (_HID SAMS982A, MFC window + GSIV 370) that loads
+  %12%\mfc_fw.bin (package copy from the phone, never committed) into a physically contiguous non-cached buffer
+  below 4 GiB, boots it (R3) and SYS_INITs it (R4) with the R2H interrupt; V-W2 decode one H.264 stream via private
+  IOCTLs (instance open, seq header, frame decode - vendor mfc_cmd/mfc_nal flow); V-W3 Media Foundation integration.

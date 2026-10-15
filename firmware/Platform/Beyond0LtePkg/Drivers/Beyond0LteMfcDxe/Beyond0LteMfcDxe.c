@@ -15,6 +15,11 @@
 #include <Library/DebugLib.h>
 #include <Library/IoLib.h>
 #include <Library/TimerLib.h>
+#include <Library/BaseMemoryLib.h>
+#include <Library/MemoryAllocationLib.h>
+#include <Library/CacheMaintenanceLib.h>
+#include <Library/DxeServicesLib.h>
+#include <Library/UefiBootServicesTableLib.h>
 #include <Platform/Exynos9820.h>
 
 #ifndef BEYOND0LTE_MFC_PROBE
@@ -23,6 +28,29 @@
 #ifndef BEYOND0LTE_MFC_POWER
 #define BEYOND0LTE_MFC_POWER  0
 #endif
+//
+// R3 (BEYOND0LTE_MFC_FWBOOT): boot the MFC RISC from mfc_fw.bin (embedded in the FV only by test builds: FDF
+// MFC_FW_EMBED, blob copied from the phone's /vendor/firmware into a gitignored folder - never committed). Sequence =
+// vendor __mfc_init_hw (mfc_run.c:30-70): reset (clear R2H/H2R/FW_VERSION + 1024 words from 0xF000, MFC_RESET 0x1FFF
+// then 0), RISC_BASE_ADDRESS = firmware buffer address (SYSMMUs in their reset bypass state: device address =
+// physical, so the buffer is below 4 GiB), RISC_ON 1 + MFC_OFF 0, wait R2H FW_STATUS_RET (12). Then the MFC is put
+// back into reset so Windows finds it quiet.
+//
+#ifndef BEYOND0LTE_MFC_FWBOOT
+#define BEYOND0LTE_MFC_FWBOOT  0
+#endif
+#define MFC_REG_RISC2HOST_INT        0x003Cu   // mfc_regs.h:25
+#define MFC_REG_HOST2RISC_INT        0x0044u   // mfc_regs.h:26
+#define MFC_REG_RISC_BASE_ADDRESS    0x0054u   // mfc_regs.h:27
+#define MFC_REG_HOST2RISC_CMD        0x1100u   // mfc_regs.h:32
+#define MFC_REG_RISC2HOST_CMD        0x1104u   // mfc_regs.h:33
+#define MFC_REG_MFC_OFF              0x7120u   // mfc_regs.h:39
+#define MFC_REG_FW_VERSION           0xF000u   // mfc_regs.h:42
+#define MFC_REG_REG_CLEAR_BEGIN      0xF000u   // mfc_regs.h:491
+#define MFC_REG_REG_CLEAR_COUNT      1024u     // mfc_regs.h:492
+#define MFC_R2H_FW_STATUS_RET        12u       // mfc_regs.h:526
+#define MFC_FW_BUFFER_PAGES          2048u     // 8 MiB: image (688 KiB) + room for the firmware's own working memory
+#define MFC_FW_FILE_GUID  { 0x5d7c1b1e, 0x93a6, 0x4f1e, { 0x9a, 0x3c, 0x6a, 0x0e, 0x21, 0x7b, 0x4d, 0x10 } }
 
 #define MFC_PROGRESS_TRYING  0x6Cu
 STATIC volatile UINT32  *CONST  mProgress = (volatile UINT32 *)(UINTN)0x8FE0F000ULL;
@@ -51,6 +79,91 @@ MfcReadIds (
           MmioRead32 ((UINTN)EXYNOS_MFC_BASE + MFC_REG_RISC_ON)));
 }
 
+STATIC
+VOID
+MfcReset (
+  VOID
+  )
+{
+  UINTN  Mfc;
+  UINTN  Index;
+
+  Mfc = (UINTN)EXYNOS_MFC_BASE;
+  MmioWrite32 (Mfc + MFC_REG_RISC2HOST_CMD, 0);
+  MmioWrite32 (Mfc + MFC_REG_HOST2RISC_CMD, 0);
+  MmioWrite32 (Mfc + MFC_REG_FW_VERSION, 0);
+  for (Index = 0; Index < MFC_REG_REG_CLEAR_COUNT; Index++) {
+    MmioWrite32 (Mfc + MFC_REG_REG_CLEAR_BEGIN + Index * 4, 0);
+  }
+
+  MmioWrite32 (Mfc + MFC_REG_MFC_RESET, 0x1FFF);
+  MmioWrite32 (Mfc + MFC_REG_MFC_RESET, 0);
+}
+
+/** R3: boot the RISC from the embedded mfc_fw.bin and wait for FW_STATUS_RET (12). **/
+STATIC
+VOID
+MfcFwBoot (
+  VOID
+  )
+{
+  STATIC CONST EFI_GUID  FwGuid = MFC_FW_FILE_GUID;
+  VOID                   *Fw;
+  UINTN                  FwSize;
+  EFI_PHYSICAL_ADDRESS   Buf;
+  UINTN                  Mfc;
+  UINTN                  Wait;
+  UINT32                 R2h;
+  EFI_STATUS             Status;
+
+  Fw     = NULL;
+  FwSize = 0;
+  Status = GetSectionFromAnyFv (&FwGuid, EFI_SECTION_RAW, 0, &Fw, &FwSize);
+  if (EFI_ERROR (Status) || (FwSize == 0)) {
+    DEBUG ((DEBUG_ERROR, "[MFC] R3: mfc_fw.bin not embedded in this build (%r) - skipped\n", Status));
+    return;
+  }
+
+  Buf    = SIZE_4GB - 1;
+  Status = gBS->AllocatePages (AllocateMaxAddress, EfiReservedMemoryType, MFC_FW_BUFFER_PAGES + 256, &Buf);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "[MFC] R3: no buffer below 4 GiB (%r)\n", Status));
+    return;
+  }
+
+  Buf = ALIGN_VALUE (Buf, SIZE_1MB);                       // 256 spare pages cover the 1 MiB alignment
+  ZeroMem ((VOID *)(UINTN)Buf, EFI_PAGES_TO_SIZE (MFC_FW_BUFFER_PAGES));
+  CopyMem ((VOID *)(UINTN)Buf, Fw, FwSize);
+  WriteBackInvalidateDataCacheRange ((VOID *)(UINTN)Buf, EFI_PAGES_TO_SIZE (MFC_FW_BUFFER_PAGES));
+  FreePool (Fw);
+
+  Mfc = (UINTN)EXYNOS_MFC_BASE;
+  MfcReset ();
+  MmioWrite32 (Mfc + MFC_REG_RISC_BASE_ADDRESS, (UINT32)Buf);
+  MmioWrite32 (Mfc + MFC_REG_RISC2HOST_CMD, 0);           // mfc_clean_dev_int_flags
+  MmioWrite32 (Mfc + MFC_REG_RISC2HOST_INT, 0);
+  MmioWrite32 (Mfc + MFC_REG_RISC_ON, 1);
+  MmioWrite32 (Mfc + MFC_REG_MFC_OFF, 0);
+  R2h = 0;
+  for (Wait = 0; Wait < 2000; Wait++) {                    // up to 2 s
+    if (MmioRead32 (Mfc + MFC_REG_RISC2HOST_INT) != 0) {
+      R2h = MmioRead32 (Mfc + MFC_REG_RISC2HOST_CMD);
+      break;
+    }
+
+    MicroSecondDelay (1000);
+  }
+
+  DEBUG ((DEBUG_ERROR, "[MFC] R3: fw %u B at %lx, base reg %x; R2H after %u ms: int %x cmd %u (FW_STATUS_RET %u expected)\n",
+          (UINT32)FwSize, Buf, MmioRead32 (Mfc + MFC_REG_RISC_BASE_ADDRESS), (UINT32)Wait,
+          MmioRead32 (Mfc + MFC_REG_RISC2HOST_INT), R2h, MFC_R2H_FW_STATUS_RET));
+  DEBUG ((DEBUG_ERROR, "[MFC] R3: FW_VERSION %08x MFC_VERSION %08x RISC_ON %x\n", MmioRead32 (Mfc + MFC_REG_FW_VERSION),
+          MmioRead32 (Mfc + MFC_REG_MFC_VERSION), MmioRead32 (Mfc + MFC_REG_RISC_ON)));
+
+  MmioWrite32 (Mfc + MFC_REG_RISC_ON, 0);                  // quiet again for Windows
+  MfcReset ();
+}
+
 EFI_STATUS
 EFIAPI
 Beyond0LteMfcEntry (
@@ -61,7 +174,7 @@ Beyond0LteMfcEntry (
   UINT32  Saved;
   UINTN   Wait;
 
-  if (!BEYOND0LTE_MFC_PROBE && !BEYOND0LTE_MFC_POWER) {
+  if (!BEYOND0LTE_MFC_PROBE && !BEYOND0LTE_MFC_POWER && !BEYOND0LTE_MFC_FWBOOT) {
     return EFI_SUCCESS;
   }
 
@@ -88,6 +201,9 @@ Beyond0LteMfcEntry (
 
   if (MfcPowered ()) {
     MfcReadIds ();
+    if (BEYOND0LTE_MFC_FWBOOT) {
+      MfcFwBoot ();
+    }
   } else {
     DEBUG ((DEBUG_ERROR, "[MFC] pd-mfc is off - no CMU_MFC / MFC reads (R2 powers it on)\n"));
   }

@@ -1,0 +1,3 @@
+# mfc_fw.bin is copied from the phone (/vendor/firmware) for D10 test builds only - never commit it.
+*
+!.gitignore

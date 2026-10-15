@@ -26,6 +26,11 @@
   DebugLib
   IoLib
   TimerLib
+  BaseMemoryLib
+  MemoryAllocationLib
+  CacheMaintenanceLib
+  DxeServicesLib
+  UefiBootServicesTableLib
 
 [Depex]
   gEfiCpuArchProtocolGuid

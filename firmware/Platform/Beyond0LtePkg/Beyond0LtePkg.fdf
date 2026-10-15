@@ -95,6 +95,7 @@
   # MUST match PcdFdBaseAddress / PcdFvBaseAddress in Beyond0LtePkg.dsc.
   DEFINE FD_BASE_ADDRESS = 0x0000000090000000
   DEFINE FD_SIZE         = 0x0000000000700000    # 7 MB FV — carried from the 9810 (build parameter, not a read)
+  DEFINE MFC_FW_EMBED    = FALSE                 # D10 R3 test builds only: TRUE embeds Binary/MfcFw/mfc_fw.bin (gitignored, from the phone)
 
 [FD.BEYOND0LTE_UEFI]
   BaseAddress   = $(FD_BASE_ADDRESS)
@@ -247,6 +248,11 @@
   INF Platform/Beyond0LtePkg/Drivers/Beyond0LteBtUartDxe/Beyond0LteBtUartDxe.inf
   # D10: MFC probe - pd-mfc status, CMU_MFC + MFC version only while powered (off unless BEYOND0LTE_MFC_PROBE)
   INF Platform/Beyond0LtePkg/Drivers/Beyond0LteMfcDxe/Beyond0LteMfcDxe.inf
+!if $(MFC_FW_EMBED) == TRUE
+  FILE FREEFORM = 5D7C1B1E-93A6-4F1E-9A3C-6A0E217B4D10 {     # Beyond0LteMfcDxe MFC_FW_FILE_GUID
+    SECTION RAW = Platform/Beyond0LtePkg/Binary/MfcFw/mfc_fw.bin
+  }
+!endif
   # M16 G3: read-only Mali-G76 probe (PMU G3D status first, GPU_ID only if on) into UEFILOG (notes/gpu-m16-g2g3.md)
   INF Platform/Beyond0LtePkg/Drivers/Beyond0LteGpuProbeDxe/Beyond0LteGpuProbeDxe.inf
 

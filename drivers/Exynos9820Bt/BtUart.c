@@ -578,11 +578,11 @@ BtUartBringUp(
         BtUartLogIdentity(Uart, "after patch");
     }
 
-    // Only when the host demonstrably produces BT_BAUD_OPER (+-3 %): a controller switched to a rate the host
+    // Only when the host demonstrably produces BT_BAUD_OPER (+-4 %: the 64-byte loopback window reads ~2.5 % low at 1.6 Mbaud): a controller switched to a rate the host
     // cannot follow is lost until the next reboot (1.0.0.4-1.0.0.6).
     if ((Subver != 0) && (Rd(Uart, BT_UART_UBRDIV) != BT_UBRDIV_OPER))
     {
-        if ((RateOper > BT_BAUD_OPER / 100 * 97) && (RateOper < BT_BAUD_OPER / 100 * 103))
+        if ((RateOper > BT_BAUD_OPER / 100 * 96) && (RateOper < BT_BAUD_OPER / 100 * 104))
         {
             BtUartSpeedUp(Uart);
         }

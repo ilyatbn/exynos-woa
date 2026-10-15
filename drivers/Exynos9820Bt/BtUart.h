@@ -51,14 +51,14 @@
 // 115200 8N1 from the 26 MHz oscillator the UEFI half selects (UEFI R1 timing confirmed 26 MHz).
 #define BT_UBRDIV_115200    13u
 #define BT_UFRACVAL_115200  2u
-// Operating speed (notes/goal-bbb-bt-wifi.md T3): A2DP SBC needs ~41 KB/s, 115200 carries 10.5 KiB/s. Same formula
-// as the 115200 pair (26 MHz / (16 x (UBRDIV + 1 + UFRACVAL / 16)) = 115044 for 13/2): 26e6 / (16 x 1.625) =
-// 1000000 exactly with UBRDIV 0, UFRACVAL 10. The controller is moved with Broadcom's Update_UART_Baud_Rate
-// (0xFC18, {le16 0, le32 baud}, Linux btbcm.h:12-15 / hci_bcm.c:178-224; the 0xFC45 clock command is only for
-// > 3 Mbaud).
-#define BT_BAUD_OPER        1000000u
+// Operating speed (notes/goal-bbb-bt-wifi.md T3): A2DP SBC needs ~41 KB/s, 115200 carries 10.5 KiB/s.
+// Measured on the device (1.0.0.7, loopback + QPC): 13/2 -> 114985 (the fraction works there), 0/10 -> 1584761: with
+// UBRDIV 0 the fraction is ignored, the UART runs at 26 MHz / 16 = 1625000. 1 Mbaud is out of reach from 26 MHz, so
+// the operating speed is that exact 1625000 (UBRDIV 0, UFRACVAL 0). The controller follows Broadcom's
+// Update_UART_Baud_Rate (0xFC18, {le16 0, le32 baud}, Linux btbcm.h:12-15 / hci_bcm.c:178-224; 0xFC45 only > 3 Mbaud).
+#define BT_BAUD_OPER        1625000u
 #define BT_UBRDIV_OPER      0u
-#define BT_UFRACVAL_OPER    10u
+#define BT_UFRACVAL_OPER    0u
 
 #define BT_RX_RING_SIZE     16384u     // power of two (4096 overflowed 8611 times in the RFCOMM echo test)
 #define BT_TX_RING_SIZE     16384u     // power of two; the TX FIFO is refilled from the ISR (TXD level interrupt)

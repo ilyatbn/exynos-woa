@@ -109,3 +109,4 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   2.1 GHz voltage / G3D 572 MHz) or older (pre-existing silent resets)? Next evidence: KD session during idle
   ("every" break mode brackets a freeze) or run a day at base clocks for comparison.
 - 18:56 bisect config live (boot after the TWRP reset): CPU level 0 (1742/2106 MHz), G3D held at 260 MHz; WDT petted (65062/65525). If idle hangs continue -> not the G3D clock.
+- 19:05 G15 S0: phone = Windows 11 23H2 10.0.22631.6199 (UBR 0x1837); MaliG76Wddm oem29.inf Started, Parameters GpuEnable 1, FullAdapter 1, ScanoutStride 0x440, OfferRotation 1. Design: notes/gpu-wddm2-design.md.

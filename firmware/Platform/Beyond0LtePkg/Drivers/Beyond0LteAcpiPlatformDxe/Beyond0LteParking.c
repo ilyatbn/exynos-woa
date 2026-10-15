@@ -142,6 +142,27 @@ STATIC_ASSERT (EXYNOS_GICD_BASE == 0x10101000ULL, "Beyond0LteParkStub.S hardcode
 
 extern UINT8  Beyond0LteParkStub[];
 extern UINT8  Beyond0LteParkStubEnd[];
+
+STATIC
+UINT32
+ParkRd32 (
+  IN UINT64  Address
+  )
+{
+  WriteBackInvalidateDataCacheRange ((VOID *)(UINTN)Address, sizeof (UINT32));
+  return *(volatile UINT32 *)(UINTN)Address;
+}
+
+STATIC
+UINT64
+ParkRd64 (
+  IN UINT64  Address
+  )
+{
+  WriteBackInvalidateDataCacheRange ((VOID *)(UINTN)Address, sizeof (UINT64));
+  return *(volatile UINT64 *)(UINTN)Address;
+}
+
 #if BEYOND0LTE_PARK_SLEEP_UNOFFERED
 extern UINT8  Beyond0LteParkFault[];
 
@@ -223,26 +244,6 @@ ParkPcSampleGo (
   WriteBackInvalidateDataCacheRange ((VOID *)(UINTN)(SamplerPage + PARK_PCS_GO_OFF), sizeof (UINT64));
 }
 #endif // BEYOND0LTE_PARK_SLEEP_UNOFFERED
-
-STATIC
-UINT32
-ParkRd32 (
-  IN UINT64  Address
-  )
-{
-  WriteBackInvalidateDataCacheRange ((VOID *)(UINTN)Address, sizeof (UINT32));
-  return *(volatile UINT32 *)(UINTN)Address;
-}
-
-STATIC
-UINT64
-ParkRd64 (
-  IN UINT64  Address
-  )
-{
-  WriteBackInvalidateDataCacheRange ((VOID *)(UINTN)Address, sizeof (UINT64));
-  return *(volatile UINT64 *)(UINTN)Address;
-}
 
 VOID
 Beyond0LteParkSecondaries (

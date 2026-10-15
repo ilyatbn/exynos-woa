@@ -337,3 +337,9 @@ exynos9820/cmucal-sfr.c + cmucal-node.c, drivers/pinctrl/samsung/pinctrl-exynos-
   advert flood drowned Windows (ping/SSH gone for minutes, looked like a crash) and the slowed DPC let the 4 KiB RX
   ring overflow -> 37 out-of-sync parser resets. Fix: BT_TRACE_MAX_LEVEL = LEVEL_ERROR (bring-up lines stay).
   To do: RTS flow control (deassert when the ring fills) so a slow DPC never drops bytes.
+- **R5 PASSED (14:00, btscan.exe from a normal Windows process):** LE active scan 20 s -> 62 advertisements from 2
+  distinct nearby advertisers (both with local names, best RSSI -88 dBm); classic DeviceWatcher 20 s -> 0 (nothing
+  discoverable nearby, consistent with the empty inquiries). => Windows apps can scan over this Bluetooth stack.
+  Pairing (R5 second half) needs a device in pairing mode next to the phone - waits for the user.
+- Remaining D4c work: phone's own BD address (vendor write at bring-up; read from the device, never recorded),
+  RTS flow control, BT role latch + driver in the default image, power management (no idle yet), higher baud.

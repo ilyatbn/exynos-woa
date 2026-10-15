@@ -270,6 +270,35 @@ BtUartLmpSubver(
     return 0;
 }
 
+/** Diagnostics: HCI Read Local Name (0x0C14) and Broadcom verbose config (0xFC79: chip id + firmware build). **/
+static VOID
+BtUartLogIdentity(
+    _In_ PBT_UART Uart,
+    _In_z_ const char *Tag
+    )
+{
+    UCHAR Reply[258];
+    ULONG Len;
+    UCHAR St;
+    CHAR  Name[64];
+    ULONG Index;
+
+    Len = 0;
+    St  = BtUartHciCmd(Uart, 0x0C14, NULL, 0, 500, Reply, &Len);
+    RtlZeroMemory(Name, sizeof(Name));
+    for (Index = 0; (Index + 4 < Len) && (Index < sizeof(Name) - 1) && (Reply[4 + Index] != 0); Index++)
+    {
+        Name[Index] = ((Reply[4 + Index] >= 0x20) && (Reply[4 + Index] < 0x7F)) ? (CHAR)Reply[4 + Index] : '.';
+    }
+
+    DoTrace(LEVEL_ERROR, TFLAG_HCI, ("%s: READ_LOCAL_NAME %02x \"%s\"", Tag, St, Name));
+    Len = 0;
+    St  = BtUartHciCmd(Uart, 0xFC79, NULL, 0, 500, Reply, &Len);
+    DoTrace(LEVEL_ERROR, TFLAG_HCI, ("%s: BCM verbose config %02x len %u: %02x %02x %02x %02x %02x %02x %02x %02x", Tag, St, Len,
+            Len > 4 ? Reply[4] : 0, Len > 5 ? Reply[5] : 0, Len > 6 ? Reply[6] : 0, Len > 7 ? Reply[7] : 0,
+            Len > 8 ? Reply[8] : 0, Len > 9 ? Reply[9] : 0, Len > 10 ? Reply[10] : 0, Len > 11 ? Reply[11] : 0));
+}
+
 /** Broadcom patchram: 0xFC2E, 50 ms, each .hcd record as a command, 250 ms after the last (0xFC4E launch). **/
 static NTSTATUS
 BtUartPatchram(
@@ -368,11 +397,13 @@ BtUartBringUp(
     }
 
     Subver = BtUartLmpSubver(Uart);
+    BtUartLogIdentity(Uart, "before patch");
     if (Subver == BT_ROM_SUBVER)
     {
         BtUartPatchram(Uart);
         DoTrace(LEVEL_ERROR, TFLAG_HCI, ("HCI_RESET after patch %02x", BtUartHciCmd(Uart, 0x0C03, NULL, 0, 1000, NULL, NULL)));
         Subver = BtUartLmpSubver(Uart);
+        BtUartLogIdentity(Uart, "after patch");
     }
 
     // Interrupt mode for the runtime path (RX still masked until BtUartRxStart).

@@ -35,3 +35,9 @@ WLAN AutoConfig, networking, Windows Update decision left to the user).
 - trim step 2 (C:\S10eTmp\trim2.ps1, undo trim2-undo.ps1): fsutil DisableDeleteNotify NTFS 0 -> 1 (the UFS rejects
   UNMAP anyway); disabled tasks CEIP\Consolidator, OneDrive Startup Task-<user>. Access denied (protected, left alone
   - not forcing ownership): DeviceDirectoryClient\Register* (3), UpdateOrchestrator\Start Oobe Expedite Work.
+- 01:50 TRIM flood stopped (ClassPnP/Operational 0/min). Remaining EventLog churn: OpenSSH/Operational full (1 MB) and
+  wrapping, fed by our watchall port-22 probe every 5 s -> sshd_config "LogLevel ERROR" (backup sshd_config.bak-trim,
+  sshd -t exit 0, service restarted). TaskScheduler 10/min left (protected tasks). Battery under Windows now:
+  charging engine on (CHG_DTLS 1), net -78 mA on the 500 mA PC port. Defender 1.6 % after its scans.
+- Stalls: ~1 min ping/SSH gaps also recur on 1.0.10.7 (01:41) -> NOT caused by the adaptive poll; revert was
+  unnecessary - adaptive poll to be restored once the stalls are understood.

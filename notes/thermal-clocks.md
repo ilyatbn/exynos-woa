@@ -64,3 +64,6 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   AcquireResource <- OMSetRenderTargets <- d2d1 EndDraw <- Terminal Atlas BackendD2D: the swap chain's buffer
   fence is missing (composition/flip swap chain on the WDDM 1.3 Mali adapter). Global WER LocalDumps enabled
   (C:\S10eTmp\dumps, minidump, 20) to catch the shell hosts.
+- 17:50 correction: the shell-host crashes are OLD (latest ShellExperienceHost/SearchHost/StartMenu 2026-10-14
+  13:19Z, TextInputHost 10-14 08:26Z; this boot 10-15 11:47Z) and all four hosts run now. Only WindowsTerminal
+  crash-loops on this boot (latest 12:27Z).

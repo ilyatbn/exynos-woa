@@ -655,3 +655,5 @@ No device access in this task; build-verified only (Guided, not Ready).
   ('DE' << 16 | n) on the stay.flg path; the 2nd death without a cold power-on (RAM lost) or a clean OS restart
   (0x80 branch clears it) in between ignores stay.flg and goes to TWRP. The no-stay.flg path already went to TWRP.
   Needs WINDOWS_WATCHDOG 1 to turn a hang into a reset - the old boot-kd6.img has it OFF (a hang there stays dark).
+- SAFEGUARD VERIFIED 11:34: boot-m4w8.img (4b8c8730, 8 cores, WINDOWS_WATCHDOG 1) with stay.flg ON came back to TWRP
+  by itself ~3.5 min after the reboot; UEFILOG "Windows died 2 times in a row - ignoring stay.flg, going to TWRP".

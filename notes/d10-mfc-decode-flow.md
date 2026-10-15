@@ -113,6 +113,7 @@ F. CLOSE_INSTANCE H2R 6 -> R2H 6 (INSTANCE_ID first). DPB_FLUSH H2R 10 -> R2H 10
   values; LAST_FRAME R2H 13 status 0x3 (drained); CLOSE_INSTANCE R2H 6; ISR test: ISR ran 1 time, last R2H 6.
   => **the MFC hardware decodes H.264 bit-exactly from Windows.** Observations: firmware min plane sizes
   0x3040/0x1840 = plane + 0x40 (our +256 rule covers it); status bit7 set with display (0x81) - meaning not
-  looked up; SEQ_HEADER consumed 13 = SPS+PPS bytes... (SPS 13? stream starts with SPS 4+? -> header parse stops
-  after SPS/PPS; refeed at offset worked).
+  looked up. Start codes in the stream at 0 (SPS), 12 (PPS), 20 (IDR), 18556 (P): SEQ_HEADER consumed 13 and
+  the first NAL_START 18544 (13 + 18544 = 18557) - consumption ends 1 byte into the next 4-byte start code,
+  and the offset refeed works.
   Layout rule (recorded): every MFC buffer must lie above the RISC base (below it -> OPEN_INSTANCE ERR_RET 10).

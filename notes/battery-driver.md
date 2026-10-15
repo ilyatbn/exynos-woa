@@ -219,3 +219,13 @@ free.
   <= 2 -> 100 mA, max 3150; max77705_set_charge_current :627-648); register addresses in max77705-private.h:77/84.
   S10eBattery reads only CHG_DETAILS_00/01 and never sets these -> under Windows the charger runs with whatever was
   left by the bootloader/power-on defaults. Next: read 0xB9 / 0xC0 under Windows (read-only) and compare.
+- **2026-10-16 00:55 Windows charging regression = stale driver.** Same PC USB cable. Windows ran S10eBattery 1.0.0.1
+  (no charger-WDT kick): BatteryStatus online / not charging / discharging 330-1260 mW, AvgCurrent -106 mA,
+  ChgDetails 0x3BE0 = CHGIN_DTLS 3 (VBUS valid), CHG_DTLS 0xB (charger watchdog expired -> charging off) = the
+  2026-10-12 bug fixed in db0c25d, but that build was no longer installed. Installed 1.0.0.4 (WDT kick + CHG_CNFG_02/09
+  diagnostics): CHG_DTLS 1 (charging), CNFG_00 0x15 (WDTEN, mode 5 CHG+BUCK), WdtKicked 1, CHG_CC 0x09 = 450 mA,
+  CHGIN_ILIM 0x13 = 500 mA, net battery current still -77 mA (CPU 18-22 % busy).
+  => (1) Windows load ~2.5 W + 0.3 W from the battery = ~2.7 W vs TWRP ~1.1 W (+170..+390 mA net on the same 500 mA
+  port). (2) CHGIN_ILIM stays 500 mA whatever the cable: Linux sets it per detected cable type (BC1.2 DCP/SDP + AFC
+  9 V via MUIC) -> wall-charger fast charge works only in Linux. Next: Windows idle power (services, device idle);
+  cable-type detection + ILIM/CC from the vendor dtsi charging tables (not guessed).

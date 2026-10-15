@@ -575,7 +575,8 @@ ReadH4Packet(_In_ PUART_READ_CONTEXT _ReadContext,
 VOID
 DeviceQueryDeviceParameters(_In_ WDFDRIVER  _Driver);
 
-extern ULONG gCoexAclPriority;   // exynos-woa (notes/bt-wifi-coex.md), Device.c
+extern ULONG gCoexAclPriority;
+extern ULONG gHighBaud;          // exynos-woa (notes/bt-wifi-coex.md), Device.c
 
 BOOLEAN
 DeviceInitialize(_In_ PFDO_EXTENSION _FdoExtension,

@@ -487,7 +487,7 @@ BtUartBringUp(
 
     // BT_BAUD_OPER is the measured host rate (BtUart.h). The loopback measurement that found it is not repeated here:
     // the loopback bytes also reach the controller's RX and knocked its H4 parser out of sync (1.0.0.7/8 boots).
-    if ((Subver != 0) && (Rd(Uart, BT_UART_UBRDIV) != BT_UBRDIV_OPER))
+    if ((Subver != 0) && (Rd(Uart, BT_UART_UBRDIV) != BT_UBRDIV_OPER) && (gHighBaud != 0))
     {
         BtUartSpeedUp(Uart);
     }

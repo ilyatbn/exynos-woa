@@ -68,6 +68,13 @@ Return Value:
         }
         Value = 0;
 
+        // Parameters\HighBaud = 0 keeps the link at 115200 (A/B test: SDP record corruption at 1625000?).
+        RtlInitUnicodeString(&ValueName, L"HighBaud");
+        if (NT_SUCCESS(WdfRegistryQueryULong(Key, &ValueName, &Value))) {
+            gHighBaud = Value;
+        }
+        Value = 0;
+
         RtlInitUnicodeString(&ValueName, STR_BAUDRATE);
         Status = WdfRegistryQueryULong(Key, &ValueName, &Value);
         
@@ -81,6 +88,7 @@ Return Value:
 }
 
 
+ULONG gHighBaud = 1;          // exynos-woa: Parameters\HighBaud (default 1 = 1625000)
 ULONG gCoexAclPriority = 1;   // exynos-woa: Parameters\CoexAclPriority (default on)
 
 NTSTATUS

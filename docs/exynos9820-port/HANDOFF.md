@@ -1524,3 +1524,6 @@ To go back to unattended reboot loops: flash boot116-fb10m-v2.img (watchdog 1), 
 - **Next order when resumed:** stub flag 7 = flag-6 stress + EL1 physical timer IRQ (GSIV 30) through the M4's own GIC CPU
   interface + WFI with IRQs unmasked (details in the brief); soak with Windows on the 6 small cores. Dies -> bisect timer /
   WFI / SGIs. Survives -> EL0 round trips, then Windows' MMU attributes.
+- **§43 update (12:24):** parked state reached: boot-kd6.img (7810a0bd) flashed, BCD bootdebug back OFF (bcdedit output
+  "bootdebug No", kernel debug still Yes as the KD image needs), extra.cmd back to the ssh-install original, ESP
+  stay.flg on, rebooted into Windows.

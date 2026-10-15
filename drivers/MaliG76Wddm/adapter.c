@@ -31,6 +31,9 @@ ULONG MwWddm2 = 0;
 ULONG MwWddm2Va = 0;
 /* Parameters\Wddm2 = 3: as 1, plus the run-4 stub DDIs (below, before the traced DDI table). */
 ULONG MwWddm2Stubs = 0;
+/* Run 6 probe: Parameters\Probe\Ver (volatile key only) = a DXGKDDI_INTERFACE_VERSION_WDDM2_x value reported instead
+ * of WDDM2_0 - does this Windows build turn away the 2.0 interface itself? 0 = WDDM2_0. */
+ULONG MwWddm2Ver = 0;
 
 /* ---- trace ---- */
 
@@ -847,6 +850,7 @@ static MW_MODE ReadMode(PUNICODE_STRING RegistryPath, ULONG *PramTrace)
             InitializeObjectAttributes(&oa, &probeName, OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, params, NULL);
             if (NT_SUCCESS(ZwOpenKey(&probe, KEY_READ, &oa))) {
                 w = ReadParameter(probe, L"Wddm2", w);
+                MwWddm2Ver = ReadParameter(probe, L"Ver", 0);
                 ZwClose(probe);
             } else if (w == 4) {
                 w = 0;
@@ -909,7 +913,11 @@ static NTSTATUS InitFull(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPa
 {
     DRIVER_INITIALIZATION_DATA init = {0};
 
-    init.Version = MwWddm2 ? DXGKDDI_INTERFACE_VERSION_WDDM2_0 : DXGKDDI_INTERFACE_VERSION_WDDM1_3;
+    init.Version = MwWddm2 ? (MwWddm2Ver >= DXGKDDI_INTERFACE_VERSION_WDDM2_0 && MwWddm2Ver <= DXGKDDI_INTERFACE_VERSION_WDDM2_9
+                              ? MwWddm2Ver : DXGKDDI_INTERFACE_VERSION_WDDM2_0)
+                           : DXGKDDI_INTERFACE_VERSION_WDDM1_3;
+    DbgPrintEx(DPFLTR_IHVVIDEO_ID, DPFLTR_ERROR_LEVEL, "MaliG76Wddm: InterfaceVersion = 0x%04x (Wddm2 %u Va %u Stubs %u)\n",
+               init.Version, MwWddm2, MwWddm2Va, MwWddm2Stubs);
     init.DxgkDdiAddDevice = MwAddDevice;
     init.DxgkDdiStartDevice = MwStartDevice;
     init.DxgkDdiStopDevice = T_StopDevice;

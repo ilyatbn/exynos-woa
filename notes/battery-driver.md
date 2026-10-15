@@ -204,3 +204,7 @@ free.
   max77705_charger sets them per cable type) or the Windows load (no idle states, 5 ms Wi-Fi poll) eats the input,
   or the reported % lags. Next: S10eBattery AvgCurrentMa + CHG_DETAILS/CNFG_00 under Windows vs Linux power_supply
   (current_now, input_current_limit, constant_charge_current) in TWRP; then vendor max77705_charger.c ILIM/CC regs.
+- 2026-10-15 23:45 TWRP reference (cable to the PC, idle): battery uevent STATUS Charging, CHARGE_TYPE Fast, ONLINE 4
+  (USB), CAPACITY 50, VOLTAGE_NOW 3.89 V, CURRENT_NOW 119 / CURRENT_AVG 77 (Samsung sysfs, mA, net into the battery),
+  POWER_NOW 868, TEMP 30.3 C, TIME_TO_FULL 6191 s. User: wall charger in TWRP 13 -> 50 % in ~20 min; CPU temp jumps
+  when on PC USB instead of the charger (TWRP). Windows comparison pending (S10eBattery AvgCurrentMa).

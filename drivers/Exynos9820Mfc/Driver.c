@@ -436,32 +436,22 @@ MfcTestDecodeOne(_In_ PMFC_DEVICE M, _In_ PMFC_TEST T, _Inout_ PULONG Offset, _I
 static VOID
 MfcDecodeTest(_In_ PMFC_DEVICE M)
 {
-    PHYSICAL_ADDRESS Low, High, Boundary;
     MFC_TEST         T;
     ULONG            Size;
     ULONG            Offset;
     ULONG            Remaining;
     ULONG            Steps;
     ULONG            R2h;
-    PVOID            Alloc;
 
+    //
+    // The test buffers live inside the firmware allocation, above the RISC base (vidc3: a separate allocation
+    // below the base got OPEN_INSTANCE ERR_RET 10). Zeroed by MfcBoot.
+    //
     RtlZeroMemory(&T, sizeof(T));
-    Low.QuadPart      = 0;
-    High.QuadPart     = 0xFFFFFFFFLL;
-    Boundary.QuadPart = 0;
-    Alloc = MmAllocateContiguousMemorySpecifyCache(MFC_TEST_BUFFER_SIZE, Low, High, Boundary, MmNonCached);
-    if (Alloc == NULL)
-    {
-        MfcTrace("test: no contiguous buffer\n");
-        return;
-    }
-
-    T.Va = (PUCHAR)Alloc;
-    T.Pa = MmGetPhysicalAddress(Alloc).LowPart;
-    RtlZeroMemory(T.Va, MFC_TEST_BUFFER_SIZE);
+    T.Va = M->Buffer + MFC_TEST_AREA_OFFSET;
+    T.Pa = M->BufferPa.LowPart + MFC_TEST_AREA_OFFSET;
     if (!NT_SUCCESS(MfcLoadFile(MFC_TEST_PATH, T.Va + MFC_TEST_CPB_OFFSET, MFC_TEST_CPB_SIZE - 512u, &Size)))
     {
-        MmFreeContiguousMemorySpecifyCache(Alloc, MFC_TEST_BUFFER_SIZE, MmNonCached);
         return;   // no test stream installed: nothing to do
     }
 
@@ -501,13 +491,9 @@ MfcDecodeTest(_In_ PMFC_DEVICE M)
                  T.Frames);
     }
 
-    if (!T.Opened || (R2h == MFC_H2R_CLOSE_INSTANCE))
+    if (T.Opened && (R2h != MFC_H2R_CLOSE_INSTANCE))
     {
-        MmFreeContiguousMemorySpecifyCache(Alloc, MFC_TEST_BUFFER_SIZE, MmNonCached);
-    }
-    else
-    {
-        MfcTrace("test: instance not closed - test buffer kept (the firmware may still own it)\n");
+        MfcTrace("test: instance not closed\n");
     }
 }
 

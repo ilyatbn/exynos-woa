@@ -86,6 +86,7 @@
 #define MFC_R2H_FRAME_DONE_RET       13u
 
 #define MFC_TEST_PATH                L"\\SystemRoot\\System32\\drivers\\mfc_test.h264"
+#define MFC_TEST_AREA_OFFSET         (8u << 20)  // decode-test buffers inside the firmware allocation, above the RISC base
 #define MFC_TEST_BUFFER_SIZE         (8u << 20)
 #define MFC_TEST_INST_SIZE           0x200000u   // mfc.c h264_dec_ctx = PAGE_ALIGN(0x200000)
 #define MFC_TEST_CPB_OFFSET          (2u << 20)
@@ -102,8 +103,8 @@
 #define MFC_IP_VER                   0x1300u
 
 #define MFC_DEV_CTX_SIZE             0x8000u     // mfc.c mfc_ctx_buf_size.dev_ctx = PAGE_ALIGN(0x7800)
-#define MFC_FW_BUFFER_SIZE           (8u << 20)  // image + firmware working memory (UEFI R3/R4 used the same)
-#define MFC_CTX_OFFSET               (4u << 20)  // common context buffer inside the firmware buffer
+#define MFC_FW_BUFFER_SIZE           (16u << 20) // fw code + common ctx + the decode-test area (vidc3: buffers below the base -> ERR 10)
+#define MFC_CTX_OFFSET               (1u << 20)  // mfc_buf.c: common ctx at fw_daddr + firmware_code (1 MiB)
 #define MFC_BUFFER_ALIGN             (1u << 20)
 #define MFC_FW_PATH                  L"\\SystemRoot\\System32\\drivers\\mfc_fw.bin"
 #define MFC_POOL_TAG                 'cfMx'

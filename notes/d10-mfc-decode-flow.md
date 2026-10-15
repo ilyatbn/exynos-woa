@@ -155,3 +155,20 @@ F. CLOSE_INSTANCE H2R 6 -> R2H 6 (INSTANCE_ID first). DPB_FLUSH H2R 10 -> R2H 10
   Throughput: c1080 53.3 fps with hashing, **77.4 fps -q** (was 24.9 non-cached); c720 113 fps (hashing) / 98 fps -q
   (one sample, noise); cbase 310 fps. HW wait per 1080p frame 9.9-11 ms. => 1080p30 H.264 decodes in real time with
   2.5x headroom from a user-mode process.
+
+## V4: Media Foundation decoder MFT (plan, 2026-10-15 15:45)
+- MS docs (MFTEnumEx, MFT_CODEC_MERIT_Attribute, IMFPluginControl): with SORTANDFILTER the order is local MFTs,
+  then MFTs with a merit value (hardware codecs, verified by MFGetMFTMerit -> needs a certificate: not for us), then
+  the preferred list, then the rest. The preferred list is loaded from the registry per process.
+- Phone registry (ssh): HKLM\SOFTWARE\Classes\MediaFoundation\Transforms\Preferred has
+  {34363248-0000-0010-8000-00AA00389B71} (MFVideoFormat_H264) = {62CE7E72-4C71-4D20-B15D-452831A87D9D} = "Microsoft
+  H264 Video Decoder MFT" (C:\Windows\System32\msmpeg2vdec.dll, ThreadingModel Both).
+- Plan: drivers/Exynos9820MfcMft = synchronous MFT DLL (ARM64) on the IOCTLs: input MFVideoFormat_H264 (Annex B;
+  length-prefixed samples converted), output NV12 cropped to the display size, timestamps re-ordered (output pts =
+  smallest queued input pts), format change via MF_E_TRANSFORM_STREAM_CHANGE, drain = empty windows to EOS,
+  flush = reopen the session + replay SPS/PPS. Registration: CLSID + MFTRegister (video decoder category);
+  install script backs up the Preferred H.264 value and points it at our CLSID (reversible).
+  Validation: tools/mfc/mftest (Source Reader on an .mp4 of the x264 clips -> NV12 hashes == libavcodec) + KD
+  session lines from the driver.
+- Limits to remember: the driver runs ONE session device-wide (a second player / thumbnailer gets BUSY); ARM64
+  processes only (x64-emulated apps cannot load an ARM64 MFT).

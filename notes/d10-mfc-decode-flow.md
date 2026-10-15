@@ -148,3 +148,4 @@ F. CLOSE_INSTANCE H2R 6 -> R2H 6 (INSTANCE_ID first). DPB_FLUSH H2R 10 -> R2H 10
   hashes still identical -> page locking / input copies are not the bottleneck. ~30 ms/frame of the 40 ms is the
   driver reading the 3.1 MB NV12 picture out of NON-CACHED memory (~100 MB/s). Next: cached session buffers with
   explicit cache maintenance (check MS docs for ARM64 non-coherent DMA first).
+- 15:35 vidc8: 1.0.0.6 (cached + KeFlushIoBuffers, 4294869, sys 5B0F295E) swapped in over ssh (rename .prev + copy), ssh shutdown /r; kd-vidc8.log.

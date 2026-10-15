@@ -628,3 +628,9 @@ No device access in this task; build-verified only (Guided, not Ready).
   does not make MM handle Access-flag faults; this Windows build cannot run ANY core with TCR.HA 0 by KD patching.
   The "M4 hardware AF is broken" hypothesis therefore cannot be tested this way; it stays the leading suspect.
 - 10:06 phone rebooted clean (boot-kd6, no patches, stay.flg).
+- 10:30 extra.cmd (ESP, temporary step, now removed again) ran `bcdedit /set {current} bootdebug on` -> BCD bootdebug Yes.
+  STILL ON in the phone's BCD - revert with `bcdedit /set {current} bootdebug off` when this line of tests ends.
+- m4swaf2 attempt (boot-kd6): the first KD break was still the KERNEL initial break, not winload, so the deferred bp on
+  winload!OslArchTransferToKernel never fired; no patch applied, the boot ran unmodified. Paused here pending the user.
+- sshd firewall rule in drivers/S10eDiag/esp/extra-ssh-install.cmd only allows 192.168.137.0/24 (old hotspot) -> SSH
+  from the home Wi-Fi is refused. Widening it was not done (needs the user's decision).

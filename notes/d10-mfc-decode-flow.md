@@ -104,3 +104,15 @@ F. CLOSE_INSTANCE H2R 6 -> R2H 6 (INSTANCE_ID first). DPB_FLUSH H2R 10 -> R2H 10
   iovmm allocator after the fw. Upstream s5p-mfc required buffers within a window ABOVE the fw base (recalled, not
   verified for v13). Fix (1.0.0.4): one allocation, fw at 0, common ctx at +1 MiB (vendor), decode-test area at
   +8 MiB inside the same buffer.
+- 15:0x vidc3 pass 2 (1.0.0.3 swapped in by rename): same OPEN ERR 10 (expected, same layout); no crash across the clean restart (no PnP remove). 1.0.0.4 built (5da99ab, sys 1F1778A6): buffers above the base.
+- **15:01 V-W2 PASSED (vidc4, Exynos9820Mfc 1.0.0.4 5da99ab, swapped from TWRP):** buffers above the base fixed
+  ERR 10. KD: OPEN_INSTANCE R2H 2 inst 0; SEQ_HEADER R2H 3 128x96 min dpb 3 scratch 0x2100 plane 0x3040/0x1840
+  mv 1 consumed 13; INIT_BUFFERS R2H 4 err 0 (dpb 5, luma 0x3100, chroma 0x1900, stride 128, mv 0x1000);
+  NAL_START x3 R2H 13 status 0x81 (decode+display), types I/P/I, consumed 18544 / 9 / 18535;
+  frame hashes f0 0xd3990385/0x1eb1b40e, f1 same, f2 0xcabb3add/0x050d99fd = EXACTLY the generator / libavcodec
+  values; LAST_FRAME R2H 13 status 0x3 (drained); CLOSE_INSTANCE R2H 6; ISR test: ISR ran 1 time, last R2H 6.
+  => **the MFC hardware decodes H.264 bit-exactly from Windows.** Observations: firmware min plane sizes
+  0x3040/0x1840 = plane + 0x40 (our +256 rule covers it); status bit7 set with display (0x81) - meaning not
+  looked up; SEQ_HEADER consumed 13 = SPS+PPS bytes... (SPS 13? stream starts with SPS 4+? -> header parse stops
+  after SPS/PPS; refeed at offset worked).
+  Layout rule (recorded): every MFC buffer must lie above the RISC base (below it -> OPEN_INSTANCE ERR_RET 10).

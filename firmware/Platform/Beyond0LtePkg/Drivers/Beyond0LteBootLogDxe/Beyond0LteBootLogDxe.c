@@ -48,6 +48,9 @@
 // m14 HW access-flag test (notes/m14-smp.md): 1 = at ExitBootServices make ntoskrnl 22621.1's HAFDBS check
 // report 0, so Windows keeps TCR_EL1.HA off on every core (like the stock Linux, CONFIG_ARM64_HW_AFDBM off).
 //
+#ifndef BEYOND0LTE_STAY_MAX_DEATHS
+#define BEYOND0LTE_STAY_MAX_DEATHS  2   // stay.flg is ignored after this many Windows deaths in a row (-> TWRP)
+#endif
 #ifndef BEYOND0LTE_NT_NO_HWAF
 #define BEYOND0LTE_NT_NO_HWAF  0
 #endif
@@ -714,6 +717,7 @@ OnReadyToBoot (
           }
 
           Root->Close (Root);
+          ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[12] = 0;   // clean restart: the death counter starts over
           DEBUG ((DEBUG_ERROR, "BootLog: Windows asked for this restart - saving its PRAM and continuing\n"));
           DumpMemoryToEsp (L"\\WINPRAM-RESTART.BIN", (UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);
           DumpPcSamples ();   // m14 PC sampler ring of that run, if one was kept
@@ -731,6 +735,27 @@ OnReadyToBoot (
           Interactive = !EFI_ERROR (Root->Open (Root, &Stay, L"\\S10EDIAG\\stay.flg", EFI_FILE_MODE_READ, 0));
           if (Interactive) {
             Stay->Close (Stay);
+          }
+
+          //
+          // 2026-10-15 (user: "add some sort of safeguard in case of crashes like these to reboot to twrp"): with
+          // stay.flg a Windows that dies on every boot looped forever (hwaf8: watchdog reset -> Windows -> hang ->
+          // ...). Progress word [12] counts unexplained Windows deaths ('DE' << 16 | n). RAM survives the watchdog
+          // and key resets but not a cold power-on, and a clean OS restart clears it, so normal interactive use
+          // never trips it. The second death without a cold boot or clean restart in between goes to TWRP.
+          //
+          if (Interactive) {
+            volatile UINT32  *Progress;
+            UINT32           Deaths;
+
+            Progress     = (volatile UINT32 *)(UINTN)0x8FE0F000ULL;
+            Deaths       = ((Progress[12] >> 16) == 0x4445u) ? (Progress[12] & 0xFFFFu) + 1 : 1;
+            Progress[12] = 0x44450000u | Deaths;
+            if (Deaths >= BEYOND0LTE_STAY_MAX_DEATHS) {
+              DEBUG ((DEBUG_ERROR, "BootLog: Windows died %u times in a row - ignoring stay.flg, going to TWRP\n", Deaths));
+              Progress[12] = 0;
+              Interactive  = FALSE;
+            }
           }
 
           Root->Close (Root);

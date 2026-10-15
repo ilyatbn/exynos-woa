@@ -649,3 +649,9 @@ No device access in this task; build-verified only (Guided, not Ready).
   11:22:24 failed ("HOST cannot communicate with the TARGET"). => with hardware access flag OFF on every core the
   8-core system STILL dies, and earlier than the usual 30-75 s (no Wi-Fi at all). The HW access-flag hypothesis is
   REFUTED as the (sole) cause. 11:23: phone dark, no adb, no reset seen yet.
+- hwaf8 user observation: Windows logo, then black screen - never reached the login screen. With stay.flg ON every
+  watchdog reset went straight back into Windows -> endless boot loop (user moved it to TWRP by hand 11:25).
+- SAFEGUARD (BootLogDxe, BEYOND0LTE_STAY_MAX_DEATHS 2): progress word [12] counts unexplained Windows deaths
+  ('DE' << 16 | n) on the stay.flg path; the 2nd death without a cold power-on (RAM lost) or a clean OS restart
+  (0x80 branch clears it) in between ignores stay.flg and goes to TWRP. The no-stay.flg path already went to TWRP.
+  Needs WINDOWS_WATCHDOG 1 to turn a hang into a reset - the old boot-kd6.img has it OFF (a hang there stays dark).

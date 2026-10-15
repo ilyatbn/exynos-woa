@@ -44,3 +44,4 @@ UART HCI link clean (no line errors/throttles). => radio time-sharing on the com
   one handle" (= A2DP streaming, as AOSP raises L2CAP priority when streaming starts), once per handle (reset on a
   new Connection Complete for that handle); every 0xFC57 reply swallowed incl. a Command Complete after a Command
   Status; capped HCI trace kept. Deploy needs HighBaud=1 (phone has 0 from the A/B) and CoexAclPriority=1.
+- 23:50 **1.0.0.16 on device (HighBaud=1, CoexAclPriority=1): connections clean (ConnComplete st 00 handle 00d; st 04 page timeout then st 00 on 00b), headphones show as output (user), 'coex: Set ACL Priority high -> status 00 (ok 1, failed 0, held max 0)' when streaming started.** KD detached for the listening test.

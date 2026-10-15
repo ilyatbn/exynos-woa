@@ -1466,7 +1466,7 @@ To go back to unattended reboot loops: flash boot116-fb10m-v2.img (watchdog 1), 
   protection (user to switch off via Windows Security - Tamper Protection), stereo/earpiece speaker, Android-like shell
   (parkinglot/android-like-shell.md), make OfferRotation default 1 in the INF/driver.
 
-## 42. Restart point (2026-10-15 ~01:40 local, unattended; goal: all 8 cores in Windows; notes/m14-smp.md)
+## 42. Restart point (2026-10-15 ~01:40 local, unattended; goal: all 8 cores in Windows; READ FIRST: notes/m14-m4-summary.md)
 - **State:** the M4 big cores are NOT working yet. Windows starts all 8 (KeStartAllProcessors returns, all answer IPIs),
   then any boot where Windows RUNS ON an M4 dies within ~1 min (two M4s: silent all-CPU hang, "HOST cannot
   communicate"; one M4 (PARK 0x7E): fast reset loop every ~69 s, no bugcheck). Powered-but-unused M4s are fine

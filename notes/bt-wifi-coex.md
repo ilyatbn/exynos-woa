@@ -24,3 +24,4 @@ UART HCI link clean (no line errors/throttles). => radio time-sharing on the com
   00 at 1625000); KD: "coex: Set ACL Priority high -> status 00" x3 (one per ACL connection, ok 3 failed 0) - the
   BCM4375 accepts 0xFC57. Stats: 0 line errors, 0 throttles, 0 TX ring waits. (1.0.0.10's stats before: 169 KB TX,
   peak ring 868 B, 438 TXD irqs - TX is not a bottleneck.) KD detached for the listening test.
+- 22:25 user: with 1.0.0.11 'its connecting to bluetooth but now windows doesnt output it to the headphones': BT devices OK, both headphone AudioEndpoints unplugged/not present (A2DP never comes up), 3 priority sets = 3 connection attempts. Own review: 1.0.0.11 held ONE BthPort command; a second one arriving meanwhile (controller credit > 1) went out past it = reordered HCI commands. 1.0.0.12: ordered FIFO (4) of held commands, 'held max' in the log, Parameters\CoexAclPriority (default 1, 0 = off) to rule the injection in/out without a rebuild.

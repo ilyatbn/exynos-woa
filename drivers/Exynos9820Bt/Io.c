@@ -503,7 +503,8 @@ CoexTrySendLocked(
 {
     UCHAR Cmd[7];
 
-    if ((_Fdo->CoexPendingHandle == 0xFFFF) || _Fdo->CoexInFlight || (_Fdo->HostCmdOutstanding != 0))
+    if (!_Fdo->CoexEnabled || (_Fdo->CoexPendingHandle == 0xFFFF) || _Fdo->CoexInFlight ||
+        (_Fdo->HostCmdOutstanding != 0))
     {
         return;
     }
@@ -560,12 +561,12 @@ CoexOnEvent(
             _Fdo->CoexSetFailed++;
         }
 
-        if (_Fdo->CoexDeferredLen != 0)
+        for (ULONG I = 0; I < _Fdo->CoexDeferredCount; I++)
         {
             _Fdo->HostCmdOutstanding = 1;
-            BtUartTxQueue(&_Fdo->Uart, _Fdo->CoexDeferred, _Fdo->CoexDeferredLen);
-            _Fdo->CoexDeferredLen = 0;
+            BtUartTxQueue(&_Fdo->Uart, _Fdo->CoexDeferred[I], _Fdo->CoexDeferredLen[I]);
         }
+        _Fdo->CoexDeferredCount = 0;
     }
     else if (Reply && (Op != 0))                     // opcode 0 = credit-only Command Complete
     {
@@ -582,8 +583,8 @@ CoexOnEvent(
 
     if (Swallow)
     {
-        DoTrace(LEVEL_ERROR, TFLAG_HCI, ("coex: Set ACL Priority high -> status %02x (ok %u, failed %u)", St,
-                _Fdo->CoexSetOk, _Fdo->CoexSetFailed));
+        DoTrace(LEVEL_ERROR, TFLAG_HCI, ("coex: Set ACL Priority high -> status %02x (ok %u, failed %u, held max %u)", St,
+                _Fdo->CoexSetOk, _Fdo->CoexSetFailed, _Fdo->CoexDeferredMax));
     }
 
     return Swallow;
@@ -600,10 +601,17 @@ CoexHostCommand(
     KIRQL Irql;
 
     KeAcquireSpinLock(&_Fdo->CoexLock, &Irql);
-    if (_Fdo->CoexInFlight && (_Len <= sizeof(_Fdo->CoexDeferred)) && (_Fdo->CoexDeferredLen == 0))
+    if (_Fdo->CoexInFlight && (_Len <= sizeof(_Fdo->CoexDeferred[0])) &&
+        (_Fdo->CoexDeferredCount < ARRAYSIZE(_Fdo->CoexDeferred)))
     {
-        RtlCopyMemory(_Fdo->CoexDeferred, _Pkt, _Len);
-        _Fdo->CoexDeferredLen = _Len;
+        // held in arrival order; everything that arrives while our command is out waits behind it
+        RtlCopyMemory(_Fdo->CoexDeferred[_Fdo->CoexDeferredCount], _Pkt, _Len);
+        _Fdo->CoexDeferredLen[_Fdo->CoexDeferredCount] = _Len;
+        _Fdo->CoexDeferredCount++;
+        if (_Fdo->CoexDeferredCount > _Fdo->CoexDeferredMax)
+        {
+            _Fdo->CoexDeferredMax = _Fdo->CoexDeferredCount;
+        }
     }
     else
     {
@@ -1657,7 +1665,8 @@ Return Value:
     FdoExtension->HostCmdOutstanding = 0;
     FdoExtension->CoexInFlight       = FALSE;
     FdoExtension->CoexPendingHandle  = 0xFFFF;
-    FdoExtension->CoexDeferredLen    = 0;
+    FdoExtension->CoexDeferredCount  = 0;
+    FdoExtension->CoexEnabled        = (gCoexAclPriority != 0);
 
     // Create a WDF Request
     WDF_OBJECT_ATTRIBUTES_INIT(&ObjAttributes);

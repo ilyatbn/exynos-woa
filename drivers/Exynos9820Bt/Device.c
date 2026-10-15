@@ -61,6 +61,13 @@ Return Value:
                                                 );
     if (NT_SUCCESS(Status)) {        
 
+        // exynos-woa (notes/bt-wifi-coex.md): Parameters\CoexAclPriority = 0 turns the ACL priority injection off.
+        RtlInitUnicodeString(&ValueName, L"CoexAclPriority");
+        if (NT_SUCCESS(WdfRegistryQueryULong(Key, &ValueName, &Value))) {
+            gCoexAclPriority = Value;
+        }
+        Value = 0;
+
         RtlInitUnicodeString(&ValueName, STR_BAUDRATE);
         Status = WdfRegistryQueryULong(Key, &ValueName, &Value);
         
@@ -73,6 +80,8 @@ Return Value:
     
 }
 
+
+ULONG gCoexAclPriority = 1;   // exynos-woa: Parameters\CoexAclPriority (default on)
 
 NTSTATUS
 DeviceEnableWakeControl(

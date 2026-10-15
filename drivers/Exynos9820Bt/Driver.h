@@ -326,8 +326,12 @@ typedef struct _FDO_EXTENSION
     LONG       HostCmdOutstanding;     // BthPort commands sent without Command Complete/Status yet
     BOOLEAN    CoexInFlight;           // our 0xFC57 sent, reply not seen
     USHORT     CoexPendingHandle;      // 0xFFFF = none
-    ULONG      CoexDeferredLen;        // held BthPort command (type byte + packet), 0 = none
-    UCHAR      CoexDeferred[1 + 3 + 255];
+    ULONG      CoexDeferredCount;      // held BthPort commands, sent in order after our reply (1.0.0.12: FIFO -
+                                       // 1.0.0.11 held one and sent a second one past it = reordered commands)
+    ULONG      CoexDeferredLen[4];
+    UCHAR      CoexDeferred[4][1 + 3 + 255];
+    ULONG      CoexDeferredMax;        // deepest hold seen
+    BOOLEAN    CoexEnabled;            // Parameters\CoexAclPriority (default 1)
     ULONG      CoexSetOk;
     ULONG      CoexSetFailed;
 } FDO_EXTENSION, *PFDO_EXTENSION;
@@ -569,6 +573,8 @@ ReadH4Packet(_In_ PUART_READ_CONTEXT _ReadContext,
 
 VOID
 DeviceQueryDeviceParameters(_In_ WDFDRIVER  _Driver);
+
+extern ULONG gCoexAclPriority;   // exynos-woa (notes/bt-wifi-coex.md), Device.c
 
 BOOLEAN
 DeviceInitialize(_In_ PFDO_EXTENSION _FdoExtension,

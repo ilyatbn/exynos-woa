@@ -118,3 +118,6 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   CPU boost level 0, temps 52-57 C (not thermal), DWM NOT running (crashed 19:52 in maliumd.dll, see
   notes/gpu-wddm2-design.md) -> GPU essentially idle. => the GPU clock is unlikely to be the trigger; KD was
   detached (time limit 19:51), so no kernel capture. Phone wall clock is not synced across boots (event times jump).
+- 2026-10-15 ~22:08 local: third silent freeze + watchdog reset (notes/goal-bbb-bt-wifi.md): governor's last line
+  WTCNT 64268/65525, temps 55-61 C, no bugcheck/minidump. Context: Wi-Fi reconnecting between 2.4 and 5 GHz networks,
+  BT A2DP streaming. All three freezes so far had the Wi-Fi driver associated; GPU idle in two of them.

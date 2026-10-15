@@ -62,3 +62,12 @@ bluethooth headphones, and properly transfer what you need thorugh wifi". No add
   No Exynos9820Bt lines (not even the 1 s stats line) reached kd-bt10 - unexplained, open.
 - 22:01 the copy died at 512 MB: "lost connection" (same boot, phone alive), then SSH timeouts = Wi-Fi link flapping
   under load. Investigating (WlanCx run log).
+- 00:10 user: with Wi-Fi disconnected BT audio is fine; with Wi-Fi on the 5 GHz network "it seems just fine" =>
+  the cut-outs are 2.4 GHz Wi-Fi/BT coexistence on the shared BCM4375 radio (Wi-Fi was on 2.4 GHz ch 9). Workaround:
+  5 GHz. Real fix (open): the BT/WLAN coexistence configuration Android's dhd applies, not done by our WlanCx.
+  Earlier the Wi-Fi link also flapped (Windows-initiated WDI disassociate, reason 3; several connect/disconnect
+  cycles in WLAN-AutoConfig/Operational) during the 2.4 GHz load test.
+- ~22:08 local: third silent reset (user: "windows just crashed"): Kernel-Power 41, no 1001 bugcheck, no minidump;
+  s10egov.log ends with WTCNT 64268/65525 (still petted) and no per-second drain lines -> whole-system freeze, cluster
+  watchdog reset (same signature as 18:50 and 20:29, notes/thermal-clocks.md). Temps 55-61 C. Context: Wi-Fi being
+  switched between networks by the user, BT A2DP active.

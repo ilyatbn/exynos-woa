@@ -101,3 +101,10 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   model) - large; (b) per-app software rendering (Terminal "rendering.software") - workaround; (c) investigate whether
   a WDDM 1.3 flag makes DXGI skip the tracked fence (UNVERIFIED).
   Current effect: with Console Host as default terminal Terminal no longer auto-launches -> crash loop stopped.
+- 18:50 third unrequested reset, this time to TWRP. s10egov log (read-only from TWRP): WTCNT 65053..65062/65525
+  every 30 s (petted), last line "12:32:54 ... cnt 49626/65525" (~20 s without a pet), then NOTHING - the governor
+  stopped too => the whole system froze (UFS pet DPC + user-mode governor both dead); the 82 s WDT then reset it.
+  So the WDT is the messenger; the cause is a SYSTEM HANG (at idle, at the raised clocks: CPU 1.74/2.10 GHz,
+  G3D 572 MHz). The 16:22 reset was at base clocks (cause not captured). Open: is the hang clock-related (CPU
+  2.1 GHz voltage / G3D 572 MHz) or older (pre-existing silent resets)? Next evidence: KD session during idle
+  ("every" break mode brackets a freeze) or run a day at base clocks for comparison.

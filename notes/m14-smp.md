@@ -536,3 +536,4 @@ No device access in this task; build-verified only (Guided, not Ready).
   and there was NO restart for 24+ min - a plain hang (the phone stays dark). => the one-M4 "fast reset loop" of
   m4one1/m4one2 was likely provoked by the KD break-ins (timed break during the failing window); the underlying M4
   failure is a HANG, same as with two M4s. No dump written (the dump boot never happened). Needs a force restart.
+- 08:56: user force-restarted the hung phone into TWRP; boot-kd6.img (7810a0bd) restored, ESP stay.flg only, rebooted into Windows.

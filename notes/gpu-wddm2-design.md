@@ -307,3 +307,13 @@ paths). S5 ~100 lines. S2/S4 test-only. Total for "tracked fence works": ~2-4 se
 GpuMmu (S7): ~1500-2500 lines across KMD + winsys, multi-week.
 - 2026-10-15 review: line cites re-checked with rg (adapter.c:409 coherency, command.c:326 Kick / 377 fault path,
   memory.c:301 BuildPagingBuffer) and corrected. Design sections 2-4 complete. Not committed (research task).
+- 19:15 G15 S1 device run 1: KMD 1.0.47.1 (e6b762b, sys a9b8d9b7) swapped into the DriverStore (one-shot SYSTEM task), Parameters\Wddm2 = 1, reboot with KD (kd-wddm2a.log).
+- 19:20 S1 run 1 result: KMD 1.0.47.1 with Wddm2=1 - DriverEntry ok, AddDevice ok, StartDevice ok (GPU up, Started 1),
+  dxgkrnl's ONLY query = QAI_1 DRIVERCAPS (success, 0x240 B), then Device Manager code 43 CM_PROB_FAILED_POST_START
+  (no QUERYSEGMENT4 / PHYSICALADAPTERCAPS asked). Reproduced with pnputil /restart-device under a DxgKrnl ETW session
+  (all keywords, level 5): PnP START_DEVICE returns 0, then QUERY_PNP_DEVICE_STATE marks the device failed; the trace
+  carries no reason event (only an AzureTriage "Adapter AddDevice has completed"). => dxgkrnl rejects the adapter
+  in its post-start checks right after reading DRIVERCAPS. Reverted to Wddm2=0 (reboot).
+  Next (documented/empirical only - no further static RE of OS binaries): compare our DRIVERCAPS/init table against
+  the documented WDDM 2.0 requirements (Learn "WDDM 2.0 and Windows 10" feature list, DXGK_VIDSCHCAPS/preemption
+  docs) and toggle candidates one per run behind Parameters (SupportPerEngineTDR, PreemptionCaps, ...).

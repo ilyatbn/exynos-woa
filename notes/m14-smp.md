@@ -621,3 +621,10 @@ No device access in this task; build-verified only (Guided, not Ready).
   Plan m4swaf1: at the initial break rewrite nt+0xD1AA08 to the no-HW-AF form + KeRestoreProcessorState patch
   (secondaries HA 0); boot CPU keeps hardware HA (harmless if MM tracks AF in software). First on boot-kd6 (6 cores)
   to see if MM survives in that mode, then with the M4s.
+- m4swaf1 (boot-kd6, 6 cores, no M4): at the initial break nt+0xD1AA08 7A80084C -> 7CC0084C (no-HW-AF form) +
+  KeRestoreProcessorState patch. No bugcheck, but boot never finished (no Wi-Fi after 3+ min). Break-in at uptime
+  3:50: CPU 1 (A55 secondary, HA 0) stuck in a NESTED abort: heap init -> demand-zero fault -> MiGetPage ->
+  ExpInterlockedPopEntrySList faults again (access flag) inside the fault path - a livelock. => flipping that flag
+  does not make MM handle Access-flag faults; this Windows build cannot run ANY core with TCR.HA 0 by KD patching.
+  The "M4 hardware AF is broken" hypothesis therefore cannot be tested this way; it stays the leading suspect.
+- 10:06 phone rebooted clean (boot-kd6, no patches, stay.flg).

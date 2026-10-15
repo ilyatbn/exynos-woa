@@ -2528,6 +2528,40 @@ WlanMsgSetKey(PWLAN_MSG_CTX M, PWLAN_REPORT R, ULONG Index, const UCHAR *Key, co
     return Rc;
 }
 
+/* Firmware text statistics: GET_VAR "dump" with the section name as the value (dhd "wl dump <section>"), reply = NUL-
+   terminated text; logged line by line (notes/wifi-throughput.md: why ~14 Mbit/s on a 130-144 Mbit/s link). */
+_Use_decl_annotations_
+ULONG
+WlanMsgDump(PWLAN_MSG_CTX M, PWLAN_REPORT R, PCSTR Section)
+{
+    PMSG_STATE S = Live(M, R);
+    size_t     SecLen;
+    ULONG      Rc, I, Start;
+
+    if (S == NULL || !NT_SUCCESS(RtlStringCbLengthA(Section, 32, &SecLen))) {
+        return MSG_SKIPPED;
+    }
+    Rc = IoctlVar(S, FALSE, "dump", Section, (ULONG)SecLen + 1, IOCTL_RESP_MAX_OUT);
+    ReportLine(R, "[dump] %s -> MSG %lu, %lu B\r\n", Section, Rc, S->RespLen);
+    if (Rc != MSG_OK) {
+        return Rc;
+    }
+    S->Resp[(S->RespLen < sizeof(S->Resp)) ? S->RespLen : sizeof(S->Resp) - 1] = 0;
+    for (I = 0, Start = 0; I <= S->RespLen && I < sizeof(S->Resp); I++) {
+        if (S->Resp[I] == '\n' || S->Resp[I] == 0) {
+            S->Resp[I] = 0;
+            if (I > Start) {
+                ReportLine(R, "[dump %s] %s\r\n", Section, (PCSTR)&S->Resp[Start]);
+            }
+            if (I == S->RespLen || (I + 1 < sizeof(S->Resp) && S->Resp[I + 1] == 0)) {
+                break;
+            }
+            Start = I + 1;
+        }
+    }
+    return Rc;
+}
+
 /* GET_VAR of a 32-bit iovar (diagnostics: ampdu, ampdu_ba_wsize, frameburst, nmode). */
 _Use_decl_annotations_
 ULONG

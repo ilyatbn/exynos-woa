@@ -79,7 +79,7 @@ CxWorker(PVOID Context)
 {
     PCX_DEVICE    Dev = (PCX_DEVICE)Context;
     LARGE_INTEGER Timeout;
-    ULONG         Ticks = 0, Polled = 0, FlushTicks = 0;
+    ULONG         Ticks = 0, Polled = 0, FlushTicks = 0, DumpTicks = 0;
     KIRQL         Irql;
 
     CxLog(Dev, "[cx] worker started\r\n");
@@ -139,6 +139,12 @@ CxWorker(PVOID Context)
                   Dev->TxFifo ? Dev->TxFifo->In : 0, Dev->TxFifo ? Dev->TxFifo->Out : 0,
                   Dev->TxFifo ? Dev->TxFifo->Dropped : 0);
             CxUpdateRate(Dev);
+            /* every 10th alive tick (~1 min while associated): firmware tx statistics (notes/wifi-throughput.md) */
+            if (Dev->Linked && (++DumpTicks % 10) == 1) {
+                (VOID)WlanMsgDump(&Dev->Msg, Dev->RunR, "ampdu");
+                (VOID)WlanMsgDump(&Dev->Msg, Dev->RunR, "rssi");
+                (VOID)WlanMsgDump(&Dev->Msg, Dev->RunR, "wme");
+            }
         }
         if (++FlushTicks >= 1000 / CX_IDLE_WAIT_MS) {
             FlushTicks = 0;

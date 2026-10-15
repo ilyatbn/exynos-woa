@@ -330,3 +330,10 @@ exynos9820/cmucal-sfr.c + cmucal-node.c, drivers/pinctrl/samsung/pinctrl-exynos-
   ROM's LMP subversion 0x1111. Q3 closed.
 - R5 tool: tools/phone/btscan (C++/WinRT ARM64: BluetoothLEAdvertisementWatcher active scan + classic DeviceWatcher,
   counts + names only, no addresses), run from extra-bt-scan.cmd.
+- **R5 RX observed (13:44-13:53, same driver):** Windows started an LE scan by itself (bt-scan / stack) and the KD log
+  filled with 8156 LE Meta events (0x3E, 41-byte LE Advertising Reports) + 55 Command Complete, 2 Command Status,
+  2 Inquiry Complete, 57 commands. => the radio RECEIVES nearby LE advertisers through the transport.
+  Side effect: the sample traced every packet at LEVEL_INFO via DbgPrintEx; each print is a KD round trip, so the
+  advert flood drowned Windows (ping/SSH gone for minutes, looked like a crash) and the slowed DPC let the 4 KiB RX
+  ring overflow -> 37 out-of-sync parser resets. Fix: BT_TRACE_MAX_LEVEL = LEVEL_ERROR (bring-up lines stay).
+  To do: RTS flow control (deassert when the ring fills) so a slow DPC never drops bytes.

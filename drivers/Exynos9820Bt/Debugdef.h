@@ -52,7 +52,7 @@
 // DoTrace(LEVEL, FLAG, ("fmt", args)); %!STATUS! was rewritten to 0x%08X).
 //
 #ifndef BT_TRACE_MAX_LEVEL
-#define BT_TRACE_MAX_LEVEL  LEVEL_INFO
+#define BT_TRACE_MAX_LEVEL  LEVEL_ERROR   // LEVEL_INFO traces every HCI packet: 8000+ LE adverts drowned Windows over KD (btscan2)
 #endif
 #define DoTrace(lvl, flg, args)                                                        \
     do {                                                                               \

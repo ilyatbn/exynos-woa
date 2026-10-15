@@ -24,8 +24,6 @@ extern "C" {
 #define CX_POOL_TAG             'xClW'
 #define CX_IDLE_WAIT_MS         50          /* worker poll period while not associated (host choice) */
 #define CX_LINK_WAIT_MS         5           /* while associated: rx latency bound (host choice, timer resolution) */
-#define CX_QUIET_POLLS          40          /* notes/windows-trim.md: 40 fast passes (~200 ms) without traffic -> slow
-                                               poll (CX_IDLE_WAIT_MS) and the 1 ms system timer released (host choice) */
 #define CX_LOG_ROTATE           (WLAN_REPORT_MAX * 3 / 4)
 
 /* W2 scan cache: one entry per BSSID from the escan records of the current WDI_TASK_SCAN */
@@ -93,8 +91,6 @@ typedef struct _CX_DEVICE {
     LONG                TxLayoutSeen;
     UCHAR               TxLayout[15];   /* Layer2Type + first 14 bytes of the latest recorded tx packet */
     BOOLEAN             Linked;         /* W4: associated (worker polls every CX_LINK_WAIT_MS) */
-    BOOLEAN             FastPoll;       /* associated and traffic recent: 5 ms waits + 1 ms system timer */
-    ULONG               QuietPolls;     /* fast passes without traffic (CX_QUIET_POLLS -> back to slow) */
     UCHAR               Bssid[6];       /* W4: the BSS of the current / last connect */
     BOOLEAN             KeysSet;        /* cx5: a pairwise key is installed (rx frames are marked Protected) */
     BOOLEAN             RxDot11;        /* cx5: rx frames go up as 802.11 data frames (Parameters\RxFormat 0) */
@@ -152,7 +148,6 @@ _IRQL_requires_(PASSIVE_LEVEL) VOID CxTxDrain(_Inout_ PCX_DEVICE Dev);
 /* CxConnect.cpp */
 WLAN_LINK_FN CxLinkLost;
 _IRQL_requires_(PASSIVE_LEVEL) VOID CxUpdateRate(_Inout_ PCX_DEVICE Dev);
-_IRQL_requires_(PASSIVE_LEVEL) VOID CxSetFastPoll(_Inout_ PCX_DEVICE Dev, _In_ BOOLEAN Fast);
 _IRQL_requires_(PASSIVE_LEVEL) VOID CxSetLinked(_Inout_ PCX_DEVICE Dev, _In_ BOOLEAN Linked);
 _IRQL_requires_(PASSIVE_LEVEL) VOID CxDisconnect(_Inout_ PCX_DEVICE Dev, _In_ WDI_ASSOC_STATUS Reason);
 _IRQL_requires_(PASSIVE_LEVEL) VOID CxTaskConnect(_Inout_ PCX_DEVICE Dev, _In_ PCX_CMD Cmd, _In_ const WDI_MESSAGE_HEADER *H,

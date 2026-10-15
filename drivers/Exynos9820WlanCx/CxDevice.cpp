@@ -86,7 +86,7 @@ CxWorker(PVOID Context)
     while (InterlockedCompareExchange(&Dev->Stop, 0, 0) == 0) {
         PCX_CMD Cmd;
 
-        Timeout.QuadPart = -10000LL * ((Dev->Linked && Dev->FastPoll) ? CX_LINK_WAIT_MS : CX_IDLE_WAIT_MS);
+        Timeout.QuadPart = -10000LL * (Dev->Linked ? CX_LINK_WAIT_MS : CX_IDLE_WAIT_MS);
         (VOID)KeWaitForSingleObject(&Dev->Wake, Executive, KernelMode, FALSE, &Timeout);
         if (InterlockedCompareExchange(&Dev->Stop, 0, 0) != 0) {
             break;
@@ -106,24 +106,9 @@ CxWorker(PVOID Context)
             ExFreePoolWithTag(Cmd, CX_POOL_TAG);
         }
         if (Dev->Msg.Resident && !Dev->Msg.Quiesced) {
-            ULONG TxIn = Dev->TxFifo ? Dev->TxFifo->In : 0;
-            ULONG Items;
-
             CxTxDrain(Dev);                                   /* W3: queued tx frames -> flowring */
-            Items = WlanMsgPoll(&Dev->Msg, Dev->RunR);        /* rx -> RxFifo, tx completions, events */
-            Polled += Items;
+            Polled += WlanMsgPoll(&Dev->Msg, Dev->RunR);      /* rx -> RxFifo, tx completions, events */
             CxTxDrain(Dev);                                   /* frames that waited for a tx buffer */
-            /* adaptive poll (notes/windows-trim.md): traffic -> fast; CX_QUIET_POLLS idle fast passes -> slow */
-            if (Dev->Linked) {
-                if (Items != 0 || (Dev->TxFifo != NULL && (Dev->TxFifo->In != TxIn || Dev->TxFifo->Count != 0))) {
-                    if (!Dev->FastPoll) {
-                        CxSetFastPoll(Dev, TRUE);
-                    }
-                    Dev->QuietPolls = 0;
-                } else if (Dev->FastPoll && ++Dev->QuietPolls >= CX_QUIET_POLLS) {
-                    CxSetFastPoll(Dev, FALSE);
-                }
-            }
         }
         if (Dev->RxLayoutLog != Dev->RxLayoutSeen) {
             const UCHAR *L = Dev->RxLayout;

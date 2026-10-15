@@ -26,3 +26,4 @@ WLAN AutoConfig, networking, Windows Update decision left to the user).
 - Exynos9820WlanCx 1.0.10.6: adaptive poll - 5 ms waits + 1 ms timer only while traffic is recent; after
   CX_QUIET_POLLS (40 passes ~200 ms) without D2H items or tx -> 50 ms waits and the timer request released; any tx
   (CxWake) or D2H item -> back to fast at once. Cost: first rx after quiet up to ~50 ms.
+- 01:25 1.0.10.6 on device: timer stayed 1.000 ms in an on-phone detached check (4 samples, CPU 19.7-23.3 %), and from ~01:20 the phone had ~1-minute stretches with no ping/SSH while the association stayed up (no disconnect in the WlanCx log; WLAN-AutoConfig last 'disconnected by the driver' = the install). Adaptive poll suspected (rx/tx not served in slow mode); mechanism not analysed. Reverted -> 1.0.10.7 (= 1.0.10.5 code; a reinstall of 1.0.10.5 was outranked by 1.0.10.6). Open: which second component holds the 1 ms timer request (energy report count 2).

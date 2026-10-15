@@ -27,7 +27,7 @@ CxLogIes(PCX_DEVICE Dev, PCSTR Tag, const UCHAR *Ies, ULONG Len)
     while (Off + 2 <= Len && Off + 2 + Ies[Off + 1] <= Len) {
         UCHAR  Id = Ies[Off], L = Ies[Off + 1];
         const UCHAR *V = Ies + Off + 2;
-        BOOLEAN Full = (Id == 45 || Id == 61 || Id == 127 || Id == 191 || Id == 192 ||
+        BOOLEAN Full = (Id == 48 || Id == 45 || Id == 61 || Id == 127 || Id == 191 || Id == 192 ||
                         (Id == 221 && L >= 4 && V[0] == 0x00 && V[1] == 0x50 && V[2] == 0xF2 && V[3] == 0x02));
         size_t Pos = 0;
 
@@ -387,6 +387,9 @@ CxTaskConnect(PCX_DEVICE Dev, PCX_CMD Cmd, const WDI_MESSAGE_HEADER *H, const UI
             IesLen = E->BeaconFrame.ElementCount - 12;
         }
         Rsn = (Ies != NULL) ? CxFindIe(Ies, IesLen, RSN_IE_ID) : NULL;
+        if (Rsn != NULL) {
+            CxLogIes(Dev, "ap-rsn", Rsn, 2UL + Rsn[1]);   /* AP's RSN capabilities (PMF bits) - notes/wifi-throughput.md */
+        }
         if (C->Rsn) {
             if (Rsn == NULL || 2UL + Rsn[1] > RSN_IE_MAX) {
                 CxLog(Dev, "[join] entry %lu: no usable RSN IE for %02X:%02X:%02X:%02X:%02X:%02X\r\n", I, C->Bssid[0],

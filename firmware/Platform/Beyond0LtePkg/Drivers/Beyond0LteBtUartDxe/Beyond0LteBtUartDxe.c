@@ -31,6 +31,8 @@
 #endif                                     // output lands after BootLog's flush - Windows patches instead (bt4)
 
 #define BT_PROGRESS_TRYING  0x6Bu
+#define BT_DSDT_WORD        11u           // progress word [11] = 'BTH0' -> DSDT BTH0 present
+#define BT_DSDT_PRESENT     0x30485442u   // 'BTH0'
 STATIC BOOLEAN  mBtR2Ok;   // the ROM answered READ_LOCAL_VERSION: R3 may run at ReadyToBoot
 STATIC volatile UINT32  *CONST  mProgress = (volatile UINT32 *)(UINTN)0x8FE0F000ULL;
 
@@ -610,6 +612,11 @@ Beyond0LteBtUartEntry (
 {
   UINT32  Saved;
 
+  //
+  // DSDT BTH0._STA reads progress word [11] (0x8FE0F02C): 'BTH0' only when THIS boot latched the BT role, so a
+  // value surviving a warm reset can never expose the device with its clocks and pins unset.
+  //
+  mProgress[BT_DSDT_WORD] = 0;
   if (!BEYOND0LTE_BT_UART_ROLE && !BEYOND0LTE_BT_UART_PROBE) {
     return EFI_SUCCESS;
   }
@@ -633,7 +640,8 @@ Beyond0LteBtUartEntry (
     BtR2Hci ();
   }
 
-  mProgress[1] = Saved;
+  mProgress[1]            = Saved;
+  mProgress[BT_DSDT_WORD] = BT_DSDT_PRESENT;
   if (mBtR2Ok && BEYOND0LTE_BT_UEFI_PATCHRAM) {
     EFI_EVENT  Event;
 

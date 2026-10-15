@@ -658,6 +658,36 @@ static VOID APIENTRY T_SetStablePowerState(IN_CONST_HANDLE hAdapter, IN_CONST_PD
     MwEnter((MW_ADAPTER *)hAdapter, L"Enter_SetStablePowerState");
 }
 
+/* G15 S1 run 5 probe (Wddm2 = 4, VOLATILE Parameters\Probe only - see DriverEntry): VA + GpuMmu caps (run 3) AND the
+ * GpuMmu DDIs run 3 lacked, in case dxgkrnl checks caps against the table. Stubs only: no Mali page tables are built,
+ * GPUMMUCAPS/PAGETABLELEVELDESC stay unanswered (logged as QAI_13/QAI_14). 8 bytes per root PTE = the Mali LPAE-style
+ * descriptor size (panfrost io-pgtable-arm, 64-bit descriptors). */
+static SIZE_T APIENTRY T_GetRootPageTableSize(IN_CONST_HANDLE hAdapter, DXGKARG_GETROOTPAGETABLESIZE *a)
+{
+    MwEnter((MW_ADAPTER *)hAdapter, L"Enter_GetRootPageTableSize");
+    return (SIZE_T)a->NumberOfPte * 8;
+}
+
+static VOID APIENTRY T_SetRootPageTable(IN_CONST_HANDLE hAdapter, IN_CONST_PDXGKARG_SETROOTPAGETABLE a)
+{
+    UNREFERENCED_PARAMETER(a);
+    MwEnter((MW_ADAPTER *)hAdapter, L"Enter_SetRootPageTable");
+}
+
+static NTSTATUS APIENTRY T_SubmitCommandVirtual(IN_CONST_HANDLE hAdapter, IN_CONST_PDXGKARG_SUBMITCOMMANDVIRTUAL a)
+{
+    UNREFERENCED_PARAMETER(a);
+    MwEnter((MW_ADAPTER *)hAdapter, L"Enter_SubmitCommandVirtual");
+    return STATUS_NOT_SUPPORTED;
+}
+
+static NTSTATUS APIENTRY T_RenderGdi(IN_CONST_HANDLE hContext, DXGKARG_RENDERGDI *a)
+{
+    UNREFERENCED_PARAMETER(a);
+    MwEnter(((MW_CONTEXT *)hContext)->Device->Adapter, L"Enter_RenderGdi");
+    return STATUS_SUCCESS;   /* Learn: any other status bugchecks */
+}
+
 /* ---- the traced DDI table ---- */
 
 /* The wrappers find the adapter from the DDI's first parameter, whose type
@@ -809,9 +839,22 @@ static MW_MODE ReadMode(PUNICODE_STRING RegistryPath, ULONG *PramTrace)
     MwCddDwmInterop = ReadParameter(params, L"CddDwmInterop", 1) != 0;
     {
         ULONG w = ReadParameter(params, L"Wddm2", 0);
-        MwWddm2 = w == 1 || w == 2 || w == 3;
-        MwWddm2Stubs = w == 3;
-        MwWddm2Va = w == 2;
+        /* Run 5+: a probe value in Parameters\Probe overrides; the test creates that key VOLATILE, so any reboot
+         * (crash, WDT) comes back with the persistent value. Wddm2 = 4 is honoured only from there. */
+        UNICODE_STRING probeName = RTL_CONSTANT_STRING(L"Probe");
+        HANDLE probe = NULL;
+        if (params != NULL) {
+            InitializeObjectAttributes(&oa, &probeName, OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, params, NULL);
+            if (NT_SUCCESS(ZwOpenKey(&probe, KEY_READ, &oa))) {
+                w = ReadParameter(probe, L"Wddm2", w);
+                ZwClose(probe);
+            } else if (w == 4) {
+                w = 0;
+            }
+        }
+        MwWddm2 = w >= 1 && w <= 4;
+        MwWddm2Stubs = w == 3 || w == 4;
+        MwWddm2Va = w == 2 || w == 4;
     }
     if (params != NULL)
         ZwClose(params);
@@ -919,6 +962,12 @@ static NTSTATUS InitFull(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPa
         init.DxgkDdiDestroyProcess = T_DestroyProcess;
         init.DxgkDdiSetStablePowerState = T_SetStablePowerState;
     }
+    if (MwWddm2Va && MwWddm2Stubs) {
+        init.DxgkDdiGetRootPageTableSize = T_GetRootPageTableSize;
+        init.DxgkDdiSetRootPageTable = T_SetRootPageTable;
+        init.DxgkDdiSubmitCommandVirtual = T_SubmitCommandVirtual;
+        init.DxgkDdiRenderGdi = T_RenderGdi;
+    }
 
     init.DxgkDdiSetPointerPosition = T_SetPointerPosition;
     init.DxgkDdiSetPointerShape = T_SetPointerShape;
@@ -955,7 +1004,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
                    ((ParamGpu & 0xFF) << 24) | ((ParamFull & 0xFF) << 16) | (ParamKeys << 8) |
                    ((MwSoftVsync & 0xF) << 4) | (MwFlipBlt & 0xF), TRUE);
         MwPramText(TRUE, "Switches ", NULL,
-                   ((MwWddm2 + MwWddm2Va + 2 * MwWddm2Stubs) << 24) | (MwFlipMmio << 20) | (MwRefresh601 << 16) | (MwModeRefreshExact << 12) | (MwSegmentCpuVisible << 8) | (MwRecommendVidPn << 4) | MwSynthEdid, TRUE);
+                   ((MwWddm2 | (MwWddm2Va << 1) | (MwWddm2Stubs << 2)) << 24) | (MwFlipMmio << 20) | (MwRefresh601 << 16) | (MwModeRefreshExact << 12) | (MwSegmentCpuVisible << 8) | (MwRecommendVidPn << 4) | MwSynthEdid, TRUE);
         /* Wall clock (Unix seconds), so a saved \WINPRAM.BIN can be matched to the boot that wrote it. */
         KeQuerySystemTimePrecise(&now);
         MwPramText(TRUE, "UnixTime ", NULL, (ULONG)(now.QuadPart / 10000000LL - 11644473600LL), TRUE);

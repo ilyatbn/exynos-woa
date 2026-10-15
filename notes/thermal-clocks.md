@@ -108,3 +108,4 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   G3D 572 MHz). The 16:22 reset was at base clocks (cause not captured). Open: is the hang clock-related (CPU
   2.1 GHz voltage / G3D 572 MHz) or older (pre-existing silent resets)? Next evidence: KD session during idle
   ("every" break mode brackets a freeze) or run a day at base clocks for comparison.
+- 18:56 bisect config live (boot after the TWRP reset): CPU level 0 (1742/2106 MHz), G3D held at 260 MHz; WDT petted (65062/65525). If idle hangs continue -> not the G3D clock.

@@ -117,3 +117,10 @@ F. CLOSE_INSTANCE H2R 6 -> R2H 6 (INSTANCE_ID first). DPB_FLUSH H2R 10 -> R2H 10
   the first NAL_START 18544 (13 + 18544 = 18557) - consumption ends 1 byte into the next 4-byte start code,
   and the offset refeed works.
   Layout rule (recorded): every MFC buffer must lie above the RISC base (below it -> OPEN_INSTANCE ERR_RET 10).
+- 15:03 phone back in TWRP after vidc4 (no crash). Starting V3 (user-mode IOCTL decode): MfcIoctl.h, session engine Decode.c.
+- 15:15 V3 driver half committed ffe96ee (1.0.0.5, sys 8B42879D): Decode.c session engine (self-test + IOCTLs share
+  it), MfcIoctl.h (OPEN / DECODE window -> packed NV12 / CLOSE, one session per handle), commands complete via the
+  ISR/DPC + KEVENT once D0 is up (polled before), queue sequential at PASSIVE. Review: allocation is 16 + 112 + 1 =
+  129 MiB (the commit message's "144 MiB" is wrong); self-test session excludes the 1 MiB staging tail (no DPB
+  overlap); window limit = CPB 4 MiB - 512 on both sides. Known edge: a DPC arriving late from a TIMED-OUT command
+  could complete the next command early (only after a timeout) - follow-up if timeouts ever show up.

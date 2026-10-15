@@ -31,3 +31,4 @@ UART HCI link clean (no line errors/throttles). => radio time-sharing on the com
   Note AOSP raises priority when the A2DP stream starts (l2c_utils.cc), not at Connection Complete.
   Next: compact HCI trace (command opcodes, CC/CS opcode+credits+status, connection events, capped) with injection on
   for one connect attempt, then fix from data.
+- 22:32 user: even with CoexAclPriority=0 the headphones connect but are not an output device -> the injection is NOT proven to be the cause; duplicate 'Headphones (2- ...)' endpoints suggest stale state after many driver reinstalls/hot restarts in one boot. Rebooted (injection off). 1.0.0.13 built (capped HCI trace: hci> cmd / INJECT, hci< CC/CS op num st / ConnComplete / events, budget 400), not installed yet.

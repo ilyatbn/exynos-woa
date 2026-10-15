@@ -518,6 +518,10 @@ CoexTrySendLocked(
     Cmd[6] = 0xFF;                                   // HCI_BRCM_ACL_HIGH_PRIORITY
     _Fdo->CoexInFlight      = TRUE;
     _Fdo->CoexPendingHandle = 0xFFFF;
+    if (InterlockedDecrement(&_Fdo->HciTraceBudget) >= 0)
+    {
+        DoTrace(LEVEL_ERROR, TFLAG_HCI, ("hci> INJECT fc57 handle %03x high", Cmd[4] | (Cmd[5] << 8)));
+    }
     BtUartTxQueue(&_Fdo->Uart, Cmd, sizeof(Cmd));
 }
 
@@ -545,6 +549,25 @@ CoexOnEvent(
         Op = (USHORT)(_Ev[4] | (_Ev[5] << 8));
         St = _Ev[2];
         Reply = TRUE;
+    }
+
+    if ((_Ev[0] != 0x13) && (InterlockedDecrement(&_Fdo->HciTraceBudget) >= 0))   // 0x13 = Number Of Completed Packets
+    {
+        if (Reply)
+        {
+            DoTrace(LEVEL_ERROR, TFLAG_HCI, ("hci< %s op %04x num %u st %02x (host out %d, inflight %u, held %u)",
+                    (_Ev[0] == 0x0E) ? "CC" : "CS", Op, (_Ev[0] == 0x0E) ? _Ev[2] : _Ev[3], St,
+                    _Fdo->HostCmdOutstanding, _Fdo->CoexInFlight, _Fdo->CoexDeferredCount));
+        }
+        else if ((_Ev[0] == 0x03) && (_Len >= 13))
+        {
+            DoTrace(LEVEL_ERROR, TFLAG_HCI, ("hci< ConnComplete st %02x handle %03x link %u", _Ev[2],
+                    (_Ev[3] | (_Ev[4] << 8)) & 0x0FFF, _Ev[11]));
+        }
+        else
+        {
+            DoTrace(LEVEL_ERROR, TFLAG_HCI, ("hci< event %02x len %u p0 %02x", _Ev[0], _Ev[1], (_Len > 2) ? _Ev[2] : 0));
+        }
     }
 
     KeAcquireSpinLock(&_Fdo->CoexLock, &Irql);
@@ -599,6 +622,12 @@ CoexHostCommand(
     )
 {
     KIRQL Irql;
+
+    if ((_Len >= 3) && (InterlockedDecrement(&_Fdo->HciTraceBudget) >= 0))
+    {
+        DoTrace(LEVEL_ERROR, TFLAG_HCI, ("hci> cmd %04x plen %u (host out %d, inflight %u)", _Pkt[1] | (_Pkt[2] << 8),
+                (_Len >= 4) ? _Pkt[3] : 0, _Fdo->HostCmdOutstanding, _Fdo->CoexInFlight));
+    }
 
     KeAcquireSpinLock(&_Fdo->CoexLock, &Irql);
     if (_Fdo->CoexInFlight && (_Len <= sizeof(_Fdo->CoexDeferred[0])) &&
@@ -1667,6 +1696,7 @@ Return Value:
     FdoExtension->CoexPendingHandle  = 0xFFFF;
     FdoExtension->CoexDeferredCount  = 0;
     FdoExtension->CoexEnabled        = (gCoexAclPriority != 0);
+    FdoExtension->HciTraceBudget     = 400;   // one connection's setup; capped so KD cannot flood (notes/bt-wifi-coex.md)
 
     // Create a WDF Request
     WDF_OBJECT_ATTRIBUTES_INIT(&ObjAttributes);

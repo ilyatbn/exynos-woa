@@ -331,6 +331,7 @@ typedef struct _FDO_EXTENSION
     ULONG      CoexDeferredLen[4];
     UCHAR      CoexDeferred[4][1 + 3 + 255];
     ULONG      CoexDeferredMax;        // deepest hold seen
+    LONG       HciTraceBudget;         // 1.0.0.13: compact HCI command/reply trace lines left (KD), 0 = off
     BOOLEAN    CoexEnabled;            // Parameters\CoexAclPriority (default 1)
     ULONG      CoexSetOk;
     ULONG      CoexSetFailed;

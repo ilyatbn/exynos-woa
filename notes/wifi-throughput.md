@@ -29,3 +29,13 @@ User report 2026-10-15: ~18 Mbit/s while copying a 725 MB file to the phone over
   gives ~15 Mbit/s ("we should get 5x that at least"), theory: the missing efficiency is also what starves BT
   (shared radio, airtime). Starting a tx-path audit: tx post flags/priority, flowring setup, completion pacing.
 - 23:10 tx flags audit: 802.3, prio 0, tid-0 flowring = fmac-equivalent (not the cause). Posting: 1 descriptor + doorbell per frame, 64 tx buffers; at 1.75 MB/s a 64-frame batch takes ~55 ms to complete => time spent in firmware/air. Exynos9820WlanCx 1.0.10.0: GET_VAR 'dump' (ampdu, rssi, wme) logged every ~1 min while associated.
+- **2026-10-15 23:20 ROOT CAUSE FOUND (firmware 'dump ampdu', 1.0.10.0, during 5 x 20 MiB phone->PC):**
+  TX: `txaddbareq 5 rxaddbaresp 0` (5 ADDBA requests sent, 0 responses), `ini 1 ini_off 1 ini_on 0`,
+  `tot_mpdus 0 tot_ampdus 0` -> NO tx aggregation at all; `AQM_ENAB 1`, frameburst histogram avg 3.
+  RX: `rxaddbareq 0`, `rxampdu 70027 rxmpdu 70027 rxmpduperampdu 1`, rxht 100 % MCS7 SGI -> the AP sends HT frames
+  but never sets up a BA session towards us either. => no Block Ack in either direction = every frame individually
+  acked = ~11g-class efficiency (~14 Mbit/s) and far more airtime per byte (starves BT on the shared radio - user's
+  theory). 'dump rssi'/'dump wme' unsupported (MSG 6).
+  Next suspect: the association is not QoS/WMM (BA requires a QoS association) -> check iovar 'wme' and the WMM IE
+  in our join/assoc request (WDI WMMQoSEnabled path, notes/m12-wifi-wificx.md:318); then ADDBA action-frame handling.
+- Battery 12 % at 23:20 - user asked to pause below 10 % to charge.

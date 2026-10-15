@@ -35,3 +35,10 @@ FVMAIN_COMPACT (verification build) - watch image space on main.
   version and F/W version") - the firmware fills it. So "read 0x1300 with zero writes" was a wrong R1 expectation on
   the branch; pre-firmware the register holds a leftover. R1 really proves: domain on, CMU_MFC + MFC respond without
   a hang. Identity check moves to R3/R4 (boot mfc_fw.bin: RISC_BASE_ADDR, RISC_ON, wait R2H FW_STATUS 12 / SYS_INIT 1).
+- **R3 PASSED (btmfc2 c23162d6, 14:04):** mfc_fw.bin (687,912 B, FV-embedded test build) copied to a reserved buffer
+  at 0xEF700000 (< 4 GiB, 1 MiB aligned); vendor reset sequence, RISC_BASE_ADDRESS = 0xEF700000 (reads back),
+  RISC_ON 1 / MFC_OFF 0 -> RISC2HOST_INT 1, RISC2HOST_CMD 12 = FW_STATUS_RET after 1 ms. After the boot
+  MFC_VERSION = 0x00001300 (= DT ip_ver, the firmware fills it) and FW_VERSION = 0x45210720. => the MFC RISC boots
+  from non-secure UEFI with the SYSMMUs in reset bypass (device address = physical) and no TZPC block (sboot left
+  pd-mfc on and configured; no need_smc call was needed). MFC put back into reset afterwards; Windows booted fine.
+- Next: R4 SYS_INIT (mfc_cmd_sys_init), then the Windows side.

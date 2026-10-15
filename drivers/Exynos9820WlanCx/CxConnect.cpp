@@ -15,6 +15,34 @@
 #define CX_LINK_KBPS        54000       /* placeholder Tx/Rx link speed for LINK_STATE_CHANGE (UNVERIFIED unit kbit/s;
                                            the firmware rate is not read yet) */
 
+/* notes/wifi-throughput.md (no Block Ack session): IE ids + lengths of an association frame, full bytes only for the
+   capability elements that decide aggregation (HT cap 45, HT op 61, ext cap 127, VHT cap 191, VHT op 192, WMM
+   vendor 221 00-50-F2 type 2). The SSID and other elements are not printed. */
+static VOID
+CxLogIes(PCX_DEVICE Dev, PCSTR Tag, const UCHAR *Ies, ULONG Len)
+{
+    CHAR  Line[200];
+    ULONG Off = 0;
+
+    while (Off + 2 <= Len && Off + 2 + Ies[Off + 1] <= Len) {
+        UCHAR  Id = Ies[Off], L = Ies[Off + 1];
+        const UCHAR *V = Ies + Off + 2;
+        BOOLEAN Full = (Id == 45 || Id == 61 || Id == 127 || Id == 191 || Id == 192 ||
+                        (Id == 221 && L >= 4 && V[0] == 0x00 && V[1] == 0x50 && V[2] == 0xF2 && V[3] == 0x02));
+        size_t Pos = 0;
+
+        (VOID)RtlStringCbPrintfA(Line, sizeof(Line), "[ie %s] id %u len %u", Tag, Id, L);
+        if (Full) {
+            (VOID)RtlStringCbLengthA(Line, sizeof(Line), &Pos);
+            for (ULONG I = 0; I < L && Pos + 4 < sizeof(Line); I++, Pos += 3) {
+                (VOID)RtlStringCbPrintfA(Line + Pos, sizeof(Line) - Pos, " %02X", V[I]);
+            }
+        }
+        CxLog(Dev, "%s\r\n", Line);
+        Off += 2 + L;
+    }
+}
+
 /* First IE with Id in an IE blob, or NULL. */
 static const UCHAR *
 CxFindIe(const UCHAR *Ies, ULONG Len, UCHAR Id)
@@ -193,6 +221,8 @@ CxIndicateAssoc(PCX_DEVICE Dev, const UCHAR *Bssid, WDI_ASSOC_STATUS St, const W
         }
     }
     if (A != NULL && St == WDI_ASSOC_STATUS_SUCCESS) {
+        CxLogIes(Dev, "req", A->ReqIes, A->ReqIesLen);
+        CxLogIes(Dev, "resp", A->RespIes, A->RespIesLen);
         /* frame bodies: assoc request = capability + listen interval + IEs, response = capability + status + AID
            + IEs (802.11-2016 9.3.3.6 / 9.3.3.7; firmware gives the fixed fields in assoc_info, the IEs separately) */
         Req  = (PUCHAR)ExAllocatePool2(POOL_FLAG_NON_PAGED, 4 + WLAN_ASSOC_IES_MAX, CX_POOL_TAG);

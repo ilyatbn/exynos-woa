@@ -44,3 +44,4 @@ User report 2026-10-15: ~18 Mbit/s while copying a 725 MB file to the phone over
   it sends us HT MCS7. Next: decode the HT Capabilities element in our 164 B association request (A-MPDU params /
   "assoc_req_ies"), compare with what Android's dhd joins with; check whether action frames from the AP reach the
   firmware. Paused for battery (12 %). State: BT 1.0.0.15 (= 1.0.0.10 code), Wi-Fi 1.0.10.0 (dump every ~1 min).
+- 23:55 load test #2 with BT 1.0.0.16 (ACL priority high while streaming): user 'its good' / 'bluetooth is still working fine' during the BBB phone->PC copy (scp -O), copy steady 1.2-1.6 MB/s (first sample inflated). Speedtest on the phone: 8 Mbit/s. Exynos9820WlanCx 1.0.10.1: [ie req]/[ie resp] dump of the association elements (ids+lens; full bytes only for HT cap 45, HT op 61, ext cap 127, VHT 191/192, WMM) to see what A-MPDU parameters are negotiated.

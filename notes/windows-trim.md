@@ -19,3 +19,10 @@ WLAN AutoConfig, networking, Windows Update decision left to the user).
   PcaSvc (Running/Automatic), lfsvc (Running/Manual), MapsBroker (Stopped/Automatic). Kept: CDPSvc (BT proximal
   transport), PhoneSvc, DPS/WdiSystemHost, networking, WLAN, audio, BT, sshd, S10eAgent/S10eDiag, s10egov.
   Windows Update services were already off (UsoSvc/DoSvc Disabled, wuauserv/BITS Manual+Stopped) - untouched.
+- 01:15 powercfg /energy (20 s): CPU avg 21.54 %; timer resolution 1.000 ms (default 15.6) - "Outstanding Kernel Timer
+  Request" period 10000, count 2; display + sleep timeouts disabled (battery and AC); 2 CPU devices code 0xA; Unknown
+  Device ACPI\SAMS9821 code 0x1C; 802.11 power policy Maximum Performance (AC). Our only ExSetTimerResolution caller:
+  Exynos9820WlanCx CxSetLinked (1 ms for the whole association).
+- Exynos9820WlanCx 1.0.10.6: adaptive poll - 5 ms waits + 1 ms timer only while traffic is recent; after
+  CX_QUIET_POLLS (40 passes ~200 ms) without D2H items or tx -> 50 ms waits and the timer request released; any tx
+  (CxWake) or D2H item -> back to fast at once. Cost: first rx after quiet up to ~50 ms.

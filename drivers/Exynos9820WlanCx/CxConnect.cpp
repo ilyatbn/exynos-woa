@@ -71,8 +71,9 @@ CxSetLinked(PCX_DEVICE Dev, BOOLEAN Linked)
     if (!Linked) {
         Dev->KeysSet = FALSE;   /* the firmware drops the keys with the association */
     }
-    /* 5 ms worker waits need a 1 ms system timer while associated (rx latency); released on disconnect */
-    (VOID)ExSetTimerResolution(10000, Linked);
+    /* 5 ms worker waits need a 1 ms system timer while associated and busy (rx latency); the worker drops to the slow
+       poll and releases it after CX_QUIET_POLLS idle passes, and on disconnect (notes/windows-trim.md) */
+    CxSetFastPoll(Dev, Linked);
     if (Dev->Adapter != NULL) {
         NET_ADAPTER_LINK_STATE_INIT(&Ls, Linked ? (ULONG64)CX_LINK_KBPS * 1000 : NDIS_LINK_SPEED_UNKNOWN,
                                     Linked ? MediaConnectStateConnected : MediaConnectStateDisconnected,
@@ -116,6 +117,18 @@ CxUpdateRate(PCX_DEVICE Dev)
     NET_ADAPTER_LINK_STATE_INIT(&Ls, (ULONG64)R500 * 500000, MediaConnectStateConnected, MediaDuplexStateHalf,
                                 NetAdapterPauseFunctionTypeUnsupported, NetAdapterAutoNegotiationFlagNone);
     NetAdapterSetLinkState(Dev->Adapter, &Ls);
+}
+
+/* Worker thread (and CxSetLinked, also on the worker). The 1 ms timer request is held only while FastPoll. */
+VOID
+CxSetFastPoll(PCX_DEVICE Dev, BOOLEAN Fast)
+{
+    Dev->QuietPolls = 0;
+    if (Fast == Dev->FastPoll) {
+        return;
+    }
+    Dev->FastPoll = Fast;
+    (VOID)ExSetTimerResolution(10000, Fast);
 }
 
 /* Unsolicited WDI_INDICATION_DISASSOCIATION for the current peer. */

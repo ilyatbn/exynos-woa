@@ -606,3 +606,11 @@ No device access in this task; build-verified only (Guided, not Ready).
   Died again after the verification break (TWRP 09:53:03).
 - m4noha2: patch KeRestoreProcessorState instead: +0x18 `ldr x9,[x14,#0xC0]` (F94061C9), +0x1C `and x9,x9,#~(1<<39)`
   (9258F929), +0x28 `nop` -> the msr TCR at +0x2C writes HA 0; the ACTLR_EL1 write (value 0) is dropped to make room.
+- m4noha2 RESULT: patch effective - every secondary (A55 x2, A75 x2, M4 x2) read TCR 0x615B5513511 (HA 0), boot A55
+  kept HA 1. Windows then bugchecked 0x50 within ~5 s of uptime, on CPU 4 (an A75, not an M4) in
+  MmAccessFault -> MiSystemFault during Phase1 MM init. => this Windows build does not handle Access-flag faults once
+  the boot CPU reported HA (it expects hardware AF on every core). Clearing HA only on secondaries is not a viable
+  test; the M4-HA hypothesis is NOT decided by this run (the failure is a different, expected one).
+- Options to decide HA: (a) clear HA on the boot CPU too, before MM sets up its AF policy (needs a patch earlier than
+  the KD initial break - winload/bootmgr side or the kernel entry), so Windows runs a consistent software-AF system;
+  (b) find the MM flag that selects hardware vs software AF and flip it at the initial break together with (a).

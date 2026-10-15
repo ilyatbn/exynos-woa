@@ -208,3 +208,8 @@ free.
   (USB), CAPACITY 50, VOLTAGE_NOW 3.89 V, CURRENT_NOW 119 / CURRENT_AVG 77 (Samsung sysfs, mA, net into the battery),
   POWER_NOW 868, TEMP 30.3 C, TIME_TO_FULL 6191 s. User: wall charger in TWRP 13 -> 50 % in ~20 min; CPU temp jumps
   when on PC USB instead of the charger (TWRP). Windows comparison pending (S10eBattery AvgCurrentMa).
+- 2026-10-16 00:35 TWRP, PC USB (battery uevent online 4 = USB, usb online 1, ac 0), 6 x 10 s: CAPACITY 47 %,
+  STATUS Charging, CHARGE_TYPE Fast, CURRENT_NOW +94..+460 mA, CURRENT_AVG +167..+394 mA (net into the battery),
+  VOLTAGE_NOW 3.845-3.892 V, TEMP 32.7-33.1 C, POWER_NOW 533-858. top: 83.5 % idle, /sbin/recovery (GUI) 13 % of one
+  core (load average was still rising from boot). Wall charger (user): 13 -> 50 % in ~20 min ~ 1.1 Ah / 0.33 h ~ 3 A
+  into the battery = Samsung AFC (9 V) negotiated by the Linux charger stack. Windows measurement next, same cable.

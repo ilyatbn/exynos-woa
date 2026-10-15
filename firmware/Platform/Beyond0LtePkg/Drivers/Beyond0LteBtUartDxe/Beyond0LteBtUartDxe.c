@@ -441,6 +441,7 @@ BtLoadPatch (
   EFI_FILE_INFO                    *Info;
   UINTN                            InfoSize;
   UINT8                            *Data;
+  EFI_STATUS                       Status;
 
   Data = NULL;
   if (EFI_ERROR (gBS->LocateHandleBuffer (ByProtocol, &gEfiSimpleFileSystemProtocolGuid, NULL, &Count, &Handles))) {
@@ -454,13 +455,19 @@ BtLoadPatch (
       continue;
     }
 
-    if (!EFI_ERROR (Root->Open (Root, &File, L"\\S10EDIAG\\bt\\bcm4375B1_semco.hcd", EFI_FILE_MODE_READ, 0))) {
+    Status = Root->Open (Root, &File, L"\\S10EDIAG\\bt\\bcm4375B1_semco.hcd", EFI_FILE_MODE_READ, 0);
+    DEBUG ((DEBUG_ERROR, "[BT] R3: volume %u/%u open %r\n", (UINT32)Index, (UINT32)Count, Status));
+    if (!EFI_ERROR (Status)) {
       InfoSize = SIZE_OF_EFI_FILE_INFO + 256;
       Info     = AllocatePool (InfoSize);
-      if ((Info != NULL) && !EFI_ERROR (File->GetInfo (File, &gEfiFileInfoGuid, &InfoSize, Info))) {
-        *Size = (UINTN)Info->FileSize;
-        Data  = AllocatePool (*Size);
-        if ((Data != NULL) && EFI_ERROR (File->Read (File, Size, Data))) {
+      Status   = (Info != NULL) ? File->GetInfo (File, &gEfiFileInfoGuid, &InfoSize, Info) : EFI_OUT_OF_RESOURCES;
+      DEBUG ((DEBUG_ERROR, "[BT] R3: GetInfo %r size %lu\n", Status, EFI_ERROR (Status) ? 0 : Info->FileSize));
+      if (!EFI_ERROR (Status)) {
+        *Size  = (UINTN)Info->FileSize;
+        Data   = AllocatePool (*Size);
+        Status = (Data != NULL) ? File->Read (File, Size, Data) : EFI_OUT_OF_RESOURCES;
+        DEBUG ((DEBUG_ERROR, "[BT] R3: Read %r (%u B)\n", Status, (UINT32)*Size));
+        if (EFI_ERROR (Status) && (Data != NULL)) {
           FreePool (Data);
           Data = NULL;
         }

@@ -8,4 +8,5 @@ if not exist "%OUT%" mkdir "%OUT%"
 call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvarsall.bat" x64_arm64 > nul || exit /b 1
 cl /nologo /W4 /WX /O2 /MT /EHsc /std:c++17 /LD "%~dp0Mft.cpp" /Fo"%OUT%\\" /Fe"%OUT%\Exynos9820MfcMft.dll" /link /DEF:"%~dp0Mft.def" ole32.lib advapi32.lib user32.lib || exit /b 1
 copy /y "%~dp0install.cmd" "%OUT%\install.cmd" > nul
+copy /y "%~dp0prefer.ps1" "%OUT%\prefer.ps1" > nul
 echo built %OUT%\Exynos9820MfcMft.dll

@@ -172,3 +172,21 @@ F. CLOSE_INSTANCE H2R 6 -> R2H 6 (INSTANCE_ID first). DPB_FLUSH H2R 10 -> R2H 10
   session lines from the driver.
 - Limits to remember: the driver runs ONE session device-wide (a second player / thumbnailer gets BUSY); ARM64
   processes only (x64-emulated apps cannot load an ARM64 MFT).
+- 15:50-16:10 V4 MFT on the phone (ssh): DLL + install.cmd + prefer.ps1. Findings:
+  - install: the Preferred key AND Transforms\Categories\d6c02d4b...(video decoders) are TrustedInstaller-owned
+    (Administrators/SYSTEM ReadKey only); MFTRegister wrote Transforms\<clsid> but not the category link and
+    regsvr32 /s did not report it. prefer.ps1 now takes ownership briefly (SeTakeOwnership + SeRestore), grants one
+    right, makes the change, writes the original descriptor back (owner TrustedInstaller verified). Backup of the old
+    preferred value: HKLM\SOFTWARE\exynos-woa\MfcMft\PreferredH264 = {62CE7E72-...} (Microsoft H264 Video Decoder).
+  - mftest -enum: MFTEnumEx lists 2 H.264 decoders, Microsoft first, ours second; both activate and accept the
+    c720.mp4 native type (H264, 37 B sequence header); IMFPluginControl reports OUR CLSID as the preferred H.264 MFT
+    (entry 22 of 60) - yet MFTEnumEx still sorts Microsoft first (not explained by the MS docs read).
+  - the Source Reader keeps using the Microsoft decoder (no friendly name, 1088-row output) even with
+    IMFPluginControl::SetDisabled(Microsoft H.264) in-process (-blockms) -> it does not pick decoders through this
+    path. MS software decoder via MF: c720 IDENTICAL to libavcodec, c1080 output is the coded 1920x1088 (hash DIFF
+    expected). Our MFT never ran (no driver session lines from mftest).
+  - User (16:05): "Forget native windows players"; wants a free third-party player (VLC / ffmpeg-based). VLC's
+    default decoder and stock ffmpeg/mpv decode in software on this device (ffmpeg's Windows hw paths are
+    D3D11VA/DXVA2 = need a GPU video-decode driver; ffmpeg's MF support is encoders only). Paths: VLC --codec=mft
+    (VLC builds the MFT list itself; x64 VLC needs an ARM64X build of the DLL), or an ffmpeg decoder wrapper
+    (h264_exynos over the IOCTLs, like h264_v4l2m2m) in a custom ARM64 mpv/ffplay build.

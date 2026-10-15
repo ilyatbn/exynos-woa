@@ -3,7 +3,7 @@
  * per-frame FNV-1a 32 hashes of the NV12 luma / CbCr planes, the same lines tools/mfc/mfcdec and mkclip.py print
  * (D10 V4, notes/d10-mfc-decode-flow.md). Also prints which decoder MF picked (its MFT friendly name).
  *
- *   mftest <file.mp4> [-q]
+ *   mftest <file.mp4> [-enum | -blockms] [-q]
  */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -53,6 +53,76 @@ static void PrintDecoder(IMFSourceReader *reader)
     ex->Release();
 }
 
+/** -enum: MFTEnumEx order for H.264 decoders, then activate each and try the file's native type on it. **/
+static int Enumerate(const wchar_t *file)
+{
+    MFT_REGISTER_TYPE_INFO in = { MFMediaType_Video, MFVideoFormat_H264 };
+    IMFActivate          **acts = nullptr;
+    UINT32                 n = 0;
+    IMFSourceReader       *reader = nullptr;
+    IMFMediaType          *native = nullptr;
+    HRESULT hr = MFTEnumEx(MFT_CATEGORY_VIDEO_DECODER, MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_ASYNCMFT |
+                           MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_LOCALMFT | MFT_ENUM_FLAG_SORTANDFILTER, &in, nullptr,
+                           &acts, &n);
+    printf("MFTEnumEx 0x%08lx: %u decoder(s)\n", hr, n);
+    IMFPluginControl *pc = nullptr;
+    if (SUCCEEDED(MFGetPluginControl(&pc)))
+    {
+        CLSID   pref = {};
+        HRESULT g = pc->GetPreferredClsid(MF_Plugin_Type_MFT, L"{34363248-0000-0010-8000-00AA00389B71}", &pref);
+        printf("plugin control preferred H.264: 0x%08lx {%08lX-...}\n", g, pref.Data1);
+        for (DWORD i = 0; i < 200; i++)
+        {
+            LPWSTR sel = nullptr;
+            if (FAILED(pc->GetPreferredClsidByIndex(MF_Plugin_Type_MFT, i, &sel, &pref)))
+            {
+                printf("plugin control: %lu preferred MFT entries\n", i);
+                break;
+            }
+            if (sel && wcsstr(sel, L"34363248"))
+                printf("  entry %lu: %ls -> {%08lX-...}\n", i, sel, pref.Data1);
+            CoTaskMemFree(sel);
+        }
+        pc->Release();
+    }
+    if (SUCCEEDED(MFCreateSourceReaderFromURL(file, nullptr, &reader)))
+        reader->GetNativeMediaType((DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, 0, &native);
+    for (UINT32 i = 0; i < n; i++)
+    {
+        WCHAR  name[128] = L"?";
+        GUID   clsid = {};
+        UINT32 flags = 0;
+        acts[i]->GetString(MFT_FRIENDLY_NAME_Attribute, name, ARRAYSIZE(name), nullptr);
+        acts[i]->GetGUID(MFT_TRANSFORM_CLSID_Attribute, &clsid);
+        acts[i]->GetUINT32(MF_TRANSFORM_FLAGS_Attribute, &flags);
+        IMFTransform *t = nullptr;
+        HRESULT       a = acts[i]->ActivateObject(IID_PPV_ARGS(&t));
+        HRESULT       s = E_FAIL;
+        if (SUCCEEDED(a) && native)
+            s = t->SetInputType(0, native, 0);
+        printf("  %u: %ls clsid {%08lX-...} flags 0x%x activate 0x%08lx SetInputType 0x%08lx\n", i, name, clsid.Data1,
+               flags, a, s);
+        if (t)
+            t->Release();
+        acts[i]->ShutdownObject();
+        acts[i]->Release();
+    }
+    if (native)
+    {
+        GUID   sub = {};
+        UINT32 w = 0, h = 0, blob = 0;
+        native->GetGUID(MF_MT_SUBTYPE, &sub);
+        MFGetAttributeSize(native, MF_MT_FRAME_SIZE, &w, &h);
+        native->GetBlobSize(MF_MT_MPEG_SEQUENCE_HEADER, &blob);
+        printf("native type: subtype {%08lX-...} %ux%u sequence header %u B\n", sub.Data1, w, h, blob);
+        native->Release();
+    }
+    if (reader)
+        reader->Release();
+    CoTaskMemFree(acts);
+    return 0;
+}
+
 int wmain(int argc, wchar_t **argv)
 {
     if (argc < 2)
@@ -60,9 +130,23 @@ int wmain(int argc, wchar_t **argv)
         fprintf(stderr, "usage: mftest <file.mp4> [-q]\n");
         return 2;
     }
-    bool quiet = argc > 2 && wcscmp(argv[2], L"-q") == 0;
+    bool quiet = argc > 2 && wcscmp(argv[argc - 1], L"-q") == 0;
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     MFStartup(MF_VERSION);
+    if (argc > 2 && wcscmp(argv[2], L"-enum") == 0)
+        return Enumerate(argv[1]);
+    if (argc > 2 && wcscmp(argv[2], L"-blockms") == 0)
+    {
+        // process-local: take the Microsoft H264 Video Decoder MFT out of this process's enumeration
+        static const CLSID msH264 = { 0x62ce7e72, 0x4c71, 0x4d20, { 0xb1, 0x5d, 0x45, 0x28, 0x31, 0xa8, 0x7d, 0x9d } };
+        IMFPluginControl  *pc = nullptr;
+        if (SUCCEEDED(MFGetPluginControl(&pc)))
+        {
+            printf("blocked Microsoft H.264 decoder in this process: 0x%08lx\n",
+                   pc->SetDisabled(MF_Plugin_Type_MFT, msH264, TRUE));
+            pc->Release();
+        }
+    }
 
     IMFAttributes   *attr = nullptr;
     IMFSourceReader *reader = nullptr;

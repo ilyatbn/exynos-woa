@@ -126,7 +126,7 @@ BtUartInitHw(
     Wr(Uart, BT_UART_UFCON, BT_UFCON_FIFO_ON | BT_UFCON_RESET);
     KeStallExecutionProcessor(100);
     Wr(Uart, BT_UART_UFCON, BT_UFCON_FIFO_ON);
-    Wr(Uart, BT_UART_UMCON, BT_UMCON_RTS);
+    Wr(Uart, BT_UART_UMCON, BT_UMCON_AFC | BT_UMCON_RTS);   // hardware flow control both ways (samsung_tty CRTSCTS)
     Wr(Uart, BT_UART_UCON, BT_UCON_POLL);
     Wr(Uart, BT_UART_UINTP, BT_UINT_ALL);
     DoTrace(LEVEL_ERROR, TFLAG_UART, ("UART init: ucon %x ufcon %x ubrdiv %x frac %x umstat %x",
@@ -533,5 +533,13 @@ BtUartDpc(
         {
             Head = Uart->Head;
         }
+    }
+
+    if ((Uart->LineErrors != Uart->LoggedLineErrors) || (Uart->RingOverflows != Uart->LoggedOverflows))
+    {
+        Uart->LoggedLineErrors = Uart->LineErrors;
+        Uart->LoggedOverflows  = Uart->RingOverflows;
+        DoTrace(LEVEL_ERROR, TFLAG_IO, ("UART line errors %u (last UERSTAT 0x%x), RX ring overflows %u",
+                Uart->LineErrors, Uart->LastErrStat, Uart->RingOverflows));
     }
 }

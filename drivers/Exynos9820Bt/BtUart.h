@@ -35,7 +35,9 @@
 #define BT_UFCON_FIFO_ON    0x1u
 #define BT_UFCON_RESET      0x6u       // reset RX (bit1) + TX (bit2)
 #define BT_UFCON_IRQ        0x111u     // S5PV210_UFCON_DEFAULT: FIFO on, TX trigger 4, RX trigger 4
-#define BT_UMCON_RTS        0x1u       // nRTS asserted (no auto flow control)
+#define BT_UMCON_RTS        0x1u       // nRTS asserted (manual; ignored while AFC is on)
+#define BT_UMCON_AFC        0x10u      // S3C2410_UMCOM_AFC (serial_s3c.h:143): hardware RTS/CTS; bits [7:5] = 0 = AFC_63:
+                                       // RTS drops at the top RX FIFO level (RFCOMM echo lost RX bytes without it)
 #define BT_UFSTAT_RX_COUNT  0xFFu
 #define BT_UFSTAT_RX_FULL   (1u << 8)
 #define BT_UFSTAT_TX_FULL   (1u << 24)
@@ -63,6 +65,8 @@ typedef struct _BT_UART
     volatile LONG   RxEnabled;
     ULONG           RingOverflows;
     ULONG           LineErrors;
+    ULONG           LoggedLineErrors;  // DPC logs the counters when they change
+    ULONG           LoggedOverflows;
     ULONG           LastErrStat;
 } BT_UART, *PBT_UART;
 

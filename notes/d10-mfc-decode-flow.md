@@ -83,3 +83,15 @@ F. CLOSE_INSTANCE H2R 6 -> R2H 6 (INSTANCE_ID first). DPB_FLUSH H2R 10 -> R2H 10
   deblocking off -> output known bit-exactly). 128x96: 37101 bytes. Expected (FNV-1a 32, luma W x H / NV12 CbCr):
   f0 0xd3990385/0x1eb1b40e, f1 same, f2 0xcabb3add/0x050d99fd. Cross-checked with libavcodec (PyAV 19.0.1 in a
   scratch venv): identical hashes, picture types I, P, I.
+- 14:48 driver self-test committed (V-W2 self-test, chroma page-align fix 3a264fd, DriverVer
+  1.0.0.2 d9b1c39). Device run vidc2 (b94fcbfb, BTPROBE switches as vidc1 + VIDC gate b96228a): package +
+  mfc_test.h264 on /cache/S10EDIAG, extra-mfc.cmd, kdrun go -> scratchpad kd-vidc2.log. Booted 14:48:51.
+- 14:49 vidc2: KD connected; installed V-W1 driver loaded at boot (fw at PA 0xef700000, SYS_INIT, ISR 1) => VIDC gate OK on device (word [13] set, device present). Waiting for the 1.0.0.2 install by extra-mfc.cmd.
+- **14:50:45 vidc2 BUGCHECK 0x122 (WHEA, HalWheaHandleSei = async SError)** when extra-mfc.cmd's pnputil swapped the
+  driver: CPU5 was in the OLD V-W1 Exynos9820Mfc ReleaseHardware (+0x10a8, via _PnpRemoveDevice), the SError surfaced
+  on CPU3 in user mode. V-W1 release = RISC_ON 0 then immediately MfcReset (1024 register clears + MFC_RESET 0x1FFF)
+  with the firmware running. Vendor never does that: shutdown (mfc.c:1666 mfc_risc_off) polls MFC_BUS_STATUS
+  (0x7018) == 0 up to MFC_BW_TIMEOUT 500 ms, then RISC_ON 0; deinit (mfc_run.c:173) is only MFC_OFF (0x7120) = 1.
+  Bus reset helper (mfc_stop_bus): BUS_RESET_CTRL (0x7110) = 1, wait bit1. The self-test itself never ran (old
+  driver unloading). Fix: release = vendor risc_off (bus idle wait) + MFC_OFF 1, no reset; free buffers after.
+  NOTE: the V-W1 driver is still the installed one on the phone - any further swap may hit this again.

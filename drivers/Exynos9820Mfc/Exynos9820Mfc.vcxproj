@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Release|ARM64"><Configuration>Release</Configuration><Platform>ARM64</Platform></ProjectConfiguration>
@@ -45,7 +45,9 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Driver.c" />
+    <ClCompile Include="Decode.c" />
     <ClInclude Include="Mfc.h" />
+    <ClInclude Include="MfcIoctl.h" />
     <FilesToPackage Include="$(TargetPath)" />
   </ItemGroup>
   <Target Name="ValidateOfflineBuild" BeforeTargets="PrepareForBuild">

@@ -1,26 +1,33 @@
 /*
- * Driver.c - Exynos9820Mfc V-W1 (D10, notes/d10-mfc-main.md): binds ACPI\SAMS982A (DSDT VIDC), boots the MFC v13
- * firmware and runs SYS_INIT, then proves the R2H interrupt (GSIV 370). V-W2: polled H.264 decode
- * self-test of mfc_test.h264 (next to mfc_fw.bin) when that file exists - MfcDecodeTest.
+ * Driver.c - Exynos9820Mfc (D10, notes/d10-mfc-main.md, notes/d10-mfc-decode-flow.md): binds ACPI\SAMS982A (DSDT
+ * VIDC), boots the MFC v13 firmware and runs SYS_INIT (V-W1), runs a polled H.264 decode self-test of mfc_test.h264
+ * when that file exists (V-W2), proves the R2H interrupt (GSIV 370), then serves user-mode decode sessions through
+ * IOCTLs (V3, MfcIoctl.h; engine in Decode.c) with commands completed by the interrupt.
  *
- * Sequence = vendor __mfc_init_hw (mfc_run.c) as proven from UEFI (Beyond0LteMfcDxe R3/R4): reset (R2H/H2R/FW_VERSION
+ * Boot = vendor __mfc_init_hw (mfc_run.c) as proven from UEFI (Beyond0LteMfcDxe R3/R4): reset (R2H/H2R/FW_VERSION
  * cleared, 1024 words from 0xF000 cleared, MFC_RESET 0x1FFF then 0), RISC_BASE_ADDRESS = buffer physical address
  * (SYSMMUs left in reset bypass), RISC_ON 1 / MFC_OFF 0, R2H FW_STATUS_RET 12, then CONTEXT_MEM_ADDR/SIZE + H2R
- * SYS_INIT, R2H SYS_INIT_RET 1. The last R2H interrupt is deliberately left pending: once WDF connects the interrupt
- * (after D0Entry) the ISR must fire - that is the interrupt-path proof.
+ * SYS_INIT, R2H SYS_INIT_RET 1. The last R2H of the boot sequence is left pending: once WDF connects the interrupt
+ * the ISR must fire - that is the interrupt-path proof.
+ *
+ * Memory: ONE contiguous non-cached allocation below 4 GiB, firmware at its 1 MiB aligned base, common context at
+ * +1 MiB, self-test area at +8 MiB, user session region at +16 MiB. Every MFC buffer must lie above the RISC base
+ * (a buffer below it got OPEN_INSTANCE ERR_RET 10, vidc3).
  */
 #include "Mfc.h"
+#include <initguid.h>
+#include "MfcIoctl.h"
 
 DRIVER_INITIALIZE DriverEntry;
 EVT_WDF_DRIVER_DEVICE_ADD MfcEvtDeviceAdd;
 EVT_WDF_DEVICE_PREPARE_HARDWARE MfcEvtPrepareHardware;
 EVT_WDF_DEVICE_RELEASE_HARDWARE MfcEvtReleaseHardware;
 EVT_WDF_DEVICE_D0_ENTRY_POST_INTERRUPTS_ENABLED MfcEvtD0EntryPostInterruptsEnabled;
+EVT_WDF_DEVICE_D0_EXIT_PRE_INTERRUPTS_DISABLED MfcEvtD0ExitPreInterruptsDisabled;
 EVT_WDF_INTERRUPT_ISR MfcEvtIsr;
 EVT_WDF_INTERRUPT_DPC MfcEvtDpc;
-
-static __forceinline ULONG Rd(PMFC_DEVICE M, ULONG Off) { return READ_REGISTER_ULONG((volatile ULONG *)(M->Regs + Off)); }
-static __forceinline VOID Wr(PMFC_DEVICE M, ULONG Off, ULONG V) { WRITE_REGISTER_ULONG((volatile ULONG *)(M->Regs + Off), V); }
+EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL MfcEvtIoDeviceControl;
+EVT_WDF_FILE_CLEANUP MfcEvtFileCleanup;
 
 static VOID
 MfcReset(_In_ PMFC_DEVICE M)
@@ -37,25 +44,6 @@ MfcReset(_In_ PMFC_DEVICE M)
 
     Wr(M, MFC_REG_MFC_RESET, 0x1FFF);
     Wr(M, MFC_REG_MFC_RESET, 0);
-}
-
-/** Poll R2H (interrupts not connected yet) for up to TimeoutMs; returns the R2H command or 0. **/
-static ULONG
-MfcPollR2h(_In_ PMFC_DEVICE M, _In_ ULONG TimeoutMs)
-{
-    ULONG Ms;
-
-    for (Ms = 0; Ms < TimeoutMs; Ms++)
-    {
-        if (Rd(M, MFC_REG_RISC2HOST_INT) != 0)
-        {
-            return Rd(M, MFC_REG_RISC2HOST_CMD);
-        }
-
-        KeStallExecutionProcessor(1000);
-    }
-
-    return 0;
 }
 
 static NTSTATUS
@@ -96,35 +84,57 @@ MfcLoadFile(_In_ PCWSTR Path, _Out_writes_bytes_(MaxSize) PUCHAR Dest, _In_ ULON
 }
 
 static NTSTATUS
-MfcBoot(_In_ PMFC_DEVICE M)
+MfcAllocate(_In_ PMFC_DEVICE M)
 {
-    PHYSICAL_ADDRESS Low;
-    PHYSICAL_ADDRESS High;
-    PHYSICAL_ADDRESS Boundary;
-    ULONG            FwSize;
-    ULONG            R2h;
-    NTSTATUS         Status;
+    static const ULONG Sessions[] = { MFC_SESSION_SIZE_MAX, MFC_SESSION_SIZE_MIN, 0 };
+    PHYSICAL_ADDRESS   Low;
+    PHYSICAL_ADDRESS   High;
+    PHYSICAL_ADDRESS   Boundary;
+    PHYSICAL_ADDRESS   Pa;
+    ULONG              Index;
+    ULONG              Pad;
 
     Low.QuadPart      = 0;
     High.QuadPart     = 0xFFFFFFFFLL;   // the MFC takes 32-bit addresses (raw daddr writes in the vendor driver)
     Boundary.QuadPart = 0;
-    M->BufferAlloc = MmAllocateContiguousMemorySpecifyCache(MFC_FW_BUFFER_SIZE + MFC_BUFFER_ALIGN, Low, High, Boundary,
-                                                            MmNonCached);
+    for (Index = 0; Index < RTL_NUMBER_OF(Sessions); Index++)
+    {
+        M->BufferAllocSize = (SIZE_T)MFC_FW_BUFFER_SIZE + Sessions[Index] + MFC_BUFFER_ALIGN;
+        M->BufferAlloc     = MmAllocateContiguousMemorySpecifyCache(M->BufferAllocSize, Low, High, Boundary, MmNonCached);
+        if (M->BufferAlloc != NULL)
+        {
+            M->SessionSize = Sessions[Index];
+            break;
+        }
+    }
+
     if (M->BufferAlloc == NULL)
     {
         MfcTrace("no contiguous buffer below 4 GiB\n");
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
-    {
-        PHYSICAL_ADDRESS Pa = MmGetPhysicalAddress(M->BufferAlloc);
-        ULONG Pad = (ULONG)(((Pa.QuadPart + MFC_BUFFER_ALIGN - 1) & ~(LONGLONG)(MFC_BUFFER_ALIGN - 1)) - Pa.QuadPart);
+    Pa                   = MmGetPhysicalAddress(M->BufferAlloc);
+    Pad                  = (ULONG)(((Pa.QuadPart + MFC_BUFFER_ALIGN - 1) & ~(LONGLONG)(MFC_BUFFER_ALIGN - 1)) - Pa.QuadPart);
+    M->Buffer            = (PUCHAR)M->BufferAlloc + Pad;
+    M->BufferPa.QuadPart = Pa.QuadPart + Pad;
+    RtlZeroMemory(M->Buffer, MFC_FW_BUFFER_SIZE);
+    return STATUS_SUCCESS;
+}
 
-        M->Buffer            = (PUCHAR)M->BufferAlloc + Pad;
-        M->BufferPa.QuadPart = Pa.QuadPart + Pad;
+static NTSTATUS
+MfcBoot(_In_ PMFC_DEVICE M)
+{
+    ULONG    FwSize;
+    ULONG    R2h;
+    NTSTATUS Status;
+
+    Status = MfcAllocate(M);
+    if (!NT_SUCCESS(Status))
+    {
+        return Status;
     }
 
-    RtlZeroMemory(M->Buffer, MFC_FW_BUFFER_SIZE);
     Status = MfcLoadFile(MFC_FW_PATH, M->Buffer, MFC_CTX_OFFSET, &FwSize);
     if (!NT_SUCCESS(Status))
     {
@@ -138,8 +148,9 @@ MfcBoot(_In_ PMFC_DEVICE M)
     Wr(M, MFC_REG_RISC_ON, 1);
     Wr(M, MFC_REG_MFC_OFF, 0);
     R2h = MfcPollR2h(M, 2000);
-    MfcTrace("fw %u B at PA 0x%llx: R2H %u (FW_STATUS_RET %u), MFC_VERSION 0x%x, FW_VERSION 0x%08x\n", FwSize,
-             M->BufferPa.QuadPart, R2h, MFC_R2H_FW_STATUS_RET, Rd(M, MFC_REG_MFC_VERSION), Rd(M, MFC_REG_FW_VERSION));
+    MfcTrace("fw %u B at PA 0x%llx (session region 0x%x B): R2H %u (FW_STATUS_RET %u), MFC_VERSION 0x%x, FW_VERSION 0x%08x\n",
+             FwSize, M->BufferPa.QuadPart, M->SessionSize, R2h, MFC_R2H_FW_STATUS_RET, Rd(M, MFC_REG_MFC_VERSION),
+             Rd(M, MFC_REG_FW_VERSION));
     if ((R2h != MFC_R2H_FW_STATUS_RET) || (Rd(M, MFC_REG_MFC_VERSION) != MFC_IP_VER))
     {
         return STATUS_DEVICE_NOT_READY;
@@ -163,338 +174,70 @@ MfcBoot(_In_ PMFC_DEVICE M)
 }
 
 //
-// V-W2 decode self-test (notes/d10-mfc-decode-flow.md): plain-mode H.264 decode of mfc_test.h264 (tools/mfc/
-// mkh264pcm.py, bit-exact I_PCM / P_Skip vector), polled before the interrupt is connected. Logs every R2H and an
-// FNV-1a 32 hash of each displayed luma / NV12 CbCr plane for comparison with the generator's output.
+// V-W2 boot self-test: decode mfc_test.h264 (tools/mfc/mkh264pcm.py, bit-exact I_PCM / P_Skip vector) through the
+// session engine, polled, and log an FNV-1a 32 hash of each displayed luma / NV12 CbCr plane (expected values in
+// notes/d10-mfc-decode-flow.md). The CLOSE_INSTANCE R2H is left pending for the ISR test.
 //
-typedef struct _MFC_TEST
-{
-    PUCHAR  Va;
-    ULONG   Pa;
-    ULONG   InstNo;
-    BOOLEAN Opened;
-    ULONG   Width;
-    ULONG   Height;
-    ULONG   Stride;
-    ULONG   LumaSize;
-    ULONG   ChromaOffset;   // page aligned inside the slot (vendor: each plane its own page-aligned buffer)
-    ULONG   ChromaSize;
-    ULONG   SlotSize;
-    ULONG   NumDpb;
-    ULONG   Available;
-    ULONG   Used;
-    ULONG   Frames;
-} MFC_TEST, *PMFC_TEST;
-
-/** Issue an H2R command and poll for the R2H; returns the reason (R2H & 0x1FFFF) or 0. The interrupt stays set. **/
-static ULONG
-MfcCmd(_In_ PMFC_DEVICE M, _In_ ULONG Cmd, _In_ ULONG TimeoutMs)
-{
-    Wr(M, MFC_REG_RISC2HOST_CMD, 0);
-    Wr(M, MFC_REG_HOST2RISC_CMD, Cmd);
-    Wr(M, MFC_REG_HOST2RISC_INT, 1);
-    return MfcPollR2h(M, TimeoutMs) & MFC_R2H_REASON_MASK;
-}
-
-static VOID
-MfcClearInt(_In_ PMFC_DEVICE M)
-{
-    Wr(M, MFC_REG_RISC2HOST_CMD, 0);   // vendor mfc_clear_int
-    Wr(M, MFC_REG_RISC2HOST_INT, 0);
-}
-
-static ULONG
-MfcFnv(_In_ const volatile UCHAR *Base, _In_ ULONG Width, _In_ ULONG Rows, _In_ ULONG Stride)
-{
-    ULONG Hash = 0x811C9DC5u;
-    ULONG Row;
-    ULONG Col;
-
-    for (Row = 0; Row < Rows; Row++)
-    {
-        for (Col = 0; Col < Width; Col++)
-        {
-            Hash = (Hash ^ Base[Row * Stride + Col]) * 0x01000193u;
-        }
-    }
-
-    return Hash;
-}
-
-static VOID
-MfcSetStream(_In_ PMFC_DEVICE M, _In_ PMFC_TEST T, _In_ ULONG Offset, _In_ ULONG Size)
-{
-    Wr(M, MFC_REG_D_STREAM_DATA_SIZE, Size);
-    Wr(M, MFC_REG_D_CPB_ADDR, T->Pa + MFC_TEST_CPB_OFFSET);
-    Wr(M, MFC_REG_D_CPB_SIZE, MFC_TEST_CPB_SIZE);
-    Wr(M, MFC_REG_D_CPB_OFFSET, Offset);
-}
-
-static ULONG
-MfcLumaToSlot(_In_ PMFC_TEST T, _In_ ULONG Luma)
-{
-    ULONG Base = T->Pa + MFC_TEST_DPB_OFFSET;
-
-    if ((Luma < Base) || (((Luma - Base) % T->SlotSize) != 0) || (((Luma - Base) / T->SlotSize) >= T->NumDpb))
-    {
-        return MAXULONG;
-    }
-
-    return (Luma - Base) / T->SlotSize;
-}
-
-static BOOLEAN
-MfcTestOpenAndHeader(_In_ PMFC_DEVICE M, _In_ PMFC_TEST T, _In_ ULONG StreamSize, _Out_ PULONG Consumed)
-{
-    ULONG R2h;
-    ULONG Err;
-
-    *Consumed = 0;
-    Wr(M, MFC_REG_CODEC_CONTROL, Rd(M, MFC_REG_CODEC_CONTROL) & ~0xEu);   // non-OTF
-    Wr(M, MFC_REG_CODEC_TYPE, 0x00010000u);                              // H.264 decode | CLEAR_CTX_MEM
-    Wr(M, MFC_REG_CONTEXT_MEM_ADDR, T->Pa);
-    Wr(M, MFC_REG_CONTEXT_MEM_SIZE, MFC_TEST_INST_SIZE);
-    Wr(M, MFC_REG_D_CRC_CTRL, 0);
-    R2h = MfcCmd(M, MFC_H2R_OPEN_INSTANCE, 1000);
-    Err = Rd(M, MFC_REG_ERROR_CODE);
-    T->InstNo = Rd(M, MFC_REG_RET_INSTANCE_ID);
-    MfcClearInt(M);
-    MfcTrace("test: OPEN_INSTANCE R2H %u err 0x%x inst %u\n", R2h, Err, T->InstNo);
-    if (R2h != MFC_H2R_OPEN_INSTANCE)
-    {
-        return FALSE;
-    }
-
-    T->Opened = TRUE;
-
-    MfcSetStream(M, T, 0, StreamSize);
-    Wr(M, MFC_REG_D_DEC_OPTIONS, 0x0000A400u);     // conceal 4<<8 | REALLOC | SPECIAL_PARSING (vendor default)
-    Wr(M, MFC_REG_D_FORCE_PIXEL_VAL, 0x08020000u);
-    Wr(M, MFC_REG_PIXEL_FORMAT, 0x10u);            // NV12 | P010_decoding (9820 DT)
-    Wr(M, MFC_REG_D_SEI_ENABLE, 0x74u);            // recovery | static info | HDR10+ (fw date >= 0x180709)
-    Wr(M, MFC_REG_INSTANCE_ID, T->InstNo);
-    R2h = MfcCmd(M, MFC_H2R_SEQ_HEADER, 1000);
-    Err = Rd(M, MFC_REG_ERROR_CODE);
-    T->Width  = Rd(M, MFC_REG_D_DISPLAY_WIDTH);
-    T->Height = Rd(M, MFC_REG_D_DISPLAY_HEIGHT);
-    *Consumed = Rd(M, MFC_REG_D_DECODED_NAL_SIZE);
-    MfcTrace("test: SEQ_HEADER R2H %u err 0x%x %ux%u min dpb %u scratch 0x%x plane 0x%x/0x%x mv %u consumed %u\n", R2h,
-             Err, T->Width, T->Height, Rd(M, MFC_REG_D_MIN_NUM_DPB), Rd(M, MFC_REG_D_MIN_SCRATCH_SIZE),
-             Rd(M, MFC_REG_D_MIN_FIRST_PLANE), Rd(M, MFC_REG_D_MIN_SECOND_PLANE), Rd(M, MFC_REG_D_MIN_NUM_MV), *Consumed);
-    return (R2h == MFC_H2R_SEQ_HEADER) && (T->Width != 0) && (T->Height != 0);
-}
-
-static BOOLEAN
-MfcTestInitBuffers(_In_ PMFC_DEVICE M, _In_ PMFC_TEST T)
-{
-    ULONG MinDpb  = Rd(M, MFC_REG_D_MIN_NUM_DPB);
-    ULONG Scratch = (Rd(M, MFC_REG_D_MIN_SCRATCH_SIZE) + 255u) & ~255u;
-    ULONG NumMv   = Rd(M, MFC_REG_D_MIN_NUM_MV);
-    ULONG Plane;
-    ULONG MvSize;
-    ULONG Mv;
-    ULONG Index;
-    ULONG R2h;
-    ULONG Err;
-
-    T->Stride     = (T->Width + 15u) & ~15u;
-    Plane         = T->Stride * ((T->Height + 15u) & ~15u);
-    T->LumaSize   = max(Plane + 256u, Rd(M, MFC_REG_D_MIN_FIRST_PLANE));
-    T->ChromaSize = max(Plane / 2u + 256u, Rd(M, MFC_REG_D_MIN_SECOND_PLANE));
-    T->ChromaOffset = (T->LumaSize + PAGE_SIZE - 1u) & ~(PAGE_SIZE - 1u);
-    T->SlotSize   = (T->ChromaOffset + T->ChromaSize + PAGE_SIZE - 1u) & ~(PAGE_SIZE - 1u);
-    T->NumDpb     = min(MinDpb + 2u, MFC_TEST_MAX_DPB);
-    MvSize        = ((((T->Width + 15u) / 16u) * ((((T->Height + 15u) / 16u) + 1u) / 2u) * 2u * 64u + 1024u) + 31u) & ~31u;
-    if ((MinDpb == 0) || (MinDpb > T->NumDpb) || (T->NumDpb * T->SlotSize > MFC_TEST_DPB_SIZE) ||
-        (Scratch + NumMv * (MvSize + 16u) > MFC_TEST_CODEC_SIZE))
-    {
-        MfcTrace("test: buffers do not fit (dpb %u x 0x%x, scratch 0x%x, mv %u x 0x%x)\n", T->NumDpb, T->SlotSize,
-                 Scratch, NumMv, MvSize);
-        return FALSE;
-    }
-
-    Wr(M, MFC_REG_PIXEL_FORMAT, 0x10u);
-    Wr(M, MFC_REG_D_NUM_DPB, T->NumDpb);
-    Wr(M, MFC_REG_D_FIRST_PLANE_SIZE, T->LumaSize);
-    Wr(M, MFC_REG_D_FIRST_STRIDE, T->Stride);
-    Wr(M, MFC_REG_D_SECOND_PLANE_SIZE, T->ChromaSize);
-    Wr(M, MFC_REG_D_SECOND_STRIDE, T->Stride);
-    Wr(M, MFC_REG_D_SCRATCH_ADDR, T->Pa + MFC_TEST_CODEC_OFFSET);
-    Wr(M, MFC_REG_D_SCRATCH_SIZE, Scratch);
-    Wr(M, MFC_REG_D_MV_BUFFER_SIZE, MvSize);
-    Wr(M, MFC_REG_D_INIT_BUF_OPTIONS, 0x8u);       // dynamic DPB
-    Wr(M, MFC_REG_D_NUM_MV, NumMv);
-    Mv = T->Pa + MFC_TEST_CODEC_OFFSET + Scratch;
-    for (Index = 0; Index < NumMv; Index++)
-    {
-        Mv = (Mv + 15u) & ~15u;
-        Wr(M, MFC_REG_D_MV_BUFFER0 + Index * 4u, Mv);
-        Mv += MvSize;
-    }
-
-    Wr(M, MFC_REG_INSTANCE_ID, T->InstNo);
-    R2h = MfcCmd(M, MFC_H2R_INIT_BUFFERS, 1000);
-    Err = Rd(M, MFC_REG_ERROR_CODE);
-    MfcClearInt(M);
-    MfcTrace("test: INIT_BUFFERS R2H %u err 0x%x (dpb %u x luma 0x%x chroma 0x%x stride %u, scratch 0x%x, mv %u x 0x%x)\n",
-             R2h, Err, T->NumDpb, T->LumaSize, T->ChromaSize, T->Stride, Scratch, NumMv, MvSize);
-    return (R2h == MFC_H2R_INIT_BUFFERS) && (Err == 0);
-}
-
-/** One NAL_START / LAST_FRAME; returns FALSE when decoding must stop. Updates Offset / Remaining. **/
-static BOOLEAN
-MfcTestDecodeOne(_In_ PMFC_DEVICE M, _In_ PMFC_TEST T, _Inout_ PULONG Offset, _Inout_ PULONG Remaining)
-{
-    ULONG Cmd = (*Remaining != 0) ? MFC_H2R_NAL_START : MFC_H2R_LAST_FRAME;
-    ULONG Idx;
-    ULONG R2h, Err, Status, Disp, Decoded, Luma, Type, Consumed, Slot;
-    ULONG Base;
-
-    for (Idx = 0; (Idx < T->NumDpb) && ((T->Used >> Idx) & 1u); Idx++)
-    {
-    }
-
-    if (Idx == T->NumDpb)
-    {
-        MfcTrace("test: no free DPB (used 0x%x)\n", T->Used);
-        return FALSE;
-    }
-
-    Base         = T->Pa + MFC_TEST_DPB_OFFSET + Idx * T->SlotSize;
-    T->Available |= 1u << Idx;
-    MfcSetStream(M, T, *Offset, *Remaining);
-    Wr(M, MFC_REG_D_FIRST_PLANE_SIZE, T->LumaSize);
-    Wr(M, MFC_REG_D_SECOND_PLANE_SIZE, T->ChromaSize);
-    Wr(M, MFC_REG_D_FIRST_PLANE_DPB0 + Idx * 4u, Base);
-    Wr(M, MFC_REG_D_SECOND_PLANE_DPB0 + Idx * 4u, Base + T->ChromaOffset);
-    Wr(M, MFC_REG_D_NAL_START_OPTIONS, Rd(M, MFC_REG_D_NAL_START_OPTIONS) & ~0x8u);
-    Wr(M, MFC_REG_D_DYN_DPB_LOWER, 1u << Idx);
-    Wr(M, MFC_REG_D_DYN_DPB_UPPER, 0);
-    Wr(M, MFC_REG_D_AVAIL_DPB_LOWER, T->Available);
-    Wr(M, MFC_REG_D_AVAIL_DPB_UPPER, 0);
-    Wr(M, MFC_REG_D_SLICE_IF_ENABLE, 0);
-    Wr(M, MFC_REG_DEC_TIMEOUT_VALUE, 200000000u);
-    Wr(M, MFC_REG_INSTANCE_ID, T->InstNo);
-    R2h      = MfcCmd(M, Cmd, 1000);
-    Err      = Rd(M, MFC_REG_ERROR_CODE);
-    Status   = Rd(M, MFC_REG_D_DISPLAY_STATUS);
-    Disp     = Status & 7u;
-    Decoded  = Rd(M, MFC_REG_D_DECODED_LUMA);
-    Luma     = Rd(M, MFC_REG_D_DISPLAY_LUMA);
-    Type     = Rd(M, MFC_REG_D_DISPLAY_TYPE) & 7u;
-    Consumed = Rd(M, MFC_REG_D_DECODED_NAL_SIZE);
-    T->Used  = Rd(M, MFC_REG_D_USED_DPB_LOWER);
-    MfcClearInt(M);
-    MfcTrace("test: %s dpb %u: R2H %u err 0x%x status 0x%x decoded slot %d display slot %d type %u used 0x%x consumed %u\n",
-             (Cmd == MFC_H2R_NAL_START) ? "NAL_START" : "LAST_FRAME", Idx, R2h, Err, Status,
-             (LONG)MfcLumaToSlot(T, Decoded), (LONG)MfcLumaToSlot(T, Luma), Type, T->Used, Consumed);
-    if ((R2h == 0) || ((R2h != MFC_R2H_FRAME_DONE_RET) && (R2h != MFC_R2H_ERR_RET)) ||
-        ((R2h == MFC_R2H_ERR_RET) && (((Err & 0xFFFFu) < 160u) || ((Err & 0xFFFFu) > 222u))))
-    {
-        return FALSE;
-    }
-
-    if ((Disp == 1u) || (Disp == 2u))
-    {
-        Slot = MfcLumaToSlot(T, Luma);
-        if (Slot != MAXULONG)
-        {
-            PUCHAR Va = T->Va + MFC_TEST_DPB_OFFSET + Slot * T->SlotSize;
-
-            T->Available &= ~(1u << Slot);
-            if (Type != 0)
-            {
-                MfcTrace("test: frame %u %ux%u type %u: luma fnv 0x%08x chroma fnv 0x%08x\n", T->Frames, T->Width,
-                         T->Height, Type, MfcFnv(Va, T->Width, T->Height, T->Stride),
-                         MfcFnv(Va + T->ChromaOffset, T->Width, T->Height / 2u, T->Stride));
-                T->Frames++;
-            }
-        }
-    }
-
-    if (Disp == 3u)
-    {
-        return FALSE;   // drained
-    }
-
-    if ((Disp != 2u) && (Cmd == MFC_H2R_NAL_START))
-    {
-        if ((Consumed != 0) && (Consumed < *Remaining) && ((*Remaining - Consumed) > 4u))
-        {
-            *Offset    += Consumed;
-            *Remaining -= Consumed;
-        }
-        else
-        {
-            *Remaining = 0;
-        }
-    }
-
-    return TRUE;
-}
-
 static VOID
 MfcDecodeTest(_In_ PMFC_DEVICE M)
 {
-    MFC_TEST         T;
-    ULONG            Size;
-    ULONG            Offset;
-    ULONG            Remaining;
-    ULONG            Steps;
-    ULONG            R2h;
+    MFC_SESSION S;
+    MFC_RESULT  R;
+    PUCHAR      Stream;
+    ULONG       Size;
+    ULONG       Offset;
+    ULONG       Steps;
+    ULONG       Window;
+    NTSTATUS    Status;
 
-    //
-    // The test buffers live inside the firmware allocation, above the RISC base (vidc3: a separate allocation
-    // below the base got OPEN_INSTANCE ERR_RET 10). Zeroed by MfcBoot.
-    //
-    RtlZeroMemory(&T, sizeof(T));
-    T.Va = M->Buffer + MFC_TEST_AREA_OFFSET;
-    T.Pa = M->BufferPa.LowPart + MFC_TEST_AREA_OFFSET;
-    if (!NT_SUCCESS(MfcLoadFile(MFC_TEST_PATH, T.Va + MFC_TEST_CPB_OFFSET, MFC_TEST_CPB_SIZE - 512u, &Size)))
+    // the session gets the area minus its last 1 MiB, where the file is staged and windowed into the CPB from
+    MfcSessionInit(&S, M->Buffer + MFC_TEST_AREA_OFFSET, M->BufferPa.LowPart + MFC_TEST_AREA_OFFSET,
+                   MFC_TEST_AREA_SIZE - (1u << 20), MFC_CODEC_OFFSET_SMALL - MFC_CPB_OFFSET);
+    Stream = S.Va + MFC_TEST_AREA_SIZE - (1u << 20);
+    if (!NT_SUCCESS(MfcLoadFile(MFC_TEST_PATH, Stream, S.CpbSize - 512u, &Size)))
     {
         return;   // no test stream installed: nothing to do
     }
 
-    MfcClearInt(M);   // the SYS_INIT R2H
-    MfcTrace("test: %u B stream, buffer PA 0x%08x\n", Size, T.Pa);
-    if (MfcTestOpenAndHeader(M, &T, Size, &Offset))
+    Wr(M, MFC_REG_RISC2HOST_CMD, 0);   // the SYS_INIT R2H (polled mode: clear before the first command)
+    Wr(M, MFC_REG_RISC2HOST_INT, 0);
+    MfcTrace("test: %u B stream\n", Size);
+    if (!NT_SUCCESS(MfcSessionOpen(M, &S)))
     {
-        MfcClearInt(M);
-        Remaining = Size;
-        if ((Offset != 0) && (Offset < Size))
-        {
-            Remaining = Size - Offset;
-        }
-        else
-        {
-            Offset = 0;
-        }
-
-        if (MfcTestInitBuffers(M, &T))
-        {
-            for (Steps = 0; (Steps < 16u) && MfcTestDecodeOne(M, &T, &Offset, &Remaining); Steps++)
-            {
-            }
-        }
-    }
-    else
-    {
-        MfcClearInt(M);
+        return;
     }
 
-    R2h = 0;
-    if (T.Opened)
+    for (Offset = 0, Steps = 0; Steps < 16u; Steps++)
     {
-        Wr(M, MFC_REG_INSTANCE_ID, T.InstNo);
-        R2h = MfcCmd(M, MFC_H2R_CLOSE_INSTANCE, 1000);   // R2H left pending for the ISR test
-        MfcTrace("test: CLOSE_INSTANCE R2H %u err 0x%x - %u frame(s) displayed\n", R2h, Rd(M, MFC_REG_ERROR_CODE),
-                 T.Frames);
+        Window = Size - Offset;
+        RtlMoveMemory(S.Va + MFC_CPB_OFFSET, Stream + Offset, Window);
+        Status = MfcSessionStep(M, &S, Window, &R);
+        if (!NT_SUCCESS(Status))
+        {
+            MfcTrace("test: step 0x%08X\n", Status);
+            break;
+        }
+
+        if (R.Flags & MFC_DEC_FRAME)
+        {
+            MfcTrace("test: frame %u %ux%u type %u (%u us): luma fnv 0x%08x chroma fnv 0x%08x\n", S.Frames - 1, S.Width,
+                     S.Height, R.FrameType, R.Microseconds, MfcFnv(R.Frame, S.Width, S.Height, S.Stride),
+                     MfcFnv(R.Frame + S.ChromaOffset, S.Width, S.Height / 2u, S.Stride));
+        }
+
+        if (R.Flags & MFC_DEC_EOS)
+        {
+            break;
+        }
+
+        Offset += R.Consumed;
+        if ((R.Flags & MFC_DEC_ERROR) && (R.Consumed == 0))
+        {
+            break;
+        }
     }
 
-    if (T.Opened && (R2h != MFC_H2R_CLOSE_INSTANCE))
-    {
-        MfcTrace("test: instance not closed\n");
-    }
+    MfcSessionClose(M, &S, TRUE);
 }
 
 NTSTATUS
@@ -577,10 +320,11 @@ MfcEvtReleaseHardware(_In_ WDFDEVICE Device, _In_ WDFCMRESLIST Translated)
 
     if (M->BufferAlloc != NULL)
     {
-        MmFreeContiguousMemorySpecifyCache(M->BufferAlloc, MFC_FW_BUFFER_SIZE + MFC_BUFFER_ALIGN, MmNonCached);
+        MmFreeContiguousMemorySpecifyCache(M->BufferAlloc, M->BufferAllocSize, MmNonCached);
         M->BufferAlloc = NULL;
     }
 
+    M->FirmwareUp = FALSE;
     return STATUS_SUCCESS;
 }
 
@@ -595,6 +339,15 @@ MfcEvtD0EntryPostInterruptsEnabled(_In_ WDFDEVICE Device, _In_ WDF_POWER_DEVICE_
     KeDelayExecutionThread(KernelMode, FALSE, &Wait);
     MfcTrace("interrupt test: ISR ran %d time(s), last R2H cmd %u, R2H int now %u\n", M->IsrCount, M->LastR2hCmd,
              Rd(M, MFC_REG_RISC2HOST_INT));
+    M->InterruptsOn = TRUE;
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+MfcEvtD0ExitPreInterruptsDisabled(_In_ WDFDEVICE Device, _In_ WDF_POWER_DEVICE_STATE TargetState)
+{
+    UNREFERENCED_PARAMETER(TargetState);
+    MfcGetDevice(Device)->InterruptsOn = FALSE;
     return STATUS_SUCCESS;
 }
 
@@ -610,7 +363,7 @@ MfcEvtIsr(_In_ WDFINTERRUPT Interrupt, _In_ ULONG MessageId)
     }
 
     M->LastR2hCmd = Rd(M, MFC_REG_RISC2HOST_CMD);
-    Wr(M, MFC_REG_RISC2HOST_CMD, 0);   // vendor mfc_clear_int
+    Wr(M, MFC_REG_RISC2HOST_CMD, 0);   // vendor mfc_clear_int (result registers stay valid until the next command)
     Wr(M, MFC_REG_RISC2HOST_INT, 0);
     InterlockedIncrement(&M->IsrCount);
     WdfInterruptQueueDpcForIsr(Interrupt);
@@ -620,25 +373,244 @@ MfcEvtIsr(_In_ WDFINTERRUPT Interrupt, _In_ ULONG MessageId)
 VOID
 MfcEvtDpc(_In_ WDFINTERRUPT Interrupt, _In_ WDFOBJECT AssociatedObject)
 {
-    UNREFERENCED_PARAMETER(Interrupt);
     UNREFERENCED_PARAMETER(AssociatedObject);
+    KeSetEvent(&MfcGetDevice(WdfInterruptGetDevice(Interrupt))->CmdDone, IO_NO_INCREMENT, FALSE);
+}
+
+/** Copy the displayed slot to the caller as tightly packed NV12 (Width x Height luma, Width x Height/2 CbCr). **/
+static VOID
+MfcCopyFrame(_In_ PMFC_SESSION S, _In_ const UCHAR *Slot, _Out_writes_bytes_(S->Width * S->Height * 3 / 2) PUCHAR Out)
+{
+    ULONG Row;
+
+    for (Row = 0; Row < S->Height; Row++)
+    {
+        RtlCopyMemory(Out + Row * S->Width, Slot + Row * S->Stride, S->Width);
+    }
+
+    Out += S->Width * S->Height;
+    for (Row = 0; Row < S->Height / 2u; Row++)
+    {
+        RtlCopyMemory(Out + Row * S->Width, Slot + S->ChromaOffset + Row * S->Stride, S->Width);
+    }
+}
+
+static NTSTATUS
+MfcIoOpen(_In_ PMFC_DEVICE M, _In_ WDFREQUEST Request, _In_ WDFFILEOBJECT File)
+{
+    MFC_OPEN_IN *In;
+    NTSTATUS     Status;
+
+    Status = WdfRequestRetrieveInputBuffer(Request, sizeof(*In), (PVOID *)&In, NULL);
+    if (!NT_SUCCESS(Status))
+    {
+        return Status;
+    }
+
+    if ((In->Version != MFC_IOCTL_VERSION) || (In->Codec != MFC_CODEC_H264))
+    {
+        return STATUS_NOT_SUPPORTED;
+    }
+
+    if (!M->FirmwareUp || (M->SessionSize == 0))
+    {
+        return STATUS_DEVICE_NOT_READY;
+    }
+
+    if (M->SessionOwner != NULL)
+    {
+        return STATUS_DEVICE_BUSY;
+    }
+
+    MfcSessionInit(&M->Session, M->Buffer + MFC_SESSION_OFFSET, M->BufferPa.LowPart + MFC_SESSION_OFFSET,
+                   M->SessionSize, MFC_CODEC_OFFSET_LARGE - MFC_CPB_OFFSET);
+    Status = MfcSessionOpen(M, &M->Session);
+    if (NT_SUCCESS(Status))
+    {
+        M->SessionOwner = File;
+    }
+
+    return Status;
+}
+
+static NTSTATUS
+MfcIoDecode(_In_ PMFC_DEVICE M, _In_ WDFREQUEST Request, _In_ size_t InLength, _Out_ size_t *Information)
+{
+    PMFC_SESSION    S = &M->Session;
+    MFC_DECODE_OUT *Out;
+    PVOID           In = NULL;
+    size_t          OutLength;
+    MFC_RESULT      R;
+    ULONG           FrameBytes;
+    NTSTATUS        Status;
+
+    *Information = 0;
+    if (InLength > MFC_MAX_WINDOW)
+    {
+        return STATUS_INVALID_BUFFER_SIZE;
+    }
+
+    if (InLength != 0)
+    {
+        Status = WdfRequestRetrieveInputBuffer(Request, InLength, &In, NULL);
+        if (!NT_SUCCESS(Status))
+        {
+            return Status;
+        }
+    }
+
+    Status = WdfRequestRetrieveOutputBuffer(Request, sizeof(*Out), (PVOID *)&Out, &OutLength);
+    if (!NT_SUCCESS(Status))
+    {
+        return Status;
+    }
+
+    // a picture cannot be held back once the firmware returned it: demand room for one before decoding
+    FrameBytes = S->Ready ? (S->Width * S->Height * 3u / 2u) : 0;
+    if (OutLength < sizeof(*Out) + FrameBytes)
+    {
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    if (InLength != 0)
+    {
+        RtlCopyMemory(S->Va + MFC_CPB_OFFSET, In, InLength);
+    }
+
+    Status = MfcSessionStep(M, S, (ULONG)InLength, &R);
+    if (!NT_SUCCESS(Status))
+    {
+        return Status;
+    }
+
+    RtlZeroMemory(Out, sizeof(*Out));
+    Out->Flags          = R.Flags;
+    Out->Consumed       = R.Consumed;
+    Out->Width          = S->Width;
+    Out->Height         = S->Height;
+    Out->CropLeft       = S->CropLeft;
+    Out->CropTop        = S->CropTop;
+    Out->CropRight      = S->CropRight;
+    Out->CropBottom     = S->CropBottom;
+    Out->FrameType      = R.FrameType;
+    Out->R2h            = R.R2h;
+    Out->Error          = R.Error;
+    Out->DisplayStatus  = R.DisplayStatus;
+    Out->HwMicroseconds = R.Microseconds;
+    *Information        = sizeof(*Out);
+    if ((R.Flags & MFC_DEC_FRAME) && (R.Frame != NULL))
+    {
+        Out->FrameBytes = FrameBytes;
+        MfcCopyFrame(S, R.Frame, (PUCHAR)(Out + 1));
+        *Information += FrameBytes;
+    }
+
+    return STATUS_SUCCESS;
+}
+
+VOID
+MfcEvtIoDeviceControl(_In_ WDFQUEUE Queue, _In_ WDFREQUEST Request, _In_ size_t OutputBufferLength,
+                      _In_ size_t InputBufferLength, _In_ ULONG IoControlCode)
+{
+    PMFC_DEVICE   M    = MfcGetDevice(WdfIoQueueGetDevice(Queue));
+    WDFFILEOBJECT File = WdfRequestGetFileObject(Request);
+    size_t        Information = 0;
+    NTSTATUS      Status;
+
+    UNREFERENCED_PARAMETER(OutputBufferLength);
+    WdfWaitLockAcquire(M->SessionLock, NULL);
+    switch (IoControlCode)
+    {
+    case IOCTL_MFC_OPEN:
+        Status = MfcIoOpen(M, Request, File);
+        break;
+    case IOCTL_MFC_DECODE:
+        Status = (M->SessionOwner == File) ? MfcIoDecode(M, Request, InputBufferLength, &Information) :
+                                             STATUS_INVALID_DEVICE_STATE;
+        break;
+    case IOCTL_MFC_CLOSE:
+        Status = STATUS_INVALID_DEVICE_STATE;
+        if (M->SessionOwner == File)
+        {
+            MfcSessionClose(M, &M->Session, FALSE);
+            M->SessionOwner = NULL;
+            Status = STATUS_SUCCESS;
+        }
+        break;
+    default:
+        Status = STATUS_INVALID_DEVICE_REQUEST;
+        break;
+    }
+
+    WdfWaitLockRelease(M->SessionLock);
+    WdfRequestCompleteWithInformation(Request, Status, Information);
+}
+
+VOID
+MfcEvtFileCleanup(_In_ WDFFILEOBJECT FileObject)
+{
+    PMFC_DEVICE M = MfcGetDevice(WdfFileObjectGetDevice(FileObject));
+
+    WdfWaitLockAcquire(M->SessionLock, NULL);
+    if (M->SessionOwner == FileObject)
+    {
+        if (M->FirmwareUp)
+        {
+            MfcSessionClose(M, &M->Session, FALSE);
+        }
+
+        M->SessionOwner = NULL;
+    }
+
+    WdfWaitLockRelease(M->SessionLock);
 }
 
 NTSTATUS
 MfcEvtDeviceAdd(_In_ WDFDRIVER Driver, _Inout_ PWDFDEVICE_INIT DeviceInit)
 {
     WDF_PNPPOWER_EVENT_CALLBACKS Pnp;
+    WDF_FILEOBJECT_CONFIG        FileConfig;
     WDF_OBJECT_ATTRIBUTES        Attr;
+    WDF_IO_QUEUE_CONFIG          QueueConfig;
     WDFDEVICE                    Device;
+    PMFC_DEVICE                  M;
+    NTSTATUS                     Status;
 
     UNREFERENCED_PARAMETER(Driver);
     WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&Pnp);
     Pnp.EvtDevicePrepareHardware              = MfcEvtPrepareHardware;
     Pnp.EvtDeviceReleaseHardware              = MfcEvtReleaseHardware;
     Pnp.EvtDeviceD0EntryPostInterruptsEnabled = MfcEvtD0EntryPostInterruptsEnabled;
+    Pnp.EvtDeviceD0ExitPreInterruptsDisabled  = MfcEvtD0ExitPreInterruptsDisabled;
     WdfDeviceInitSetPnpPowerEventCallbacks(DeviceInit, &Pnp);
+    WDF_FILEOBJECT_CONFIG_INIT(&FileConfig, WDF_NO_EVENT_CALLBACK, WDF_NO_EVENT_CALLBACK, MfcEvtFileCleanup);
+    WdfDeviceInitSetFileObjectConfig(DeviceInit, &FileConfig, WDF_NO_OBJECT_ATTRIBUTES);
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&Attr, MFC_DEVICE);
-    return WdfDeviceCreate(&DeviceInit, &Attr, &Device);
+    Status = WdfDeviceCreate(&DeviceInit, &Attr, &Device);
+    if (!NT_SUCCESS(Status))
+    {
+        return Status;
+    }
+
+    M = MfcGetDevice(Device);
+    KeInitializeEvent(&M->CmdDone, NotificationEvent, FALSE);
+    Status = WdfWaitLockCreate(WDF_NO_OBJECT_ATTRIBUTES, &M->SessionLock);
+    if (!NT_SUCCESS(Status))
+    {
+        return Status;
+    }
+
+    WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&QueueConfig, WdfIoQueueDispatchSequential);
+    QueueConfig.EvtIoDeviceControl = MfcEvtIoDeviceControl;
+    WDF_OBJECT_ATTRIBUTES_INIT(&Attr);
+    Attr.ExecutionLevel = WdfExecutionLevelPassive;   // IOCTLs wait for the R2H at PASSIVE_LEVEL
+    Status = WdfIoQueueCreate(Device, &QueueConfig, &Attr, WDF_NO_HANDLE);
+    if (!NT_SUCCESS(Status))
+    {
+        return Status;
+    }
+
+    return WdfDeviceCreateDeviceInterface(Device, &GUID_DEVINTERFACE_EXYNOS9820_MFC, NULL);
 }
 
 NTSTATUS

@@ -17,3 +17,7 @@ User report 2026-10-15: ~18 Mbit/s while copying a 725 MB file to the phone over
   - Next (cheapest first): read the firmware's real link rate / PHY mode (bcmdhd "rate"/"nrate" iovar or the
     associated BSS's HT/VHT IEs) and report it instead of the placeholder; try the 5 GHz network of the same AP;
     measure with an unencrypted TCP stream to separate scp/ssh cost.
+- 2026-10-15 22:30 "downloads stop at 204800 B" is NOT Wi-Fi: same 1 MiB file phone->PC: `ssh 'type file' > f` =
+  1048576 B (2.7 s incl. setup), `scp -O` (legacy protocol) = 1048576 B, `scp` default (SFTP mode, Git-for-Windows
+  OpenSSH client vs the phone's Windows OpenSSH sftp-server) = 204800 B with exit 0. => use `scp -O` (or a raw ssh
+  stream) for phone->PC copies. Root cause in the SFTP pairing not investigated (not ours).

@@ -22,6 +22,9 @@ ULONG MwFlipMmio = 1;
 ULONG MwScanoutStride = 0;
 ULONG MwOfferRotation = 0;      /* Parameters\OfferRotation: 1 = offer 90/180/270 (needs a rotating present path) */
 ULONG MwCddDwmInterop = 1;
+/* G15 S1 (notes/gpu-wddm2-design.md): Parameters\Wddm2 = 1 -> DXGKDDI_INTERFACE_VERSION_WDDM2_0 in physical-engine mode
+ * (no GPU VA caps; Render/Patch/SubmitCommand unchanged). Default 0 = the WDDM 1.3 adapter, byte-identical paths. */
+ULONG MwWddm2 = 0;
 
 /* ---- trace ---- */
 
@@ -364,7 +367,9 @@ static NTSTATUS DriverCaps(MW_ADAPTER *A, const DXGKARG_QUERYADAPTERINFO *Info)
     if (!FITS(size, DXGK_DRIVERCAPS, WDDMVersion))
         return STATUS_BUFFER_TOO_SMALL;
     RtlZeroMemory(caps, size);
-    caps->WDDMVersion = DXGKDDI_WDDMv1_3;
+    /* DXGK_DRIVERCAPS.WDDMVersion: 0 for interfaces newer than WIN7 (MS Learn DXGK_DRIVERCAPS) - set for 2.0 only so
+     * the 1.3 answer stays as it was. */
+    caps->WDDMVersion = MwWddm2 ? (DXGK_WDDMVERSION)0 : DXGKDDI_WDDMv1_3;
     /* G76 (R11): what the Mali reports it can address (MMU_FEATURES PA bits), at most the original's 40 bits. */
     caps->HighestAcceptableAddress.QuadPart = (LONGLONG)((1ULL << bits) - 1);
     caps->MaxAllocationListSlotId = 256;   /* Render patches every allocation, SlotId = index */
@@ -429,6 +434,25 @@ static NTSTATUS APIENTRY MwQueryAdapterInfo(IN_CONST_HANDLE hAdapter, const DXGK
             break;
         case DXGKQAITYPE_QUERYSEGMENT3:
             st = MwQuerySegment(a, Info);
+            break;
+        case DXGKQAITYPE_QUERYSEGMENT4:      /* WDDM 2.0: the same single aperture segment, stride-described */
+            st = MwWddm2 ? MwQuerySegment4(a, Info) : STATUS_NOT_SUPPORTED;
+            break;
+        case DXGKQAITYPE_PHYSICALADAPTERCAPS:
+            /* WDDM 2.0 physical-engine mode: one node, paging on it, no IoMmu/GpuMmu flags. DxgkPhysicalAdapterHandle =
+             * the DXGKRNL_INTERFACE::DeviceHandle from DxgkDdiStartDevice (MS Learn DXGK_PHYSICALADAPTERCAPS). */
+            if (!MwWddm2) {
+                st = STATUS_NOT_SUPPORTED;
+            } else if (Info->OutputDataSize < FIELD_OFFSET(DXGK_PHYSICALADAPTERCAPS, Flags) + sizeof(DXGK_PHYSICALADAPTERFLAGS)) {
+                st = STATUS_BUFFER_TOO_SMALL;
+            } else {
+                DXGK_PHYSICALADAPTERCAPS *pc = (DXGK_PHYSICALADAPTERCAPS *)Info->pOutputData;
+                RtlZeroMemory(pc, Info->OutputDataSize);
+                pc->NumExecutionNodes = 1;
+                pc->PagingNodeIndex = 0;
+                pc->DxgkPhysicalAdapterHandle = a->Dxgk.DeviceHandle;
+                st = STATUS_SUCCESS;
+            }
             break;
         case DXGKQAITYPE_HISTORYBUFFERPRECISION:
             /* WDDM 1.3 asks this of every 1.3 driver; NOT_SUPPORTED was logged by dxgkrnl as an invalid
@@ -723,6 +747,7 @@ static MW_MODE ReadMode(PUNICODE_STRING RegistryPath, ULONG *PramTrace)
     MwPanelCmdMode = ReadParameter(params, L"PanelCmdMode", 1);
     MwPanelBrightness = ReadParameter(params, L"PanelBrightness", 1);
     MwCddDwmInterop = ReadParameter(params, L"CddDwmInterop", 1) != 0;
+    MwWddm2 = ReadParameter(params, L"Wddm2", 0) == 1;
     if (params != NULL)
         ZwClose(params);
     if (svc != NULL)
@@ -776,7 +801,7 @@ static NTSTATUS InitFull(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPa
 {
     DRIVER_INITIALIZATION_DATA init = {0};
 
-    init.Version = DXGKDDI_INTERFACE_VERSION_WDDM1_3;
+    init.Version = MwWddm2 ? DXGKDDI_INTERFACE_VERSION_WDDM2_0 : DXGKDDI_INTERFACE_VERSION_WDDM1_3;
     init.DxgkDdiAddDevice = MwAddDevice;
     init.DxgkDdiStartDevice = MwStartDevice;
     init.DxgkDdiStopDevice = T_StopDevice;
@@ -859,7 +884,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
                    ((ParamGpu & 0xFF) << 24) | ((ParamFull & 0xFF) << 16) | (ParamKeys << 8) |
                    ((MwSoftVsync & 0xF) << 4) | (MwFlipBlt & 0xF), TRUE);
         MwPramText(TRUE, "Switches ", NULL,
-                   (MwFlipMmio << 20) | (MwRefresh601 << 16) | (MwModeRefreshExact << 12) | (MwSegmentCpuVisible << 8) | (MwRecommendVidPn << 4) | MwSynthEdid, TRUE);
+                   (MwWddm2 << 24) | (MwFlipMmio << 20) | (MwRefresh601 << 16) | (MwModeRefreshExact << 12) | (MwSegmentCpuVisible << 8) | (MwRecommendVidPn << 4) | MwSynthEdid, TRUE);
         /* Wall clock (Unix seconds), so a saved \WINPRAM.BIN can be matched to the boot that wrote it. */
         KeQuerySystemTimePrecise(&now);
         MwPramText(TRUE, "UnixTime ", NULL, (ULONG)(now.QuadPart / 10000000LL - 11644473600LL), TRUE);

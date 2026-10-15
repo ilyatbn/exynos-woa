@@ -133,6 +133,7 @@ extern ULONG MwPanelCmdMode;
 extern ULONG MwPanelBrightness;
 /* Parameters\CddDwmInterop (default 1): DXGK_PRESENTATIONCAPS.DriverSupportsCddDwmInterop (adapter.c). */
 extern ULONG MwCddDwmInterop;
+extern ULONG MwWddm2;
 /* Parameters\FlipBlt (default 1): a Flip present is carried out as a CPU copy of the new primary into the GOP
  * framebuffer (command.c); 0 = the original's behaviour (flips are dropped, the panel never shows them). */
 extern ULONG MwFlipBlt;
@@ -363,6 +364,7 @@ DXGKDDI_OPENALLOCATIONINFO MwOpenAllocation;
 DXGKDDI_CLOSEALLOCATION MwCloseAllocation;
 DXGKDDI_BUILDPAGINGBUFFER MwBuildPagingBuffer;
 NTSTATUS MwQuerySegment(MW_ADAPTER *A, const DXGKARG_QUERYADAPTERINFO *Info);
+NTSTATUS MwQuerySegment4(MW_ADAPTER *A, const DXGKARG_QUERYADAPTERINFO *Info);
 NTSTATUS MwEscapeAllocInfo(MW_ADAPTER *A, const DXGKARG_ESCAPE *Esc, MW_ESCAPE_ALLOC_INFO_DATA *D);
 void MwMapScanout(MW_ADAPTER *A);
 NTSTATUS MwEscapeScanout(MW_ADAPTER *A, const DXGKARG_ESCAPE *Esc, MW_ESCAPE_SCANOUT_DATA *D);

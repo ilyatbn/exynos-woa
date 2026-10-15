@@ -48,6 +48,37 @@ NTSTATUS MwQuerySegment(MW_ADAPTER *A, const DXGKARG_QUERYADAPTERINFO *Info)
     return STATUS_SUCCESS;
 }
 
+/* G15 S1: WDDM 2.0 asks QUERYSEGMENT4 - the same single aperture segment as MwQuerySegment, described through
+ * DXGK_SEGMENTDESCRIPTOR4 elements of SegmentDescriptorStride bytes (d3dkmddi.h). */
+NTSTATUS MwQuerySegment4(MW_ADAPTER *A, const DXGKARG_QUERYADAPTERINFO *Info)
+{
+    DXGK_QUERYSEGMENTOUT4 *out = (DXGK_QUERYSEGMENTOUT4 *)Info->pOutputData;
+    UNREFERENCED_PARAMETER(A);
+
+    if (Info->OutputDataSize < sizeof(*out))
+        return STATUS_BUFFER_TOO_SMALL;
+    if (out->pSegmentDescriptor == NULL) {
+        out->NbSegment = 1;
+        out->SegmentDescriptorStride = sizeof(DXGK_SEGMENTDESCRIPTOR4);
+        return STATUS_SUCCESS;
+    }
+    if (out->SegmentDescriptorStride != 0 && out->SegmentDescriptorStride < sizeof(DXGK_SEGMENTDESCRIPTOR4))
+        return STATUS_INVALID_PARAMETER;
+    DXGK_SEGMENTDESCRIPTOR4 *d = (DXGK_SEGMENTDESCRIPTOR4 *)out->pSegmentDescriptor;
+    RtlZeroMemory(d, sizeof(*d));
+    d->BaseAddress.QuadPart = MK_VA_START;
+    d->Size = MW_SEGMENT_SIZE;
+    d->CommitLimit = MW_SEGMENT_SIZE;
+    d->Flags.Aperture = TRUE;
+    d->Flags.CacheCoherent = FALSE;
+    d->Flags.CpuVisible = MwSegmentCpuVisible ? TRUE : FALSE;
+    out->PagingBufferSegmentId = MW_SEGMENT_ID;
+    out->PagingBufferSize = 10 * PAGE_SIZE;
+    out->PagingBufferPrivateDataSize = 0;
+    out->SegmentDescriptorStride = sizeof(DXGK_SEGMENTDESCRIPTOR4);
+    return STATUS_SUCCESS;
+}
+
 /* ---- allocations ---- */
 
 static NTSTATUS NewAllocation(MW_ADAPTER *A, const MW_ALLOCATION_INFO *In, DXGK_ALLOCATIONINFO *Out)
@@ -368,6 +399,10 @@ NTSTATUS APIENTRY MwBuildPagingBuffer(IN_CONST_HANDLE hAdapter, DXGKARG_BUILDPAG
         ExReleaseFastMutex(&a->MmuLock);
         return STATUS_SUCCESS;
     }
+    case DXGK_OPERATION_NOTIFY_RESIDENCY:
+        /* G15 S1: WDDM 2.0 tells the driver an allocation became resident / was evicted. Our mapping happens in
+         * MAP/UNMAP_APERTURE_SEGMENT (both "common WDDMv1 and WDDMv2"), so nothing to do here. */
+        return STATUS_SUCCESS;
     default:
         return STATUS_NOT_SUPPORTED;
     }

@@ -125,3 +125,4 @@ F. CLOSE_INSTANCE H2R 6 -> R2H 6 (INSTANCE_ID first). DPB_FLUSH H2R 10 -> R2H 10
   overlap); window limit = CPB 4 MiB - 512 on both sides. Known edge: a DPC arriving late from a TIMED-OUT command
   could complete the next command early (only after a timeout) - follow-up if timeouts ever show up.
 - 15:12 vidc5: TWRP-deployed 1.0.0.5 (sys 8B42879D) + C:\S10eTmp\mfc {mfcdec.exe, c720/c1080/cbase.h264}, stay.flg set (Windows stays up for ssh). kd-vidc5.log.
+- 15:20 vidc5: SSH broken - ssh config host stale (address changed) and on the current address sshd resets during the banner exchange (kex_exchange_identification). Switching the mfcdec run to the boot agent (extra-mfcdec.cmd, also collects sshd state); kdrun twrp to leave the stay.flg boot.

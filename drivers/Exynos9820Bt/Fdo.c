@@ -1576,6 +1576,11 @@ Return Value:
         BtUartTxQueue(&_FdoExtension->Uart,
                       (const UCHAR *)&_HCIContext->Type,
                       (ULONG)sizeof(_HCIContext->Type) + _HCIContext->DataLen);
+        if (_HCIContext->Type == (UCHAR)HciPacketAclData)
+        {
+            CoexAclTx(_FdoExtension, (const UCHAR *)&_HCIContext->Type,
+                      (ULONG)sizeof(_HCIContext->Type) + _HCIContext->DataLen);   // notes/bt-wifi-coex.md
+        }
     }
 
     Status = WdfRequestRetrieveOutputMemory(_RequestFromBthport, &ReqOutMemory);

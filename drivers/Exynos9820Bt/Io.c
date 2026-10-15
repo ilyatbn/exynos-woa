@@ -517,6 +517,7 @@ CoexTrySendLocked(
     Cmd[5] = (UCHAR)(_Fdo->CoexPendingHandle >> 8);
     Cmd[6] = 0xFF;                                   // HCI_BRCM_ACL_HIGH_PRIORITY
     _Fdo->CoexInFlight      = TRUE;
+    _Fdo->CoexDoneHandle    = _Fdo->CoexPendingHandle;
     _Fdo->CoexPendingHandle = 0xFFFF;
     if (InterlockedDecrement(&_Fdo->HciTraceBudget) >= 0)
     {
@@ -571,9 +572,22 @@ CoexOnEvent(
     }
 
     KeAcquireSpinLock(&_Fdo->CoexLock, &Irql);
-    if (Reply && (Op == 0xFC57) && _Fdo->CoexInFlight)
+    if (Reply && (Op == 0xFC57) && (_Fdo->CoexInFlight || (_Fdo->CoexAwaitReplies != 0)))
     {
         Swallow = TRUE;
+        if (_Fdo->CoexAwaitReplies != 0)
+        {
+            _Fdo->CoexAwaitReplies--;
+        }
+        if (!_Fdo->CoexInFlight)
+        {
+            KeReleaseSpinLock(&_Fdo->CoexLock, Irql);
+            return TRUE;                              // late Command Complete after its Command Status
+        }
+        if (_Ev[0] == 0x0F)
+        {
+            _Fdo->CoexAwaitReplies = 1;               // Command Status now, Command Complete may follow
+        }
         _Fdo->CoexInFlight = FALSE;
         if (St == 0)
         {
@@ -598,7 +612,12 @@ CoexOnEvent(
 
     if ((_Ev[0] == 0x03) && (_Len >= 13) && (_Ev[2] == 0) && (_Ev[11] == 0x01))   // ACL Connection Complete
     {
-        _Fdo->CoexPendingHandle = (USHORT)((_Ev[3] | (_Ev[4] << 8)) & 0x0FFF);
+        // 1.0.0.16: no injection at connect time (1.0.0.11 did it here, mid connection setup, and broke the
+        // headphones' stored service records); a new connection on a reused handle needs a new priority set.
+        if (_Fdo->CoexDoneHandle == (USHORT)((_Ev[3] | (_Ev[4] << 8)) & 0x0FFF))
+        {
+            _Fdo->CoexDoneHandle = 0xFFFF;
+        }
     }
 
     CoexTrySendLocked(_Fdo);
@@ -611,6 +630,46 @@ CoexOnEvent(
     }
 
     return Swallow;
+}
+
+// Write path, ACL data (1.0.0.16): raise the link's priority once it carries sustained audio-rate traffic - Android
+// sets L2CAP priority high when A2DP streaming starts (AOSP l2c_utils.cc), never during connection setup. Threshold:
+// > 16 KB in one second on one handle (SBC at its usual bitpool is ~40 KB/s; SDP/AVDTP signalling is far below).
+VOID
+CoexAclTx(
+    PFDO_EXTENSION _Fdo,
+    _In_reads_bytes_(_Len) const UCHAR *_Pkt,
+    ULONG _Len
+    )
+{
+    KIRQL     Irql;
+    USHORT    Handle;
+    ULONGLONG Now;
+
+    if (!_Fdo->CoexEnabled || (_Len < 5))
+    {
+        return;
+    }
+    Handle = (USHORT)((_Pkt[1] | (_Pkt[2] << 8)) & 0x0FFF);   // H4 type, then ACL header: handle+flags (le16), len
+    Now    = KeQueryInterruptTime();
+
+    KeAcquireSpinLock(&_Fdo->CoexLock, &Irql);
+    if (Handle != _Fdo->CoexDoneHandle)
+    {
+        if ((Handle != _Fdo->CoexStreamHandle) || (Now - _Fdo->CoexStreamWindow > 10000000ULL))
+        {
+            _Fdo->CoexStreamHandle = Handle;
+            _Fdo->CoexStreamBytes  = 0;
+            _Fdo->CoexStreamWindow = Now;
+        }
+        _Fdo->CoexStreamBytes += _Len;
+        if ((_Fdo->CoexStreamBytes > 16384) && (_Fdo->CoexPendingHandle == 0xFFFF) && !_Fdo->CoexInFlight)
+        {
+            _Fdo->CoexPendingHandle = Handle;
+            CoexTrySendLocked(_Fdo);
+        }
+    }
+    KeReleaseSpinLock(&_Fdo->CoexLock, Irql);
 }
 
 // Write path: a BthPort command goes out now, or is held while our own command waits for its reply.
@@ -1696,6 +1755,9 @@ Return Value:
     FdoExtension->CoexPendingHandle  = 0xFFFF;
     FdoExtension->CoexDeferredCount  = 0;
     FdoExtension->CoexEnabled        = (gCoexAclPriority != 0);
+    FdoExtension->CoexStreamHandle   = 0xFFFF;
+    FdoExtension->CoexDoneHandle     = 0xFFFF;
+    FdoExtension->CoexAwaitReplies   = 0;
     FdoExtension->HciTraceBudget     = 400;   // one connection's setup; capped so KD cannot flood (notes/bt-wifi-coex.md)
 
     // Create a WDF Request

@@ -331,6 +331,11 @@ typedef struct _FDO_EXTENSION
     ULONG      CoexDeferredLen[4];
     UCHAR      CoexDeferred[4][1 + 3 + 255];
     ULONG      CoexDeferredMax;        // deepest hold seen
+    USHORT     CoexStreamHandle;       // 1.0.0.16: handle whose ACL TX rate is being measured
+    ULONG      CoexStreamBytes;        //   bytes sent on it in the current 1 s window
+    ULONGLONG  CoexStreamWindow;       //   window start (interrupt time)
+    USHORT     CoexDoneHandle;         //   handle already set high (0xFFFF none)
+    ULONG      CoexAwaitReplies;       //   0xFC57 replies still to swallow (Command Status may precede Complete)
     LONG       HciTraceBudget;         // 1.0.0.13: compact HCI command/reply trace lines left (KD), 0 = off
     BOOLEAN    CoexEnabled;            // Parameters\CoexAclPriority (default 1)
     ULONG      CoexSetOk;
@@ -339,6 +344,13 @@ typedef struct _FDO_EXTENSION
 
 // exynos-woa (notes/bt-wifi-coex.md, Io.c): a BthPort HCI command to the controller, held while our ACL-priority
 // command waits for its reply.
+VOID
+CoexAclTx(
+    PFDO_EXTENSION _Fdo,
+    _In_reads_bytes_(_Len) const UCHAR *_Pkt,
+    ULONG _Len
+    );
+
 VOID
 CoexHostCommand(
     PFDO_EXTENSION _Fdo,

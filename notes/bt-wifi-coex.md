@@ -33,3 +33,14 @@ UART HCI link clean (no line errors/throttles). => radio time-sharing on the com
   for one connect attempt, then fix from data.
 - 22:32 user: even with CoexAclPriority=0 the headphones connect but are not an output device -> the injection is NOT proven to be the cause; duplicate 'Headphones (2- ...)' endpoints suggest stale state after many driver reinstalls/hot restarts in one boot. Rebooted (injection off). 1.0.0.13 built (capped HCI trace: hci> cmd / INJECT, hci< CC/CS op num st / ConnComplete / events, budget 400), not installed yet.
 - 22:40 after reboot (injection off) still no headphone output. System log: BthMini 14 'device ... has a bad service record (attribute identifier 9). The service will not be visible.' (x2) - attribute 9 = BluetoothProfileDescriptorList => Windows rejects the headphones' (A2DP) SDP record. Same headphones worked before (likely SDP cached from the 115200 days). Hypothesis: RX data corruption at 1625000 despite 0 line errors. 1.0.0.14: Parameters\HighBaud (default 1; 0 = stay at 115200). A/B: HighBaud=0 + CoexAclPriority=0 + reboot.
+- 22:45 115200 + injection off: still no output. User removed + re-paired the headphones: still no output (=> not cached SDP either). Building the exact 1.0.0.10 tree (git archive 22adfd3) as 1.0.0.15 to test known-good code.
+- 22:55 1.0.0.15 (= 1.0.0.10 code, git archive 22adfd3): headphone output device back ('Headphones (2- WH-1000XM4)' active, A2DP not HFP) but audio 'a frame of sound every couple seconds', also with Wi-Fi fully disconnected (=> not coex); CPU idle. Chip had been brought to 1625000 by the in-session restart path. User suggests restart -> rebooting.
+- 23:40 consistent reading of tonight's sequence: (1) 1.0.0.11's connect-time injection left Windows' stored
+  service records for the headphones bad (BthMini 14 'bad service record, attribute 9') - persisted through
+  injection-off and reboot; (2) the re-pair under 1.0.0.14 DID fix that, but 1.0.0.14 ran at 115200 (HighBaud=0),
+  apparently too slow for the A2DP endpoint to come up; (3) 1.0.0.15 (1625000) -> endpoint back. Registry switch
+  order verified (DeviceQueryDeviceParameters in DriverDeviceAdd before ReadResourcesAllocate sets CoexEnabled).
+- 1.0.0.16 (on the 1.0.0.14 tree): injection moved from ACL Connection Complete to "sustained ACL TX > 16 KB in 1 s on
+  one handle" (= A2DP streaming, as AOSP raises L2CAP priority when streaming starts), once per handle (reset on a
+  new Connection Complete for that handle); every 0xFC57 reply swallowed incl. a Command Complete after a Command
+  Status; capped HCI trace kept. Deploy needs HighBaud=1 (phone has 0 from the A/B) and CoexAclPriority=1.

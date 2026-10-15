@@ -96,3 +96,11 @@ F. CLOSE_INSTANCE H2R 6 -> R2H 6 (INSTANCE_ID first). DPB_FLUSH H2R 10 -> R2H 10
   driver unloading). Fix: release = vendor risc_off (bus idle wait) + MFC_OFF 1, no reset; free buffers after.
   NOTE: the V-W1 driver is still the installed one on the phone - any further swap may hit this again.
 - 14:55 TWRP: NTFS dirty after the bugcheck (ntfs-3g ro only, no fsck) -> in-Windows rename swap: extra-mfcswap.cmd with 1.0.0.3 (a6ce0f3, sys 13489b6e) + mfc_test.h264; kd-vidc3.log. Pass 1 swaps + clean restart, pass 2 = self-test boot.
+- **14:55 vidc3 pass 1: the self-test RAN** (PnP completed the interrupted 1.0.0.2 install at boot, no PnP remove,
+  no crash): "37101 B stream, buffer PA 0xeeed8000" -> "OPEN_INSTANCE R2H 32 (ERR_RET) err 0xa inst 65535".
+  Error 10 is not named in mfc_regs.h. Suspect: the test buffer (separate allocation, PA 0xeeed8000) lies BELOW the
+  RISC base (fw at 0xef700000). Vendor layout (mfc_buf.c:520-530, mfc.c:1773-1786): fw_buf = firmware_code 1 MiB +
+  dev_ctx 32 KiB, common context at fw_daddr + 1 MiB (we used +4 MiB); every other buffer comes from the same
+  iovmm allocator after the fw. Upstream s5p-mfc required buffers within a window ABOVE the fw base (recalled, not
+  verified for v13). Fix (1.0.0.4): one allocation, fw at 0, common ctx at +1 MiB (vendor), decode-test area at
+  +8 MiB inside the same buffer.

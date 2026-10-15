@@ -36,3 +36,9 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   all 6 cores, ~40 s): BIG 59.8 -> 63.7, MID up to 60.8, LITTLE up to 58.8, G3D 54 -> 55.9; after the load
   BIG back to 57.4-60.8 within ~15 s. => the MMIO readout tracks real temperature. (Phone clock in the log is
   not local time.)
+- 17:20 tools/phone/s10eacpm (ARM64; port of the UEFI ACPM client over S10eDiag READ_PHYS/WRITE32): channel 0 =
+  type 1 queue, ap_poll 1, q_len 15, elem 16 (same as UEFI run 30). No-op FREQ_REQs from Windows: G3D (10)
+  260000 -> reply 00010000 0003f7a0 (= 260000), LITTLE (2) 1456000 -> 00010000 00163780 (= 1456000) - the same
+  echo pattern as the UEFI runs. => **Windows can request clocks through ACPM** (user mode, one process at a time).
+  Domain ladders: LITTLE 442k..1950k (13 steps), MID 507k..2400k (2314k/2400k need MIF >= 2093000 - avoid until MIF
+  is known), G3D 156k..702k (156/200/260/325/377/433/572/650/702).

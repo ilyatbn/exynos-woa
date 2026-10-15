@@ -18,6 +18,9 @@ Copy-Item (Join-Path $work 'Exynos9820Mfc.sys'), (Join-Path $PSScriptRoot 'Exyno
 $hcd = Join-Path $PSScriptRoot '..\..\..\s10e-artifacts\mfc\mfc_fw.bin'
 if (-not (Test-Path $hcd)) { throw "missing $hcd (pull it from /vendor/firmware)" }
 Copy-Item $hcd $Out
+# V-W2 decode self-test vector: generated (bit-exact I_PCM / P_Skip stream), not a phone blob.
+& python -I (Join-Path $PSScriptRoot '..\..\tools\mfc\mkh264pcm.py') (Join-Path $Out 'mfc_test.h264')
+if ($LASTEXITCODE -ne 0) { throw "mkh264pcm" }
 $sign = "$kit\bin\10.0.26100.0\x64\signtool.exe"
 & $sign sign /sha1 5DD5DEE1747244C5F5F66F41D94C0A59C4443E48 /fd SHA256 (Join-Path $Out 'Exynos9820Mfc.sys') | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "sign sys" }

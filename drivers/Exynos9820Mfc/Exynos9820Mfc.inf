@@ -1,6 +1,7 @@
 ;  Exynos9820Mfc.inf - Exynos 9820 MFC v13 video codec, V-W1 (D10, notes/d10-mfc-main.md).
 ;  Binds the DSDT Device (VIDC), _HID SAMS982A. Boots the codec firmware (mfc_fw.bin, copied into the package from
-;  the phone's /vendor/firmware at build time, never committed) and runs SYS_INIT. No decode path yet.
+;  the phone's /vendor/firmware at build time, never committed) and runs SYS_INIT. V-W2: mfc_test.h264
+;  (tools/mfc/mkh264pcm.py, generated at build time) drives a decode self-test.
 
 [Version]
 Signature="$WINDOWS NT$"
@@ -20,6 +21,7 @@ DefaultDestDir=12
 [SourceDisksFiles]
 Exynos9820Mfc.sys=1,,
 mfc_fw.bin=1,,
+mfc_test.h264=1,,
 
 [ControlFlags]
 ExcludeFromSelect=*
@@ -36,6 +38,7 @@ CopyFiles=Mfc_CopyFiles
 [Mfc_CopyFiles]
 Exynos9820Mfc.sys
 mfc_fw.bin
+mfc_test.h264
 
 [Mfc_Install.NT.Services]
 AddService=Exynos9820Mfc,%SPSVCINST_ASSOCSERVICE%,Mfc_Service_Inst

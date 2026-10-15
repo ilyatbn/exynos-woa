@@ -7,5 +7,6 @@ s10ediag mark t: bt scan start
 pnputil /enum-devices /class Bluetooth > "%B%\dev-class-bluetooth.txt" 2>&1
 sc query bthserv > "%B%\sc.txt" 2>&1
 powershell -NoProfile -ExecutionPolicy Bypass -File "%ESP%\S10EDIAG\bt-scan.ps1" -Seconds 30 > "%B%\scan.txt" 2>&1
+"%ESP%\S10EDIAGtscan.exe" 20 > "%B%tscan-exe.txt" 2>&1
 s10ediag mark t: bt scan done
 s10ediag flush > nul 2>&1

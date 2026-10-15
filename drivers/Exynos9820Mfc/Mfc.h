@@ -102,6 +102,14 @@
 #define MFC_CODEC_OFFSET_LARGE       (6u << 20)  // session: CPB 4 MiB (MFC_MAX_WINDOW)
 #define MFC_MAX_DPB                  32u         // D_*_DPB_FLAG_LOWER: 32 slots
 
+// 1: the whole MFC allocation is cached and every CPU<->MFC hand-over goes through KeFlushIoBuffers (a real routine
+// on ARM64, wdm.h; the MFC is treated as non-coherent). 0: non-cached (V-W2/V3 vidc4-6: correct, but reading a
+// 1080p picture out of it cost ~30 ms).
+#ifndef MFC_CACHED
+#define MFC_CACHED                   1
+#endif
+#define MFC_CACHE_TYPE               (MFC_CACHED ? MmCached : MmNonCached)
+
 #define MFC_H2R_CMD_SYS_INIT         1u
 #define MFC_R2H_SYS_INIT_RET         1u
 #define MFC_R2H_FW_STATUS_RET        12u
@@ -186,4 +194,5 @@ VOID     MfcSessionInit(_Out_ PMFC_SESSION S, _In_ PUCHAR Va, _In_ ULONG Pa, _In
 NTSTATUS MfcSessionOpen(_In_ PMFC_DEVICE M, _Inout_ PMFC_SESSION S);
 NTSTATUS MfcSessionStep(_In_ PMFC_DEVICE M, _Inout_ PMFC_SESSION S, _In_ ULONG Length, _Out_ PMFC_RESULT R);
 VOID     MfcSessionClose(_In_ PMFC_DEVICE M, _Inout_ PMFC_SESSION S, _In_ BOOLEAN LeavePending);
+VOID     MfcFlush(_In_ PVOID Va, _In_ ULONG Length, _In_ BOOLEAN FromDevice);
 ULONG    MfcFnv(_In_ const volatile UCHAR *Base, _In_ ULONG Width, _In_ ULONG Rows, _In_ ULONG Stride);

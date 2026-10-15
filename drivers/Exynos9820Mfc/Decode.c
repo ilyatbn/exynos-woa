@@ -48,6 +48,33 @@ MfcFnv(_In_ const volatile UCHAR *Base, _In_ ULONG Width, _In_ ULONG Rows, _In_ 
 }
 
 /**
+ * Cache maintenance for a CPU<->MFC hand-over (no-op when MFC_CACHED is 0). FromDevice FALSE: CPU-written data the
+ * MFC will read (CPB, firmware); TRUE: data the MFC wrote that the CPU is about to read (displayed slot) - called
+ * after the command completed, so lines speculatively fetched during the DMA are dropped too.
+ */
+VOID
+MfcFlush(_In_ PVOID Va, _In_ ULONG Length, _In_ BOOLEAN FromDevice)
+{
+    PMDL Mdl;
+
+    if (!MFC_CACHED || (Length == 0))
+    {
+        return;
+    }
+
+    Mdl = IoAllocateMdl(Va, Length, FALSE, FALSE, NULL);
+    if (Mdl == NULL)
+    {
+        MfcTrace("flush: no MDL for 0x%x B\n", Length);
+        return;
+    }
+
+    MmBuildMdlForNonPagedPool(Mdl);
+    KeFlushIoBuffers(Mdl, FromDevice, TRUE);
+    IoFreeMdl(Mdl);
+}
+
+/**
  * Issue an H2R command and wait for its R2H. Returns the reason (R2H & 0x1FFFF) or 0 on timeout; the R2H interrupt
  * is cleared on return (by the ISR, or here when polling) unless LeavePending (the boot ISR test). The result
  * registers (ERROR_CODE, D_*) stay valid until the next command.
@@ -298,6 +325,7 @@ MfcSessionStep(_In_ PMFC_DEVICE M, _Inout_ PMFC_SESSION S, _In_ ULONG Length, _O
         return STATUS_SUCCESS;
     }
 
+    MfcFlush(S->Va + MFC_CPB_OFFSET, Length, FALSE);   // the caller's window, before the MFC reads it
     if (!S->Ready)
     {
         return MfcSessionHeader(M, S, Length, R);
@@ -370,6 +398,7 @@ MfcSessionStep(_In_ PMFC_DEVICE M, _Inout_ PMFC_SESSION S, _In_ ULONG Length, _O
             if (R->FrameType != 0)          // H.264 "not coded": nothing to show
             {
                 R->Frame  = S->Va + S->DpbOffset + Slot * S->SlotSize;
+                MfcFlush(R->Frame, S->SlotSize, TRUE);
                 R->Flags |= MFC_DEC_FRAME;
                 if ((R->Error >> 16) != 0)
                 {

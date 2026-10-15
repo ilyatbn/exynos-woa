@@ -100,7 +100,8 @@ MfcAllocate(_In_ PMFC_DEVICE M)
     for (Index = 0; Index < RTL_NUMBER_OF(Sessions); Index++)
     {
         M->BufferAllocSize = (SIZE_T)MFC_FW_BUFFER_SIZE + Sessions[Index] + MFC_BUFFER_ALIGN;
-        M->BufferAlloc     = MmAllocateContiguousMemorySpecifyCache(M->BufferAllocSize, Low, High, Boundary, MmNonCached);
+        M->BufferAlloc     = MmAllocateContiguousMemorySpecifyCache(M->BufferAllocSize, Low, High, Boundary,
+                                                               MFC_CACHE_TYPE);
         if (M->BufferAlloc != NULL)
         {
             M->SessionSize = Sessions[Index];
@@ -141,6 +142,9 @@ MfcBoot(_In_ PMFC_DEVICE M)
         return Status;
     }
 
+    // the whole allocation (firmware image, zeroed working memory, and whatever dirty lines the pages carried in)
+    // reaches memory before the core starts; from here on the CPU only touches the CPB and displayed slots
+    MfcFlush(M->BufferAlloc, (ULONG)M->BufferAllocSize, FALSE);
     MfcReset(M);
     Wr(M, MFC_REG_RISC_BASE_ADDRESS, M->BufferPa.LowPart);
     Wr(M, MFC_REG_RISC2HOST_CMD, 0);
@@ -320,7 +324,7 @@ MfcEvtReleaseHardware(_In_ WDFDEVICE Device, _In_ WDFCMRESLIST Translated)
 
     if (M->BufferAlloc != NULL)
     {
-        MmFreeContiguousMemorySpecifyCache(M->BufferAlloc, M->BufferAllocSize, MmNonCached);
+        MmFreeContiguousMemorySpecifyCache(M->BufferAlloc, M->BufferAllocSize, MFC_CACHE_TYPE);
         M->BufferAlloc = NULL;
     }
 

@@ -313,3 +313,8 @@ exynos9820/cmucal-sfr.c + cmucal-node.c, drivers/pinctrl/samsung/pinctrl-exynos-
   (radios.txt failed: PowerShell 5.1 WinRT async call syntax - fixed in bt-scan.ps1.)
 - R5 probe: drivers/S10eDiag/esp/bt-scan.ps1 (Radio API state, BluetoothAdapter caps, 30 s DeviceWatcher for
   unpaired LE + classic devices) via extra-bt-scan.cmd.
+- R5 run 1 (bt6 image, 13:30): Windows Radio API: "Bluetooth kind=Bluetooth state=On" (and WiFi On);
+  BluetoothAdapter: LE True, classic True, central role True, advertisement offload False. The adapter address is a
+  Broadcom default derived from the chip name, not the phone's own address (Android writes the real one at boot with
+  a vendor command; to do, without recording any address). The scan itself failed: PowerShell 5.1 cannot subscribe to
+  WinRT events (DeviceWatcher) -> bt-scan.ps1 now uses DeviceInformation.FindAllAsync (inquiry / LE scan inside).

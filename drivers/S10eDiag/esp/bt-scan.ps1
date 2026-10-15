@@ -28,24 +28,25 @@ try {
 try {
     [Windows.Devices.Bluetooth.BluetoothAdapter, Windows.Devices.Bluetooth, ContentType = WindowsRuntime] | Out-Null
     $a = Await ([Windows.Devices.Bluetooth.BluetoothAdapter]::GetDefaultAsync()) ([Windows.Devices.Bluetooth.BluetoothAdapter])
-    "address {0:X12} LE {1} classic {2} central {3} advertisementOffload {4}" -f $a.BluetoothAddress, $a.IsLowEnergySupported,
+    "address present {0} LE {1} classic {2} central {3} advertisementOffload {4}" -f ($a.BluetoothAddress -ne 0), $a.IsLowEnergySupported,
         $a.IsClassicSupported, $a.IsCentralRoleSupported, $a.IsAdvertisementOffloadSupported
 } catch { "adapter failed: $_" }
 
 function Find($Label, $Selector) {
-    "=== $Label (DeviceWatcher, $Seconds s)"
-    $found = [System.Collections.Concurrent.ConcurrentDictionary[string, string]]::new()
-    $w = [Windows.Devices.Enumeration.DeviceInformation]::CreateWatcher($Selector)
-    $null = Register-ObjectEvent -InputObject $w -EventName Added -SourceIdentifier "bt-$Label" -Action {
-        $d = $EventArgs; $null = $Event.MessageData.TryAdd($d.Id, $d.Name) } -MessageData $found
-    $w.Start()
-    Start-Sleep -Seconds $Seconds
-    $w.Stop()
-    Unregister-Event -SourceIdentifier "bt-$Label" -ErrorAction SilentlyContinue
-    "found $($found.Count)"
-    $found.GetEnumerator() | ForEach-Object { "  {0} | {1}" -f $_.Value, $_.Key }
+    # PowerShell 5.1 cannot subscribe to WinRT events (DeviceWatcher.Added), so use FindAllAsync: for an unpaired
+    # Bluetooth selector it runs the inquiry / LE scan itself and returns what it found.
+    "=== $Label (FindAllAsync)"
+    try {
+        $t0 = Get-Date
+        $list = Await ([Windows.Devices.Enumeration.DeviceInformation]::FindAllAsync($Selector)) ([Windows.Devices.Enumeration.DeviceInformationCollection])
+        "found {0} in {1:N1} s" -f $list.Count, ((Get-Date) - $t0).TotalSeconds
+        $list | ForEach-Object { "  {0}" -f $_.Name }
+    } catch { "FindAllAsync failed: $_" }
 }
 
 Find 'le-unpaired' ([Windows.Devices.Bluetooth.BluetoothLEDevice]::GetDeviceSelectorFromPairingState($false))
 Find 'classic-unpaired' ([Windows.Devices.Bluetooth.BluetoothDevice]::GetDeviceSelectorFromPairingState($false))
+Start-Sleep -Seconds $Seconds
+Find 'le-unpaired-again' ([Windows.Devices.Bluetooth.BluetoothLEDevice]::GetDeviceSelectorFromPairingState($false))
+Find 'classic-unpaired-again' ([Windows.Devices.Bluetooth.BluetoothDevice]::GetDeviceSelectorFromPairingState($false))
 "=== done"

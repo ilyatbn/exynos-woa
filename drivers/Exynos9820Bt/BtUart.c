@@ -380,6 +380,64 @@ BtUartPatchram(
     return (Failed == 0) ? STATUS_SUCCESS : STATUS_DEVICE_DATA_ERROR;
 }
 
+/** Host divisor change: only once the transmitter (FIFO + shift register) is empty, or the last bytes go out at the
+ *  new rate. **/
+static VOID
+BtUartSetDivisor(
+    _In_ PBT_UART Uart,
+    _In_ ULONG Ubrdiv,
+    _In_ ULONG Ufracval
+    )
+{
+    ULONG Spin;
+
+    for (Spin = 0; (Spin < 20000) && ((Rd(Uart, BT_UART_UTRSTAT) & BT_UTRSTAT_TX_EMPTY) == 0); Spin++)
+    {
+        KeStallExecutionProcessor(1);
+    }
+
+    Wr(Uart, BT_UART_UBRDIV, Ubrdiv);
+    Wr(Uart, BT_UART_UFRACVAL, Ufracval);
+    KeStallExecutionProcessor(100);
+}
+
+/** Controller + host to BT_BAUD_OPER (Linux bcm_setup order: after the patchram, command at the old rate, the
+ *  controller answers Command Complete at the old rate, then the host follows). Verified with READ_LOCAL_VERSION at
+ *  the new rate; on failure both sides go back to 115200 (the controller's command did not take). **/
+static VOID
+BtUartSpeedUp(
+    _In_ PBT_UART Uart
+    )
+{
+    UCHAR  Param[6];
+    UCHAR  Status;
+    USHORT Subver;
+
+    Param[0] = 0;
+    Param[1] = 0;
+    Param[2] = (UCHAR)BT_BAUD_OPER;
+    Param[3] = (UCHAR)(BT_BAUD_OPER >> 8);
+    Param[4] = (UCHAR)(BT_BAUD_OPER >> 16);
+    Param[5] = (UCHAR)(BT_BAUD_OPER >> 24);
+    Status = BtUartHciCmd(Uart, 0xFC18, Param, sizeof(Param), 1000, NULL, NULL);
+    if (Status != 0)
+    {
+        DoTrace(LEVEL_ERROR, TFLAG_HCI, ("baud: Update_UART_Baud_Rate %u -> status %02x, staying at 115200",
+                BT_BAUD_OPER, Status));
+        return;
+    }
+
+    BtUartSetDivisor(Uart, BT_UBRDIV_OPER, BT_UFRACVAL_OPER);
+    Subver = BtUartLmpSubver(Uart);
+    DoTrace(LEVEL_ERROR, TFLAG_HCI, ("baud: %u, READ_LOCAL_VERSION subver %04x", BT_BAUD_OPER, Subver));
+    if (Subver == 0)
+    {
+        BtUartSetDivisor(Uart, BT_UBRDIV_115200, BT_UFRACVAL_115200);
+        DoTrace(LEVEL_ERROR, TFLAG_HCI, ("baud: no answer at %u - host back at 115200 (subver %04x)", BT_BAUD_OPER,
+                BtUartLmpSubver(Uart)));
+    }
+}
+
 BOOLEAN
 BtUartBringUp(
     _In_ PBT_UART Uart
@@ -393,7 +451,15 @@ BtUartBringUp(
     DoTrace(LEVEL_ERROR, TFLAG_HCI, ("HCI_RESET %02x", Status));
     if (Status != 0)
     {
-        return FALSE;
+        // A driver restart within the same boot finds the controller still at BT_BAUD_OPER (the driver does not
+        // power-cycle it: BT_REG_ON belongs to the UEFI role latch, and HCI_RESET keeps the UART rate).
+        BtUartSetDivisor(Uart, BT_UBRDIV_OPER, BT_UFRACVAL_OPER);
+        Status = BtUartHciCmd(Uart, 0x0C03, NULL, 0, 1000, NULL, NULL);
+        DoTrace(LEVEL_ERROR, TFLAG_HCI, ("HCI_RESET at %u %02x", BT_BAUD_OPER, Status));
+        if (Status != 0)
+        {
+            return FALSE;
+        }
     }
 
     Subver = BtUartLmpSubver(Uart);
@@ -406,10 +472,117 @@ BtUartBringUp(
         BtUartLogIdentity(Uart, "after patch");
     }
 
+    if ((Subver != 0) && (Rd(Uart, BT_UART_UBRDIV) != BT_UBRDIV_OPER))
+    {
+        BtUartSpeedUp(Uart);
+    }
+
     // Interrupt mode for the runtime path (RX still masked until BtUartRxStart).
     Wr(Uart, BT_UART_UFCON, BT_UFCON_IRQ);
     Wr(Uart, BT_UART_UCON, BT_UCON_IRQ);
     return (Subver != 0);
+}
+
+/** UINTM from the state (caller holds the interrupt lock or is the ISR): RX + error while enabled and not
+ *  throttled, TXD while the TX ring holds bytes, modem never. **/
+static VOID
+BtUartSetMask(
+    _In_ PBT_UART Uart
+    )
+{
+    ULONG Mask;
+
+    Mask = BT_UINT_MODEM;
+    if (!Uart->RxEnabled)
+    {
+        Mask |= BT_UINT_RXD | BT_UINT_ERROR;
+    }
+    else if (Uart->RxThrottled)
+    {
+        Mask |= BT_UINT_RXD;
+    }
+
+    if (Uart->TxHead == Uart->TxTail)
+    {
+        Mask |= BT_UINT_TXD;
+    }
+
+    Wr(Uart, BT_UART_UINTM, Mask);
+}
+
+/** TX ring -> FIFO until the FIFO is full or the ring empty (interrupt lock held or ISR). **/
+static VOID
+BtUartTxFill(
+    _In_ PBT_UART Uart
+    )
+{
+    while ((Uart->TxTail != Uart->TxHead) && ((Rd(Uart, BT_UART_UFSTAT) & BT_UFSTAT_TX_FULL) == 0))
+    {
+        Wr(Uart, BT_UART_UTXH, Uart->TxRing[Uart->TxTail & (BT_TX_RING_SIZE - 1)]);
+        Uart->TxTail++;
+    }
+}
+
+VOID
+BtUartTxQueue(
+    _In_ PBT_UART Uart,
+    _In_reads_bytes_(Length) const UCHAR *Data,
+    _In_ ULONG Length
+    )
+{
+    ULONG     Done;
+    ULONG     Free;
+    ULONG     Chunk;
+    ULONG     Index;
+    ULONGLONG End;
+    BOOLEAN   Waited;
+
+    if (!Uart->TxIrq)
+    {
+        BtUartTx(Uart, Data, Length);
+        return;
+    }
+
+    //
+    // The ring holds ~160 ms of line time at 1 Mbaud; BthPort's ACL credits normally keep it far from full. If it is
+    // full anyway, wait in short stalls (bounded, 2 s) for the ISR to drain it - never drop silently.
+    //
+    Done   = 0;
+    Waited = FALSE;
+    End    = KeQueryInterruptTime() + 2000ULL * 10000ULL;
+    while (Done < Length)
+    {
+        WdfInterruptAcquireLock(Uart->Interrupt);
+        Free  = BT_TX_RING_SIZE - (Uart->TxHead - Uart->TxTail);
+        Chunk = min(Free, Length - Done);
+        for (Index = 0; Index < Chunk; Index++)
+        {
+            Uart->TxRing[(Uart->TxHead + Index) & (BT_TX_RING_SIZE - 1)] = Data[Done + Index];
+        }
+
+        Uart->TxHead += Chunk;
+        Done += Chunk;
+        BtUartTxFill(Uart);
+        BtUartSetMask(Uart);
+        WdfInterruptReleaseLock(Uart->Interrupt);
+        if (Done < Length)
+        {
+            if (!Waited)
+            {
+                Uart->TxRingWaits++;
+                Waited = TRUE;
+            }
+
+            if (KeQueryInterruptTime() > End)
+            {
+                Uart->TxDropped += Length - Done;
+                DoTrace(LEVEL_ERROR, TFLAG_IO, ("TX ring stuck: %u B dropped (total %u)", Length - Done, Uart->TxDropped));
+                return;
+            }
+
+            KeStallExecutionProcessor(50);
+        }
+    }
 }
 
 VOID
@@ -425,8 +598,11 @@ BtUartRxStart(
     Uart->Head = 0;
     Uart->Tail = 0;
     InterlockedExchange(&Uart->RxEnabled, 1);
+    InterlockedExchange(&Uart->RxThrottled, 0);
+    Uart->TxTail = Uart->TxHead;
+    InterlockedExchange(&Uart->TxIrq, 1);
     Wr(Uart, BT_UART_UINTP, BT_UINT_ALL);
-    Wr(Uart, BT_UART_UINTM, BT_UINT_TXD | BT_UINT_MODEM);   // RX + error unmasked
+    BtUartSetMask(Uart);   // RX + error unmasked, TXD masked (ring empty)
     WdfInterruptReleaseLock(Uart->Interrupt);
 }
 
@@ -442,6 +618,8 @@ BtUartRxStop(
 
     WdfInterruptAcquireLock(Uart->Interrupt);
     InterlockedExchange(&Uart->RxEnabled, 0);
+    InterlockedExchange(&Uart->TxIrq, 0);
+    Uart->TxTail = Uart->TxHead;   // unsent bytes are dropped with the stack's connection
     Wr(Uart, BT_UART_UINTM, BT_UINT_ALL);
     WdfInterruptReleaseLock(Uart->Interrupt);
 }
@@ -487,7 +665,6 @@ BtUartIsr(
             //
             Uart->RingOverflows++;   // counts throttle events now
             InterlockedExchange(&Uart->RxThrottled, 1);
-            Wr(Uart, BT_UART_UINTM, BT_UINT_TXD | BT_UINT_MODEM | BT_UINT_RXD);
             break;
         }
         else
@@ -497,7 +674,13 @@ BtUartIsr(
         }
     }
 
+    if (Uart->TxIrq)
+    {
+        BtUartTxFill(Uart);
+    }
+
     Wr(Uart, BT_UART_UINTP, Pending);
+    BtUartSetMask(Uart);
     if (Uart->RxEnabled)
     {
         WdfInterruptQueueDpcForIsr(Interrupt);
@@ -546,10 +729,7 @@ BtUartDpc(
     {
         WdfInterruptAcquireLock(Interrupt);
         InterlockedExchange(&Uart->RxThrottled, 0);
-        if (Uart->RxEnabled)
-        {
-            Wr(Uart, BT_UART_UINTM, BT_UINT_TXD | BT_UINT_MODEM);   // RX level interrupt re-asserts: FIFO still holds data
-        }
+        BtUartSetMask(Uart);   // RX level interrupt re-asserts: FIFO still holds data
         WdfInterruptReleaseLock(Interrupt);
     }
 
@@ -557,7 +737,7 @@ BtUartDpc(
     {
         Uart->LoggedLineErrors = Uart->LineErrors;
         Uart->LoggedOverflows  = Uart->RingOverflows;
-        DoTrace(LEVEL_ERROR, TFLAG_IO, ("UART line errors %u (last UERSTAT 0x%x), RX ring throttles %u",
-                Uart->LineErrors, Uart->LastErrStat, Uart->RingOverflows));
+        DoTrace(LEVEL_ERROR, TFLAG_IO, ("UART line errors %u (last UERSTAT 0x%x), RX ring throttles %u, TX ring waits %u",
+                Uart->LineErrors, Uart->LastErrStat, Uart->RingOverflows, Uart->TxRingWaits));
     }
 }

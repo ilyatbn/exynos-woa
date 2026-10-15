@@ -1566,9 +1566,9 @@ Return Value:
     // BTHX_HCI_READ_WRITE_CONTEXT, as the sample relied on) goes straight into the UART TX FIFO, then the request
     // is completed exactly like the sample's CR_WriteDeviceIO did: output ULONG = DataLen.
     //
-    BtUartTx(&_FdoExtension->Uart,
-             (const UCHAR *)&_HCIContext->Type,
-             (ULONG)sizeof(_HCIContext->Type) + _HCIContext->DataLen);
+    BtUartTxQueue(&_FdoExtension->Uart,
+                  (const UCHAR *)&_HCIContext->Type,
+                  (ULONG)sizeof(_HCIContext->Type) + _HCIContext->DataLen);
 
     Status = WdfRequestRetrieveOutputMemory(_RequestFromBthport, &ReqOutMemory);
     if (NT_SUCCESS(Status))

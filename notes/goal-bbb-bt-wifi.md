@@ -31,3 +31,13 @@ bluethooth headphones, and properly transfer what you need thorugh wifi". No add
 
 ## Progress log
 - 21:12 T1: mpv.conf d3d11-warp=yes deployed (portable_config); fb-warp dump showed the correct BBB frame.
+- 21:20 T3 state: headphones (WH-1000XM4) paired, then the controller stopped answering: System log BthMini 3 "A
+  command sent to the adapter has timed out" every ~30 s from 12:09 (phone clock) on; radio device still "OK".
+  Cause (INFERENCE from notes/bt-driver.md RFCOMM test): 115200 = 10.5 KiB/s ceiling + per-byte TX busy-wait at
+  DISPATCH starving the RX DPC under sustained A2DP; the H4 stream lost sync.
+- 21:30 Exynos9820Bt 1.0.0.4 built: (1) 1 Mbaud after bring-up: Broadcom 0xFC18 {le16 0, le32 1000000} verified
+  against Linux btbcm.h:12-15 (kernel.org) + hci_bcm.c:178-224/600-625 order; host UBRDIV 0 / UFRACVAL 10 from the
+  26 MHz clock (same formula reproduces the shipped 115200 pair 13/2); verified by READ_LOCAL_VERSION at the new
+  rate, fallback to 115200; bring-up retries HCI_RESET at 1 Mbaud (driver restart within a boot). (2) interrupt-
+  driven TX: 16 KiB TX ring filled by BtUartTxQueue, FIFO refilled from the ISR on the TXD level interrupt, one
+  mask helper (BtUartSetMask) for RX-throttle/TX state; bounded 2 s wait when the ring is full (counted).

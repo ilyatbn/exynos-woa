@@ -614,3 +614,4 @@ No device access in this task; build-verified only (Guided, not Ready).
 - Options to decide HA: (a) clear HA on the boot CPU too, before MM sets up its AF policy (needs a patch earlier than
   the KD initial break - winload/bootmgr side or the kernel entry), so Windows runs a consistent software-AF system;
   (b) find the MM flag that selects hardware vs software AF and flip it at the initial break together with (a).
+- 09:57 phone restored: boot-kd6.img (7810a0bd, 6 cores), stay.flg back on the ESP, rebooted into Windows.

@@ -14,7 +14,7 @@ import threading
 import time
 
 KD = r'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\kd.exe'
-DEFAULT_CMDS = ['.symfix+ C:\\symbols', '.reload', '!analyze -v', 'r', 'kb 40', '!running -ti', '!cpuinfo', 'lm o', 'q']
+DEFAULT_CMDS = ['.symfix+ C:\\symbols', '.reload', '!analyze -v', 'r', 'kb 40', '!running -ti', '!cpuinfo', 'lm o', 'g']  # g, not q: q leaves the target halted (2026-10-15: a Code Integrity first-chance break on a test-signed UMD froze the phone)
 
 
 def main():

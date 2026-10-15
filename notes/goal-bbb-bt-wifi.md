@@ -49,3 +49,4 @@ bluethooth headphones, and properly transfer what you need thorugh wifi". No add
 - 22:20 user: once BT works, download free music + foobar2000 (or another player) and play a song over BT (added as T7).
 - 22:25 **1.0.0.9 clean boot: HCI_RESET 00, patchram 1261/0 failed, reset after patch 00, 0xFC18 1625000 -> READ_LOCAL_VERSION subver 1111 at 1625000 after 1 try.** Link now 1.625 Mbaud (~158 KiB/s, 16x).
 - 22:30 T2 closed: the 200 KiB 'Wi-Fi stall' is scp's SFTP mode (raw ssh stream and scp -O move 1 MiB intact) -> notes/wifi-throughput.md. Download rule: scp -O.
+- 22:40 KD freeze: copilotapp.exe loading test-signed maliumd.dll -> CI first-chance break (80000003) into the attached kd; kdrun's default cmds ended with 'q' -> phone halted (user: black screen). Resumed with kdrun --cmds g; kdrun default now ends with g.

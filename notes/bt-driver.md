@@ -260,3 +260,11 @@ exynos9820/cmucal-sfr.c + cmucal-node.c, drivers/pinctrl/samsung/pinctrl-exynos-
   R1 = internal loopback of 32 bytes, timed against CNTVCT (2778 us expected = checks the 26 MHz clock).
   R2 = bt_en gpm8-0 low 20 ms -> high, 150 ms, then HCI_RESET + HCI_READ_LOCAL_VERSION, raw replies hex-logged.
   Builds with the switch 0 and 1. Device run next (image boot-bt1).
+- **R1 + R2 PASSED on the device (boot-bt1.img 39712cfb, 2026-10-15 12:42):** CMU before: mux 0x10 (TOP source),
+  gates CG_VAL only, QCH 0x3F0002 -> after: mux 0 (OSC), gates 0x300000, QCH 0x3F0003. gpq0 con already 0x02220000
+  (pins 1-3 fn2 from sboot? pin 0 was 0), pud 0x03331111. R1 loopback 32/32 bytes, 2780 us vs 2778 expected ->
+  UART clock = 26 MHz CONFIRMED (closes BT_UART_SRC_CLK_HZ). R2 after bt_en gpm8-0 pulse: no spontaneous bytes;
+  HCI_RESET -> 04 0E 04 01 03 0C 00 (status 0); READ_LOCAL_VERSION -> 04 0E 0C 01 01 10 00 09 00 00 09 0F 00 11 11
+  = HCI ver 9 (BT 5.0), rev 0, LMP ver 9, manufacturer 0x000F (Broadcom), LMP subver 0x1111 (ROM, unpatched).
+  UMSTAT 0x11 after power-up (CTS asserted by the chip). => Q1 (bt_en = gpm8-0) and Q3 (ROM answers pre-patch)
+  CLOSED on hardware. Flow control was off (UMCON RTS asserted manually) and 115200 worked.

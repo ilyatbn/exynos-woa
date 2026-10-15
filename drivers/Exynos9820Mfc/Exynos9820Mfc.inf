@@ -1,0 +1,56 @@
+;  Exynos9820Mfc.inf - Exynos 9820 MFC v13 video codec, V-W1 (D10, notes/d10-mfc-main.md).
+;  Binds the DSDT Device (VIDC), _HID SAMS982A. Boots the codec firmware (mfc_fw.bin, copied into the package from
+;  the phone's /vendor/firmware at build time, never committed) and runs SYS_INIT. No decode path yet.
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
+Provider=%ProviderName%
+DriverVer=10/15/2026,1.0.0.1
+CatalogFile=Exynos9820Mfc.cat
+PnpLockdown=1
+
+[DestinationDirs]
+DefaultDestDir=12
+
+[SourceDisksNames]
+1=%DiskId1%,,,""
+
+[SourceDisksFiles]
+Exynos9820Mfc.sys=1,,
+mfc_fw.bin=1,,
+
+[ControlFlags]
+ExcludeFromSelect=*
+
+[Manufacturer]
+%ManufacturerName%=Standard,NTARM64
+
+[Standard.NTARM64]
+%DeviceDesc%=Mfc_Install, ACPI\SAMS982A
+
+[Mfc_Install.NT]
+CopyFiles=Mfc_CopyFiles
+
+[Mfc_CopyFiles]
+Exynos9820Mfc.sys
+mfc_fw.bin
+
+[Mfc_Install.NT.Services]
+AddService=Exynos9820Mfc,%SPSVCINST_ASSOCSERVICE%,Mfc_Service_Inst
+
+[Mfc_Service_Inst]
+DisplayName=%ServiceDesc%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%12%\Exynos9820Mfc.sys
+
+[Strings]
+SPSVCINST_ASSOCSERVICE=0x00000002
+ProviderName="Galaxy S10e Windows Project"
+ManufacturerName="Samsung Electronics (port)"
+DiskId1="Exynos9820Mfc installation disk"
+DeviceDesc="Samsung Exynos9820 MFC Video Codec"
+ServiceDesc="Exynos9820 MFC video codec"

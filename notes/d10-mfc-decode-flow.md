@@ -79,3 +79,7 @@ F. CLOSE_INSTANCE H2R 6 -> R2H 6 (INSTANCE_ID first). DPB_FLUSH H2R 10 -> R2H 10
 
 ## Progress log
 - 2026-10-15 14:40 research done (above). Next: generate the test clip.
+- 14:50 test vector: tools/mfc/mkh264pcm.py (no encoder on the PC; I_PCM IDR + all-P_Skip P + second I_PCM IDR,
+  deblocking off -> output known bit-exactly). 128x96: 37101 bytes. Expected (FNV-1a 32, luma W x H / NV12 CbCr):
+  f0 0xd3990385/0x1eb1b40e, f1 same, f2 0xcabb3add/0x050d99fd. Cross-checked with libavcodec (PyAV 19.0.1 in a
+  scratch venv): identical hashes, picture types I, P, I.

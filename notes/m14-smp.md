@@ -644,3 +644,8 @@ No device access in this task; build-verified only (Guided, not Ready).
   PA 0x8_8B87DCE4 in bank3); Windows flag nt+0xD1AA08 = 7CC0086C (no-HW-AF form, set by Windows itself this time);
   TCR on ALL 6 cores incl. the boot A55 = 0x615B5513511 (HA 0). Windows boots normally in software access-flag mode:
   Wi-Fi up 11:16, SSH open 11:16:42. (m4swaf1's livelock was the half-switched state, not software AF itself.)
+- hwaf8 (c65c3850: PARK/OFFER 0xFE = all 8 cores to Windows, NT_NO_HWAF 1, KD flags, WINDOWS_WATCHDOG 1, stay.flg ON):
+  KD connected 11:19:04 (kernel start, 1 proc), then nothing; Windows never reached the network; the timed break at
+  11:22:24 failed ("HOST cannot communicate with the TARGET"). => with hardware access flag OFF on every core the
+  8-core system STILL dies, and earlier than the usual 30-75 s (no Wi-Fi at all). The HW access-flag hypothesis is
+  REFUTED as the (sole) cause. 11:23: phone dark, no adb, no reset seen yet.

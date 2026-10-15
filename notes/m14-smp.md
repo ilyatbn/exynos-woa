@@ -664,3 +664,10 @@ No device access in this task; build-verified only (Guided, not Ready).
   identity map (Normal WB, inner shareable) and copies 4 MiB -> 4 MiB inside an 8 MiB firmware-reserved scratch
   block forever, with DC CIVAC + IC IALLUIS + TLBI VMALLE1IS + DSB ISH after every pass; passes at mailbox +0x340.
   Question: does a BUSY, CACHED M4 kill the SoC on its own while Windows runs on the 6 small cores?
+- m4stress RESULT (640508db: PARK 0xFE, OFFER 0x3E, STRESS 0xC0 = both M4 run flag 6): Windows on the 6 small cores
+  up 11:52:30 and healthy through 12:06+ (14+ min, ping/SSH stable). KD break 12:06:07: both M4 mailboxes flag
+  C0C00006, passes 0x1258C3 / 0x1258D9 (~1.2 M passes each, each with DC CIVAC + IC IALLUIS + TLBI VMALLE1IS +
+  DSB ISH). => A BUSY, CACHED M4 doing heavy broadcast maintenance does NOT hurt the SoC. The trigger needs Windows
+  ON the M4. Untested so far on the M4: interrupts (its GIC CPU interface, timer PPI, SGIs), WFI with interrupts
+  unmasked (every stub WFI test had DAIF masked), EL0/exception traffic, Windows' MMU attributes.
+- Next: stub flag 7 = flag-6 stress + arch timer IRQ through the M4's own GIC CPU interface + WFI between passes.

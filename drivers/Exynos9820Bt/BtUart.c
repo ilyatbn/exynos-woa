@@ -535,6 +535,7 @@ BtUartTxFill(
     {
         Wr(Uart, BT_UART_UTXH, Uart->TxRing[Uart->TxTail & (BT_TX_RING_SIZE - 1)]);
         Uart->TxTail++;
+        Uart->TxWritten++;
     }
 }
 
@@ -576,6 +577,11 @@ BtUartTxQueue(
         }
 
         Uart->TxHead += Chunk;
+        Uart->TxQueued += Chunk;
+        if ((Uart->TxHead - Uart->TxTail) > Uart->TxPeak)
+        {
+            Uart->TxPeak = Uart->TxHead - Uart->TxTail;
+        }
         Done += Chunk;
         BtUartTxFill(Uart);
         BtUartSetMask(Uart);
@@ -686,11 +692,16 @@ BtUartIsr(
         {
             Uart->Ring[Uart->Head & (BT_RX_RING_SIZE - 1)] = (UCHAR)Rd(Uart, BT_UART_URXH);
             Uart->Head++;
+            Uart->RxBytes++;
         }
     }
 
     if (Uart->TxIrq)
     {
+        if ((Pending & BT_UINT_TXD) != 0)
+        {
+            Uart->TxIrqs++;
+        }
         BtUartTxFill(Uart);
     }
 
@@ -754,5 +765,17 @@ BtUartDpc(
         Uart->LoggedOverflows  = Uart->RingOverflows;
         DoTrace(LEVEL_ERROR, TFLAG_IO, ("UART line errors %u (last UERSTAT 0x%x), RX ring throttles %u, TX ring waits %u",
                 Uart->LineErrors, Uart->LastErrStat, Uart->RingOverflows, Uart->TxRingWaits));
+    }
+
+    // Once a second while TX is moving: whether the TXD interrupt drives the FIFO (TxIrqs grows with TxWritten) or
+    // TX only advances on other events, and how deep the ring gets.
+    if ((Uart->TxQueued != Uart->StatQueued) && (KeQueryInterruptTime() - Uart->StatTime >= 10000000ULL))
+    {
+        Uart->StatTime   = KeQueryInterruptTime();
+        Uart->StatQueued = Uart->TxQueued;
+        DoTrace(LEVEL_ERROR, TFLAG_IO, ("stats: tx queued %u written %u pending %u peak %u, TXD irqs %u, ring waits %u "
+                "dropped %u, rx %u, line errors %u, throttles %u", Uart->TxQueued, Uart->TxWritten,
+                Uart->TxHead - Uart->TxTail, Uart->TxPeak, Uart->TxIrqs, Uart->TxRingWaits, Uart->TxDropped,
+                Uart->RxBytes, Uart->LineErrors, Uart->RingOverflows));
     }
 }

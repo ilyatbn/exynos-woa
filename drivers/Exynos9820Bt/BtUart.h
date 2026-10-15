@@ -84,6 +84,13 @@ typedef struct _BT_UART
     volatile LONG   TxIrq;             // runtime: BtUartTxQueue uses the ring (set by BtUartRxStart)
     ULONG           TxRingWaits;       // BtUartTxQueue found the ring full and had to wait
     ULONG           TxDropped;         // bytes dropped after the bounded wait (should stay 0)
+    ULONG           TxQueued;          // statistics (A2DP choppiness, 1.0.0.10): bytes into the TX ring
+    ULONG           TxWritten;         // bytes written to UTXH from the ring
+    ULONG           TxIrqs;            // ISR entries with TXD pending
+    ULONG           TxPeak;            // highest TX ring occupancy seen
+    ULONG           RxBytes;           // bytes moved FIFO -> RX ring
+    ULONGLONG       StatTime;          // last statistics line (interrupt time)
+    ULONG           StatQueued;
 } BT_UART, *PBT_UART;
 
 _IRQL_requires_max_(PASSIVE_LEVEL)

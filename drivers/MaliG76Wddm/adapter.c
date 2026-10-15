@@ -29,6 +29,8 @@ ULONG MwWddm2 = 0;
  * (Learn "GPU virtual memory in WDDM 2.0": a v2 driver "must opt-in" to GpuMmu and/or IoMmu). Probe only: the GpuMmu
  * QAIs (GPUMMUCAPS, PAGETABLELEVELDESC) are not answered - the run shows whether dxgkrnl asks for them. */
 ULONG MwWddm2Va = 0;
+/* Parameters\Wddm2 = 3: as 1, plus the run-4 stub DDIs (below, before the traced DDI table). */
+ULONG MwWddm2Stubs = 0;
 
 /* ---- trace ---- */
 
@@ -622,6 +624,40 @@ static NTSTATUS APIENTRY MwSetPointerShape(IN_CONST_HANDLE hAdapter, const DXGKA
     return STATUS_NOT_SUPPORTED;
 }
 
+/* G15 S1 run 4 probe (Parameters\Wddm2 = 3): runs 1-3 showed dxgkrnl fails the 2.0 adapter after DRIVERCAPS whatever
+ * the caps say, before any 2.0 QAI. Learn marks none of the WDDM 1.3/2.0 table additions as mandatory, so this run
+ * registers no-op versions of the ones that mean something in physical mode and logs every call (Enter_*):
+ * CalibrateGpuClock (WDDM 1.3; CPU QPC used for both clocks - no history buffers are produced, so nothing is
+ * calibrated against it), CreateProcess/DestroyProcess (2.0; no per-process KMD state), SetStablePowerState (2.0;
+ * clocks are owned by s10egov). Bisect after a run that gets further. */
+static NTSTATUS MwCalibrateGpuClock(IN_CONST_HANDLE hAdapter, UINT32 Node, UINT32 Engine, DXGKARG_CALIBRATEGPUCLOCK *c)
+{
+    LARGE_INTEGER f, t = KeQueryPerformanceCounter(&f);
+    UNREFERENCED_PARAMETER(hAdapter); UNREFERENCED_PARAMETER(Node); UNREFERENCED_PARAMETER(Engine);
+    c->GpuFrequency = (ULONGLONG)f.QuadPart;
+    c->GpuClockCounter = (ULONGLONG)t.QuadPart;
+    c->CpuClockCounter = (ULONGLONG)t.QuadPart;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS MwCreateProcess(IN_CONST_HANDLE hAdapter, DXGKARG_CREATEPROCESS *p)
+{
+    p->hKmdProcess = (HANDLE)hAdapter;   /* any non-NULL handle: DestroyProcess ignores it */
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS MwDestroyProcess(IN_CONST_HANDLE hAdapter, IN_CONST_HANDLE hKmdProcess)
+{
+    UNREFERENCED_PARAMETER(hAdapter); UNREFERENCED_PARAMETER(hKmdProcess);
+    return STATUS_SUCCESS;
+}
+
+static VOID APIENTRY T_SetStablePowerState(IN_CONST_HANDLE hAdapter, IN_CONST_PDXGKARG_SETSTABLEPOWERSTATE p)
+{
+    UNREFERENCED_PARAMETER(p);
+    MwEnter((MW_ADAPTER *)hAdapter, L"Enter_SetStablePowerState");
+}
+
 /* ---- the traced DDI table ---- */
 
 /* The wrappers find the adapter from the DDI's first parameter, whose type
@@ -697,6 +733,9 @@ TRACE_ADAPTER(CancelCommand, (IN_CONST_HANDLE hAdapter, const DXGKARG_CANCELCOMM
 TRACE_ADAPTER(PreemptCommand, (IN_CONST_HANDLE hAdapter, const DXGKARG_PREEMPTCOMMAND *a), (hAdapter, a))
 TRACE_CTX(RenderKm, (IN_CONST_HANDLE hContext, DXGKARG_RENDER *a), (hContext, a))
 TRACE_ADAPTER(GetNodeMetadata, (IN_CONST_HANDLE hAdapter, UINT n, DXGKARG_GETNODEMETADATA *a), (hAdapter, n, a))
+TRACE_ADAPTER(CalibrateGpuClock, (IN_CONST_HANDLE hAdapter, UINT32 n, UINT32 e, DXGKARG_CALIBRATEGPUCLOCK *c), (hAdapter, n, e, c))
+TRACE_ADAPTER(CreateProcess, (IN_CONST_HANDLE hAdapter, DXGKARG_CREATEPROCESS *p), (hAdapter, p))
+TRACE_ADAPTER(DestroyProcess, (IN_CONST_HANDLE hAdapter, IN_CONST_HANDLE h), (hAdapter, h))
 TRACE_ADAPTER(QueryDependentEngineGroup, (IN_CONST_HANDLE hAdapter, DXGKARG_QUERYDEPENDENTENGINEGROUP *a), (hAdapter, a))
 TRACE_CONTEXT(StopDeviceAndReleasePostDisplayOwnership,
               (IN_CONST_PVOID Context, IN_CONST_D3DDDI_VIDEO_PRESENT_TARGET_ID t, PDXGK_DISPLAY_INFORMATION d),
@@ -770,7 +809,8 @@ static MW_MODE ReadMode(PUNICODE_STRING RegistryPath, ULONG *PramTrace)
     MwCddDwmInterop = ReadParameter(params, L"CddDwmInterop", 1) != 0;
     {
         ULONG w = ReadParameter(params, L"Wddm2", 0);
-        MwWddm2 = w == 1 || w == 2;
+        MwWddm2 = w == 1 || w == 2 || w == 3;
+        MwWddm2Stubs = w == 3;
         MwWddm2Va = w == 2;
     }
     if (params != NULL)
@@ -873,6 +913,12 @@ static NTSTATUS InitFull(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPa
     init.DxgkDdiCancelCommand = T_CancelCommand;
     init.DxgkDdiControlInterrupt = T_ControlInterrupt;
     init.DxgkDdiGetScanLine = T_GetScanLine;
+    if (MwWddm2Stubs) {
+        init.DxgkDdiCalibrateGpuClock = T_CalibrateGpuClock;
+        init.DxgkDdiCreateProcess = T_CreateProcess;
+        init.DxgkDdiDestroyProcess = T_DestroyProcess;
+        init.DxgkDdiSetStablePowerState = T_SetStablePowerState;
+    }
 
     init.DxgkDdiSetPointerPosition = T_SetPointerPosition;
     init.DxgkDdiSetPointerShape = T_SetPointerShape;
@@ -909,7 +955,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
                    ((ParamGpu & 0xFF) << 24) | ((ParamFull & 0xFF) << 16) | (ParamKeys << 8) |
                    ((MwSoftVsync & 0xF) << 4) | (MwFlipBlt & 0xF), TRUE);
         MwPramText(TRUE, "Switches ", NULL,
-                   ((MwWddm2 + MwWddm2Va) << 24) | (MwFlipMmio << 20) | (MwRefresh601 << 16) | (MwModeRefreshExact << 12) | (MwSegmentCpuVisible << 8) | (MwRecommendVidPn << 4) | MwSynthEdid, TRUE);
+                   ((MwWddm2 + MwWddm2Va + 2 * MwWddm2Stubs) << 24) | (MwFlipMmio << 20) | (MwRefresh601 << 16) | (MwModeRefreshExact << 12) | (MwSegmentCpuVisible << 8) | (MwRecommendVidPn << 4) | MwSynthEdid, TRUE);
         /* Wall clock (Unix seconds), so a saved \WINPRAM.BIN can be matched to the boot that wrote it. */
         KeQuerySystemTimePrecise(&now);
         MwPramText(TRUE, "UnixTime ", NULL, (ULONG)(now.QuadPart / 10000000LL - 11644473600LL), TRUE);

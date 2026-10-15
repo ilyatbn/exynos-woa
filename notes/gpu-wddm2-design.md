@@ -332,3 +332,6 @@ GpuMmu (S7): ~1500-2500 lines across KMD + winsys, multi-week.
   DXGK_VIDMMCAPS.VirtualAddressingSupported + GpuMmuSupported and/or IoMmuSupported even when its engines run in
   physical mode; ours declares none. Run 3 = probe: Parameters\Wddm2Va=1 sets VirtualAddressingSupported+GpuMmuSupported;
   success criterion = dxgkrnl issues a further QAI (GPUMMUCAPS etc.) instead of code 43 straight after DRIVERCAPS.
+- 19:40 S1 run 3: KMD 1.0.49.1 (9bd1376, sys 286df754) swapped in (hash checked); 1.3 boot on build 48 was Started. Parameters\Wddm2 = 2, reboot with KD.
+- 19:47 S1 run 3 result: Wddm2=2 (VA+GpuMmu caps) - identical: QAI_1 DRIVERCAPS only, code 43. => the caps content does not matter; dxgkrnl rejects the 2.0 adapter before any 2.0 QAI. Next: the DRIVER_INITIALIZATION_DATA WDDM2_0 block (which 2.0 DDIs are NULL vs documented-required).
+- 19:58 S1 run 4 prep: KMD 1.0.50.1 (sys 608a44ea) - Parameters\Wddm2 = 3 registers no-op CalibrateGpuClock / CreateProcess / DestroyProcess / SetStablePowerState (Learn marks none mandatory; empirical). Wddm2 = 2's VA caps NOT included.

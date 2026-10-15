@@ -56,3 +56,11 @@ Design source: notes/thermal-research.md (staged plan, constants table).
 - d3dtri cube STALLS after ~7-8 s in BOTH runs (before and after the clock change): fps lines stop, the process
   never exits (runuser2 done marker missing after 100 s). Not caused by the clocks. -> UI/GPU task: find the stall
   (present path / GPU job / fence) together with the WindowsTerminal d3d11 crash.
+- 17:45 crash survey (Application log, last 80 EventID 1000): TextInputHost 21 x ucrtbase.dll, WindowsTerminal
+  19 x d3d11.dll, ShellExperienceHost 19 x ucrtbase.dll, SearchHost 13 x ucrtbase.dll, StartMenuExperienceHost 3 x
+  ucrtbase.dll -> the XAML shell hosts crash-loop (fail-fast in ucrtbase); a big part of "the desktop is not smooth".
+  Terminal dump (WER LocalDumps): d3d11!NDXGI::CDevice::WaitTrackedFenceImpl+0x1c ldr x8,[x21] with x21 = 8 (a field
+  of a NULL fence object) <- d3d11!CDevice::WaitForFence <- dxgi!CDXGISwapChain::AcquireBuffer <- d3d11!CContext::
+  AcquireResource <- OMSetRenderTargets <- d2d1 EndDraw <- Terminal Atlas BackendD2D: the swap chain's buffer
+  fence is missing (composition/flip swap chain on the WDDM 1.3 Mali adapter). Global WER LocalDumps enabled
+  (C:\S10eTmp\dumps, minidump, 20) to catch the shell hosts.

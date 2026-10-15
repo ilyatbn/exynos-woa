@@ -53,3 +53,12 @@ bluethooth headphones, and properly transfer what you need thorugh wifi". No add
 - 23:10 T5 Wi-Fi: real PHY rate 144 Mbit/s (11n 2x2), firmware already PM_FAST, A-MPDU on; throughput ~1.75 MB/s, deep tx queue; parked (notes/wifi-throughput.md). Transfers verified intact.
 - 23:20 T1 video: mpv WARP + profile=fast: bench 240 frames untimed = 31.6 fps; real-time 30 s with audio (WASAPI 48 kHz) = no dropped frames logged, scan-out fb-real shows the correct BBB frame (88 % non-black). mpv.conf: d3d11-warp=yes + profile=fast (deployed). User saw 1 fps earlier = default profile on WARP.
 - 23:35 T3/T7: WH-1000XM4 connected ('Headphones (2- WH-1000XM4)' OK); foobar2000 2.26.1 ARM64EC (Illustrate Ltd signature valid) plays 'Sneaky Snitch' (Kevin MacLeod, CC-BY, 320 kbps MP3) over BT - user: 'its working but choppy', 'sometimes fine, other times it cuts out'. KD 90 s during playback: no BT counter line (no line errors / RX throttles) - but TX ring waits / TXD interrupt health were never logged. Wi-Fi scans not frequent in the WlanCx log. 1.0.0.10: TX queued/written/pending/peak, TXD irq count, ring waits, rx bytes; stats line once a second while TX moves.
+- 23:45 user: BBB in mpv also has random BT cut-outs (same cause as foobar). New item T8: after the BT headphones disconnect, the phone speakers do not take over (audio driver / default-endpoint switch) - after the cut-outs.
+- 23:55 Load test (user plays music over BT, I copy BBB phone->PC with scp -O): user "started stuttering like
+  crazy", "goes insane when i disconnect and connect the usb too". KD (KDNET over USB EEM) was attached (kd-bt10):
+  every DbgPrint is a KD round trip at high IRQL; Exynos9820Audio prints EVERY render packet (SetRenderPacket, ~100/s,
+  861 lines in kd-bt10) + WlanCx alive/ioctl lines -> system-wide stalls; USB replug = KD transport reconnect.
+  Killed kd.exe at ~21:57: the copy went from ~1.75 MB/s (127 MB at 21:57) to ~3 MB/s (310 MB at 21:58).
+  No Exynos9820Bt lines (not even the 1 s stats line) reached kd-bt10 - unexplained, open.
+- 22:01 the copy died at 512 MB: "lost connection" (same boot, phone alive), then SSH timeouts = Wi-Fi link flapping
+  under load. Investigating (WlanCx run log).

@@ -412,6 +412,7 @@ BtUartSpeedUp(
     UCHAR  Param[6];
     UCHAR  Status;
     USHORT Subver;
+    ULONG  Try;
 
     Param[0] = 0;
     Param[1] = 0;
@@ -428,8 +429,20 @@ BtUartSpeedUp(
     }
 
     BtUartSetDivisor(Uart, BT_UBRDIV_OPER, BT_UFRACVAL_OPER);
-    Subver = BtUartLmpSubver(Uart);
-    DoTrace(LEVEL_ERROR, TFLAG_HCI, ("baud: %u, READ_LOCAL_VERSION subver %04x", BT_BAUD_OPER, Subver));
+    // 1.0.0.4 asked 100 us after the switch and got no answer at either rate (the controller had switched): give it
+    // time to retune, drop whatever the RX FIFO caught during the change, ask up to three times.
+    Subver = 0;
+    for (Try = 0; (Try < 3) && (Subver == 0); Try++)
+    {
+        KeStallExecutionProcessor(20000);
+        Wr(Uart, BT_UART_UFCON, BT_UFCON_FIFO_ON | 0x2u);   // RX FIFO reset only
+        KeStallExecutionProcessor(100);
+        Wr(Uart, BT_UART_UFCON, BT_UFCON_FIFO_ON);
+        Subver = BtUartLmpSubver(Uart);
+    }
+
+    DoTrace(LEVEL_ERROR, TFLAG_HCI, ("baud: %u, READ_LOCAL_VERSION subver %04x after %u tries", BT_BAUD_OPER, Subver,
+            Try));
     if (Subver == 0)
     {
         BtUartSetDivisor(Uart, BT_UBRDIV_115200, BT_UFRACVAL_115200);

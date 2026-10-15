@@ -41,3 +41,4 @@ bluethooth headphones, and properly transfer what you need thorugh wifi". No add
   rate, fallback to 115200; bring-up retries HCI_RESET at 1 Mbaud (driver restart within a boot). (2) interrupt-
   driven TX: 16 KiB TX ring filled by BtUartTxQueue, FIFO refilled from the ISR on the TXD level interrupt, one
   mask helper (BtUartSetMask) for RX-throttle/TX state; bounded 2 s wait when the ring is full (counted).
+- 21:40 1.0.0.4 on device (clean boot): HCI_RESET 00, patchram 1261 records 0 failed, reset after patch 00; 0xFC18 -> status 00, then READ_LOCAL_VERSION at 1 Mbaud = no answer AND none at 115200 => the controller switched; verify came 100 us after the divisor change. 1.0.0.5: 20 ms settle + RX FIFO reset + 3 tries; installing it now also tests the divisor directly (reset at 115200 must fail, the retry at 1 Mbaud must answer).

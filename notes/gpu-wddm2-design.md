@@ -340,3 +340,11 @@ GpuMmu (S7): ~1500-2500 lines across KMD + winsys, multi-week.
 - 20:25 S1 run 5 result: volatile Probe\Wddm2=4 + pnputil /restart-device (DriverEntry re-ran: second Build 0x33 line) - VA/GpuMmu caps + GpuMmu DDI stubs: identical, QAI_1 only, code 43, no stub called. Volatile-probe procedure itself works (1.3 Started before, restart reloaded the image). => 5 runs: neither caps content nor the 1.3/2.0 DDI table changes the outcome. Next: Debug Print Filter (VIDEO/DEFAULT masks, documented DbgPrintEx filtering) to see whether dxgkrnl prints its reason to KD.
 - 20:35 Debug Print Filter VIDEO=0xffffffff DEFAULT=0xf (reboot) + volatile probe Wddm2=4 + restart-device: code 43 again; KD shows NO dxgkrnl/dxgmms print at all (only D3D11 'Removing Device', DispBroker target removed, Mesa CREATE_BO ENOMEM from processes on the dying device). => retail dxgkrnl gives no reason on KD either. Filter removed, probe key deleted, 1.3 restored by restart-device.
 - 20:45 S1 run 6 prep: KMD 1.0.52.1 (sys 56d3d000) - volatile Probe\Ver overrides the reported interface version (WDDM2_0..2_9) when Wddm2 is on; KD line 'InterfaceVersion'. Probing Wddm2=1 with Ver 0x6003 (2.1) and 0x9006 (2.4) via restart-device, no reboot.
+- 20:55 S1 run 6 result: volatile Probe Wddm2=1 + Ver 0x6003 (WDDM 2.1) and Ver 0x9006 (WDDM 2.4), restart-device each,
+  unprobe after each (1.3 back to Started both times): identical - KD "InterfaceVersion = 0x6003/0x9006", QAI_1 only,
+  code 43. => not specific to the 2.0 interface value.
+  SUMMARY S1 (6 runs): any 2.x interface fails post-start right after DRIVERCAPS, independent of DRIVERCAPS content
+  (TDR/preemption/VA+GpuMmu), of the optional 1.3/2.0 DDIs (stubs never called) and of the 2.x minor version.
+  dxgkrnl reports no reason (ETW DxgKrnl level 5, Admin/Operational logs empty, KD with VIDEO print mask).
+  Not yet tried: anything outside DRIVERCAPS/the DDI table that dxgkrnl reads at that point; these are not
+  documented, and static RE of dxgkrnl is off the table. G15 S1 BLOCKED pending a decision (user).

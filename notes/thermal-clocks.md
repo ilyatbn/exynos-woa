@@ -76,3 +76,8 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   every 30 s and every second while WTCNT < half.
 - The S10eGovernor "onstart" task never fired at boot (default battery conditions fixed; still no boot run) ->
   collect.cmd (S10eAgent, every boot, SYSTEM) now starts C:\S10eTmp\s10egov.exe.
+- 18:06 boot after TWRP: collect.cmd started s10egov at boot (log "CPU level 0 ... GPU level 0" without manual
+  start) - the boot path works. New build swapped in (taskkill + sftp + schtasks /run): "wdt con 0000ff39 cnt
+  64870/65525" = cluster-0 WDT armed and petted (counter near full); RWD1 record = all zeros (that PRAM handshake is
+  not in use on this build; UFS_LOW_WDT_PRAM_ENABLE 0) -> WTCNT is the evidence to watch at the next silent reset.
+  Post-boot temps LITTLE up to 68.5 C (boot load).

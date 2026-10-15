@@ -275,3 +275,17 @@ exynos9820/cmucal-sfr.c + cmucal-node.c, drivers/pinctrl/samsung/pinctrl-exynos-
 - R3 in the DXE: at ReadyToBoot (ESP readable) load \S10EDIAG\bt\bcm4375B1_semco.hcd, HCI_RESET, 0xFC2E, 50 ms,
   each record as a command waiting for Command Complete/Status, 250 ms, HCI_RESET, READ_LOCAL_VERSION. WDT reloaded
   every 100 records. Builds with the probe on.
+- Windows half plan (2026-10-15): adopt microsoft/Windows-driver-samples bluetooth/serialhcibus (Microsoft copyright
+  headers kept; repo MS-PL) and replace only its lower edge (map: subagent read of the sample, fetched 12:51):
+  - drop: FdoOpenDevice / WdfIoTarget (resource-hub UART connection), ReadH4Packet + completion pump, ReadRequest/
+    ReadBuffer, FdoWriteToDeviceSync, CR_WriteDeviceIO / write cancel handshake.
+  - FdoFindConnectResources -> take the _CRS Memory (MmMapIoSpaceEx) + Interrupt (WdfInterruptCreate ISR+DPC).
+  - DeviceInitialize (WDK/device.c vendor hook, runs in PrepareHardware before the RX pump) -> UART set-up (USI,
+    115200 8N1, FIFOs) + R2 probe + R3 patchram with our own sync TX/RX (the UEFI DXE's proven sequence).
+  - FdoWriteDeviceIO -> copy H4 bytes (&Ctx->Type, 1 + DataLen) into the TX FIFO, complete the request.
+  - RX: ISR drains the FIFO into a ring, DPC feeds ReadH4PacketReassemble (kept unchanged, DISPATCH-safe), which
+    completes READ_HCI requests through ReadRequestComplete (kept).
+  - D0Entry/D0Exit/SelfManagedIoInit -> enable/disable RX interrupt, ReadSegmentStateSet(GET_PKT_TYPE) + RX flush.
+  - kept as is: PDO child SerialBusWdk\UART_H4 with compatible ID MS_BTHX_BTHMINI (in-box BT stack binds it),
+    IOCTL_BTHX_* handlers in FdoIoQuDeviceControl, capabilities from HlpInitializeFdoExtension.
+  - INF: bind ACPI\SAMS9829 (DSDT BTH0, MEM 0x10840000 + Interrupt 440; no GpioInt - main has no GPIO controller).

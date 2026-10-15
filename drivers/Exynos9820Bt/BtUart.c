@@ -480,8 +480,15 @@ BtUartIsr(
 
         if ((Uart->Head - Uart->Tail) >= BT_RX_RING_SIZE)
         {
-            (VOID)Rd(Uart, BT_UART_URXH);
-            Uart->RingOverflows++;
+            //
+            // Ring full (the DPC is behind, e.g. starved by a long TX busy-wait at DISPATCH): stop draining and mask
+            // RX. The bytes stay in the UART FIFO, hardware flow control (AFC) drops RTS when it fills, the controller
+            // pauses; the DPC unmasks once it has drained the ring. Nothing is dropped.
+            //
+            Uart->RingOverflows++;   // counts throttle events now
+            InterlockedExchange(&Uart->RxThrottled, 1);
+            Wr(Uart, BT_UART_UINTM, BT_UINT_TXD | BT_UINT_MODEM | BT_UINT_RXD);
+            break;
         }
         else
         {
@@ -535,11 +542,22 @@ BtUartDpc(
         }
     }
 
+    if (Uart->RxThrottled)
+    {
+        WdfInterruptAcquireLock(Interrupt);
+        InterlockedExchange(&Uart->RxThrottled, 0);
+        if (Uart->RxEnabled)
+        {
+            Wr(Uart, BT_UART_UINTM, BT_UINT_TXD | BT_UINT_MODEM);   // RX level interrupt re-asserts: FIFO still holds data
+        }
+        WdfInterruptReleaseLock(Interrupt);
+    }
+
     if ((Uart->LineErrors != Uart->LoggedLineErrors) || (Uart->RingOverflows != Uart->LoggedOverflows))
     {
         Uart->LoggedLineErrors = Uart->LineErrors;
         Uart->LoggedOverflows  = Uart->RingOverflows;
-        DoTrace(LEVEL_ERROR, TFLAG_IO, ("UART line errors %u (last UERSTAT 0x%x), RX ring overflows %u",
+        DoTrace(LEVEL_ERROR, TFLAG_IO, ("UART line errors %u (last UERSTAT 0x%x), RX ring throttles %u",
                 Uart->LineErrors, Uart->LastErrStat, Uart->RingOverflows));
     }
 }

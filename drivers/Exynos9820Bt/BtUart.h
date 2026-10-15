@@ -52,7 +52,7 @@
 #define BT_UBRDIV_115200    13u
 #define BT_UFRACVAL_115200  2u
 
-#define BT_RX_RING_SIZE     4096u      // power of two
+#define BT_RX_RING_SIZE     16384u     // power of two (4096 overflowed 8611 times in the RFCOMM echo test)
 
 typedef struct _BT_UART
 {
@@ -63,6 +63,7 @@ typedef struct _BT_UART
     volatile ULONG  Head;              // written by the ISR
     volatile ULONG  Tail;              // written by the DPC
     volatile LONG   RxEnabled;
+    volatile LONG   RxThrottled;       // ring full: RX interrupt masked, bytes wait in the FIFO, AFC drops RTS
     ULONG           RingOverflows;
     ULONG           LineErrors;
     ULONG           LoggedLineErrors;  // DPC logs the counters when they change

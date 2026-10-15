@@ -30,3 +30,4 @@ bluethooth headphones, and properly transfer what you need thorugh wifi". No add
 - T6 the full run: BBB 1080p in mpv on Mali, audio on BT headphones, verified by scan-out dumps + user.
 
 ## Progress log
+- 21:12 T1: mpv.conf d3d11-warp=yes deployed (portable_config); fb-warp dump showed the correct BBB frame.

@@ -635,3 +635,8 @@ No device access in this task; build-verified only (Guided, not Ready).
 - sshd firewall rule in drivers/S10eDiag/esp/extra-ssh-install.cmd only allows 192.168.137.0/24 (old hotspot) -> SSH
   from the home Wi-Fi is refused. Widening it was not done (needs the user's decision).
 - 10:39 stay.flg restored, phone rebooted into Windows (boot-kd6). bootdebug still on in BCD.
+- BEYOND0LTE_NT_NO_HWAF (BootLogDxe, default 0): ReadyToBoot records the free/loader/boot-services RAM ranges;
+  ExitBootServices searches page offset 0xCD0 of every page in them for ntoskrnl 22621.1's 80-byte HAFDBS check
+  (RVA 0xA7DCD0, unique in the file) and, only if exactly one copy is found, changes +0x14 `and w10,w8,#0xf`
+  (12000D0A) to `mov w10,#0` (5280000A) -> Windows never sets TCR.HA and records "no HW AF" from its first
+  instruction. Progress page words [8] copies found, [9]/[10] PA of the changed word. Builds with 0 and 1.

@@ -33,6 +33,7 @@
 #include <Guid/DebugImageInfoTable.h>
 #include <Library/IoLib.h>
 #include <Library/TimerLib.h>
+#include <Library/CacheMaintenanceLib.h>
 #include <Protocol/BlockIo.h>
 #include <Platform/Exynos9820.h>
 
@@ -42,6 +43,13 @@
 #define BEYOND0LTE_WINDOWS_PAIR   1   // W23: the boot after a Windows run saves \WINPRAM.BIN and goes to TWRP
 #ifndef BEYOND0LTE_DSS_DUMP
 #define BEYOND0LTE_DSS_DUMP  0   // m14: after a Windows death (stay.flg path) save log_s2d / log_arraydump heads to the ESP
+#endif
+//
+// m14 HW access-flag test (notes/m14-smp.md): 1 = at ExitBootServices make ntoskrnl 22621.1's HAFDBS check
+// report 0, so Windows keeps TCR_EL1.HA off on every core (like the stock Linux, CONFIG_ARM64_HW_AFDBM off).
+//
+#ifndef BEYOND0LTE_NT_NO_HWAF
+#define BEYOND0LTE_NT_NO_HWAF  0
 #endif
 #define BEYOND0LTE_HANDOFF_WATCHDOG  1   // W24: arm WDT cl0 (82 s) at ExitBootServices - bring-up only
 //
@@ -463,6 +471,129 @@ DumpPcSamples (
   Prev[0] = 0;
 }
 
+#if BEYOND0LTE_NT_NO_HWAF
+//
+// ntoskrnl.exe 10.0.22621.1 arm64, RVA 0xA7DCD0..0xA7DD1F: the HAFDBS check (unique in the file). Sections are
+// page aligned, so the run starts at page offset 0xCD0 wherever winload put that page. Word at +0x14 is changed.
+//
+STATIC CONST UINT8  mNtHwAfSig[0x50] = {
+  0x7F, 0x23, 0x03, 0xD5, 0xFD, 0x7B, 0xBE, 0xA9, 0xFD, 0x03, 0x00, 0x91, 0xBF, 0x13, 0x00, 0xB9,
+  0x28, 0x07, 0x38, 0xD5, 0x0A, 0x0D, 0x00, 0x12, 0xAA, 0x13, 0x00, 0xB9, 0x02, 0x00, 0x00, 0x14,
+  0xAA, 0x13, 0x40, 0xB9, 0x6A, 0x00, 0x00, 0x35, 0x00, 0x00, 0x80, 0x52, 0x08, 0x00, 0x00, 0x14,
+  0x48, 0x20, 0x38, 0xD5, 0x09, 0x01, 0x59, 0xB2, 0x5F, 0x09, 0x00, 0x71, 0x43, 0x00, 0x00, 0x54,
+  0x29, 0xF9, 0x57, 0x92, 0x49, 0x20, 0x18, 0xD5, 0x20, 0x00, 0x80, 0x52, 0xFD, 0x7B, 0xC2, 0xA8
+};
+#define NT_HWAF_PAGE_OFF    0xCD0u
+#define NT_HWAF_WORD_OFF    0x14u
+#define NT_HWAF_OLD         0x12000D0Au   // and w10, w8, #0xf   (w10 = HAFDBS)
+#define NT_HWAF_NEW         0x5280000Au   // mov w10, #0
+#define NT_HWAF_MAX_RANGES  64u
+
+STATIC UINT64  mHwAfBase[NT_HWAF_MAX_RANGES];
+STATIC UINT64  mHwAfEnd[NT_HWAF_MAX_RANGES];
+STATIC UINTN   mHwAfRanges;
+
+/** ReadyToBoot: keep the RAM ranges winload can still allocate from (adjacent ones merged). **/
+STATIC
+VOID
+NtHwAfCollect (
+  VOID
+  )
+{
+  EFI_MEMORY_DESCRIPTOR  *Map;
+  EFI_MEMORY_DESCRIPTOR  *Desc;
+  UINTN                  MapSize;
+  UINTN                  MapKey;
+  UINTN                  DescSize;
+  UINT32                 DescVersion;
+  UINT64                 End;
+
+  MapSize = 0;
+  Map     = NULL;
+  if (gBS->GetMemoryMap (&MapSize, NULL, &MapKey, &DescSize, &DescVersion) != EFI_BUFFER_TOO_SMALL) {
+    return;
+  }
+
+  MapSize += 8 * DescSize;
+  Map      = AllocatePool (MapSize);
+  if ((Map == NULL) || EFI_ERROR (gBS->GetMemoryMap (&MapSize, Map, &MapKey, &DescSize, &DescVersion))) {
+    if (Map != NULL) {
+      FreePool (Map);
+    }
+
+    return;
+  }
+
+  mHwAfRanges = 0;
+  for (Desc = Map; (UINT8 *)Desc < (UINT8 *)Map + MapSize; Desc = NEXT_MEMORY_DESCRIPTOR (Desc, DescSize)) {
+    if ((Desc->Type != EfiConventionalMemory) && (Desc->Type != EfiLoaderCode) && (Desc->Type != EfiLoaderData) &&
+        (Desc->Type != EfiBootServicesCode) && (Desc->Type != EfiBootServicesData))
+    {
+      continue;
+    }
+
+    End = Desc->PhysicalStart + EFI_PAGES_TO_SIZE ((UINTN)Desc->NumberOfPages);
+    if ((mHwAfRanges != 0) && (mHwAfEnd[mHwAfRanges - 1] == Desc->PhysicalStart)) {
+      mHwAfEnd[mHwAfRanges - 1] = End;
+    } else if (mHwAfRanges < NT_HWAF_MAX_RANGES) {
+      mHwAfBase[mHwAfRanges] = Desc->PhysicalStart;
+      mHwAfEnd[mHwAfRanges]  = End;
+      mHwAfRanges++;
+    }
+  }
+
+  FreePool (Map);
+  DEBUG ((DEBUG_ERROR, "HWAF: %u RAM range(s) to search at ExitBootServices\n", (UINT32)mHwAfRanges));
+}
+
+/**
+  ExitBootServices: winload has loaded ntoskrnl but not run it. Find the check (page offset 0xCD0 of a page in the
+  recorded ranges) and change its HAFDBS read to 0 - only when exactly one copy is found. Progress page words:
+  [8] copies found, [9]/[10] PA of the changed word (lo/hi), 0 when nothing was changed.
+**/
+STATIC
+VOID
+NtHwAfApply (
+  VOID
+  )
+{
+  volatile UINT32  *Progress;
+  UINT64           Page;
+  UINT64           Found;
+  UINTN            Range;
+  UINT32           Count;
+  UINT32           First;
+
+  Progress = (volatile UINT32 *)(UINTN)0x8FE0F000ULL;
+  Found    = 0;
+  Count    = 0;
+  CopyMem (&First, mNtHwAfSig, sizeof (First));
+  for (Range = 0; Range < mHwAfRanges; Range++) {
+    for (Page = ALIGN_VALUE (mHwAfBase[Range], SIZE_4KB); Page + SIZE_4KB <= mHwAfEnd[Range]; Page += SIZE_4KB) {
+      if ((*(volatile UINT32 *)(UINTN)(Page + NT_HWAF_PAGE_OFF) == First) &&
+          (CompareMem ((VOID *)(UINTN)(Page + NT_HWAF_PAGE_OFF), mNtHwAfSig, sizeof (mNtHwAfSig)) == 0))
+      {
+        Found = Page + NT_HWAF_PAGE_OFF + NT_HWAF_WORD_OFF;
+        Count++;
+      }
+    }
+  }
+
+  Progress[8]  = Count;
+  Progress[9]  = 0;
+  Progress[10] = 0;
+  if ((Count == 1) && (*(volatile UINT32 *)(UINTN)Found == NT_HWAF_OLD)) {
+    *(volatile UINT32 *)(UINTN)Found = NT_HWAF_NEW;
+    WriteBackDataCacheRange ((VOID *)(UINTN)Found, sizeof (UINT32));
+    InvalidateInstructionCacheRange ((VOID *)(UINTN)Found, sizeof (UINT32));
+    Progress[9]  = (UINT32)Found;
+    Progress[10] = (UINT32)(Found >> 32);
+  }
+
+  __asm__ __volatile__ ("dsb sy" ::: "memory");
+}
+#endif
+
 STATIC
 VOID
 EFIAPI
@@ -668,6 +799,9 @@ OnReadyToBoot (
   // reason back to normal, watchdog re-armed for another 82 s (re-armed again at EBS).
   //
   OnExitBootServices (NULL, NULL);
+ #endif
+ #if BEYOND0LTE_NT_NO_HWAF
+  NtHwAfCollect ();
  #endif
   DEBUG ((DEBUG_ERROR, "BootLog: ReadyToBoot flush\n"));
   Status = FlushBootLog ("ReadyToBoot");
@@ -918,6 +1052,9 @@ OnExitBootServices (
   Wdt = (UINTN)EXYNOS_WDT_BASE;
   if (Event != NULL) {
     ((volatile UINT32 *)(UINTN)0x8FE0F000ULL)[1] = 0x72;   // W28 progress: ExitBootServices (Windows owns the CPU)
+ #if BEYOND0LTE_NT_NO_HWAF
+    NtHwAfApply ();
+ #endif
   }
 
   MmioWrite32 ((UINTN)EXYNOS_PMU_BASE + EXYNOS_PMU_INFORM3_OFFSET, EXYNOS_REBOOT_REASON_BASE);

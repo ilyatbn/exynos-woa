@@ -31,6 +31,7 @@
   DebugLib
   IoLib
   TimerLib
+  CacheMaintenanceLib
 
 [Protocols]
   gEfiSimpleFileSystemProtocolGuid   ## CONSUMES

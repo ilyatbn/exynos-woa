@@ -671,3 +671,7 @@ No device access in this task; build-verified only (Guided, not Ready).
   ON the M4. Untested so far on the M4: interrupts (its GIC CPU interface, timer PPI, SGIs), WFI with interrupts
   unmasked (every stub WFI test had DAIF masked), EL0/exception traffic, Windows' MMU attributes.
 - Next: stub flag 7 = flag-6 stress + arch timer IRQ through the M4's own GIC CPU interface + WFI between passes.
+- Timer PPIs VERIFIED from the stock dt.dtb /timer node (arm,armv8-timer): interrupts <1 13 0xff08>, <1 14 0xff08>,
+  <1 11 0xff08>, <1 10 0xff08> -> GSIV 29 (S EL1 phys), 30 (NS EL1 phys), 27 (virtual), 26 (EL2) = the GTDT values;
+  clock-frequency 0x018CBA80 = 26 MHz; "use-physical-timer" (Linux runs on the NS EL1 physical timer, GSIV 30).
+  The flag-7 test uses the EL1 physical timer (CNTP_*_EL0) on GSIV 30.

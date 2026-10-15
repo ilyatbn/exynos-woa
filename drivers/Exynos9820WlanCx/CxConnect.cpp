@@ -53,6 +53,29 @@ CxSetLinked(PCX_DEVICE Dev, BOOLEAN Linked)
         NetAdapterSetLinkState(Dev->Adapter, &Ls);
     }
     CxLog(Dev, "[link] %s\r\n", Linked ? "connected (adapter link up, 5 ms worker poll)" : "disconnected");
+    CxUpdateRate(Dev);
+}
+
+/* Worker thread only (it owns the firmware command path). Reads the firmware's current rate and reports it to
+   NetAdapterCx instead of the CX_LINK_KBPS placeholder (notes/wifi-throughput.md). */
+VOID
+CxUpdateRate(PCX_DEVICE Dev)
+{
+    NET_ADAPTER_LINK_STATE Ls;
+    ULONG                  R500 = 0;
+    ULONG                  Rc;
+
+    if (!Dev->Linked) {
+        return;
+    }
+    Rc = WlanMsgGetRate(&Dev->Msg, Dev->RunR, &R500);
+    CxLog(Dev, "[link] firmware rate %lu.%lu Mbit/s (MSG %lu)\r\n", R500 / 2, (R500 & 1) ? 5ul : 0ul, Rc);
+    if (Rc != MSG_OK || R500 == 0 || Dev->Adapter == NULL) {
+        return;
+    }
+    NET_ADAPTER_LINK_STATE_INIT(&Ls, (ULONG64)R500 * 500000, MediaConnectStateConnected, MediaDuplexStateHalf,
+                                NetAdapterPauseFunctionTypeUnsupported, NetAdapterAutoNegotiationFlagNone);
+    NetAdapterSetLinkState(Dev->Adapter, &Ls);
 }
 
 /* Unsolicited WDI_INDICATION_DISASSOCIATION for the current peer. */

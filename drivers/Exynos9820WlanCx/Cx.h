@@ -147,6 +147,7 @@ _IRQL_requires_(PASSIVE_LEVEL) VOID CxTxDrain(_Inout_ PCX_DEVICE Dev);
 
 /* CxConnect.cpp */
 WLAN_LINK_FN CxLinkLost;
+_IRQL_requires_(PASSIVE_LEVEL) VOID CxUpdateRate(_Inout_ PCX_DEVICE Dev);
 _IRQL_requires_(PASSIVE_LEVEL) VOID CxSetLinked(_Inout_ PCX_DEVICE Dev, _In_ BOOLEAN Linked);
 _IRQL_requires_(PASSIVE_LEVEL) VOID CxDisconnect(_Inout_ PCX_DEVICE Dev, _In_ WDI_ASSOC_STATUS Reason);
 _IRQL_requires_(PASSIVE_LEVEL) VOID CxTaskConnect(_Inout_ PCX_DEVICE Dev, _In_ PCX_CMD Cmd, _In_ const WDI_MESSAGE_HEADER *H,

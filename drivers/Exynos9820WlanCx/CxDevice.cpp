@@ -138,6 +138,7 @@ CxWorker(PVOID Context)
                   Dev->RxFifo ? Dev->RxFifo->Out : 0, Dev->RxFifo ? Dev->RxFifo->Dropped : 0,
                   Dev->TxFifo ? Dev->TxFifo->In : 0, Dev->TxFifo ? Dev->TxFifo->Out : 0,
                   Dev->TxFifo ? Dev->TxFifo->Dropped : 0);
+            CxUpdateRate(Dev);
         }
         if (++FlushTicks >= 1000 / CX_IDLE_WAIT_MS) {
             FlushTicks = 0;

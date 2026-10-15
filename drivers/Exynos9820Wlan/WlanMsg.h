@@ -98,6 +98,7 @@ _IRQL_requires_(PASSIVE_LEVEL)
 ULONG WlanMsgConnect(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_ const WLAN_CONNECT *C,
                      _Out_ PWLAN_ASSOC_INFO A);                            /* JOIN_*: associated + flowring */
 _IRQL_requires_(PASSIVE_LEVEL)
+ULONG WlanMsgGetRate(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _Out_ PULONG Rate500k);  /* MSG_* */
 ULONG WlanMsgDisconnect(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R);  /* MSG_* */
 /* CCMP key (16 B): Ea != NULL = pairwise for that peer (index 0), Ea == NULL = group key Index (primary), Rsc =
    6-byte receive sequence counter or NULL. MSG_*. */

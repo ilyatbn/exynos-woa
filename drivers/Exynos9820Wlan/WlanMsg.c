@@ -2528,6 +2528,27 @@ WlanMsgSetKey(PWLAN_MSG_CTX M, PWLAN_REPORT R, ULONG Index, const UCHAR *Key, co
     return Rc;
 }
 
+/* Current link rate (WLC_GET_RATE, int in/out, 500 kbit/s units - fmac cfg80211 get_station reads it the same way
+   and reports rate * 5 in 100 kbit/s). 0 = not associated / unknown. */
+_Use_decl_annotations_
+ULONG
+WlanMsgGetRate(PWLAN_MSG_CTX M, PWLAN_REPORT R, PULONG Rate500k)
+{
+    PMSG_STATE S = Live(M, R);
+    ULONG      Zero = 0;
+    ULONG      Rc;
+
+    *Rate500k = 0;
+    if (S == NULL) {
+        return MSG_SKIPPED;
+    }
+    Rc = Ioctl(S, WLC_GET_RATE, &Zero, sizeof(Zero), sizeof(ULONG), "rate");
+    if (Rc == MSG_OK && S->RespLen >= sizeof(ULONG)) {
+        *Rate500k = *(ULONG UNALIGNED *)S->Resp;
+    }
+    return Rc;
+}
+
 /* Polls the tx completion ring until no tx buffer is in flight (dhd_wait_pend8021x before a key, wl_cfg80211.c:
    6903-6904) or Ms elapse. */
 _Use_decl_annotations_

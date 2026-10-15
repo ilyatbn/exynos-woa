@@ -21,3 +21,4 @@ User report 2026-10-15: ~18 Mbit/s while copying a 725 MB file to the phone over
   1048576 B (2.7 s incl. setup), `scp -O` (legacy protocol) = 1048576 B, `scp` default (SFTP mode, Git-for-Windows
   OpenSSH client vs the phone's Windows OpenSSH sftp-server) = 204800 B with exit 0. => use `scp -O` (or a raw ssh
   stream) for phone->PC copies. Root cause in the SFTP pairing not investigated (not ours).
+- 2026-10-15 22:45 raw 20 MiB phone->PC = 12.0 s (1.75 MB/s, ~14 Mbit/s). Exynos9820WlanCx 1.0.9.7: WlanMsgGetRate (WLC_GET_RATE 12, fmac fwil.h:18, 500 kbit/s units) on link-up and every alive tick (60 s, worker thread = the only command path); logged '[link] firmware rate' and reported to NetAdapterCx instead of the 54 Mbit/s placeholder.

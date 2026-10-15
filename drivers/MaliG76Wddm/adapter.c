@@ -25,6 +25,10 @@ ULONG MwCddDwmInterop = 1;
 /* G15 S1 (notes/gpu-wddm2-design.md): Parameters\Wddm2 = 1 -> DXGKDDI_INTERFACE_VERSION_WDDM2_0 in physical-engine mode
  * (no GPU VA caps; Render/Patch/SubmitCommand unchanged). Default 0 = the WDDM 1.3 adapter, byte-identical paths. */
 ULONG MwWddm2 = 0;
+/* G15 S1 run 3 probe: Parameters\Wddm2 = 2 -> as 1, plus DXGK_VIDMMCAPS.VirtualAddressingSupported + GpuMmuSupported
+ * (Learn "GPU virtual memory in WDDM 2.0": a v2 driver "must opt-in" to GpuMmu and/or IoMmu). Probe only: the GpuMmu
+ * QAIs (GPUMMUCAPS, PAGETABLELEVELDESC) are not answered - the run shows whether dxgkrnl asks for them. */
+ULONG MwWddm2Va = 0;
 
 /* ---- trace ---- */
 
@@ -400,6 +404,10 @@ static NTSTATUS DriverCaps(MW_ADAPTER *A, const DXGKARG_QUERYADAPTERINFO *Info)
     if (MwWddm2) {
         if (FITS(size, DXGK_DRIVERCAPS, SupportPerEngineTDR))
             caps->SupportPerEngineTDR = TRUE;
+        if (MwWddm2Va) {
+            caps->MemoryManagementCaps.VirtualAddressingSupported = 1;
+            caps->MemoryManagementCaps.GpuMmuSupported = 1;
+        }
         if (FITS(size, DXGK_DRIVERCAPS, PreemptionCaps)) {
             caps->PreemptionCaps.GraphicsPreemptionGranularity = D3DKMDT_GRAPHICS_PREEMPTION_DMA_BUFFER_BOUNDARY;
             caps->PreemptionCaps.ComputePreemptionGranularity = D3DKMDT_COMPUTE_PREEMPTION_DMA_BUFFER_BOUNDARY;
@@ -760,7 +768,11 @@ static MW_MODE ReadMode(PUNICODE_STRING RegistryPath, ULONG *PramTrace)
     MwPanelCmdMode = ReadParameter(params, L"PanelCmdMode", 1);
     MwPanelBrightness = ReadParameter(params, L"PanelBrightness", 1);
     MwCddDwmInterop = ReadParameter(params, L"CddDwmInterop", 1) != 0;
-    MwWddm2 = ReadParameter(params, L"Wddm2", 0) == 1;
+    {
+        ULONG w = ReadParameter(params, L"Wddm2", 0);
+        MwWddm2 = w == 1 || w == 2;
+        MwWddm2Va = w == 2;
+    }
     if (params != NULL)
         ZwClose(params);
     if (svc != NULL)
@@ -897,7 +909,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
                    ((ParamGpu & 0xFF) << 24) | ((ParamFull & 0xFF) << 16) | (ParamKeys << 8) |
                    ((MwSoftVsync & 0xF) << 4) | (MwFlipBlt & 0xF), TRUE);
         MwPramText(TRUE, "Switches ", NULL,
-                   (MwWddm2 << 24) | (MwFlipMmio << 20) | (MwRefresh601 << 16) | (MwModeRefreshExact << 12) | (MwSegmentCpuVisible << 8) | (MwRecommendVidPn << 4) | MwSynthEdid, TRUE);
+                   ((MwWddm2 + MwWddm2Va) << 24) | (MwFlipMmio << 20) | (MwRefresh601 << 16) | (MwModeRefreshExact << 12) | (MwSegmentCpuVisible << 8) | (MwRecommendVidPn << 4) | MwSynthEdid, TRUE);
         /* Wall clock (Unix seconds), so a saved \WINPRAM.BIN can be matched to the boot that wrote it. */
         KeQuerySystemTimePrecise(&now);
         MwPramText(TRUE, "UnixTime ", NULL, (ULONG)(now.QuadPart / 10000000LL - 11644473600LL), TRUE);

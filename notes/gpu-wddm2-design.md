@@ -322,3 +322,13 @@ GpuMmu (S7): ~1500-2500 lines across KMD + winsys, multi-week.
   QueryDependentEngineGroup already implemented in command.c) + PreemptionCaps DMA_BUFFER_BOUNDARY (graphics and
   compute; Learn "GPU preemption": WDDM 1.2+ KMDs use the Windows 8 preemption model). Swapped in via the SYSTEM
   task (hash checked on the device). 1.3 path unchanged.
+- 19:28 S1 run 2 result: KMD 1.0.48.1 (Build 0x30 in KD) with Wddm2=1 - identical to run 1: StartDevice ok, QAI_1
+  DRIVERCAPS (0x240 B, success) is dxgkrnl's only query, then code 43 CM_PROB_FAILED_POST_START. => SupportPerEngineTDR
+  and PreemptionCaps are NOT the reason. Reverting Parameters\Wddm2 = 0 (reboot). Next: check the documented WDDM 2.0
+  VA requirement (whether physical/"no VA" mode is accepted at all for a 2.0 KMD).
+- 19:32 Learn "GPU virtual memory in WDDM 2.0" (FACT, verbatim): "Individual engines of a GPU can operate in either
+  physical or virtual mode" ... "WDDM v2 supports two distinct models for GPU virtual addressing, GpuMmu and IoMmu.
+  A driver must opt-in to support either or both of the models." => candidate: a 2.0 adapter has to declare
+  DXGK_VIDMMCAPS.VirtualAddressingSupported + GpuMmuSupported and/or IoMmuSupported even when its engines run in
+  physical mode; ours declares none. Run 3 = probe: Parameters\Wddm2Va=1 sets VirtualAddressingSupported+GpuMmuSupported;
+  success criterion = dxgkrnl issues a further QAI (GPUMMUCAPS etc.) instead of code 43 straight after DRIVERCAPS.

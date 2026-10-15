@@ -40,6 +40,7 @@ def main():
                    "x264-params": "annexb=1:repeat-headers=1"}
     yy, xx = np.mgrid[0:h, 0:w]
     data = bytearray()
+    packets = []
     for i in range(n):
         y = ((xx * 2 + yy + i * 8) % 220 + 16).astype(np.uint8)
         y[(yy // 64 + xx // 64 + i // 4) % 2 == 0] //= 2
@@ -52,10 +53,24 @@ def main():
         fr.pts = i
         for p in enc.encode(fr):
             data += bytes(p)
+            packets.append(p)
     for p in enc.encode(None):
         data += bytes(p)
+        packets.append(p)
     with open(out, "wb") as f:
         f.write(data)
+    # the same packets (x264 pts/dts) muxed into an .mp4 next to it, for Media Foundation's MPEG-4 source
+    mp4 = av.open(out.rsplit(".", 1)[0] + ".mp4", "w")
+    st = mp4.add_stream("h264", rate=30)
+    st.width, st.height, st.pix_fmt = w, h, "yuv420p"
+    st.time_base = Fraction(1, 30)
+    first = bytes(packets[0])
+    idr = first.find(bytes([0, 0, 0, 1, 0x65]))       # SPS + PPS (x264 repeat-headers) = everything before the IDR
+    st.codec_context.extradata = first[:idr] if idr > 0 else first
+    for p in packets:
+        p.stream = st
+        mp4.mux(p)
+    mp4.close()
     print(f"{out}: {len(data)} bytes, {w}x{h}, {n} frames, {profile}, bframes {bframes}")
     dec = av.CodecContext.create("h264", "r")
     k = 0

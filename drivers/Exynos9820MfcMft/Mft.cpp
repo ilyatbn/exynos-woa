@@ -206,7 +206,11 @@ public:
         EnterCriticalSection(&m_Lock);
         HRESULT hr = S_OK;
         if (!m_Attr)
+        {
             hr = MFCreateAttributes(&m_Attr, 2);
+            if (SUCCEEDED(hr))
+                m_Attr->SetString(MFT_FRIENDLY_NAME_Attribute, L"Exynos9820 MFC H.264 Decoder (hardware)");
+        }
         if (SUCCEEDED(hr))
         {
             *attr = m_Attr;

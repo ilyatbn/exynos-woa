@@ -110,3 +110,11 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   ("every" break mode brackets a freeze) or run a day at base clocks for comparison.
 - 18:56 bisect config live (boot after the TWRP reset): CPU level 0 (1742/2106 MHz), G3D held at 260 MHz; WDT petted (65062/65525). If idle hangs continue -> not the G3D clock.
 - 19:05 G15 S0: phone = Windows 11 23H2 10.0.22631.6199 (UBR 0x1837); MaliG76Wddm oem29.inf Started, Parameters GpuEnable 1, FullAdapter 1, ScanoutStride 0x440, OfferRotation 1. Design: notes/gpu-wddm2-design.md.
+- 2026-10-15 ~20:29 local: second silent system freeze + reset (user: "it just restarted"). Evidence: System 41 +
+  6008 (unexpected shutdown, no bugcheck, no Minidump dir), new boot at 20:32. s10egov.log: last line 12:13:40
+  (phone clock) with WTCNT 62869/65525 = still being petted 1 s earlier; NO per-second "cnt below half" lines
+  follow -> the governor froze together with the whole system (same signature as 18:50), and the 82 s cluster-0
+  watchdog reset it (ssh lost ~20:29:41, ping lost 20:30:39 ~ +60-80 s). Conditions: GPU held at 260 MHz (bisect),
+  CPU boost level 0, temps 52-57 C (not thermal), DWM NOT running (crashed 19:52 in maliumd.dll, see
+  notes/gpu-wddm2-design.md) -> GPU essentially idle. => the GPU clock is unlikely to be the trigger; KD was
+  detached (time limit 19:51), so no kernel capture. Phone wall clock is not synced across boots (event times jump).

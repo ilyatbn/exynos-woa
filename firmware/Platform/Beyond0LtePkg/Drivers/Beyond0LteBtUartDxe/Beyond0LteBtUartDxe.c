@@ -20,9 +20,15 @@
 #include <Guid/FileInfo.h>
 #include <Platform/Exynos9820.h>
 
-#ifndef BEYOND0LTE_BT_UART_PROBE
-#define BEYOND0LTE_BT_UART_PROBE  0
+#ifndef BEYOND0LTE_BT_UART_ROLE
+#define BEYOND0LTE_BT_UART_ROLE  0         // role latch for Windows: clocks, pins, USI/UART set-up, bt_en power-on
 #endif
+#ifndef BEYOND0LTE_BT_UART_PROBE
+#define BEYOND0LTE_BT_UART_PROBE  0        // R1 loopback + R2 HCI version into UEFILOG (implies the role latch)
+#endif
+#ifndef BEYOND0LTE_BT_UEFI_PATCHRAM
+#define BEYOND0LTE_BT_UEFI_PATCHRAM  0     // R3 at ReadyToBoot: the first signal comes before UFS is up and later
+#endif                                     // output lands after BootLog's flush - Windows patches instead (bt4)
 
 #define BT_PROGRESS_TRYING  0x6Bu
 STATIC BOOLEAN  mBtR2Ok;   // the ROM answered READ_LOCAL_VERSION: R3 may run at ReadyToBoot
@@ -321,7 +327,26 @@ BtR1Loopback (
           (UINT32)Got, (UINT32)Match, (T1 - T0) / (EXYNOS_OSCCLK_HZ / 1000000u)));
 }
 
-/** R2: power-cycle the chip (bt_en gpm8-0), then HCI_RESET and HCI_READ_LOCAL_VERSION, raw replies logged. **/
+/** Role latch: power-cycle the chip through bt_en gpm8-0 (low 20 ms, high, 150 ms for the ROM to come up). **/
+STATIC
+VOID
+BtPowerOn (
+  VOID
+  )
+{
+  UINTN  BtEn;
+
+  BtEn = (UINTN)EXYNOS_CMGP_GPIO_BASE + EXYNOS_CMGP_GPM8_OFFSET;
+  PinOut (BtEn, EXYNOS_BT_EN_PIN, FALSE);
+  MicroSecondDelay (20000);
+  PinOut (BtEn, EXYNOS_BT_EN_PIN, TRUE);
+  MicroSecondDelay (150000);
+  DEBUG ((DEBUG_ERROR, "[BT] bt_en gpm8-0 high: con %08x dat %x; umstat %x uerstat %x\n",
+          MmioRead32 (BtEn + GPIO_CON), MmioRead32 (BtEn + GPIO_DAT),
+          MmioRead32 ((UINTN)EXYNOS_UART_BT_BASE + UART_UMSTAT), MmioRead32 ((UINTN)EXYNOS_UART_BT_BASE + UART_UERSTAT)));
+}
+
+/** R2: HCI_RESET and HCI_READ_LOCAL_VERSION to the freshly powered chip, raw replies logged. **/
 STATIC
 VOID
 BtR2Hci (
@@ -332,17 +357,8 @@ BtR2Hci (
   STATIC CONST UINT8  HciVersion[] = { 0x01, 0x01, 0x10, 0x00 };
   UINT8               In[64];
   UINTN               Got;
-  UINTN               BtEn;
 
-  BtEn = (UINTN)EXYNOS_CMGP_GPIO_BASE + EXYNOS_CMGP_GPM8_OFFSET;
   BtUartInit (FALSE);
-  PinOut (BtEn, EXYNOS_BT_EN_PIN, FALSE);
-  MicroSecondDelay (20000);
-  PinOut (BtEn, EXYNOS_BT_EN_PIN, TRUE);
-  MicroSecondDelay (150000);
-  DEBUG ((DEBUG_ERROR, "[BT] bt_en gpm8-0 high: con %08x dat %x; umstat %x uerstat %x\n",
-          MmioRead32 (BtEn + GPIO_CON), MmioRead32 (BtEn + GPIO_DAT),
-          MmioRead32 ((UINTN)EXYNOS_UART_BT_BASE + UART_UMSTAT), MmioRead32 ((UINTN)EXYNOS_UART_BT_BASE + UART_UERSTAT)));
 
   Got = BtRx (In, sizeof (In), 20000);
   LogHex ("R2 spontaneous", In, Got);
@@ -594,7 +610,7 @@ Beyond0LteBtUartEntry (
 {
   UINT32  Saved;
 
-  if (!BEYOND0LTE_BT_UART_PROBE) {
+  if (!BEYOND0LTE_BT_UART_ROLE && !BEYOND0LTE_BT_UART_PROBE) {
     return EFI_SUCCESS;
   }
 
@@ -607,10 +623,18 @@ Beyond0LteBtUartEntry (
   mProgress[1] = BT_PROGRESS_TRYING;
   BtClocksOn ();
   BtPinsOn ();
-  BtR1Loopback ();
-  BtR2Hci ();
+  if (BEYOND0LTE_BT_UART_PROBE) {
+    BtR1Loopback ();
+  }
+
+  BtUartInit (FALSE);
+  BtPowerOn ();
+  if (BEYOND0LTE_BT_UART_PROBE) {
+    BtR2Hci ();
+  }
+
   mProgress[1] = Saved;
-  if (mBtR2Ok) {
+  if (mBtR2Ok && BEYOND0LTE_BT_UEFI_PATCHRAM) {
     EFI_EVENT  Event;
 
     gBS->CreateEventEx (EVT_NOTIFY_SIGNAL, TPL_CALLBACK, BtR3OnReadyToBoot, NULL, &gEfiEventReadyToBootGuid, &Event);

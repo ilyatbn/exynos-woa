@@ -127,6 +127,8 @@ static VOID SaveDiagnostics(_In_ PS10E_BATT_FDO Fdo, _In_ PS10E_BATT_READING R)
         { L"PowerState",    Fdo->Status.PowerState },
         { L"ChgCnfg00",     R->ChgCnfg00 },
         { L"ChgCnfg06",     R->ChgCnfg06 },
+        { L"ChgCnfg02",     R->ChgCnfg02 },
+        { L"ChgCnfg09",     R->ChgCnfg09 },
         { L"WdtKicked",     R->WdtKicked },
         { L"HandoffUsiMode", Fdo->SavedMode },
         { L"HandoffGpm12",  Fdo->SavedScl },

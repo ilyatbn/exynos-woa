@@ -118,6 +118,11 @@
 #define   MAX77705_MODE_OTG_ON              0xE   /* [K] BUCK+BOOST+OTG, charger off (UsbHw.h:320) */
 #define   MAX77705_MODE_CHG_OTG_ON          0xF   /* [K] same + charger engine (UsbHw.h:321) */
 #define MAX77705_CHG_CNFG_06      0xBD
+/* Charging-current limits (vendor max77705_charger.c :590-648, max77705-private.h:77/84, max77705_charger.h:194/275):
+   CHG_CNFG_02 0xB9 bits 5:0 CHG_CC fast-charge current, 50 mA steps (<= 2 -> 100 mA); CHG_CNFG_09 0xC0 bits 6:0
+   CHGIN_ILIM input current limit, (field + 1) x 25 mA. Read only (notes/battery-driver.md). */
+#define MAX77705_CHG_CNFG_02      0xB9
+#define MAX77705_CHG_CNFG_09      0xC0
 #define   MAX77705_CHG_CNFG_06_WDTCLR_MASK  0x03
 #define   MAX77705_CHG_CNFG_06_WDTCLR       0x01
 #define MAX77705_CHG_DETAILS_00   0xB3    /* [K] bits 6:5 CHGIN_DTLS (3 = VBUS valid) */
@@ -156,6 +161,8 @@ typedef struct _S10E_BATT_READING {
     UCHAR   ChgCnfg00;       /* CHG_CNFG_00 0xB7 (mode, bit4 WDTEN) */
     BOOLEAN Cnfg00Read;      /* ChgCnfg00 is valid */
     UCHAR   ChgCnfg06;       /* CHG_CNFG_06 0xBD before the watchdog kick - diagnostics */
+    UCHAR   ChgCnfg02;       /* CHG_CNFG_02 0xB9 (CHG_CC) - diagnostics, 0xFF = not read */
+    UCHAR   ChgCnfg09;       /* CHG_CNFG_09 0xC0 (CHGIN_ILIM) - diagnostics, 0xFF = not read */
     BOOLEAN WdtKicked;       /* the charger watchdog kick write succeeded this poll */
 } S10E_BATT_READING, *PS10E_BATT_READING;
 

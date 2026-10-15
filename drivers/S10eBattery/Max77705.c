@@ -153,6 +153,14 @@ NTSTATUS S10eMax77705Read(_Inout_ PS10E_BATT_FDO Fdo, _Out_ PS10E_BATT_READING R
         Reading->ChgCnfg00  = Chg[0];
         Reading->Cnfg00Read = TRUE;
     }
+    Reading->ChgCnfg02 = 0xFF;
+    Reading->ChgCnfg09 = 0xFF;
+    if (NT_SUCCESS(S10eMax77705ReadN(Fdo, MAX77705_CHG_ADDR, MAX77705_CHG_CNFG_02, Chg, sizeof(Chg)))) {
+        Reading->ChgCnfg02 = Chg[0];
+    }
+    if (NT_SUCCESS(S10eMax77705ReadN(Fdo, MAX77705_CHG_ADDR, MAX77705_CHG_CNFG_09, Chg, sizeof(Chg)))) {
+        Reading->ChgCnfg09 = Chg[0];
+    }
     if (NT_SUCCESS(S10eMax77705ReadN(Fdo, MAX77705_CHG_ADDR, MAX77705_CHG_CNFG_06, Chg, sizeof(Chg)))) {
         UCHAR Write[2];
 

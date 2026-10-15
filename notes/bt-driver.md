@@ -268,3 +268,10 @@ exynos9820/cmucal-sfr.c + cmucal-node.c, drivers/pinctrl/samsung/pinctrl-exynos-
   = HCI ver 9 (BT 5.0), rev 0, LMP ver 9, manufacturer 0x000F (Broadcom), LMP subver 0x1111 (ROM, unpatched).
   UMSTAT 0x11 after power-up (CTS asserted by the chip). => Q1 (bt_en = gpm8-0) and Q3 (ROM answers pre-patch)
   CLOSED on hardware. Flow control was off (UMCON RTS asserted manually) and 115200 worked.
+- Patch files pulled to s10e-artifacts/bt-hcd (outside the repo, never committed): B0 murata/semco, B1 murata,
+  B1 semco ("BCM4375B1 Beyond E43 Ant0 [Baseline: 0173]", 176645 B, 1260x 0xFC4C + 0xFC4E, parses cleanly),
+  B1 semco_sem ("BCM4375B1 Beyond SEMCO BT EPA E43 Ant0"). No /vendor/etc/bluetooth config on this firmware; which
+  of the two semco B1 files Android picks is still unknown - R3 starts with bcm4375B1_semco.hcd.
+- R3 in the DXE: at ReadyToBoot (ESP readable) load \S10EDIAG\bt\bcm4375B1_semco.hcd, HCI_RESET, 0xFC2E, 50 ms,
+  each record as a command waiting for Command Complete/Status, 250 ms, HCI_RESET, READ_LOCAL_VERSION. WDT reloaded
+  every 100 records. Builds with the probe on.

@@ -12,6 +12,12 @@
 #include <Library/DebugLib.h>
 #include <Library/IoLib.h>
 #include <Library/TimerLib.h>
+#include <Library/UefiBootServicesTableLib.h>
+#include <Library/MemoryAllocationLib.h>
+#include <Library/BaseMemoryLib.h>
+#include <Protocol/SimpleFileSystem.h>
+#include <Guid/EventGroup.h>
+#include <Guid/FileInfo.h>
 #include <Platform/Exynos9820.h>
 
 #ifndef BEYOND0LTE_BT_UART_PROBE
@@ -19,6 +25,7 @@
 #endif
 
 #define BT_PROGRESS_TRYING  0x6Bu
+STATIC BOOLEAN  mBtR2Ok;   // the ROM answered READ_LOCAL_VERSION: R3 may run at ReadyToBoot
 STATIC volatile UINT32  *CONST  mProgress = (volatile UINT32 *)(UINTN)0x8FE0F000ULL;
 
 //
@@ -348,6 +355,7 @@ BtR2Hci (
   Got = BtRx (In, sizeof (In), 500000);
   LogHex ("R2 READ_LOCAL_VERSION reply", In, Got);
   if ((Got >= 15) && (In[0] == 0x04) && (In[1] == 0x0E) && (In[4] == 0x01) && (In[5] == 0x10) && (In[6] == 0x00)) {
+    mBtR2Ok = TRUE;
     DEBUG ((DEBUG_ERROR, "[BT] R2: HCI ver %u rev %04x LMP ver %u manuf %04x LMP subver %04x\n",
             In[7], In[8] | (In[9] << 8), In[10], In[11] | (In[12] << 8), In[13] | (In[14] << 8)));
   }
@@ -355,6 +363,207 @@ BtR2Hci (
   DEBUG ((DEBUG_ERROR, "[BT] after R2: umstat %x uerstat %x ufstat %x\n",
           MmioRead32 ((UINTN)EXYNOS_UART_BT_BASE + UART_UMSTAT), MmioRead32 ((UINTN)EXYNOS_UART_BT_BASE + UART_UERSTAT),
           MmioRead32 ((UINTN)EXYNOS_UART_BT_BASE + UART_UFSTAT)));
+}
+
+/**
+  Send one HCI command (H4 type 01) and wait for its Command Complete (0x0E) or Command Status (0x0F) event.
+  Returns the status byte (0x00 = success), or 0xFF on timeout. Other events in between are skipped.
+**/
+STATIC
+UINT8
+BtHciCmd (
+  IN  UINT16       Opcode,
+  IN  CONST UINT8  *Params,
+  IN  UINT8        Len,
+  IN  UINTN        TimeoutUs,
+  OUT UINT8        *Reply      OPTIONAL,   // event parameters (>= 258 B) of the matching event
+  OUT UINTN        *ReplyLen   OPTIONAL
+  )
+{
+  UINT8   Head[4];
+  UINT8   Ev[3];
+  UINT8   Body[258];
+  UINT64  End;
+
+  Head[0] = 0x01;
+  Head[1] = (UINT8)Opcode;
+  Head[2] = (UINT8)(Opcode >> 8);
+  Head[3] = Len;
+  BtTx (Head, 4);
+  if (Len != 0) {
+    BtTx (Params, Len);
+  }
+
+  End = Ticks () + (UINT64)TimeoutUs * (EXYNOS_OSCCLK_HZ / 1000000u);
+  while (Ticks () < End) {
+    if (BtRx (Ev, 1, TimeoutUs) != 1) {
+      break;
+    }
+
+    if (Ev[0] != 0x04) {
+      continue;                                   // not an event packet: resync on the next 0x04
+    }
+
+    if ((BtRx (Ev + 1, 2, 100000) != 2) || (BtRx (Body, Ev[2], 100000) != Ev[2])) {
+      break;
+    }
+
+    if ((Ev[1] == 0x0E) && (Ev[2] >= 4) && ((Body[1] | (Body[2] << 8)) == Opcode)) {
+      if (Reply != NULL) {
+        CopyMem (Reply, Body, Ev[2]);
+        *ReplyLen = Ev[2];
+      }
+
+      return Body[3];
+    }
+
+    if ((Ev[1] == 0x0F) && (Ev[2] >= 4) && ((Body[2] | (Body[3] << 8)) == Opcode)) {
+      return Body[0];
+    }
+  }
+
+  return 0xFF;
+}
+
+/** Reads <volume>\S10EDIAG\bt\bcm4375B1_semco.hcd from the first file system that has it (never committed). **/
+STATIC
+UINT8 *
+BtLoadPatch (
+  OUT UINTN  *Size
+  )
+{
+  EFI_HANDLE                       *Handles;
+  UINTN                            Count;
+  UINTN                            Index;
+  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  *Fs;
+  EFI_FILE_PROTOCOL                *Root;
+  EFI_FILE_PROTOCOL                *File;
+  EFI_FILE_INFO                    *Info;
+  UINTN                            InfoSize;
+  UINT8                            *Data;
+
+  Data = NULL;
+  if (EFI_ERROR (gBS->LocateHandleBuffer (ByProtocol, &gEfiSimpleFileSystemProtocolGuid, NULL, &Count, &Handles))) {
+    return NULL;
+  }
+
+  for (Index = 0; (Index < Count) && (Data == NULL); Index++) {
+    if (EFI_ERROR (gBS->HandleProtocol (Handles[Index], &gEfiSimpleFileSystemProtocolGuid, (VOID **)&Fs)) ||
+        EFI_ERROR (Fs->OpenVolume (Fs, &Root)))
+    {
+      continue;
+    }
+
+    if (!EFI_ERROR (Root->Open (Root, &File, L"\\S10EDIAG\\bt\\bcm4375B1_semco.hcd", EFI_FILE_MODE_READ, 0))) {
+      InfoSize = SIZE_OF_EFI_FILE_INFO + 256;
+      Info     = AllocatePool (InfoSize);
+      if ((Info != NULL) && !EFI_ERROR (File->GetInfo (File, &gEfiFileInfoGuid, &InfoSize, Info))) {
+        *Size = (UINTN)Info->FileSize;
+        Data  = AllocatePool (*Size);
+        if ((Data != NULL) && EFI_ERROR (File->Read (File, Size, Data))) {
+          FreePool (Data);
+          Data = NULL;
+        }
+      }
+
+      if (Info != NULL) {
+        FreePool (Info);
+      }
+
+      File->Close (File);
+    }
+
+    Root->Close (Root);
+  }
+
+  FreePool (Handles);
+  return Data;
+}
+
+/**
+  R3 at ReadyToBoot (the ESP is readable then): Broadcom patchram (btbcm.c behaviour, no code copied) -
+  HCI_RESET, 0xFC2E download minidriver, 50 ms, every .hcd record as an HCI command waiting for its completion,
+  250 ms after the last (0xFC4E launch), HCI_RESET, READ_LOCAL_VERSION (the LMP subversion must change from the
+  ROM's 0x1111). ~20 s at 115200, so the 82 s watchdog is reloaded as it goes.
+**/
+STATIC
+VOID
+EFIAPI
+BtR3OnReadyToBoot (
+  IN EFI_EVENT  Event,
+  IN VOID       *Context
+  )
+{
+  UINT8   *Patch;
+  UINTN   Size;
+  UINTN   Pos;
+  UINTN   Records;
+  UINTN   Failed;
+  UINT8   Status;
+  UINT8   Reply[258];
+  UINTN   ReplyLen;
+  UINT64  T0;
+  UINT32  Saved;
+
+  gBS->CloseEvent (Event);
+  Patch = BtLoadPatch (&Size);
+  if (Patch == NULL) {
+    DEBUG ((DEBUG_ERROR, "[BT] R3: \\S10EDIAG\\bt\\bcm4375B1_semco.hcd not found - skipped\n"));
+    return;
+  }
+
+  Saved        = mProgress[1];
+  mProgress[1] = BT_PROGRESS_TRYING;
+  T0           = Ticks ();
+  Status       = BtHciCmd (0x0C03, NULL, 0, 500000, NULL, NULL);
+  DEBUG ((DEBUG_ERROR, "[BT] R3: %u B patch; HCI_RESET %02x\n", (UINT32)Size, Status));
+  Status = BtHciCmd (BCM_HCI_OP_START_DOWNLOAD, NULL, 0, 500000, NULL, NULL);
+  DEBUG ((DEBUG_ERROR, "[BT] R3: download minidriver (0xFC2E) %02x\n", Status));
+  MicroSecondDelay (50000);
+
+  Records = 0;
+  Failed  = 0;
+  for (Pos = 0; Pos + 3 <= Size; ) {
+    UINT16  Op;
+    UINT8   Len;
+
+    Op  = (UINT16)(Patch[Pos] | (Patch[Pos + 1] << 8));
+    Len = Patch[Pos + 2];
+    if (Pos + 3 + Len > Size) {
+      break;
+    }
+
+    Status = BtHciCmd (Op, Patch + Pos + 3, Len, 500000, NULL, NULL);
+    if (Status != 0) {
+      Failed++;
+      if (Failed <= 3) {
+        DEBUG ((DEBUG_ERROR, "[BT] R3: record %u op %04x len %u -> %02x\n", (UINT32)Records, Op, Len, Status));
+      }
+    }
+
+    Records++;
+    Pos += 3 + Len;
+    if ((Records % 100) == 0) {
+      MmioWrite32 ((UINTN)EXYNOS_WDT_BASE + EXYNOS_WDT_WTCNT_OFFSET, EXYNOS_WDT_COUNT_82S);
+    }
+  }
+
+  MicroSecondDelay (250000);
+  DEBUG ((DEBUG_ERROR, "[BT] R3: %u records, %u failed, %lu ms\n", (UINT32)Records, (UINT32)Failed,
+          (Ticks () - T0) / (EXYNOS_OSCCLK_HZ / 1000u)));
+  Status = BtHciCmd (0x0C03, NULL, 0, 1000000, NULL, NULL);
+  DEBUG ((DEBUG_ERROR, "[BT] R3: HCI_RESET after launch %02x\n", Status));
+  ReplyLen = 0;
+  Status   = BtHciCmd (0x1001, NULL, 0, 500000, Reply, &ReplyLen);
+  if ((Status == 0) && (ReplyLen >= 12)) {
+    DEBUG ((DEBUG_ERROR, "[BT] R3: patched: HCI ver %u rev %04x LMP ver %u manuf %04x LMP subver %04x\n",
+            Reply[4], Reply[5] | (Reply[6] << 8), Reply[7], Reply[8] | (Reply[9] << 8), Reply[10] | (Reply[11] << 8)));
+  } else {
+    DEBUG ((DEBUG_ERROR, "[BT] R3: READ_LOCAL_VERSION after launch %02x (%u B)\n", Status, (UINT32)ReplyLen));
+  }
+
+  FreePool (Patch);
+  mProgress[1] = Saved;
 }
 
 EFI_STATUS
@@ -382,5 +591,11 @@ Beyond0LteBtUartEntry (
   BtR1Loopback ();
   BtR2Hci ();
   mProgress[1] = Saved;
+  if (mBtR2Ok) {
+    EFI_EVENT  Event;
+
+    gBS->CreateEventEx (EVT_NOTIFY_SIGNAL, TPL_CALLBACK, BtR3OnReadyToBoot, NULL, &gEfiEventReadyToBootGuid, &Event);
+  }
+
   return EFI_SUCCESS;
 }

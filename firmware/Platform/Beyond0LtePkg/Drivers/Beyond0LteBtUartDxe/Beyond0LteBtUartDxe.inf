@@ -1,7 +1,8 @@
 ## @file
 #  D4c Bluetooth UEFI half (docs/exynos9820-port/D4c-BT-DESIGN.md, notes/bt-driver.md B6): latches the BT UART role
 #  (CMU_PERIC1 UART_BT clock from the 26 MHz oscillator, USI mode UART, gpq0 pin mux, bt_en gpm8-0) and runs rungs
-#  R1 (UART internal loopback) and R2 (HCI_RESET + HCI_READ_LOCAL_VERSION to the BCM4375 ROM), logging to UEFILOG.
+#  R1 (UART internal loopback), R2 (HCI_RESET + HCI_READ_LOCAL_VERSION to the BCM4375 ROM) and, at ReadyToBoot,
+#  R3 (patchram from \S10EDIAGtcm4375B1_semco.hcd on the ESP), logging to UEFILOG.
 #  Off unless BEYOND0LTE_BT_UART_PROBE is 1. Guarded by boot progress code 0x6B. Not validated on an S10e yet.
 #
 #  FILE_GUID ...556 is this module's build identity, not a hardware read.
@@ -28,6 +29,16 @@
   DebugLib
   IoLib
   TimerLib
+  UefiBootServicesTableLib
+  MemoryAllocationLib
+  BaseMemoryLib
+
+[Protocols]
+  gEfiSimpleFileSystemProtocolGuid   ## CONSUMES (R3: the .hcd on the ESP)
+
+[Guids]
+  gEfiEventReadyToBootGuid           ## CONSUMES ## Event (R3 runs at ReadyToBoot)
+  gEfiFileInfoGuid                   ## CONSUMES
 
 [Depex]
   gEfiCpuArchProtocolGuid

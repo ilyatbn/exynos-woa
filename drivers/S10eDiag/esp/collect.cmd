@@ -17,6 +17,12 @@ if exist "%L%" rd /s /q "%L%"
 mkdir "%L%"
 echo === collect start %DATE% %TIME%
 s10ediag info
+rem Thermal clock governor (tools/phone/s10egov, notes/thermal-clocks.md): started here because the "at startup"
+rem scheduled task never fires on this setup. Single instance (named mutex); without it the UEFI clocks stay.
+if exist C:\S10eTmp\s10egov.exe (
+  s10ediag mark c: start s10egov
+  start "" /b C:\S10eTmp\s10egov.exe > nul 2>&1
+)
 
 if exist %ESP%\S10EDIAG\desktop.cmd (
   s10ediag mark c: desktop helpers

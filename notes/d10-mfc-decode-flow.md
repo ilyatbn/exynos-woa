@@ -124,3 +124,4 @@ F. CLOSE_INSTANCE H2R 6 -> R2H 6 (INSTANCE_ID first). DPB_FLUSH H2R 10 -> R2H 10
   129 MiB (the commit message's "144 MiB" is wrong); self-test session excludes the 1 MiB staging tail (no DPB
   overlap); window limit = CPB 4 MiB - 512 on both sides. Known edge: a DPC arriving late from a TIMED-OUT command
   could complete the next command early (only after a timeout) - follow-up if timeouts ever show up.
+- 15:12 vidc5: TWRP-deployed 1.0.0.5 (sys 8B42879D) + C:\S10eTmp\mfc {mfcdec.exe, c720/c1080/cbase.h264}, stay.flg set (Windows stays up for ssh). kd-vidc5.log.

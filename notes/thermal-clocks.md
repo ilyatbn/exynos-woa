@@ -89,3 +89,15 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   {B23D10C0-E52E-411E-9D5B-C09FDF709C7D} (Console Host). Rerun: d3dtri cube 10 s complete, "d3dtri: done, exit 0",
   marker written; fps 391/448/396/296/313/296/290/270/275 (G3D 572 MHz, CPU 1.74/2.10 GHz).
   (A first attempt wrote the key as "%%%%Startup" - deleted.) Remaining real GPU bug: Terminal's d3d11 crash.
+- 18:45 **Terminal crash root cause (static RE of the phone's dxgi.dll/d3d11.dll with public symbols; reference only,
+  nothing committed from it):** dxgi!CDXGISwapChain::BindToDwm+0x150 calls
+  CDXGISwapChain::CreateTrackedFenceExtended (-> device internal interface slot 46 -> d3d11!NDXGI::CDevice::
+  CreateFence, a runtime sync call, opcode 0x23, that builds a D3D11_TRACKED_FENCE) which returns SUCCESS with a NULL
+  fence on our adapter; BindToDwm stores it at swapchain+0x550. The first AcquireBuffer that has to wait
+  (presents >= buffers) calls d3d11!CDevice::WaitForFence(NULL) -> WaitTrackedFenceImpl(&NULL->x = 8) -> AV.
+  Every DWM-bound flip/composition swap chain on the Mali adapter has this (Terminal's SwapChainPanel; XAML
+  SwapChainPanel apps; DirectComposition presentation). (inference) The tracked fence = a WDDM 2.0 monitored fence;
+  our KMD is WDDM 1.3 (Windows 11 expects WDDM 2.x). Fix options: (a) KMD -> WDDM 2.0 (monitored fences, GPU VA
+  model) - large; (b) per-app software rendering (Terminal "rendering.software") - workaround; (c) investigate whether
+  a WDDM 1.3 flag makes DXGI skip the tracked fence (UNVERIFIED).
+  Current effect: with Console Host as default terminal Terminal no longer auto-launches -> crash loop stopped.

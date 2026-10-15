@@ -318,3 +318,9 @@ exynos9820/cmucal-sfr.c + cmucal-node.c, drivers/pinctrl/samsung/pinctrl-exynos-
   Broadcom default derived from the chip name, not the phone's own address (Android writes the real one at boot with
   a vendor command; to do, without recording any address). The scan itself failed: PowerShell 5.1 cannot subscribe to
   WinRT events (DeviceWatcher) -> bt-scan.ps1 now uses DeviceInformation.FindAllAsync (inquiry / LE scan inside).
+- R5 run 2 (btmfc1, FindAllAsync): 0 LE, 0 classic devices in two 30 s passes. KD: 68 HCI commands, 72 events =
+  64 Command Complete + 4 Command Status + 4 Inquiry Complete (0x01) and NO Inquiry Result (0x02/0x22/0x2F) and NO LE
+  Meta (0x3E): bthport ran 4 classic inquiries that found nothing (no discoverable device nearby, or the radio does
+  not transmit), and FindAllAsync never started an LE scan (MS docs: unpaired discovery wants DeviceWatcher).
+  Open: after patchram the LMP subversion is still 0x1111 -> verify the patch runs (Read Local Name / Broadcom
+  verbose config 0xFC79 before and after), then an LE advertisement watcher (C++/WinRT, PS cannot do WinRT events).

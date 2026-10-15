@@ -28,3 +28,10 @@ FVMAIN_COMPACT (verification build) - watch image space on main.
 
 ## Progress log
 - 2026-10-15: summary taken from origin/drivers (above). Order of work: D4c Bluetooth first, then this.
+- 2026-10-15 btmfc1 (MFC probe + power on, 13:34): pd-mfc ALREADY ON at UEFI time (configuration 1, status 1 -
+  sboot leaves it powered), so R2's power-on was not needed. CMU_MFC readable: mfc user mux 0x10, mfc ACLK gate
+  0x00200000, MFC QCH 0x003F0002. Version register 0xF028 = 0x1D0447AA, RISC_ON 0, no hang.
+- The vendor driver reads MFC_REG_MFC_VERSION only AFTER the firmware's SYS_INIT (mfc_run.c:110-116, "Check MFC
+  version and F/W version") - the firmware fills it. So "read 0x1300 with zero writes" was a wrong R1 expectation on
+  the branch; pre-firmware the register holds a leftover. R1 really proves: domain on, CMU_MFC + MFC respond without
+  a hang. Identity check moves to R3/R4 (boot mfc_fw.bin: RISC_BASE_ADDR, RISC_ON, wait R2H FW_STATUS 12 / SYS_INIT 1).

@@ -297,3 +297,12 @@ exynos9820/cmucal-sfr.c + cmucal-node.c, drivers/pinctrl/samsung/pinctrl-exynos-
   FdoWriteDeviceIO -> BtUartTx + complete with output ULONG DataLen. D0Entry/SelfManagedIoInit -> BtUartRxStart,
   D0Exit -> BtUartRxStop, ReleaseHardware -> unmap. No idle-to-D3. The .hcd ships in the package (build script
   copies it from s10e-artifacts/bt-hcd; never committed). TX is synchronous polling at 115200 (slice 1).
+- bt5 (13:15): driver package installed (oem30.inf) but no ACPI\SAMS9829 device: mkimg's sed for
+  BEYOND0LTE_BT_UART_PROBE still matched the old "0$" form, so the DXE stayed inert (no role latch, BTH0 hidden).
+- **bt6 (b3d747f6, 13:22, BT role + probe on): W4 R4 reached.** KD log (DbgPrintEx): DeviceAdd, PrepareHardware,
+  UART window 0x10840000+0x100 mapped, UART init (umstat 0x11), HCI_RESET 00, version subver 1111, patchram
+  176645 B, minidriver 00, 1261 records 0 failed, HCI_RESET 00, version still subver 1111 (patched FW may keep
+  the ROM subver - check READ_LOCAL_NAME next), child PDO SerialBusWdk\UART_H4 / MS_BTHX_BTHMINI created, D0Entry,
+  SelfManagedIoInit; bthport: GET_VERSION, SET_VERSION 1, child PrepareHardware/D0Entry, QUERY_CAPABILITIES, then
+  43 WRITE_HCI commands answered by 43 Command Complete events through the RX interrupt -> ISR ring -> DPC -> H4
+  reassembler -> READ_HCI completion. 0 out-of-sync, 0 errors. => the BthxDDI transport WORKS end to end.

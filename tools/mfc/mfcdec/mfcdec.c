@@ -75,6 +75,8 @@ int main(int argc, char **argv)
     const char     *outPath = NULL;
     int             quiet = 0, i;
     unsigned int    size, offset = 0, frames = 0, errors = 0, calls = 0;
+    unsigned int    outLen = OUT_CAPACITY;     // after the header: exactly header + one picture (fewer pages to lock)
+    unsigned int    maxAu = 0;                 // largest Consumed so far -> window = max(1 MiB, 4 x maxAu)
     unsigned char  *stream;
     unsigned char  *outBuf;
     FILE           *out = NULL;
@@ -128,12 +130,17 @@ int main(int argc, char **argv)
         unsigned int          window = size - offset;
         const MFC_DECODE_OUT *o = (const MFC_DECODE_OUT *)outBuf;
 
-        if (window > MFC_MAX_WINDOW)
-            window = MFC_MAX_WINDOW;
+        {
+            unsigned int cap = maxAu * 4u > (1u << 20) ? maxAu * 4u : (1u << 20);
+            if (cap > MFC_MAX_WINDOW)
+                cap = MFC_MAX_WINDOW;
+            if (window > cap)
+                window = cap;
+        }
         if (window <= 4)   // stuffing only: drain
             window = 0;
         calls++;
-        if (!DeviceIoControl(dev, IOCTL_MFC_DECODE, window ? stream + offset : NULL, window, outBuf, OUT_CAPACITY,
+        if (!DeviceIoControl(dev, IOCTL_MFC_DECODE, window ? stream + offset : NULL, window, outBuf, outLen,
                              &got, NULL))
         {
             fprintf(stderr, "IOCTL_MFC_DECODE at %u (window %u): %lu\n", offset, window, GetLastError());
@@ -141,6 +148,8 @@ int main(int argc, char **argv)
         }
 
         hwUs += o->HwMicroseconds;
+        if (o->Flags & MFC_DEC_HEADER)
+            outLen = (unsigned int)sizeof(MFC_DECODE_OUT) + o->Width * o->Height * 3u / 2u;
         if (o->Flags & MFC_DEC_HEADER)
             printf("header: %ux%u crop l%u t%u r%u b%u, consumed %u\n", o->Width, o->Height, o->CropLeft, o->CropTop,
                    o->CropRight, o->CropBottom, o->Consumed);
@@ -178,7 +187,11 @@ int main(int argc, char **argv)
         if (o->Flags & MFC_DEC_EOS)
             break;
         if (!(o->Flags & MFC_DEC_NOT_CONSUMED))
+        {
             offset += o->Consumed;
+            if (o->Consumed > maxAu && o->Consumed < window)
+                maxAu = o->Consumed;
+        }
         if (window == 0 && !(o->Flags & (MFC_DEC_FRAME | MFC_DEC_EOS)))
         {
             fprintf(stderr, "drain made no progress\n");

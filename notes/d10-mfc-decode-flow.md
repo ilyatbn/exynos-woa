@@ -141,3 +141,10 @@ F. CLOSE_INSTANCE H2R 6 -> R2H 6 (INSTANCE_ID first). DPB_FLUSH H2R 10 -> R2H 10
   without authenticating, so sshd penalises the PC's address and drops every real login (banner aborts). Also the
   PC ssh config's host entry is stale (the phone's address changed; local/phone.env is current). Fix: sshd_config
   "PerSourcePenalties no" (from TWRP) + config host from phone.env.
+- 15:33 SSH back (vidc7, stay.flg): sshd_config "PerSourcePenalties no" written from TWRP (extra-ssh-install.cmd
+  updated f154001), PC ssh config host taken from phone.env (backup ~/.ssh/config.bak-20261015), live host key ==
+  the stored one. Timing over ssh, -q (no hashing): c1080 24.9 fps wall, hw wait 9.9 ms/frame; c720 53.1 fps.
+  mfcdec2 (output buffer sized to header + one picture, input window max(1 MiB, 4 x largest AU)): still 24.9 fps,
+  hashes still identical -> page locking / input copies are not the bottleneck. ~30 ms/frame of the 40 ms is the
+  driver reading the 3.1 MB NV12 picture out of NON-CACHED memory (~100 MB/s). Next: cached session buffers with
+  explicit cache maintenance (check MS docs for ARM64 non-coherent DMA first).

@@ -615,3 +615,9 @@ No device access in this task; build-verified only (Guided, not Ready).
   the KD initial break - winload/bootmgr side or the kernel entry), so Windows runs a consistent software-AF system;
   (b) find the MM flag that selects hardware vs software AF and flip it at the initial break together with (a).
 - 09:57 phone restored: boot-kd6.img (7810a0bd, 6 cores), stay.flg back on the ESP, rebooted into Windows.
+- HA decision found (ntoskrnl 22621.1): INIT function nt+0xA7DCD0 reads ID_AA64MMFR1.HAFDBS; if != 0 it ORs TCR.HA
+  (and clears HD when HAFDBS >= 2) and returns 1. Caller nt+0xAA27FC records it in the dword nt+0xD1AA08 bits 26:25:
+  HW AF -> 01; no HW AF -> 10 plus bit 22 set (value & ~0x02000000 | 0x04400000). (nt+0xA7DD28 = HPDS -> TCR.HPD0/1.)
+  Plan m4swaf1: at the initial break rewrite nt+0xD1AA08 to the no-HW-AF form + KeRestoreProcessorState patch
+  (secondaries HA 0); boot CPU keeps hardware HA (harmless if MM tracks AF in software). First on boot-kd6 (6 cores)
+  to see if MM survives in that mode, then with the M4s.

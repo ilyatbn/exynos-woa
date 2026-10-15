@@ -95,3 +95,4 @@ F. CLOSE_INSTANCE H2R 6 -> R2H 6 (INSTANCE_ID first). DPB_FLUSH H2R 10 -> R2H 10
   Bus reset helper (mfc_stop_bus): BUS_RESET_CTRL (0x7110) = 1, wait bit1. The self-test itself never ran (old
   driver unloading). Fix: release = vendor risc_off (bus idle wait) + MFC_OFF 1, no reset; free buffers after.
   NOTE: the V-W1 driver is still the installed one on the phone - any further swap may hit this again.
+- 14:55 TWRP: NTFS dirty after the bugcheck (ntfs-3g ro only, no fsck) -> in-Windows rename swap: extra-mfcswap.cmd with 1.0.0.3 (a6ce0f3, sys 13489b6e) + mfc_test.h264; kd-vidc3.log. Pass 1 swaps + clean restart, pass 2 = self-test boot.

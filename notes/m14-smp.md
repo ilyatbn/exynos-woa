@@ -640,3 +640,7 @@ No device access in this task; build-verified only (Guided, not Ready).
   (RVA 0xA7DCD0, unique in the file) and, only if exactly one copy is found, changes +0x14 `and w10,w8,#0xf`
   (12000D0A) to `mov w10,#0` (5280000A) -> Windows never sets TCR.HA and records "no HW AF" from its first
   instruction. Progress page words [8] copies found, [9]/[10] PA of the changed word. Builds with 0 and 1.
+- hwaf6 (52a5ecde: 6 cores, KD flags, NT_NO_HWAF 1): firmware found 1 copy and changed it (progress [8]=1,
+  PA 0x8_8B87DCE4 in bank3); Windows flag nt+0xD1AA08 = 7CC0086C (no-HW-AF form, set by Windows itself this time);
+  TCR on ALL 6 cores incl. the boot A55 = 0x615B5513511 (HA 0). Windows boots normally in software access-flag mode:
+  Wi-Fi up 11:16, SSH open 11:16:42. (m4swaf1's livelock was the half-switched state, not software AF itself.)

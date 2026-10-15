@@ -86,7 +86,7 @@ CxSetLinked(PCX_DEVICE Dev, BOOLEAN Linked)
         ULONG Rc = WlanMsgSetPm(&Dev->Msg, Dev->RunR, WL_PM_FAST, &Old);
         CxLog(Dev, "[link] power save: firmware had PM %lu, set PM_FAST -> MSG %lu\r\n", Old, Rc);
         /* throughput diagnostics (notes/wifi-throughput.md: 144 Mbit/s PHY but ~14 Mbit/s TCP, deep tx queue) */
-        static const PCSTR Vars[] = { "ampdu", "ampdu_ba_wsize", "ampdu_mpdu", "frameburst", "nmode", "vhtmode" };
+        static const PCSTR Vars[] = { "ampdu", "ampdu_ba_wsize", "ampdu_mpdu", "frameburst", "nmode", "vhtmode", "wme", "wme_apsd", "ampdu_rx", "ampdu_tx" };
         for (ULONG I = 0; I < ARRAYSIZE(Vars); I++) {
             ULONG Val;
             ULONG VRc = WlanMsgGetIntVar(&Dev->Msg, Dev->RunR, Vars[I], &Val);

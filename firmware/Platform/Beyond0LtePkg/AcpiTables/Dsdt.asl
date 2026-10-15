@@ -427,6 +427,27 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
             }
         }
 
+        // D10 video codec (notes/d10-mfc-main.md): the MFC v13 (ip_ver 0x1300). Windows half = drivers/Exynos9820Mfc.
+        // _CRS ORDER: driver takes the first Memory (MFC core window) and the first Interrupt (GSIV 370 = SPI 338 + 32).
+        // NOT in _CRS: pd-mfc (sboot leaves it on, UEFI R1 read), CMU_MFC clocks (on at hand-off), the two SYSMMUs
+        // (left in reset bypass: the driver uses physically contiguous buffers below 4 GiB, as UEFI R3/R4 proved).
+        // _HID SAMS982A (the branch's SAMS9828 is GPU0 on main).
+        Device (VIDC)
+        {
+            Name (_HID, "SAMS982A")
+            Name (_UID, Zero)
+            Name (_CCA, Zero)
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, 0x188D0000, 0x00010000)  // VERIFIED base.dtb /mfc@188D0000 reg
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)
+                {
+                    370  // VERIFIED: DT cell 0x152 = SPI 338 + 32
+                }
+            })
+            Method (_STA, 0, NotSerialized) { Return (0x0F) }
+        }
+
         // Battery (notes/battery-driver-m1.md): the MAX77705 fuel gauge (7-bit 0x36) and charger (0x69) sit on
         // HSI2C45, the CMGP USI03 block. drivers/S10eBattery (KMDF battc miniclass) binds this ID and owns the
         // bus itself, polled, exactly as Beyond0LteUsbHostDxe/Pmic.c does in UEFI: so the three windows below

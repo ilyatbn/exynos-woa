@@ -306,3 +306,10 @@ exynos9820/cmucal-sfr.c + cmucal-node.c, drivers/pinctrl/samsung/pinctrl-exynos-
   SelfManagedIoInit; bthport: GET_VERSION, SET_VERSION 1, child PrepareHardware/D0Entry, QUERY_CAPABILITIES, then
   43 WRITE_HCI commands answered by 43 Command Complete events through the RX interrupt -> ISR ring -> DPC -> H4
   reassembler -> READ_HCI completion. 0 out-of-sync, 0 errors. => the BthxDDI transport WORKS end to end.
+- bt6 collected state (pnputil, 13:24): ACPI\SAMS9829\0 "Samsung Exynos9820 BCM4375 Bluetooth Transport" Started
+  (oem30.inf, service Exynos9820Bt); child SerialBusWdk\UART_H4\...&4097 "Bluetooth Radio" Started (bth.inf,
+  service BthMini); BTH\MS_BTHBRB "Microsoft Bluetooth Enumerator", BTH\MS_RFCOMM (RFCOMM TDI) and BTH\MS_BTHLE
+  "Microsoft Bluetooth LE Enumerator" all Started. => **R4 DONE: Windows has a working Bluetooth radio.**
+  (radios.txt failed: PowerShell 5.1 WinRT async call syntax - fixed in bt-scan.ps1.)
+- R5 probe: drivers/S10eDiag/esp/bt-scan.ps1 (Radio API state, BluetoothAdapter caps, 30 s DeviceWatcher for
+  unpaired LE + classic devices) via extra-bt-scan.cmd.

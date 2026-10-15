@@ -19,6 +19,7 @@
 //   +0xF60..0xFA8 UINT64 x10    m14: MIDR, CTR, DCZID, ISAR0, ISAR1, MMFR0, MMFR1, MMFR2, PFR0, CLIDR of this core
 //   +0xFB0 UINT32 GIC if mask  m14: GICD_ITARGETSR0 byte 0 as read by this core (its real CPU interface)
 //   +0xFB8 UINT32 sleep        m14: firmware sets 1 -> after the alive mark the core sleeps in WFI forever
+//                              (2 CPU_OFF, 3 coherency echo, 4 EL2 trap timing, 5 PC sampler - see below)
 //   +0xFC0 UINT64 polls        m14 self-report: poll iterations so far (alive while it rises)
 //   +0xFC8 UINT64 loop ticks    m14: CNTVCT ticks for the last 0x2000-iteration delay loop (core clock)
 //   +0xFD8 UINT32 stage        m14 DVM test: 1 before IC IALLUIS, 2 before TLBI VMALLE1IS, 3 after both
@@ -134,6 +135,8 @@ ASM_FUNC(Beyond0LteParkStub)
   b.eq  5f
   cmp   w3, #4
   b.eq  7f
+  cmp   w3, #5
+  b.eq  8f
   cmp   w3, #2
   b.ne  3f
   //
@@ -280,6 +283,83 @@ ASM_FUNC(Beyond0LteParkStub)
   str   w3, [x1, #PARK_SLEEP_OFF]   // 0xC0C00004: trap timing done
   dsb   sy
   b     3b
+
+  //
+  // sleep flag 5 (m14 PC sampler, notes/m14-smp.md "PC sampler"): every period, read each core's external-debug
+  // PC sample (EDPCSRlo +0xA0 first - the read latches EDCIDSR +0xA4, EDVIDSR +0xA8, EDPCSRhi +0xAC) and EDPRSR
+  // (+0x314) into a ring that survives a warm reset. Parameters (written by Beyond0LteParking.c, placed between the
+  // vector slots): +0x408 ring PA, +0x410 ring slots (256 B each, slot 0 = header), +0x418 period in CNTVCT ticks,
+  // +0x420 8 x UINT64 debug block bases (0 = skip). VBAR_EL1 = this mailbox page: the firmware put a branch to
+  // Beyond0LteParkFault in every vector slot, so an aborting debug read is recorded and skipped (value stays
+  // 0xFAFAFAFA) instead of killing the core. x1 must stay the mailbox base (the fault handler uses it).
+  // Header: +0 'PCS1', +4 slots, +8 next slot, +0x10 samples taken, +0x18 CNTVCT of the last sample, +0x20 period.
+  // Record: +0 CNTVCT, +8 sample number, +0x10 + n * 0x18: PCSRlo, CIDSR, VIDSR, PCSRhi, PRSR, 0.
+  //
+8:
+  ldr   x20, [x1, #0x408]           // ring
+  ldr   x23, [x1, #0x410]           // slots
+  ldr   x22, [x1, #0x418]           // period
+  add   x21, x1, #0x420             // debug bases
+  msr   vbar_el1, x1
+  isb
+  mov   x24, #0                     // samples taken
+  mov   x25, #1                     // next slot
+  str   w23, [x20, #4]
+  str   x25, [x20, #8]
+  str   xzr, [x20, #0x10]
+  str   x22, [x20, #0x20]
+  movz  w4, #0x4350
+  movk  w4, #0x3153, lsl #16        // 'PCS1'
+  str   w4, [x20]
+  movz  w3, #0x0005
+  movk  w3, #0xC0C0, lsl #16
+  str   w3, [x1, #PARK_SLEEP_OFF]   // 0xC0C00005: sampler running
+  dsb   sy
+81:
+  mrs   x4, cntvct_el0
+  add   x5, x20, x25, lsl #8        // record
+  str   x4, [x5]
+  str   x24, [x5, #8]
+  add   x6, x5, #0x10
+  mov   x7, #0
+82:
+  ldr   x8, [x21, x7, lsl #3]
+  movz  w10, #0xFAFA
+  movk  w10, #0xFAFA, lsl #16
+  mov   w11, w10
+  mov   w12, w10
+  mov   w13, w10
+  mov   w14, w10
+  cbz   x8, 83f
+  ldr   w10, [x8, #0xA0]
+  ldr   w11, [x8, #0xA4]
+  ldr   w12, [x8, #0xA8]
+  ldr   w13, [x8, #0xAC]
+  ldr   w14, [x8, #0x314]
+83:
+  stp   w10, w11, [x6]
+  stp   w12, w13, [x6, #8]
+  stp   w14, wzr, [x6, #16]
+  add   x6, x6, #0x18
+  add   x7, x7, #1
+  cmp   x7, #8
+  b.ne  82b
+  add   x24, x24, #1
+  add   x25, x25, #1
+  cmp   x25, x23
+  b.lo  84f
+  mov   x25, #1
+84:
+  str   x25, [x20, #8]
+  str   x24, [x20, #0x10]
+  str   x4, [x20, #0x18]
+  dsb   sy
+  add   x26, x4, x22
+85:
+  mrs   x4, cntvct_el0
+  cmp   x4, x26
+  b.lo  85b
+  b     81b
 0:
   mov   x6, #0                      // m14 self-report: poll count
 1:
@@ -302,6 +382,37 @@ ASM_FUNC(Beyond0LteParkStub)
   dsb   sy
   mov   x0, x1                      // x0 = mailbox PA
   br    x2
+
+  //
+  // m14 PC sampler fault handler (every vector slot of the sampler's mailbox branches here). Records ESR/FAR/ELR at
+  // mailbox +0x608/+0x610/+0x620 and a count at +0x618; a data abort from this EL (EC 0x25) skips the load, an
+  // SError (EC 0x2F) returns, anything else parks the core in WFI. Uses only x28/x29 (unused by the sampler).
+  //
+  .global ASM_PFX(Beyond0LteParkFault)
+ASM_PFX(Beyond0LteParkFault):
+  mrs   x28, esr_el1
+  str   x28, [x1, #0x608]
+  mrs   x28, far_el1
+  str   x28, [x1, #0x610]
+  ldr   x29, [x1, #0x618]
+  add   x29, x29, #1
+  str   x29, [x1, #0x618]
+  mrs   x28, elr_el1
+  str   x28, [x1, #0x620]
+  dsb   sy
+  mrs   x29, esr_el1
+  lsr   x29, x29, #26
+  cmp   x29, #0x2F
+  b.eq  92f
+  cmp   x29, #0x25
+  b.ne  91f
+  add   x28, x28, #4
+  msr   elr_el1, x28
+92:
+  eret
+91:
+  wfi
+  b     91b
 
   .global ASM_PFX(Beyond0LteParkStubEnd)
 ASM_PFX(Beyond0LteParkStubEnd):

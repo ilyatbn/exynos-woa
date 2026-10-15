@@ -30,6 +30,7 @@
 #include <Platform/Exynos9820.h>
 #include "../../AcpiTables/Beyond0LteAcpiHeader.h"
 #include "Beyond0LteParking.h"
+#include "../../Library/Beyond0LteFbSerialPortLib/Beyond0LteBootLog.h"
 
 #if BEYOND0LTE_SMP_PARKING
 
@@ -93,6 +94,16 @@ ParkBootCntFrq (
 #ifndef BEYOND0LTE_PARK_TRAPTIME_MASK
 #define BEYOND0LTE_PARK_TRAPTIME_MASK   0u   // m14: parked, not-offered cores that time EL1 sysreg writes (EL2 traps?)
 #endif
+#ifndef BEYOND0LTE_PARK_PCSAMPLE_MASK
+#define BEYOND0LTE_PARK_PCSAMPLE_MASK   0u   // m14: the parked, not-offered core that samples every core's EDPCSR (stub flag 5)
+#endif
+#define PARK_PCS_READY      0xC0C00005u
+#define PARK_PCS_RING_OFF   0x408u   // sampler parameters, between the vector slots (+0x400 / +0x480 hold branches)
+#define PARK_PCS_SLOTS_OFF  0x410u
+#define PARK_PCS_PERIOD_OFF 0x418u
+#define PARK_PCS_BASES_OFF  0x420u   // 8 x UINT64 debug block bases, MADT GICC order
+#define PARK_PCS_FAULT_OFF  0x608u   // ESR, FAR, count, ELR (UINT64 each) written by Beyond0LteParkFault
+#define PARK_PCS_PERIOD     6500000u // CNTVCT ticks at 26 MHz = 0.25 s -> 1023 records = 255 s of history
 #define PARK_TRAP_DONE      0xC0C00004u
 #define PARK_TRAP_OFF       0x300u   // 6 x UINT64: nop, TTBR0, TCR, SCTLR, MAIR, CONTEXTIDR (1000 each, CNTVCT ticks)
 #define PARK_COH_PING_OFF   0x100u   // boot CPU writes the token here (own cache line)
@@ -130,6 +141,55 @@ STATIC_ASSERT (EXYNOS_GICD_BASE == 0x10101000ULL, "Beyond0LteParkStub.S hardcode
 
 extern UINT8  Beyond0LteParkStub[];
 extern UINT8  Beyond0LteParkStubEnd[];
+#if BEYOND0LTE_PARK_SLEEP_UNOFFERED
+extern UINT8  Beyond0LteParkFault[];
+
+//
+// m14 PC sampler: external debug blocks in MADT GICC order (Exynos9820.h, from the stock DT /coresight node).
+//
+STATIC CONST UINT64  mParkDbgBase[PARK_MAX_GICC] = {
+  EXYNOS_CS_DBG_CL0_CPU0, EXYNOS_CS_DBG_CL0_CPU1, EXYNOS_CS_DBG_CL0_CPU2, EXYNOS_CS_DBG_CL0_CPU3,
+  EXYNOS_CS_DBG_CL1_CPU0, EXYNOS_CS_DBG_CL1_CPU1, EXYNOS_CS_DBG_CL2_CPU0, EXYNOS_CS_DBG_CL2_CPU1
+};
+
+/**
+  m14 PC sampler set-up for one mailbox page: keep the previous boot's ring (a hang's last seconds) in PREV, then
+  fill the sampler parameters and a branch to Beyond0LteParkFault in all 16 vector slots (VBAR_EL1 = the page).
+**/
+STATIC
+VOID
+ParkPcSampleSetup (
+  IN UINT64  Page
+  )
+{
+  volatile UINT32  *Live;
+  UINT64           Target;
+  UINTN            Slot;
+  INT64            Delta;
+
+  Live = (volatile UINT32 *)(UINTN)BEYOND0LTE_PCSAMP_LIVE;   // uncached handoff window (PlatformMemoryMapLib)
+  if (Live[0] == BEYOND0LTE_PCSAMP_MAGIC) {
+    CopyMem ((VOID *)(UINTN)BEYOND0LTE_PCSAMP_PREV, (VOID *)(UINTN)BEYOND0LTE_PCSAMP_LIVE, (UINTN)BEYOND0LTE_PCSAMP_SIZE);
+    DEBUG ((DEBUG_ERROR, "PARK: PCS previous ring kept (%lu samples, last cntvct %lx)\n",
+            *(volatile UINT64 *)(UINTN)(BEYOND0LTE_PCSAMP_LIVE + 0x10), *(volatile UINT64 *)(UINTN)(BEYOND0LTE_PCSAMP_LIVE + 0x18)));
+  }
+
+  Live[0] = 0;
+  ArmDataSynchronizationBarrier ();
+
+  Target = Page + PARK_STUB_OFF + (UINT64)(Beyond0LteParkFault - Beyond0LteParkStub);
+  for (Slot = 0; Slot < 16; Slot++) {
+    Delta = (INT64)(Target - (Page + Slot * 0x80)) / 4;
+    *(UINT32 *)(UINTN)(Page + Slot * 0x80) = 0x14000000u | ((UINT32)Delta & 0x03FFFFFFu);   // B Beyond0LteParkFault
+  }
+
+  *(UINT64 *)(UINTN)(Page + PARK_PCS_RING_OFF)   = BEYOND0LTE_PCSAMP_LIVE;
+  *(UINT64 *)(UINTN)(Page + PARK_PCS_SLOTS_OFF)  = BEYOND0LTE_PCSAMP_SIZE / BEYOND0LTE_PCSAMP_SLOT;
+  *(UINT64 *)(UINTN)(Page + PARK_PCS_PERIOD_OFF) = PARK_PCS_PERIOD;
+  CopyMem ((VOID *)(UINTN)(Page + PARK_PCS_BASES_OFF), mParkDbgBase, sizeof (mParkDbgBase));
+  *(UINT32 *)(UINTN)(Page + PARK_SLEEP_OFF) = 5;
+}
+#endif // BEYOND0LTE_PARK_SLEEP_UNOFFERED
 
 STATIC
 UINT32
@@ -269,7 +329,9 @@ Beyond0LteParkSecondaries (
     *(UINT64 *)(UINTN)(Page[Index] + PARK_JUMP_OFF) = 0;
     CopyMem ((VOID *)(UINTN)(Page[Index] + PARK_STUB_OFF), Beyond0LteParkStub, StubSize);
 #if BEYOND0LTE_PARK_SLEEP_UNOFFERED
-    if (((BEYOND0LTE_PARK_TRAPTIME_MASK >> Index) & 1u) != 0) {
+    if (((BEYOND0LTE_PARK_PCSAMPLE_MASK >> Index) & 1u) != 0) {
+      ParkPcSampleSetup (Page[Index]);   // m14 PC sampler core (never offered)
+    } else if (((BEYOND0LTE_PARK_TRAPTIME_MASK >> Index) & 1u) != 0) {
       *(UINT32 *)(UINTN)(Page[Index] + PARK_SLEEP_OFF) = 4;   // m14 EL2 trap timing core (never offered)
     } else if (((BEYOND0LTE_PARK_COHERENCY_MASK >> Index) & 1u) != 0) {
       *(UINT32 *)(UINTN)(Page[Index] + PARK_SLEEP_OFF) = 3;   // m14 coherency test core (never offered)
@@ -397,6 +459,40 @@ Beyond0LteParkSecondaries (
               ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x20), ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x28),
               ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x30), ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x38),
               ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x40), ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x48)));
+    }
+  }
+
+  //
+  // m14 PC sampler (stub sleep flag 5): show what it sees while the other parked cores sit in the stub poll loop
+  // (their PCs must fall inside their own mailbox page + 0x800..) and the boot CPU runs this driver.
+  //
+  for (Index = 0; Index < GiccCount; Index++) {
+    volatile UINT8  *Rec;
+    UINT64          Next;
+    UINTN           Core;
+    UINT32          Wait;
+
+    if ((((BEYOND0LTE_PARK_PCSAMPLE_MASK >> Index) & 1u) == 0) || (Page[Index] == 0)) {
+      continue;
+    }
+
+    for (Wait = 0; (Wait < 1000) && (*(volatile UINT64 *)(UINTN)(BEYOND0LTE_PCSAMP_LIVE + 0x10) < 3); Wait++) {
+      MicroSecondDelay (1000);
+    }
+
+    Next = *(volatile UINT64 *)(UINTN)(BEYOND0LTE_PCSAMP_LIVE + 0x8);
+    Rec  = (volatile UINT8 *)(UINTN)(BEYOND0LTE_PCSAMP_LIVE + ((Next > 1) ? Next - 1 : 1) * BEYOND0LTE_PCSAMP_SLOT);
+    DEBUG ((DEBUG_ERROR, "PARK: PCS gicc%u flag %x magic %x samples %lu faults %lu (esr %lx far %lx elr %lx)\n",
+            (UINT32)Index, ParkRd32 (Page[Index] + PARK_SLEEP_OFF), *(volatile UINT32 *)(UINTN)BEYOND0LTE_PCSAMP_LIVE,
+            *(volatile UINT64 *)(UINTN)(BEYOND0LTE_PCSAMP_LIVE + 0x10), ParkRd64 (Page[Index] + PARK_PCS_FAULT_OFF + 0x10),
+            ParkRd64 (Page[Index] + PARK_PCS_FAULT_OFF), ParkRd64 (Page[Index] + PARK_PCS_FAULT_OFF + 0x8),
+            ParkRd64 (Page[Index] + PARK_PCS_FAULT_OFF + 0x18)));
+    for (Core = 0; Core < PARK_MAX_GICC; Core++) {
+      volatile UINT32  *W;
+
+      W = (volatile UINT32 *)(Rec + 0x10 + Core * 0x18);
+      DEBUG ((DEBUG_ERROR, "PARK: PCS   cpu%u pc %08x%08x cid %x vid %x prsr %x (mailbox %lx)\n",
+              (UINT32)Core, W[3], W[0], W[1], W[2], W[4], Page[Core]));
     }
   }
 

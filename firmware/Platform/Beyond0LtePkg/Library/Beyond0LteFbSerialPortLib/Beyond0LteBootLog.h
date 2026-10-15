@@ -38,6 +38,18 @@ typedef struct {
 #define BEYOND0LTE_WINPRAM_DUMP   0x0000000000010000ULL   // bytes copied to the ESP (ring window + latch)
 
 //
+// m14 PC sampler ring (park stub sleep flag 5, notes/m14-smp.md "PC sampler"), in the unused part of the
+// WINPRAM window (the Windows drivers use its first 64 KiB). LIVE is written by the sampler core; the next
+// boot's parking code copies a valid LIVE ring to PREV before restarting the sampler, and BootLogDxe saves
+// PREV as \PCSAMP.BIN whenever it saves WINPRAM.BIN.
+//
+#define BEYOND0LTE_PCSAMP_LIVE    (BEYOND0LTE_WINPRAM_BASE + 0x40000ULL)
+#define BEYOND0LTE_PCSAMP_PREV    (BEYOND0LTE_WINPRAM_BASE + 0x80000ULL)
+#define BEYOND0LTE_PCSAMP_SIZE    0x0000000000040000ULL
+#define BEYOND0LTE_PCSAMP_SLOT    0x100u
+#define BEYOND0LTE_PCSAMP_MAGIC   0x31534350u           // 'PCS1'
+
+//
 // W35: DMA workspace for the Windows UFS driver (drivers/Exynos9820Ufs UfsMapFirmwareReservedWorkspace).
 // With bank1/bank2 published as RAM, StorPortGetUncachedExtension returned memory outside the
 // driver's bank0 DMA window (0xA7400000..0xBAB00000) and it refused to start (UTRL/UCD/BOUNCE

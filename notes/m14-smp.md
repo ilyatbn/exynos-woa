@@ -537,3 +537,20 @@ No device access in this task; build-verified only (Guided, not Ready).
   m4one1/m4one2 was likely provoked by the KD break-ins (timed break during the failing window); the underlying M4
   failure is a HANG, same as with two M4s. No dump written (the dump boot never happened). Needs a force restart.
 - 08:56: user force-restarted the hung phone into TWRP; boot-kd6.img (7810a0bd) restored, ESP stay.flg only, rebooted into Windows.
+
+## PC sampler (EL3 / hardware view of the M4 hang) - 2026-10-15
+
+- Plan: one A55 (gicc3) parked but NOT offered runs a new stub mode (sleep flag 5) that samples every core's
+  external-debug PC sample registers (EDPCSRlo 0x0A0, EDCIDSR 0x0A4, EDVIDSR 0x0A8 = NS/E2/E3 of the sample,
+  EDPCSRhi 0x0AC, EDPRSR 0x314 = powered/reset/halted) every 0.25 s into a ring in the reset-surviving WINPRAM
+  window (0x8FE00000 + 0x40000, 256 KiB, unused by the Windows drivers - they use the first 64 KiB). Hang ->
+  82 s watchdog (WINDOWS_WATCHDOG 1) -> warm reset (DRAM kept) -> Parking copies the old ring to +0x80000 before
+  restarting the sampler -> BootLog dumps it as \PCSAMP.BIN with WINPRAM.BIN.
+- Debug bases (stock dt.dtb /coresight@1e000000, base 0x1E000000 + dbg-offset; read with an FDT parser on
+  s10e-artifacts/dt.dtb): cl0_cpu0..3 (A55) 0x1E810000 0x1E910000 0x1EA10000 0x1EB10000; cl1_cpu0..1 (A75)
+  0x1EC10000 0x1ED10000; cl2_cpu0..1 (M4) 0x1E410000 0x1E510000. Same order as the MADT GICCs.
+- Register offsets are the ARMv8 external debug map (architectural). EDPCSR may read 0xFFFFFFFF if non-invasive
+  debug is disabled on this retail part - the UEFI log of the first boot validates (parked cores sit at known stub PCs).
+- Risk handled: an aborting debug read would kill the sampler (no vectors after CPU_ON) -> the sampler gets a
+  VBAR_EL1 table in its own mailbox OS half (it is never offered, Windows never sees that page) that records
+  ESR/FAR/ELR, skips the load and keeps going.

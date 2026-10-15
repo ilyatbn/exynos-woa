@@ -445,6 +445,24 @@ DumpMemoryToEsp (
   DEBUG ((DEBUG_ERROR, "DUMP %s 0x%lx+0x%lx -> %r\n", Name, (UINT64)Address, (UINT64)Size, Status));
 }
 
+/** m14 PC sampler: save the ring the parking code kept from the previous boot (PREV) as \PCSAMP.BIN, once. **/
+STATIC
+VOID
+DumpPcSamples (
+  VOID
+  )
+{
+  volatile UINT32  *Prev;
+
+  Prev = (volatile UINT32 *)(UINTN)BEYOND0LTE_PCSAMP_PREV;
+  if (Prev[0] != BEYOND0LTE_PCSAMP_MAGIC) {
+    return;
+  }
+
+  DumpMemoryToEsp (L"\\PCSAMP.BIN", (UINTN)BEYOND0LTE_PCSAMP_PREV, (UINTN)BEYOND0LTE_PCSAMP_SIZE);
+  Prev[0] = 0;
+}
+
 STATIC
 VOID
 EFIAPI
@@ -558,6 +576,7 @@ OnReadyToBoot (
             Root->Close (Root);
             DEBUG ((DEBUG_ERROR, "BootLog: clean Windows restart with torecovery.flg - saving its PRAM, then recovery\n"));
             DumpMemoryToEsp (L"\\WINPRAM.BIN", (UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);
+            DumpPcSamples ();   // m14 PC sampler ring of that run, if one was kept
             ZeroMem ((VOID *)(UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);
             FlushBootLog ("after-windows");
             RebootToRecovery ();
@@ -566,6 +585,7 @@ OnReadyToBoot (
           Root->Close (Root);
           DEBUG ((DEBUG_ERROR, "BootLog: Windows asked for this restart - saving its PRAM and continuing\n"));
           DumpMemoryToEsp (L"\\WINPRAM-RESTART.BIN", (UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);
+          DumpPcSamples ();   // m14 PC sampler ring of that run, if one was kept
           Root = OpenEspRoot ();
         } else if (!EFI_ERROR (Root->Open (Root, &Flag, L"\\WINRUN.FLG", EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE, 0))) {
           EFI_FILE_PROTOCOL  *Stay;
@@ -587,6 +607,7 @@ OnReadyToBoot (
             DEBUG ((DEBUG_ERROR, "BootLog: previous boot ran Windows (no restart marker) - interactive (stay.flg): "
                     "saving its PRAM and continuing\n"));
             DumpMemoryToEsp (L"\\WINPRAM.BIN", (UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);
+            DumpPcSamples ();   // m14 PC sampler ring of that run, if one was kept
  #if BEYOND0LTE_DSS_DUMP
             //
             // m14: Samsung debug-snapshot areas a debug reset may have filled (live DT: log_s2d 0xEB310000,
@@ -607,6 +628,7 @@ OnReadyToBoot (
           } else {
             DEBUG ((DEBUG_ERROR, "BootLog: previous boot ran Windows - saving its PRAM, then recovery\n"));
             DumpMemoryToEsp (L"\\WINPRAM.BIN", (UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);
+            DumpPcSamples ();   // m14 PC sampler ring of that run, if one was kept
             ZeroMem ((VOID *)(UINTN)BEYOND0LTE_WINPRAM_BASE, (UINTN)BEYOND0LTE_WINPRAM_DUMP);   // one run per dump
             FlushBootLog ("after-windows");
             RebootToRecovery ();

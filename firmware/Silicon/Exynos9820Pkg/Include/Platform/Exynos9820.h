@@ -251,6 +251,22 @@
 #define EXYNOS_GICD_ISPENDRN_SIZE 0x0000000000000100ULL   // VERIFIED
 
 //
+// CoreSight per-core external debug blocks (stock dt.dtb /coresight@1e000000, compatible
+// "exynos,coresight": base 0x1E000000, each cpu node's dbg-offset; read with an FDT parser,
+// notes/m14-smp.md "PC sampler"). Listed in MADT GICC order: cl0 A55 x4, cl1 A75 x2, cl2 M4 x2.
+// Register offsets inside a block are the ARMv8 external debug map (architectural).
+//
+#define EXYNOS_CORESIGHT_BASE        0x000000001E000000ULL   // VERIFIED (DT base)
+#define EXYNOS_CS_DBG_CL0_CPU0       0x000000001E810000ULL   // VERIFIED (dbg-offset 0x810000)
+#define EXYNOS_CS_DBG_CL0_CPU1       0x000000001E910000ULL   // VERIFIED (dbg-offset 0x910000)
+#define EXYNOS_CS_DBG_CL0_CPU2       0x000000001EA10000ULL   // VERIFIED (dbg-offset 0xa10000)
+#define EXYNOS_CS_DBG_CL0_CPU3       0x000000001EB10000ULL   // VERIFIED (dbg-offset 0xb10000)
+#define EXYNOS_CS_DBG_CL1_CPU0       0x000000001EC10000ULL   // VERIFIED (dbg-offset 0xc10000)
+#define EXYNOS_CS_DBG_CL1_CPU1       0x000000001ED10000ULL   // VERIFIED (dbg-offset 0xd10000)
+#define EXYNOS_CS_DBG_CL2_CPU0       0x000000001E410000ULL   // VERIFIED (dbg-offset 0x410000)
+#define EXYNOS_CS_DBG_CL2_CPU1       0x000000001E510000ULL   // VERIFIED (dbg-offset 0x510000)
+
+//
 // ---------------------------------------------------------------------------
 // Architected generic timer  [UNVERIFIED on this SoC]
 //

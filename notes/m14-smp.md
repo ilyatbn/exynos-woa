@@ -634,3 +634,4 @@ No device access in this task; build-verified only (Guided, not Ready).
   winload!OslArchTransferToKernel never fired; no patch applied, the boot ran unmodified. Paused here pending the user.
 - sshd firewall rule in drivers/S10eDiag/esp/extra-ssh-install.cmd only allows 192.168.137.0/24 (old hotspot) -> SSH
   from the home Wi-Fi is refused. Widening it was not done (needs the user's decision).
+- 10:39 stay.flg restored, phone rebooted into Windows (boot-kd6). bootdebug still on in BCD.

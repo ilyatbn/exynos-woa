@@ -512,12 +512,24 @@ BtR3OnReadyToBoot (
   UINT64  T0;
   UINT32  Saved;
 
-  gBS->CloseEvent (Event);
+  STATIC UINTN  Tries;
+
+  //
+  // bt2/bt3: the FIRST ReadyToBoot signal came before any file system was connected (no volume at all), so keep
+  // the event and try again on the next signals (BootLogDxe also expects more than one); give up after 4.
+  //
+  Tries++;
   Patch = BtLoadPatch (&Size);
   if (Patch == NULL) {
-    DEBUG ((DEBUG_ERROR, "[BT] R3: \\S10EDIAG\\bt\\bcm4375B1_semco.hcd not found - skipped\n"));
+    DEBUG ((DEBUG_ERROR, "[BT] R3: try %u: \\S10EDIAG\\bt\\bcm4375B1_semco.hcd not loaded\n", (UINT32)Tries));
+    if (Tries >= 4) {
+      gBS->CloseEvent (Event);
+    }
+
     return;
   }
+
+  gBS->CloseEvent (Event);
 
   Saved        = mProgress[1];
   mProgress[1] = BT_PROGRESS_TRYING;

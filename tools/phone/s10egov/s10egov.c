@@ -31,7 +31,7 @@
 typedef struct { unsigned little, mid; } CPU_LEVEL;
 static const CPU_LEVEL kCpu[] = { { 1742000, 2106000 }, { 1456000, 1794000 }, { 1157000, 1404000 }, { 949000, 1066000 } };
 static const int       kCpuUp[] = { 780, 850, 920 };        // enter level i+1 at this CPU zone max (tenths C)
-static const unsigned  kGpu[] = { 572000, 433000, 260000, 156000 };
+static const unsigned  kGpu[] = { 260000, 260000, 200000, 156000 };   // boost held at 260 MHz while the 18:50 system hang is bisected (notes)
 static const int       kGpuUp[] = { 800, 870, 940 };        // enter level i+1 at this G3D zone max
 #define CPU_BASE 1
 #define GPU_BASE 2

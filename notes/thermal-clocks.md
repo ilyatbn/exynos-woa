@@ -67,3 +67,12 @@ Design source: notes/thermal-research.md (staged plan, constants table).
 - 17:50 correction: the shell-host crashes are OLD (latest ShellExperienceHost/SearchHost/StartMenu 2026-10-14
   13:19Z, TextInputHost 10-14 08:26Z; this boot 10-15 11:47Z) and all four hosts run now. Only WindowsTerminal
   crash-loops on this boot (latest 12:27Z).
+- 17:48 second silent reset today (16:22 was before any clock change). debug_history (TWRP): unrequested resets show
+  as "SOFT, INFORM3(12345670) > NORMAL" (INFORM3 = the normal-boot value BootLogDxe sets at ExitBootServices),
+  OS restarts as REBOOTMODE0, recovery as REBOOTMODE4. With BEYOND0LTE_WINDOWS_WATCHDOG 1 the 82 s cluster-0 WDT
+  (0x10050000) stays armed in Windows and Exynos9820Ufs pets it (RWD1 record 0xFED13D80; NoPetReason stops the pet
+  on fatal conditions) -> prime suspect: petting stopped. Temps at the reset 62-67 C (not thermal); the governor log
+  shows the KD break gap (50 s) right before it. Instrumentation: s10egov now logs WTCON/WTCNT + the 8 RWD1 words
+  every 30 s and every second while WTCNT < half.
+- The S10eGovernor "onstart" task never fired at boot (default battery conditions fixed; still no boot run) ->
+  collect.cmd (S10eAgent, every boot, SYSTEM) now starts C:\S10eTmp\s10egov.exe.

@@ -187,6 +187,19 @@ int main(int argc, char **argv)
                     abs(big % 10), mid / 10, abs(mid % 10), lit / 10, abs(lit % 10), g3d / 10, abs(g3d % 10),
                     gCpuLevel, gGpuLevel);
         }
+
+        //
+        // Silent-reset evidence (notes/thermal-clocks.md): the cluster-0 watchdog (0x10050000, 82 s, petted by
+        // Exynos9820Ufs) and the RWD1 record (0xFED13D80, drivers/include/Rwd1Constants.h). Every 30 s, and every
+        // second while WTCNT is below half (= petting stopped) - the last lines before a reset tell who stopped.
+        //
+        {
+            unsigned long wdt[3], rwd1[8];
+            if (ReadRegs(0x10050000ULL, wdt, sizeof(wdt)) && ReadRegs(0xFED13D80ULL, rwd1, sizeof(rwd1)) &&
+                (tick % 30 == 0 || wdt[2] < 0xFFF5u / 2))
+                Log("wdt con %08lx cnt %lu/65525, rwd1 %08lx %08lx %08lx %08lx %08lx %08lx %08lx %08lx", wdt[0], wdt[2],
+                    rwd1[0], rwd1[1], rwd1[2], rwd1[3], rwd1[4], rwd1[5], rwd1[6], rwd1[7]);
+        }
         Sleep(1000);
     }
 }

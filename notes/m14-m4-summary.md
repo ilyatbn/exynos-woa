@@ -44,6 +44,8 @@ Goal: all 8 cores in Windows. Status (2026-10-15 09:00): **NOT working**. Defaul
 | Spectre SMC exception front ends | m4spec1: KeArm64VectorBase = plain KiArm64ExceptionVectors; KiSpeculationPsciState 1 |
 | uH trapping EL1 sysreg writes | m4trap1: no trap overhead on any core |
 | MPIDR collision A55#1 vs M4#0 | run 34 (REAL_MPIDR): still dies |
+| EL3 / CoreSight view of the hang | m4pcs1-3 (10-15): DBGAUTHSTATUS 0xAA on all cores = all external debug disabled; EDPCSR reads 0; Samsung s2d/arraydump areas all zero |
+| Core powered off / reset / halted at the death | m4pcs2 EDPRSR timeline: every core PU=1, no reset/halt up to the watchdog reset |
 
 ## 3. Tools and switches (all committed; every switch defaults to the old behaviour)
 
@@ -84,6 +86,17 @@ Goal: all 8 cores in Windows. Status (2026-10-15 09:00): **NOT working**. Defaul
   (pages: gicc n at 0xBA240000 + (n-1)*0x1000 in every run so far).
 - Python heredocs through Git Bash mangle `\\n` / `\\` - use the Edit tool for C string literals.
 - Never record MAC/IP addresses in notes or commits (user rule).
+
+## 4b. 2026-10-15: hardware Access flag (leading suspect, untestable so far)
+
+- Samsung's kernel for this phone: `# CONFIG_ARM64_HW_AFDBM is not set` -> Linux never sets TCR.HA/HD on the 9820.
+- Windows: TCR_EL1 = 0x695B5513511 on every core (HA 1, HD 0, HPD0/1 1). Decided by nt+0xA7DCD0 (HAFDBS) on the boot
+  CPU; flag dword nt+0xD1AA08 bits 26:25 (01 = HW AF). Secondaries take TCR via KeRestoreProcessorState (nt+0x4F6D40),
+  called at the end of the COPIED HalpStartupStub (patching the stub at the initial break does nothing).
+- KD patch of KeRestoreProcessorState (+0x18 F94061C9, +0x1C 9258F929, +0x28 nop) gives secondaries HA 0 (verified),
+  but Windows then bugchecks 0x50 (m4noha2) or livelocks in nested AF faults even with nt+0xD1AA08 flipped to the
+  no-HW-AF form (m4swaf1, 6 cores). This build cannot run a core with HA 0 => the hypothesis needs another test
+  (e.g. find why MM cannot handle AF faults, or force HAFDBS=0 before kernel entry - only winload/EL2 can).
 
 ## 5. Next ideas (untried)
 

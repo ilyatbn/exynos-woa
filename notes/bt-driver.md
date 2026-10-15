@@ -234,3 +234,23 @@ added; Q1 live DT read; R1 closes the UART source-clock UNVERIFIED.
   rung; first slice is LE + ACL only.
 - Q5 who owns gpg2-0/gpa2-3 pads at Windows boot (sboot/SSP) — pad retention
   `pin-con-pdn` says the pad config changes in sleep; our driver re-muxes explicitly.
+
+### 2026-10-15 — B6: resume on main; clock + pin constants for the UEFI half (fact)
+
+Sources: LineageOS android_kernel_samsung_exynos9820 @ lineage-22.2, raw files fetched 2026-10-15
+(include/dt-bindings/clock/exynos9820.h, drivers/clk/samsung/clk-exynos9820.c, drivers/soc/samsung/cal-if/
+exynos9820/cmucal-sfr.c + cmucal-node.c, drivers/pinctrl/samsung/pinctrl-exynos-arm64.c).
+- DT clock cells: 0x22a = GATE_UART_BT (CLK_PERIC1_BASE 530 + 24; HWACG_VCLK on UART_BT_QCH), 0x23c =
+  DOUT_CLK_PERIC1_UART_BT (530 + 42; VCLK_DIV_CLK_PERIC1_UART_BT) - the divider is the UART's rate source.
+- CMU_PERIC1 (0x10800000) registers: PLL_CON0_MUX_CLKCMU_PERIC1_UART_BT_USER +0x1C0 (MUX_SEL bit4, BUSY bit7;
+  parents [0] OSCCLK_PERIC1, [1] CLKCMU_PERIC1_IP), CLK_CON_DIV_DIV_CLK_PERIC1_UART_BT +0x1814 (DIVRATIO [3:0],
+  BUSY bit16), GOUT UART_BT IPCLK +0x2098, PCLK +0x209C, RSTNSYNC UART_BT clk +0x2020 (CG_VAL bit21, MANUAL bit20),
+  QCH_CON_UART_BT_QCH +0x3038 (ENABLE bit0).
+  => Mux 0 + divider /1 clocks the UART from OSCCLK = 26 MHz (the same oscillator as CNTFRQ/WDT), so the UEFI half
+  needs no source-clock measurement: 115200 = UBRDIV 13, UFRACVAL 2 (26e6/16/115200 = 14.106).
+- Pin banks (exynos9820_pin_banks*): ALIVE pinctrl@15850000: gpa2 +0x040, gpq0 +0x0A0 (bank_type_alive);
+  CMGP pinctrl@15C30000: gpm8 +0x100 (alive type, 1 pin); PERIC0 pinctrl@10430000: gpg2 +0x0C0 (bank_type_off).
+  Register layout per bank: CON +0x0 (4 bits/pin), DAT +0x4 (1 bit/pin), PUD +0x8 (4 bits/pin), DRV +0xC.
+- bt_en on THIS phone = gpm8-0 (Q1 live read, parkinglot/bluetooth-d4c.md), not the PCAL6524 expander.
+- ACPI ID: SAMS9826 is BAT0 on main -> BT moves to SAMS9829 (DSDT BTH0 + Exynos9820Bt.inf).
+- GSIV: 440 (DT SPI 408 + 32; corrected on origin/drivers 2026-10-13); this file's B3 "408" is the raw cell.

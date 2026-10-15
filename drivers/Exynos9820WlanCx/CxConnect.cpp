@@ -53,6 +53,11 @@ CxSetLinked(PCX_DEVICE Dev, BOOLEAN Linked)
         NetAdapterSetLinkState(Dev->Adapter, &Ls);
     }
     CxLog(Dev, "[link] %s\r\n", Linked ? "connected (adapter link up, 5 ms worker poll)" : "disconnected");
+    if (Linked) {
+        ULONG Old;
+        ULONG Rc = WlanMsgSetPm(&Dev->Msg, Dev->RunR, WL_PM_FAST, &Old);
+        CxLog(Dev, "[link] power save: firmware had PM %lu, set PM_FAST -> MSG %lu\r\n", Old, Rc);
+    }
     CxUpdateRate(Dev);
 }
 

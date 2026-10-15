@@ -461,6 +461,9 @@
 #define DLOAD_CRC                   8              /* u32 */
 #define DLOAD_HDR_SIZE              12
 /* ---- milestone 6: WPA2-PSK join with the firmware supplicant (notes/m12-wifi-m6.md) ---- */
+#define WLC_GET_PM                  85             /* fmac fwil.h:51 BRCMF_C_GET_PM */
+#define WLC_SET_PM                  86             /* fmac fwil.h:52 BRCMF_C_SET_PM */
+#define WL_PM_FAST                  2              /* brcm80211 include/defs.h:76-78 PM_OFF 0 / PM_MAX 1 / PM_FAST 2 */
 #define WLC_GET_RATE                12             /* fmac fwil.h:18 BRCMF_C_GET_RATE: current rate, 500 kbit/s units */
 #define WLC_SET_INFRA               20             /* fmac fwil.h:20, dhd wlioctl_defs.h:622 */
 #define WLC_SET_SSID                26             /* fmac fwil.h:25, dhd wlioctl_defs.h:628 */

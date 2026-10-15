@@ -2528,6 +2528,26 @@ WlanMsgSetKey(PWLAN_MSG_CTX M, PWLAN_REPORT R, ULONG Index, const UCHAR *Key, co
     return Rc;
 }
 
+/* Power-save mode: reads the current one (WLC_GET_PM) and sets Mode (WLC_SET_PM), int in. fmac sets PM_FAST after
+   bring-up when power save is on (cfg80211.c:7824-7825); left at the firmware default this driver saw 8-207 ms
+   ping RTT (avg 137 ms) on a 144 Mbit/s link = beacon-interval buffering (notes/wifi-throughput.md). */
+_Use_decl_annotations_
+ULONG
+WlanMsgSetPm(PWLAN_MSG_CTX M, PWLAN_REPORT R, ULONG Mode, PULONG Old)
+{
+    PMSG_STATE S = Live(M, R);
+    ULONG      Zero = 0;
+
+    *Old = 0xFFFFFFFF;
+    if (S == NULL) {
+        return MSG_SKIPPED;
+    }
+    if (Ioctl(S, WLC_GET_PM, &Zero, sizeof(Zero), sizeof(ULONG), "get pm") == MSG_OK && S->RespLen >= sizeof(ULONG)) {
+        *Old = *(ULONG UNALIGNED *)S->Resp;
+    }
+    return Ioctl(S, WLC_SET_PM, &Mode, sizeof(Mode), 0, "set pm");
+}
+
 /* Current link rate (WLC_GET_RATE, int in/out, 500 kbit/s units - fmac cfg80211 get_station reads it the same way
    and reports rate * 5 in 100 kbit/s). 0 = not associated / unknown. */
 _Use_decl_annotations_

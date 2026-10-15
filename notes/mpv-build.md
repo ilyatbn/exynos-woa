@@ -26,3 +26,11 @@ User (2026-10-15 ~16:10): "Forget native windows players" -> a free third-party 
   mpv-arm64\sysroot\clangarm64 (not installed into MSYS2). DLLs: avcodec-63, avformat-63, avdevice-63, avfilter-12,
   avutil-61, swresample-7, swscale-10. Plan: cross-build ffmpeg 9.0.2 (same version -> same DLL names / avpriv ABI)
   with h264_exynos and replace the ffmpeg DLLs next to mpv.exe.
+- 16:25 ffmpeg 9.0.2 + h264_exynos cross-built (tools/mfc/ffmpeg/{h264_exynos.c,apply.sh,build-ffmpeg.sh}; first
+  configure had CONFIG_H264_EXYNOS_DECODER 0 because deps="mingw32" is not a configure feature -> dropped; missing
+  libavutil/mem.h include). Shared DLLs with the same names as MSYS2's (avcodec-63, avformat-63, avdevice-63,
+  avfilter-12, avutil-61, swresample-7, swscale-10) + ffmpeg.exe in mpv-arm64\prefix\bin. No warnings in
+  h264_exynos.c.
+- 16:22 the phone reset silently (ping/ssh gone ~2 min, back 16:24 via stay.flg): Kernel-Power 41 (unclean), KD log
+  just stops (no bugcheck). MFC idle at that time (last session 15:40; mftest -enum only opened a handle). Same
+  family as the earlier intermittent silent resets; not attributed to the MFC.

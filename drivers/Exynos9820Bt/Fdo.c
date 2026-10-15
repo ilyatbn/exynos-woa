@@ -1566,9 +1566,17 @@ Return Value:
     // BTHX_HCI_READ_WRITE_CONTEXT, as the sample relied on) goes straight into the UART TX FIFO, then the request
     // is completed exactly like the sample's CR_WriteDeviceIO did: output ULONG = DataLen.
     //
-    BtUartTxQueue(&_FdoExtension->Uart,
-                  (const UCHAR *)&_HCIContext->Type,
-                  (ULONG)sizeof(_HCIContext->Type) + _HCIContext->DataLen);
+    if (_HCIContext->Type == (UCHAR)HciPacketCommand)
+    {
+        CoexHostCommand(_FdoExtension, (const UCHAR *)&_HCIContext->Type,
+                        (ULONG)sizeof(_HCIContext->Type) + _HCIContext->DataLen);   // notes/bt-wifi-coex.md
+    }
+    else
+    {
+        BtUartTxQueue(&_FdoExtension->Uart,
+                      (const UCHAR *)&_HCIContext->Type,
+                      (ULONG)sizeof(_HCIContext->Type) + _HCIContext->DataLen);
+    }
 
     Status = WdfRequestRetrieveOutputMemory(_RequestFromBthport, &ReqOutMemory);
     if (NT_SUCCESS(Status))

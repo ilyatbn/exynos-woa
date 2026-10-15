@@ -490,6 +490,129 @@ Return Value:
     _ReadContext->ReadSegmentState = _NewState;
 }
 
+//
+// exynos-woa (notes/bt-wifi-coex.md): ACL priority injection. Event layouts (Core spec Vol 4 Part E 7.7): Connection
+// Complete 03 len status handle(2) bdaddr(6) link_type enc; Command Complete 0E len num opcode(2) status...;
+// Command Status 0F len status num opcode(2). Caller: DPC (event path) or the write path, any IRQL <= DISPATCH.
+// Returns TRUE when the event is the reply to our own command and must not reach BthPort.
+//
+static VOID
+CoexTrySendLocked(
+    PFDO_EXTENSION _Fdo
+    )
+{
+    UCHAR Cmd[7];
+
+    if ((_Fdo->CoexPendingHandle == 0xFFFF) || _Fdo->CoexInFlight || (_Fdo->HostCmdOutstanding != 0))
+    {
+        return;
+    }
+
+    Cmd[0] = (UCHAR)HciPacketCommand;
+    Cmd[1] = 0x57;                                   // HCI_BRCM_SET_ACL_PRIORITY = 0xFC57 (AOSP hcidefs.h:875)
+    Cmd[2] = 0xFC;
+    Cmd[3] = 3;                                      // HCI_BRCM_ACL_PRIORITY_PARAM_SIZE
+    Cmd[4] = (UCHAR)_Fdo->CoexPendingHandle;
+    Cmd[5] = (UCHAR)(_Fdo->CoexPendingHandle >> 8);
+    Cmd[6] = 0xFF;                                   // HCI_BRCM_ACL_HIGH_PRIORITY
+    _Fdo->CoexInFlight      = TRUE;
+    _Fdo->CoexPendingHandle = 0xFFFF;
+    BtUartTxQueue(&_Fdo->Uart, Cmd, sizeof(Cmd));
+}
+
+static BOOLEAN
+CoexOnEvent(
+    PFDO_EXTENSION _Fdo,
+    _In_reads_bytes_(_Len) const UCHAR *_Ev,
+    ULONG _Len
+    )
+{
+    KIRQL   Irql;
+    BOOLEAN Swallow = FALSE;
+    USHORT  Op      = 0;
+    UCHAR   St      = 0xFF;
+    BOOLEAN Reply   = FALSE;
+
+    if ((_Ev[0] == 0x0E) && (_Len >= 6))
+    {
+        Op = (USHORT)(_Ev[3] | (_Ev[4] << 8));
+        St = _Ev[5];
+        Reply = TRUE;
+    }
+    else if ((_Ev[0] == 0x0F) && (_Len >= 6))
+    {
+        Op = (USHORT)(_Ev[4] | (_Ev[5] << 8));
+        St = _Ev[2];
+        Reply = TRUE;
+    }
+
+    KeAcquireSpinLock(&_Fdo->CoexLock, &Irql);
+    if (Reply && (Op == 0xFC57) && _Fdo->CoexInFlight)
+    {
+        Swallow = TRUE;
+        _Fdo->CoexInFlight = FALSE;
+        if (St == 0)
+        {
+            _Fdo->CoexSetOk++;
+        }
+        else
+        {
+            _Fdo->CoexSetFailed++;
+        }
+
+        if (_Fdo->CoexDeferredLen != 0)
+        {
+            _Fdo->HostCmdOutstanding = 1;
+            BtUartTxQueue(&_Fdo->Uart, _Fdo->CoexDeferred, _Fdo->CoexDeferredLen);
+            _Fdo->CoexDeferredLen = 0;
+        }
+    }
+    else if (Reply && (Op != 0))                     // opcode 0 = credit-only Command Complete
+    {
+        _Fdo->HostCmdOutstanding = 0;
+    }
+
+    if ((_Ev[0] == 0x03) && (_Len >= 13) && (_Ev[2] == 0) && (_Ev[11] == 0x01))   // ACL Connection Complete
+    {
+        _Fdo->CoexPendingHandle = (USHORT)((_Ev[3] | (_Ev[4] << 8)) & 0x0FFF);
+    }
+
+    CoexTrySendLocked(_Fdo);
+    KeReleaseSpinLock(&_Fdo->CoexLock, Irql);
+
+    if (Swallow)
+    {
+        DoTrace(LEVEL_ERROR, TFLAG_HCI, ("coex: Set ACL Priority high -> status %02x (ok %u, failed %u)", St,
+                _Fdo->CoexSetOk, _Fdo->CoexSetFailed));
+    }
+
+    return Swallow;
+}
+
+// Write path: a BthPort command goes out now, or is held while our own command waits for its reply.
+VOID
+CoexHostCommand(
+    PFDO_EXTENSION _Fdo,
+    _In_reads_bytes_(_Len) const UCHAR *_Pkt,
+    ULONG _Len
+    )
+{
+    KIRQL Irql;
+
+    KeAcquireSpinLock(&_Fdo->CoexLock, &Irql);
+    if (_Fdo->CoexInFlight && (_Len <= sizeof(_Fdo->CoexDeferred)) && (_Fdo->CoexDeferredLen == 0))
+    {
+        RtlCopyMemory(_Fdo->CoexDeferred, _Pkt, _Len);
+        _Fdo->CoexDeferredLen = _Len;
+    }
+    else
+    {
+        _Fdo->HostCmdOutstanding = 1;
+        BtUartTxQueue(&_Fdo->Uart, _Pkt, _Len);
+    }
+    KeReleaseSpinLock(&_Fdo->CoexLock, Irql);
+}
+
                         // Full packet: match to a Request and complete it.
 NTSTATUS
 ReadH4PacketComplete(
@@ -509,6 +632,11 @@ ReadH4PacketComplete(
     RtlCopyMemory(_FdoExtension->LastPacket, _Buffer, _BufferLength);
     _FdoExtension->LastPacketLength = _BufferLength;
 #endif
+
+    if ((_Type == (UCHAR) HciPacketEvent) && CoexOnEvent(_FdoExtension, _Buffer, _BufferLength))
+    {
+        return Status;   // reply to our own Set ACL Priority (notes/bt-wifi-coex.md)
+    }
 
     if (_Type == (UCHAR) HciPacketEvent)
     {
@@ -1524,6 +1652,12 @@ Return Value:
 
     FdoExtension->CntReadDataReq        = 0;
     FdoExtension->CntReadDataCompleted  = 0;
+
+    KeInitializeSpinLock(&FdoExtension->CoexLock);
+    FdoExtension->HostCmdOutstanding = 0;
+    FdoExtension->CoexInFlight       = FALSE;
+    FdoExtension->CoexPendingHandle  = 0xFFFF;
+    FdoExtension->CoexDeferredLen    = 0;
 
     // Create a WDF Request
     WDF_OBJECT_ATTRIBUTES_INIT(&ObjAttributes);

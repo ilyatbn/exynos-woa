@@ -314,7 +314,32 @@ typedef struct _FDO_EXTENSION
     // exynos-woa (D4c W2): the BT UART itself (mapped window, interrupt, RX ring) - replaces IoTargetSerial.
     //
     BT_UART    Uart;
+
+    //
+    // exynos-woa (notes/bt-wifi-coex.md): Broadcom "Set ACL Priority" (0xFC57 {le16 handle, 0xFF}) after every ACL
+    // Connection Complete, as Android's stack does for A2DP (Windows' stack never sends it); without it the shared
+    // radio's coex arbiter starves A2DP while 2.4 GHz Wi-Fi is busy. One HCI command credit: injected only when no
+    // BthPort command is outstanding; a BthPort command arriving meanwhile is held and sent after our reply, which
+    // is swallowed.
+    //
+    KSPIN_LOCK CoexLock;
+    LONG       HostCmdOutstanding;     // BthPort commands sent without Command Complete/Status yet
+    BOOLEAN    CoexInFlight;           // our 0xFC57 sent, reply not seen
+    USHORT     CoexPendingHandle;      // 0xFFFF = none
+    ULONG      CoexDeferredLen;        // held BthPort command (type byte + packet), 0 = none
+    UCHAR      CoexDeferred[1 + 3 + 255];
+    ULONG      CoexSetOk;
+    ULONG      CoexSetFailed;
 } FDO_EXTENSION, *PFDO_EXTENSION;
+
+// exynos-woa (notes/bt-wifi-coex.md, Io.c): a BthPort HCI command to the controller, held while our ACL-priority
+// command waits for its reply.
+VOID
+CoexHostCommand(
+    PFDO_EXTENSION _Fdo,
+    _In_reads_bytes_(_Len) const UCHAR *_Pkt,
+    ULONG _Len
+    );
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(FDO_EXTENSION, FdoGetExtension)
 

@@ -566,10 +566,27 @@ MfcEvtReleaseHardware(_In_ WDFDEVICE Device, _In_ WDFCMRESLIST Translated)
     UNREFERENCED_PARAMETER(Translated);
     if (M->Regs != NULL)
     {
+        //
+        // Vendor teardown, never a reset of a running core (vidc2: V-W1's RISC_ON 0 + MfcReset here raised an
+        // SError, bugcheck 0x122): mfc_risc_off = wait MFC_BUS_STATUS == 0 (MFC_BW_TIMEOUT 500 ms), RISC_ON 0;
+        // __mfc_deinit_hw = MFC_OFF 1. The next MfcBoot resets the stopped core.
+        //
+        ULONG Ms;
+
+        for (Ms = 0; (Ms < 500) && (Rd(M, MFC_REG_MFC_BUS_STATUS) != 0); Ms++)
+        {
+            KeStallExecutionProcessor(1000);
+        }
+
+        MfcTrace("release: bus status 0x%x after %u ms\n", Rd(M, MFC_REG_MFC_BUS_STATUS), Ms);
         Wr(M, MFC_REG_RISC_ON, 0);
-        MfcReset(M);
+        Wr(M, MFC_REG_MFC_OFF, 1);
         MmUnmapIoSpace(M->Regs, M->RegsLength);
         M->Regs = NULL;
+        if (Ms == 500)
+        {
+            M->BufferAlloc = NULL;   // bus never went idle: the core may still DMA into it - leak rather than free
+        }
     }
 
     if (M->BufferAlloc != NULL)

@@ -15,6 +15,7 @@
 #define MFC_REG_MFC_RESET            0x1070u
 #define MFC_REG_HOST2RISC_CMD        0x1100u
 #define MFC_REG_RISC2HOST_CMD        0x1104u
+#define MFC_REG_MFC_BUS_STATUS       0x7018u     // mfc_regs.h:35 (mfc_risc_off waits for 0)
 #define MFC_REG_MFC_OFF              0x7120u
 #define MFC_REG_FW_VERSION           0xF000u
 #define MFC_REG_CONTEXT_MEM_ADDR     0xF014u

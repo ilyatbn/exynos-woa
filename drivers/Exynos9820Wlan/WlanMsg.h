@@ -98,6 +98,7 @@ _IRQL_requires_(PASSIVE_LEVEL)
 ULONG WlanMsgConnect(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_ const WLAN_CONNECT *C,
                      _Out_ PWLAN_ASSOC_INFO A);                            /* JOIN_*: associated + flowring */
 _IRQL_requires_(PASSIVE_LEVEL)
+ULONG WlanMsgGetIntVar(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_z_ PCSTR Name, _Out_ PULONG Value);
 ULONG WlanMsgSetPm(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_ ULONG Mode, _Out_ PULONG Old);  /* MSG_* */
 ULONG WlanMsgGetRate(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _Out_ PULONG Rate500k);  /* MSG_* */
 ULONG WlanMsgDisconnect(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R);  /* MSG_* */

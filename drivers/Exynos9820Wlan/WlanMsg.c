@@ -2528,6 +2528,25 @@ WlanMsgSetKey(PWLAN_MSG_CTX M, PWLAN_REPORT R, ULONG Index, const UCHAR *Key, co
     return Rc;
 }
 
+/* GET_VAR of a 32-bit iovar (diagnostics: ampdu, ampdu_ba_wsize, frameburst, nmode). */
+_Use_decl_annotations_
+ULONG
+WlanMsgGetIntVar(PWLAN_MSG_CTX M, PWLAN_REPORT R, PCSTR Name, PULONG Value)
+{
+    PMSG_STATE S = Live(M, R);
+    ULONG      Rc;
+
+    *Value = 0xFFFFFFFF;
+    if (S == NULL) {
+        return MSG_SKIPPED;
+    }
+    Rc = IoctlVar(S, FALSE, Name, NULL, 0, sizeof(ULONG));
+    if (Rc == MSG_OK && S->RespLen >= sizeof(ULONG)) {
+        *Value = *(ULONG UNALIGNED *)S->Resp;
+    }
+    return Rc;
+}
+
 /* Power-save mode: reads the current one (WLC_GET_PM) and sets Mode (WLC_SET_PM), int in. fmac sets PM_FAST after
    bring-up when power save is on (cfg80211.c:7824-7825); left at the firmware default this driver saw 8-207 ms
    ping RTT (avg 137 ms) on a 144 Mbit/s link = beacon-interval buffering (notes/wifi-throughput.md). */

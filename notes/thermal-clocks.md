@@ -31,3 +31,8 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   - DT zone masks: TOP BIG 0x7c0 (sensors 6-10), MID 0x20 (5), LITTLE 0x10 (4); SUB G3D 0x21e (1,2,3,4,9), ISP 0x100 (8).
   => No ACPM needed to READ temperatures: plain MMIO + per-sensor trim. (ACPM ch 9 stays the Linux path.)
   Next: s10etemp user tool (zones, max over masks), load test (temperatures must rise), then the driver/ACPI.
+- 17:15 tools/phone/s10etemp (ARM64, S10eDiag READ_PHYS, read-only): zone maxima over the DT masks, per-sensor -v.
+  Idle: BIG 57-60, MID 54-59, LITTLE 55-57, G3D 54, ISP 53-54 C. **Load test** (ffmpeg software h264 decode,
+  all 6 cores, ~40 s): BIG 59.8 -> 63.7, MID up to 60.8, LITTLE up to 58.8, G3D 54 -> 55.9; after the load
+  BIG back to 57.4-60.8 within ~15 s. => the MMIO readout tracks real temperature. (Phone clock in the log is
+  not local time.)

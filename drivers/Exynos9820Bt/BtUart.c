@@ -401,6 +401,63 @@ BtUartSetDivisor(
     KeStallExecutionProcessor(100);
 }
 
+/** Host baud rate as the hardware really produces it: internal loopback (UCON bit 5, serial_s3c.h:86), AFC off so
+ *  no CTS gating, 64 bytes queued, time from the first write to transmitter-empty (UTRSTAT TXE) with the
+ *  performance counter; 10 bit times per 8N1 byte. Leaves the UART at 115200, FIFOs reset, previous UCON/UMCON. **/
+static ULONG
+BtUartMeasureBaud(
+    _In_ PBT_UART Uart,
+    _In_ ULONG Ubrdiv,
+    _In_ ULONG Ufracval
+    )
+{
+    ULONG         Ucon;
+    ULONG         Umcon;
+    ULONG         Sent;
+    ULONG         Spin;
+    LARGE_INTEGER Freq;
+    LARGE_INTEGER T0;
+    LARGE_INTEGER T1;
+    ULONGLONG     Ticks;
+
+    Ucon  = Rd(Uart, BT_UART_UCON);
+    Umcon = Rd(Uart, BT_UART_UMCON);
+    Wr(Uart, BT_UART_UMCON, 0);
+    Wr(Uart, BT_UART_UCON, BT_UCON_POLL | (1u << 5));
+    BtUartSetDivisor(Uart, Ubrdiv, Ufracval);
+    Wr(Uart, BT_UART_UFCON, BT_UFCON_FIFO_ON | BT_UFCON_RESET);
+    KeStallExecutionProcessor(100);
+    Wr(Uart, BT_UART_UFCON, BT_UFCON_FIFO_ON);
+
+    T0 = KeQueryPerformanceCounter(&Freq);
+    for (Sent = 0; (Sent < 64) && ((Rd(Uart, BT_UART_UFSTAT) & BT_UFSTAT_TX_FULL) == 0); Sent++)
+    {
+        Wr(Uart, BT_UART_UTXH, 0x55);
+    }
+
+    for (Spin = 0; (Spin < 100000) && ((Rd(Uart, BT_UART_UTRSTAT) & BT_UTRSTAT_TX_EMPTY) == 0); Spin++)
+    {
+        KeStallExecutionProcessor(1);
+    }
+
+    T1    = KeQueryPerformanceCounter(NULL);
+    Ticks = (ULONGLONG)(T1.QuadPart - T0.QuadPart);
+
+    BtUartSetDivisor(Uart, BT_UBRDIV_115200, BT_UFRACVAL_115200);
+    Wr(Uart, BT_UART_UCON, Ucon);
+    Wr(Uart, BT_UART_UFCON, BT_UFCON_FIFO_ON | BT_UFCON_RESET);
+    KeStallExecutionProcessor(100);
+    Wr(Uart, BT_UART_UFCON, BT_UFCON_FIFO_ON);
+    Wr(Uart, BT_UART_UMCON, Umcon);
+
+    if ((Sent == 0) || (Ticks == 0))
+    {
+        return 0;
+    }
+
+    return (ULONG)((ULONGLONG)Sent * 10ULL * (ULONGLONG)Freq.QuadPart / Ticks);
+}
+
 /** Controller + host to BT_BAUD_OPER (Linux bcm_setup order: after the patchram, command at the old rate, the
  *  controller answers Command Complete at the old rate, then the host follows). Verified with READ_LOCAL_VERSION at
  *  the new rate; on failure both sides go back to 115200 (the controller's command did not take). **/
@@ -458,8 +515,15 @@ BtUartBringUp(
 {
     USHORT Subver;
     UCHAR  Status;
+    ULONG  Rate115200;
+    ULONG  RateOper;
 
     BtUartInitHw(Uart);
+    Rate115200 = BtUartMeasureBaud(Uart, BT_UBRDIV_115200, BT_UFRACVAL_115200);
+    RateOper   = BtUartMeasureBaud(Uart, BT_UBRDIV_OPER, BT_UFRACVAL_OPER);
+    DoTrace(LEVEL_ERROR, TFLAG_UART, ("baud measured (loopback): %u/%u -> %u, %u/%u -> %u (want %u)",
+            BT_UBRDIV_115200, BT_UFRACVAL_115200, Rate115200, BT_UBRDIV_OPER, BT_UFRACVAL_OPER, RateOper,
+            BT_BAUD_OPER));
     Status = BtUartHciCmd(Uart, 0x0C03, NULL, 0, 1000, NULL, NULL);
     DoTrace(LEVEL_ERROR, TFLAG_HCI, ("HCI_RESET %02x", Status));
     if (Status != 0)
@@ -514,9 +578,19 @@ BtUartBringUp(
         BtUartLogIdentity(Uart, "after patch");
     }
 
+    // Only when the host demonstrably produces BT_BAUD_OPER (+-3 %): a controller switched to a rate the host
+    // cannot follow is lost until the next reboot (1.0.0.4-1.0.0.6).
     if ((Subver != 0) && (Rd(Uart, BT_UART_UBRDIV) != BT_UBRDIV_OPER))
     {
-        BtUartSpeedUp(Uart);
+        if ((RateOper > BT_BAUD_OPER / 100 * 97) && (RateOper < BT_BAUD_OPER / 100 * 103))
+        {
+            BtUartSpeedUp(Uart);
+        }
+        else
+        {
+            DoTrace(LEVEL_ERROR, TFLAG_HCI, ("baud: host makes %u at %u/%u, not %u - staying at 115200", RateOper,
+                    BT_UBRDIV_OPER, BT_UFRACVAL_OPER, BT_BAUD_OPER));
+        }
     }
 
     // Interrupt mode for the runtime path (RX still masked until BtUartRxStart).

@@ -599,3 +599,10 @@ No device access in this task; build-verified only (Guided, not Ready).
   `and x4,x4,#~(1<<39)` (9258F884, clang-verified) + `msr TCR_EL1,x4` (the next MAIR isb synchronizes) -> every
   SECONDARY runs with HA 0 (boot A55 keeps HA 1). Image m4pcs2 (both M4 offered + sampler). One timed break ~20 s
   after the kernel start dumps MIDR/SCTLR/ACTLR/CPACR/TCR from every KPRCB to verify the patch reached the M4s.
+- m4noha1 RESULT: the HalpStartupStub patch did NOT reach the secondaries - every KPRCB (A55 x3, A75 x2, M4 x2, live
+  values saved by nt+0x2861b0 at the freeze) still had TCR 0x695B5513511 (HA 1). The stub runs from a COPY made before
+  the initial break (it reads its TTBR from [its own page + 8]); and its last step calls KeRestoreProcessorState
+  (nt+0x4F6D40, in place), which reloads SCTLR/ACTLR/CPACR/TCR/TTBRs/MAIR from the boot CPU's saved state anyway.
+  Died again after the verification break (TWRP 09:53:03).
+- m4noha2: patch KeRestoreProcessorState instead: +0x18 `ldr x9,[x14,#0xC0]` (F94061C9), +0x1C `and x9,x9,#~(1<<39)`
+  (9258F929), +0x28 `nop` -> the msr TCR at +0x2C writes HA 0; the ACTLR_EL1 write (value 0) is dropped to make room.

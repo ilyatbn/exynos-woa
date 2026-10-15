@@ -254,3 +254,9 @@ exynos9820/cmucal-sfr.c + cmucal-node.c, drivers/pinctrl/samsung/pinctrl-exynos-
 - bt_en on THIS phone = gpm8-0 (Q1 live read, parkinglot/bluetooth-d4c.md), not the PCAL6524 expander.
 - ACPI ID: SAMS9826 is BAT0 on main -> BT moves to SAMS9829 (DSDT BTH0 + Exynos9820Bt.inf).
 - GSIV: 440 (DT SPI 408 + 32; corrected on origin/drivers 2026-10-13); this file's B3 "408" is the raw cell.
+- Beyond0LteBtUartDxe (BEYOND0LTE_BT_UART_PROBE, default 0; progress guard 0x6B): CMU_PERIC1 UART_BT mux->OSC,
+  div /1, IPCLK/PCLK/RSTN gates MANUAL|CG_VAL, QCH ENABLE|CLOCK_REQ; gpq0-0..3 fn2, gpg2-0 out high; USI mode 1,
+  USI_CON 1->0, USI_OPTION CLKREQ_ON; 115200 8N1 (UBRDIV 13 / UFRACVAL 2), FIFOs on, polling, UMCON RTS asserted.
+  R1 = internal loopback of 32 bytes, timed against CNTVCT (2778 us expected = checks the 26 MHz clock).
+  R2 = bt_en gpm8-0 low 20 ms -> high, 150 ms, then HCI_RESET + HCI_READ_LOCAL_VERSION, raw replies hex-logged.
+  Builds with the switch 0 and 1. Device run next (image boot-bt1).

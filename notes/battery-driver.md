@@ -197,3 +197,10 @@ free.
   (SOC/voltage/current/temperature conversions, 2026-10-10)
 - https://github.com/ianmacd/winnerx/blob/master/include/linux/mfd/max77705-private.h
   (fuel-gauge register addresses, 8-bit slave addrs 0x6C/0xD2/0xCC/0x4A, 2026-10-10)
+
+### 2026-10-15 user report: barely charges under Windows (parked: "fix bt first")
+- User: TWRP 13 -> ~35 % in ~10 min; Windows 12 -> 13 % over a similar time. Either the charger is not configured
+  under Windows (MAX77705 charger 0x69 at power-on defaults: input current limit / fast-charge current; Linux's
+  max77705_charger sets them per cable type) or the Windows load (no idle states, 5 ms Wi-Fi poll) eats the input,
+  or the reported % lags. Next: S10eBattery AvgCurrentMa + CHG_DETAILS/CNFG_00 under Windows vs Linux power_supply
+  (current_now, input_current_limit, constant_charge_current) in TWRP; then vendor max77705_charger.c ILIM/CC regs.

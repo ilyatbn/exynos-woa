@@ -343,3 +343,11 @@ exynos9820/cmucal-sfr.c + cmucal-node.c, drivers/pinctrl/samsung/pinctrl-exynos-
   Pairing (R5 second half) needs a device in pairing mode next to the phone - waits for the user.
 - Remaining D4c work: phone's own BD address (vendor write at bring-up; read from the device, never recorded),
   RTS flow control, BT role latch + driver in the default image, power management (no idle yet), higher baud.
+- **R5 pairing PASSED (2026-10-15 16:40, vidc2 image with the BT role latch, Exynos9820Bt driver):** the PC was
+  made the peer: its Bluetooth radio was Off in Settings (Radio API SetStateAsync On), tools/phone/btpeer (x64
+  Win32: discoverable + incoming connections + BluetoothRegisterForAuthenticationEx auto-accept) ran on the PC;
+  tools/phone/btpair (ARM64 C++/WinRT) on the phone. The phone's classic inquiry found the PC by name. From the SSH
+  session PairAsync returned AccessDenied (CanPair 0); from the desktop session (runuser2.ps1) it paired:
+  phone "pairing request: kind 8 (ConfirmPinMatch) -> accept, pair result: Paired", PC "numeric comparison ...
+  accept -> 0", same 6-digit value on both sides; the phone lists the PC as paired. => classic discovery + Secure
+  Simple Pairing work end to end over the BthxDDI transport. (Cleanup: btpair unpair <name>, PC Settings.)

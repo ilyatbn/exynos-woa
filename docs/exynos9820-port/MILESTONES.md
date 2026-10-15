@@ -418,7 +418,8 @@ Opened 2026-10-15 (goal: "get bluetooth, video accel working. Wwan is a stretch 
 | B1. Bluetooth (BCM4375 on uart@10840000): UEFI role latch (`Beyond0LteBtUartDxe`), DSDT BTH0 SAMS9829, `drivers/Exynos9820Bt` BthxDDI transport + patchram | **doing** - R1-R5 passed on device (radio On, HCI both ways, patch runs, LE scan finds advertisers from a Windows app). Open: pairing (needs a device in pairing mode), own BD address, RTS flow control, role latch in the default image, power management | `notes/bt-driver.md` |
 | V1. MFC v13 firmware boot + SYS_INIT from a Windows KMDF driver, R2H interrupt (GSIV 370) | **done 2026-10-15** (vidc1: R2H 12 / SYS_INIT_RET 1 / ISR 1) | `notes/d10-mfc-main.md`, `drivers/Exynos9820Mfc` |
 | V2. MFC plain-mode H.264 decode in the driver (OPEN, SEQ_HEADER, INIT_BUFFERS, NAL_START, LAST_FRAME, CLOSE) | **done 2026-10-15** (vidc4: generated I_PCM/P_Skip vector decoded bit-exactly, 3 frames, FNV hashes = libavcodec). Rules learned: every buffer above the RISC base (else ERR 10); never reset a running core (0x122) | `notes/d10-mfc-decode-flow.md`, `tools/mfc/mkh264pcm.py` |
-| V3. User-mode interface: IOCTL decode of an arbitrary stream (buffers from the app), then Media Foundation integration | todo | |
+| V3. User-mode interface: IOCTL decode of an arbitrary stream (`MfcIoctl.h`, `tools/mfc/mfcdec`) | **done 2026-10-15** (vidc6/vidc8: x264 640x360 baseline, 720p and 1080p High with B-frames, 120/120 frames bit-exact vs libavcodec; cached buffers + KeFlushIoBuffers: 1080p 77 fps from user mode) | `notes/d10-mfc-decode-flow.md`, `tools/mfc/mkclip.py` |
+| V4. Media Foundation integration (an H.264 decoder MFT on the IOCTLs) so Windows apps use the hardware | todo | |
 | W1. WWAN (Shannon modem): stretch | todo | drivers branch `D9-MODEM-DESIGN.md`, `notes/modem-wwan.md` |
 
 ## What is blocked on the user right now

@@ -149,3 +149,9 @@ F. CLOSE_INSTANCE H2R 6 -> R2H 6 (INSTANCE_ID first). DPB_FLUSH H2R 10 -> R2H 10
   driver reading the 3.1 MB NV12 picture out of NON-CACHED memory (~100 MB/s). Next: cached session buffers with
   explicit cache maintenance (check MS docs for ARM64 non-coherent DMA first).
 - 15:35 vidc8: 1.0.0.6 (cached + KeFlushIoBuffers, 4294869, sys 5B0F295E) swapped in over ssh (rename .prev + copy), ssh shutdown /r; kd-vidc8.log.
+- **15:38 cached buffers PASSED (vidc8, 1.0.0.6, MFC_CACHED 1 + KeFlushIoBuffers at each hand-over):** boot
+  self-test bit-exact; over ssh mfcdec2 (hashing on): cbase 30/30, c720 30/30, c1080 60/60 IDENTICAL to libavcodec
+  -> KeFlushIoBuffers does real maintenance on ARM64 and the MFC is safe to treat as non-coherent this way.
+  Throughput: c1080 53.3 fps with hashing, **77.4 fps -q** (was 24.9 non-cached); c720 113 fps (hashing) / 98 fps -q
+  (one sample, noise); cbase 310 fps. HW wait per 1080p frame 9.9-11 ms. => 1080p30 H.264 decodes in real time with
+  2.5x headroom from a user-mode process.

@@ -26,6 +26,9 @@ mkdir C:\ProgramData\ssh > nul 2>&1
 >> C:\ProgramData\ssh\sshd_config echo KbdInteractiveAuthentication no
 >> C:\ProgramData\ssh\sshd_config echo AuthorizedKeysFile .ssh/authorized_keys
 >> C:\ProgramData\ssh\sshd_config echo Subsystem sftp sftp-server.exe
+rem PerSourcePenalties no: the PC watcher (tools/phone/watchall.sh) probes TCP 22 every 5 s without logging in;
+rem OpenSSH 10 penalised that as "connections without attempting authentication" and dropped real logins.
+>> C:\ProgramData\ssh\sshd_config echo PerSourcePenalties no
 >> C:\ProgramData\ssh\sshd_config echo Match Group administrators
 >> C:\ProgramData\ssh\sshd_config echo        AuthorizedKeysFile __PROGRAMDATA__/ssh/administrators_authorized_keys
 copy /y "%S%\authorized_keys" C:\ProgramData\ssh\administrators_authorized_keys > "%X%\key.txt" 2>&1

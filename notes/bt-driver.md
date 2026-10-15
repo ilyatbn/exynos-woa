@@ -324,3 +324,9 @@ exynos9820/cmucal-sfr.c + cmucal-node.c, drivers/pinctrl/samsung/pinctrl-exynos-
   not transmit), and FindAllAsync never started an LE scan (MS docs: unpaired discovery wants DeviceWatcher).
   Open: after patchram the LMP subversion is still 0x1111 -> verify the patch runs (Read Local Name / Broadcom
   verbose config 0xFC79 before and after), then an LE advertisement watcher (C++/WinRT, PS cannot do WinRT events).
+- Patch check (da8fca3, 13:43): before patch READ_LOCAL_NAME "BCM4375B1", BCM verbose config 95 fe ff ff ...;
+  after patch READ_LOCAL_NAME "BCM4375B1 Beyond E43 Ant0 [Baseline: 0173]" (= the .hcd's own name string) and verbose
+  config 95 fe ad 00 ad 00 (firmware build 0xFFFF -> 0x00AD). => **the patch RUNS**; this firmware simply keeps the
+  ROM's LMP subversion 0x1111. Q3 closed.
+- R5 tool: tools/phone/btscan (C++/WinRT ARM64: BluetoothLEAdvertisementWatcher active scan + classic DeviceWatcher,
+  counts + names only, no addresses), run from extra-bt-scan.cmd.

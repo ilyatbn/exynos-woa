@@ -2,7 +2,8 @@
 """Decode \\PCSAMP.BIN - the m14 PC sampler ring (park stub flag 5, notes/m14-smp.md "PC sampler").
 
 Header (slot 0): 'PCS1', slots, next slot, samples taken, CNTVCT of the last sample, period.
-Record (256 B):  CNTVCT, sample number, then per core (MADT GICC order) PCSRlo, CIDSR, VIDSR, PCSRhi, PRSR, 0.
+Record (256 B):  CNTVCT, sample number, then per core (MADT GICC order) PCSRlo, EDSCR, VIDSR, PCSRhi, PRSR, AUTH
+(records before 2026-10-15 10:00 have CIDSR, 0 in those two words).
 Prints the records oldest first; 'same' collapses runs where no core's PC/EL/PRSR changed.
 
 usage: pcsamp.py PCSAMP.BIN [--all] [--last N]
@@ -38,8 +39,8 @@ def main():
         cnt, seq = struct.unpack_from("<QQ", d, s * SLOT)
         cores = []
         for c in range(8):
-            lo, cid, vid, hi, prsr, _ = struct.unpack_from("<6I", d, s * SLOT + 0x10 + c * 0x18)
-            cores.append(((hi << 32) | lo, cid, vid, prsr))
+            lo, scr, vid, hi, prsr, auth = struct.unpack_from("<6I", d, s * SLOT + 0x10 + c * 0x18)
+            cores.append(((hi << 32) | lo, scr, vid, prsr, auth))
         recs.append((cnt, seq, cores))
     if last:
         recs = recs[-last:]
@@ -47,7 +48,7 @@ def main():
     prev = None
     skipped = 0
     for cnt, seq, cores in recs:
-        key = [(pc, el_of(vid), prsr) for pc, cid, vid, prsr in cores]
+        key = [(pc, el_of(vid), prsr, scr, auth) for pc, scr, vid, prsr, auth in cores]
         if prev is not None and key == prev and not show_all:
             skipped += 1
             continue
@@ -56,7 +57,8 @@ def main():
             skipped = 0
         prev = key
         t = (cnt - t_end) / 26e6
-        line = " ".join(f"{NAMES[i]}:{pc:016x}/{el_of(vid)}/{prsr:03x}" for i, (pc, cid, vid, prsr) in enumerate(cores))
+        line = " ".join(f"{NAMES[i]}:{pc:016x}/{el_of(vid)}/prsr {prsr:03x}/scr {scr:08x}/auth {auth:02x}"
+                        for i, (pc, scr, vid, prsr, auth) in enumerate(cores))
         print(f"#{seq:6d} t{t:+8.2f}s {line}")
     if skipped:
         print(f"   ... {skipped} identical samples (to the end)")

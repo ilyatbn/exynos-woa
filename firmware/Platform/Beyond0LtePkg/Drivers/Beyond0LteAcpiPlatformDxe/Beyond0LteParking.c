@@ -537,8 +537,8 @@ Beyond0LteParkSecondaries (
       volatile UINT32  *W;
 
       W = (volatile UINT32 *)(Rec + 0x10 + Core * 0x18);
-      DEBUG ((DEBUG_ERROR, "PARK: PCS   cpu%u pc %08x%08x cid %x vid %x prsr %x (mailbox %lx)\n",
-              (UINT32)Core, W[3], W[0], W[1], W[2], W[4], Page[Core]));
+      DEBUG ((DEBUG_ERROR, "PARK: PCS   cpu%u pc %08x%08x edscr %x vid %x prsr %x authstatus %x (mailbox %lx)\n",
+              (UINT32)Core, W[3], W[0], W[1], W[2], W[4], W[5], Page[Core]));
     }
   }
 

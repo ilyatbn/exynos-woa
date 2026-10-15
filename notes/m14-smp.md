@@ -567,3 +567,15 @@ No device access in this task; build-verified only (Guided, not Ready).
 - Fix: the sampler waits for a go word (mailbox +0x460) that Parking writes after the CPU_ON loop, and only the boot
   core + cores with an alive mark get a debug base (others stay 0 = skipped). Ring header +0x28 = core being read
   (0xFF between samples) so a hang inside a read names the core; the next boot logs it ("was reading core").
+- m4pcs2 (0f22fa2c, PARK 0xFE, OFFER 0xF6 -> Windows has A55 0-2, A75, BOTH M4; gicc3 samples): UEFI fine, KD connected
+  09:36:28, Windows PRAM ring ends at "S10eDiag loaded" (41.7 s) - died ~44 s after the kernel start, reset (watchdog;
+  INFORM3 normal), boot pair dumped PCSAMP.BIN (194 samples = 48 s).
+  Sampler findings: EDPCSR on the A55/A75 = synchronous external abort (ESR 0x96000010) while OS Lock is set; after
+  Windows clears OSLK (cpu0 at kernel start, the rest when they start) EDPCSR/EDVIDSR read 0 on every core, M4 too ->
+  NO PC sampling through external debug on this part (EDPRSR EPMAD=1, so PMPCSR is closed as well).
+  EDPRSR timeline: A55 0x2A1 / A75 0xA1 / M4 0x2AB in UEFI -> 0x281 / 0x281 / 0x28B under Windows (OSLK cleared);
+  NO core changes power/reset/halt state up to the reset: at the death every core is still powered (PU=1), not halted.
+  (The M4 keeps SPD|SR sticky bits set on every read.)
+  Kernel start = parking + 3.75 s, secondaries + 9.5 s.
+- Next: per-core word CIDSR -> EDSCR (0x088), pad -> DBGAUTHSTATUS (0xFB8) to see whether invasive debug (halt + ITR)
+  is permitted; control run with the M4s parked but NOT offered to prove the sampler itself is harmless.

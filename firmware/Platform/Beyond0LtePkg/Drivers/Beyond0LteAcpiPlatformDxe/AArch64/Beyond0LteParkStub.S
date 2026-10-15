@@ -286,14 +286,14 @@ ASM_FUNC(Beyond0LteParkStub)
 
   //
   // sleep flag 5 (m14 PC sampler, notes/m14-smp.md "PC sampler"): every period, read each core's external-debug
-  // PC sample (EDPCSRlo +0xA0 first - the read latches EDCIDSR +0xA4, EDVIDSR +0xA8, EDPCSRhi +0xAC) and EDPRSR
-  // (+0x314) into a ring that survives a warm reset. Parameters (written by Beyond0LteParking.c, placed between the
+  // PC sample (EDPCSRlo +0xA0 first - the read latches EDVIDSR +0xA8, EDPCSRhi +0xAC), EDSCR (+0x88), EDPRSR
+  // (+0x314), DBGAUTHSTATUS (+0xFB8) into a ring that survives a warm reset. Parameters (written by Beyond0LteParking.c, placed between the
   // vector slots): +0x408 ring PA, +0x410 ring slots (256 B each, slot 0 = header), +0x418 period in CNTVCT ticks,
   // +0x420 8 x UINT64 debug block bases (0 = skip), +0x460 go word. VBAR_EL1 = this mailbox page: the firmware put a branch to
   // Beyond0LteParkFault in every vector slot, so an aborting debug read is recorded and skipped (value stays
   // 0xFAFAFAFA) instead of killing the core. x1 must stay the mailbox base (the fault handler uses it).
   // Header: +0 'PCS1', +4 slots, +8 next slot, +0x10 samples taken, +0x18 CNTVCT of the last sample, +0x20 period.
-  // Record: +0 CNTVCT, +8 sample number, +0x10 + n * 0x18: PCSRlo, CIDSR, VIDSR, PCSRhi, PRSR, 0.
+  // Record: +0 CNTVCT, +8 sample number, +0x10 + n * 0x18: PCSRlo, EDSCR, VIDSR, PCSRhi, PRSR, DBGAUTHSTATUS.
   //
 8:
   ldr   x20, [x1, #0x408]           // ring
@@ -341,18 +341,20 @@ ASM_FUNC(Beyond0LteParkStub)
   mov   w12, w10
   mov   w13, w10
   mov   w14, w10
+  mov   w15, w10
   cbz   x8, 83f
   str   w7, [x20, #0x28]            // header +0x28: core being read (a hang leaves it here), 0xFF = idle
   dsb   sy
   ldr   w10, [x8, #0xA0]
-  ldr   w11, [x8, #0xA4]
+  ldr   w11, [x8, #0x88]            // EDSCR (CIDSR is useless: EDPCSR reads 0 here)
   ldr   w12, [x8, #0xA8]
   ldr   w13, [x8, #0xAC]
   ldr   w14, [x8, #0x314]
+  ldr   w15, [x8, #0xFB8]            // DBGAUTHSTATUS
 83:
   stp   w10, w11, [x6]
   stp   w12, w13, [x6, #8]
-  stp   w14, wzr, [x6, #16]
+  stp   w14, w15, [x6, #16]
   add   x6, x6, #0x18
   add   x7, x7, #1
   cmp   x7, #8

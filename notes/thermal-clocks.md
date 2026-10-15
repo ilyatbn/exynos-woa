@@ -49,3 +49,10 @@ Design source: notes/thermal-research.md (staged plan, constants table).
 - WerFault cause (Application log): **WindowsTerminal.exe access violation 0xc0000005 in d3d11.dll** (MoAppCrash,
   repeated) - Terminal's D3D11 renderer on our Mali UMD crashes; also LogonUI.exe APPCRASH in combase.dll (x2).
   -> GPU-offload compatibility item: D3D11 apps must not crash on the Mali UMD (task for the UI-smoothness work).
+- 17:35 **governor live** (scheduled task S10eGovernor, onstart, SYSTEM; started now): log "CPU level 0 (LITTLE
+  1742000, MID 2106000)", "GPU level 0 (572000)". Measured: cpu0-3 ~1.67-1.74 GHz (was 1.40-1.45), cpu4-5 ~2.10
+  GHz (was 1.79). Temps under the cube + idle desktop: BIG peak 66.6, MID 62.7, LITTLE 60.8, G3D 57.9 C (governor
+  thresholds 78/80 C not reached). d3dtri cube first 3 s 394-416 fps (baseline 262-384).
+- d3dtri cube STALLS after ~7-8 s in BOTH runs (before and after the clock change): fps lines stop, the process
+  never exits (runuser2 done marker missing after 100 s). Not caused by the clocks. -> UI/GPU task: find the stall
+  (present path / GPU job / fence) together with the WindowsTerminal d3d11 crash.

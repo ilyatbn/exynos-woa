@@ -42,3 +42,10 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   echo pattern as the UEFI runs. => **Windows can request clocks through ACPM** (user mode, one process at a time).
   Domain ladders: LITTLE 442k..1950k (13 steps), MID 507k..2400k (2314k/2400k need MIF >= 2093000 - avoid until MIF
   is known), G3D 156k..702k (156/200/260/325/377/433/572/650/702).
+- 17:30 baseline (ssh, before any clock change): s10eperf cpu0-3 ~1.40-1.45 GHz, cpu4-5 ~1.79 GHz; d3dtri cube
+  (runuser2, blt/DISCARD, FL 10_0 on "Arm Mali-G76 MP12") 260-384 fps over the first 8 s (run cut short by the
+  runuser2 60 s wait); temps BIG 56.9 MID 55 LITTLE 54 G3D 53 C. gfxperf: DWM 1.0 fps composed while idle, CPU
+  25-47 % with **WerFault up to ~100 % of a core** and MsMpEng 18-32 %.
+- WerFault cause (Application log): **WindowsTerminal.exe access violation 0xc0000005 in d3d11.dll** (MoAppCrash,
+  repeated) - Terminal's D3D11 renderer on our Mali UMD crashes; also LogonUI.exe APPCRASH in combase.dll (x2).
+  -> GPU-offload compatibility item: D3D11 apps must not crash on the Mali UMD (task for the UI-smoothness work).

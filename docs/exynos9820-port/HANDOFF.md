@@ -1497,3 +1497,30 @@ To go back to unattended reboot loops: flash boot116-fb10m-v2.img (watchdog 1), 
   EL2 trap timing done (m4trap1): uH traps none of TTBR0/TCR/SCTLR/MAIR/CONTEXTIDR on any core. Next: read
   Samsung debug-snapshot memory (0xFD900000.., carved out) from UEFI after an M4 death for EL3's register dump;
   find which Windows-programmed EL1 setting differs on the M4 (TCR HPD/HWU from HPDS2, hardware DBM/AF).
+
+## 43. Restart point (2026-10-15 ~12:20 local; M4 work PARKED by the user; goal "all 8 cores" not reached)
+
+- **Read first:** notes/m14-m4-summary.md (updated), then notes/m14-smp.md from "## PC sampler" to the end.
+  A ready-made brief for another model: notes/m14-m4-brief-other-model.md.
+- **Established today (all with runs in m14-smp.md):**
+  - CoreSight/EL3 view closed: DBGAUTHSTATUS 0xAA on all cores; EDPCSR reads 0; s2d/arraydump empty. The reset-surviving
+    EDPRSR timeline shows every core powered, none reset or halted, at the death.
+  - Windows uses hardware Access flag (TCR.HA 1); Samsung's Linux never does (CONFIG_ARM64_HW_AFDBM off). With HA forced
+    off on every core from boot (BEYOND0LTE_NT_NO_HWAF) Windows runs fine on 6 cores, but 8 cores STILL die -> not the cause.
+  - A busy cached M4 (stub flag 6: copy loop + DC CIVAC / IC IALLUIS / TLBI VMALLE1IS) runs 16+ min next to a healthy
+    6-core Windows -> the trigger needs Windows running ON the M4. Untested: interrupts/WFI with IRQs unmasked on the M4,
+    EL0 traffic, Windows' MMU attributes.
+  - Timer PPIs verified from the stock DT (GSIV 29/30/27/26, 26 MHz, Linux uses the physical timer).
+- **Committed today (switches default off unless noted):** PC sampler (stub flag 5, BEYOND0LTE_PARK_PCSAMPLE_MASK,
+  \PCSAMP.BIN, tools/phone/pcsamp.py); CoreSight debug bases in Exynos9820.h; BEYOND0LTE_NT_NO_HWAF (BootLogDxe);
+  cached stress (stub flag 6, BEYOND0LTE_PARK_STRESS_MASK); **safeguard ON by default: BEYOND0LTE_STAY_MAX_DEATHS 2**
+  (with stay.flg, the 2nd unexplained Windows death in a row goes to TWRP; verified on device). The RAM-dump idea was
+  dropped at the user's request (prep script reverted).
+- **Phone (parked):** boot = boot-kd6.img (7810a0bd, 6 cores, KD image, WATCHDOG 0), ESP stay.flg. BCD bootdebug was
+  turned ON today for a winload test; it is switched back OFF as part of parking (see the update line below).
+- **Open decisions for the user:** the phone sshd firewall rule only allows 192.168.137.0/24 (old hotspot) - SSH from the
+  home Wi-Fi is refused; widening it was blocked and needs the user. Test images built from now on include the safeguard;
+  boot-kd6.img predates it and has the watchdog off (a hang there stays dark until a force restart).
+- **Next order when resumed:** stub flag 7 = flag-6 stress + EL1 physical timer IRQ (GSIV 30) through the M4's own GIC CPU
+  interface + WFI with IRQs unmasked (details in the brief); soak with Windows on the 6 small cores. Dies -> bisect timer /
+  WFI / SGIs. Survives -> EL0 round trips, then Windows' MMU attributes.

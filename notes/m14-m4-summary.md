@@ -98,6 +98,16 @@ Goal: all 8 cores in Windows. Status (2026-10-15 09:00): **NOT working**. Defaul
   no-HW-AF form (m4swaf1, 6 cores). This build cannot run a core with HA 0 => the hypothesis needs another test
   (e.g. find why MM cannot handle AF faults, or force HAFDBS=0 before kernel entry - only winload/EL2 can).
 
+## 4c. 2026-10-15 later
+
+- HW access flag is NOT the cause: BEYOND0LTE_NT_NO_HWAF (firmware makes ntoskrnl's HAFDBS check report 0 at
+  ExitBootServices) -> TCR.HA 0 on every core from boot; 6 cores fine, 8 cores still die (hwaf6/hwaf8).
+- Busy cached M4 is harmless: stub flag 6 (copy loop + broadcast maintenance) 16+ min next to a healthy 6-core
+  Windows (m4stress). The trigger needs Windows ON the M4.
+- Safeguard: BEYOND0LTE_STAY_MAX_DEATHS 2 (default on) - stay.flg cannot cause an endless boot loop any more.
+- Next: stub flag 7 = stress + timer IRQ via the M4's GIC CPU interface + WFI with IRQs unmasked
+  (notes/m14-m4-brief-other-model.md has the full spec).
+
 ## 5. Next ideas (untried)
 
 1. Get EL3's view of the hang: map the debug-snapshot region (0xFD900000.., carved out, not mapped by UEFI) and dump it

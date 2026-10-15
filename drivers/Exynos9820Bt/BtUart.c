@@ -471,7 +471,36 @@ BtUartBringUp(
         DoTrace(LEVEL_ERROR, TFLAG_HCI, ("HCI_RESET at %u %02x", BT_BAUD_OPER, Status));
         if (Status != 0)
         {
-            return FALSE;
+            //
+            // Diagnostic scan (1.0.0.5: no answer at either rate after 0xFC18 had switched the controller): find the
+            // host setting the controller answers on. Tells whether UFRACVAL takes effect at all (the 115200 pair
+            // 13/2 would work without it: 26e6 / 224 = 116071, +0.75 %) and recovers the device.
+            //
+            ULONG Div;
+            ULONG Frac;
+
+            for (Div = 0; (Div < 2) && (Status != 0); Div++)
+            {
+                for (Frac = 0; (Frac < 16) && (Status != 0); Frac++)
+                {
+                    BtUartSetDivisor(Uart, Div, Frac);
+                    Wr(Uart, BT_UART_UFCON, BT_UFCON_FIFO_ON | BT_UFCON_RESET);
+                    KeStallExecutionProcessor(100);
+                    Wr(Uart, BT_UART_UFCON, BT_UFCON_FIFO_ON);
+                    Status = BtUartHciCmd(Uart, 0x0C03, NULL, 0, 150, NULL, NULL);
+                    if (Status == 0)
+                    {
+                        DoTrace(LEVEL_ERROR, TFLAG_HCI, ("baud scan: controller answers at UBRDIV %u UFRACVAL %u", Div,
+                                Frac));
+                    }
+                }
+            }
+
+            if (Status != 0)
+            {
+                DoTrace(LEVEL_ERROR, TFLAG_HCI, ("baud scan: no answer at UBRDIV 0-1 / UFRACVAL 0-15"));
+                return FALSE;
+            }
         }
     }
 

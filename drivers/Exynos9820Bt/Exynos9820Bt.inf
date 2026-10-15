@@ -21,6 +21,7 @@ DefaultDestDir=12
 
 [SourceDisksFiles]
 Exynos9820Bt.sys=1,,
+bcm4375B1_semco.hcd=1,,   ; copied into the package from the phone's /vendor/firmware at build time, never committed
 
 [ControlFlags]
 ExcludeFromSelect=*
@@ -36,6 +37,7 @@ CopyFiles=Bt_CopyFiles
 
 [Bt_CopyFiles]
 Exynos9820Bt.sys
+bcm4375B1_semco.hcd   ; BtUart.c patchram reads %12%\bcm4375B1_semco.hcd (System32\drivers)
 
 [Bt_Install.NT.HW]
 AddReg=Bt_HwAddReg

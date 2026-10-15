@@ -159,16 +159,15 @@ Return Value:
 
 --*/    
 {
-    UNREFERENCED_PARAMETER(_FdoExtension);    
     UNREFERENCED_PARAMETER(_IoTargetSerial);
     UNREFERENCED_PARAMETER(_RequestSync);
-    UNREFERENCED_PARAMETER(_IsUartReset);    
+    UNREFERENCED_PARAMETER(_IsUartReset);
 
     //
-    // Vendor specifc operation;
-    // 
-
-    return TRUE;
+    // exynos-woa (D4c W2): BCM4375 bring-up over the direct-MMIO UART - UART set-up, HCI_RESET, version, patchram
+    // while the chip still runs its ROM, then interrupt mode (BtUart.c). Clocks, pins and bt_en are latched by UEFI.
+    //
+    return BtUartBringUp(&_FdoExtension->Uart);
 }
 
 NTSTATUS

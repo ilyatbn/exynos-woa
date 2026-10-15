@@ -289,3 +289,11 @@ exynos9820/cmucal-sfr.c + cmucal-node.c, drivers/pinctrl/samsung/pinctrl-exynos-
   - kept as is: PDO child SerialBusWdk\UART_H4 with compatible ID MS_BTHX_BTHMINI (in-box BT stack binds it),
     IOCTL_BTHX_* handlers in FdoIoQuDeviceControl, capabilities from HlpInitializeFdoExtension.
   - INF: bind ACPI\SAMS9829 (DSDT BTH0, MEM 0x10840000 + Interrupt 440; no GpioInt - main has no GPIO controller).
+- W2 (Windows lower edge, builds): BtUart.c/.h - _CRS memory (MmMapIoSpaceEx, >= 0x100) + interrupt (WdfInterruptCreate
+  in PrepareHardware); BtUartBringUp in the DeviceInitialize hook: polling-mode UART init (UEFI-proven values),
+  HCI_RESET, READ_LOCAL_VERSION, patchram from %12%\bcm4375B1_semco.hcd only while LMP subver = 0x1111, then UCON
+  0x3C5 / UFCON 0x111 (Samsung S5PV210 defaults: level irqs, RX timeout + error irqs, trigger 4). ISR drains the RX
+  FIFO into a 4 KiB ring, DPC feeds the sample's ReadH4PacketReassemble (parser reset on errors like the sample).
+  FdoWriteDeviceIO -> BtUartTx + complete with output ULONG DataLen. D0Entry/SelfManagedIoInit -> BtUartRxStart,
+  D0Exit -> BtUartRxStop, ReleaseHardware -> unmap. No idle-to-D3. The .hcd ships in the package (build script
+  copies it from s10e-artifacts/bt-hcd; never committed). TX is synchronous polling at 115200 (slice 1).

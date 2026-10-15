@@ -35,6 +35,7 @@ Environment:
 
 #include "Device.h"     // Device specific
 #include "Io.h"         // Read pump
+#include "BtUart.h"     // exynos-woa: direct-MMIO UART lower edge (D4c W2)
 #include "Debugdef.h"   // WPP trace
 #include "Public.h"     // Share between driver and application
 
@@ -308,6 +309,11 @@ typedef struct _FDO_EXTENSION
 
     LONG       CntReadDataReq;         // Track total number of HCI Read Data Requests
     LONG       CntReadDataCompleted;   // Number of HCI (Read) Data completed
+
+    //
+    // exynos-woa (D4c W2): the BT UART itself (mapped window, interrupt, RX ring) - replaces IoTargetSerial.
+    //
+    BT_UART    Uart;
 } FDO_EXTENSION, *PFDO_EXTENSION;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(FDO_EXTENSION, FdoGetExtension)

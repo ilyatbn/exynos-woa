@@ -49,6 +49,8 @@
     <ClCompile Include="Pdo.c" />
     <ClCompile Include="Io.c" />
     <ClCompile Include="Device.c" />
+    <ClCompile Include="BtUart.c" />
+    <ClInclude Include="BtUart.h" />
     <ClInclude Include="Driver.h" />
     <ClInclude Include="Io.h" />
     <ClInclude Include="Device.h" />

@@ -14,6 +14,10 @@ if ($LASTEXITCODE -ne 0) { throw "msbuild $LASTEXITCODE" }
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 Get-ChildItem $Out -File | Remove-Item
 Copy-Item (Join-Path $work 'Exynos9820Bt.sys'), (Join-Path $PSScriptRoot 'Exynos9820Bt.inf') $Out
+# BCM4375 patch file: copied from the phone (s10e-artifacts/bt-hcd, notes/bt-driver.md B6), never committed.
+$hcd = Join-Path $PSScriptRoot '..\..\..\s10e-artifacts\bt-hcd\bcm4375B1_semco.hcd'
+if (-not (Test-Path $hcd)) { throw "missing $hcd (pull it from /vendor/firmware)" }
+Copy-Item $hcd $Out
 $sign = "$kit\bin\10.0.26100.0\x64\signtool.exe"
 & $sign sign /sha1 5DD5DEE1747244C5F5F66F41D94C0A59C4443E48 /fd SHA256 (Join-Path $Out 'Exynos9820Bt.sys') | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "sign sys" }

@@ -1019,33 +1019,16 @@ Return Value:
 
     DoTrace(LEVEL_INFO, TFLAG_PNP,("+FdoDevPrepareHardware"));
 
-    //
-    // Acquire connection ID of connected controllers (UART and GPIO)
-    //
-    Status = FdoFindConnectResources(_Device,
-                                     _ResourcesRaw,
-                                     _ResourcesTranslated);
-    if (!NT_SUCCESS(Status))
-    {
-        DoTrace(LEVEL_ERROR, TFLAG_PNP, (" Failed to find connection ID of target UART controller 0x%08X", Status));
-
-        // Log(Informational): no UART Connection ID resource
-
-        // Can still use the legacy approach to find it based on its serial interface GUID.
-    }
-
     FdoExtension = FdoGetExtension(_Device);
 
     //
-    // Open Bluetooth UART device as a remote IO Target
+    // exynos-woa (D4c W2): no UART controller I/O target - the BT UART window and its interrupt come straight from
+    // this device's _CRS (DSDT BTH0: Memory32Fixed 0x10840000 + Interrupt 440). IoTargetSerial stays NULL.
     //
-    Status = FdoOpenDevice(_Device, &FdoExtension->IoTargetSerial);
-
-    if (!NT_SUCCESS(Status) || FdoExtension->IoTargetSerial == NULL)
+    Status = BtUartFindResources(_Device, &FdoExtension->Uart, _ResourcesRaw, _ResourcesTranslated);
+    if (!NT_SUCCESS(Status))
     {
-        DoTrace(LEVEL_ERROR, TFLAG_PNP, (" FdoOpenDevice failed 0x%08X", Status));
-
-        // Log(Error): Failed to open UART controller
+        DoTrace(LEVEL_ERROR, TFLAG_PNP, (" BtUartFindResources failed 0x%08X", Status));
         goto Exit;
     }
 
@@ -1061,15 +1044,8 @@ Return Value:
     }
 
     //
-    // Set device's idle configuration if it is capable
+    // exynos-woa: no idle-to-D3 in slice 1 - the UART and the chip stay up (FdoSetIdleSettings not called).
     //
-    Status = FdoSetIdleSettings(_Device,
-                                IdleCapCanTurnOff);
-    if (!NT_SUCCESS(Status))
-    {
-        DoTrace(LEVEL_ERROR, TFLAG_PNP, (" FdoSetIdleSettings failed 0x%08X", Status));
-        // goto Exit;
-    }
 
     // Enable serial bus device
     if (ValidConnectionID(FdoExtension->GPIOConnectionId)) {
@@ -1191,11 +1167,7 @@ Return Value:
 
     FdoExtension = FdoGetExtension(_Device);
 
-    if (FdoExtension->IoTargetSerial)
-    {
-        WdfObjectDelete(FdoExtension->IoTargetSerial);
-        FdoExtension->IoTargetSerial = NULL;
-    }
+    BtUartUnmap(&FdoExtension->Uart);   // exynos-woa (D4c W2)
 
     return STATUS_SUCCESS;
 }
@@ -1242,18 +1214,9 @@ Return Value:
     FdoExtension = FdoGetExtension(_Device);
     FdoExtension->ReadContext.RequestState = REQUEST_COMPLETE;
 
-    // Start the read pump
+    // exynos-woa (D4c W2): the "read pump" is the UART RX interrupt feeding the H4 reassembler (BtUart.c).
     FdoExtension->ReadPumpRunning = TRUE;
-    Status = ReadH4Packet(&FdoExtension->ReadContext,
-                           FdoExtension->ReadRequest,
-                           FdoExtension->ReadMemory,
-                           FdoExtension->ReadBuffer,
-                           INITIAL_H4_READ_SIZE);
-
-    if (!NT_SUCCESS(Status)) {
-        DoTrace(LEVEL_ERROR, TFLAG_IO, (" ReadH4Packet failed 0x%08X", Status));
-        goto Exit;
-    }
+    BtUartRxStart(&FdoExtension->Uart);
 
 Exit:
 
@@ -1370,24 +1333,9 @@ Return Value:
         FdoExtension->DeviceInitialized = TRUE;
 #endif
 
-        // Restart the IOTarget to receiving request
-        Status = WdfIoTargetStart(FdoExtension->IoTargetSerial);
-        if (!NT_SUCCESS(Status)) {
-            DoTrace(LEVEL_ERROR, TFLAG_PNP, ("WdfIoTargetStart failed 0x%08X", Status));
-            goto Done;
-        }
-
-        // Restart read pump
-        DoTrace(LEVEL_INFO, TFLAG_IO, (" Restarting read pump"));
-        Status = ReadH4Packet(&FdoExtension->ReadContext,
-                              FdoExtension->ReadRequest,
-                              FdoExtension->ReadMemory,
-                              FdoExtension->ReadBuffer,
-                              INITIAL_H4_READ_SIZE);
-        if (!NT_SUCCESS(Status)) {
-            DoTrace(LEVEL_ERROR, TFLAG_IO, ("ReadH4Packet [0] failed 0x%08X", Status));
-            goto Done;
-        }
+        // exynos-woa (D4c W2): restart RX (parser reset to the packet-type state inside BtUartRxStart).
+        DoTrace(LEVEL_INFO, TFLAG_IO, (" Restarting UART RX"));
+        BtUartRxStart(&FdoExtension->Uart);
     }
 
 Done:
@@ -1432,7 +1380,7 @@ Return Value:
     // Cancel IO requests that are already in the IO queue,
     // wait for their completion before this function is returned.
     // Can restart this queue at later time.
-    WdfIoTargetStop(FdoExtension->IoTargetSerial, WdfIoTargetCancelSentIo);
+    BtUartRxStop(&FdoExtension->Uart);   // exynos-woa (D4c W2): mask UART RX instead of stopping an I/O target
 
     // Delete GPIO IoTarget to disable the device and this will
     // require device to be re-initialized when it re-enters D0.
@@ -1596,12 +1544,13 @@ Return Value:
 
 --*/
 {
-    WDF_OBJECT_ATTRIBUTES ObjAttributes;
     NTSTATUS Status;
-    WDFREQUEST RequestToUART;
-    PUART_WRITE_CONTEXT   TransferContext = NULL;
-    ULONG  DataLength;
-    PVOID   Data = NULL;
+    WDFMEMORY ReqOutMemory;
+    PULONG OutBuffer;
+    size_t OutBufferSize;
+    ULONG_PTR BytesDataWritten = 0;
+
+    UNREFERENCED_PARAMETER(_Device);
 
     DoTrace(LEVEL_INFO, TFLAG_DATA,("+FdoWriteDeviceIO"));
 
@@ -1613,115 +1562,38 @@ Return Value:
     }
 
     //
-    // Add a context to this existing WDFREQUEST for cancellation purpose
+    // exynos-woa (D4c W2): the H4 packet (type byte immediately followed by the HCI packet in the packed
+    // BTHX_HCI_READ_WRITE_CONTEXT, as the sample relied on) goes straight into the UART TX FIFO, then the request
+    // is completed exactly like the sample's CR_WriteDeviceIO did: output ULONG = DataLen.
     //
-    WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&ObjAttributes,
-                                            UART_WRITE_CONTEXT);
+    BtUartTx(&_FdoExtension->Uart,
+             (const UCHAR *)&_HCIContext->Type,
+             (ULONG)sizeof(_HCIContext->Type) + _HCIContext->DataLen);
 
-    Status = WdfObjectAllocateContext(_RequestFromBthport,
-                                      &ObjAttributes,
-                                      &TransferContext);
-    if (!NT_SUCCESS(Status)) {
-        DoTrace(LEVEL_ERROR, TFLAG_IO, (" WdfObjectAllocateContext failed 0x%08X", Status));
-        goto Done;
-    }
-
-    Status = HLP_AllocateResourceForWrite(
-                    _Device,
-                    _FdoExtension->IoTargetSerial,
-                    &RequestToUART);
-    if (!NT_SUCCESS(Status))
+    Status = WdfRequestRetrieveOutputMemory(_RequestFromBthport, &ReqOutMemory);
+    if (NT_SUCCESS(Status))
     {
-        DoTrace(LEVEL_ERROR, TFLAG_IO,(" HLP_WriteDeviceIO 0x%08X", Status));
-        goto Done;
+        OutBuffer = (PULONG)WdfMemoryGetBuffer(ReqOutMemory, &OutBufferSize);
+        if (OutBufferSize >= sizeof(ULONG))
+        {
+            *OutBuffer = _HCIContext->DataLen;
+            BytesDataWritten = sizeof(ULONG);
+        }
     }
 
-    WDF_OBJECT_ATTRIBUTES_INIT(&ObjAttributes);
-    ObjAttributes.ParentObject = _Device;
-
-    // Reuse the data buffer coming from upper layer;  UART's HCI packet starts with
-    // packet type, and then follows by the actual HCI packet.
-    Data = (PVOID) &_HCIContext->Type;
-    DataLength = (ULONG) sizeof(_HCIContext->Type) + _HCIContext->DataLen;
-
-    _Analysis_assume_(DataLength > 0);
-    Status = WdfMemoryCreatePreallocated(&ObjAttributes,
-                                         Data,
-                                         DataLength,
-                                         &TransferContext->Memory);
-    if (!NT_SUCCESS(Status))
+    if (_HCIContext->Type == (UCHAR)HciPacketCommand)
     {
-        DoTrace(LEVEL_ERROR, TFLAG_IO, (" WdfMemoryCreatePreallocated failed 0x%08X", Status));
-        goto Done;
+        InterlockedIncrement(&_FdoExtension->CntCommandCompleted);
     }
-
-    Status = WdfIoTargetFormatRequestForWrite(_FdoExtension->IoTargetSerial,
-                                              RequestToUART,
-                                              TransferContext->Memory,
-                                              NULL,
-                                              NULL);
-    if (!NT_SUCCESS(Status))
+    else if (_HCIContext->Type == (UCHAR)HciPacketAclData)
     {
-        DoTrace(LEVEL_ERROR, TFLAG_IO, (" WdfIoTargetFormatRequestForRead failed 0x%08X", Status));
-        goto Done;
+        InterlockedIncrement(&_FdoExtension->CntWriteDataCompleted);
     }
 
-    // Setup transfer context
-    TransferContext->FdoExtension       = _FdoExtension;
-    TransferContext->HCIContext         = _HCIContext;
-    TransferContext->RequestFromBthport = _RequestFromBthport;
-    TransferContext->RequestCompletePath = REQUEST_PATH_NONE;
-    TransferContext->RequestToUART      = RequestToUART;
-    TransferContext->HCIPacket          = Data;
-    TransferContext->HCIPacketLen       = DataLength;
-
-    //
-    // Both Requests are typically accessed by the completion routine, and in rare case also
-    // by the cancellation callback.  Take a reference on them to ensure they stays valid in both cases.
-    //
-    WdfObjectReference(RequestToUART);
-    WdfObjectReference(_RequestFromBthport);
-
-    // Mark cancellable of the Request in our possession from upper layer
-    // Cannot mark the request that we will forward to lower driver cancellable.
-    // Only if the Request from upper layer is cancelled, we will then cancel the
-    // Request that is sent to lower driver.
-    WdfRequestMarkCancelable(_RequestFromBthport, CB_RequestFromBthportCancel);
-
-    WdfRequestSetCompletionRoutine(RequestToUART, CR_WriteDeviceIO, TransferContext);
-
-    // This request will be delivered to its IoTarget asynchronously (the default option).  It should return
-    // STATUS_PENDING unless there is an error in its delivery to its IoTarget.  After it has been delivered
-    // successfully, its completion function will be called for any outcome - success, failure, or cancellation.
-    if (!WdfRequestSend(RequestToUART, _FdoExtension->IoTargetSerial, WDF_NO_SEND_OPTIONS))
-    {
-        NTSTATUS StatusTemp;
-
-        // Get failure status, and this request will be completed by its caller of this function with this status.
-        Status = WdfRequestGetStatus(RequestToUART);
-
-        // Unmark cancellable before it is completed.
-        StatusTemp = WdfRequestUnmarkCancelable(_RequestFromBthport);
-
-        // Balance the reference count for both Requests due to failure.
-        WdfObjectDereference(RequestToUART);
-        WdfObjectDereference(_RequestFromBthport);
-
-        DoTrace(LEVEL_ERROR, TFLAG_IO, (" WdfRequestSend failed 0x%08X and UnmarkCancelable 0x%08X", Status, StatusTemp));
-        goto Done;
-    }
-    else
-    {
-        // Request has been delivered to UART driver asychronously.  It will be completed in its completion function
-        // after IoTarget (UART driver) completes its delivery to the BT controller.
-    }
+    Status = STATUS_SUCCESS;
+    WdfRequestCompleteWithInformation(_RequestFromBthport, Status, BytesDataWritten);
 
 Done:
-
-    if (!NT_SUCCESS(Status))
-    {
-        HLP_FreeResourceForWrite(TransferContext);
-    }
 
     DoTrace(LEVEL_INFO, TFLAG_IO, ("-FdoWriteDeviceIO 0x%08X", Status));
 

@@ -245,6 +245,8 @@
   INF Platform/Beyond0LtePkg/Drivers/Beyond0LteAudioProbeDxe/Beyond0LteAudioProbeDxe.inf
   # D4c: BT UART role latch + R1 loopback / R2 HCI version into UEFILOG (off unless BEYOND0LTE_BT_UART_PROBE)
   INF Platform/Beyond0LtePkg/Drivers/Beyond0LteBtUartDxe/Beyond0LteBtUartDxe.inf
+  # D10: MFC probe - pd-mfc status, CMU_MFC + MFC version only while powered (off unless BEYOND0LTE_MFC_PROBE)
+  INF Platform/Beyond0LtePkg/Drivers/Beyond0LteMfcDxe/Beyond0LteMfcDxe.inf
   # M16 G3: read-only Mali-G76 probe (PMU G3D status first, GPU_ID only if on) into UEFILOG (notes/gpu-m16-g2g3.md)
   INF Platform/Beyond0LtePkg/Drivers/Beyond0LteGpuProbeDxe/Beyond0LteGpuProbeDxe.inf
 

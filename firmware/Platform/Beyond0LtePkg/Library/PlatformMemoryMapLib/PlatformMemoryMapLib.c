@@ -196,6 +196,8 @@ STATIC CONST MMIO_REGION  mMmioRegions[] = {
   { EXYNOS_PERIC1_GPIO_BASE,   EXYNOS_PERIC1_GPIO_SIZE,   "GPIO_PERIC1" },
   { EXYNOS_CMU_PERIC1_BASE,    EXYNOS_CMU_PERIC1_SIZE,    "CMU_PERIC1"  },
   { EXYNOS_UART_BT_BASE,       SIZE_4KB,                  "UART_BT"     },  // D4c: BT UART (reg 0x100 inside the page); USI mode reg is in PERIC1_USI
+  { EXYNOS_CMU_MFC_BASE,       EXYNOS_CMU_MFC_SIZE,       "CMU_MFC"     },  // D10: read only while PMU MFC_STATUS bit0 = 1
+  { EXYNOS_MFC_BASE,           EXYNOS_MFC_SIZE,           "MFC"         },  // D10: same rule (inside pd-mfc)
   //
   // D8a m3 (speaker path): the AUD block, read by AudioAbox.c only while PMU AUD_STATUS says pd-aud is on.
   // Mapping is not an access; boot #95 took a translation fault on ABOX IP_INDEX because these were missing.

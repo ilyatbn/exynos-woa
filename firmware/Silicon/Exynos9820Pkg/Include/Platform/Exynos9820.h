@@ -651,6 +651,37 @@
 #define BCM_HCI_OP_WRITE_RAM      0xFC4C                  // VERIFIED (record opcode of the device .hcd)
 #define BCM_HCI_OP_LAUNCH_RAM     0xFC4E                  // VERIFIED (last .hcd record)
 
+//
+// ---------------------------------------------------------------------------
+// Video codec / MFC (D10, notes/d10-mfc-main.md). Core, SYSMMUs, IRQs, ip_ver and register offsets ported from
+// origin/drivers (base.dtb + vendor mfc_regs.h reads there). Clock and power from lineage-22.2 (2026-10-15):
+//   - DT clock cell 422 = GATE_MFC (CLK_MFC_BASE 420 + 2) = HWACG_VCLK on MFC_QCH, i.e. a CMU_MFC clock
+//     (SFR_BLOCK(CMU_MFC, 0x18800000, 0x8000)) - NOT CMU_TOP as the branch assumed (its open question P5).
+//   - pd-mfc = PMU MFC_CONFIGURATION +0x2600 / MFC_STATUS +0x2604, bit0 (flexpmu_cal_local mfc_on: write, wait).
+//   CMU_MFC lives inside pd-mfc: read it (and the MFC) only while MFC_STATUS bit0 is 1.
+// ---------------------------------------------------------------------------
+//
+#define EXYNOS_MFC_BASE                0x00000000188D0000ULL   // VERIFIED (base.dtb /mfc@188D0000 reg)
+#define EXYNOS_MFC_SIZE                0x0000000000010000ULL   // VERIFIED
+#define EXYNOS_MFC_GSIV                370                     // VERIFIED (DT cell 0x152 = SPI 338, +32)
+#define EXYNOS_MFC_IP_VER              0x1300u                 // VERIFIED (base.dtb ip_ver)
+#define EXYNOS_MFC_SYSMMU0_BASE        0x0000000018890000ULL   // VERIFIED (base.dtb /sysmmu@18890000)
+#define EXYNOS_MFC_SYSMMU1_BASE        0x00000000188B0000ULL   // VERIFIED (base.dtb /sysmmu@188B0000)
+#define EXYNOS_MFC_SYSMMU_SIZE         0x0000000000009000ULL   // VERIFIED
+#define EXYNOS_MFC_SYSMMU0_GSIV        375                     // VERIFIED (SPI 343)
+#define EXYNOS_MFC_SYSMMU1_GSIV        377                     // VERIFIED (SPI 345)
+#define EXYNOS_CMU_MFC_BASE            0x0000000018800000ULL   // VERIFIED (cmucal-sfr.c SFR_BLOCK(CMU_MFC))
+#define EXYNOS_CMU_MFC_SIZE            0x0000000000008000ULL   // VERIFIED
+#define EXYNOS_CMU_MFC_MFC_USER_MUX    0x0100u                 // VERIFIED (PLL_CON0_MUX_CLKCMU_MFC_MFC_USER)
+#define EXYNOS_CMU_MFC_MFC_ACLK        0x2070u                 // VERIFIED (GOUT_BLK_MFC_UID_MFC_IPCLKPORT_ACLK)
+#define EXYNOS_CMU_MFC_MFC_QCH         0x3030u                 // VERIFIED (QCH_CON_MFC_QCH)
+#define EXYNOS_PMU_MFC_CONFIGURATION   0x2600u                 // VERIFIED (flexpmu mfc_on write bit0)
+#define EXYNOS_PMU_MFC_STATUS          0x2604u                 // VERIFIED (flexpmu mfc_on wait bit0)
+#define MFC_REG_RISC_ON                0x0000u                 // VERIFIED (branch: mfc_regs.h:24)
+#define MFC_REG_RISC_BASE_ADDR         0x0054u                 // VERIFIED (branch: mfc_regs.h:27)
+#define MFC_REG_MFC_RESET              0x1070u                 // VERIFIED (branch: mfc_regs.h:30)
+#define MFC_REG_MFC_VERSION            0xF028u                 // VERIFIED (branch: mfc_regs.h:51)
+
 // USI_CMGP3 mode register (hsi2c_45 is the USI_CMGP3 USI block). VERIFIED from the live DT (TWRP,
 // 2026-10-11): __symbols__/usi_03_cmgp -> /usi@15C22030, compatible "samsung,exynos-usi-v2",
 // usi_v2_mode "i2c", reg <0x15C22030 0x4>. M16 run 4: at UEFI handoff the USI was held in reset

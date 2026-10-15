@@ -1,0 +1,31 @@
+## @file
+#  D10 video (MFC) UEFI probe (notes/d10-mfc-main.md): R1 = PMU pd-mfc status, then (only if on) CMU_MFC and the
+#  MFC version register; R2 = pd-mfc power-on first. Off unless BEYOND0LTE_MFC_PROBE / BEYOND0LTE_MFC_POWER.
+#  Guarded by boot progress code 0x6C. Not validated on an S10e yet.
+#
+#  FILE_GUID ...557 is this module's build identity, not a hardware read.
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = Beyond0LteMfcDxe
+  FILE_GUID                      = 11111111-2222-3333-4444-555555555557
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 0.1
+  ENTRY_POINT                    = Beyond0LteMfcEntry
+
+[Sources]
+  Beyond0LteMfcDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  Silicon/Exynos9820Pkg/Exynos9820Pkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  DebugLib
+  IoLib
+  TimerLib
+
+[Depex]
+  gEfiCpuArchProtocolGuid

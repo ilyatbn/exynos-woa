@@ -45,6 +45,22 @@ ULONG MwWddm2CapsVer = 0;
  * 2 = QAI 47 NOT_SUPPORTED, 4 = QUERYSEGMENT4 aperture not CpuVisible, 8 = DISPLAY_DRIVERCAPS_EXTENSION
  * NOT_SUPPORTED. 0 = run 7. */
 ULONG MwWddm2Quirk = 0;
+/* G15 S7a (notes/gpu-wddm2-design.md): Parameters\Wddm2 = 5 = Wddm2 3 + a GPU-VA (GpuMmu) adapter in the mixed
+ * form of qemus/virtio-drivers-windows: node 0 = the Mali job manager, still PHYSICAL (allocation + patch lists,
+ * Render/Patch/SubmitCommand unchanged, allocations AccessedPhysically); node 1 = a software COPY node, the paging
+ * node, GpuMmu (DXGK_NODEMETADATA.GpuMmuSupported). No hardware walks the GpuMmu page tables: page-table updates,
+ * TLB flushes and virtual transfers/fills are accepted as no-ops (aperture map/unmap stay real), node-1
+ * submissions complete at once. Why: composition swap chains get no DXGI tracked fence on the physical-only 2.0
+ * adapter, while they do on a VA-capable one (WARP/Basic Render, IoMmu) - notes/gpu-umd-d3d11.md 22:30. */
+ULONG MwWddm2Gpummu = 0;
+/* G15 S4: Parameters\DirectFlip (default 0) - DXGK_DRIVERCAPS.SupportDirectFlip + the aperture segment's
+ * Flags.DirectFlip. MS Learn "Direct flip of video memory": WDDM 1.2+, full graphics = Mandatory; DWM's
+ * flip-model composition builds on it. Composition swap chains get no DXGI tracked fence on our adapter while
+ * they do on WARP (notes/gpu-umd-d3d11.md) - this is one documented cap we never set. The UMD keeps answering
+ * CheckDirectFlipSupport FALSE, so DWM still composes. Parameters\FlipIndependent (default 0): FlipCaps
+ * .FlipIndependent (Learn WDDM 1.3 independent flip). */
+ULONG MwDirectFlip = 0;
+ULONG MwFlipIndependent = 0;
 
 /* ---- trace ---- */
 
@@ -396,11 +412,15 @@ static NTSTATUS DriverCaps(MW_ADAPTER *A, const DXGKARG_QUERYADAPTERINFO *Info)
     caps->SchedulingCaps.MultiEngineAware = 1;
     /* Preemption off system-wide (the full-mode ESP script sets EnablePreemption 0), as viogpu3d does. */
     caps->SchedulingCaps.PreemptionAware = 1;
-    caps->GpuEngineTopology.NbAsymetricProcessingNodes = 1;
+    caps->GpuEngineTopology.NbAsymetricProcessingNodes = MwWddm2Gpummu ? 2 : 1;
     /* G76: MMIO flips (Parameters\FlipMmio) - every DMA flip of DWM's swap chain came back
      * STATUS_GRAPHICS_PRESENT_MODE_CHANGED (runs g22-g25) whatever the primary looked like. */
     if (MwFlipMmio)
         caps->FlipCaps.FlipOnVSyncMmIo = 1;
+    if (MwFlipIndependent)
+        caps->FlipCaps.FlipIndependent = 1;
+    if (MwDirectFlip && FITS(size, DXGK_DRIVERCAPS, SupportDirectFlip))
+        caps->SupportDirectFlip = TRUE;
     /* H4c (notes/gpu-hw-path.md): MS Learn DXGK_PRESENTATIONCAPS.DriverSupportsCddDwmInterop - "supports CDD present
      * operations to texture allocations that are created by the user-mode driver for the DWM". Windowed D3D swap
      * chains are presented "redirected" (PresentDXGI Blt, no destination: run h3n) and none of the cube's presents
@@ -485,9 +505,46 @@ static NTSTATUS APIENTRY MwQueryAdapterInfo(IN_CONST_HANDLE hAdapter, const DXGK
             } else {
                 DXGK_PHYSICALADAPTERCAPS *pc = (DXGK_PHYSICALADAPTERCAPS *)Info->pOutputData;
                 RtlZeroMemory(pc, Info->OutputDataSize);
-                pc->NumExecutionNodes = 1;
-                pc->PagingNodeIndex = 0;
+                pc->NumExecutionNodes = MwWddm2Gpummu ? 2 : 1;
+                pc->PagingNodeIndex = MwWddm2Gpummu ? 1 : 0;
+                pc->Flags.GpuMmuSupported = MwWddm2Gpummu ? 1 : 0;
                 pc->DxgkPhysicalAdapterHandle = a->Dxgk.DeviceHandle;
+                st = STATUS_SUCCESS;
+            }
+            break;
+        case DXGKQAITYPE_GPUMMUCAPS:
+            /* S7a: the format of the Mali-G76 LPAE-style tables (maligpu.c: 4 levels x 512 8-byte descriptors, 4 KiB
+             * pages, MMU_FEATURES VA bits 48) although nothing walks them yet; CPU_VIRTUAL updates (system-memory
+             * tables, Learn DXGK_GPUMMUCAPS: not allowed only for tables in local memory); explicit invalidation as a
+             * software (emulated) page table, Learn: "typically used by a software driver that needs to emulate". */
+            if (!MwWddm2Gpummu) {
+                st = STATUS_NOT_SUPPORTED;
+            } else if (Info->OutputDataSize < sizeof(DXGK_GPUMMUCAPS)) {
+                st = STATUS_BUFFER_TOO_SMALL;
+            } else {
+                DXGK_GPUMMUCAPS *g = (DXGK_GPUMMUCAPS *)Info->pOutputData;
+                RtlZeroMemory(g, Info->OutputDataSize);
+                g->ExplicitPageTableInvalidation = 1;
+                g->PageTableUpdateMode = DXGK_PAGETABLEUPDATE_CPU_VIRTUAL;
+                g->VirtualAddressBitCount = 48;
+                g->PageTableLevelCount = 4;
+                st = STATUS_SUCCESS;
+            }
+            break;
+        case DXGKQAITYPE_PAGETABLELEVELDESC:
+            if (!MwWddm2Gpummu) {
+                st = STATUS_NOT_SUPPORTED;
+            } else if (Info->OutputDataSize < sizeof(DXGK_PAGE_TABLE_LEVEL_DESC) || Info->pInputData == NULL ||
+                       Info->InputDataSize < sizeof(UINT) || *(const UINT *)Info->pInputData >= 4) {
+                st = STATUS_INVALID_PARAMETER;
+            } else {
+                DXGK_PAGE_TABLE_LEVEL_DESC *l = (DXGK_PAGE_TABLE_LEVEL_DESC *)Info->pOutputData;
+                RtlZeroMemory(l, Info->OutputDataSize);
+                l->PageTableIndexBitCount = 9;            /* 512 entries */
+                l->PageTableSegmentId = 0;                /* system memory (<= 4 KiB per table) */
+                l->PagingProcessPageTableSegmentId = 0;
+                l->PageTableSizeInBytes = PAGE_SIZE;
+                l->PageTableAlignmentInBytes = PAGE_SIZE;
                 st = STATUS_SUCCESS;
             }
             break;
@@ -698,9 +755,12 @@ static VOID APIENTRY T_SetRootPageTable(IN_CONST_HANDLE hAdapter, IN_CONST_PDXGK
 
 static NTSTATUS APIENTRY T_SubmitCommandVirtual(IN_CONST_HANDLE hAdapter, IN_CONST_PDXGKARG_SUBMITCOMMANDVIRTUAL a)
 {
-    UNREFERENCED_PARAMETER(a);
     MwEnter((MW_ADAPTER *)hAdapter, L"Enter_SubmitCommandVirtual");
-    return STATUS_NOT_SUPPORTED;
+    if (!MwWddm2Gpummu)
+        return STATUS_NOT_SUPPORTED;
+    /* S7a: only the software copy node runs virtual contexts; its work (paging, mostly) has no hardware behind it. */
+    MwCompleteNow((MW_ADAPTER *)hAdapter, a->NodeOrdinal, a->SubmissionFenceId);
+    return STATUS_SUCCESS;
 }
 
 static NTSTATUS APIENTRY T_RenderGdi(IN_CONST_HANDLE hContext, DXGKARG_RENDERGDI *a)
@@ -859,6 +919,8 @@ static MW_MODE ReadMode(PUNICODE_STRING RegistryPath, ULONG *PramTrace)
     MwPanelCmdMode = ReadParameter(params, L"PanelCmdMode", 1);
     MwPanelBrightness = ReadParameter(params, L"PanelBrightness", 1);
     MwCddDwmInterop = ReadParameter(params, L"CddDwmInterop", 1) != 0;
+    MwDirectFlip = ReadParameter(params, L"DirectFlip", 0) != 0;
+    MwFlipIndependent = ReadParameter(params, L"FlipIndependent", 0) != 0;
     {
         ULONG w = ReadParameter(params, L"Wddm2", 0);
         /* Run 5+: a probe value in Parameters\Probe overrides; the test creates that key VOLATILE, so any reboot
@@ -881,9 +943,10 @@ static MW_MODE ReadMode(PUNICODE_STRING RegistryPath, ULONG *PramTrace)
                 w = 0;
             }
         }
-        MwWddm2 = w >= 1 && w <= 4;
-        MwWddm2Stubs = w == 3 || w == 4;
-        MwWddm2Va = w == 2 || w == 4;
+        MwWddm2 = w >= 1 && w <= 5;
+        MwWddm2Stubs = w == 3 || w == 4 || w == 5;
+        MwWddm2Va = w == 2 || w == 4 || w == 5;
+        MwWddm2Gpummu = w == 5;
     }
     if (params != NULL)
         ZwClose(params);

@@ -438,3 +438,16 @@ usb-c to hdmi dongle and our usb-c hub." alpha5 tagged at 1e5df58 (local tag, no
   Turing Software LLC): tritonSelectVersions offers D3D11_0, D3D11_1, D3DWDDM1_3, D3DWDDM2_0..2_3 DDI (2.3 above the
   KMD's 2.2 on purpose: typed-UAV format tables only consulted at driverVersion >= 7); comments: the KMD side must not
   follow to 2.3 (MPO3 flip DDI -> 0xD1).
+- 22:20 S7a mixed GpuMmu = KMD 1.0.59.1 (sys 5427d89b), Parameters\Wddm2 = 5: node 0 Mali physical (allocations
+  AccessedPhysically), node 1 software COPY/paging node GpuMmu; GPUMMUCAPS (CPU_VIRTUAL, 48-bit, 4 levels,
+  ExplicitPageTableInvalidation), PAGETABLELEVELDESC (9 bits, 4 KiB, segment 0), PHYSICALADAPTERCAPS 2 nodes /
+  paging node 1 / GpuMmuSupported; page-table ops no-ops; node-1 submissions complete at once (MwCompleteNow).
+  Device: adapter Started (volatile probe and persistent boot), dxgkrnl answers QAI 13/14/15, CreateProcess called;
+  KMTQAITYPE_WDDM_2_0_CAPS 0x3 (GpuMmuSupported), monitored fences get a GPU VA (0x10040); DWM + explorer + desktop
+  fine, D3D11 + fences fine. Composition swap chains STILL miss the tracked fence (swapmatrix on a clean boot: comp
+  die, hwnd ok, comp-on-WARP ok); Terminal still crashes (an earlier "alive" after restart-device was an unpresented
+  window). Behavioural trace (cdb breakpoints only): on WARP, BindToDwm calls CreateTrackedFenceExtended; on the
+  Mali adapter it does not; the HWND path neither creates nor waits on a tracked fence.
+- 22:30 KMD 1.0.60.1 (sys 50844f97): Parameters\DirectFlip (SupportDirectFlip + segment Flags.DirectFlip; Learn
+  "Direct flip of video memory": Mandatory for full graphics since WDDM 1.2, never set by us) and
+  Parameters\FlipIndependent (default 0 both). Test next on a clean boot.

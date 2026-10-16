@@ -40,6 +40,7 @@ NTSTATUS MwQuerySegment(MW_ADAPTER *A, const DXGKARG_QUERYADAPTERINFO *Info)
      * are CPU copies anyway (AllocationVa), so the segment is CPU visible; Parameters\SegmentCpuVisible 0 = the
      * original's flags. */
     d->Flags.CpuVisible = MwSegmentCpuVisible ? TRUE : FALSE;
+    d->Flags.DirectFlip = MwDirectFlip ? TRUE : FALSE;   /* G15 S4, see adapter.c MwDirectFlip */
     /* As viogpu3d. Paging buffers stay empty: map and unmap are done on
      * the CPU while the paging buffer is built. */
     out->PagingBufferSegmentId = MW_SEGMENT_ID;
@@ -72,6 +73,7 @@ NTSTATUS MwQuerySegment4(MW_ADAPTER *A, const DXGKARG_QUERYADAPTERINFO *Info)
     d->Flags.Aperture = TRUE;
     d->Flags.CacheCoherent = FALSE;
     d->Flags.CpuVisible = (MwSegmentCpuVisible && !(MwWddm2Quirk & 4)) ? TRUE : FALSE;
+    d->Flags.DirectFlip = MwDirectFlip ? TRUE : FALSE;
     out->PagingBufferSegmentId = MW_SEGMENT_ID;
     out->PagingBufferSize = 10 * PAGE_SIZE;
     out->PagingBufferPrivateDataSize = 0;
@@ -126,6 +128,10 @@ static NTSTATUS NewAllocation(MW_ADAPTER *A, const MW_ALLOCATION_INFO *In, DXGK_
     Out->AllocationPriority = D3DDDI_ALLOCATIONPRIORITY_NORMAL;
     Out->Flags.Value = 0;
     Out->Flags.CpuVisible = TRUE;
+    /* S7a: on the GpuMmu adapter the Mali node stays physical and names allocations through the allocation list;
+     * Learn gpu-segments "Accessing allocations by physical address": only AccessedPhysically allocations may be. */
+    if (MwWddm2Gpummu)
+        Out->FlagsWddm2.AccessedPhysically = 1;
     return STATUS_SUCCESS;
 }
 
@@ -424,6 +430,18 @@ NTSTATUS APIENTRY MwBuildPagingBuffer(IN_CONST_HANDLE hAdapter, DXGKARG_BUILDPAG
         ExReleaseFastMutex(&a->MmuLock);
         return STATUS_SUCCESS;
     }
+    case DXGK_OPERATION_UPDATE_PAGE_TABLE:
+    case DXGK_OPERATION_FLUSH_TLB:
+    case DXGK_OPERATION_COPY_PAGE_TABLE_ENTRIES:
+    case DXGK_OPERATION_VIRTUAL_TRANSFER:
+    case DXGK_OPERATION_VIRTUAL_FILL:
+    case DXGK_OPERATION_UPDATE_CONTEXT_ALLOCATION:
+        /* S7a: the GpuMmu page tables belong to the software copy node and nothing walks them (the Mali node is
+         * physical); virtual transfers/fills only move data between segments, and the one aperture segment never
+         * needs it. Accepted as no-ops, counted in PagingOps. */
+        if (MwWddm2Gpummu)
+            return STATUS_SUCCESS;
+        return STATUS_NOT_SUPPORTED;
     case DXGK_OPERATION_NOTIFY_RESIDENCY:
         /* G15 S1: WDDM 2.0 tells the driver an allocation became resident / was evicted. Our mapping happens in
          * MAP/UNMAP_APERTURE_SEGMENT (both "common WDDMv1 and WDDMv2"), so nothing to do here. */

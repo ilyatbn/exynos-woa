@@ -32,7 +32,7 @@ Signature   = "$WINDOWS NT$"
 Class       = Display
 ClassGuid   = {4D36E968-E325-11CE-BFC1-08002BE10318}
 Provider    = %ProviderName%
-DriverVer   = 10/16/2026,1.0.58.1
+DriverVer   = 10/16/2026,1.0.60.1
 CatalogFile = MaliG76Wddm.cat
 PnpLockdown = 1
 

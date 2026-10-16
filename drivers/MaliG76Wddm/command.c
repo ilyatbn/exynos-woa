@@ -50,6 +50,17 @@ NTSTATUS APIENTRY MwCreateContext(IN_CONST_HANDLE hDevice, DXGKARG_CREATECONTEXT
         return STATUS_NO_MEMORY;
     ctx->Device = (MW_DEVICE *)hDevice;
     Arg->hContext = ctx;
+    if (MwWddm2Gpummu && (Arg->NodeOrdinal != 0 || Arg->Flags.VirtualAddressing)) {
+        /* S7a: a context on the software copy node: no lists; a virtual one needs no patching (Learn
+         * DXGK_CONTEXTINFO_CAPS); a physical one (the system paging context) gets a DMA buffer for paging buffers. */
+        Arg->ContextInfo.DmaBufferSize = Arg->Flags.VirtualAddressing ? 0 : MW_DMA_BUFFER_SIZE;
+        Arg->ContextInfo.DmaBufferSegmentSet = 0;
+        Arg->ContextInfo.DmaBufferPrivateDataSize = 0;
+        Arg->ContextInfo.AllocationListSize = 0;
+        Arg->ContextInfo.PatchLocationListSize = 0;
+        Arg->ContextInfo.Caps.NoPatchingRequired = Arg->Flags.VirtualAddressing ? 1 : 0;
+        return STATUS_SUCCESS;
+    }
     Arg->ContextInfo.DmaBufferSize = MW_DMA_BUFFER_SIZE;
     Arg->ContextInfo.DmaBufferSegmentSet = 0;           /* system memory, as viogpu3d */
     Arg->ContextInfo.DmaBufferPrivateDataSize = sizeof(MW_DMA_PRIVATE);
@@ -308,17 +319,40 @@ NTSTATUS APIENTRY MwPatch(IN_CONST_HANDLE hAdapter, const DXGKARG_PATCH *Arg)
 
 /* ---- the queue, at interrupt level ---- */
 
-static void NotifyCompleted(MW_ADAPTER *A, ULONG Fence)
+static void NotifyCompletedNode(MW_ADAPTER *A, UINT Node, ULONG Fence)
 {
     DXGKARGCB_NOTIFY_INTERRUPT_DATA n = {0};
 
     n.InterruptType = DXGK_INTERRUPT_DMA_COMPLETED;
     n.DmaCompleted.SubmissionFenceId = Fence;
-    n.DmaCompleted.NodeOrdinal = 0;
+    n.DmaCompleted.NodeOrdinal = Node;
     n.DmaCompleted.EngineOrdinal = 0;
     A->Dxgk.DxgkCbNotifyInterrupt(A->Dxgk.DeviceHandle, &n);
-    A->LastCompletedFence = Fence;
+    if (Node == 0)
+        A->LastCompletedFence = Fence;
+    else
+        A->LastCompletedFenceCopy = Fence;
     A->NeedDpc = TRUE;
+}
+
+static void NotifyCompleted(MW_ADAPTER *A, ULONG Fence)
+{
+    NotifyCompletedNode(A, 0, Fence);
+}
+
+typedef struct {
+    MW_ADAPTER *A;
+    UINT Node;
+    ULONG Fence;
+} MW_COMPLETE;
+
+static BOOLEAN SyncCompleteNow(PVOID Context)
+{
+    MW_COMPLETE *c = (MW_COMPLETE *)Context;
+    NotifyCompletedNode(c->A, c->Node, c->Fence);
+    c->A->NeedDpc = FALSE;
+    c->A->Dxgk.DxgkCbQueueDpc(c->A->Dxgk.DeviceHandle);
+    return TRUE;
 }
 
 /* Start the next job chain, completing every submission that has none left.
@@ -384,6 +418,16 @@ static BOOLEAN Reap(MW_ADAPTER *A, BOOLEAN CheckTimeout)
     if (!MkGpuBringup(gpu))
         A->GpuUp = FALSE;
     return TRUE;
+}
+
+static BOOLEAN Synchronize(MW_ADAPTER *A, PKSYNCHRONIZE_ROUTINE Routine, PVOID Context);
+
+/* S7a: complete a submission of a node without hardware (the software copy node) right away, at interrupt level as
+ * DxgkCbNotifyInterrupt requires. */
+void MwCompleteNow(MW_ADAPTER *A, UINT Node, ULONG Fence)
+{
+    MW_COMPLETE c = { A, Node, Fence };
+    (void)Synchronize(A, SyncCompleteNow, &c);
 }
 
 /* From the ISR, after MkIsr has collected the status. */
@@ -655,6 +699,14 @@ NTSTATUS APIENTRY MwSubmitCommand(IN_CONST_HANDLE hAdapter, const DXGKARG_SUBMIT
     MW_SUBMISSION sub;
     MW_SYNC sync;
 
+    /* S7a: node 1 = the software copy/paging node (paging buffers arrive here; their operations ran on the CPU in
+     * BuildPagingBuffer) - nothing to execute, complete at once on that node. */
+    if (Arg->NodeOrdinal != 0) {
+        MwCompleteNow(a, Arg->NodeOrdinal, Arg->SubmissionFenceId);
+        a->Submits++;
+        return STATUS_SUCCESS;
+    }
+
     RtlZeroMemory(&sub, sizeof(sub));
     sub.FenceId = Arg->SubmissionFenceId;
     /* A present: done here, on the CPU; the submission then carries no
@@ -692,7 +744,7 @@ NTSTATUS APIENTRY MwPreemptCommand(IN_CONST_HANDLE hAdapter, const DXGKARG_PREEM
 NTSTATUS APIENTRY MwQueryCurrentFence(IN_CONST_HANDLE hAdapter, DXGKARG_QUERYCURRENTFENCE *Arg)
 {
     MW_ADAPTER *a = (MW_ADAPTER *)hAdapter;
-    Arg->CurrentFence = a->LastCompletedFence;
+    Arg->CurrentFence = Arg->NodeOrdinal != 0 ? a->LastCompletedFenceCopy : a->LastCompletedFence;
     return STATUS_SUCCESS;
 }
 
@@ -747,8 +799,16 @@ NTSTATUS APIENTRY MwGetNodeMetadata(IN_CONST_HANDLE hAdapter, UINT NodeOrdinal,
                                     DXGKARG_GETNODEMETADATA *Arg)
 {
     UNREFERENCED_PARAMETER(hAdapter);
-    UNREFERENCED_PARAMETER(NodeOrdinal);
     RtlZeroMemory(Arg, sizeof(*Arg));
+    if (MwWddm2Gpummu && NodeOrdinal == 1) {
+        /* S7a: the software copy node, GpuMmu (the paging node) */
+        Arg->EngineType = DXGK_ENGINE_TYPE_COPY;
+        Arg->GpuMmuSupported = TRUE;
+        (void)RtlStringCbCopyW(Arg->FriendlyName, sizeof(Arg->FriendlyName), L"CPU copy");
+        return STATUS_SUCCESS;
+    }
+    if (NodeOrdinal != 0)
+        return STATUS_INVALID_PARAMETER;
     Arg->EngineType = DXGK_ENGINE_TYPE_3D;
     (void)RtlStringCbCopyW(Arg->FriendlyName, sizeof(Arg->FriendlyName), L"Mali-G76 job manager");   /* G76: name only */
     return STATUS_SUCCESS;

@@ -136,6 +136,9 @@ extern ULONG MwCddDwmInterop;
 extern ULONG MwWddm2;
 extern ULONG MwWddm2Va;
 extern ULONG MwWddm2Quirk;
+extern ULONG MwWddm2Gpummu;
+extern ULONG MwDirectFlip;
+extern ULONG MwFlipIndependent;
 /* Parameters\FlipBlt (default 1): a Flip present is carried out as a CPU copy of the new primary into the GOP
  * framebuffer (command.c); 0 = the original's behaviour (flips are dropped, the panel never shows them). */
 extern ULONG MwFlipBlt;
@@ -253,6 +256,7 @@ struct _MW_ADAPTER {
     ULONG RunningSlot;
     ULONG64 JobStart;           /* interrupt time the running chain started */
     ULONG LastSubmittedFence, LastCompletedFence;
+    ULONG LastCompletedFenceCopy;   /* S7a: node 1, the software copy/paging node (Wddm2 = 5) */
     ULONG JobsDone, JobsFailed, JobsTimedOut, ChainFlag;
     ULONG LastJsStatus, LastFaultStatus;
     ULONG64 LastFaultAddress;
@@ -382,6 +386,7 @@ DXGKDDI_RENDERKM MwRenderKm;
 DXGKDDI_PRESENT MwPresent;
 DXGKDDI_PATCH MwPatch;
 DXGKDDI_SUBMITCOMMAND MwSubmitCommand;
+void MwCompleteNow(MW_ADAPTER *A, UINT Node, ULONG Fence);
 DXGKDDI_PREEMPTCOMMAND MwPreemptCommand;
 DXGKDDI_QUERYCURRENTFENCE MwQueryCurrentFence;
 DXGKDDI_RESETFROMTIMEOUT MwResetFromTimeout;

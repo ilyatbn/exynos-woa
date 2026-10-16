@@ -398,3 +398,11 @@ usb-c to hdmi dongle and our usb-c hub." alpha5 tagged at 1e5df58 (local tag, no
   Offset0 on the primary path (run 10).
   Next: (a) OpenAllocation 0xC0000008 - which check in our KMD; (b) Current Mode Unknown - VidPN under 2.0;
   (c) S3 UMD residency (paging queue + MakeResident) so DWM renders.
+- 20:15 KMD 1.0.56.1: OpenAllocation falls back to DxgkCbAcquireHandleData (GetHandleData NULL on 2.0) -> Open ok,
+  next fail = Escape 0xC0000008 (same lookup in MwEscapeAllocInfo/Scanout). 1.0.57.1 (sys 9456aa46):
+  MwAllocationFromHandle helper for all three sites -> no DDI failures; Present called; PRAM heartbeat: vsync timer
+  running, submits 1, presents 2, ISR 0; scan-out black; dwm.exe gone. DWM dump (WER LocalDumps, cdb + public
+  symbols): AV in uDWM!CAnimatedTransitionVisual::SetVisual <- CDisplaySecondaryOnlyAnimatedVisual::
+  CaptureForSecondaryDisplay <- DwmEventThreadProc = DWM's display add/remove transition, i.e. most likely an
+  artifact of hot-swapping the adapter with restart-device, not of the 2.0 model. Next test = a fresh boot with
+  the 2.0 adapter (persistent Wddm2), after the w38 freeze validation boot passes raw 2850 s (~20:46 local).

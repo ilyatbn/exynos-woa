@@ -34,10 +34,11 @@ ULONG MwWddm2Stubs = 0;
 /* Run 6 probe: Parameters\Probe\Ver (volatile key only) = a DXGKDDI_INTERFACE_VERSION_WDDM2_x value reported instead
  * of WDDM2_0 - does this Windows build turn away the 2.0 interface itself? 0 = WDDM2_0. */
 ULONG MwWddm2Ver = 0;
-/* S1 run 7 probe: Parameters\Probe\WddmVersion (volatile key only) = the DXGK_DRIVERCAPS.WDDMVersion reported when
- * Wddm2 is on, instead of 0. notes/gpu-wddm3-research.md "Cross-check against G15 S1": Learn wddm-2-1-features
- * ("Determining WDDM Version") says dxgkrnl validates caps/DDIs against the reported WDDMVersion and fails the adapter
- * on inconsistency; both open-source WDDM 2.0 KMDs report DXGKDDI_WDDMv2 (0x2000). 0 = the runs 1-6 answer. */
+/* S1 run 7: the DXGK_DRIVERCAPS.WDDMVersion reported when Wddm2 is on - default DXGKDDI_WDDMv2 (0x2000), overridden by
+ * Parameters\WddmVersion or the volatile Parameters\Probe\WddmVersion (DriverEntry). notes/gpu-wddm3-research.md
+ * "Cross-check against G15 S1": Learn wddm-2-1-features ("Determining WDDM Version") says dxgkrnl validates caps/DDIs
+ * against the reported WDDMVersion and fails the adapter on inconsistency; both open-source WDDM 2.0 KMDs report
+ * 0x2000. 0 (runs 1-6) failed every 2.x start right after DRIVERCAPS. */
 ULONG MwWddm2CapsVer = 0;
 /* S1 run 8 probe: Parameters\Probe\Quirk (volatile key only), bits = answers that differ from the WDDM 2.0 KMD that
  * loads (qemus/virtio-drivers-windows gpu-wddm/src/adapter.rs query_info): 1 = PHYSICALADAPTERCAPS NOT_SUPPORTED,
@@ -864,12 +865,16 @@ static MW_MODE ReadMode(PUNICODE_STRING RegistryPath, ULONG *PramTrace)
          * (crash, WDT) comes back with the persistent value. Wddm2 = 4 is honoured only from there. */
         UNICODE_STRING probeName = RTL_CONSTANT_STRING(L"Probe");
         HANDLE probe = NULL;
+        /* S1 run 10: WDDMVersion 0x2000 is required (runs 1-6 reported 0 and were failed after DRIVERCAPS), so it is
+         * the default now; Parameters\WddmVersion, then Probe\WddmVersion, override. The working 2.0 setting is
+         * Wddm2 = 3 (the CalibrateGpuClock/SetStablePowerState stubs are a load requirement too, run 9). */
+        MwWddm2CapsVer = ReadParameter(params, L"WddmVersion", DXGKDDI_WDDMv2);
         if (params != NULL) {
             InitializeObjectAttributes(&oa, &probeName, OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, params, NULL);
             if (NT_SUCCESS(ZwOpenKey(&probe, KEY_READ, &oa))) {
                 w = ReadParameter(probe, L"Wddm2", w);
                 MwWddm2Ver = ReadParameter(probe, L"Ver", 0);
-                MwWddm2CapsVer = ReadParameter(probe, L"WddmVersion", 0);
+                MwWddm2CapsVer = ReadParameter(probe, L"WddmVersion", MwWddm2CapsVer);
                 MwWddm2Quirk = ReadParameter(probe, L"Quirk", 0);
                 ZwClose(probe);
             } else if (w == 4) {

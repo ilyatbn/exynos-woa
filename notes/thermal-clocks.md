@@ -181,3 +181,9 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   TEEGRIS secure timer, ACPM) or a remaining always-loaded driver (GPU KMD, audio, S10eBattery, UFS, governor
   agent). Tools for the next step: the m14 EL3 PC sampler (notes/m14-smp.md "PC sampler") or the DSS/scan2dram
   dump path (BEYOND0LTE_DSS_DUMP, S2D.BIN / ARRAYDUMP.BIN) to read the hung cores' PCs - both need a new boot image.
+- 13:46 **freeze #14/15 with a per-second recorder** (scratchpad frzlog.ps1 via a reconnecting ssh loop: per-core CPU,
+  DPC/interrupt, top processes, raw counter): the phone was IDLE to the end - last sample raw 2833.2 s (13:46:54):
+  total CPU 1-3 %, DPC 0 %, interrupt 0 %, top MsMpEng 0.1-0.2 CPU-s per sample, nothing ramping; then silence and
+  "Connection reset". => no workload / CPU / DPC storm precedes the hang; it is instantaneous at ~2833-2835 s after
+  the SoC reset (13:46:35 predicted). Points further at a firmware/hardware timer event (EL3/uH/ACPM/our UEFI) rather
+  than a Windows component. Second death in a row -> TWRP.

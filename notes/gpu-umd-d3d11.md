@@ -279,3 +279,5 @@ Chromium needs GLES 3.0 from ANGLE = D3D FL 10_1 (renderer11_utils GetMaximumCli
   (no NIR generic lowering; would need a derivative-based lowering with sampler clamps). ANGLE ES3 never emits it.
   Fixes needed on the way: parser accepted samplepos padding; TGSI SAMPLE_INFO had num_src 2 vs documented 1;
   panfrost TEXTURE_SAMPLES sysval (v6-v8 cannot read the descriptor). Mesa patch 0080-sm41-fixes.patch.
+- 01:50 Edge GPU process: 256-slot allocation list overflows (70+ live BOs not listed per submit, 0081 tlog). MS Learn: physical-mode engines keep the WDDM 1.x allocation/patch list model (gpu-virtual-memory-in-wddm-2-0) so 'list every live BO' stays; D3DDDICB_RENDER New*Size are [in/out] requests, honoured only with D3DDDICB_RENDERFLAGS Resize* bits (0081b without them: still 256). 0081c sets them (want = listed + skipped + 64, max 4096; patch list >= allocation list).
+- 02:00 0081c (maliumd fa2109d9): Edge YouTube 60 s - no overflow, list grows to 331 entries, no CB FAIL / Render failed, GPU process stable. Mesa patch 0081-list-grow.patch.

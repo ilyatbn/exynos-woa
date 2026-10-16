@@ -1,0 +1,66 @@
+From 78a071934ae8ec98bf926c84c4c6cbff691043e2 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 00:44:09 +0300
+Subject: [PATCH] malikm shim: the allocation/patch lists grow to what a
+ submission needs (D3DDDICB_RENDER New*Size + Resize* flags, max 4096) instead
+ of overflowing at 256 in Edge's GPU process; overflows logged in the tlog
+ (exynos-woa 0081)
+
+---
+ include/win32-compat/malikm_drm.c | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index b2b86b9..e2cbd17 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -748,6 +748,16 @@ struct wbo {
+ static struct wbo *wbo;
+ static uint32_t wbo_cap;
+ static uint32_t wsubmit_gen, wlist_overflows;
++/* exynos-woa 0081: allocation-list entries the next submission wants (listed + not listed this time). MS Learn
++ * D3DDDICB_RENDER: NewAllocationListSize / NewPatchLocationListSize are [in/out] - "the number of elements that the
++ * user-mode display driver requests for the next allocation list"; DXGK_CONTEXTINFO: the lists "can grow ... after
++ * the context is created". Edge's GPU process keeps > 256 live BOs (0081 log: 70 not listed per submit). */
++static UINT wlist_want;
++#define WLIST_MAX 4096
++#ifndef MAX2
++#define MAX2(a, b) ((a) > (b) ? (a) : (b))
++#define MIN2(a, b) ((a) < (b) ? (a) : (b))
++#endif
+ static D3DKMT_HANDLE wadapter, wdevice, wcontext;
+ static void *wcmd;
+ static UINT wcmd_size;
+@@ -1076,6 +1086,14 @@ w_render(UINT commandLength, UINT allocations)
+       r.hContext = ddi.context;
+       r.CommandLength = commandLength;
+       r.NumAllocations = allocations;
++      /* ask for the sizes the next submission needs (never less than what we have) */
++      r.NewCommandBufferSize = wcmd_size;
++      r.NewAllocationListSize = MAX2(walloc_size, MIN2(wlist_want, WLIST_MAX));
++      r.NewPatchLocationListSize = MAX2(wpatch_size, r.NewAllocationListSize);   /* the KMD patches every entry */
++      /* MS Learn D3DDDICB_RENDERFLAGS: the sizes are only honoured with the Resize* flags (0081b: without them the
++       * list stayed at 256) */
++      r.Flags.ResizeAllocationList = r.NewAllocationListSize > walloc_size;
++      r.Flags.ResizePatchLocationList = r.NewPatchLocationListSize > wpatch_size;
+       if (ddi.cb.pfnRenderCb(ddi.device, &r) < 0)
+          return (NTSTATUS)0xC0000001;
+       wcmd = r.pNewCommandBuffer;
+@@ -2287,10 +2305,14 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+       if (skipped && (wlist_overflows++ == 0 || trace_on()))
+          fprintf(stderr, "malikm-wddm: allocation list full (%u slots): %u live BOs not listed\n", walloc_size,
+                  skipped);
++      if (skipped && (wlist_overflows <= 4 || (wlist_overflows % 1000) == 0))   /* exynos-woa 0081: in the tlog too */
++         malikm_tlog("allocation list full (%u slots): %u live BOs not listed, %u batch BOs (overflow %u)", walloc_size,
++                     skipped, a->bo_handle_count, wlist_overflows);
+       MW_COMMAND *c = wcmd;
+       c->Type = MW_CMD_JOB;
+       c->Slot = (a->requirements & PANFROST_JD_REQ_FS) ? 0 : 1;
+       c->Jc = a->jc;
++      wlist_want = n + skipped + 64;
+       NTSTATUS st = w_render(sizeof(*c), n);
+       if (st < 0) {
+          static unsigned fails;
+-- 
+2.40.1.windows.1
+

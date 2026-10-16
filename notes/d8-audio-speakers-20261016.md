@@ -52,3 +52,25 @@
   Found: (a) the trim also applies in HwVolume 1 mode and to the mono (Stereo 0) loudspeaker - harmless (fixed
   per-phone offset) but the header comment said "under the fixed digital volume"; accepted, documented here.
   (b) the amp notes' "<= 0x06 earpiece" clamp was inference; stock evidence recorded in d8-audio-m3-amp.md.
+- 16:0x user: "make the top a bit louder" (top already at 0 dB digital, the ceiling). 1.0.1.16: per-amp analog gain
+  AMP_GAIN_CTRL 0x6C04 [9:5] (= ALSA "AMP PCM Gain", amp notes :182, 0.5 dB + 1 dB/step) from Parameters\RcvGain /
+  SpkGain (default 0x0A both, clamped to 17 = stock gain-media-dual-speaker). Phone: RcvGain 12 (+2 dB on the
+  earpiece), SpkAtten 6. Installed 16:08 (log: 1.0.1.16 loaded).
+- User next: "make the speaker gain dynamic and controllable via an app" -> plan: control device interface + IOCTL in
+  the driver (apply to powered amps at once, persist to Parameters), small tray app with top/bottom sliders.
+- 1.0.1.17/18 + tools/S10eSpeakerTrim (user: "make the speaker gain dynamic and controllable via an app"):
+  private KS property AUDPROPSETID_SpeakerTrim {6FEF068C-7388-4619-86D2-91FCA6A5E4AC} id 0 = AUD_TRIM {RcvAtten,
+  SpkAtten, RcvGain, SpkGain} (AudControl.h), handled in AudEvtCircuitRequestPreprocess before ACX (Control.c): GET
+  returns Cfg; SET clamps (atten <= 816, gain <= 17), writes Cfg under BusLock, persists to Parameters, AmpApplyTrim
+  (gain RMW + digital volume on powered amps, register dump "after trim"). 1.0.1.18 = 1.0.1.17 + that dump.
+  Verified on the phone: trimcli get/set from ssh AND from the unelevated desktop user (runuser2, RunLevel Limited)
+  -> no admin needed; live during playback: rcv GAIN 0x1D3 (14) then 0x193 (12), bot VOL 0xBFD0 (-6 steps), STATUS1
+  0x01400000 (no error bits); Parameters updated. Mic check of the live change inconclusive (room floor 7 dB higher,
+  phone moved: absolute levels 15 dB lower than the earlier runs).
+  App: C:\Program Files\S10eSpeakerTrim\S10eSpeakerTrim.exe (+ Start menu "S10e Speakers"), WinForms, two sliders
+  (0.5 dB, -20..+7 dB; > 0 = analog gain, < 0 = digital attenuation), tray icon, "Equal" + Exit menu. Built with the
+  .NET Framework csc (anycpu). Launched in session 1 at ~16:35.
+- Process note: the 1.0.1.16 per-amp gain parameter (installed 16:08, verified only now via the "after trim" dumps)
+  and the app control land in one commit - 1.0.1.16 was never committed separately.
+- 16:14 also seen: the reset after freeze #16 came ~8 s after the last sample (raw counter of the next boot puts the
+  SoC reset at ~16:14:02), not 82 s - see notes/thermal-clocks.md.

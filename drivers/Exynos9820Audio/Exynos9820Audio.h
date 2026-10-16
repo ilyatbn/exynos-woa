@@ -100,6 +100,8 @@ typedef struct _AUD_CONFIG {
                            (slot 0, amp notes F6). 1 = listen to slot 1 like the loudspeaker (swap test, 2026-10-16) */
     ULONG RcvAtten;     /* earpiece / loudspeaker attenuation under the fixed digital volume, in 1/8 dB amp steps */
     ULONG SpkAtten;     /* (0 default = both at 0 dB as stock gain-media-dual-speaker; clamped to 816) - balance trim */
+    ULONG RcvGain;      /* earpiece / loudspeaker analog gain AMP_GAIN_CTRL [9:5]: 0x0A default (Driver.c), */
+    ULONG SpkGain;      /* clamped to 17 = stock music value (AMP_GAIN_MAX) */
 } AUD_CONFIG, *PAUD_CONFIG;
 
 /* ======================================================================
@@ -314,3 +316,8 @@ _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS AmpMute(_Inout_ PAUD_DEVICE_CONTEXT Dev,
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS AmpSetVolume(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ LONG LevelKs);
 _IRQL_requires_(PASSIVE_LEVEL) VOID AmpPowerDown(_Inout_ PAUD_DEVICE_CONTEXT Dev);
 _IRQL_requires_(PASSIVE_LEVEL) VOID AmpRelease(_Inout_ PAUD_DEVICE_CONTEXT Dev);
+_IRQL_requires_(PASSIVE_LEVEL) NTSTATUS AmpApplyTrim(_Inout_ PAUD_DEVICE_CONTEXT Dev);
+
+/* Control.c - speaker trim KS property (AudControl.h); TRUE = request completed. */
+_IRQL_requires_(PASSIVE_LEVEL) BOOLEAN AudControlRequest(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ WDFREQUEST Request,
+                                                        _In_ const ACX_REQUEST_PARAMETERS *P);

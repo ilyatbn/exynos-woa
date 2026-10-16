@@ -93,6 +93,11 @@
    it: stock stereo music (vendor mixer_gains.xml gain-media-dual-speaker) drives the earpiece and the loudspeaker
    identically (AMP PCM Gain 17, Digital PCM Volume 817 = 0 dB). Balance trim: Parameters\RcvAtten / SpkAtten (1/8 dB). */
 #define AMP_SPK_FIXED_STEPS       (0)
+/* Analog gain AMP_GAIN_CTRL [9:5] ("AMP PCM Gain"): default 0x0A (10.5 dB) both amps; Parameters\RcvGain / SpkGain override,
+   clamped to the stock music value 17 (mixer_gains.xml gain-media-dual-speaker, both amps; stock adds DSP protection). */
+#define AMP_GAIN_MAX              17u
+#define CS35L40_AMP_GAIN_CTRL     0x00006C04u
+#define CS35L40_AMP_GAIN_MASK     0x000003E0u   /* [9:5] */
 
 /* ---------------------------------------------------------------------------------------------------------------- */
 
@@ -318,6 +323,7 @@ typedef enum _AMP_OP {
     AMP_OP_POLL,        /* until (Reg & Mask) == Value, 1 ms steps, Arg ms; then W1C Mask if Value != 0 */
     AMP_OP_DELAY_US,    /* stall Arg us */
     AMP_OP_SLOT,        /* SP_FRAME_RX_SLOT 0x4820: per-amp value (R/bot plays slot 1, L/rcv slot 0; amp notes F6) */
+    AMP_OP_GAIN,        /* AMP_GAIN_CTRL [9:5] (Reg, Mask): per-amp analog gain, Parameters\RcvGain / SpkGain */
 } AMP_OP;
 
 typedef struct _AMP_STEP {
@@ -330,6 +336,8 @@ typedef struct _AMP_STEP {
 } AMP_STEP;
 
 /* Rows 1.x (A0 errata, K:2040-2052) = AudioSpeaker.c :289-297. */
+static ULONG AmpGainField(_In_ PAUD_DEVICE_CONTEXT Dev, _In_ PAUD_AMP Amp);
+
 static const AMP_STEP AmpErrataSeq[] = {
     { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x00005555, 0, "1.1" },
     { AMP_OP_WRITE, CS35L40_TEST_KEY_CTL, 0, 0x0000AAAA, 0, "1.1" },
@@ -372,7 +380,7 @@ static const AMP_STEP AmpConfigSeq[] = {
     { AMP_OP_SLOT,  0x00004820, 0, 0, 0, "5.2" },
     { AMP_OP_WRITE, 0x00004840, 0, 0x00000018, 0, "5.3" },
     { AMP_OP_WRITE, 0x00004C00, 0, 0x00000008, 0, "5.4" },
-    { AMP_OP_RMW,   0x00006C04, 0x000003E0, 0x0A << 5, 0, "5.5" },
+    { AMP_OP_GAIN,  CS35L40_AMP_GAIN_CTRL, CS35L40_AMP_GAIN_MASK, 0, 0, "5.5" },
     { AMP_OP_RMW,   CS35L40_AMP_DIG_VOL_CTRL, CS35L40_VOL_MASK, CS35L40_VOL_MUTE_FIELD << CS35L40_VOL_SHIFT, 0, "5.6" },
     { AMP_OP_WRITE, CS35L40_AMP_OUT_MUTE, 0, 0x00000010, 0, "5.7" },
     { AMP_OP_END,   0, 0, 0, 0, NULL },
@@ -434,6 +442,9 @@ static NTSTATUS AmpRunSeq(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ PAUD_AMP Amp, _I
         case AMP_OP_SLOT:
             Status = AmpWrite(Dev, Amp->Addr, S->Reg, (Amp->Addr == AUD_AMP_R_I2C_ADDR) ? 0x00000001u :
                               (Dev->Cfg.RcvSlotReg != 0xFFFFFFFFu) ? Dev->Cfg.RcvSlotReg : 0x00000100u);
+            break;
+        case AMP_OP_GAIN:
+            Status = AmpUpdate(Dev, Amp->Addr, S->Reg, S->Mask, AmpGainField(Dev, Amp));
             break;
         case AMP_OP_POLL:
             for (Ms = 0;; Ms++) {
@@ -700,6 +711,12 @@ static NTSTATUS AmpSetStepsLocked(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ PAUD_AMP
                      ((ULONG)Steps & 0x7FFu) << CS35L40_VOL_SHIFT);
 }
 
+/* AMP_GAIN_CTRL [9:5] value for this amp (Parameters / app, clamped to the stock music value). */
+static ULONG AmpGainField(_In_ PAUD_DEVICE_CONTEXT Dev, _In_ PAUD_AMP Amp)
+{
+    return min((Amp->Addr == AUD_AMP_L_I2C_ADDR) ? Dev->Cfg.RcvGain : Dev->Cfg.SpkGain, AMP_GAIN_MAX) << 5;
+}
+
 /* The digital volume a powered amp should sit at now (fixed, or the endpoint level when HwVolume = 1). */
 static LONG AmpTargetSteps(_In_ PAUD_DEVICE_CONTEXT Dev, _In_ PAUD_AMP Amp)
 {
@@ -853,6 +870,37 @@ NTSTATUS AmpMute(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ BOOLEAN Mute)
         }
     }
     WdfWaitLockRelease(Dev->BusLock);
+    return Status;
+}
+
+/* App control (Control.c): Cfg.RcvAtten/SpkAtten/RcvGain/SpkGain changed - apply them to every powered amp now
+   (analog gain, then the digital volume unless muted). One I2C burst per change, not per buffer. */
+_IRQL_requires_(PASSIVE_LEVEL)
+NTSTATUS AmpApplyTrim(_Inout_ PAUD_DEVICE_CONTEXT Dev)
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+    ULONG    I;
+
+    WdfWaitLockAcquire(Dev->BusLock, NULL);
+    for (I = 0; I < ARRAYSIZE(Dev->Amp); I++) {
+        PAUD_AMP Amp = &Dev->Amp[I];
+        NTSTATUS S;
+
+        if (!Amp->Powered) {
+            continue;
+        }
+        S = AmpUpdate(Dev, Amp->Addr, CS35L40_AMP_GAIN_CTRL, CS35L40_AMP_GAIN_MASK, AmpGainField(Dev, Amp));
+        if (NT_SUCCESS(S) && Dev->Muted == 0) {
+            S = AmpSetStepsLocked(Dev, Amp, AmpTargetSteps(Dev, Amp));
+        }
+        AmpDumpLocked(Dev, Amp, "after trim");
+        if (!NT_SUCCESS(S)) {
+            Status = S;
+        }
+    }
+    WdfWaitLockRelease(Dev->BusLock);
+    AudLog(Dev->Log, "trim: rcv gain %lu atten %lu, spk gain %lu atten %lu -> %08lX\r\n", Dev->Cfg.RcvGain, Dev->Cfg.RcvAtten,
+           Dev->Cfg.SpkGain, Dev->Cfg.SpkAtten, (ULONG)Status);
     return Status;
 }
 

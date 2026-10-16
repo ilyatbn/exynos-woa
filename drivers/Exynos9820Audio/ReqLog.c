@@ -565,6 +565,9 @@ VOID NTAPI AudEvtCircuitRequestPreprocess(ACXOBJECT Object, ACXCONTEXT DriverCon
 
     ACX_REQUEST_PARAMETERS_INIT(&P);
     AcxRequestGetParameters(Request, &P);
+    if (AudControlRequest(Dev, Request, &P)) {
+        return;                                                            /* speaker trim (Control.c) */
+    }
     if (AudKsOverride(Dev, Request, &P)) {
         return;                                                            /* completed by the driver */
     }

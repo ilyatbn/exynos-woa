@@ -190,3 +190,7 @@ Design source: notes/thermal-research.md (staged plan, constants table).
 - 2026-10-16 16:14 **freeze #16** (boot reset ~15:26:39, predicted 16:13:51): recorder's last sample 16:13:54 at raw
   **2832.0 s**, CPU 1 %, DPC 0 (user had been playing mpv at ~95 % CPU until ~16:08, then idle); ssh reset at 16:14:18.
   Spread of the hang moment across #9/#10/#15/#16: raw 2831.6-2835 s.
+- Freeze #16 timing detail: next boot's raw counter 186 s at 16:17:08 -> SoC reset ~16:14:02, i.e. ~8 s after the last
+  recorder sample (16:13:54), not freeze + 82 s WDT. Either the counter does not start at the reset (bootloader time
+  not counted? then reset is earlier still) or something other than the 82 s cluster WDT resets the SoC. UNVERIFIED -
+  compare with debug_history / reset_reason next time the phone is in TWRP.

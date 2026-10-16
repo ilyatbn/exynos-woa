@@ -98,6 +98,8 @@ typedef struct _AUD_CONFIG {
     ULONG DefaultMode;  /* 1 (default, A10): host pin also offers AUDIO_SIGNALPROCESSINGMODE_DEFAULT; 0 = RAW only */
     ULONG RcvSlotReg;   /* diagnostics: SP_FRAME_RX_SLOT (0x4820) for the earpiece amp; 0xFFFFFFFF (default) = 0x100
                            (slot 0, amp notes F6). 1 = listen to slot 1 like the loudspeaker (swap test, 2026-10-16) */
+    ULONG RcvAtten;     /* earpiece / loudspeaker attenuation under the fixed digital volume, in 1/8 dB amp steps */
+    ULONG SpkAtten;     /* (0 default = both at 0 dB as stock gain-media-dual-speaker; clamped to 816) - balance trim */
 } AUD_CONFIG, *PAUD_CONFIG;
 
 /* ======================================================================

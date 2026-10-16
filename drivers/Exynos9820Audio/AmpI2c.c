@@ -89,10 +89,10 @@
 #define CS35L40_VOL_MIN_STEPS     (-816)        /* lowest non-mute step */
 /* Fixed digital volume while Windows applies endpoint volume in software (HwVolume = 0): 0 dB (2026-10-16, user: "pretty
    low for 100%"; was -10 dB, the boot #99 tone level AudioSpeaker.c :85, :582). 0 dB is the top of the playback range the
-   amp notes allow (notes/d8-audio-m3-amp.md Safety: -102 .. 0 dB, never positive, analog gain <= 0x0A); the earpiece
-   6 dB lower. */
+   amp notes allow (notes/d8-audio-m3-amp.md Safety: -102 .. 0 dB, never positive, analog gain <= 0x0A). Both amps sit at
+   it: stock stereo music (vendor mixer_gains.xml gain-media-dual-speaker) drives the earpiece and the loudspeaker
+   identically (AMP PCM Gain 17, Digital PCM Volume 817 = 0 dB). Balance trim: Parameters\RcvAtten / SpkAtten (1/8 dB). */
 #define AMP_SPK_FIXED_STEPS       (0)
-#define AMP_RCV_TRIM_STEPS        (-48)
 
 /* ---------------------------------------------------------------------------------------------------------------- */
 
@@ -703,9 +703,11 @@ static NTSTATUS AmpSetStepsLocked(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ PAUD_AMP
 /* The digital volume a powered amp should sit at now (fixed, or the endpoint level when HwVolume = 1). */
 static LONG AmpTargetSteps(_In_ PAUD_DEVICE_CONTEXT Dev, _In_ PAUD_AMP Amp)
 {
-    LONG Steps = Dev->Cfg.HwVolume ? (Dev->VolumeLevel / 8192) : AMP_SPK_FIXED_STEPS;   /* 65536/8 KS units per step */
+    LONG  Steps = Dev->Cfg.HwVolume ? (Dev->VolumeLevel / 8192) : AMP_SPK_FIXED_STEPS;   /* 65536/8 KS units per step */
+    ULONG Atten = (Amp->Addr == AUD_AMP_L_I2C_ADDR) ? Dev->Cfg.RcvAtten : Dev->Cfg.SpkAtten;
 
-    return (Amp->Addr == AUD_AMP_L_I2C_ADDR) ? Steps + AMP_RCV_TRIM_STEPS : Steps;
+    Steps -= (LONG)min(Atten, (ULONG)-CS35L40_VOL_MIN_STEPS);
+    return max(Steps, CS35L40_VOL_MIN_STEPS);
 }
 
 /* Rows 7.1-7.2 (unmute) / 8.1-8.2 (mute). Caller holds BusLock. */

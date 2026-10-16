@@ -12,6 +12,26 @@
 #include <d3d11.h>
 #include <dxgi1_3.h>
 #include <dcomp.h>
+#include <dxgidebug.h>
+
+/* "debug": D3D11/DXGI debug layers (Graphics Tools optional feature) - every InfoQueue message is printed. */
+static IDXGIInfoQueue *g_iq;
+static void DumpMessages(const char *where)
+{
+    if (!g_iq)
+        return;
+    UINT64 n = g_iq->GetNumStoredMessages(DXGI_DEBUG_ALL);
+    for (UINT64 i = 0; i < n; i++) {
+        SIZE_T len = 0;
+        g_iq->GetMessage(DXGI_DEBUG_ALL, i, NULL, &len);
+        DXGI_INFO_QUEUE_MESSAGE *m = (DXGI_INFO_QUEUE_MESSAGE *)malloc(len);
+        if (m && SUCCEEDED(g_iq->GetMessage(DXGI_DEBUG_ALL, i, m, &len)))
+            printf("[%s] sev %d id %d: %.*s" "\n", where, (int)m->Severity, (int)m->ID, (int)m->DescriptionByteLength, m->pDescription);
+        free(m);
+    }
+    g_iq->ClearStoredMessages(DXGI_DEBUG_ALL);
+    fflush(stdout);
+}
 
 int main(int argc, char **argv)
 {
@@ -21,11 +41,19 @@ int main(int argc, char **argv)
     bool disc = argc > 3 && !strcmp(argv[3], "disc");
     UINT nbuf = argc > 4 ? (UINT)atoi(argv[4]) : 2;
     bool warp = argc > 5 && !strcmp(argv[5], "warp");   /* control: the same swap chain on WARP */
+    bool dbg = false;
+    for (int a = 2; a < argc; a++)
+        if (!strcmp(argv[a], "debug"))
+            dbg = true;
     printf("mode %s effect %s buffers %u\n", comp ? "composition" : "hwnd", disc ? "flip-discard" : "flip-sequential", nbuf);
     IDXGIFactory2 *fac = NULL;
     IDXGIAdapter1 *ad = NULL, *pick = NULL;
     DXGI_ADAPTER_DESC1 d;
-    HRESULT hr = CreateDXGIFactory2(0, __uuidof(IDXGIFactory2), (void **)&fac);
+    HRESULT hr = CreateDXGIFactory2(dbg ? DXGI_CREATE_FACTORY_DEBUG : 0, __uuidof(IDXGIFactory2), (void **)&fac);
+    if (dbg) {
+        HRESULT h2 = DXGIGetDebugInterface1(0, __uuidof(IDXGIInfoQueue), (void **)&g_iq);
+        printf("debug info queue 0x%08lx" "\n", (unsigned long)h2);
+    }
     printf("CreateDXGIFactory2 0x%08lx\n", (unsigned long)hr);
     if (FAILED(hr))
         return 1;
@@ -44,7 +72,9 @@ int main(int argc, char **argv)
     ID3D11Device *dev = NULL;
     ID3D11DeviceContext *ctx = NULL;
     hr = D3D11CreateDevice(warp ? NULL : (IDXGIAdapter *)pick, warp ? D3D_DRIVER_TYPE_WARP : D3D_DRIVER_TYPE_UNKNOWN, NULL,
-                           D3D11_CREATE_DEVICE_BGRA_SUPPORT, &fl, 1, D3D11_SDK_VERSION, &dev, &got, &ctx);
+                           D3D11_CREATE_DEVICE_BGRA_SUPPORT | (dbg ? D3D11_CREATE_DEVICE_DEBUG : 0), &fl, 1,
+                           D3D11_SDK_VERSION, &dev, &got, &ctx);
+    DumpMessages("device");
     if (warp)
         puts("device: WARP");
     printf("D3D11CreateDevice 0x%08lx FL 0x%x\n", (unsigned long)hr, got);
@@ -76,6 +106,7 @@ int main(int argc, char **argv)
     else
         hr = fac->CreateSwapChainForHwnd((IUnknown *)dev, hwnd, &sd, NULL, NULL, &sc);
     printf("CreateSwapChain 0x%08lx\n", (unsigned long)hr);
+    DumpMessages("swapchain");
     if (FAILED(hr))
         return 1;
     if (!comp)
@@ -97,6 +128,7 @@ int main(int argc, char **argv)
     tgt->SetRoot(vis);
     hr = dc->Commit();
     printf("Commit 0x%08lx\n", (unsigned long)hr);
+    DumpMessages("commit");
 frames_loop:
 
     for (int f = 0; f < frames; f++) {
@@ -115,6 +147,7 @@ frames_loop:
             bb->Release();
         hr = sc->Present(1, 0);
         printf("frame %d present 0x%08lx\n", f, (unsigned long)hr);
+        DumpMessages("present");
         fflush(stdout);
         MSG m;
         while (PeekMessageW(&m, NULL, 0, 0, PM_REMOVE))

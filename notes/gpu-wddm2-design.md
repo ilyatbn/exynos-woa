@@ -385,3 +385,16 @@ usb-c to hdmi dongle and our usb-c hub." alpha5 tagged at 1e5df58 (local tag, no
   requirements: primary clone path must set Offset0, "If test signing is enabled, a system bugcheck will occur".
   P2 0xF = our Identity+Rotate90/180/270 without Offset0. Fix in KMD 1.0.55.1 (Offset0 under Wddm2).
   HDMI note for later: the panel is portrait-first; a secondary clone path (internal panel) needs Offset270.
+- 20:10 **S1 run 10: FIRST WDDM 2.0 ADAPTER STARTED.** KMD 1.0.55.1 (sys 2e5f46ed), volatile Wddm2=3 + WddmVersion
+  0x2000: Status Started, Started=1; DDI order QueryInterface, QueryChildRelations, QAI 1/15/47, GetNodeMetadata,
+  QAI 11/10/16, CreateDevice, CreateContext, BuildPagingBuffer, QueryDeviceDescriptor, RecommendMonitorModes,
+  EnumVidPnCofuncModality, GetStandardAllocationDriverData, CreateAllocation, OpenAllocation (FAILED 0xC0000008),
+  CommitVidPn, SetPointerPosition, SetVidPnSourceVisibility, ControlInterrupt, DestroyContext, DestroyDevice.
+  dxdiag (user session): "Driver Model: WDDM 2.0", Feature Levels 10_0..9_1, DDI 11.3, Current Mode Unknown,
+  Hardware Scheduling AlwaysOff. Scan-out dump (fb 0xCA000000) all black - expected, UMD has no residency yet.
+  Unprobed (1.3 Started again). => PHYSICAL-mode WDDM 2.0 loads on 22631 after all: the GpuMmu decision of 19:55 is
+  revised - physical first (smallest UMD change: residency), GpuMmu later as its own milestone.
+  Load gates found (all needed): WDDMVersion 0x2000 (run 7), CalibrateGpuClock + SetStablePowerState (run 9),
+  Offset0 on the primary path (run 10).
+  Next: (a) OpenAllocation 0xC0000008 - which check in our KMD; (b) Current Mode Unknown - VidPN under 2.0;
+  (c) S3 UMD residency (paging queue + MakeResident) so DWM renders.

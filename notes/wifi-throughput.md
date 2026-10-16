@@ -153,3 +153,10 @@ User report 2026-10-15: ~18 Mbit/s while copying a 725 MB file to the phone over
   (no 40 MHz bit). bw_cap pre-UP {2G, 0x3} -> BCME_BADBAND (-13); after WLC_DOWN the same; GET bw_cap 2G = 0x3 and
   5G = 0x7 (so bw_cap already allows 40/80). mimo_bw_cap 1 at runtime -> BCME_NOTDOWN (-5). Next (1.0.10.24 debug
   "bw40"): WLC_DOWN + mimo_bw_cap 1 (WLC_N_BW_40ALL) + WLC_UP, reconnect, check HT cap / rate, and that 5 GHz keeps 80.
+- 11:16 1.0.10.24 debug "bw40": WLC_DOWN -> bw_cap {2G,3} BCME_BADBAND again -> mimo_bw_cap 1 MSG 0 -> bw_cap reads
+  2G 0x3 / 5G 0x7 -> WLC_UP; next 2.4 GHz association (run.3 log) still HT cap 0x002D (no 40 MHz bit) -> mimo_bw_cap
+  is not the gate. (5 GHz association HT cap 0x006F has the 40 MHz bit, as before.)
+- 11:20 1.0.10.25 debug "country:IL": country set IL rev -1 -> MSG 0, reads back "IL" rev 0; fresh 2.4 GHz association
+  still 0x002D. => neither bw_cap, mimo_bw_cap, obss_coex (0) nor the country (GB -> IL) makes this fw advertise
+  40 MHz in 2.4 GHz as a STA. Remaining idea: the RSDB layout (2.4 STA on wlc1; bw_cap SET answers BADBAND from the
+  primary wlc) - untested. 2.4 GHz stays 20 MHz 2x2 (MCS15, 144 Mbit/s PHY) for now.

@@ -1,0 +1,197 @@
+From 91b8e4034db4ac11de85088200ce56df592cbd2d Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Fri, 16 Oct 2026 20:23:03 +0300
+Subject: [PATCH] malikm shim: WDDM 2.0 residency - per-device paging queue,
+ MakeResident every allocation it creates or opens (exynos-woa 0069)
+
+---
+ include/win32-compat/malikm_drm.c | 102 ++++++++++++++++++++++++++++--
+ 1 file changed, 98 insertions(+), 4 deletions(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 38ad966..64e60b3 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -707,7 +707,8 @@ munmap(void *addr, size_t len)
+ typedef NTSTATUS (APIENTRY *KMT_FN)(void *);
+ static struct {
+    KMT_FN CreateDevice, DestroyDevice, CreateContext, CreateAllocation, DestroyAllocation,
+-          Lock, Unlock, Render, Escape, EnumAdapters2, WaitForIdle;
++          Lock, Unlock, Render, Escape, EnumAdapters2, WaitForIdle,
++          MakeResident, CreatePagingQueue;
+ } kmt;
+ 
+ struct wbo {
+@@ -764,8 +765,17 @@ struct ddi_state {
+     * last_event is older than it and waiting on it alone would return
+     * early. wddm_idle() polls the KMD's fences instead while this is set. */
+    int last_unsignalled;
++   /* exynos-woa 0069 (WDDM 2.0, notes/gpu-wddm2-design.md S3): this device's paging queue. resid 0 = not tried yet,
++    * 1 = on, -1 = the adapter has no residency calls (WDDM 1.x: the KMD's patch list makes VidMm map each BO). */
++   int resid;
++   D3DKMT_HANDLE pq, pq_sync;
++   volatile UINT64 *pq_fence;
+ };
+ static struct ddi_state ddi;
++/* The same for the process's own D3DKMT device (the non-runtime path). */
++static int wresid;
++static D3DKMT_HANDLE wpq, wpq_sync;
++static volatile UINT64 *wpq_fence;
+ 
+ /* Allocations whose BO is closed but which a job submitted earlier may
+  * still use. Linux's panfrost keeps a BO alive until its jobs are done,
+@@ -828,6 +838,7 @@ wddm_init(void)
+ #define R(n) kmt.n = kmt_resolve(#n)
+    R(CreateDevice); R(DestroyDevice); R(CreateContext); R(CreateAllocation); R(DestroyAllocation);
+    R(Lock); R(Unlock); R(Render); R(Escape); R(EnumAdapters2); R(WaitForIdle);
++   R(MakeResident); R(CreatePagingQueue);
+ #undef R
+    if (!kmt.CreateDevice || !kmt.CreateContext || !kmt.CreateAllocation || !kmt.DestroyAllocation ||
+        !kmt.Lock || !kmt.Unlock || !kmt.Render || !kmt.Escape || !kmt.EnumAdapters2 || !kmt.WaitForIdle)
+@@ -892,6 +903,8 @@ w_escape(void *data, UINT size)
+    return kmt_escape(wdevice, data, size);
+ }
+ 
++static void w_resident(D3DKMT_HANDLE h);   /* exynos-woa 0069, below */
++
+ static NTSTATUS
+ w_create(D3DDDI_ALLOCATIONINFO *ai)
+ {
+@@ -899,13 +912,19 @@ w_create(D3DDDI_ALLOCATIONINFO *ai)
+       D3DDDICB_ALLOCATE a = {0};
+       a.NumAllocations = 1;
+       a.pAllocationInfo = ai;
+-      return ddi.cb.pfnAllocateCb(ddi.device, &a) >= 0 ? 0 : (NTSTATUS)0xC0000017;
++      if (ddi.cb.pfnAllocateCb(ddi.device, &a) < 0)
++         return (NTSTATUS)0xC0000017;
++      w_resident(ai->hAllocation);
++      return 0;
+    }
+    D3DKMT_CREATEALLOCATION ca = {0};
+    ca.hDevice = wdevice;
+    ca.NumAllocations = 1;
+    ca.pAllocationInfo = ai;
+-   return kmt.CreateAllocation(&ca);
++   NTSTATUS st = kmt.CreateAllocation(&ca);
++   if (st >= 0)
++      w_resident(ai->hAllocation);
++   return st;
+ }
+ 
+ static void
+@@ -925,6 +944,75 @@ w_destroy(D3DKMT_HANDLE h)
+    kmt.DestroyAllocation(&da);
+ }
+ 
++/* exynos-woa 0069 (WDDM 2.0): make one allocation resident on this device. MS Learn residency-overview: in WDDM 2.0
++ * "Residency ... is controlled exclusively by the device residency requirement list ... across all engines" - the
++ * allocation and patch lists no longer make VidMm map anything, and a submission naming a non-resident allocation
++ * puts the device in error. HLK WDDM20.CoreRequirement: one paging queue per device, synchronized with its monitored
++ * fence. pfnMakeResidentCb / D3DKMTMakeResident: E_PENDING -> wait for PagingFenceValue on the queue's fence before
++ * submitting (MS Learn D3DDDI_MAKERESIDENT). The first call creates the queue; if that fails the adapter is WDDM 1.x
++ * and residency stays the KMD's business (no call again). Never fails the caller: a refusal is logged. */
++static void
++w_resident(D3DKMT_HANDLE h)
++{
++   int *resid = ddi.on ? &ddi.resid : &wresid;
++   D3DKMT_HANDLE *pq = ddi.on ? &ddi.pq : &wpq;
++   D3DKMT_HANDLE *pq_sync = ddi.on ? &ddi.pq_sync : &wpq_sync;
++   volatile UINT64 **fence = ddi.on ? &ddi.pq_fence : &wpq_fence;
++   HRESULT hr;
++
++   if (*resid < 0 || h == 0)
++      return;
++   if (*resid == 0) {
++      *resid = -1;
++      if (ddi.on && ddi.cb.pfnCreatePagingQueueCb && ddi.cb.pfnMakeResidentCb) {
++         D3DDDICB_CREATEPAGINGQUEUE q = {0};
++         q.Priority = D3DDDI_PAGINGQUEUE_PRIORITY_NORMAL;
++         hr = ddi.cb.pfnCreatePagingQueueCb(ddi.device, &q);
++         if (hr >= 0) {
++            *pq = q.hPagingQueue; *pq_sync = q.hSyncObject; *fence = q.FenceValueCPUVirtualAddress;
++            *resid = 1;
++         }
++         malikm_tlog("residency: runtime paging queue hr 0x%08lx queue 0x%x fence %p", (unsigned long)hr, *pq,
++                     (void *)*fence);
++      } else if (!ddi.on && kmt.CreatePagingQueue && kmt.MakeResident) {
++         D3DKMT_CREATEPAGINGQUEUE q = {0};
++         q.hDevice = wdevice;
++         q.Priority = D3DDDI_PAGINGQUEUE_PRIORITY_NORMAL;
++         NTSTATUS st = kmt.CreatePagingQueue(&q);
++         if (st >= 0) {
++            *pq = q.hPagingQueue; *pq_sync = q.hSyncObject; *fence = q.FenceValueCPUVirtualAddress;
++            *resid = 1;
++         }
++         malikm_tlog("residency: D3DKMT paging queue 0x%08lx queue 0x%x fence %p", (unsigned long)st, *pq,
++                     (void *)*fence);
++      }
++      if (*resid < 0)
++         return;
++   }
++   D3DDDI_MAKERESIDENT mr = {0};
++   mr.hPagingQueue = *pq;
++   mr.NumAllocations = 1;
++   mr.AllocationList = &h;
++   if (ddi.on)
++      hr = ddi.cb.pfnMakeResidentCb(ddi.device, &mr);
++   else
++      hr = (HRESULT)kmt.MakeResident(&mr);
++   /* E_PENDING for the callback; STATUS_PENDING for the D3DKMT call. */
++   if ((hr == E_PENDING || hr == (HRESULT)0x00000103L) && *fence) {
++      DWORD t0 = GetTickCount();
++      while (*(*fence) < mr.PagingFenceValue && GetTickCount() - t0 < 2000)
++         Sleep(0);
++      if (*(*fence) < mr.PagingFenceValue)
++         malikm_tlog("residency: alloc 0x%x paging fence %llu not reached in 2 s (at %llu)", h,
++                     (unsigned long long)mr.PagingFenceValue, (unsigned long long)*(*fence));
++   } else if (hr < 0) {
++      static unsigned logged;
++      if (logged++ < 16)
++         malikm_tlog("residency: MakeResident alloc 0x%x failed 0x%08lx (trim %llu)", h, (unsigned long)hr,
++                     (unsigned long long)mr.NumBytesToTrim);
++   }
++}
++
+ static void *
+ w_lock(D3DKMT_HANDLE h)
+ {
+@@ -1254,6 +1342,7 @@ malikm_primary_create(void *hRTResource, unsigned vidpn, unsigned w, unsigned h,
+                  hRTResource, w, h, vidpn, (unsigned long)hr, (unsigned)ai.hAllocation);
+       if (hr < 0)
+          goto out;
++      w_resident(ai.hAllocation);   /* exynos-woa 0069 */
+       kprim[i].h = ai.hAllocation;
+       kprim[i].cpu = NULL;
+       kprim[i].w = w;
+@@ -1328,6 +1417,7 @@ malikm_shared_create(void *hRTResource, unsigned w, unsigned h, unsigned cpp, un
+    a.pAllocationInfo = &ai;
+    hr = ddi.cb.pfnAllocateCb(ddi.device, &a);
+    if (hr >= 0) {
++      w_resident(ai.hAllocation);   /* exynos-woa 0069 */
+       *hAlloc = ai.hAllocation;
+       ret = 0;
+       if (ddi.cb.pfnLockCb) {
+@@ -1392,6 +1482,8 @@ malikm_open_shared(const void *priv, unsigned size, unsigned hAlloc, unsigned *w
+    *d3dfmt = pi->Format;
+    AcquireSRWLockExclusive(&wddm_lock);
+    bind_switch(tls_selected);
++   if (ddi.on)
++      w_resident(hAlloc);   /* exynos-woa 0069: an opened allocation is on the opener's residency list only if it asks */
+    if (ddi.on && ddi.cb.pfnLockCb) {
+       D3DDDICB_LOCK l = {0};
+       HRESULT hr;
+@@ -1832,8 +1924,10 @@ malikm_shared_bo_create(void *hRTResource, unsigned w, unsigned h, unsigned cpp,
+       HRESULT hr = ddi.cb.pfnAllocateCb(ddi.device, &a);
+       malikm_tlog("shared-bo-create %ux%u cpp %u fmt %u: allocate hr 0x%08lx alloc 0x%x", w, h, cpp, d3dfmt,
+                   (unsigned long)hr, ai.hAllocation);
+-      if (hr >= 0)
++      if (hr >= 0) {
++         w_resident(ai.hAllocation);   /* exynos-woa 0069 */
+          ret = wbo_from_allocation_locked(ai.hAllocation, prime_fd);
++      }
+    }
+    ReleaseSRWLockExclusive(&wddm_lock);
+    return ret;
+-- 
+2.40.1.windows.1
+

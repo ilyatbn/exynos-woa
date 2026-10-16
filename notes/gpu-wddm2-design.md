@@ -406,3 +406,12 @@ usb-c to hdmi dongle and our usb-c hub." alpha5 tagged at 1e5df58 (local tag, no
   CaptureForSecondaryDisplay <- DwmEventThreadProc = DWM's display add/remove transition, i.e. most likely an
   artifact of hot-swapping the adapter with restart-device, not of the 2.0 model. Next test = a fresh boot with
   the 2.0 adapter (persistent Wddm2), after the w38 freeze validation boot passes raw 2850 s (~20:46 local).
+- 20:30 S3 UMD residency = Mesa 0069 (mesa-26.2-g76 include/win32-compat/malikm_drm.c, +96 lines): w_resident(h):
+  first call creates the device's paging queue (runtime pfnCreatePagingQueueCb, or D3DKMTCreatePagingQueue on the
+  process's own D3DKMT device); a failure there = WDDM 1.x adapter -> residency off for that device, nothing else
+  changes. Then pfnMakeResidentCb / D3DKMTMakeResident {queue, 1 allocation}; E_PENDING / STATUS_PENDING -> poll the
+  queue fence's CPU VA until >= PagingFenceValue (2 s cap, logged). Called after every allocation the winsys makes
+  (w_create both paths, runtime-resource primaries, MISC_SHARED textures, shared_bo_create) and for every opened
+  shared allocation (malikm_open_shared, the opener's device). Per-device state lives in ddi_state (saved per
+  binding). No Evict on destroy (destroying an allocation drops it from the residency list - UNVERIFIED, watch for
+  budget/trim complaints). Build -> s10e-artifacts\mali-umd-0069.

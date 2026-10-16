@@ -128,3 +128,6 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   disabled at the time, repeated driver reloads + UDP/TCP load tests in the minutes before): same signature (ssh
   closed, ping half-answering ~1 min, reboot; uptime 1.2 min at 03:22, stay.flg brought Windows back). All five
   freezes had the Wi-Fi driver associated; BT was NOT running in this one -> BT driver excluded as the sole trigger.
+- 2026-10-16 ~04:07 local: sixth silent freeze, phone IDLE (no tests running for ~15 min; WlanCx 1.0.10.20 on 2.4 GHz,
+  BT 1.0.0.16 on). Same signature (ssh closed, ping answering ~1 min, then reset); being the second death in a row
+  (after 03:20) BootLog parked it in TWRP. Battery 44 %. Rebooted to Windows with `adb reboot`.

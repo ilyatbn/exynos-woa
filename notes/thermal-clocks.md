@@ -171,3 +171,13 @@ Design source: notes/thermal-research.md (staged plan, constants table).
 - 08:25 correction: `pnputil /disable-device ACPI\SAMS9825\0` -> "Cannot disable critical system device"; used
   `pnputil /remove-device` instead (KD log: "[cx] worker stopping ... D0 exit to state 5 ... released" at raw ~680 s);
   `pnputil /scan-devices` at raw ~3000 s brings it back. KD break still at raw 2900 s (09:02:13).
+- 09:01 **freeze #12 WITHOUT Wi-Fi**: WlanCx removed at raw ~680 s (D0 exit + released in the KD log), system
+  alive over KD (BT stats lines) until the hang at the predicted raw ~2832 s (09:01:05); KD break at 2900 s failed
+  (target unreachable); BootLog -> TWRP. => **WlanCx / BCM4375 driver is NOT the trigger.** BT driver also excluded
+  (freeze #5 hit with the BT device disabled). Freeze tracks the RAW counter (time since SoC reset), not Windows
+  boot time: boots with QpcBias 23.9 s and 46.6 s both hung at raw ~2832 s. 2832 s is not a power of two of 26 MHz
+  (2^36 = 2643 s) nor of the obvious clocks (24.0/24.576/32.768 kHz). Suspects now live below Windows / independent
+  of our Windows drivers' activity: a firmware-side timer counting from the reset (our UEFI, Samsung EL2 uH / EL3 /
+  TEEGRIS secure timer, ACPM) or a remaining always-loaded driver (GPU KMD, audio, S10eBattery, UFS, governor
+  agent). Tools for the next step: the m14 EL3 PC sampler (notes/m14-smp.md "PC sampler") or the DSS/scan2dram
+  dump path (BEYOND0LTE_DSS_DUMP, S2D.BIN / ARRAYDUMP.BIN) to read the hung cores' PCs - both need a new boot image.

@@ -1,0 +1,61 @@
+From 9be86a72d2cdfa981b2fd9c7fea49b6044f40120 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 00:17:51 +0300
+Subject: [PATCH] malikm shim: a process without a usable stderr (Edge GPU
+ process) gets NUL instead of fail-fasting in the CRT on the first diagnostic
+ fprintf (exynos-woa 0079)
+
+---
+ include/win32-compat/malikm_drm.c | 19 +++++++++++++++++--
+ 1 file changed, 17 insertions(+), 2 deletions(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index c1f83a6..b2b86b9 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -22,6 +22,7 @@
+ #include <fcntl.h>
+ #include <errno.h>
+ #include <stdint.h>
++#include <stdbool.h>
+ #include <stdarg.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+@@ -216,11 +217,22 @@ malikm_diag_init(void)
+ {
+    static int done;
+    const char *d = getenv("MALIKM_TGSI_DIR");
+-   if (done || !d || !*d)
++   if (done)
+       return;
+    done = 1;
++   /* exynos-woa 0079: a GUI or sandboxed process (Edge's GPU process) has no usable stderr (CRT fd -2 / no handle);
++    * the first fprintf(stderr) of this DLL or of Mesa then hits the CRT invalid-parameter handler and the process
++    * fail-fasts (0xC0000409 in ucrtbase!_write_internal <- malikm wddm_drm fprintf, Edge GPU process, 0078 run).
++    * Without a log directory such a stderr goes to NUL. */
+    HANDLE h = GetStdHandle(STD_ERROR_HANDLE);
+-   if (h == NULL || h == INVALID_HANDLE_VALUE) {
++   bool no_stderr = h == NULL || h == INVALID_HANDLE_VALUE || _fileno(stderr) < 0 ||
++                    _get_osfhandle(_fileno(stderr)) == (intptr_t)INVALID_HANDLE_VALUE;
++   if (!d || !*d) {
++      if (no_stderr)
++         freopen("NUL", "w", stderr);
++      return;
++   }
++   if (no_stderr) {
+       char exe[MAX_PATH] = "x", p[MAX_PATH];
+       GetModuleFileNameA(NULL, exe, MAX_PATH);
+       const char *b = strrchr(exe, '\\');
+@@ -228,6 +240,9 @@ malikm_diag_init(void)
+       snprintf(p, sizeof(p), "%s\\malikm-%s-%lu-stderr.txt", d, b, (unsigned long)GetCurrentProcessId());
+       if (freopen(p, "a", stderr))
+          setvbuf(stderr, NULL, _IONBF, 0);
++      else
++         freopen("NUL", "w", stderr);   /* 0079b: a sandboxed process (Edge GPU) may not write the tlog directory;
++                                         * the failed freopen closed stderr - same fail-fast as no stderr */
+    }
+    /* exynos-woa H5 (0058): only in the test (d3dtri), and removed when this DLL unloads. Run h3q: LogonUI unloads
+     * the UMD; the handler 0057 left registered then ran in unloaded memory on the next exception (an ordinary
+-- 
+2.40.1.windows.1
+

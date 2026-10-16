@@ -1,0 +1,290 @@
+From 7af7f65bf877e622a6d3139b99ff6fcef0d156ac Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 00:17:51 +0300
+Subject: [PATCH] d3d10umd: SM 4.1 opcodes (exynos-woa 0077, FL 10_1 task F2):
+ ld_ms honours the sample index (SAMPLE_I_MS),
+ gather4/lod/sampleinfo/samplepos (positions from pipe->get_sample_position);
+ tgsi_to_nir GATHER4/LOD/SAMPLE_INFO
+
+---
+ src/gallium/auxiliary/nir/tgsi_to_nir.c      |  41 +++++++-
+ src/gallium/frontends/d3d10umd/Device.cpp    |   3 +
+ src/gallium/frontends/d3d10umd/ShaderParse.c |  10 +-
+ src/gallium/frontends/d3d10umd/ShaderParse.h |   5 +
+ src/gallium/frontends/d3d10umd/ShaderTGSI.c  | 105 +++++++++++++++++--
+ 5 files changed, 152 insertions(+), 12 deletions(-)
+
+diff --git a/src/gallium/auxiliary/nir/tgsi_to_nir.c b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+index 35e8c54..b94ef6a 100644
+--- a/src/gallium/auxiliary/nir/tgsi_to_nir.c
++++ b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+@@ -1640,6 +1640,10 @@ ttn_sample(struct ttn_compile *c, nir_def **src)
+       has_sampler = false;
+       break;
+    case TGSI_OPCODE_SAMPLE_I_MS: op = nir_texop_txf_ms; has_sampler = false; break;
++   /* exynos-woa F2 (D3D10.1 gather4 / lod): red channel of the bilinear footprint in GL textureGather order (= the
++    * D3D order, MS Learn gather4 sm4.1); (clamped, unclamped) LOD (MS Learn lod sm4.1) */
++   case TGSI_OPCODE_GATHER4:     op = nir_texop_tg4; break;
++   case TGSI_OPCODE_LOD:         op = nir_texop_lod; break;
+    default:
+       UNREACHABLE("not a SAMPLE opcode");
+    }
+@@ -1667,7 +1671,9 @@ ttn_sample(struct ttn_compile *c, nir_def **src)
+       instr->coord_components++;
+ 
+    nir_alu_type type = sview < c->num_samp_types ? c->samp_types[sview] : nir_type_float32;
+-   instr->dest_type = shadow ? nir_type_float32 : type;
++   instr->dest_type = shadow || op == nir_texop_lod ? nir_type_float32 : type;
++   if (op == nir_texop_tg4)
++      instr->component = 0;
+ 
+    nir_deref_instr *tex = ttn_sview_deref(c, sview, instr->sampler_dim, instr->is_array,
+                                           shadow ? nir_type_float32 : type, op);
+@@ -1720,6 +1726,33 @@ ttn_sample(struct ttn_compile *c, nir_def **src)
+    return ttn_sview_swizzle(b, tgsi_inst, nir_pad_vector_imm_int(b, &instr->def, 0, 4));
+ }
+ 
++/* exynos-woa F2: SAMPLE_INFO dst, sview - (sample count, 0, 0, 0) as uint, swizzled by the sview operand (MS Learn
++ * sampleinfo sm4.1; d3d10umd converts to float for the non-_uint form). */
++static nir_def *
++ttn_sample_info(struct ttn_compile *c, nir_def **src)
++{
++   nir_builder *b = &c->build;
++   struct tgsi_full_instruction *tgsi_inst = &c->token->FullInstruction;
++   assert(tgsi_inst->Src[0].Register.File == TGSI_FILE_SAMPLER_VIEW);
++   unsigned sview = tgsi_inst->Src[0].Register.Index;
++   unsigned target = ttn_sview_target(c, sview);
++   nir_alu_type type = sview < c->num_samp_types ? c->samp_types[sview] : nir_type_float32;
++
++   nir_tex_instr *q = nir_tex_instr_create(b->shader, 1);
++   q->op = nir_texop_texture_samples;
++   q->dest_type = nir_type_uint32;
++   q->can_speculate = true;
++   get_texture_info(target, &q->sampler_dim, &q->is_shadow, &q->is_array);
++   nir_deref_instr *tex = ttn_sview_deref(c, sview, q->sampler_dim, q->is_array, type, nir_texop_texture_samples);
++   q->src[0] = nir_tex_src_for_ssa(nir_tex_src_texture_deref, &tex->def);
++   nir_def_init(&q->instr, &q->def, 1, 32);
++   nir_builder_instr_insert(b, &q->instr);
++
++   const struct tgsi_src_register *r = &tgsi_inst->Src[0].Register;
++   unsigned swz[4] = { r->SwizzleX, r->SwizzleY, r->SwizzleZ, r->SwizzleW };
++   return nir_swizzle(b, nir_pad_vector_imm_int(b, &q->def, 0, 4), swz, 4);
++}
++
+ /* SVIEWINFO dst, lod, sview: (width, height, depth, levels) as TXQ, by the sampler view (d3d10umd swizzles after). */
+ static nir_def *
+ ttn_sviewinfo(struct ttn_compile *c, nir_def **src)
+@@ -2254,9 +2287,15 @@ ttn_emit_instruction(struct ttn_compile *c)
+    case TGSI_OPCODE_SAMPLE_L:
+    case TGSI_OPCODE_SAMPLE_I:
+    case TGSI_OPCODE_SAMPLE_I_MS:
++   case TGSI_OPCODE_GATHER4:
++   case TGSI_OPCODE_LOD:
+       dst = ttn_sample(c, src);
+       break;
+ 
++   case TGSI_OPCODE_SAMPLE_INFO:
++      dst = ttn_sample_info(c, src);
++      break;
++
+    case TGSI_OPCODE_SVIEWINFO:
+       dst = ttn_sviewinfo(c, src);
+       break;
+diff --git a/src/gallium/frontends/d3d10umd/Device.cpp b/src/gallium/frontends/d3d10umd/Device.cpp
+index 8cb37db..3f75108 100644
+--- a/src/gallium/frontends/d3d10umd/Device.cpp
++++ b/src/gallium/frontends/d3d10umd/Device.cpp
+@@ -41,6 +41,7 @@
+ #include "Shader.h"
+ #include "State.h"
+ #include "Format.h"
++#include "ShaderParse.h"   /* exynos-woa F2: Shader_set_sample_position_source */
+ 
+ #include "Debug.h"
+ #include "D3D11.h"
+@@ -174,6 +175,8 @@ CreateDevice(D3D10DDI_HADAPTER hAdapter,                 // IN
+    if (!screen)
+       return E_OUTOFMEMORY;
+    struct pipe_context *pipe = screen->context_create(screen, NULL, 0);
++   if (pipe)
++      Shader_set_sample_position_source(pipe);   /* exynos-woa F2: samplepos table */
+    pDevice->screen = screen;
+    pDevice->pipe = pipe;
+    pDevice->cso = cso_create_context(pipe, CSO_NO_VBUF);
+diff --git a/src/gallium/frontends/d3d10umd/ShaderParse.c b/src/gallium/frontends/d3d10umd/ShaderParse.c
+index 4ec63cc..a3eaeb9 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderParse.c
++++ b/src/gallium/frontends/d3d10umd/ShaderParse.c
+@@ -177,10 +177,12 @@ opcode_info[D3D10_SB_NUM_OPCODES] = {
+    {_(D3D10_SB_OPCODE_DCL_INDEXABLE_TEMP),               0, 0, OP_DCL},
+    {_(D3D10_SB_OPCODE_DCL_GLOBAL_FLAGS),                 0, 0, OP_DCL},
+    {_(D3D10_SB_OPCODE_RESERVED0),                        0, 0, OP_NOT_DONE},
+-   {_(D3D10_1_SB_OPCODE_LOD),                            0, 0, OP_NOT_DONE},
+-   {_(D3D10_1_SB_OPCODE_GATHER4),                        0, 0, OP_NOT_DONE},
+-   {_(D3D10_1_SB_OPCODE_SAMPLE_POS),                     0, 0, OP_NOT_DONE},
+-   {_(D3D10_1_SB_OPCODE_SAMPLE_INFO),                    0, 0, OP_NOT_DONE}
++   /* exynos-woa F2 (FL 10_1): SM 4.1 (MS Learn lod / gather4 / samplepos / sampleinfo, sm4.1 asm). sampleinfo's
++    * _uint modifier sits where resinfo's return type does (D3D10_SB_INSTRUCTION_RETURN_TYPE, bits 11-12). */
++   {_(D3D10_1_SB_OPCODE_LOD),                            1, 3, 0},
++   {_(D3D10_1_SB_OPCODE_GATHER4),                        1, 3, 0},
++   {_(D3D10_1_SB_OPCODE_SAMPLE_POS),                     1, 2, 0},
++   {_(D3D10_1_SB_OPCODE_SAMPLE_INFO),                    1, 1, OP_RESINFO_RET_TYPE}
+ };
+ 
+ #undef _
+diff --git a/src/gallium/frontends/d3d10umd/ShaderParse.h b/src/gallium/frontends/d3d10umd/ShaderParse.h
+index a9500ff..8db47c8 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderParse.h
++++ b/src/gallium/frontends/d3d10umd/ShaderParse.h
+@@ -172,6 +172,11 @@ const struct tgsi_token *
+ Shader_tgsi_translate(const unsigned *code,
+                       unsigned *output_mapping);
+ 
++/* exynos-woa F2: the context whose get_sample_position answers samplepos (set once per device creation) */
++struct pipe_context;
++void
++Shader_set_sample_position_source(struct pipe_context *pipe);
++
+ 
+ #ifdef __cplusplus
+ }
+diff --git a/src/gallium/frontends/d3d10umd/ShaderTGSI.c b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+index 4cc5c65..2dc9fa7 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderTGSI.c
++++ b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+@@ -40,6 +40,16 @@
+ #include "util/u_memory.h"
+ 
+ #include "ShaderDump.h"
++#include "pipe/p_context.h"
++
++/* exynos-woa F2: samplepos answers from the driver's own pattern (pipe->get_sample_position) */
++static struct pipe_context *sample_pos_pipe;
++
++void
++Shader_set_sample_position_source(struct pipe_context *pipe)
++{
++   sample_pos_pipe = pipe;
++}
+ 
+ 
+ enum dx10_opcode_format {
+@@ -172,10 +182,10 @@ static struct dx10_opcode_xlate opcode_xlate[D3D10_SB_NUM_OPCODES] = {
+    {D3D10_SB_OPCODE_DCL_INDEXABLE_TEMP,               OF_FLOAT, TGSI_EXPAND},
+    {D3D10_SB_OPCODE_DCL_GLOBAL_FLAGS,                 OF_FLOAT, TGSI_LOG_UNSUPPORTED},
+    {D3D10_SB_OPCODE_RESERVED0,                        OF_FLOAT, TGSI_LOG_UNSUPPORTED},
+-   {D3D10_1_SB_OPCODE_LOD,                            OF_FLOAT, TGSI_LOG_UNSUPPORTED},
+-   {D3D10_1_SB_OPCODE_GATHER4,                        OF_FLOAT, TGSI_LOG_UNSUPPORTED},
+-   {D3D10_1_SB_OPCODE_SAMPLE_POS,                     OF_FLOAT, TGSI_LOG_UNSUPPORTED},
+-   {D3D10_1_SB_OPCODE_SAMPLE_INFO,                    OF_FLOAT, TGSI_LOG_UNSUPPORTED}
++   {D3D10_1_SB_OPCODE_LOD,                            OF_FLOAT, TGSI_EXPAND},
++   {D3D10_1_SB_OPCODE_GATHER4,                        OF_FLOAT, TGSI_EXPAND},
++   {D3D10_1_SB_OPCODE_SAMPLE_POS,                     OF_FLOAT, TGSI_EXPAND},
++   {D3D10_1_SB_OPCODE_SAMPLE_INFO,                    OF_FLOAT, TGSI_EXPAND}
+ };
+ 
+ #define SHADER_MAX_TEMPS 4096
+@@ -1422,9 +1432,18 @@ Shader_tgsi_translate(const unsigned *code,
+          break;
+ 
+       case D3D10_SB_OPCODE_LD_MS:
+-         /* XXX: We don't support multi-sampling yet, but we need to parse
+-          * this opcode regardless, so we just ignore sample index operand
+-          * for now */
++         if (!(st_debug & ST_DEBUG_OLD_TEX_OPS)) {
++            /* exynos-woa F2: ld_ms dst, address, t#, sampleIndex - the sample index is honoured now that MSAA
++             * resources exist (F1); TGSI SAMPLE_I_MS = txf_ms with ms_index = src[2].x in tgsi_to_nir */
++            struct ureg_src srcreg[3];
++            srcreg[0] = translate_src_operand(&sx, &opcode.src[0], OF_INT);
++            srcreg[1] = translate_src_operand(&sx, &opcode.src[1], OF_INT);
++            srcreg[2] = translate_src_operand(&sx, &opcode.src[2], OF_INT);
++            sample_ureg_emit(ureg, TGSI_OPCODE_SAMPLE_I_MS, 3, &opcode,
++                             translate_dst_operand(&sx, &opcode.dst[0], opcode.saturate), srcreg);
++            break;
++         }
++         FALLTHROUGH;
+       case D3D10_SB_OPCODE_LD:
+          if (st_debug & ST_DEBUG_OLD_TEX_OPS) {
+             unsigned resource = opcode.src[1].base.index[0].imm;
+@@ -1454,6 +1473,78 @@ Shader_tgsi_translate(const unsigned *code,
+          }
+          break;
+ 
++      case D3D10_1_SB_OPCODE_GATHER4:
++      case D3D10_1_SB_OPCODE_LOD: {
++         /* exynos-woa F2: dst, address, t#[.swz], s# (MS Learn gather4 / lod sm4.1) */
++         struct ureg_src srcreg[3];
++         srcreg[0] = translate_src_operand(&sx, &opcode.src[0], OF_FLOAT);
++         srcreg[1] = translate_src_operand(&sx, &opcode.src[1], OF_UINT);
++         srcreg[2] = translate_src_operand(&sx, &opcode.src[2], OF_UINT);
++         sample_ureg_emit(ureg, opcode.type == D3D10_1_SB_OPCODE_GATHER4 ? TGSI_OPCODE_GATHER4 : TGSI_OPCODE_LOD, 3,
++                          &opcode, translate_dst_operand(&sx, &opcode.dst[0], opcode.saturate), srcreg);
++         break;
++      }
++
++      case D3D10_1_SB_OPCODE_SAMPLE_INFO:
++      case D3D10_1_SB_OPCODE_SAMPLE_POS: {
++         /* exynos-woa F2 (MS Learn sampleinfo / samplepos sm4.1): (count, 0, 0, 0) - float unless _uint - and the
++          * sample's (x, y, 0, 0) relative to the pixel centre, 0 for an out-of-range index. The rasterizer operand
++          * (render-target sample count) is not translated yet: 0 + a log line (known gap). */
++         struct ureg_dst dst = translate_dst_operand(&sx, &opcode.dst[0], opcode.saturate);
++         bool info = opcode.type == D3D10_1_SB_OPCODE_SAMPLE_INFO;
++         if (opcode.src[0].base.type != D3D10_SB_OPERAND_TYPE_RESOURCE) {
++            LOG_UNSUPPORTED(true);
++            ureg_MOV(ureg, dst, ureg_imm1u(ureg, 0));
++            break;
++         }
++         struct ureg_src sview = translate_src_operand(&sx, &opcode.src[0], OF_UINT);
++         struct ureg_dst cnt = ureg_DECL_temporary(ureg);
++         struct ureg_src noswz = sview;
++         noswz.SwizzleX = TGSI_SWIZZLE_X; noswz.SwizzleY = TGSI_SWIZZLE_Y;
++         noswz.SwizzleZ = TGSI_SWIZZLE_Z; noswz.SwizzleW = TGSI_SWIZZLE_W;
++         if (info) {
++            ureg_insn(ureg, TGSI_OPCODE_SAMPLE_INFO, &cnt, 1, &sview, 1, 0);   /* swizzled by tgsi_to_nir */
++            if (opcode.specific.resinfo_ret_type == D3D10_SB_RESINFO_INSTRUCTION_RETURN_UINT)
++               ureg_MOV(ureg, dst, ureg_src(cnt));
++            else
++               ureg_U2F(ureg, dst, ureg_src(cnt));
++            ureg_release_temporary(ureg, cnt);
++            break;
++         }
++         /* samplepos: count of the resource, then a select over the driver's pattern for every count it renders */
++         ureg_insn(ureg, TGSI_OPCODE_SAMPLE_INFO, &cnt, 1, &noswz, 1, 0);
++         struct ureg_src idx = translate_src_operand(&sx, &opcode.src[1], OF_UINT);
++         struct ureg_dst pos = ureg_DECL_temporary(ureg);
++         struct ureg_dst c1 = ureg_DECL_temporary(ureg);
++         struct ureg_dst c2 = ureg_DECL_temporary(ureg);
++         ureg_MOV(ureg, pos, ureg_imm4f(ureg, 0.0f, 0.0f, 0.0f, 0.0f));
++         static const unsigned counts[] = { 1, 2, 4, 8, 16 };
++         for (unsigned k = 0; k < ARRAY_SIZE(counts) && sample_pos_pipe; k++) {
++            unsigned n = counts[k];
++            if (!sample_pos_pipe->screen->is_format_supported(sample_pos_pipe->screen, PIPE_FORMAT_R8G8B8A8_UNORM,
++                                                               PIPE_TEXTURE_2D, n, n, PIPE_BIND_RENDER_TARGET))
++               continue;
++            ureg_USEQ(ureg, c1, ureg_scalar(ureg_src(cnt), TGSI_SWIZZLE_X), ureg_imm1u(ureg, n));
++            for (unsigned i = 0; i < n; i++) {
++               float p[2] = { 0.5f, 0.5f };
++               sample_pos_pipe->get_sample_position(sample_pos_pipe, n, i, p);
++               ureg_USEQ(ureg, c2, ureg_scalar(idx, TGSI_SWIZZLE_X), ureg_imm1u(ureg, i));
++               ureg_AND(ureg, c2, ureg_src(c1), ureg_src(c2));
++               ureg_UCMP(ureg, pos, ureg_scalar(ureg_src(c2), TGSI_SWIZZLE_X),
++                         ureg_imm4f(ureg, p[0] - 0.5f, p[1] - 0.5f, 0.0f, 0.0f), ureg_src(pos));
++            }
++         }
++         struct ureg_src res = ureg_src(pos);
++         res.SwizzleX = opcode.src[0].swizzle[0]; res.SwizzleY = opcode.src[0].swizzle[1];
++         res.SwizzleZ = opcode.src[0].swizzle[2]; res.SwizzleW = opcode.src[0].swizzle[3];
++         ureg_MOV(ureg, dst, res);
++         ureg_release_temporary(ureg, c2);
++         ureg_release_temporary(ureg, c1);
++         ureg_release_temporary(ureg, pos);
++         ureg_release_temporary(ureg, cnt);
++         break;
++      }
++
+       case D3D10_SB_OPCODE_CUSTOMDATA:
+          if (opcode.customdata._class ==
+              D3D10_SB_CUSTOMDATA_DCL_IMMEDIATE_CONSTANT_BUFFER) {
+-- 
+2.40.1.windows.1
+

@@ -1,0 +1,29 @@
+From ae5205bbd34bc75923273e12b671a0ddaa4374fd Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 00:17:51 +0300
+Subject: [PATCH] d3d10umd: report 3D pipeline level 10_1 (exynos-woa 0078,
+ F5); D3D10UMD_FL10_0=1 for diagnosis
+
+---
+ src/gallium/frontends/d3d10umd/D3D11.cpp | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/src/gallium/frontends/d3d10umd/D3D11.cpp b/src/gallium/frontends/d3d10umd/D3D11.cpp
+index 986d25f..19b16aa 100644
+--- a/src/gallium/frontends/d3d10umd/D3D11.cpp
++++ b/src/gallium/frontends/d3d10umd/D3D11.cpp
+@@ -232,6 +232,11 @@ D3D11GetCaps(const D3D10_2DDIARG_GETCAPS *pData, HRESULT *phr)
+       D3D11DDI_3DPIPELINESUPPORT_CAPS *c = (D3D11DDI_3DPIPELINESUPPORT_CAPS *)pData->pData;
+       memset(c, 0, pData->DataSize);
+       c->Caps = D3D11DDI_ENCODE_3DPIPELINESUPPORT_CAP(D3D11DDI_3DPIPELINELEVEL_10_0);
++      /* exynos-woa F5 (notes/gpu-umd-d3d11.md FL 10_1 plan): MSAA (0074), SM 4.1 opcodes (0077), cube arrays and
++       * per-RT blend (inherited D3D10.1 paths). D3D10UMD_FL10_0=1 hides 10_1 again - diagnosis only. */
++      const char *fl100 = getenv("D3D10UMD_FL10_0");
++      if (!(fl100 && *fl100 && *fl100 != '0'))
++         c->Caps |= D3D11DDI_ENCODE_3DPIPELINESUPPORT_CAP(D3D11DDI_3DPIPELINELEVEL_10_1);
+       return TRUE;
+    }
+    case D3DWDDM2_0DDICAPS_GPUVA_CAPS: {
+-- 
+2.40.1.windows.1
+

@@ -204,3 +204,45 @@ Chromium needs GLES 3.0 from ANGLE = D3D FL 10_1 (renderer11_utils GetMaximumCli
   rules (x1 -> 1, >32 -> 0). Follow-up: R10G10B10_XR_BIAS_A2_UNORM returns 0 caps; the doc says NOT_SUPPORTED only
   if unsupported - it is "creation only" in the inherited comment, leave.
 - 22:40 0076 (maliumd 107bdb1e, redirection default) NATIVE: reboot, d3dswap composition 300 frames done, Windows Terminal alive 40 s and rendering (scan-out traces/wddm2/wt-0076.png: PowerShell prompt drawn), DWM 0 drops. G15 S4 reached. dwmwatch/etwswap switch flipped to -NoRedirect.
+
+### F2 SM 4.1 opcodes - MS Learn semantics (rule 13, 2026-10-16 23:05)
+- samplepos (sm4.1-asm): `samplepos dest, srcResource[.swz], sampleIndex`; srcResource t# or rasterizer; returns
+  (X, Y, 0, 0) "relative to the pixel's center"; out-of-bounds index or unbound -> 0; pixel shader only.
+- sampleinfo: `sampleinfo[_uint] dest, srcResource[.swz]` (t# or rasterizer) -> (SampleCount, 0, 0, 0), float unless
+  _uint; unbound -> 0.
+- lod: `lod dest, addr, t#[.swz], s#` -> (ClampedLOD, NonClampedLOD, 0, 0), swizzled by the resource operand.
+- gather4: `gather4[_aoffimmi] dest, addr, t#[.swz], s#.r` - red channel of the 4 bilinear texels, xyzw = (-,+),
+  (+,+), (+,-), (-,-) (= GL textureGather order), 2D/cube.
+- d3d10umd today: LD_MS drops the sample index (comment "We don't support multi-sampling yet") - with F1 MSAA live
+  this is a correctness bug: becomes TGSI SAMPLE_I_MS (tgsi_to_nir: txf_ms with ms_index = src[2].x).
+- Positions for samplepos come from pipe->get_sample_position (the driver's pattern; panfrost 4x rotated grid
+  SAMPLE8(-1,-3)... = D3D standard 4x (-2,-6)/16), table built at shader translation, selected by count + index.
+- 23:20 F2 code (Mesa working copy, build mali-umd-0077 66de0170): ShaderParse SM4.1 table entries; ShaderTGSI
+  LD_MS -> SAMPLE_I_MS (sample index honoured), GATHER4/LOD -> TGSI GATHER4/LOD, SAMPLE_INFO (U2F unless _uint),
+  SAMPLE_POS = SAMPLE_INFO count + USEQ/AND/UCMP select over pipe->get_sample_position for every count the screen
+  renders (panfrost: u_default_get_sample_position = D3D standard patterns, matching pan_samples.c 4x rotated /
+  8x/16x D3D grids). tgsi_to_nir: GATHER4 = tg4 component 0, LOD = nir lod, SAMPLE_INFO = texture_samples. Known gap:
+  the rasterizer operand of sampleinfo/samplepos -> 0 + log. Not testable before F5 (runtime rejects 4.1 shaders
+  at 10_0).
+- F3/F4 checked in source: CreateShaderResourceView1 already maps TexCube First2DArrayFace/NumCubes to layers and
+  the resource to PIPE_TEXTURE_CUBE_ARRAY when ArraySize > 6; CreateBlendState1 is per-RT (D3D11.1 desc converted
+  by d111_blend). MS Learn "Direct3D feature levels" table, 10_1 vs 10_0: shader model 4.x vs 4.0, cubemap resource
+  arrays Yes vs No, max input slots 32 vs 16 (State.h keeps PIPE_MAX_ATTRIBS = 32 vertex buffers; panfrost's own
+  limit to check in the F5 review). F5 next: report D3D11DDI_3DPIPELINELEVEL_10_1.
+- 23:35 F5 (0078, maliumd 2cbb8f8c): pipeline caps 10_0 | 10_1 -> d3dmsaa CreateDevice FL 0xa100 (runtime accepts
+  10_1), MSAA test still PASS. Edge NATIVE (no flags): GPU process starts (no ES3 error, no Skia FATAL), runs ~10 s,
+  then exits 0xC0000409 x2. WER LocalDumps (new tools/phone/wddm2/werdump.ps1; Edge's crashpad skips fail-fast):
+  ucrtbase invalid_parameter <- _write_internal <- maliumd fprintf <- wddm_drm (SUBMIT) <- panfrost_batch_submit <-
+  ResourceUpdateSubResourceUP <- msedge rx::TextureStorage11::setData. Our shim's unconditional fprintf(stderr)
+  (the once-only "allocation list full" line) in a process without stderr. 0079: malikm_diag_init always runs its
+  stderr check; no usable stderr -> NUL (or the tlog file when MALIKM_TGSI_DIR is set). Side finding: Edge's GPU
+  process overflows the shim's allocation list (more live BOs than slots) - follow-up.
+- 23:50 0079 still died the same way: umdtrace is on machine-wide, so the no-stderr branch freopen'd stderr into C:\S10eTmp\tlog, which the Edge GPU sandbox cannot write -> failed freopen closes stderr. 0079b: NUL fallback. (Also: umdswap had silently failed - DLL in use, .prev locked by DWM; umdswap.cmd now renames to a unique .old and wddm2dbg checks the hash.)
+- 00:15 (2026-10-17) 0079b (maliumd 40427c6c): Edge NATIVE, no flags: GPU process stays up (45 s run, no crash),
+  maliumd.dll loaded in the GPU process (tasklist /m), page renders on screen (scan-out traces/wddm2/edge-during.png).
+  edge://gpu (typed via tools/phone/wddm2/typeurl.ps1, traces/wddm2/edgegpu-page-rot.png): Canvas, Compositing,
+  WebGL, WebGPU, Video Decode/Encode "Hardware accelerated"; OpenGL Enabled; Rasterization "Unavailable"; Skia Graphite
+  "Unavailable"; Direct Rendering Display Compositor Disabled; Raw Draw Disabled. A black-screen state seen once
+  before (scan-out + GDI capture black, DWM presenting) did not come back after a clean reboot - watch for it.
+  Next G16: why GPU rasterization is Unavailable (the "Problems detected" / driver bug workarounds part of
+  edge://gpu); real-page smoothness check by the user.

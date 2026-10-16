@@ -1610,3 +1610,14 @@ got past Skia after F1; its later crash was the tracked fence, now fixed by 0076
 **Next:** F2 SM 4.1 opcodes (LOD, GATHER4, SAMPLE_POS, SAMPLE_INFO) in ShaderParse/ShaderTGSI, F3 cube arrays, F4
 per-RT blend check, F5 report pipeline level 10_1, then Edge with no flags (tools/phone/wddm2/browsertest.ps1). Then
 G17 video DDI, G18 HDMI. Follow-ups: d3dmsaa over all RT formats x 4/8/16 (R32/R16 families answered from depth).
+
+## 49. Restart point (2026-10-17 ~02:00 local; goal WDDM2 + GPU UI/browsers/video + HDMI, unattended)
+**Committed:** G16 state - Edge runs natively on the Mali: ANGLE D3D11, GLES 3.0, vs/ps 4.1, Canvas/Compositing/
+WebGL/WebGPU hardware accelerated (edge://gpu + DevTools SystemInfo, tools/phone/wddm2/cdp_gpuinfo.py). Mesa 0074
+MSAA, 0076 redirection default, 0077 SM4.1 opcodes, 0078 pipeline level 10_1, 0079 no-stderr fail-fast fix, 0080 SM4.1
+fixes (+ panfrost TEXTURE_SAMPLES sysval), 0081 allocation list grows on demand. Phone: mali-umd-0081c (maliumd
+fa2109d9) in System32; machine env MALIKM_TGSI_DIR still on (umdtrace -Off to stop); WER LocalDumps for msedge.exe on
+(werdump.ps1 -Exe msedge.exe -Off). Known limits: Chromium GPU rasterization blocklisted for our vendor id (entry 122),
+Graphite needs FL12, D3D lod on Bifrost wrong (d3dsm41 7/8), WebGL MSAA off (ANGLE stops at our 2x = 0).
+**Next:** G17 video (MFC decode integrated with D3D11 / Media Foundation), G18 HDMI. Optional: user check of real
+browsing smoothness.

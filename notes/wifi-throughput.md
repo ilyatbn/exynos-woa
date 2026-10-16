@@ -144,3 +144,12 @@ User report 2026-10-15: ~18 Mbit/s while copying a 725 MB file to the phone over
   Verified on device, Home-X 2.4 GHz ch 9, 144 Mbit/s link: dump ampdu txaddbareq 1 rxaddbaresp 1, rxaddbareq 1,
   tot_ampdus 4869 (8 MPDU/A-MPDU tx), rx 7 MPDU/A-MPDU; internet download (user's fibertest link, curl, 1 stream)
   34 and 41 Mbit/s (before: 3.6-8 Mbit/s).
+- 11:05 user: single stream should do far more; enable 40 MHz in 2.4 GHz; do hardware offload (5 GHz speedtests pin
+  the CPU); asked about QAM. BCM4375 = 2x2 2.4 + 2x2 5 GHz, 1024-QAM (Broadcom release). QAM/MCS are chosen by the
+  firmware per frame; vht_features 0x6 (5 GHz 1024-QAM) is already the fw default -> nothing for the host to add.
+  Offload iovars on this fw: toe / toe_ol -> MSG 6 (no checksum offload), arpoe 0, ndoe 0 (present, off),
+  tcpack_sup_mode unsupported, obss_coex 0, mimo_bw_cap 0, wnm 0x505. country = "GB" rev 0.
+- 40 MHz in 2.4 GHz: our join already passes the scan's 40 MHz chanspec (0x1907); the fw still sends HT cap 0x002D
+  (no 40 MHz bit). bw_cap pre-UP {2G, 0x3} -> BCME_BADBAND (-13); after WLC_DOWN the same; GET bw_cap 2G = 0x3 and
+  5G = 0x7 (so bw_cap already allows 40/80). mimo_bw_cap 1 at runtime -> BCME_NOTDOWN (-5). Next (1.0.10.24 debug
+  "bw40"): WLC_DOWN + mimo_bw_cap 1 (WLC_N_BW_40ALL) + WLC_UP, reconnect, check HT cap / rate, and that 5 GHz keeps 80.

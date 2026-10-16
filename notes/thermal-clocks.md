@@ -194,3 +194,11 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   recorder sample (16:13:54), not freeze + 82 s WDT. Either the counter does not start at the reset (bootloader time
   not counted? then reset is earlier still) or something other than the 82 s cluster WDT resets the SoC. UNVERIFIED -
   compare with debug_history / reset_reason next time the phone is in TWRP.
+- 2026-10-16 17:00 **hypothesis: the KDNET debug transport.** User asked whether the USB debugger is running: no host
+  on the PC, but the phone's BCD has had `debug Yes` (KDNET, busparams 0, hostip 169.254.255.255, port 50005) since
+  2026-10-13 23:17 (notes/m12-wifi-wificx.md:429-433, commit 599d032); the first recorded silent resets are 2026-10-15
+  (no Windows watchdog before 10-12 boot #97 -> earlier hangs could have gone unseen, so the timing is suggestive, not
+  proof). Freeze #12 with KD *attached* and freezes with the host detached both had the transport enabled in the
+  target. Test armed: `bcdedit /debug {current} off` at 17:00:32 (bootdebug already No) -> takes effect on the boot
+  after freeze #17 (due ~17:01:15). Pre-registered: no freeze by reset + ~2900 s on that boot = KD transport is the
+  trigger; a freeze at ~2832 s = KD excluded. Undo: `bcdedit /debug {current} on` (dbgsettings unchanged).

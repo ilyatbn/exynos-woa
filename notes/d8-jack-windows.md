@@ -92,3 +92,12 @@ Hazard to check before writing gpp0 CON: which pins the touch / other drivers us
   speakers always present (no detection flag), only the headphone jack is detected. Verified by the user: headphones
   appear next to the speakers when plugged, separate volumes, unplug falls back to the speakers, and after choosing
   Headphones once as default Windows restores it on replug ("you are correct. good thats done").
+- Review of 6572bcc (J3) + a821870 (J4b): checked HpActive ownership with the busy guard (the second stream returns
+  before touching HpActive), AudJackNotify skips circuits not yet added (first poll runs in PrepareHardware), release
+  only forgets added circuits, HostPinId / VolumeElementId identical in both circuits (log: 0 / 0 in both).
+  Found and fixed in 1.0.1.36: (1) HwVolume 1 would have let the headphone volume / mute drive the speaker amps -
+  every HwVolume branch is now speaker-only; (2) a Headphones stream fell back to the speakers when the codec was not
+  up or CodecHpPrepare failed - it now runs silent; (3) CodecEnable missing from the INF parameter list (added with 0,
+  A8 pattern). Accepted: AboxSamplePins (2 ms + 64 reads per stream start) stays as a cheap link diagnostic; the
+  ABOX-master path (HpMaster 0) stays with its failure diagnostics. Verified after install: both endpoints OK, quiet
+  test stream -> "abox output HEADPHONES", "hp: ON".

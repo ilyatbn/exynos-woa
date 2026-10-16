@@ -193,8 +193,9 @@ NTSTATUS NTAPI AudEvtVolumeAssignLevel(ACXVOLUME Volume, ULONG Channel, LONG Vol
 
     AudLog(Dev->Log, "volume %s ch %ld <- %ld/65536 dB (%s)\r\n", Ep->Headphones ? "hp" : "spk", (LONG)Channel, VolumeLevel,
            Dev->Cfg.HwVolume ? "amp" : "software");
-    if (Dev->Cfg.HwVolume) {
-        /* One level for both amps (each amp plays one slot of the stereo frame); the last assignment wins. */
+    if (Dev->Cfg.HwVolume && !Ep->Headphones) {
+        /* One level for both amps (each amp plays one slot of the stereo frame); the last assignment wins. The
+           headphone endpoint always uses the software volume (review of a821870: it must not move the amps). */
         return AmpSetVolume(Dev, VolumeLevel);
     }
 
@@ -218,7 +219,7 @@ NTSTATUS NTAPI AudEvtVolumeRetrieveLevel(ACXVOLUME Volume, ULONG Channel, LONG *
         return STATUS_INVALID_PARAMETER;
     }
 
-    if (Dev->Cfg.HwVolume) {
+    if (Dev->Cfg.HwVolume && !Ep->Headphones) {
         *VolumeLevel = Dev->VolumeLevel;
     } else {
         *VolumeLevel = Ep->SwLevel[(Channel == AUD_ALL_CHANNELS) ? 0 : Channel];   /* sample: channel 0 for "all" */
@@ -240,7 +241,7 @@ NTSTATUS NTAPI AudEvtMuteAssignState(ACXMUTE Mute, ULONG Channel, ULONG State)
 
     /* One mute state for the endpoint (the endpoint mute is not per channel); the last assignment wins. */
     AudLog(Dev->Log, "mute ch %ld <- %lu (%s)\r\n", (LONG)Channel, State, Dev->Cfg.HwVolume ? "amp" : "software");
-    if (Dev->Cfg.HwVolume) {
+    if (Dev->Cfg.HwVolume && !Ep->Headphones) {
         Dev->Muted = (State != 0) ? 1 : 0;
         return AmpMute(Dev, State != 0);
     }
@@ -261,7 +262,7 @@ NTSTATUS NTAPI AudEvtMuteRetrieveState(ACXMUTE Mute, ULONG Channel, ULONG *State
         return STATUS_INVALID_PARAMETER;
     }
 
-    *State = Dev->Cfg.HwVolume ? Dev->Muted : (ULONG)Ep->SwMuted;
+    *State = (Dev->Cfg.HwVolume && !Ep->Headphones) ? Dev->Muted : (ULONG)Ep->SwMuted;
     return STATUS_SUCCESS;
 }
 
@@ -612,7 +613,7 @@ static VOID AudDmaFillSlot(_In_ PAUD_STREAM_CONTEXT Ctx, _In_ ULONG Slot, _In_op
     LONG           GainR = 1 << 30;
 
     /* Endpoint volume / mute in software (HwVolume = 0), sampled once per period. */
-    if (!Dev->Cfg.HwVolume) {
+    if (!Dev->Cfg.HwVolume || Ctx->Ep->Headphones) {
         if (Ctx->Ep->SwMuted) {
             Src = NULL;
         } else {
@@ -995,10 +996,11 @@ static VOID AudHwStart(_Inout_ PAUD_STREAM_CONTEXT Ctx)
 
     /* J4b: the endpoint decides - a Headphone0 stream plays on the jack, a Speaker0 stream on the amps. Windows moves
        streams between the endpoints when the jack presence changes (AudJackNotify). */
-    Dev->HpActive = Ctx->Ep->Headphones && Dev->CodecUp;
-    if (Dev->HpActive && !NT_SUCCESS(CodecHpPrepare(Dev))) {
-        Dev->HpActive = FALSE;
+    if (Ctx->Ep->Headphones && (!Dev->CodecUp || !NT_SUCCESS(CodecHpPrepare(Dev)))) {
+        AudLog(Dev->Log, "stream: headphone codec path not available - this headphone stream runs silent\r\n");
+        return;   /* review of a821870: never fall back to the speakers for a Headphones stream */
     }
+    Dev->HpActive = Ctx->Ep->Headphones;
     Status = AboxSelectOutput(Dev, Dev->HpActive);
     if (!NT_SUCCESS(Status)) {
         AudLog(Dev->Log, "stream: output selection failed (%08lX) - silent\r\n", Status);

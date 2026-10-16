@@ -97,3 +97,20 @@ Why (all four user goals hang on it):
   redirection: 0 drops. Traces kept in traces/wddm2-2026-10-16 (gitignored).
   Status of the S4 goal: redirection = tracked fence works (Terminal/composition swap chains run), but DWM is not
   stable with redirected surfaces yet -> redirect stays off by default.
+- 20:10 (2026-10-16) G16 first look, tools/phone/wddm2/browsertest.ps1 (Edge, chrome_debug.log): every GPU process
+  dies in init - "eglCreateContext ES 3.0 failed with error EGL_BAD_ATTRIBUTE. ES version fallback is disabled" ->
+  CollectGraphicsInfo failed -> "Exiting GPU process". Chromium now requires GLES 3.0 from ANGLE; ANGLE D3D11 gives
+  ES 2.0 on FL 10_0 (renderer11_utils GetMaximumClientVersion; research note item 1). After 3 tries Edge falls back
+  to a software GPU process (--use-angle= empty). So FL 10_0 = no browser GPU at all; need FL 10_1 (or ANGLE
+  feature allowES3OnFL10_0 as a test). Log: traces/wddm2-2026-10-16/edge1.txt.
+- 20:15 Edge with --enable-angle-features=allowES3OnFL10_0 (browsertest.ps1 -Flags): ANGLE now creates the ES3
+  context on our UMD (GPU process gets past CollectGraphicsInfo, presents/raster start), then dies 3x with
+  FATAL skia_output_surface_impl.cc:1285 (surface 2280x1026 format=4 color_type=4 backend_format.isValid()=0
+  backend()=5 AsGLFormat=0 willGlFBO0=1), preceded by "CopySharedImage: Dest shared image is not writable" /
+  "Unable to initialize SkSurface"; exit 0x80000003 -> after 3 crashes Edge runs with a software GPU process.
+  UMD log of the GPU process (browsertest.ps1 -UmdLog: MALIKM_TGSI_DIR + --disable-gpu-sandbox): CheckFormatSupport
+  answers 0x7 (SAMPLE|RT|BLEND) for colour formats, 0x1 for depth, 0 for BC1-BC5 (70-84) and no MSAA bits at all
+  (CheckMultisampleQualityLevels = 0 for every count, inherited "XXX: Disable MSAA"). No CB FAIL. --vmodule gives no
+  extra lines in Edge release. Logs: traces/wddm2-2026-10-16/edge{2,3,4}-debug.log, malikm-msedge.exe-1580.txt.
+  Research on the CHECK running (agent). Candidate causes: missing BC/MSAA required by FL 10_0 make ANGLE's ES3 caps
+  incomplete; the real fix is FL 10_1 (ANGLE ES3 without the hack) - both need MSAA in the UMD.

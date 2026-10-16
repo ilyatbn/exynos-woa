@@ -8,6 +8,7 @@
 #   hb [N]               the KMD's PRAM heartbeat line N times, 4 s apart (isr, dpc, vsync, submits, presents, fence)
 #   fb [NAME]            dump the scan-out (base from DPU DMA G0 +0x40) to scratch NAME.png (pitch 4352)
 #   idma                 DPU DMA G0 registers 0x19071000..0x1907105F (base at +0x40)
+#   kmdtrace [NAME] [N]  the KMD's live PRAM DDI trace, newest N rolling lines (entry/exit + status)
 #   winpram [NAME]       copy S:\WINPRAM.BIN (firmware dump after an unclean reset): KMD trace + S10eDiag ring
 #   kmdswap SYS          swap a built MaliG76Wddm.sys into the DriverStore (SYSTEM task), print the new hash
 #   umdswap DIR          stage maliumd.dll + libgallium_d3d10.dll from DIR into System32 (old ones kept as .prev)
@@ -57,6 +58,22 @@ fb) n=${1:-fb}
     T=200 r "C:\\S10eTmp\\s10ediagx.exe dumpmmio 0x$base 9922560 C:\\S10eTmp\\$n.bin" > /dev/null
     scp -q -O "s10e:C:/S10eTmp/$n.bin" "$OUT/" < /dev/null && (cd "$OUT" && python "$REPO/tools/phone/fb2png.py" "$n.bin" 4352 >/dev/null \
       && python -c "from PIL import Image; im=Image.open('$n.png'); print('$OUT/$n.png extrema', im.getextrema())");;
+kmdtrace) n=${1:-kmdtrace}   # the KMD's live PRAM DDI trace (rolling lines 112-255, sorted by sequence)
+    T=60 r "C:\\S10eTmp\\s10ediagx.exe dumpmmio 0x8FE04000 16384 C:\\S10eTmp\\$n.bin" > /dev/null
+    scp -q -O "s10e:C:/S10eTmp/$n.bin" "$OUT/" < /dev/null || exit 1
+    python -I - "$OUT/$n.bin" "${2:-60}" <<'EOF2'
+import sys
+d = open(sys.argv[1], 'rb').read()
+lines = [d[i*64:(i+1)*64].split(b'\0')[0].decode('latin1').strip() for i in range(112, 256)]
+ent = []
+for l in lines:
+    p = l.split()
+    if len(p) >= 2:
+        try: ent.append((int(p[1], 16), l))
+        except ValueError: pass
+for s, l in sorted(ent)[-int(sys.argv[2]):]: print(l[:90])
+EOF2
+    ;;
 winpram) n=${1:-winpram}; task espget espget.cmd 6
     scp -q -O s10e:C:/S10eTmp/WINPRAM.BIN "$OUT/$n.bin" < /dev/null || exit 1
     echo "--- S10eDiag ring (bugcheck lines: BC ...)"; dd if="$OUT/$n.bin" bs=4096 skip=10 count=4 2>/dev/null | tr -c '[:print:]' '\n' | grep -v '^$' | sort | tail -12

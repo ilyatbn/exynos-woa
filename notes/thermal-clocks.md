@@ -146,3 +146,7 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   PC-side logger (one ssh session, scratchpad cntlog.ps1, raw counter every 2 s with PC timestamps) predicts
   CNTVCT = 2^36 at **06:34:17**. Pre-registered: a freeze within ~1 min of that = hypothesis supported; a freeze
   elsewhere or none by ~06:45 = rejected.
+- 06:37 **result: 2^36 hypothesis REJECTED.** CNTVCT passed 2^36 at 06:34:17 with the phone alive; the logger's last
+  line was 06:37:25 at raw counter 73621194128 = 2831.6 s (47.2 min after the reset), then ssh died (freeze #9,
+  idle). The time-to-freeze per boot is still ~47 min (consistent with #6-#8) -> next hypothesis: a resource that
+  runs out at a constant rate (pool / commit leak, handle leak). Next boot: sample memory + pool counters each minute.

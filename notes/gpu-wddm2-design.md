@@ -423,3 +423,18 @@ usb-c to hdmi dongle and our usb-c hub." alpha5 tagged at 1e5df58 (local tag, no
   restart-device hot swap (DWM crashed in its display-transition animation), not the 2.0 model.
   Noise: SearchHost/StartMenuExperienceHost crash in ucrtbase (also seen on 1.3 boots - to check separately).
   Next: S4 Windows Terminal (tracked fence), d3dtri cube fps vs 1.3, 3 boots.
+- 21:08 S4 Windows Terminal on the 2.0 desktop (tools/phone/wddm2 wttest): STILL dies at d3d11+0x46f4,
+  WaitTrackedFenceImpl <- WaitForFence <- dxgi CDXGISwapChain::AcquireBuffer (dump via wddm2dbg dwmdump) = same
+  NULL tracked fence as on 1.3.
+  New tool drivers/MaliG76Wddm/tools/d3dfence (build-d3dfence.cmd): on the 2.0 adapter ID3D11Device5 QI ok,
+  CreateFence ok, ID3D11DeviceContext4::Signal(1) + SetEventOnCompletion -> completed 1 (GPU-ordered signal works),
+  shared fence (D3D11_FENCE_FLAG_SHARED) + CreateSharedHandle + OpenSharedFence ok, CROSS_ADAPTER E_INVALIDARG,
+  D3DKMT monitored fence ok (CPU VA, GPU VA 0), KMTQAITYPE_WDDM_2_0_CAPS 0x1, KMT DRIVERVERSION 0x7d0 (WDDM 2.0).
+  => monitored fences work on the adapter; only DXGI's internal tracked fence (BindToDwm -> CreateTrackedFence-
+  Extended -> d3d11 NDXGI::CDevice::CreateFence) stays NULL. INFERENCE: the runtime runs our D3D10.0-DDI UMD on its
+  downlevel path, which has no tracked fences. Fix direction = the UMD exposes D3D11 DDI interface versions
+  (D3D11_0/11_1 + D3DWDDM1_3/2_0 DDI) - also required for FL 11_0 (browser video, G17).
+  Prior art (C:\Users\ilya\code\wddm-ref\virtio-d3d11, AGPL; its D3D11-DDI layer thirdparty/triton is MIT,
+  Turing Software LLC): tritonSelectVersions offers D3D11_0, D3D11_1, D3DWDDM1_3, D3DWDDM2_0..2_3 DDI (2.3 above the
+  KMD's 2.2 on purpose: typed-UAV format tables only consulted at driverVersion >= 7); comments: the KMD side must not
+  follow to 2.3 (MPO3 flip DDI -> 0xD1).

@@ -16,6 +16,7 @@
 #   set N [reboot]       persistent Parameters\Wddm2 = N (0 = WDDM 1.3, 3 = WDDM 2.0), optionally reboot
 #   umdtrace [-Off]      machine-wide UMD logging on (off) - DWM picks it up at the next boot
 #   umdlog [EXE] [N]     newest malikm log of EXE (default dwm)
+#   wttest [-Wait N]     start Windows Terminal in the user session, alive after N s? crashes?
 #   bc                   Kernel-Power 41 / 1001 / 6008 events and dump files
 #   crashes              Application Error 1000 events of the last 20 min (module + offset)
 #   dwmdump NAME         fetch C:\S10eTmp\dumps\NAME and print .ecxr + stack with cdb and public symbols
@@ -84,6 +85,7 @@ set) if [ "${2:-}" = reboot ]; then r "$PS C:\\S10eTmp\\w2set.ps1 -Wddm2 ${1:?se
 umdtrace) r "$PS C:\S10eTmp\umdtrace.ps1 $*";;
 umdlog) r "$PS C:\\S10eTmp\\umdlog.ps1 -Exe ${1:-dwm} -Tail ${2:-40}";;
 bc) r "$PS C:\\S10eTmp\\bc.ps1";;
+wttest) T=150 r "$PS C:\S10eTmp\wttest.ps1 $*";;
 crashes) r "$PS C:\\S10eTmp\\crashq.ps1";;
 dwmdump) n=${1:?dwmdump NAME}; scp -q -O "s10e:C:/S10eTmp/dumps/$n" "$OUT/" < /dev/null || exit 1
     "/c/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe" -z "$(cygpath -w "$OUT/$n")" \

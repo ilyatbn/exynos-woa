@@ -99,3 +99,4 @@ within it ... after that start with getting touch working. then ... at least 1 m
   request now use `s10ediag flushreset` (FlushFileBuffers on every lettered volume, 2 s, then the proven hard
   reset to recovery). collect.cmd no longer calls shutdown /r. Why sboot ignores INFORM3 on the clean path stays
   open (m14).
+- 2026-10-16 17:1x desktop.cmd no longer creates the .cmd launchers and deletes *.cmd from the Public desktop every boot (user: "get rid of all the cmd files on the desktop"); the .exe helpers stay. Deployed to the ESP (S:\S10EDIAG, old copy C:\S10eTmp\desktop.cmd.old); Public desktop now: Brave.lnk, Display scale.exe, foobar2000.lnk, Reboot to TWRP.exe.

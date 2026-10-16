@@ -103,6 +103,10 @@ CxDbgDump(PCX_DEVICE Dev)
             (VOID)WdfRegistryRemoveValue(Key, &Name);
             if (I > 4 && RtlCompareMemory(A, "var:", 4) == 4) {
                 (VOID)WlanMsgGetVarRaw(&Dev->Msg, Dev->RunR, A + 4);
+            } else if (I == 10 && RtlCompareMemory(A, "country:", 8) == 8) {
+                WlanMsgSetCountry(&Dev->Msg, Dev->RunR, A + 8);
+            } else if (I == 4 && RtlCompareMemory(A, "bw40", 4) == 4) {
+                WlanMsgBw40Experiment(&Dev->Msg, Dev->RunR);
             } else if (I == 3 && RtlCompareMemory(A, "cnt", 3) == 3) {
                 WlanMsgCounters(&Dev->Msg, Dev->RunR, "dbg");
             } else if (I == 7 && RtlCompareMemory(A, "stainfo", 7) == 7) {

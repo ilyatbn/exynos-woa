@@ -103,6 +103,8 @@ ULONG WlanMsgScbAuthorize(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_r
 ULONG WlanMsgDump(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_z_ PCSTR Section);  /* MSG_* */
 VOID  WlanMsgCounters(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_z_ PCSTR When);  /* "[cnt]" lines */
 ULONG WlanMsgStaInfo(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_reads_(6) const UCHAR *Peer);  /* "[sta]" */
+VOID  WlanMsgBw40Experiment(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R);  /* debug "bw40" */
+VOID  WlanMsgSetCountry(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_reads_(2) PCSTR Cc);  /* debug */
 ULONG WlanMsgSetIntVar(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_z_ PCSTR Name, _In_ ULONG Value);
 ULONG WlanMsgGetVarRaw(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_z_ PCSTR Name);  /* "[var]" line */
 ULONG WlanMsgGetIntVar(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_z_ PCSTR Name, _Out_ PULONG Value);

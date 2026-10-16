@@ -160,3 +160,12 @@ User report 2026-10-15: ~18 Mbit/s while copying a 725 MB file to the phone over
   still 0x002D. => neither bw_cap, mimo_bw_cap, obss_coex (0) nor the country (GB -> IL) makes this fw advertise
   40 MHz in 2.4 GHz as a STA. Remaining idea: the RSDB layout (2.4 STA on wlc1; bw_cap SET answers BADBAND from the
   primary wlc) - untested. 2.4 GHz stays 20 MHz 2x2 (MCS15, 144 Mbit/s PHY) for now.
+- 11:30 CPU/throughput (scratchpad cpudl.ps1: curl to a file + Get-Counter + per-process CPU delta; user's fibertest
+  link). 2.4 GHz (~40 Mbit/s): CPU 11 %, DPC 0.2 %, interrupt 0.3 %; top dwm 4.8 s (WARP desktop), MsMpEng 3.4 s,
+  System 0.6 s. 5 GHz HomeX-5 (144-216 Mbit/s link): 125 MB at 31.2 MB/s = **249 Mbit/s** (single stream);
+  24 s / 440 MB at 27.7 MB/s = **221 Mbit/s** sustained with CPU 23 % total, System 19.8 CPU-s (~1 core: kernel
+  TCP/IP + file write + WlanCx worker), busiest core avg 40 % max 83 %, DPC <= 2 %. => not CPU-bound at these
+  rates; transient svchost load right after boot = EventLog / AppXSvc / Update. Hardware offload: this fw has no
+  TOE (toe / toe_ol unsupported), so no checksum/segmentation offload is possible; arpoe/ndoe exist (idle only).
+- 1.0.10.26: the pre-UP bw_cap write (BCME_BADBAND every boot) removed; debug commands "bw40" and "country:XX" kept
+  as documented experiments.

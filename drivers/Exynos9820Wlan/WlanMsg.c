@@ -2720,6 +2720,58 @@ WlanMsgStaInfo(PWLAN_MSG_CTX M, PWLAN_REPORT R, const UCHAR *Peer)
     return Rc;
 }
 
+/* CX debug "country:XX": wl_country_t {abbrev[4], int32 rev, ccode[4]} (bcmdhd_101_16 wlioctl.h:1648-1660), rev -1 =
+   "unspecified" per that header; the fw came up as "GB" rev 0. Logs the value read back. */
+_Use_decl_annotations_
+VOID
+WlanMsgSetCountry(PWLAN_MSG_CTX M, PWLAN_REPORT R, PCSTR Cc)
+{
+    PMSG_STATE S = Live(M, R);
+    UCHAR      C[12];
+    ULONG      Rc;
+
+    if (S == NULL) {
+        return;
+    }
+    RtlZeroMemory(C, sizeof(C));
+    C[0] = (UCHAR)Cc[0]; C[1] = (UCHAR)Cc[1];
+    *(LONG UNALIGNED *)(C + 4) = -1;
+    C[8] = (UCHAR)Cc[0]; C[9] = (UCHAR)Cc[1];
+    Rc = IoctlVar(S, TRUE, "country", C, sizeof(C), 0);
+    ReportLine(R, "[cc] set country %c%c rev -1: MSG %lu (status %ld)\r\n", Cc[0], Cc[1], Rc, S->RespStatus);
+    (VOID)WlanMsgGetVarRaw(M, R, "country");
+}
+
+/* Experiment (CX debug "bw40"): WLC_DOWN, bw_cap {WLC_BAND_2G 2, WLC_BW_CAP_40MHZ 3}, read it back, WLC_UP - the
+   pre-UP set answered BCME_BADBAND (-13) and a runtime set BCME_NOTDOWN (-5). The association is lost (the OS
+   reconnects). notes/wifi-throughput.md 2026-10-16. */
+_Use_decl_annotations_
+VOID
+WlanMsgBw40Experiment(PWLAN_MSG_CTX M, PWLAN_REPORT R)
+{
+    PMSG_STATE S = Live(M, R);
+    ULONG      One = 1, Down, Set, Get, Up, Band = 2;
+    ULONG      Bw[2] = { 2, 0x3 };
+
+    if (S == NULL) {
+        return;
+    }
+    Down = Ioctl(S, WLC_DOWN, &One, sizeof(One), 0, "DOWN");
+    Set  = IoctlVar(S, TRUE, "bw_cap", Bw, sizeof(Bw), 0);
+    ReportLine(R, "[bw40] DOWN MSG %lu, set bw_cap 2G=3 MSG %lu (status %ld)\r\n", Down, Set, S->RespStatus);
+    Set  = SetInt(S, "mimo_bw_cap", 1);   /* WLC_N_BW_40ALL (wlioctl_defs.h:1196); runtime set was BCME_NOTDOWN */
+    ReportLine(R, "[bw40] set mimo_bw_cap 1 MSG %lu (status %ld)\r\n", Set, S->RespStatus);
+    Get  = IoctlVar(S, FALSE, "bw_cap", &Band, sizeof(Band), sizeof(ULONG));
+    ReportLine(R, "[bw40] get bw_cap 2G MSG %lu (status %ld) value 0x%lX\r\n", Get, S->RespStatus,
+               (Get == MSG_OK && S->RespLen >= 4) ? *(ULONG UNALIGNED *)S->Resp : 0xFFFFFFFFUL);
+    Band = 1;
+    Get  = IoctlVar(S, FALSE, "bw_cap", &Band, sizeof(Band), sizeof(ULONG));
+    ReportLine(R, "[bw40] get bw_cap 5G MSG %lu value 0x%lX\r\n", Get,
+               (Get == MSG_OK && S->RespLen >= 4) ? *(ULONG UNALIGNED *)S->Resp : 0xFFFFFFFFUL);
+    Up   = Ioctl(S, WLC_UP, &One, sizeof(One), 0, "UP");
+    ReportLine(R, "[bw40] UP MSG %lu\r\n", Up);
+}
+
 /* SET_VAR of a 32-bit iovar (the CX debug channel "set:<name>=<value>", notes/wifi-throughput.md). */
 _Use_decl_annotations_
 ULONG

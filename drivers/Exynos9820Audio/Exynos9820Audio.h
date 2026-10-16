@@ -99,8 +99,8 @@ typedef struct _AUD_CONFIG {
     ULONG RcvSlotReg;   /* diagnostics: SP_FRAME_RX_SLOT (0x4820) for the earpiece amp; 0xFFFFFFFF (default) = 0x100
                            (slot 0, amp notes F6). 1 = listen to slot 1 like the loudspeaker (swap test, 2026-10-16) */
     ULONG RcvAtten;     /* earpiece / loudspeaker attenuation under the fixed digital volume, in 1/8 dB amp steps */
-    ULONG SpkAtten;     /* (0 default = both at 0 dB as stock gain-media-dual-speaker; clamped to 816) - balance trim */
-    ULONG RcvGain;      /* earpiece / loudspeaker analog gain AMP_GAIN_CTRL [9:5]: 0x0A default (Driver.c), */
+    ULONG SpkAtten;     /* (defaults Driver.c: earpiece 0, loudspeaker 40 = -5 dB; clamped to 816) - balance trim */
+    ULONG RcvGain;      /* earpiece / loudspeaker analog gain AMP_GAIN_CTRL [9:5] (defaults Driver.c: 12 / 0x0A), */
     ULONG SpkGain;      /* clamped to 17 = stock music value (AMP_GAIN_MAX) */
     ULONG CodecEnable;  /* 0 (default): 1 = bring up the CS47L93 jack codec at PrepareHardware (notes/d8-jack-windows.md) */
 } AUD_CONFIG, *PAUD_CONFIG;

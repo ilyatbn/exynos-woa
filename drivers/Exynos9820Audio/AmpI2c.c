@@ -93,7 +93,7 @@
    it: stock stereo music (vendor mixer_gains.xml gain-media-dual-speaker) drives the earpiece and the loudspeaker
    identically (AMP PCM Gain 17, Digital PCM Volume 817 = 0 dB). Balance trim: Parameters\RcvAtten / SpkAtten (1/8 dB). */
 #define AMP_SPK_FIXED_STEPS       (0)
-/* Analog gain AMP_GAIN_CTRL [9:5] ("AMP PCM Gain"): default 0x0A (10.5 dB) both amps; Parameters\RcvGain / SpkGain override,
+/* Analog gain AMP_GAIN_CTRL [9:5] ("AMP PCM Gain"): defaults in Driver.c AudReadConfig (earpiece 12, loudspeaker 0x0A); Parameters\RcvGain / SpkGain override,
    clamped to the stock music value 17 (mixer_gains.xml gain-media-dual-speaker, both amps; stock adds DSP protection). */
 #define AMP_GAIN_MAX              17u
 #define CS35L40_AMP_GAIN_CTRL     0x00006C04u

@@ -85,3 +85,7 @@
   show dB relative to them (TopBase Join(12,0) = +4, BottomBase Join(10,40) = -10 half-dB; menu "Default (0 / 0 dB)").
   Installed with the app; trimcli get = 0/40/12/10. The phone's Parameters hold the same four values, so the new
   compiled defaults only matter on a fresh install (not exercised by a test - would need the values deleted).
+- Review of 1bcbc8e (J1) and 3a9b571 (defaults): J1 - CodecRelease is safe with CodecEnable 0 (NULL pages), the
+  failure path releases, only USI01/gpp0-4..7/gpg1-0 written (rg: no other driver touches gpp0/gpg1; touch = gpp1,
+  USI03). Defaults - found stale comments still saying "0x0A default both amps" / "0 default" (AmpI2c.c:96,
+  Exynos9820Audio.h:102-103) -> fixed in a follow-up commit (comment-only, build checked).

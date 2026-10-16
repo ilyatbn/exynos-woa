@@ -1541,3 +1541,29 @@ notes/wifi-throughput.md. BT 1.0.0.16 unchanged. alpha4 tag = baa0caf.
   EL3 PC sampler or the DSS/scan2dram dump to see the hung cores. Until then every session dies after ~47 min.
 - 40 MHz in 2.4 GHz: this fw keeps HT cap 20 MHz (bw_cap, mimo_bw_cap, country tried); RSDB wlc1 untested.
 - Phone leftovers: firewall rule S10eUdpTest (UDP 9998), schtasks band5/band24/wifiexp/wlanswap (one-shot, harmless).
+
+## 45. Restart point (2026-10-16 ~19:30 local; audio session: speakers, trim app, 3.5 mm jack DONE)
+
+Committed and device-verified this session (notes/d8-audio-speakers-20261016.md, notes/d8-jack-windows.md):
+- Exynos9820Audio **1.0.1.36** installed. Speakers: both amps at 0 dB digital, per-amp analog gain; balance set by ear
+  is the default (earpiece gain 12, loudspeaker atten 40 = -5 dB). Parameters RcvAtten/SpkAtten/RcvGain/SpkGain.
+- tools/S10eSpeakerTrim (C:\Program Files\S10eSpeakerTrim + Start menu "S10e Speakers"): live trim over the private KS
+  property AUDPROPSETID_SpeakerTrim (AudControl.h, Control.c), works unelevated.
+- 3.5 mm jack: CS47L93 over spi_2 from Windows (Codec.c, pages mapped without _CRS), cs47l92 patch + 32 kHz + FLL1
+  (CodecTone.c), jack detection polled (CodecJack.c), headphone path (CodecHp.c) with the **codec as AIF1 clock
+  master** and ABOX UAIF0 slave (the stock ABOX-master + FLL2 path never locks: AP BCLK not seen by the codec - open,
+  kept behind Parameters HpMaster 0). Separate "Headphones" endpoint (Headphone0) with jack presence; speakers stay
+  listed; per-endpoint volume; Windows restores Headphones as default on replug once chosen. Phone registry:
+  CodecEnable 1 (needed; INF default 0), HpRoute 1, HpMaster 1 (default), Stereo 1, AmpInit/AmpEnable/AboxEnable 1.
+- Driver log keeps the previous load as C:\Windows\System32\LogFiles\Exynos9820Audio-prev.txt.
+- tools/phone/debloat.ps1 run on the phone (OneDrive + Copilot appx + Copilot desktop removed, svchost grouping,
+  27 services disabled) - re-run after any clean reflash. Desktop .cmd launchers removed (desktop.cmd on the ESP).
+- Parking lot: Galaxy Controller (one C# UI for all our drivers; MILESTONES).
+
+Freeze (notes/thermal-clocks.md #16-#19): still every ~47 min; **KDNET debug is OFF in the phone BCD** (left off per
+user) and it still freezes, now at raw ~2791-2802 s instead of 2832 s; the "freeze" is a **fast reset ~7 s after the
+last sample**, not the 82 s watchdog. No scheduled task near 47 min. Next: Samsung reset reason for that path from TWRP;
+EL3 PC sampler / DSS image needs a boot flash (user's call).
+
+Open / next: USB OTG hot-plug (parkinglot/usb-host-hotplug-and-power.md, not started); mic capture endpoint (jack mic
++ DMICs) not started; why the ABOX-master UAIF0 BCLK does not reach the codec.

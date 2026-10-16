@@ -1,0 +1,1 @@
+Get-WinEvent -FilterHashtable @{LogName="Application"; Id=1000; StartTime=(Get-Date).AddMinutes(-20)} -ErrorAction SilentlyContinue | Select-Object -First 6 | ForEach-Object { $m = $_.Message -split "`n"; "{0:T} {1} | {2} | {3} | {4}" -f $_.TimeCreated, $m[1].Trim(), $m[2].Trim(), $m[3].Trim(), $m[4].Trim() }

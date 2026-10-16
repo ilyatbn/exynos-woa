@@ -1,0 +1,3 @@
+Get-WinEvent -FilterHashtable @{LogName='System'; Id=1001,41,6008} -MaxEvents 3 -ErrorAction SilentlyContinue | ForEach-Object { "{0} {1} {2}: {3}" -f $_.TimeCreated.ToString('T'), $_.ProviderName, $_.Id, (($_.Message -split "`n")[0..2] -join ' ') }
+Get-ChildItem C:\Windows\Minidump, C:\Windows\LiveKernelReports -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 4 | ForEach-Object { "{0} {1} {2}" -f $_.FullName, $_.Length, $_.LastWriteTime }
+Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl' | Select-Object CrashDumpEnabled, AutoReboot, MinidumpDir | Format-List | Out-String

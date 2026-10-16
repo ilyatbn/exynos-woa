@@ -74,3 +74,9 @@
   and the app control land in one commit - 1.0.1.16 was never committed separately.
 - 16:14 also seen: the reset after freeze #16 came ~8 s after the last sample (raw counter of the next boot puts the
   SoC reset at ~16:14:02), not 82 s - see notes/thermal-clocks.md.
+- Review of f4cd8d1: checked Split/Join round trip (+0.5 dB -> gain 11 atten 4 -> +1 half-dB; +7 dB -> gain 17 atten 0;
+  registry gain 12/atten 0 -> slider +2.0 dB), AMP_OP_GAIN runs inside the BusLock-held sequences, Control.c clamps
+  before touching Cfg, interface filter "sams9827" matched on the phone, register dumps match the requested values.
+  Accepted risks: any desktop user can raise both amps to gain 17 (= the stock music value, the cap); a failed
+  WdfRegistryAssignULong is not logged (only a failed key open); the property is answered for any item type, not
+  only the circuit. No follow-up needed.

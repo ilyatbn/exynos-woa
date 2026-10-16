@@ -42,6 +42,7 @@ static VOID CodecJackPoll(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_z_ PCSTR Why)
         Dev->JackKnown   = TRUE;
         AudLog(Dev->Log, "jack: %s (%s, IRQ1_RAW_STATUS_7 %04X)\r\n", Present ? "PLUGGED" : "unplugged", Why, Raw7);
         AudLogFlush(Dev->Log);
+        AudJackNotify(Dev);   /* J4b: Windows re-reads both jack presences and moves the default output */
     }
 }
 

@@ -151,6 +151,19 @@ typedef struct _AUD_REQKEY {
     UCHAR Item;      /* ACX_ITEM_TYPE */
 } AUD_REQKEY, *PAUD_REQKEY;
 
+/* One render endpoint = one ACX circuit with its own software volume / mute and jack (J4b). */
+#define AUD_EP_COUNT 2u
+typedef struct _AUD_ENDPOINT {
+    struct _AUD_DEVICE_CONTEXT *Dev;
+    BOOLEAN       Headphones;     /* FALSE = Speakers (Speaker0), TRUE = Headphones (Headphone0) */
+    ACXCIRCUIT    Circuit;
+    BOOLEAN       Added;
+    ACXJACK       Jack;
+    LONG          SwLevel[2];     /* KS units, per client channel */
+    volatile LONG SwGainQ30[2];   /* 1.0 = 1 << 30; written at PASSIVE, read in the timer DPC */
+    volatile LONG SwMuted;
+} AUD_ENDPOINT, *PAUD_ENDPOINT;
+
 typedef struct _AUD_DEVICE_CONTEXT {
     WDFDEVICE   Device;
     AUD_CONFIG  Cfg;
@@ -204,12 +217,7 @@ typedef struct _AUD_DEVICE_CONTEXT {
        absence is the suspected cause of the missing mix format, notes/d8-audio-win-a5.md) and are applied in
        software by AudDmaFillSlot while it expands client packets into the DMA ring. Gain Q30 per client channel; written at PASSIVE, read in the timer DPC
        (aligned 32-bit, single-copy atomic). The amps stay at their fixed level and are never muted by this path. */
-    LONG        SwLevel[2];       /* KS units, per client channel */
-    volatile LONG SwGainQ30[2];   /* 1.0 = 1 << 30 */
-    volatile LONG SwMuted;
-
-    ACXCIRCUIT  Render;
-    BOOLEAN     CircuitAdded;
+    AUD_ENDPOINT Ep[AUD_EP_COUNT];   /* [0] = Speakers (Speaker0), [1] = Headphones (Headphone0, J4b) */
     ULONG       HostPinId;      /* ACX id of the streaming (host) pin, set when the circuit is built */
     LONG        SpeakerConfig;  /* ReqLog.c KSPROPERTY_AUDIO_CHANNEL_CONFIG (A9): KSAUDIO_SPEAKER_STEREO */
     ULONG       VolumeElementId;/* ACX id of the volume element (Render.c AudCreateElements) */
@@ -228,12 +236,14 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(AUD_DEVICE_CONTEXT, AudGetDeviceContext)
 /* Render circuit context: back pointer to the device context. */
 typedef struct _AUD_CIRCUIT_CONTEXT {
     PAUD_DEVICE_CONTEXT Dev;
+    PAUD_ENDPOINT       Ep;
 } AUD_CIRCUIT_CONTEXT, *PAUD_CIRCUIT_CONTEXT;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(AUD_CIRCUIT_CONTEXT, AudGetCircuitContext)
 
-typedef struct _AUD_ELEMENT_CONTEXT {
+typedef struct _AUD_ELEMENT_CONTEXT {   /* volume / mute elements and jacks */
     PAUD_DEVICE_CONTEXT Dev;
+    PAUD_ENDPOINT       Ep;
 } AUD_ELEMENT_CONTEXT, *PAUD_ELEMENT_CONTEXT;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(AUD_ELEMENT_CONTEXT, AudGetElementContext)
@@ -251,6 +261,7 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(AUD_ELEMENT_CONTEXT, AudGetElementContext)
 
 typedef struct _AUD_STREAM_CONTEXT {
     PAUD_DEVICE_CONTEXT Dev;
+    PAUD_ENDPOINT    Ep;                /* endpoint (circuit) this stream plays on */
     ACXSTREAM        Stream;
     ACXDATAFORMAT    Format;
     ULONG            BlockAlign;
@@ -314,7 +325,10 @@ _IRQL_requires_(PASSIVE_LEVEL) VOID AudLogFlush(_In_opt_ PAUD_RUNLOG Log);
 
 /* Render.c */
 const KSDATAFORMAT_WAVEFORMATEXTENSIBLE *AudHostFormat(_In_ ULONG Bits);
-_IRQL_requires_(PASSIVE_LEVEL) NTSTATUS AudRenderCircuitCreate(_In_ WDFDEVICE Device, _In_ PAUD_DEVICE_CONTEXT Dev);
+_IRQL_requires_(PASSIVE_LEVEL) NTSTATUS AudRenderCircuitCreate(_In_ WDFDEVICE Device, _In_ PAUD_DEVICE_CONTEXT Dev,
+                                                              _In_ ULONG Index);
+_IRQL_requires_(PASSIVE_LEVEL) VOID AudJackNotify(_In_ PAUD_DEVICE_CONTEXT Dev);
+BOOLEAN AudHeadphoneEndpoint(_In_ PAUD_DEVICE_CONTEXT Dev);
 VOID AudSwVolumeInit(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ LONG LevelKs);
 
 /* ReqLog.c */

@@ -81,3 +81,14 @@ Hazard to check before writing gpp0 CON: which pins the touch / other drivers us
   RDMA is paced by the codec's BCLK, the codec runs on SYSCLK (FLL1 <- MCLK2). 1.0.1.33 makes HpMaster 1 the default.
 - Open: route switches only at the next stream start (user: "still gotta play pause when disconnecting/reconnecting ...
   usually windows handles that") -> J4b: separate Headphones endpoint with jack state so Windows switches.
+- **J4b done** (1.0.1.34 -> 1.0.1.35): two render circuits / endpoints, Speaker0 ("Speakers") and Headphone0
+  ("Headphones", INF Audio_Device.I.Headphone, KSNODETYPE_HEADPHONES bridge pin, jack AcxConnType3Point5mm /
+  AcxPortConnJack with AcxJackConfigJackDetection + EvtAcxJackRetrievePresenceState = codec jack present).
+  AcxJackChangeStateNotification from the jack poll on every change. Per-endpoint software volume / mute
+  (AUD_ENDPOINT in Dev->Ep[2]; element / jack / circuit / stream contexts carry the Ep). The endpoint decides the route
+  (Headphone0 stream -> UAIF0 codec path, Speaker0 -> amps); a second stream while the hardware is busy runs silent.
+  1.0.1.34 reported the speakers unplugged while the headphones were in (Windows hid them, and re-applied the speaker
+  level to the headphones on replug); user: "in normal windows ... you should still be able to see both" -> 1.0.1.35:
+  speakers always present (no detection flag), only the headphone jack is detected. Verified by the user: headphones
+  appear next to the speakers when plugged, separate volumes, unplug falls back to the speakers, and after choosing
+  Headphones once as default Windows restores it on replug ("you are correct. good thats done").

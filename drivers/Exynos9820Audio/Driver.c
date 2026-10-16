@@ -23,7 +23,7 @@ EVT_WDF_DEVICE_D0_ENTRY           AudEvtD0Entry;
 EVT_WDF_DEVICE_D0_EXIT            AudEvtD0Exit;
 EVT_WDF_OBJECT_CONTEXT_CLEANUP    AudEvtDeviceCleanup;
 
-#define AUD_DRIVER_VERSION "1.0.1.33"
+#define AUD_DRIVER_VERSION "1.0.1.35"
 
 static AUD_CONFIG g_Cfg;
 
@@ -199,9 +199,13 @@ NTSTATUS AudEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
         return Status;
     }
 
-    Status = AudRenderCircuitCreate(Device, Dev);
+    Status = AudRenderCircuitCreate(Device, Dev, 0);
     AudLog(Dev->Log, "render circuit \"Speaker0\": %08lX%s\r\n", Status,
            Dev->Cfg.HwVolume ? " (volume + mute elements on the amps)" : " (volume + mute elements in software)");
+    if (NT_SUCCESS(Status) && AudHeadphoneEndpoint(Dev)) {
+        Status = AudRenderCircuitCreate(Device, Dev, 1);
+        AudLog(Dev->Log, "render circuit \"Headphone0\": %08lX\r\n", Status);
+    }
     return Status;
 }
 
@@ -310,15 +314,19 @@ NTSTATUS AudEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Resources, WDFCMRE
     }
 
     Status = STATUS_SUCCESS;
-    if (Dev->Render == NULL) {
-        /* run audB2 (bugcheck D1 on pnputil /restart-device): ReleaseHardware's AcxDeviceRemoveCircuit deletes the
-           circuit, so a restart must create a new one (ACX AudioCodec sample: create + add in PrepareHardware) */
-        Status = AudRenderCircuitCreate(Device, Dev);
-        AudLog(Dev->Log, "render circuit re-created: %08lX\r\n", Status);
-    }
-    if (NT_SUCCESS(Status) && !Dev->CircuitAdded && Dev->Render != NULL) {
-        Status = AcxDeviceAddCircuit(Device, Dev->Render);
-        Dev->CircuitAdded = NT_SUCCESS(Status);
+    for (I = 0; I < (AudHeadphoneEndpoint(Dev) ? AUD_EP_COUNT : 1u) && NT_SUCCESS(Status); I++) {
+        PAUD_ENDPOINT Ep = &Dev->Ep[I];
+
+        if (Ep->Circuit == NULL) {
+            /* run audB2 (bugcheck D1 on pnputil /restart-device): ReleaseHardware's AcxDeviceRemoveCircuit deletes the
+               circuit, so a restart must create a new one (ACX AudioCodec sample: create + add in PrepareHardware) */
+            Status = AudRenderCircuitCreate(Device, Dev, I);
+            AudLog(Dev->Log, "render circuit %lu re-created: %08lX\r\n", I, Status);
+        }
+        if (NT_SUCCESS(Status) && !Ep->Added && Ep->Circuit != NULL) {
+            Status = AcxDeviceAddCircuit(Device, Ep->Circuit);
+            Ep->Added = NT_SUCCESS(Status);
+        }
     }
 
     AudLog(Dev->Log, "PrepareHardware done: hardware %s, ABOX %s, circuit %08lX\r\n", Dev->Mapped ? "mapped" : "NOT mapped",
@@ -331,14 +339,18 @@ _Use_decl_annotations_
 NTSTATUS AudEvtReleaseHardware(WDFDEVICE Device, WDFCMRESLIST Translated)
 {
     PAUD_DEVICE_CONTEXT Dev = AudGetDeviceContext(Device);
+    ULONG               I;
 
     UNREFERENCED_PARAMETER(Translated);
     PAGED_CODE();
 
-    if (Dev->CircuitAdded) {
-        (VOID)AcxDeviceRemoveCircuit(Device, Dev->Render);
-        Dev->CircuitAdded = FALSE;
-        Dev->Render       = NULL;   /* deleted by the remove; PrepareHardware creates a new one */
+    for (I = 0; I < AUD_EP_COUNT; I++) {
+        if (Dev->Ep[I].Added) {
+            (VOID)AcxDeviceRemoveCircuit(Device, Dev->Ep[I].Circuit);
+            Dev->Ep[I].Added   = FALSE;
+            Dev->Ep[I].Circuit = NULL;   /* deleted by the remove; PrepareHardware creates a new one */
+            Dev->Ep[I].Jack    = NULL;
+        }
     }
 
     if (Dev->Mapped) {

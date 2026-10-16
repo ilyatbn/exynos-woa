@@ -11,7 +11,7 @@ Signature   = "$WINDOWS NT$"
 Class       = MEDIA
 ClassGuid   = {4d36e96c-e325-11ce-bfc1-08002be10318}
 Provider    = %ProviderString%
-DriverVer   = 10/16/2026,1.0.1.33
+DriverVer   = 10/16/2026,1.0.1.35
 CatalogFile = Exynos9820Audio.cat
 PnpLockdown = 1
 
@@ -85,14 +85,33 @@ HKR,EP\0,%PKEY_AudioEndpoint_PhysicalSpeakers%,0x00010001,0x3
 HKR,EP\0,%PKEY_AudioEndpoint_FullRangeSpeakers%,0x00010001,0x3
 HKR,EP\0,%PKEY_AudioEngine_OEMFormat%,%REG_BINARY%,41,00,00,00,28,00,00,00,FE,FF,02,00,80,BB,00,00,00,EE,02,00,04,00,10,00,16,00,10,00,03,00,00,00,01,00,00,00,00,00,10,00,80,00,00,AA,00,38,9B,71
 
+;
+; Render endpoint: the 3.5 mm jack (J4b; built when Parameters CodecEnable = 1 and HpRoute = 1).
+;
+[Audio_Device.I.Headphone]
+AddReg = Audio_Device.I.Headphone.AddReg
+
+[Audio_Device.I.Headphone.AddReg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%Headphone.FriendlyName%
+HKR,EP\0,%PKEY_AudioEndpoint_Association%,,%KSNODETYPE_ANY%
+HKR,EP\0,%PKEY_AudioEndpoint_Supports_EventDriven_Mode%,0x00010001,0x1
+HKR,EP\0,%PKEY_AudioEndpoint_PhysicalSpeakers%,0x00010001,0x3
+HKR,EP\0,%PKEY_AudioEndpoint_FullRangeSpeakers%,0x00010001,0x3
+HKR,EP\0,%PKEY_AudioEngine_OEMFormat%,%REG_BINARY%,41,00,00,00,28,00,00,00,FE,FF,02,00,80,BB,00,00,00,EE,02,00,04,00,10,00,16,00,10,00,03,00,00,00,01,00,00,00,00,00,10,00,80,00,00,AA,00,38,9B,71
+
 [Audio_Device.NT.Interfaces]
 AddInterface = %KSCATEGORY_AUDIO%,%KSNAME_Speaker%,Audio_Device.I.Speaker
 AddInterface = %KSCATEGORY_RENDER%,%KSNAME_Speaker%,Audio_Device.I.Speaker
 AddInterface = %KSCATEGORY_REALTIME%,%KSNAME_Speaker%,Audio_Device.I.Speaker
+AddInterface = %KSCATEGORY_AUDIO%,%KSNAME_Headphone%,Audio_Device.I.Headphone
+AddInterface = %KSCATEGORY_RENDER%,%KSNAME_Headphone%,Audio_Device.I.Headphone
+AddInterface = %KSCATEGORY_REALTIME%,%KSNAME_Headphone%,Audio_Device.I.Headphone
 
 [Strings]
 ; non-localizable
 KSNAME_Speaker         = "Speaker0"
+KSNAME_Headphone       = "Headphone0"
 SPSVCINST_ASSOCSERVICE = 0x00000002
 Proxy.CLSID            = "{17CCA71B-ECD7-11D0-B908-00A0C9223196}"
 KSCATEGORY_AUDIO       = "{6994AD04-93EF-11D0-A3CC-00A0C9223196}"
@@ -113,3 +132,4 @@ DiskDesc               = "Galaxy S10e Audio Installation Disk"
 DeviceDesc             = "Galaxy S10e Audio (ABOX + CS35L40)"
 ServiceDesc            = "Galaxy S10e Audio"
 Speaker.FriendlyName   = "Speaker"
+Headphone.FriendlyName = "Headphones"

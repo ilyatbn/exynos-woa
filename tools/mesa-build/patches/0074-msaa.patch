@@ -1,0 +1,277 @@
+From 938337d66abd14c02258ab4238e39bde1168149e Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Fri, 16 Oct 2026 23:29:54 +0300
+Subject: [PATCH] d3d10umd: MSAA (exynos-woa 0074, FL 10_1 task F1): quality
+ levels from the screen, consistent per DXGI cast family and gated on the
+ format's own MS caps; MS format bits for RT and D* formats;
+ ResourceResolveSubresource via pipe->blit
+
+---
+ src/gallium/frontends/d3d10umd/Device.cpp   | 152 +++++++++++++++++---
+ src/gallium/frontends/d3d10umd/Resource.cpp |  37 ++++-
+ src/gallium/frontends/d3d10umd/State.h      |   2 +-
+ 3 files changed, 173 insertions(+), 18 deletions(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/Device.cpp b/src/gallium/frontends/d3d10umd/Device.cpp
+index 93a95c0..846d1b9 100644
+--- a/src/gallium/frontends/d3d10umd/Device.cpp
++++ b/src/gallium/frontends/d3d10umd/Device.cpp
+@@ -552,23 +552,95 @@ Flush(D3D10DDI_HDEVICE hDevice)  // IN
+  * ----------------------------------------------------------------------
+  */
+ 
++/*
++ * exynos-woa F1: MSAA answers must agree across a DXGI cast family (0074b/0074c logs: the runtime checks every format
++ * x1..x31 in CreateDevice and drops the device (0x887a0020) when R32G32B32A32_TYPELESS says 0 at 4x next to
++ * R32G32B32A32_FLOAT 1, or when R32G8X24_TYPELESS and D32_FLOAT_S8X24_UINT disagree). So every member of a family
++ * (typeless, typed, depth and the depth-as-colour X/typeless views) is answered for one representative format and
++ * binding. Formats outside these families answer for themselves.
++ */
++static enum pipe_format
++MsaaFamilyFormat(DXGI_FORMAT Format, unsigned *bind)
++{
++   DXGI_FORMAT rep = Format;
++   bool depth = false;
++   switch (Format) {
++   case DXGI_FORMAT_R32G32B32A32_TYPELESS: case DXGI_FORMAT_R32G32B32A32_FLOAT:
++   case DXGI_FORMAT_R32G32B32A32_UINT: case DXGI_FORMAT_R32G32B32A32_SINT:
++      rep = DXGI_FORMAT_R32G32B32A32_FLOAT; break;
++   case DXGI_FORMAT_R32G32B32_TYPELESS: case DXGI_FORMAT_R32G32B32_FLOAT:
++   case DXGI_FORMAT_R32G32B32_UINT: case DXGI_FORMAT_R32G32B32_SINT:
++      rep = DXGI_FORMAT_R32G32B32_FLOAT; break;
++   case DXGI_FORMAT_R16G16B16A16_TYPELESS: case DXGI_FORMAT_R16G16B16A16_FLOAT: case DXGI_FORMAT_R16G16B16A16_UNORM:
++   case DXGI_FORMAT_R16G16B16A16_UINT: case DXGI_FORMAT_R16G16B16A16_SNORM: case DXGI_FORMAT_R16G16B16A16_SINT:
++      rep = DXGI_FORMAT_R16G16B16A16_FLOAT; break;
++   case DXGI_FORMAT_R32G32_TYPELESS: case DXGI_FORMAT_R32G32_FLOAT:
++   case DXGI_FORMAT_R32G32_UINT: case DXGI_FORMAT_R32G32_SINT:
++      rep = DXGI_FORMAT_R32G32_FLOAT; break;
++   case DXGI_FORMAT_R32G8X24_TYPELESS: case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
++   case DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS: case DXGI_FORMAT_X32_TYPELESS_G8X24_UINT:
++      rep = DXGI_FORMAT_D32_FLOAT_S8X24_UINT; depth = true; break;
++   case DXGI_FORMAT_R10G10B10A2_TYPELESS: case DXGI_FORMAT_R10G10B10A2_UNORM: case DXGI_FORMAT_R10G10B10A2_UINT:
++      rep = DXGI_FORMAT_R10G10B10A2_UNORM; break;
++   case DXGI_FORMAT_R8G8B8A8_TYPELESS: case DXGI_FORMAT_R8G8B8A8_UNORM: case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
++   case DXGI_FORMAT_R8G8B8A8_UINT: case DXGI_FORMAT_R8G8B8A8_SNORM: case DXGI_FORMAT_R8G8B8A8_SINT:
++      rep = DXGI_FORMAT_R8G8B8A8_UNORM; break;
++   case DXGI_FORMAT_R16G16_TYPELESS: case DXGI_FORMAT_R16G16_FLOAT: case DXGI_FORMAT_R16G16_UNORM:
++   case DXGI_FORMAT_R16G16_UINT: case DXGI_FORMAT_R16G16_SNORM: case DXGI_FORMAT_R16G16_SINT:
++      rep = DXGI_FORMAT_R16G16_FLOAT; break;
++   case DXGI_FORMAT_R32_TYPELESS: case DXGI_FORMAT_D32_FLOAT: case DXGI_FORMAT_R32_FLOAT:
++   case DXGI_FORMAT_R32_UINT: case DXGI_FORMAT_R32_SINT:
++      rep = DXGI_FORMAT_D32_FLOAT; depth = true; break;
++   case DXGI_FORMAT_R24G8_TYPELESS: case DXGI_FORMAT_D24_UNORM_S8_UINT:
++   case DXGI_FORMAT_R24_UNORM_X8_TYPELESS: case DXGI_FORMAT_X24_TYPELESS_G8_UINT:
++      rep = DXGI_FORMAT_D24_UNORM_S8_UINT; depth = true; break;
++   case DXGI_FORMAT_R8G8_TYPELESS: case DXGI_FORMAT_R8G8_UNORM: case DXGI_FORMAT_R8G8_UINT:
++   case DXGI_FORMAT_R8G8_SNORM: case DXGI_FORMAT_R8G8_SINT:
++      rep = DXGI_FORMAT_R8G8_UNORM; break;
++   case DXGI_FORMAT_R16_TYPELESS: case DXGI_FORMAT_R16_FLOAT: case DXGI_FORMAT_D16_UNORM: case DXGI_FORMAT_R16_UNORM:
++   case DXGI_FORMAT_R16_UINT: case DXGI_FORMAT_R16_SNORM: case DXGI_FORMAT_R16_SINT:
++      rep = DXGI_FORMAT_D16_UNORM; depth = true; break;
++   case DXGI_FORMAT_R8_TYPELESS: case DXGI_FORMAT_R8_UNORM: case DXGI_FORMAT_R8_UINT:
++   case DXGI_FORMAT_R8_SNORM: case DXGI_FORMAT_R8_SINT:
++      rep = DXGI_FORMAT_R8_UNORM; break;
++   case DXGI_FORMAT_B8G8R8A8_TYPELESS: case DXGI_FORMAT_B8G8R8A8_UNORM: case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
++      rep = DXGI_FORMAT_B8G8R8A8_UNORM; break;
++   case DXGI_FORMAT_B8G8R8X8_TYPELESS: case DXGI_FORMAT_B8G8R8X8_UNORM: case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB:
++      rep = DXGI_FORMAT_B8G8R8X8_UNORM; break;
++   default:
++      break;
++   }
++   enum pipe_format f = FormatTranslate(rep, depth);
++   if (f != PIPE_FORMAT_NONE && !depth && util_format_is_depth_or_stencil(f))
++      depth = true;
++   *bind = depth ? PIPE_BIND_DEPTH_STENCIL : PIPE_BIND_RENDER_TARGET;
++   return f;
++}
++
++
++static void CheckFormatSupportCaps(D3D10DDI_HDEVICE hDevice, DXGI_FORMAT Format, UINT *pFormatCaps);
++
+ void APIENTRY
+ CheckFormatSupport(D3D10DDI_HDEVICE hDevice, // IN
+                    DXGI_FORMAT Format,       // IN
+                    __out UINT *pFormatCaps)  // OUT
+ {
+    //LOG_ENTRYPOINT();
++   CheckFormatSupportCaps(hDevice, Format, pFormatCaps);
++   static unsigned n;   /* exynos-woa D4: what the runtime asks and what it gets */
++   if (n++ < 2000)
++      malikm_tlog("CheckFormatSupport %u -> 0x%x", (unsigned)Format, *pFormatCaps);
++}
++
++static void
++CheckFormatSupportCaps(D3D10DDI_HDEVICE hDevice, DXGI_FORMAT Format, UINT *pFormatCaps)
++{
+ 
+    struct pipe_context *pipe = CastPipeContext(hDevice);
+    struct pipe_screen *screen = pipe->screen;
+ 
+    *pFormatCaps = 0;
+ 
+-   struct log_on_exit {   /* exynos-woa D4: what the runtime asks and what it gets (first 300 queries) */
+-      DXGI_FORMAT f; UINT *c;
+-      ~log_on_exit() { static unsigned n; if (n++ < 300) malikm_tlog("CheckFormatSupport %u -> 0x%x", (unsigned)f, *c); }
+-   } log_ = { Format, pFormatCaps };
+-
+    enum pipe_format format = FormatTranslate(Format, false);
+    if (format == PIPE_FORMAT_NONE) {
+       *pFormatCaps = D3D10_DDI_FORMAT_SUPPORT_NOT_SUPPORTED;
+@@ -588,25 +660,36 @@ CheckFormatSupport(D3D10DDI_HDEVICE hDevice, // IN
+       *pFormatCaps |= D3D10_DDI_FORMAT_SUPPORT_RENDERTARGET;
+       *pFormatCaps |= D3D10_DDI_FORMAT_SUPPORT_BLENDABLE;
+ 
+-#if SUPPORT_MSAA
+-      if (screen->is_format_supported(screen, format, PIPE_TEXTURE_2D, 4, 4,
+-                                      PIPE_BIND_RENDER_TARGET)) {
+-         *pFormatCaps |= D3D10_DDI_FORMAT_SUPPORT_MULTISAMPLE_RENDERTARGET;
+-      }
+-#endif
+    }
+ 
+    if (screen->is_format_supported(screen, format, PIPE_TEXTURE_2D, 0, 0,
+                                    PIPE_BIND_SAMPLER_VIEW)) {
+       *pFormatCaps |= D3D10_DDI_FORMAT_SUPPORT_SHADER_SAMPLE;
+ 
++   }
++
+ #if SUPPORT_MSAA
+-      if (screen->is_format_supported(screen, format, PIPE_TEXTURE_2D, 4, 4,
+-                                      PIPE_BIND_RENDER_TARGET)) {
++   /* exynos-woa F1: the MSAA bits follow the family's 4x answer (CheckMultisampleQualityLevels uses the same), for
++    * render-target and depth formats alike; LOAD (ld2dms) only where the format is sampled at all. */
++   unsigned msbind;
++   enum pipe_format msfmt = MsaaFamilyFormat(Format, &msbind);
++   if (msfmt != PIPE_FORMAT_NONE && (*pFormatCaps & (D3D10_DDI_FORMAT_SUPPORT_RENDERTARGET |
++                                                     D3D10_DDI_FORMAT_SUPPORT_SHADER_SAMPLE)) &&
++       screen->is_format_supported(screen, msfmt, PIPE_TEXTURE_2D, 4, 4, msbind)) {
++      /* MULTISAMPLE_RENDERTARGET only on a render-target or a depth-stencil format itself (0074d log: 0x19 on
++       * R32_FLOAT_X8X24_TYPELESS, a depth-as-colour view, dropped the device) */
++      bool ds = Format == DXGI_FORMAT_D32_FLOAT_S8X24_UINT || Format == DXGI_FORMAT_D32_FLOAT ||
++                Format == DXGI_FORMAT_D24_UNORM_S8_UINT || Format == DXGI_FORMAT_D16_UNORM;
++      if (*pFormatCaps & D3D10_DDI_FORMAT_SUPPORT_RENDERTARGET || ds)
++         *pFormatCaps |= D3D10_DDI_FORMAT_SUPPORT_MULTISAMPLE_RENDERTARGET;
++      /* no ld2dms from the depth-as-colour views at pipeline level 10_0 (0074e log: 0x11 on R32_FLOAT_X8X24_TYPELESS
++       * dropped the device; reading MSAA depth is a 10.1 feature) - revisit with F5 (level 10_1) */
++      bool depthview = Format == DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS || Format == DXGI_FORMAT_X32_TYPELESS_G8X24_UINT ||
++                       Format == DXGI_FORMAT_R24_UNORM_X8_TYPELESS || Format == DXGI_FORMAT_X24_TYPELESS_G8_UINT;
++      if ((*pFormatCaps & D3D10_DDI_FORMAT_SUPPORT_SHADER_SAMPLE) && !depthview)
+          *pFormatCaps |= D3D10_DDI_FORMAT_SUPPORT_MULTISAMPLE_LOAD;
+-      }
+-#endif
+    }
++#endif
+ }
+ 
+ 
+@@ -630,8 +713,45 @@ CheckMultisampleQualityLevels(D3D10DDI_HDEVICE hDevice,        // IN
+ {
+    //LOG_ENTRYPOINT();
+ 
+-   /* XXX: Disable MSAA */
++   /* exynos-woa F1 (FL 10_1 needs 4x MSAA): one quality level for every sample count the screen can render with
++    * this format (MS Learn CheckMultisampleQualityLevels: 0 = count not supported). Count 1 is always level 1. */
++   struct pipe_context *pipe = CastPipeContext(hDevice);
++   struct pipe_screen *screen = pipe->screen;
+    *pNumQualityLevels = 0;
++   struct log_on_exit {   /* first 300 queries: what the runtime asks and what it gets */
++      DXGI_FORMAT f; UINT n; UINT *q;
++      ~log_on_exit() { static unsigned c; if (c++ < 2000) malikm_tlog("CheckMSQualityLevels %u x%u -> %u", (unsigned)f, n, *q); }
++   } log_ = { Format, SampleCount, pNumQualityLevels };
++   if (SampleCount <= 1) {
++      *pNumQualityLevels = 1;
++      return;
++   }
++   if (SampleCount > 32)
++      return;
++   /* Levels > 0 only where this format itself reports an MS bit (0074f/0074g logs: caps 0x1 on
++    * R32_FLOAT_X8X24_TYPELESS, caps 0 on R10G10B10_XR_BIAS_A2_UNORM, each with a 4x level -> the runtime dropped the
++    * device in CreateDevice). Exception: the typeless root of a cast family reports no caps of its own but must
++    * answer like its members (0074h log: R32G32B32A32_TYPELESS 0 levels, then R32G32B32A32_FLOAT 1 at 4x -> dropped).
++    */
++   bool root = false;
++   switch (Format) {
++   case DXGI_FORMAT_R32G32B32A32_TYPELESS: case DXGI_FORMAT_R32G32B32_TYPELESS: case DXGI_FORMAT_R16G16B16A16_TYPELESS:
++   case DXGI_FORMAT_R32G32_TYPELESS: case DXGI_FORMAT_R32G8X24_TYPELESS: case DXGI_FORMAT_R10G10B10A2_TYPELESS:
++   case DXGI_FORMAT_R8G8B8A8_TYPELESS: case DXGI_FORMAT_R16G16_TYPELESS: case DXGI_FORMAT_R32_TYPELESS:
++   case DXGI_FORMAT_R24G8_TYPELESS: case DXGI_FORMAT_R8G8_TYPELESS: case DXGI_FORMAT_R16_TYPELESS:
++   case DXGI_FORMAT_R8_TYPELESS: case DXGI_FORMAT_B8G8R8A8_TYPELESS: case DXGI_FORMAT_B8G8R8X8_TYPELESS:
++      root = true; break;
++   default: break;
++   }
++   UINT caps = 0;
++   CheckFormatSupportCaps(hDevice, Format, &caps);
++   if (!root && !(caps & (D3D10_DDI_FORMAT_SUPPORT_MULTISAMPLE_RENDERTARGET | D3D10_DDI_FORMAT_SUPPORT_MULTISAMPLE_LOAD)))
++      return;
++   unsigned bind;
++   enum pipe_format format = MsaaFamilyFormat(Format, &bind);
++   if (format != PIPE_FORMAT_NONE &&
++       screen->is_format_supported(screen, format, PIPE_TEXTURE_2D, SampleCount, SampleCount, bind))
++      *pNumQualityLevels = 1;
+ }
+ 
+ 
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index 599ffcb..4a6ba05 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -1048,7 +1048,42 @@ ResourceResolveSubResource(D3D10DDI_HDEVICE hDevice,        // IN
+                            UINT SrcSubResource,             // IN
+                            DXGI_FORMAT ResolveFormat)       // IN
+ {
+-   LOG_UNSUPPORTED_ENTRYPOINT();
++   LOG_ENTRYPOINT();
++
++   /* exynos-woa F1 (FL 10_1): MSAA -> single-sample resolve of one subresource, as a gallium blit (the driver
++    * averages the samples when src.nr_samples > 1 and dst is single-sampled). ResolveFormat is the typed format
++    * both resources are viewed as (MS Learn ResourceResolveSubresource). */
++   Device *pDevice = CastDevice(hDevice);
++   struct pipe_context *pipe = pDevice->pipe;
++   struct pipe_resource *dst = CastResource(hDstResource)->resource;
++   struct pipe_resource *src = CastResource(hSrcResource)->resource;
++   enum pipe_format fmt = FormatTranslate(ResolveFormat, false);
++   if (fmt == PIPE_FORMAT_NONE)
++      fmt = dst->format;
++
++   struct pipe_blit_info info;
++   memset(&info, 0, sizeof info);
++   unsigned dst_level = DstSubResource % (dst->last_level + 1);
++   unsigned dst_layer = DstSubResource / (dst->last_level + 1);
++   unsigned src_level = SrcSubResource % (src->last_level + 1);
++   unsigned src_layer = SrcSubResource / (src->last_level + 1);
++   info.dst.resource = dst;
++   info.dst.level = dst_level;
++   info.dst.format = fmt;
++   info.dst.box.x = 0; info.dst.box.y = 0; info.dst.box.z = dst_layer;
++   info.dst.box.width = u_minify(dst->width0, dst_level);
++   info.dst.box.height = u_minify(dst->height0, dst_level);
++   info.dst.box.depth = 1;
++   info.src.resource = src;
++   info.src.level = src_level;
++   info.src.format = fmt;
++   info.src.box.x = 0; info.src.box.y = 0; info.src.box.z = src_layer;
++   info.src.box.width = info.dst.box.width;
++   info.src.box.height = info.dst.box.height;
++   info.src.box.depth = 1;
++   info.mask = PIPE_MASK_RGBA;
++   info.filter = PIPE_TEX_FILTER_NEAREST;
++   pipe->blit(pipe, &info);
+ }
+ 
+ 
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index 3e62e38..9806671 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -35,7 +35,7 @@
+ #include "util/u_hash_table.h"
+ #include "cso_cache/cso_context.h"
+ 
+-#define SUPPORT_MSAA 0
++#define SUPPORT_MSAA 1   /* exynos-woa F1 (FL 10_1): panfrost does 4x */
+ #define SUPPORT_D3D10_1 0
+ #define SUPPORT_D3D11 0
+ 
+-- 
+2.40.1.windows.1
+

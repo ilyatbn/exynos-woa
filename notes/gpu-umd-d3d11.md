@@ -134,3 +134,35 @@ Chromium needs GLES 3.0 from ANGLE = D3D FL 10_1 (renderer11_utils GetMaximumCli
   quality levels). WARP control: FL 0xb000, 1 level at 2-16x, clear + ResolveSubresource PASS (pixel 0xff4080ff).
   F1 build: mali-umd-0074 (maliumd 4e1bd2ab): SUPPORT_MSAA 1, quality levels from is_format_supported(samples),
   ResourceResolveSubResource via pipe->blit.
+- 20:50 Research (agent, Chromium 140.0.7339.0 / Skia / ANGLE sources online) on the Edge FATAL: it is the
+  LOG_IF(FATAL, !characterization.isValid()) in SkiaOutputSurfaceImpl::CreateGrSurfaceCharacterizationCurrentFrame;
+  color_type 4 = kRGBA_8888, backend 5 = kUnsupported (default-constructed GrBackendFormat). Chain: ANGLE
+  renderer11_utils GenerateTextureFormatCaps fills sampleCounts (incl. 1) only if CheckFormatSupport has
+  D3D11_FORMAT_SUPPORT_MULTISAMPLE_RENDERTARGET (optional for R8G8B8A8 at FL10_0, dxgi_support_table) -> our driver
+  reports none -> GL_NUM_SAMPLE_COUNTS(RGBA8) = 0 -> Skia GrGLCaps setupSampleCounts leaves the table empty ->
+  RGBA8 not renderable -> no default backend format. So F1 (MSAA) is the fix for this crash too; ANGLE comments:
+  conformant ES3 only on FL 10.1+.
+- 20:52 mali-umd-0074 on the phone: d3dmsaa D3D11CreateDevice = 0x887a0020 (DXGI_ERROR_DRIVER_INTERNAL_ERROR) at
+  any FL - the MSAA change breaks device creation. Investigating with the UMD log.
+- 21:00 0074b (quality-level logging): the runtime asks CheckMultisampleQualityLevels for every format in DXGI order
+  at x1..x31 during CreateDevice. Format 1 (R32G32B32A32_TYPELESS) -> 0 everywhere (FormatTranslate NONE), format 2
+  (R32G32B32A32_FLOAT) caps 0x1f, x2 -> 0, x3 -> 0, x4 -> 1 -> runtime drops the device at once (0x887a0020).
+  Hypothesis: quality levels must agree inside a cast family (typeless parent 0, typed member 1 = inconsistent).
+  Test: answer typeless formats with a typed member of the family.
+- 21:15 0074c (typeless->typed in the quality query) got further: dropped after format 20. 0074d: one helper
+  MsaaFamilyFormat (Device.cpp) answers every cast-family member (typeless, typed, D*, depth-as-colour views) for
+  one representative; CheckFormatSupport MS bits from the same 4x answer. Dropped after "CheckFormatSupport 21 ->
+  0x19" (R32_FLOAT_X8X24_TYPELESS with MULTISAMPLE_RENDERTARGET but no RENDERTARGET) before any quality query of 21
+  -> runtime validates caps per format: MSRT only on RT formats or the D* formats themselves. 0074e = that.
+- 21:20 0074e: dropped at "CheckFormatSupport 21 -> 0x11" (MULTISAMPLE_LOAD on R32_FLOAT_X8X24_TYPELESS). 0074f: no LOAD on the four depth-as-colour views at level 10_0.
+- 21:25 0074f: 21 caps 0x1 then 21 x4 -> 1 -> dropped (19 typeless 0x11 + levels was accepted). Rule: levels > 0 need an MS bit on that format. 0074g: depth-as-colour views answer 0 levels.
+- 21:30 0074g: got to format 89 (R10G10B10_XR_BIAS_A2_UNORM, caps 0) and dropped (4x level 1). 0074h: general rule - levels > 0 only if the format's own caps carry an MS bit (CheckFormatSupportCaps split out of the logging wrapper).
+- 21:35 0074h: back to the first drop (format 1 typeless 0 levels vs format 2 one). Typeless family roots must answer like their members even without own caps; other formats need own MS caps. 0074i.
+- 21:40 0074i (maliumd 1f85c7af) PASSES F1: d3dmsaa on the Mali: CreateDevice FL 0xa000, RGBA8 support 0x117ef3f3,
+  quality 2x=0 4x=1 8x=1 16x=1 (RGBA8/BGRA8/D24S8), 4x RT clear + ResolveSubresource + readback 0 of 4096 wrong.
+  Runtime rules found from the logs (CreateDevice checks every format x1..x31): levels must agree inside a cast family
+  (typeless root included, even with caps 0); a non-root format with levels > 0 must report an MS bit itself; MSRT
+  only on RT or D* formats; no MULTISAMPLE_LOAD on depth-as-colour views at level 10_0. Regression: d3dswap hwnd 60
+  frames done, DWM unchanged. Mesa commit + tools/mesa-build/patches/0074-msaa.patch.
+  Diagnostic only (rule 12): Edge + allowES3OnFL10_0 - the Skia FATAL is gone (research confirmed); the GPU process
+  now runs ~13 s, then exits 0xC0000005 (access violation) once, the restarted one stays up. Next: that crash.

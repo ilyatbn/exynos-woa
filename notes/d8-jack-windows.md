@@ -44,3 +44,10 @@ Hazard to check before writing gpp0 CON: which pins the touch / other drivers us
   Note: the second CodecInit saw the bus already in SPI mode (usi01 2, gpp0 CON 2222xxxx) - left by the previous
   driver instance; the reset pulse makes it start clean regardless.
   User expects a Headphones device in Sound settings -> J3 (data path) + J4 (detection / endpoint).
+- Review of 8fcbde6 (J2): checked every constant in CodecTone.c against AudioTone.c (copied block-for-block: patch
+  tables, FLL configs, register/field defines, tone levels -32 dBFS); the 2 s tone sleeps inside PrepareHardware only
+  when JackTone != 0 (default 0, set back to 0 on the phone); CodecClockOn re-applies the patch on every call -
+  harmless now, but J3 should apply it once per CodecInit (follow-up inside J3). CodecTone logs but ignores the
+  per-write status (same as UEFI) - the read-back in CodecLogStatus is the evidence.
+- 16:5x J3 research delegated (subagent -> notes/d8-jack-research.md): link format/clock domains (FLL ref 32 kHz vs
+  ABOX BCLK), ABOX UAIF0 route/CTRL/CMU/pins, codec AIF1 registers, jack detection.

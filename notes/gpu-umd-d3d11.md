@@ -246,3 +246,36 @@ Chromium needs GLES 3.0 from ANGLE = D3D FL 10_1 (renderer11_utils GetMaximumCli
   before (scan-out + GDI capture black, DWM presenting) did not come back after a clean reboot - watch for it.
   Next G16: why GPU rasterization is Unavailable (the "Problems detected" / driver bug workarounds part of
   edge://gpu); real-page smoothness check by the user.
+- 00:40 Edge GPU state over DevTools (tools/phone/wddm2/cdp_gpuinfo.py, SystemInfo.getInfo; tracing launch with
+  --remote-debugging-port + --user-data-dir=C:\S10eTmp\edgeprof, Edge 155 refuses remote debugging on the default
+  profile; traces/wddm2-2026-10-16/edge-gpuinfo.txt): glRenderer "ANGLE (Arm Mali-G76 MP12 ... Direct3D11 vs_4_1
+  ps_4_1)", glVersion OpenGL ES 3.0, displayType ANGLE_D3D11, skiaBackendType GaneshGL, sandboxed, crash count 0.
+  featureStatus: gpu_compositing/2d_canvas/webgl/webgpu enabled; rasterization unavailable_off; skia_graphite
+  unavailable_off. maxMsaaSamples 1 (ANGLE's GL_MAX_SAMPLES - min over its required renderbuffer formats; some format
+  lacks 4x in our caps). driverBugWorkarounds incl. exit_on_context_lost, disable_dcomp_texture. Driver version
+  0.0.0.0 (our INF/UMD reports none). Research: which software_rendering_list rule makes rasterization unavailable.
+- 01:00 F2 test tool drivers/MaliG76Wddm/tools/d3dsm41 (ps_4_1 compiled at run time, Mali vs WARP, 8 tests). First run:
+  "Assertion failed: curr == parser->curr + length" (ShaderParse.c). fxc token dump (scratchpad shdr_dump.py):
+  samplepos = 0800006e 00102032 00000000 00107046 00000000 0010001a 00000000 00000000 - length 8, operands use 7, the
+  8th DWORD is 0. Parser now accepts trailing padding for SAMPLE_POS. (fxc folds sampleinfo of a Texture2DMS<,4>
+  into the literal 4 - sampleinfo itself is not exercised by this shader.)
+- d3dmsaa "all" (traces/.../d3dmsaa-all.txt): every format claiming 4x MSAA RT creates + clears at 4x (0 failures).
+  Edge maxMsaaSamples 1 = ANGLE's per-format sample-count loop 2,4,8... stops at the first 0-level count (earlier
+  research, renderer11_utils GenerateTextureFormatCaps) and panfrost refuses 2x before arch 12
+  (pan_screen.c: "if (sample_count == 2 && dev->arch < 12) return false"; G76 = v7). Waiting for research reply.
+- 01:10 Research (agent, Chromium main + ANGLE main sources): edge://gpu "unavailable_off" = Blocklisted.
+  rasterization: software_rendering_list entry 122 (Windows, gpu_tile_rasterization) - exceptions only for vendor
+  0x10de/0x8086/0x1002 with ps >= 5.0 + Direct3D11, Xbox 0x1414:0xd000, Qualcomm "QCOM" 0x4d4f4351 with driver >=
+  31.0.2.0, or ANGLE's GL backend. Our vendor 0x534D4153 ("SAMS") never matches -> GPU raster stays off natively
+  (spoofing a vendor id is not acceptable). Known limit: Edge/Chrome raster on CPU, composite/canvas/WebGL on GPU.
+  skia_graphite: entry 188 (D3D11 FL < 12.0). Driver version 0.0.0.0: DXGI CheckInterfaceSupport UMD version (INF
+  DriverVer per INFERENCE) - matches nothing now, cosmetic. maxMsaaSamples 1 confirmed: ANGLE
+  GenerateTextureFormatCaps loops 2,4,8 and breaks at the first 0 -> {1}; Context::updateCaps min over required
+  formats. WebGL antialias then gets no MSAA - options: 2x (panfrost refuses <v12) or ANGLE upstream fix; open.
+- 01:30 0080c (maliumd a17057d3) d3dsm41 Mali vs WARP: sampleinfo/dims (4,4,4) ok, samplepos 0-3 = (-0.125,-0.375),
+  (0.375,-0.125), (-0.375,0.125), (0.125,0.375) identical to WARP, ld_ms sample 3 ok, gather4 (3,4,2,1) ok. lod FAILS:
+  Mali (0, -128) vs WARP (2, 2), also in uniform control flow - bi_lower_lod (GRDESC) returns lod_i16 = -32768 on
+  v7; panfrost itself only advertises texture_query_lod for arch >= 9 (pan_screen.c). Known gap: D3D lod on Bifrost
+  (no NIR generic lowering; would need a derivative-based lowering with sampler clamps). ANGLE ES3 never emits it.
+  Fixes needed on the way: parser accepted samplepos padding; TGSI SAMPLE_INFO had num_src 2 vs documented 1;
+  panfrost TEXTURE_SAMPLES sysval (v6-v8 cannot read the descriptor). Mesa patch 0080-sm41-fixes.patch.

@@ -12,7 +12,7 @@
 
 int main(int argc, char **argv)
 {
-    bool warp = argc > 1 && !strcmp(argv[1], "warp");
+    bool warp = argc > 1 && !strcmp(argv[1], "warp");   /* d3dmsaa [warp] [all] */
     IDXGIFactory1 *fac = NULL;
     IDXGIAdapter1 *ad = NULL, *pick = NULL;
     DXGI_ADAPTER_DESC1 d;
@@ -37,6 +37,48 @@ int main(int argc, char **argv)
     printf("D3D11CreateDevice 0x%08lx FL 0x%x\n", (unsigned long)hr, got);
     if (FAILED(hr))
         return 2;
+    if (argc > 1 && !strcmp(argv[argc - 1], "all")) {
+        /* "all": every DXGI format 1..115 - CheckFormatSupport, levels at 4x/8x, and for every format that claims
+         * MSAA render-target support at 4x a real 4x RT (or DS) create + RTV/DSV (proof of each claimed level) */
+        UINT bad = 0;
+        for (UINT f = 1; f <= 115; f++) {
+            UINT sup = 0, q4 = 0, q8 = 0;
+            if (FAILED(dev->CheckFormatSupport((DXGI_FORMAT)f, &sup)) || !sup)
+                continue;
+            dev->CheckMultisampleQualityLevels((DXGI_FORMAT)f, 4, &q4);
+            dev->CheckMultisampleQualityLevels((DXGI_FORMAT)f, 8, &q8);
+            const char *res = "";
+            if (q4 && (sup & (D3D11_FORMAT_SUPPORT_MULTISAMPLE_RENDERTARGET))) {
+                bool ds = (sup & D3D11_FORMAT_SUPPORT_DEPTH_STENCIL) != 0;
+                D3D11_TEXTURE2D_DESC t = {};
+                t.Width = t.Height = 32; t.MipLevels = t.ArraySize = 1; t.Format = (DXGI_FORMAT)f;
+                t.SampleDesc.Count = 4; t.Usage = D3D11_USAGE_DEFAULT;
+                t.BindFlags = ds ? D3D11_BIND_DEPTH_STENCIL : D3D11_BIND_RENDER_TARGET;
+                ID3D11Texture2D *tx = NULL;
+                HRESULT h = dev->CreateTexture2D(&t, NULL, &tx);
+                if (SUCCEEDED(h)) {
+                    if (ds) {
+                        ID3D11DepthStencilView *v = NULL;
+                        h = dev->CreateDepthStencilView(tx, NULL, &v);
+                        if (v) { ctx->ClearDepthStencilView(v, D3D11_CLEAR_DEPTH, 1.0f, 0); v->Release(); }
+                    } else {
+                        ID3D11RenderTargetView *v = NULL;
+                        h = dev->CreateRenderTargetView(tx, NULL, &v);
+                        float z[4] = { 0, 0, 0, 0 };
+                        if (v) { ctx->ClearRenderTargetView(v, z); v->Release(); }
+                    }
+                    tx->Release();
+                }
+                res = SUCCEEDED(h) ? " 4x-create OK" : " 4x-create FAIL";
+                if (FAILED(h))
+                    bad++;
+            }
+            printf("fmt %3u support 0x%08x 4x=%u 8x=%u%s" "\n", f, sup, q4, q8, res);
+        }
+        ctx->Flush();
+        printf("all: %u claimed-4x formats failed" "\n", bad);
+        return bad ? 8 : 0;
+    }
     DXGI_FORMAT fmts[] = { DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_D24_UNORM_S8_UINT };
     const char *names[] = { "RGBA8", "BGRA8", "D24S8" };
     for (int f = 0; f < 3; f++) {

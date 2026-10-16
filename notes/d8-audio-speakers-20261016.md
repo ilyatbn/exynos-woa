@@ -80,3 +80,8 @@
   Accepted risks: any desktop user can raise both amps to gain 17 (= the stock music value, the cap); a failed
   WdfRegistryAssignULong is not logged (only a failed key open); the property is answered for any item type, not
   only the circuit. No follow-up needed.
+- 16:3x user set the balance by ear in the app: RcvGain 12 / RcvAtten 0 (top +2 dB), SpkGain 10 / SpkAtten 40 (bottom
+  -5 dB); "yeah make it the default". 1.0.1.20: these are the driver defaults (Driver.c AudReadConfig); app sliders now
+  show dB relative to them (TopBase Join(12,0) = +4, BottomBase Join(10,40) = -10 half-dB; menu "Default (0 / 0 dB)").
+  Installed with the app; trimcli get = 0/40/12/10. The phone's Parameters hold the same four values, so the new
+  compiled defaults only matter on a fresh install (not exercised by a test - would need the values deleted).

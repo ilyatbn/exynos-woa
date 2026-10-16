@@ -23,7 +23,7 @@ EVT_WDF_DEVICE_D0_ENTRY           AudEvtD0Entry;
 EVT_WDF_DEVICE_D0_EXIT            AudEvtD0Exit;
 EVT_WDF_OBJECT_CONTEXT_CLEANUP    AudEvtDeviceCleanup;
 
-#define AUD_DRIVER_VERSION "1.0.1.19"
+#define AUD_DRIVER_VERSION "1.0.1.20"
 
 static AUD_CONFIG g_Cfg;
 
@@ -75,9 +75,11 @@ static VOID AudReadConfig(_In_ WDFDRIVER Driver)
     g_Cfg.KsOverride = 1;
     g_Cfg.DefaultMode = 1;
     g_Cfg.RcvSlotReg  = 0xFFFFFFFF;
+    /* Balance baseline by ear (user, 2026-10-16, S10eSpeakerTrim): earpiece analog gain 12 (+2 dB over the boot #99 0x0A),
+       loudspeaker 0x0A with 5 dB digital attenuation. Max gain AmpI2c.c AMP_GAIN_MAX. Same values = 0 dB in the app. */
     g_Cfg.RcvAtten    = 0;
-    g_Cfg.SpkAtten    = 0;
-    g_Cfg.RcvGain     = 0x0A;   /* 10.5 dB, the boot #99 level; max AmpI2c.c AMP_GAIN_MAX */
+    g_Cfg.SpkAtten    = 40;
+    g_Cfg.RcvGain     = 12;
     g_Cfg.SpkGain     = 0x0A;
     g_Cfg.CodecEnable = 0;
 

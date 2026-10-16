@@ -81,9 +81,13 @@ static class Ks
 
 class TrimForm : Form
 {
-    // Slider units: 0.5 dB. 0 dB = the driver default (analog gain 10 = 10.5 dB, digital 0 dB). Above 0 the analog gain
-    // rises (1 dB/step, driver cap 17 = +7 dB, the stock music value); below 0 the digital attenuation grows (to -20 dB).
+    // Split/Join work in absolute half-dB: 0 = analog gain 10 (10.5 dB) with digital 0 dB; above 0 the analog gain rises
+    // (1 dB/step, driver cap 17 = +7 dB, the stock music value), below 0 the digital attenuation grows. The sliders show
+    // half-dB relative to the per-speaker baseline below (range -20 dB .. the gain cap).
     const int GainBase = 10, GainMax = 17;
+    // 0 dB on each slider = the driver's default balance (Driver.c AudReadConfig, set by ear 2026-10-16):
+    // top gain 12 / atten 0, bottom gain 10 / atten 40. In absolute half-dB (Join): +4 and -10.
+    static readonly int TopBase = Join(12, 0), BottomBase = Join(10, 40);
     readonly TrackBar top = new TrackBar(), bottom = new TrackBar();
     readonly Label topL = new Label(), bottomL = new Label(), status = new Label();
     readonly Timer apply = new Timer { Interval = 150 };
@@ -108,25 +112,25 @@ class TrimForm : Form
     {
         Text = "S10e speakers"; FormBorderStyle = FormBorderStyle.FixedToolWindow; StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(360, 190); Font = new Font("Segoe UI", 10f);
-        Setup(top, topL, "Top (earpiece)", 10);
-        Setup(bottom, bottomL, "Bottom (loudspeaker)", 80);
+        Setup(top, topL, "Top (earpiece)", 10, TopBase);
+        Setup(bottom, bottomL, "Bottom (loudspeaker)", 80, BottomBase);
         status.SetBounds(12, 155, 340, 24); Controls.Add(status);
         apply.Tick += delegate { apply.Stop(); Push(); };
         tray.Icon = SystemIcons.Information; tray.Text = "S10e speakers"; tray.Visible = true;
         tray.MouseClick += delegate { Show(); WindowState = FormWindowState.Normal; Activate(); };
         var menu = new ContextMenuStrip();
-        menu.Items.Add("Equal (0 / 0 dB)", null, delegate { top.Value = 0; bottom.Value = 0; });
+        menu.Items.Add("Default (0 / 0 dB)", null, delegate { top.Value = 0; bottom.Value = 0; });
         menu.Items.Add("Exit", null, delegate { tray.Visible = false; Application.Exit(); });
         tray.ContextMenuStrip = menu;
         FormClosing += (s, e) => { if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Hide(); } };
         Load += delegate { Pull(); };
     }
 
-    void Setup(TrackBar t, Label l, string name, int y)
+    void Setup(TrackBar t, Label l, string name, int y, int bas)
     {
         var n = new Label { Text = name }; n.SetBounds(12, y, 200, 22); Controls.Add(n);
         l.SetBounds(270, y, 80, 22); l.TextAlign = ContentAlignment.MiddleRight; Controls.Add(l);
-        t.SetBounds(8, y + 22, 344, 40); t.Minimum = -40; t.Maximum = (GainMax - GainBase) * 2; t.TickFrequency = 4;
+        t.SetBounds(8, y + 22, 344, 40); t.Minimum = -40; t.Maximum = (GainMax - GainBase) * 2 - bas; t.TickFrequency = 4;
         t.SmallChange = 1; t.LargeChange = 4;
         t.ValueChanged += delegate { l.Text = (t.Value / 2.0).ToString("+0.0;-0.0;0.0") + " dB"; if (!loading) apply.Start(); };
         Controls.Add(t);
@@ -137,8 +141,8 @@ class TrimForm : Form
         try {
             var t = Ks.Get();
             loading = true;
-            top.Value = Math.Max(top.Minimum, Math.Min(top.Maximum, Join(t.RcvGain, t.RcvAtten)));
-            bottom.Value = Math.Max(bottom.Minimum, Math.Min(bottom.Maximum, Join(t.SpkGain, t.SpkAtten)));
+            top.Value = Math.Max(top.Minimum, Math.Min(top.Maximum, Join(t.RcvGain, t.RcvAtten) - TopBase));
+            bottom.Value = Math.Max(bottom.Minimum, Math.Min(bottom.Maximum, Join(t.SpkGain, t.SpkAtten) - BottomBase));
             loading = false;
             status.Text = string.Format("driver: top gain {0} att {1}, bottom gain {2} att {3}", t.RcvGain, t.RcvAtten, t.SpkGain, t.SpkAtten);
         } catch (Exception e) { loading = false; status.Text = e.Message; }
@@ -147,8 +151,8 @@ class TrimForm : Form
     void Push()
     {
         var t = new Ks.Trim();
-        Split(top.Value, out t.RcvGain, out t.RcvAtten);
-        Split(bottom.Value, out t.SpkGain, out t.SpkAtten);
+        Split(top.Value + TopBase, out t.RcvGain, out t.RcvAtten);
+        Split(bottom.Value + BottomBase, out t.SpkGain, out t.SpkAtten);
         try { Ks.Set(t); Pull(); } catch (Exception e) { status.Text = e.Message; }
     }
 

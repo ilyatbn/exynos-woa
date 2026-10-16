@@ -114,3 +114,16 @@ Why (all four user goals hang on it):
   extra lines in Edge release. Logs: traces/wddm2-2026-10-16/edge{2,3,4}-debug.log, malikm-msedge.exe-1580.txt.
   Research on the CHECK running (agent). Candidate causes: missing BC/MSAA required by FL 10_0 make ANGLE's ES3 caps
   incomplete; the real fix is FL 10_1 (ANGLE ES3 without the hack) - both need MSAA in the UMD.
+
+## FL 10_1 plan (G16 prerequisite; 2026-10-16 20:25)
+Chromium needs GLES 3.0 from ANGLE = D3D FL 10_1 (renderer11_utils GetMaximumClientVersion). What 10_1 adds over
+10_0 (MS Learn "Direct3D feature levels" table + D3D10.1 DDI) and where d3d10umd stands (source read today):
+- F1 MSAA: State.h SUPPORT_MSAA 0, CheckMultisampleQualityLevels returns 0 always, ResourceResolveSubResource is
+  LOG_UNSUPPORTED. 10_1 mandates 4x on RT formats. -> quality levels from screen->is_format_supported(samples),
+  MULTISAMPLE_* format bits, resolve with pipe->blit. Resource creation already passes SampleDesc.Count.
+- F2 SM 4.1 opcodes: ShaderParse/ShaderTGSI mark LOD, GATHER4, SAMPLE_POS, SAMPLE_INFO unsupported. TGSI has
+  LODQ, TG4, TXQS; SAMPLE_POS needs the standard D3D sample pattern table (to be sourced, not guessed).
+- F3 TextureCubeArray SRVs/declarations.
+- F4 independent per-RT blend (check the D3D11 blend-state path).
+- F5 report D3D11DDI_3DPIPELINELEVEL_10_1 (D3D11.cpp:234) once F1-F4 hold; test with d3dswap + Edge without the
+  allowES3OnFL10_0 flag.

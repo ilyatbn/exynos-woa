@@ -1567,3 +1567,19 @@ EL3 PC sampler / DSS image needs a boot flash (user's call).
 
 Open / next: USB OTG hot-plug (parkinglot/usb-host-hotplug-and-power.md, not started); mic capture endpoint (jack mic
 + DMICs) not started; why the ABOX-master UAIF0 BCLK does not reach the codec.
+
+## 46. Restart point (2026-10-16 ~20:50 local; user goal: WDDM2 + GPU-accelerated UI/browsers/video + HDMI; unattended)
+**Committed:** alpha5 tag (local, 1e5df58). 47-minute reset FIXED: Exynos9820Ufs w38 (25b6e23; w37 minus the
+W31 45-min watchdog-feed ceiling; installed on the phone, validated past raw 2966 s) - notes/thermal-clocks.md.
+**WDDM 2.0 (G15):** physical-mode 2.0 adapter starts (dxdiag "WDDM 2.0"). Load gates: DRIVERCAPS.WDDMVersion 0x2000,
+CalibrateGpuClock + SetStablePowerState (Parameters\Wddm2 = 3), Offset0 on the primary path; handle lookups via
+DxgkCbAcquireHandleData. KMD 1.0.58.1 in the phone's DriverStore (sys 453a6236); WDDMVersion defaults to 0x2000 when
+Wddm2 is on. UMD = Mesa 0069 (residency: paging queue + MakeResident) staged in System32 (maliumd.dll f8821c81,
+previous kept as .prev). In flight: first persistent boot with Parameters\Wddm2 = 3 (set 20:47).
+Rescue: ssh `powershell -File C:\S10eTmp\w2set.ps1 -Wddm2 0 -Reboot`; no ssh -> TWRP -> ESP \S10EDIAG\nogpu.flg.
+Probe tooling (scratchpad): probe7.ps1 (volatile Probe key + restart-device), unprobe.ps1, w2check.ps1, kmdswap.cmd
+(SYSTEM task "kmdswap"), umdswap.cmd, espget.cmd (ESP is mounted at S:), WINPRAM decode = dd + strings (KMD trace
++0x4000, S10eDiag ring +0xA000 has "BC <code>" lines). References cloned to C:\Users\ilya\code\wddm-ref (virtio-rs,
+amdgpu-wddm read-only licence, MS docs + DDI docs).
+**Next:** make DWM compose on the 2.0 adapter (S3/S4), then Terminal tracked fence; G16 chrome://gpu on FL10_0;
+G17 needs D3D11.1 video DDI + FL11_0 in the UMD (notes/gpu-browser-video-research.md); G18 HDMI.

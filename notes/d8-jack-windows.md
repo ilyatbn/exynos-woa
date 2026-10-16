@@ -37,3 +37,10 @@ Hazard to check before writing gpp0 CON: which pins the touch / other drivers us
   low -> held in reset) then "codec: ID 6371 HW_REV 01 IRQ1_RAW_STATUS1 0080 (BOOT_DONE after 5 ms) -> CS47L92/93 OK".
   The reinstall restarted the audio device during the user's playback ("sound driver crashed"): device Started, no
   error events, audiodg alive - the player lost the endpoint. Do not reinstall during user playback without warning.
+- 16:4x **J2 verified** (1.0.1.21, JackTone 2000, wired headphones plugged): log "patch 16-bit 36/38 exact, 32-bit
+  28/28" (the two 16-bit misses = the 0x120 double write / self-clearing bits, as in UEFI), "FLL1 <- MCLK2 (32 kHz)
+  locked after 3 ms", outputs on: SYSCLK1 0444 OUT_EN1 000C RAW_OUT1 000C TONE1 0001, no HP2 short, HPD0 0000; mid-tone
+  same; teardown clean; "codec tone: PLAYED". **User: "i heard that".** JackTone set back to 0.
+  Note: the second CodecInit saw the bus already in SPI mode (usi01 2, gpp0 CON 2222xxxx) - left by the previous
+  driver instance; the reset pulse makes it start clean regardless.
+  User expects a Headphones device in Sound settings -> J3 (data path) + J4 (detection / endpoint).

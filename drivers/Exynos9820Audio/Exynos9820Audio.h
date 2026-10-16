@@ -103,6 +103,7 @@ typedef struct _AUD_CONFIG {
     ULONG RcvGain;      /* earpiece / loudspeaker analog gain AMP_GAIN_CTRL [9:5] (defaults Driver.c: 12 / 0x0A), */
     ULONG SpkGain;      /* clamped to 17 = stock music value (AMP_GAIN_MAX) */
     ULONG CodecEnable;  /* 0 (default): 1 = bring up the CS47L93 jack codec at PrepareHardware (notes/d8-jack-windows.md) */
+    ULONG JackTone;     /* 0 (default): > 0 = J2 diagnostic, codec tone on the jack for this many ms (max 5000) at start */
 } AUD_CONFIG, *PAUD_CONFIG;
 
 /* ======================================================================
@@ -334,6 +335,10 @@ _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecWrite(_Inout_ PAUD_DEVICE_CONTEXT D
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecUpdate(_Inout_ PAUD_DEVICE_CONTEXT Dev, ULONG Reg, USHORT Mask, USHORT Value);
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecRead32(_Inout_ PAUD_DEVICE_CONTEXT Dev, ULONG Reg, _Out_ PULONG Value);
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecWrite32(_Inout_ PAUD_DEVICE_CONTEXT Dev, ULONG Reg, ULONG Value);
+/* CodecTone.c */
+_IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecClockOn(_Inout_ PAUD_DEVICE_CONTEXT Dev);
+_IRQL_requires_(PASSIVE_LEVEL) VOID CodecClockOff(_Inout_ PAUD_DEVICE_CONTEXT Dev);
+_IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecTone(_Inout_ PAUD_DEVICE_CONTEXT Dev, ULONG Ms);
 
 /* Control.c - speaker trim KS property (AudControl.h); TRUE = request completed. */
 _IRQL_requires_(PASSIVE_LEVEL) BOOLEAN AudControlRequest(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ WDFREQUEST Request,

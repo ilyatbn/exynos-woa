@@ -23,7 +23,7 @@ EVT_WDF_DEVICE_D0_ENTRY           AudEvtD0Entry;
 EVT_WDF_DEVICE_D0_EXIT            AudEvtD0Exit;
 EVT_WDF_OBJECT_CONTEXT_CLEANUP    AudEvtDeviceCleanup;
 
-#define AUD_DRIVER_VERSION "1.0.1.20"
+#define AUD_DRIVER_VERSION "1.0.1.21"
 
 static AUD_CONFIG g_Cfg;
 
@@ -61,6 +61,7 @@ static VOID AudReadConfig(_In_ WDFDRIVER Driver)
         { L"RcvGain",    FIELD_OFFSET(AUD_CONFIG, RcvGain) },
         { L"SpkGain",    FIELD_OFFSET(AUD_CONFIG, SpkGain) },
         { L"CodecEnable", FIELD_OFFSET(AUD_CONFIG, CodecEnable) },
+        { L"JackTone",   FIELD_OFFSET(AUD_CONFIG, JackTone) },
     };
     WDFKEY         Key;
     UNICODE_STRING Name;
@@ -82,6 +83,7 @@ static VOID AudReadConfig(_In_ WDFDRIVER Driver)
     g_Cfg.RcvGain     = 12;
     g_Cfg.SpkGain     = 0x0A;
     g_Cfg.CodecEnable = 0;
+    g_Cfg.JackTone    = 0;
 
     if (!NT_SUCCESS(WdfDriverOpenParametersRegistryKey(Driver, KEY_READ, WDF_NO_OBJECT_ATTRIBUTES, &Key))) {
         return;
@@ -287,6 +289,10 @@ NTSTATUS AudEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Resources, WDFCMRE
     if (Dev->Cfg.CodecEnable) {
         Status = CodecInit(Dev);
         AudLog(Dev->Log, "CodecInit %08lX\r\n", Status);
+        if (NT_SUCCESS(Status) && Dev->Cfg.JackTone != 0) {
+            Status = CodecTone(Dev, min(Dev->Cfg.JackTone, 5000u));
+            AudLog(Dev->Log, "CodecTone %08lX\r\n", Status);
+        }
     }
 
     Status = STATUS_SUCCESS;

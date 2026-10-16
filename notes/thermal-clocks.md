@@ -187,3 +187,6 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   "Connection reset". => no workload / CPU / DPC storm precedes the hang; it is instantaneous at ~2833-2835 s after
   the SoC reset (13:46:35 predicted). Points further at a firmware/hardware timer event (EL3/uH/ACPM/our UEFI) rather
   than a Windows component. Second death in a row -> TWRP.
+- 2026-10-16 16:14 **freeze #16** (boot reset ~15:26:39, predicted 16:13:51): recorder's last sample 16:13:54 at raw
+  **2832.0 s**, CPU 1 %, DPC 0 (user had been playing mpv at ~95 % CPU until ~16:08, then idle); ssh reset at 16:14:18.
+  Spread of the hang moment across #9/#10/#15/#16: raw 2831.6-2835 s.

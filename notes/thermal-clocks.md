@@ -210,3 +210,4 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   quick hang-reset of 17:22 rather than a watchdog/TWRP cycle; whether the raw counter really restarts at 0 on that
   reset path is UNVERIFIED (would shift the apparent hang time). Scheduled tasks checked (notes/phone-debloat.md): no
   boot/logon task near 47 min. BCD debug left off (user: leave it off for now).
+- 2026-10-16 18:57:02 **freeze #19** (KDNET off, boot from TWRP adb reboot 18:10:17, reset ~18:10:20): last sample raw **2802.2 s**. With KD off: #18 2790.9 s, #19 2802.2 s - both ~30-40 s earlier than #9-#17 (2831.6-2835 s, KD on). The shift itself is a clue: the hang moment moved when the boot configuration changed (BCD debug off -> different early-boot timing), so the trigger is probably counted from a boot event rather than from the SoC reset - UNVERIFIED.

@@ -68,3 +68,18 @@ Why (all four user goals hang on it):
   INFERENCE (evidence: the only working adapter is VA-capable; Learn: physical mode is "legacy"): the composition
   path wants a GPU-VA-capable adapter. Next = KMD GpuMmu in the mixed form of qemus/virtio-drivers-windows (a GpuMmu
   copy/paging node, the 3D node stays physical: UMD submission unchanged) - notes/gpu-wddm2-design.md S7a.
+- 22:45 ROOT CAUSE of the missing tracked fence found with ETW (tools/phone/wddm2/etwswap.ps1, DXGI provider,
+  decoded with tracerpt): on WARP DXGI logs BindBackBuffersToDwm + DWMRedirection NewRedirected=true for the
+  composition swap chain; on the Mali neither - because d3d10umd's CreateDevice returns DXGI_STATUS_NO_REDIRECTION
+  (Device.cpp, inherited from the VMware driver). Mesa 0072 adds D3D10UMD_REDIRECT=1 (S_OK = DXGI may redirect).
+  With it: d3dswap composition runs to "done", Windows Terminal stays alive (45 s) - the tracked-fence crash is gone.
+  New problem with redirection: DWM loses devices while composing redirected buffers (devlost.ps1: 0 drops/boot
+  without redirection, 3-7 per DWM instance with it) and fail-fasts (dwmcore CD3DDevice::TranslateDXGIorD3DError
+  InContext, 0x8898008D) -> DWM restart loop when set machine-wide. DxgKrnl ETW (etwswap -Redirect -Kernel):
+  VidSchMarkDeviceAsError x3 - DWM: JournalEntry "Render" 0xC0000022 (STATUS_ACCESS_DENIED from the render
+  callback), "Removing device" 0x887A002B, reason 6 from user mode; two more devices reason 14 from kernel.
+  INFERENCE: a DWM submission names an allocation handle not owned by the submitting device - the malikm shim lists
+  every BO it tracks, and redirected buffers are opened by DWM on several runtime devices (bindings). Next: per-device
+  ownership of allocation-list entries in the shim (only handles opened/created on that device). The redirect switch
+  stays off machine-wide (registry value removed) until then; GpuMmu (Wddm2 = 5) and DirectFlip are not needed for
+  the fence (cause was the UMD) - keep Wddm2 = 5 for now (works), revisit.

@@ -23,7 +23,7 @@ EVT_WDF_DEVICE_D0_ENTRY           AudEvtD0Entry;
 EVT_WDF_DEVICE_D0_EXIT            AudEvtD0Exit;
 EVT_WDF_OBJECT_CONTEXT_CLEANUP    AudEvtDeviceCleanup;
 
-#define AUD_DRIVER_VERSION "1.0.1.11"
+#define AUD_DRIVER_VERSION "1.0.1.14"
 
 static AUD_CONFIG g_Cfg;
 
@@ -55,6 +55,7 @@ static VOID AudReadConfig(_In_ WDFDRIVER Driver)
         { L"Stereo",     FIELD_OFFSET(AUD_CONFIG, Stereo) },
         { L"KsOverride", FIELD_OFFSET(AUD_CONFIG, KsOverride) },
         { L"DefaultMode", FIELD_OFFSET(AUD_CONFIG, DefaultMode) },
+        { L"RcvSlotReg", FIELD_OFFSET(AUD_CONFIG, RcvSlotReg) },
     };
     WDFKEY         Key;
     UNICODE_STRING Name;
@@ -68,6 +69,7 @@ static VOID AudReadConfig(_In_ WDFDRIVER Driver)
     g_Cfg.Stereo     = 0;
     g_Cfg.KsOverride = 1;
     g_Cfg.DefaultMode = 1;
+    g_Cfg.RcvSlotReg  = 0xFFFFFFFF;
 
     if (!NT_SUCCESS(WdfDriverOpenParametersRegistryKey(Driver, KEY_READ, WDF_NO_OBJECT_ATTRIBUTES, &Key))) {
         return;

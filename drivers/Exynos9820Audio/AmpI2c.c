@@ -87,9 +87,11 @@
 #define CS35L40_VOL_SHIFT         3
 #define CS35L40_VOL_MUTE_FIELD    0x4CFu        /* -817 steps = mute (amp notes F8) */
 #define CS35L40_VOL_MIN_STEPS     (-816)        /* lowest non-mute step */
-/* Fixed digital volume while Windows applies endpoint volume in software (HwVolume = 0): -10 dB, the level of the
-   validated boot #99 tone (AudioSpeaker.c :85, :582); the earpiece 6 dB lower. */
-#define AMP_SPK_FIXED_STEPS       (-80)
+/* Fixed digital volume while Windows applies endpoint volume in software (HwVolume = 0): 0 dB (2026-10-16, user: "pretty
+   low for 100%"; was -10 dB, the boot #99 tone level AudioSpeaker.c :85, :582). 0 dB is the top of the playback range the
+   amp notes allow (notes/d8-audio-m3-amp.md Safety: -102 .. 0 dB, never positive, analog gain <= 0x0A); the earpiece
+   6 dB lower. */
+#define AMP_SPK_FIXED_STEPS       (0)
 #define AMP_RCV_TRIM_STEPS        (-48)
 
 /* ---------------------------------------------------------------------------------------------------------------- */
@@ -430,7 +432,8 @@ static NTSTATUS AmpRunSeq(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ PAUD_AMP Amp, _I
             Status = AmpUpdate(Dev, Amp->Addr, S->Reg, S->Mask, S->Value);
             break;
         case AMP_OP_SLOT:
-            Status = AmpWrite(Dev, Amp->Addr, S->Reg, (Amp->Addr == AUD_AMP_R_I2C_ADDR) ? 0x00000001u : 0x00000100u);
+            Status = AmpWrite(Dev, Amp->Addr, S->Reg, (Amp->Addr == AUD_AMP_R_I2C_ADDR) ? 0x00000001u :
+                              (Dev->Cfg.RcvSlotReg != 0xFFFFFFFFu) ? Dev->Cfg.RcvSlotReg : 0x00000100u);
             break;
         case AMP_OP_POLL:
             for (Ms = 0;; Ms++) {
@@ -728,12 +731,36 @@ static NTSTATUS AmpMuteLocked(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ PAUD_AMP Amp
 }
 
 /* Power down one amp: mute, rows 8.3-8.6. Caller holds BusLock. */
+/* Diagnostics (earpiece amp powers up clean but is silent, 2026-10-16): the amp notes' verification registers
+   (notes/d8-audio-m3-amp.md "Read and log everything" table) - power, PLL, ASP slot/source, boost, gain/volume/mute,
+   IRQ1 status + raw status (error bits). Caller holds BusLock. */
+static VOID AmpDumpLocked(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ PAUD_AMP Amp, _In_z_ PCSTR When)
+{
+    static const ULONG Regs[] = { 0x2014, 0x2018, 0x201C, 0x2024, 0x2C04, 0x2C0C, 0x4804, 0x4808, 0x4820, 0x4840,
+                                  0x4C00, 0x3800, 0x3804, 0x3808, 0x6000, 0x6C04, 0x10010, 0x10014, 0x10018, 0x1001C,
+                                  0x10090, 0x10094, 0x10098, 0x1009C };
+    ULONG V[ARRAYSIZE(Regs)];
+    ULONG I;
+
+    for (I = 0; I < ARRAYSIZE(Regs); I++) {
+        V[I] = 0xDEADDEAD;
+        (VOID)AmpRead(Dev, Amp->Addr, Regs[I], &V[I]);
+    }
+    AudLog(Dev->Log, "amp %s %s: PWR1 %08lX PWR2 %08lX PWR3 %08lX MUTE %08lX PLL %08lX 2C0C %08lX | ASP 4804 %08lX "
+           "4808 %08lX RXSLOT %08lX 4840 %08lX DACSRC %08lX | BST %08lX %08lX %08lX | VOL %08lX GAIN %08lX\r\n",
+           Amp->Name, When, V[0], V[1], V[2], V[3], V[4], V[5], V[6], V[7], V[8], V[9], V[10], V[11], V[12], V[13],
+           V[14], V[15]);
+    AudLog(Dev->Log, "amp %s %s: IRQ1 STATUS1-4 %08lX %08lX %08lX %08lX RAW %08lX %08lX %08lX %08lX\r\n", Amp->Name,
+           When, V[16], V[17], V[18], V[19], V[20], V[21], V[22], V[23]);
+}
+
 static VOID AmpPowerDownLocked(_Inout_ PAUD_DEVICE_CONTEXT Dev, _Inout_ PAUD_AMP Amp)
 {
     if (!Amp->Powered) {
         return;
     }
 
+    AmpDumpLocked(Dev, Amp, "before power-down");
     (VOID)AmpMuteLocked(Dev, Amp, TRUE);
     (VOID)AmpRunSeq(Dev, Amp, AmpPowerDownSeq, "power-down", FALSE);
     Amp->Powered = FALSE;
@@ -798,6 +825,7 @@ NTSTATUS AmpPowerUp(_Inout_ PAUD_DEVICE_CONTEXT Dev)
         if (NT_SUCCESS(Status)) {
             Status = AmpMuteLocked(Dev, A, Dev->Muted != 0);
         }
+        AmpDumpLocked(Dev, A, "after power-up");
         if (!NT_SUCCESS(Status)) {
             AmpPowerDownLocked(Dev, A);
         }

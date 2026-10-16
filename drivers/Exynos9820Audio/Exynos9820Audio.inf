@@ -11,7 +11,7 @@ Signature   = "$WINDOWS NT$"
 Class       = MEDIA
 ClassGuid   = {4d36e96c-e325-11ce-bfc1-08002be10318}
 Provider    = %ProviderString%
-DriverVer   = 10/13/2026,1.0.1.11
+DriverVer   = 10/16/2026,1.0.1.14
 CatalogFile = Exynos9820Audio.cat
 PnpLockdown = 1
 

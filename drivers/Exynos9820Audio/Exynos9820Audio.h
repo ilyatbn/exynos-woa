@@ -96,6 +96,8 @@ typedef struct _AUD_CONFIG {
     ULONG KsOverride;   /* 1 (default): the driver answers host-pin DATAINTERSECTION / PROPOSEDATAFORMAT (A7) and the
                            volume element's CHANNEL_CONFIG (A9) itself (ReqLog.c); 0 = ACX only */
     ULONG DefaultMode;  /* 1 (default, A10): host pin also offers AUDIO_SIGNALPROCESSINGMODE_DEFAULT; 0 = RAW only */
+    ULONG RcvSlotReg;   /* diagnostics: SP_FRAME_RX_SLOT (0x4820) for the earpiece amp; 0xFFFFFFFF (default) = 0x100
+                           (slot 0, amp notes F6). 1 = listen to slot 1 like the loudspeaker (swap test, 2026-10-16) */
 } AUD_CONFIG, *PAUD_CONFIG;
 
 /* ======================================================================

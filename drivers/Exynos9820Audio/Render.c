@@ -502,15 +502,20 @@ NTSTATUS AudRenderCircuitCreate(_In_ WDFDEVICE Device, _In_ PAUD_DEVICE_CONTEXT 
  * Non-cached: the CPU writes it, only the RDMA reads it, so no cache maintenance and no aliasing with a user mapping.
  *
  * Timeline (per Run, j = periods elapsed, k0 = CurrentPacket at Run):
- *   at Run       : ring slots zeroed, packet k0 expanded into slot 1, RDMA started at slot 0 (one period of silence);
+ *   at Run       : ring slots zeroed, packet k0 expanded into slot AUD_DMA_LEAD, RDMA started at slot 0 (LEAD periods
+ *                  of silence);
  *   boundary j>=1: packet k0+j-1 is complete (the RDMA is now playing it), CurrentPacket = k0+j, and packet k0+j
- *                  (written by the client during the previous period) is expanded into slot (j+1) % AUD_DMA_SLOTS,
- *                  one full period before the RDMA reaches it.
+ *                  (written by the client during the previous period) is expanded into slot (j+LEAD) % AUD_DMA_SLOTS,
+ *                  LEAD periods before the RDMA reaches it.
  * Boundaries come from the RDMA ring position (STATUS[27:12] + [11:0], AboxRingPosition) while the hardware runs, so the client
  * follows the audio PLL, not the QPC; without hardware (disabled or failed) the QPC drives the same timeline.
  * ================================================================================================================ */
 
-#define AUD_DMA_SLOTS        4u     /* periods in the DMA ring: reading j, writing j+1, two spare */
+#define AUD_DMA_SLOTS        8u     /* periods in the DMA ring (2026-10-16: 4 -> 8 for the deeper lead below) */
+#define AUD_DMA_LEAD         3u     /* periods between the slot the RDMA reads (j) and the slot filled at boundary j:
+                                       the timer may run up to LEAD-1 periods late without an audible gap (was 1:
+                                       88 late passes / 52 late writes = choppy under post-boot CPU load); costs
+                                       LEAD-1 extra periods of latency, excluded from the reported position */
 
 static PUCHAR AudPacketVa(_In_ PAUD_STREAM_CONTEXT Ctx, _In_ ULONG Packet)
 {
@@ -660,7 +665,7 @@ static VOID AudUpdatePosition(_Inout_ PAUD_STREAM_CONTEXT Ctx)
 
     Frames = AudElapsedFrames(Ctx);
     if (Ctx->HwStarted) {
-        Frames = (Frames > Ctx->FramesPerPacket) ? Frames - Ctx->FramesPerPacket : 0;
+        Frames = (Frames > AUD_DMA_LEAD * (ULONGLONG)Ctx->FramesPerPacket) ? Frames - AUD_DMA_LEAD * (ULONGLONG)Ctx->FramesPerPacket : 0;
     }
     Ctx->Position = Ctx->StartPosition + Frames * Ctx->BlockAlign;
 }
@@ -690,7 +695,7 @@ VOID AudEvtStreamTimer(WDFTIMER Timer)
         Ctx->Periods++;
         Completed = (ULONG)InterlockedIncrement(&Ctx->CurrentPacket) - 1;
         if (Ctx->HwStarted) {
-            AudDmaFillSlot(Ctx, Ctx->Periods + 1, AudPacketVa(Ctx, Completed + 1));
+            AudDmaFillSlot(Ctx, Ctx->Periods + AUD_DMA_LEAD, AudPacketVa(Ctx, Completed + 1));
             KeMemoryBarrier();
         }
         (VOID)AcxRtStreamNotifyPacketComplete(Ctx->Stream, Completed, (ULONGLONG)KeQueryPerformanceCounter(NULL).QuadPart);
@@ -902,7 +907,7 @@ static VOID AudHwStart(_Inout_ PAUD_STREAM_CONTEXT Ctx)
     }
 
     for (Slot = 0; Slot < AUD_DMA_SLOTS; Slot++) {
-        AudDmaFillSlot(Ctx, Slot, (Slot == 1) ? AudPacketVa(Ctx, (ULONG)Ctx->CurrentPacket) : NULL);
+        AudDmaFillSlot(Ctx, Slot, (Slot == AUD_DMA_LEAD) ? AudPacketVa(Ctx, (ULONG)Ctx->CurrentPacket) : NULL);
     }
     KeMemoryBarrier();
 

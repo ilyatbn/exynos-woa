@@ -96,7 +96,11 @@ kmdswap) sys=${1:?kmdswap SYS}; scp -q -O "$sys" s10e:C:/S10eTmp/MaliG76Wddm-new
     task kmdswap kmdswap.cmd 6; r 'type C:\S10eTmp\kmdswap.log' | grep -E '^[0-9a-f]{64}'; sha256sum "$sys" | cut -c1-64;;
 umdswap) d=${1:?umdswap DIR}; r 'mkdir C:\S10eTmp\umd 2>nul' >/dev/null
     scp -q -O "$d/maliumd.dll" "$d/libgallium_d3d10.dll" s10e:C:/S10eTmp/umd/ < /dev/null || exit 1
-    task umdswap umdswap.cmd 8; r 'type C:\S10eTmp\umdswap.log' | grep -E '^[0-9a-f]{64}|denied|cannot'; sha256sum "$d/maliumd.dll" | cut -c1-64;;
+    sed 's/\r*$/\r/' "$H/umdswap.cmd" > "$OUT/umdswap.cmd"; scp -q -O "$OUT/umdswap.cmd" s10e:C:/S10eTmp/ < /dev/null
+    task umdswap umdswap.cmd 8; want=$(sha256sum "$d/maliumd.dll" | cut -c1-64)
+    got=$(r 'type C:\S10eTmp\umdswap.log' | tr -d '\r' | grep -E '^[0-9a-f]{64}$' | sort -u)
+    if [ "$got" = "$want" ]; then echo "umdswap OK $want"
+    else echo "umdswap FAILED: want $want, System32 has: $got"; r 'type C:\S10eTmp\umdswap.log'; exit 1; fi;;
 probe) r "$PS C:\\S10eTmp\\probe.ps1 $*";;
 unprobe) r "$PS C:\\S10eTmp\\unprobe.ps1";;
 set) if [ "${2:-}" = reboot ]; then r "$PS C:\\S10eTmp\\w2set.ps1 -Wddm2 ${1:?set N} -Reboot"; else r "$PS C:\\S10eTmp\\w2set.ps1 -Wddm2 ${1:?set N}"; fi;;

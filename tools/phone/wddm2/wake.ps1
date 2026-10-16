@@ -8,7 +8,7 @@ public static class S10eWake {
   [DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint f);
 }
 '@
-[S10eWake]::SetThreadExecutionState(0x80000002) | Out-Null   # ES_CONTINUOUS | ES_DISPLAY_REQUIRED
+[S10eWake]::SetThreadExecutionState([Convert]::ToUInt32("80000002", 16)) | Out-Null   # ES_CONTINUOUS | ES_DISPLAY_REQUIRED (PS 5.1 reads 0x80000002 as a negative Int32)
 [S10eWake]::mouse_event(1, 5, 0, 0, [UIntPtr]::Zero)
 Start-Sleep -Milliseconds 300
 [S10eWake]::mouse_event(1, -5, 0, 0, [UIntPtr]::Zero)

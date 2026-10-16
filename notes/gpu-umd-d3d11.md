@@ -194,3 +194,13 @@ Chromium needs GLES 3.0 from ANGLE = D3D FL 10_1 (renderer11_utils GetMaximumCli
   submissions - a flip-model consumer may only read the producer's buffers; DxgKrnl refused the Render
   (STATUS_ACCESS_DENIED) and the runtime removed the device. (Write-listing came from H2's "batch BOs = written".)
 - 22:25 400-frame redirected composition run: done in ~10 s, DWM pid unchanged, 0 drops. Mesa commit + patches/0075-opened-bo-read.patch. Next (0076): redirection on by default (rule 12: no env switch), D3D10UMD_NO_REDIRECT=1 only for diagnosis.
+- 22:35 Rule 13 docs check (retroactive) for the F1 MSAA rules. MS Learn PFND3D10DDI_CHECKMULTISAMPLEQUALITYLEVELS
+  (learn.microsoft.com/.../nc-d3d10umddi-pfnd3d10ddi_checkmultisamplequalitylevels): "If the driver receives 1 in
+  SampleCount, the driver always returns 1"; "0 or greater than 32 ... always returns 0"; unsupported count -> 0.
+  PFND3D10DDI_CHECKFORMATSUPPORT: BLENDABLE "only if the format can be a render target"; MULTISAMPLE_RENDERTARGET =
+  "render target with a sample count that is greater than one"; NOT_SUPPORTED only for the listed formats (incl.
+  R10G10B10_XR_BIAS_A2_UNORM) "only this bit should be set". Neither page states the cast-family / caps-vs-levels
+  consistency that CreateDevice enforces - those stay as measured (0074 logs). Our code matches the documented
+  rules (x1 -> 1, >32 -> 0). Follow-up: R10G10B10_XR_BIAS_A2_UNORM returns 0 caps; the doc says NOT_SUPPORTED only
+  if unsupported - it is "creation only" in the inherited comment, leave.
+- 22:40 0076 (maliumd 107bdb1e, redirection default) NATIVE: reboot, d3dswap composition 300 frames done, Windows Terminal alive 40 s and rendering (scan-out traces/wddm2/wt-0076.png: PowerShell prompt drawn), DWM 0 drops. G15 S4 reached. dwmwatch/etwswap switch flipped to -NoRedirect.

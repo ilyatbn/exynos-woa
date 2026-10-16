@@ -1,0 +1,31 @@
+From 11f26bf25e78bb1ffeebe91ab0e36b6b584caf68 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Fri, 16 Oct 2026 23:51:54 +0300
+Subject: [PATCH] d3d10umd: DXGI redirection on by default (exynos-woa 0076);
+ D3D10UMD_NO_REDIRECT=1 for diagnosis
+
+---
+ src/gallium/frontends/d3d10umd/Device.cpp | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/Device.cpp b/src/gallium/frontends/d3d10umd/Device.cpp
+index 846d1b9..8cb37db 100644
+--- a/src/gallium/frontends/d3d10umd/Device.cpp
++++ b/src/gallium/frontends/d3d10umd/Device.cpp
+@@ -393,9 +393,10 @@ CreateDevice(D3D10DDI_HADAPTER hAdapter,                 // IN
+    /* exynos-woa D4 (notes/gpu-umd-d3d11.md): DXGI_STATUS_NO_REDIRECTION keeps DXGI from binding a swap chain's back
+     * buffers to DWM (ETW: no BindBackBuffersToDwm / DWMRedirection events on our adapter, both on WARP); composition
+     * swap chains (Terminal's SwapChainPanel, DirectComposition) then never get a DXGI tracked fence and die in
+-    * d3d11!WaitTrackedFenceImpl. D3D10UMD_REDIRECT=1 lets DXGI redirect (S_OK); default unchanged until validated. */
+-   const char *redir = getenv("D3D10UMD_REDIRECT");
+-   if (redir && *redir && *redir != '0') {
++    * d3d11!WaitTrackedFenceImpl. exynos-woa 0076: redirection is the default now that DWM composes redirected
++    * buffers without losing its devices (0075); D3D10UMD_NO_REDIRECT=1 restores the old answer, for diagnosis only. */
++   const char *noredir = getenv("D3D10UMD_NO_REDIRECT");
++   if (!(noredir && *noredir && *noredir != '0')) {
+       return S_OK;
+    } else {
+       // Tell DXGI to not use the shared resource presentation path when
+-- 
+2.40.1.windows.1
+

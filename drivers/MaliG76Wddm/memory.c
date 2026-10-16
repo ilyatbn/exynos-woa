@@ -275,19 +275,44 @@ NTSTATUS APIENTRY MwGetStandardAllocationDriverData(IN_CONST_HANDLE hAdapter,
     return STATUS_SUCCESS;
 }
 
+/* Allocation handle -> our MW_ALLOCATION. G15 S1 run 10: on the WDDM 2.0 adapter DxgkCbGetHandleData returned NULL
+ * for every allocation (OpenAllocation and the UMD's escapes failed 0xC0000008). DxgkCbAcquireHandleData is the
+ * WDDM 2.0 callback for the same lookup (MS Learn DXGKCB_ACQUIREHANDLEDATA, DXGKRNL_INTERFACE WDDM2_0 block;
+ * qemus/virtio-drivers-windows adapter.rs allocation_from_handle falls back to it the same way). The reference is
+ * dropped at once: the caller only uses the pointer while dxgkrnl holds the allocation (open, or named by the
+ * escaping device). Only filled in for a 2.x interface, hence the guard. */
+MW_ALLOCATION *MwAllocationFromHandle(MW_ADAPTER *A, D3DKMT_HANDLE h)
+{
+    DXGKRNL_INTERFACE *dx = &A->Dxgk;
+    DXGKARGCB_GETHANDLEDATA get = {0};
+    PVOID p;
+
+    get.hObject = h;
+    get.Type = DXGK_HANDLE_ALLOCATION;
+    p = dx->DxgkCbGetHandleData(&get);
+    if (p == NULL && MwWddm2 && dx->DxgkCbAcquireHandleData != NULL && dx->DxgkCbReleaseHandleData != NULL) {
+        DXGKARG_RELEASE_HANDLE rel = NULL;
+        p = dx->DxgkCbAcquireHandleData(&get, &rel);
+        if (rel != NULL) {
+            DXGKARGCB_RELEASEHANDLEDATA r = {0};
+            r.ReleaseHandle = rel;
+            r.Type = DXGK_HANDLE_ALLOCATION;
+            dx->DxgkCbReleaseHandleData(r);
+        }
+    }
+    return (MW_ALLOCATION *)p;
+}
+
 NTSTATUS APIENTRY MwOpenAllocation(IN_CONST_HANDLE hDevice, const DXGKARG_OPENALLOCATION *Arg)
 {
     MW_DEVICE *dev = (MW_DEVICE *)hDevice;
-    DXGKRNL_INTERFACE *dx = &dev->Adapter->Dxgk;
 
     LONG n = InterlockedIncrement(&dev->Adapter->Opens);
     NTSTATUS st = STATUS_SUCCESS;
 
     for (UINT i = 0; i < Arg->NumAllocations; i++) {
-        DXGKARGCB_GETHANDLEDATA get = {0};
-        get.hObject = Arg->pOpenAllocation[i].hAllocation;
-        get.Type = DXGK_HANDLE_ALLOCATION;
-        Arg->pOpenAllocation[i].hDeviceSpecificAllocation = dx->DxgkCbGetHandleData(&get);
+        Arg->pOpenAllocation[i].hDeviceSpecificAllocation =
+            MwAllocationFromHandle(dev->Adapter, Arg->pOpenAllocation[i].hAllocation);
         /* MS Learn DXGKCB_GETHANDLEDATA: "If a NULL pointer is returned, the display miniport driver should fail
          * its currently running DDI function with STATUS_INVALID_HANDLE." (g41full: every open got NULL here and
          * this function still returned success.) */
@@ -444,14 +469,11 @@ void MwMapScanout(MW_ADAPTER *A)
 NTSTATUS MwEscapeScanout(MW_ADAPTER *A, const DXGKARG_ESCAPE *Esc, MW_ESCAPE_SCANOUT_DATA *D)
 {
     if (D->hAllocation != 0) {
-        DXGKARGCB_GETHANDLEDATA get = {0};
         MW_ALLOCATION *alloc;
 
         if (Esc->hDevice == NULL)
             return STATUS_INVALID_PARAMETER;
-        get.hObject = (D3DKMT_HANDLE)D->hAllocation;
-        get.Type = DXGK_HANDLE_ALLOCATION;
-        alloc = (MW_ALLOCATION *)A->Dxgk.DxgkCbGetHandleData(&get);
+        alloc = MwAllocationFromHandle(A, (D3DKMT_HANDLE)D->hAllocation);
         if (alloc == NULL)
             return STATUS_INVALID_HANDLE;
         alloc->GpuPresented = A->ScanoutGpuVa != 0;
@@ -466,14 +488,11 @@ NTSTATUS MwEscapeScanout(MW_ADAPTER *A, const DXGKARG_ESCAPE *Esc, MW_ESCAPE_SCA
 
 NTSTATUS MwEscapeAllocInfo(MW_ADAPTER *A, const DXGKARG_ESCAPE *Esc, MW_ESCAPE_ALLOC_INFO_DATA *D)
 {
-    DXGKARGCB_GETHANDLEDATA get = {0};
     MW_ALLOCATION *alloc;
 
     if (Esc->hDevice == NULL)
         return STATUS_INVALID_PARAMETER;
-    get.hObject = (D3DKMT_HANDLE)D->hAllocation;
-    get.Type = DXGK_HANDLE_ALLOCATION;
-    alloc = (MW_ALLOCATION *)A->Dxgk.DxgkCbGetHandleData(&get);
+    alloc = MwAllocationFromHandle(A, (D3DKMT_HANDLE)D->hAllocation);
     if (alloc == NULL)
         return STATUS_INVALID_HANDLE;
     D->GpuVa = alloc->GpuVa;

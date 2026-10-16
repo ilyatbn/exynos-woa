@@ -234,3 +234,5 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   (build-ufs.ps1 -WideUncached -DmaWindow); reproducibility checked first: main source signed = w37 sha 7f4f1bcd
   exactly. w38 signed sha 4dab7b8f..., 52120 B, s10e-artifacts\ufs-w23\Exynos9820Ufs-w38.sys. Install: swap in
   Windows (SYSTEM task, w37 kept as .prev) + clean restart. Validation: Windows past raw 3000 s with no reset.
+- 20:47 w38 VALIDATED (boot 1): Windows on w38 passed raw 2966 s with no reset (recorder frzlog.txt, every earlier
+  boot died at raw 2790-2835 s). The 47-minute freeze was the W31 feed ceiling. More boots will be counted as they come.

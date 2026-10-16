@@ -363,3 +363,77 @@ J4. poll 0x1886 IRQ1_RAW_STATUS_7: (val & 0x0010) == 0 -> headphones present; !=
 - Repo: drivers/Exynos9820Audio/AboxHw.c (UAIF1 working values), CodecTone.c (FLL1 struct/sequence),
   firmware/Silicon/Exynos9820Pkg/Include/Platform/Exynos9820.h:859 (GPIO_AUD base)
 - Progress: step 3 (Q1-Q5 written) 2026-10-16. No phone access, no code changes.
+
+## Q6 follow-up - (a) I2S 2x32 vs (b) DSP-A 4x32 on UAIF0 (2026-10-16)
+
+### (a) RDMA/SPUS/SIFS changes for a 2-channel frame
+- RDMA CTRL0 FORMAT: the 9820 kernel never writes it. abox_rdma.c only constrains hw_params
+  (`LOS: sound/soc/samsung/abox/abox_rdma.c:1000-1070`) and abox_soc.h documents only BURST_LEN [22:19] and ENABLE [0]
+  in RDMA CTRL0 (`LOS: abox_soc.h:424-430`). The FORMAT [12:8] position and the abox_get_format encoding come from the
+  ABOX 2.1 abox_dma.c (notes/d8-audio-m3-abox.md:210-213). Our device test (boot #99, AboxHw.c:46) confirmed 0x1B there.
+- Encoding: abox_get_format(width, ch) = (ch-1) | {16:1, 24:2, 32:3} << 3 (`LOS: abox.h:419-440`).
+  0x1B = 3<<3 | 3 = 32-bit, 4 ch. **2 ch 32-bit = 3<<3 | 1 = 0x19 -> CTRL0 FORMAT 0x19 << 8 = 0x1900.**
+  Encoding VERIFIED (source). Applied to the 9820 RDMA field = INFERENCE: only 0x1B has been device-tested.
+- SIFS1..4 format/rate are IPC-only. format_put_ipc writes an SFR only for SIFS0 (MIXP_FORMAT) and PIFS0/1
+  (`LOS: abox_cmpnt_v20.c:431-470`). So there is no AP register for SIFS1's channel count: it follows the RDMA
+  format. That is INFERENCE (notes/d8-audio-m3-abox.md:240-242).
+- SPUS_CTRL0/CTRL1 hold only routing (chain IN/OUT select, SIFS_OUT_SEL) and no channel field. MIXP_FORMAT [4:0] in
+  SPUS_CTRL1 applies to the mixer path only (notes/d8-audio-m3-abox.md:36-42). SIFS_CNT(1) stays 0 = paced by
+  the UAIF (abox_if.c:413-414; notes:237-239). No change needed: VERIFIED as far as the source exposes it.
+- SBANK: stock patch_9820 gives every RDMA a fixed 512 B bank `(SZ_512 << 16) | n*SZ_512`, whatever the stream
+  format (`LOS: abox_soc.c:1822-1827`). So **SBANK_RDMA0 = 0x02000000 stays**. VERIFIED: stock does not resize it.
+- Also needed for (a): Render.c fills 2 ch (8-byte frames instead of 16). The UAIF0 CTRL1 2x32 I2S value is 0x1985F000
+  (Q2); a 2-ch UAIF reading a 2-ch SIFS has never been device-tested.
+
+### (b) keep RDMA/SIFS 4x32, UAIF0 DSP-A 4x32
+- ABOX side: nothing changes except the UAIF instance. DIV_UAIF0 (0x182C) = 95 gives 6.144 MHz from AUDIF 589.824 MHz,
+  the same divider that already works on UAIF1 (AboxHw.c:64, :89).
+- **Polarity quirk:** 0x1B4DF7DF has BCLK_POLARITY = 0, which abox_if.c maps from **IB_NF**. NB_NF would be POL 1
+  (`LOS: abox_if.c:274-292`). It comes from the DT uaif1 `bitclock-inversion` for the amps (dtbo6:1750-1752).
+  Pick one:
+  - keep 0x1B4DF7DF and program the codec as IB_NF: 0x500 |= BCLK_INV 0x80 (madera_set_fmt IB_NF branch, `LOS: madera.c:3144-3146`);
+  - or use NB_NF on both: UAIF0 CTRL1 = 0x1B4DF7DF | 0x00800000 = **0x1BCDF7DF**, codec BCLK_INV = 0.
+  madera.c has no DSP_A-specific BCLK quirk. The only DSP check rejects DSP_B in slave mode; DSP_A in slave mode is
+  accepted (`LOS: madera.c:3089-3100`). VERIFIED.
+- Codec registers for DSP_A | NB_NF | CBS_CFS, tdm 4 x 32, 48 kHz (madera_set_fmt, madera_hw_params with
+  tdm_slots 4 / tdm_width 32, madera_set_tdm_slot):
+  - 0x504 AIF1_FORMAT = **0x0000** (MADERA_FMT_DSP_MODE_A = 0, madera.c:141).
+  - 0x501 / 0x502 = 0x0000 (slave, no LRCLK inversion).
+  - bclk_target = slotw 32 x channels 4 x 48000 = 6 144 000 (madera_hw_params; tdm overrides slotw/channels).
+    First madera_48k_bclk_rates entry >= target: index 15 = 6144000 (table: -1, 48k, 64k, 96k, 128k, 192k, 256k,
+    384k, 512k, 768k, 1.024M, 1.536M, 2.048M, 3.072M, 4.096M, **6.144M**). So **0x500 = 0x000F** (0x008F with BCLK_INV).
+  - RX_BCPF = 6144000 / 48000 = 128, so **0x506 = 0x0080**.
+  - frame = dataw<<8 | slotw. For S32_LE (our 32-bit samples) dataw = 32, so **0x507 = 0x508 = 0x2020**
+    (WL field [13:8] holds 32, registers.h:5071-5082). Use 0x1820 if 24 valid bits are wanted.
+  - madera_set_tdm_slot(rx_mask 0x3, slots 4, width 32): madera_set_channels_to_mask writes FRAME_CTRL_11 + i =
+    slot of each set mask bit, then returns when the mask is empty (`LOS: madera.c:3708-3729`). So
+    **0x511 = 0x0000, 0x512 = 0x0001** (= reset defaults, cs47l92-tables.c:318-319). Slots 2/3 are ignored with
+    0x51A = 0x0003. AIF1 playback channels_max = 8 (`LOS: cs47l92.c:1763-1768`). The "force stereo" branch applies to
+    I2S only (madera.c hw_params).
+  - Rate, mixers, outputs as in option A (0x113 = 3, 0x503 = 0x4000, 0x408 = 0x4041, 0x690/0x698 = 0x20/0x21,
+    0x51A = 3, 0x400 |= 0xC, 0x419/0x41D = 0x0280).
+  - Codec values are VERIFIED-by-code; not device-tested.
+- FLL2 from AIF1BCLK = 6.144 MHz (madera_fllhj_apply, `LOS: madera.c:4737-4881`):
+  1. refdiv: 6 144 000 / 2^0 <= MADERA_FLLHJ_MAX_THRESH 13 000 000, so refdiv = 0 and fref = 6 144 000 (madera.c:98, 4748-4752).
+  2. frac = 98 304 000 % 6 144 000 = 0, so integer mode: hp 0, min_n 1, max_n 1023 (madera.c:92-93, 4784-4792).
+  3. fref >= MID_THRESH 1 152 000 gives HIGH branch: gains 0x21F0, lockdet_thr 8, fbdiv 1. fast_clk stays 0 because
+     frac is 0 (madera.c:97, 101, 4760-4783).
+  4. ratio = 98 304 000 / 6 144 000 = 16 >= min_n, so fbdiv stays 1.
+  5. gcd(98 304 000, 1 x 6 144 000) = 6 144 000: num = 16, lambda = 1, N = 16, theta = 0. N is within 1..1023 and
+     fbdiv 1 < 256, so both checks pass. madera_fllhj_validate: 6.144 MHz / 8 <= 13 MHz OK (madera.c:4944-4964).
+  -> CODEC_FLL {RefSrc, N, Theta, Lambda, FbDiv, RefDiv, Gains, Hp, LockThr, FastClk} =
+     **{ 8, 16, 0, 1, 1, 0, 0x21F0, 0, 8, 0 }**. Write at base 0x190 and poll 0x1881 & 0x0200.
+
+### Which option has fewer UNVERIFIED steps
+- (a) adds four ABOX-side unknowns on top of the shared ones:
+  - RDMA FORMAT 0x19 (only 0x1B has been tested);
+  - SIFS1 carrying 2 ch;
+  - a new I2S UAIF CTRL1 0x1985F000 (only the DSP-A form has been tested);
+  - and it needs Render.c changed to fill 2 channels.
+- (b) changes nothing on the tested RDMA0 -> SBANK -> SIFS1 chain. The UAIF CTRL1 value and DIV 95 are the
+  device-tested UAIF1 ones, applied to UAIF0. Its new items are all on the codec side, derived from code: DSP_A
+  4x32 registers, FLL2 at 6.144 MHz, and the polarity choice.
+- Shared unknowns for both: UAIF0 CTRL0 reset value, whether BCLK runs before SPK_ENABLE, the UAIF0 gates after
+  sboot, and SIFS1 driving UAIF0 vs UAIF1 (switch ROUTE_CTRL0 exclusively).
+- **(b) needs fewer UNVERIFIED steps.** It differs from stock (stock is I2S 2x24), but every codec mode it uses is
+  explicitly supported in madera.c (DSP_A slave, TDM slots, FLLHJ integer ref 6.144 MHz).

@@ -51,3 +51,15 @@ Hazard to check before writing gpp0 CON: which pins the touch / other drivers us
   per-write status (same as UEFI) - the read-back in CodecLogStatus is the evidence.
 - 16:5x J3 research delegated (subagent -> notes/d8-jack-research.md): link format/clock domains (FLL ref 32 kHz vs
   ABOX BCLK), ABOX UAIF0 route/CTRL/CMU/pins, codec AIF1 registers, jack detection.
+- 17:2x J4 jack detection (research Q4 registers). 1.0.1.22 install: the phone hung/reset seconds after (raw ~1100 s,
+  Kernel-Power 41, no bugcheck/minidump, KDNET off) and PnP rolled back to oem84 (1.0.1.21); its log was overwritten.
+  Cause not identified (1.0.1.23 with the same codec writes did not hang). Added: RunLog keeps the previous driver
+  load's log as Exynos9820Audio-prev.txt (first flush renames), step flushes in CodecInit/Setup/JackStart.
+  1.0.1.23: "jack: PLUGGED (start, IRQ1_RAW_STATUS_7 0225)" with headphones in; the periodic passive timer failed
+  C00000BB (STATUS_NOT_SUPPORTED) - MS docs WDF_TIMER_CONFIG: "The time period must be zero if WdfTimerCreate sets
+  the execution level to WdfExecutionLevelPassive". 1.0.1.24: one-shot timer re-armed by its callback + JackStopping
+  flag; log "jack: polling every 500 ms". Waiting for the user's unplug/replug to verify transitions.
+- J3 decision input (research Q6): option (b) DSP-A 4x32 on UAIF0 keeps the proven RDMA0 -> SIFS1 4x32 chain;
+  normal polarity both sides (UAIF0 CTRL1 0x1BCDF7DF, codec 0x500 0x000F) or inverted both (0x1B4DF7DF / 0x008F);
+  codec 0x504 0, 0x506 0x0080, 0x507/0x508 0x2020, 0x511/0x512 0/1; FLL2 {8,16,0,1,1,0,0x21F0,0,8,0} at 0x190 for a
+  6.144 MHz AIF1BCLK reference. All codec values VERIFIED-by-code only.

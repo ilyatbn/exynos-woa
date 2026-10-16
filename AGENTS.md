@@ -126,3 +126,11 @@ system files/binaries, reading their internal code paths or undocumented structu
 [`notes/skipped-windows-internals.md`](notes/skipped-windows-internals.md) instead: "The best way to get the answer
 to this problem would have been to look at XXXX to solve the problem of YYYY, but due to security concerns I chose
 not to do that", plus what was done instead (our own instrumentation, documented sources, behavioural tests).
+
+## 12. Native only - no hacks as solutions
+
+Whatever is delivered must work natively: stock Windows, stock apps, default settings. Passing special arguments,
+flags or environment variables to a process (e.g. browser `--enable-angle-features=...`, `D3D10UMD_REDIRECT=1` in
+a test's environment) so that our driver works is **not** a solution. Such switches are allowed only as tracing /
+diagnosis tools for finding the native fix, and must be recorded as such in the notes. A milestone is reached only
+when it works without them.

@@ -127,3 +127,10 @@ Chromium needs GLES 3.0 from ANGLE = D3D FL 10_1 (renderer11_utils GetMaximumCli
 - F4 independent per-RT blend (check the D3D11 blend-state path).
 - F5 report D3D11DDI_3DPIPELINELEVEL_10_1 (D3D11.cpp:234) once F1-F4 hold; test with d3dswap + Edge without the
   allowES3OnFL10_0 flag.
+- 20:40 User rule (AGENTS.md 12): native only. The Edge allowES3OnFL10_0 run and D3D10UMD_REDIRECT=1 are diagnostic
+  only; G16 = real FL 10_1 in the UMD, G15 = redirection by default with a stable DWM.
+- 20:45 F1 baseline, new tool drivers/MaliG76Wddm/tools/d3dmsaa (mali-umd-0073): device FL 0xa000; RGBA8 support
+  0x111ef3f3, quality levels 0 at 2/4/8/16x, CreateTexture2D 4x = E_INVALIDARG (the runtime rejects counts with 0
+  quality levels). WARP control: FL 0xb000, 1 level at 2-16x, clear + ResolveSubresource PASS (pixel 0xff4080ff).
+  F1 build: mali-umd-0074 (maliumd 4e1bd2ab): SUPPORT_MSAA 1, quality levels from is_format_supported(samples),
+  ResourceResolveSubResource via pipe->blit.

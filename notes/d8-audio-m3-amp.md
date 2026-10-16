@@ -381,3 +381,10 @@ Read and log everything as hex. "W1C" = write-1-to-clear (K:658-662, UL:1292).
 6. What the vendor cap-trim clearing in bypass is for (F3, "rcv_mode"). We copy it. A/B test: tone with and without.
 7. Test-key values: the vendor uses both 0x5555/0xAAAA (errata, OTP) and 0x55/0xAA (pup/pdn). Upstream uses 0x55/0xAA
    everywhere (UL:782-812). Copy each sequence verbatim.
+
+## Open question 1 answered (2026-10-16)
+Stock `/vendor/etc/mixer_gains.xml` (Dumps/extracted): gain-media-dual-speaker sets Left (earpiece @41) and Right
+(bottom @40) "AMP PCM Gain" 17 and "Digital PCM Volume" 817 (0 dB); gain-media-speaker Right 17/817; gain-media-handset
+(voice-call earpiece) Left 4/761. Stock runs these behind the DSP "Protection" firmware. Windows (no DSP) keeps analog
+gain 0x0A on both amps (7 steps under stock) and 0 dB digital on both since Exynos9820Audio 1.0.1.15; this supersedes
+the inferred "<= 0x06 earpiece" clamp above for the stereo-music case (the stock music path uses 17 on the earpiece).

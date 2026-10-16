@@ -47,3 +47,8 @@
   Needs: Exynos USI SPI master driver (none in repo), CS47L93 bring-up (reset gpg1-0, BOOT_DONE, FLL1 26 -> 98.304
   MHz, AIF1), ABOX UAIF0 route, HPDET/MICDET jack detection on the codec IRQ, a second (headphone) endpoint with
   KSJACK_DESCRIPTION2. Plan in notes/d8-audio-design.md §1a.
+- Review of e37f6c5: checked AmpTargetSteps clamp (min(Atten, 816), result >= -816 = lowest non-mute; mute stays
+  the separate 0x4CF field), registry table + defaults, version in Driver.c/INF, the driver log VOL values above.
+  Found: (a) the trim also applies in HwVolume 1 mode and to the mono (Stereo 0) loudspeaker - harmless (fixed
+  per-phone offset) but the header comment said "under the fixed digital volume"; accepted, documented here.
+  (b) the amp notes' "<= 0x06 earpiece" clamp was inference; stock evidence recorded in d8-audio-m3-amp.md.

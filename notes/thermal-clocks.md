@@ -202,3 +202,4 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   target. Test armed: `bcdedit /debug {current} off` at 17:00:32 (bootdebug already No) -> takes effect on the boot
   after freeze #17 (due ~17:01:15). Pre-registered: no freeze by reset + ~2900 s on that boot = KD transport is the
   trigger; a freeze at ~2832 s = KD excluded. Undo: `bcdedit /debug {current} on` (dbgsettings unchanged).
+- 2026-10-16 17:01 **freeze #17** as predicted (17:01:15): last samples raw 2832.2 / 2832.6 s, CPU 2-5 %, DPC 0; ssh lost 17:01:41. KDNET still on for this boot (BCD change applies to the next).

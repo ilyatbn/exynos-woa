@@ -156,3 +156,8 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   => deterministic time-triggered hang at ~2832 s (47.2 min) after the SoC reset, independent of load (logger
   traffic in #9, idle in #6-#8). Next: KD host attached from boot (kdrun.py), CTRL_BREAK ~15 s after the predicted
   freeze to see every CPU (!running -ti) before the watchdog resets it.
+- 07:29 KD capture armed: `adb reboot` 07:26:35, raw counter 157.7 s at ~07:29:14 -> reset ~07:26:36; predicted
+  freeze ~08:13:48 (reset + 2832 s). tools/kd-runner/kdrun.py gained --break-at EPOCH (absolute-time CTRL_BREAK; the
+  first attempt's --break-after 2800 would have fired before the freeze because KD connects only ~27 s after the
+  reset). kdrun started with --break-at 08:14:03 and commands .reload; !running -ti; !cpuinfo; ~*k; r; !analyze -v; g.
+  Killing the first kd host while connected did not disturb the target (ssh up at 07:29:02, KD reconnected).

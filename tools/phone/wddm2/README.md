@@ -2,7 +2,7 @@
 
 Everything used to debug the Mali display/render driver on the S10e from the PC, kept in the repo so a session
 reset loses nothing (user request 2026-10-16). Driver: `wddm2dbg.sh` (bash, PC side, SSH host alias `s10e`).
-Phone-side scripts go to `C:\S10eTmp` with `wddm2dbg.sh push`. Outputs land in `$WDDM2DBG_OUT` (default ~/wddm2dbg).
+Phone-side scripts go to `C:\S10eTmp` with `wddm2dbg.sh push`. Outputs land in `$WDDM2DBG_OUT` (default `traces/wddm2/` in the repo, gitignored).
 
 | Phone-side file | What it does |
 |---|---|

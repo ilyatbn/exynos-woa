@@ -57,3 +57,6 @@ TestResults/
 /.release-patches/
 dumps/
 .venv/
+
+# Debug traces and dumps (ETW .etl/.xml, crash dumps, scan-out dumps, UMD logs) - local only, user request 2026-10-16
+traces/

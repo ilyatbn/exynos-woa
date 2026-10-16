@@ -22,7 +22,8 @@
 #   dwmdump NAME         fetch C:\S10eTmp\dumps\NAME and print .ecxr + stack with cdb and public symbols
 set -u
 H=$(cd "$(dirname "$0")" && pwd)
-OUT=${WDDM2DBG_OUT:-$HOME/wddm2dbg}
+REPO0=$(cd "$(dirname "$0")/../../.." && pwd)
+OUT=${WDDM2DBG_OUT:-$REPO0/traces/wddm2}   # gitignored (user: trace files stay out of git)
 mkdir -p "$OUT"
 REPO=$(cd "$H/../../.." && pwd)
 PS='powershell -NoProfile -ExecutionPolicy Bypass -File'

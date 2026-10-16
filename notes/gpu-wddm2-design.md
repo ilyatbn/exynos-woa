@@ -364,3 +364,11 @@ usb-c to hdmi dongle and our usb-c hub." alpha5 tagged at 1e5df58 (local tag, no
   PHYSICALADAPTERCAPS ok (0x14 B), QAI_47 ok (4 B), GetNodeMetadata, QAI_11 QUERYSEGMENT4 ok (0x28 B), QAI_10
   HISTORYBUFFERPRECISION ok, QAI_16 DISPLAY_DRIVERCAPS_EXTENSION ok (4 B) - then still code 43 POST_START.
   => the research lead is confirmed (WDDMVersion 0 was the first gate). Next gate is after QAI_16. Unprobed (1.3 back).
+- 19:41 S1 run 7b: Wddm2=2 (VA+GpuMmu caps) + WddmVersion 0x2000 -> dxgkrnl asks QAI_13 GPUMMUCAPS (we answer
+  NOT_SUPPORTED) -> code 43. Wddm2=4 (+GpuMmu DDI stubs): same. => with VA caps dxgkrnl walks into the GpuMmu QAIs.
+- 19:55 S1 run 8: KMD 1.0.54.1 (sys d573e90a), physical Wddm2=1 + WddmVersion 0x2000 + Quirk 15/1/2/4/8 (PHYSICAL-
+  ADAPTERCAPS / QAI 47 / DISPLAY_DRIVERCAPS_EXTENSION NOT_SUPPORTED, aperture not CpuVisible): code 43 in all five,
+  same query sequence ending at QAI_16 (or QAI_10 when 16 is refused), no further DDI called.
+  => physical-only ("legacy") 2.0 stays rejected on 22631 with every documented knob tried; Learn calls the mode
+  legacy/to be dropped, and both open-source WDDM 2.0 KMDs declare GpuMmu. DECISION: implement GpuMmu (S7 becomes
+  the main line). Mali-G76 MMU: 48-bit VA, 4 levels x 9 bits, 4 KiB tables, 8 AS (gpu-wddm3-research.md Q7).

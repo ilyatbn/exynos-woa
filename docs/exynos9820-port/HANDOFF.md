@@ -1595,3 +1595,18 @@ devices repeatedly while redirected surfaces are live (no failing call of ours) 
 **Next:** understand DWM's device loss with redirected surfaces from our side (KMD trace of Present/OpenAllocation
 per device, shared-allocation flags, the DXGI Blt/Present DDI path the app takes when redirected); then browsers
 (chrome://gpu, G16), video DDI (G17), HDMI (G18). Notes: notes/gpu-umd-d3d11.md, notes/gpu-wddm2-design.md.
+
+## 48. Restart point (2026-10-16 ~23:55 local; goal WDDM2 + GPU UI/browsers/video + HDMI, unattended)
+**Committed:** G15 S4 reached - Windows Terminal renders natively on the Mali. Mesa 0074 (MSAA, FL 10_1 task F1),
+0075 (shim lists opened = other-process buffers only when the batch uses them, as READS: the DWM device-loss root
+cause), 0076 (DXGI redirection default; D3D10UMD_NO_REDIRECT=1 diagnosis only). Phone: KMD 1.0.60.1 (Wddm2 = 5),
+mali-umd-0076 (maliumd 107bdb1e) in System32, machine env MALIKM_TGSI_DIR on (UMD logs in C:\S10eTmp\tlog;
+`wddm2dbg.sh umdtrace -Off` to stop). New AGENTS.md rules 11 (Windows internals: document in
+notes/skipped-windows-internals.md, don't look), 12 (native only, no per-process flags as solutions), 13 (stuck ->
+MS docs first).
+**G16 state:** Edge's GPU process needs GLES3 from ANGLE = D3D FL 10_1 (FL 10_0 -> ES2 -> GPU process exits). Plan
+F1-F5 in notes/gpu-umd-d3d11.md; F1 done (d3dmsaa passes). Diagnostic run with ANGLE allowES3OnFL10_0 (not a solution)
+got past Skia after F1; its later crash was the tracked fence, now fixed by 0076.
+**Next:** F2 SM 4.1 opcodes (LOD, GATHER4, SAMPLE_POS, SAMPLE_INFO) in ShaderParse/ShaderTGSI, F3 cube arrays, F4
+per-RT blend check, F5 report pipeline level 10_1, then Edge with no flags (tools/phone/wddm2/browsertest.ps1). Then
+G17 video DDI, G18 HDMI. Follow-ups: d3dmsaa over all RT formats x 4/8/16 (R32/R16 families answered from depth).

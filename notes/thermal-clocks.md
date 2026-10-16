@@ -135,3 +135,9 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   on); stay.flg -> straight back to Windows (uptime 1 min at 05:03). Spacing tonight 03:20 / 04:07 / 05:01 = ~50 min
   between freezes (each ~45-50 min after a boot) - a timer/counter-like period worth checking (log rotation? alive
   counters? a Windows idle task?).
+- 2026-10-16 ~05:48 local: eighth silent freeze, idle; second in a row -> TWRP. **Period:** freeze-to-freeze for
+  back-to-back Windows boots 03:20 -> 04:07 (47 min), 05:01 -> 05:48 (47 min); 2026-10-15: 18:50 -> 20:29 -> 22:08
+  (99 min = 2 x ~49.5). Per boot: freeze + 82 s cluster watchdog + ~60-70 s boot to Windows, so the freeze lands
+  ~44-45 min after power-on. **Hypothesis: 2^36 ticks of the 26 MHz system counter = 2643 s = 44.05 min** (counter
+  reset by the SoC reset). Test: read QPC (frequency + value) right after the next boot and predict the moment
+  CNTVCT crosses 2^36; compare with the next freeze. UNVERIFIED until that comparison.

@@ -168,3 +168,6 @@ Design source: notes/thermal-research.md (staged plan, constants table).
 - 08:16 experiment armed (reset 08:13:53): SYSTEM task wifiexp.cmd disables ACPI\SAMS9825\0 (WlanCx) at raw ~375 s,
   re-enables at raw ~3000 s; KD stays attached over USB; kdrun --break-at raw 2900 s (09:02:13). A successful
   break-in at 2900 s = the system survived past 2832 s without Wi-Fi -> WlanCx / BCM4375 implicated.
+- 08:25 correction: `pnputil /disable-device ACPI\SAMS9825\0` -> "Cannot disable critical system device"; used
+  `pnputil /remove-device` instead (KD log: "[cx] worker stopping ... D0 exit to state 5 ... released" at raw ~680 s);
+  `pnputil /scan-devices` at raw ~3000 s brings it back. KD break still at raw 2900 s (09:02:13).

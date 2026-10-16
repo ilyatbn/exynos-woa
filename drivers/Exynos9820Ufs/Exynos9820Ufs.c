@@ -8320,7 +8320,6 @@ UfsMapBringupWatchdog(
 // watchdog 12 minutes after DriverEntry no matter what Windows is doing; the watchdog then resets
 // the phone within the next 82 s and the firmware's boot pair takes it to TWRP.
 //
-#define UFS_BRINGUP_FEED_LIMIT_100NS       (45ULL * 60ULL * 10000000ULL)   // W31: absolute ceiling
 #define UFS_BRINGUP_WRITE_IDLE_100NS       (5ULL * 60ULL * 10000000ULL)    // W31: no successful write for 5 min = stuck
 
 static
@@ -8332,10 +8331,12 @@ UfsPetBringupWatchdog(
     //
     // W31: the 12-minute cap (W30) killed a healthy Setup specialize pass (it pre-registers apps
     // for 15+ minutes on one core). Feed only while Windows keeps WRITING - an error dialog or a hang
-    // stops writes - with an absolute 45-minute ceiling.
+    // stops writes.
+    // W38: W31's absolute 45-minute ceiling is gone - it was the "47-minute freeze" of every installed
+    // Windows (feeding stopped 2700 s after DriverEntry, the WDT reset 82 s later: debug_history SOFT
+    // INFORM3(12345670) at raw ~2790-2835 s, notes/thermal-clocks.md 2026-10-16).
     //
-    if ((KeQueryInterruptTime() - UfsBringupStart100ns > UFS_BRINGUP_FEED_LIMIT_100NS) ||
-        (KeQueryInterruptTime() - UfsBringupLastWrite100ns > UFS_BRINGUP_WRITE_IDLE_100NS)) {
+    if (KeQueryInterruptTime() - UfsBringupLastWrite100ns > UFS_BRINGUP_WRITE_IDLE_100NS) {
         if (!UfsBringupFeedExpired) {
             UfsBringupFeedExpired = TRUE;
             UfsEarlyMark("=WDT feed limit reached", 0);

@@ -218,3 +218,19 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   watchdog, PMIC, EL3/secure monitor). Next evidence: Samsung's reset reason for this path from TWRP
   (/proc/reset_reason, debug_history entry type for the unrequested resets) and whether the 82 s WDT's WTCNT was
   still high in the last governor line. Earlier notes' "ping half-answering ~1 min" (#4-#6) predate this measurement.
+
+### 2026-10-16 19:50 freeze ROOT CAUSE (our own watchdog policy)
+- Samsung debug_history (TWRP, notes copy in scratchpad dh-20261016.txt): every freeze is `RP / SOFT,
+  INFORM3(12345670) > NORMAL` - [616] 13:14:11, [617] 14:01:31, [621] 15:09:01, [624] 15:57:18, [625] 16:44:07 (UTC =
+  local 16:14, 17:01, 18:09, 18:57, 19:44 = freezes #16-#20), ~47 min apart.
+- drivers/Exynos9820Ufs/Exynos9820Ufs.c UfsPetBringupWatchdog: W31 `UFS_BRINGUP_FEED_LIMIT_100NS = 45 min` "absolute
+  ceiling" - the UFS driver stops reloading WTCNT 45 min after DriverEntry (bring-up rule for unattended installs),
+  then the 82 s WDT resets the SoC. 2700 s + 82 s + DriverEntry offset = raw ~2790-2835 s = every measured freeze.
+  KD off moved it ~30-40 s earlier because DriverEntry runs earlier without the KDNET boot delay. The "hang ~7 s
+  before reset" is no hang: the recorder's last line is just the last sample before the WDT reset.
+- Also in the same function: W31 `UFS_BRINGUP_WRITE_IDLE_100NS` = no successful disk write for 5 min -> stop feeding.
+- Fix: drop the absolute ceiling (keep the write-idle hang detector). Exynos9820Ufs task.
+- 19:55 w38 = w37 minus the 45-min feed ceiling (write-idle 5 min detector kept). Build line unchanged
+  (build-ufs.ps1 -WideUncached -DmaWindow); reproducibility checked first: main source signed = w37 sha 7f4f1bcd
+  exactly. w38 signed sha 4dab7b8f..., 52120 B, s10e-artifacts\ufs-w23\Exynos9820Ufs-w38.sys. Install: swap in
+  Windows (SYSTEM task, w37 kept as .prev) + clean restart. Validation: Windows past raw 3000 s with no reset.

@@ -121,3 +121,10 @@ Design source: notes/thermal-research.md (staged plan, constants table).
 - 2026-10-15 ~22:08 local: third silent freeze + watchdog reset (notes/goal-bbb-bt-wifi.md): governor's last line
   WTCNT 64268/65525, temps 55-61 C, no bugcheck/minidump. Context: Wi-Fi reconnecting between 2.4 and 5 GHz networks,
   BT A2DP streaming. All three freezes so far had the Wi-Fi driver associated; GPU idle in two of them.
+- 2026-10-16 ~02:09 local: fourth silent freeze (user away, phone idle on 2.4 GHz Wi-Fi, BT 1.0.0.16 / WlanCx 1.0.10.7):
+  ssh closed while ping half-answered, then reset; BootLog "Windows died 2 times in a row - ignoring stay.flg,
+  going to TWRP" (so a death was already counted from an earlier boot). No bugcheck.
+- 2026-10-16 ~03:20 local: fifth silent freeze during Wi-Fi diagnostics (WlanCx 1.0.10.12, 2.4 GHz, BT device
+  disabled at the time, repeated driver reloads + UDP/TCP load tests in the minutes before): same signature (ssh
+  closed, ping half-answering ~1 min, reboot; uptime 1.2 min at 03:22, stay.flg brought Windows back). All five
+  freezes had the Wi-Fi driver associated; BT was NOT running in this one -> BT driver excluded as the sole trigger.

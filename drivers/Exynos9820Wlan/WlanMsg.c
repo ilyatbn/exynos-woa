@@ -2165,6 +2165,17 @@ CountersDump(_Inout_ PMSG_STATE S, _In_z_ PCSTR When, _In_ BOOLEAN Hex)
         } else if (Id == CNT_XTLV_GE80_UCODE && L >= MCST80_RXF0OVFL + 4) {
             ReportLine(S->R, "[cnt] %s: macstat 0x%lX rxf0ovfl %lu rxdtucastmbss %lu\r\n", When, Id,
                        Le32At(D, MCST80_RXF0OVFL), Le32At(D, MCST80_RXDTUCASTMBSS));
+            ReportLine(S->R, "[cnt] %s: macstat80 txall %lu txack %lu txucast %lu rsptmout %lu | rxstrt %lu badfcs %lu "
+                       "badplcp %lu crsglitch %lu anyerr %lu toolate %lu dtocast %lu bcn %lu missbcn %lu\r\n", When,
+                       Le32At(D, MCST80_TXALLFRM), Le32At(D, MCST80_TXACKFRM), Le32At(D, MCST80_TXUCAST),
+                       Le32At(D, MCST80_RXRSPTMOUT), Le32At(D, MCST80_RXSTRT), Le32At(D, MCST80_RXBADFCS),
+                       Le32At(D, MCST80_RXBADPLCP), Le32At(D, MCST80_RXCRSGLITCH), Le32At(D, MCST80_RXANYERR),
+                       Le32At(D, MCST80_RXTOOLATE), Le32At(D, MCST80_RXDTOCAST), Le32At(D, MCST80_RXBEACONMBSS),
+                       Le32At(D, MCST80_MISSBCN));
+            ReportLine(S->R, "[cnt] %s: macstat80 txrts %lu txcts %lu txnull %lu txphyerr %lu | rxrts %lu rxcts %lu rxack %lu "
+                       "rxcts-other %lu\r\n", When, Le32At(D, MCST80_TXRTSFRM), Le32At(D, MCST80_TXCTSFRM),
+                       Le32At(D, MCST80_TXDNLFRM), Le32At(D, MCST80_TXPHYERROR), Le32At(D, MCST80_RXRTSUCAST),
+                       Le32At(D, MCST80_RXCTSUCAST), Le32At(D, MCST80_RXACKUCAST), Le32At(D, MCST80_RXCTSOCAST));
         } else {
             ReportLine(S->R, "[cnt] %s: xtlv 0x%lX len %lu (not decoded)\r\n", When, Id, L);
         }
@@ -2605,6 +2616,18 @@ WlanMsgDump(PWLAN_MSG_CTX M, PWLAN_REPORT R, PCSTR Section)
     return Rc;
 }
 
+/* Runtime rx-loss diagnostics (notes/wifi-throughput.md 2026-10-16): the "counters" decode of the join dump. */
+_Use_decl_annotations_
+VOID
+WlanMsgCounters(PWLAN_MSG_CTX M, PWLAN_REPORT R, PCSTR When)
+{
+    PMSG_STATE S = Live(M, R);
+
+    if (S != NULL) {
+        CountersDump(S, When, FALSE);
+    }
+}
+
 /* GET_VAR of a 32-bit iovar (diagnostics: ampdu, ampdu_ba_wsize, frameburst, nmode). */
 _Use_decl_annotations_
 ULONG
@@ -2622,6 +2645,81 @@ WlanMsgGetIntVar(PWLAN_MSG_CTX M, PWLAN_REPORT R, PCSTR Name, PULONG Value)
         *Value = *(ULONG UNALIGNED *)S->Resp;
     }
     return Rc;
+}
+
+/* GET_VAR of any iovar, the first 16 B of the reply logged as words (CX debug channel "var:<name>"; structs such as
+   wl_config_t {config, status} of "rsdb_mode"). */
+_Use_decl_annotations_
+ULONG
+WlanMsgGetVarRaw(PWLAN_MSG_CTX M, PWLAN_REPORT R, PCSTR Name)
+{
+    PMSG_STATE S = Live(M, R);
+    ULONG      Rc;
+
+    if (S == NULL) {
+        return MSG_SKIPPED;
+    }
+    Rc = IoctlVar(S, FALSE, Name, NULL, 0, 16);
+    if (Rc == MSG_OK && S->RespLen >= 16) {
+        ReportLine(R, "[var] %s: %08lX %08lX %08lX %08lX\r\n", Name, Le32At(S->Resp, 0), Le32At(S->Resp, 4),
+                   Le32At(S->Resp, 8), Le32At(S->Resp, 12));
+    } else {
+        ReportLine(R, "[var] %s: MSG %lu, %lu B\r\n", Name, Rc, S->RespLen);
+    }
+    return Rc;
+}
+
+/* GET_VAR "sta_info" for Peer (sta_info_v4..v7 common prefix, bcmdhd_101_16 wlioctl.h:2276-2342; offsets are the
+   uint16/uint32/uint64 sequence of that struct, wl_rateset_t = 4 + 16 B; flags = wlioctl_defs.h:121-148 WL_STA_*):
+   what the firmware holds for the AP - WME/N/AMPDU capability bits, retries, decrypt failures, per-antenna rssi. */
+_Use_decl_annotations_
+ULONG
+WlanMsgStaInfo(PWLAN_MSG_CTX M, PWLAN_REPORT R, const UCHAR *Peer)
+{
+    PMSG_STATE   S = Live(M, R);
+    const UCHAR *B;
+    ULONG        Rc;
+
+    if (S == NULL) {
+        return MSG_SKIPPED;
+    }
+    Rc = IoctlVar(S, FALSE, "sta_info", Peer, 6, 256);
+    B  = S->Resp;
+    ReportLine(R, "[sta] sta_info -> MSG %lu, %lu B, ver %u len %u\r\n", Rc, S->RespLen,
+               (S->RespLen >= 4) ? *(const USHORT UNALIGNED *)B : 0, (S->RespLen >= 4) ? *(const USHORT UNALIGNED *)(B + 2) : 0);
+    if (Rc != MSG_OK || S->RespLen < 48) {
+        return Rc;
+    }
+    ReportLine(R, "[sta] cap 0x%04X flags 0x%08lX idle %lu in %lu s\r\n", *(const USHORT UNALIGNED *)(B + 4),
+               Le32At(B, 8), Le32At(B, 12), Le32At(B, 44));
+    /* this fw (18.41.117) answers ver 4 len 84: the statistics below exist only from len 200 on */
+    if (S->RespLen < 200 || *(const USHORT UNALIGNED *)(B + 2) < 200) {
+        return Rc;
+    }
+    ReportLine(R, "[sta] ht_cap 0x%04X vht_flags 0x%04X aid 0x%04X\r\n", *(const USHORT UNALIGNED *)(B + 154),
+               *(const USHORT UNALIGNED *)(B + 156), *(const USHORT UNALIGNED *)(B + 152));
+    ReportLine(R, "[sta] tx_pkts %lu tx_failures %lu retried %lu retry_exhausted %lu | rx_ucast %lu rx_mcast %lu "
+               "rx_retried %lu decrypt ok %lu fail %lu | tx_rate %lu rx_rate %lu fallback %lu (500 kbit/s units)\r\n",
+               Le32At(B, 52), Le32At(B, 56), Le32At(B, 160), Le32At(B, 164), Le32At(B, 60), Le32At(B, 64), Le32At(B, 192),
+               Le32At(B, 76), Le32At(B, 80), Le32At(B, 68), Le32At(B, 72), Le32At(B, 196));
+    ReportLine(R, "[sta] rssi %d %d %d %d nf %d %d %d %d last %d %d %d %d; fw frames %lu retries %lu exhausted %lu\r\n",
+               (CHAR)B[144], (CHAR)B[145], (CHAR)B[146], (CHAR)B[147], (CHAR)B[148], (CHAR)B[149], (CHAR)B[150],
+               (CHAR)B[151], (CHAR)B[168], (CHAR)B[169], (CHAR)B[170], (CHAR)B[171], Le32At(B, 180), Le32At(B, 184),
+               Le32At(B, 188));
+    return Rc;
+}
+
+/* SET_VAR of a 32-bit iovar (the CX debug channel "set:<name>=<value>", notes/wifi-throughput.md). */
+_Use_decl_annotations_
+ULONG
+WlanMsgSetIntVar(PWLAN_MSG_CTX M, PWLAN_REPORT R, PCSTR Name, ULONG Value)
+{
+    PMSG_STATE S = Live(M, R);
+
+    if (S == NULL) {
+        return MSG_SKIPPED;
+    }
+    return IoctlVar(S, TRUE, Name, &Value, sizeof(Value), 0);
 }
 
 /* Power-save mode: reads the current one (WLC_GET_PM) and sets Mode (WLC_SET_PM), int in. fmac sets PM_FAST after

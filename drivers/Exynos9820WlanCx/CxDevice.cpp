@@ -74,6 +74,72 @@ CxWake(PCX_DEVICE Dev)
 
 /* ---------------------------------------------------------------- worker */
 
+/* Debug channel (notes/wifi-throughput.md 2026-10-16): Parameters\DbgDump (REG_SZ), read on the alive tick (~6 s
+   while associated), logged, then removed (one-shot). Values: "<section>" = firmware "dump <section>";
+   "var:<iovar>" = GET, first 16 B logged; "set:<iovar>=<int>" = 32-bit SET; "pm:<0-2>" = WLC_SET_PM;
+   "stainfo" = sta_info of the AP; "cnt" = the "counters" decode now. */
+static VOID
+CxDbgDump(PCX_DEVICE Dev)
+{
+    WDFKEY         Key;
+    WDFSTRING      Str;
+    UNICODE_STRING Name, Val;
+    CHAR           A[40];
+    ULONG          I, N, V;
+
+    if (!NT_SUCCESS(WdfDriverOpenParametersRegistryKey(WdfDeviceGetDriver(Dev->Device), KEY_READ | KEY_SET_VALUE,
+                                                       WDF_NO_OBJECT_ATTRIBUTES, &Key))) {
+        return;
+    }
+    RtlInitUnicodeString(&Name, L"DbgDump");
+    if (NT_SUCCESS(WdfStringCreate(NULL, WDF_NO_OBJECT_ATTRIBUTES, &Str))) {
+        if (NT_SUCCESS(WdfRegistryQueryString(Key, &Name, Str))) {
+            WdfStringGetUnicodeString(Str, &Val);
+            N = Val.Length / sizeof(WCHAR);
+            for (I = 0; I < N && I < sizeof(A) - 1; I++) {
+                A[I] = (Val.Buffer[I] < 0x80) ? (CHAR)Val.Buffer[I] : '?';
+            }
+            A[I] = 0;
+            (VOID)WdfRegistryRemoveValue(Key, &Name);
+            if (I > 4 && RtlCompareMemory(A, "var:", 4) == 4) {
+                (VOID)WlanMsgGetVarRaw(&Dev->Msg, Dev->RunR, A + 4);
+            } else if (I == 3 && RtlCompareMemory(A, "cnt", 3) == 3) {
+                WlanMsgCounters(&Dev->Msg, Dev->RunR, "dbg");
+            } else if (I == 7 && RtlCompareMemory(A, "stainfo", 7) == 7) {
+                (VOID)WlanMsgStaInfo(&Dev->Msg, Dev->RunR, Dev->Bssid);
+            } else if (I > 6 && RtlCompareMemory(A, "set:", 4) == 4) {
+                PCHAR Eq  = A + 4;
+                LONG  Sgn = 1;
+
+                while (*Eq != 0 && *Eq != '=') {
+                    Eq++;
+                }
+                if (*Eq == '=' && Eq > A + 4) {
+                    *Eq++ = 0;
+                    if (*Eq == '-') {
+                        Sgn = -1;
+                        Eq++;
+                    }
+                    for (V = 0; *Eq >= '0' && *Eq <= '9'; Eq++) {
+                        V = V * 10 + (ULONG)(*Eq - '0');
+                    }
+                    V = (ULONG)((LONG)V * Sgn);
+                    CxLog(Dev, "[dbg] set %s = %ld -> MSG %lu\r\n", A + 4, (LONG)V,
+                          WlanMsgSetIntVar(&Dev->Msg, Dev->RunR, A + 4, V));
+                }
+            } else if (I == 4 && RtlCompareMemory(A, "pm:", 3) == 3 && A[3] >= '0' && A[3] <= '2') {
+                V = 0xFFFFFFFF;
+                CxLog(Dev, "[dbg] PM %c -> MSG %lu (was %lu)\r\n", A[3],
+                      WlanMsgSetPm(&Dev->Msg, Dev->RunR, (ULONG)(A[3] - '0'), &V), V);
+            } else if (I != 0) {
+                (VOID)WlanMsgDump(&Dev->Msg, Dev->RunR, A);
+            }
+        }
+        WdfObjectDelete(Str);
+    }
+    WdfRegistryClose(Key);
+}
+
 static VOID
 CxWorker(PVOID Context)
 {
@@ -139,8 +205,11 @@ CxWorker(PVOID Context)
                   Dev->TxFifo ? Dev->TxFifo->In : 0, Dev->TxFifo ? Dev->TxFifo->Out : 0,
                   Dev->TxFifo ? Dev->TxFifo->Dropped : 0);
             CxUpdateRate(Dev);
-            /* every 10th alive tick (~1 min while associated): firmware tx statistics (notes/wifi-throughput.md) */
+            CxDbgDump(Dev);
+            /* every 10th alive tick (~1 min while associated): firmware tx statistics + rx/MAC counters
+               (notes/wifi-throughput.md); "cnt" on the debug channel reads the counters on demand */
             if (Dev->Linked && (++DumpTicks % 10) == 1) {
+                WlanMsgCounters(&Dev->Msg, Dev->RunR, "alive");
                 (VOID)WlanMsgDump(&Dev->Msg, Dev->RunR, "ampdu");
                 (VOID)WlanMsgDump(&Dev->Msg, Dev->RunR, "rssi");
                 (VOID)WlanMsgDump(&Dev->Msg, Dev->RunR, "wme");

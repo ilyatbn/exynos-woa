@@ -64,3 +64,64 @@ User report 2026-10-15: ~18 Mbit/s while copying a 725 MB file to the phone over
 - 00:45 user: fast.com on the PC (same Wi-Fi) > 100 Mbit/s. 1.0.10.4: full RSN IE dump of our request (id 48) and the AP's RSN from the scan entry ('[ie ap-rsn]') to check the PMF capability bits.
 - 00:50 1.0.10.4 RSN: AP 01 00 | 00-0F-AC-04 | 1 x CCMP | 2 AKMs 00-0F-AC-02 PSK + 00-0F-AC-08 SAE | caps 8C 00 (MFPC, PTKSA replay counters 16); ours caps 00 00 (no MFP - PMF NOT half-negotiated, theory out - but 1 PTKSA replay counter). 1.0.10.5: our RSN caps 0x000C (16 PTKSA replay counters, 802.11-2016 9.4.2.25.4; matches the AP's own bits). Hypothesis: AP will not set up BA with a 1-replay-counter QoS client.
 - 01:00 1.0.10.5 on device: request RSN caps 0C 00 confirmed; 20 MiB raw 1.39 / 2.00 MB/s; dump still ini_off 1, tot_ampdus 0, rxaddbareq 0 -> replay counters alone not the fix (speed noise).
+- **2026-10-16 02:40 LAN speed test (user away a few hours: "make it go faster, 100% a device issue").** 02:09 silent
+  freeze -> firmware "Windows died 2 times in a row" -> TWRP; `adb reboot` back to Windows. Test rig: Python
+  ThreadingHTTPServer on the PC (scratchpad srv/speedsrv.py, TCP 9999 opened by the user; GET 100 MiB random file,
+  POST /upload discards), phone side C:\S10eTmp\speedtest.cmd (curl.exe). PC loopback 6.8 Gbit/s (server not a limit).
+  Baseline WlanCx 1.0.10.7, 2.4 GHz: **DOWN (PC->phone, phone RX) 100 MiB in 233 s = 3.6 Mbit/s; UP (phone TX) 50 MiB
+  in 20 s = 20.8 Mbit/s.** RX is 6x worse than TX -> host RX path is the first suspect (rx buffer posting / poll).
+- 02:50 WlanCx 1.0.10.8: "counters" decode (wlc rxframe/rxnobuf, macstat rxf0ovfl) on every alive tick (~6 s) +
+  debug channel Parameters\DbgDump (REG_SZ, one-shot): "<dump section>" | "var:<iovar>" | (1.0.10.9) "pm:<0-2>".
+  TCP download: fw rxframe == host rx fifo in == out, rxnobuf 0, rxf0ovfl 0 -> nothing lost in firmware/host.
+  PC side: 1.1-1.8 % TCP retransmits; pktmon capture (srv/tcpan.py, deduped by IP id): phone adv window median 128 KB,
+  but in flight median 16 KB, dup-ACK runs up to 30 + SACK, 60 send gaps > 50 ms (RTO-like 0.3-0.6 s) in 15 s.
+- 03:05 **UDP PC->phone, numbered 1400 B (srv/udptx.py -> C:\S10eTmp\udprx.ps1; phone firewall rule S10eUdpTest
+  UDP 9998 added):** offered 10 Mbit/s -> 18-21 % lost (953 twice) + 500-670 out-of-order; 30 -> 8.4 Mbit/s received
+  (68 % lost); 60 -> 7.5. Firmware rxframe delta == host fifo delta == what the app got -> **frames never reach the
+  phone's wlc layer: lost/reordered between the AP and our radio** (air or AP queueing), the phone rx caps ~750 fr/s.
+  PM 0 (CAM, via DbgDump pm:0 on 1.0.10.9; was 2): unchanged (10 -> 84 % lost, 30 -> 8.4, 60 -> 7.5) -> not power save.
+  1.0.10.10: macstat80 line (txall/txack/txucast/rsptmout, rxstrt/badfcs/badplcp/crsglitch/anyerr/toolate/dtocast/bcn/
+  missbcn; wl_cnt_ge80mcst_v1_t from LineageOS exynos9820 bcmdhd_101_16 wlioctl.h, uint32 index x 4, cross-checked:
+  rxdtucastmbss 76 / rxf0ovfl 256 = the already-verified offsets) to see whether the radio fails to receive.
+- 03:20 silent freeze #2 tonight (ssh closed, ping half-answering ~1 min, then reboot; uptime 1.2 min at 03:22;
+  stay.flg brought it back to Windows). 02:09 was the same signature. WlanCx 1.0.10.12 persisted across the reset.
+- 03:15 **RX cap explained (1.0.10.12 macstat80 deltas during UDP 30 Mbit/s):** rxrts +1598, txcts +1573, txack +1703,
+  rxtoolate +1441 -> the AP sends an RTS before EVERY data frame to us (we never send RTS: txrts 0). Without a BA
+  session every MPDU is its own TXOP: RTS + CTS (legacy rate in 2.4 GHz, ~0.7 ms at 1 Mbit/s DSSS) + data + ACK +
+  backoff ~ 1.2 ms/frame -> ~800 fr/s x 1400 B ~ 9-10 Mbit/s = exactly the measured cap. rxtoolate tracks the RTS
+  count (likely a side counter, not the loss itself). AP HT op byte 2 = 0x06: HT protection mode 2 (20 MHz
+  protection, triggered by a 20 MHz-only HT STA = us) + non-greenfield present. => the BA failure is THE cause;
+  aggregation would amortise the RTS/CTS over up to 64 MPDUs.
+  Ruled out on the way: power save (PM 0 no change), BT coex (BT device disabled: reordering 500-800 -> 0 but cap
+  unchanged; btc_mode 1 -> 0 no change), chains (rsdb_mode 0, txchain/rxchain 3, tx/rxstreams 2, hw chains 3),
+  host rx path (fw rxframe == fifo in == delivered). mimo_bw_cap 0 (20 MHz in 2.4 GHz).
+- 03:25 **5 GHz A/B (HomeX-5, ch 36, via a SYSTEM schtask with automatic fallback to the 2.4 profile):** UDP 30/60
+  Mbit/s 0 % loss, TCP 100 MiB down 20.9 MB/s = **167 Mbit/s**; dump ampdu: rxaddbareq 2 (AP initiates), txaddbareq 1
+  rxaddbaresp 1, tot_ampdus 1585 (8 MPDU/A-MPDU tx, 6 rx). => host driver/data path is fine; the failure is 2.4 GHz only.
+  dump rsdb: 5 GHz STA on wlc0, 2.4 GHz STA on wlc1; rsdb_mode = {config 0, status 1} (wl_config_t).
+- 03:30 2.4 GHz again with btc_mode 0 set BEFORE a fresh association (disconnect + connect, BT device still
+  disabled): still txaddbareq 11 rxaddbaresp 0, rxaddbareq 0, tot_ampdus 0 -> not BT coex.
+- sta_info for the AP (1.0.10.13 "stainfo"): ver 4 len 84 only (stats beyond 84 not returned), flags 0x0011803B =
+  BRCM | WME | AUTHE | ASSOC | AUTHO | AMPDU_CAP | AMSDU_CAP | VHT_CAP (wlioctl_defs.h:121-148) -> firmware treats the
+  AP as aggregation-capable.
+- Samsung dhd differences checked (bcmdhd_101_16): Makefile:869 SUPPORT_2G_VHT/SUPPORT_5G_1024QAM_VHT ->
+  vht_features |= 7 before UP. Tried in 1.0.10.15: firmware default 0x6, set 0x7 -> BCME_BADOPTION (-3) - dhd treats
+  that code as expected ("need to check BANDLOCK", dhd_linux.c:11878-11883) => Android runs without 2.4 VHT too;
+  removed again. bw_cap: dhd only reads it (wl_cfg80211.c:16041) -> Android is 20 MHz on 2.4 too. rsdb_mode: dhd sets
+  it only in MFG mode / antenna-test file (dhd_linux.c:10343, dhd_custom_sec.c:411-461) -> same default as ours.
+- 03:42 **2.4 vs 5 GHz association elements (1.0.10.17 full vendor IEs; no addresses kept):** they are DIFFERENT
+  APs. HomeX-5 (ch 36) = HE/Wi-Fi 6 router, vendor OUI 8C:FD:F0 (Qualcomm), WPS IE. Home-X (ch 9, rssi -39, 20/40 MHz
+  chanspec 0x1907) = a separate older box: BRCM IE 00:10:18, Broadcom 2.4 GHz-VHT vendor IE 00:90:4C:04 (its VHT MCS map
+  0xFFFF = no VHT streams), and a 00:0C:42 (MikroTik/Routerboard) identity IE carrying a device name (not recorded).
+  Our 2.4 request already carries the 00:90:4C:04 2.4 GHz-VHT vendor IE (VHT cap 32 78 81 0F, MCS map FAFF) and BRCM IE.
+  Scan: no 2.4 GHz BSS of the Wi-Fi 6 router visible; ch 9 overlaps "Yura-EXT" ch 11 at -55 and 6 weaker BSSs.
+  The user's PC ">100 Mbit/s" most likely went through the 5 GHz router. **Conclusion so far: on Home-X 2.4 the AP never
+  initiates BA, never answers our ADDBA (13/13) and RTS-protects every MPDU -> ~10 Mbit/s cap; our host path does 167
+  Mbit/s with BA on the other AP.** Open: does that AP aggregate with ANY 2.4 client? (test: the PC on Home-X 2.4;
+  or check the AP's A-MPDU / WMM / hw-protection settings.) Monitor mode to sniff it: WLC_SET_MONITOR -> BCME_UNSUPPORTED
+  (-23) on this fw (code removed). BT device re-enabled; phone firewall rule S10eUdpTest (UDP 9998) still present.
+- Observation: the first UDP/TCP test right after every WlanCx reload is 1.6-3.4 Mbit/s, later ones ~8-10 (2.4 GHz).
+- Commit (1.0.10.19, diagnostics only): "counters" decode + macstat80 lines (every ~1 min while associated, + "cnt"),
+  debug channel Parameters\DbgDump (section | var: | set: | pm: | stainfo | cnt), sta_info decode (only the fields the
+  reply's len covers), full IE bytes for rates/ext-rates/op-classes/vendor IEs. Verified on device: var:rsdb_mode ->
+  {0, 1}, cnt -> wlc + macstat80 lines, stainfo -> flags line only (len 84), set:btc_mode=1 -> MSG 0.

@@ -670,6 +670,28 @@
 #define MCST_RXF0OVFL               180            /* "receive fifo 0 overflows" wlioctl.h:4299 */
 #define MCST80_RXDTUCASTMBSS        76
 #define MCST80_RXF0OVFL             256            /* wlioctl.h:4505 */
+/* more wl_cnt_ge80mcst_v1_t fields (bcmdhd_101_16 wlioctl.h, all uint32: index x 4; the two above match it) */
+#define MCST80_TXALLFRM             0
+#define MCST80_TXACKFRM             12
+#define MCST80_RXANYERR             56
+#define MCST80_RXBADFCS             60
+#define MCST80_RXBADPLCP            64
+#define MCST80_RXCRSGLITCH          68
+#define MCST80_RXSTRT               72
+#define MCST80_RXDTOCAST            100
+#define MCST80_RXBEACONMBSS         132
+#define MCST80_RXRSPTMOUT           144
+#define MCST80_MISSBCN              156
+#define MCST80_TXUCAST              188
+#define MCST80_RXTOOLATE            212
+#define MCST80_TXRTSFRM             4
+#define MCST80_TXCTSFRM             8
+#define MCST80_TXDNLFRM             16
+#define MCST80_TXPHYERROR           36
+#define MCST80_RXRTSUCAST           88
+#define MCST80_RXCTSUCAST           92
+#define MCST80_RXACKUCAST           96
+#define MCST80_RXCTSOCAST           116
 #define CNT_HEX_MAX                 2048           /* host choice: hex dump cap (the run report is 32 KB) */
 #define PCIE2_MAILBOXMASK_REV64     0xC34          /* PCIMailBoxMask(rev >= 64), pcie_core.h:962 */
 #define PCIE2_MAILBOXMASK_OLD       0x4C

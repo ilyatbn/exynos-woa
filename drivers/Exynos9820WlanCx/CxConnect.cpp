@@ -27,8 +27,9 @@ CxLogIes(PCX_DEVICE Dev, PCSTR Tag, const UCHAR *Ies, ULONG Len)
     while (Off + 2 <= Len && Off + 2 + Ies[Off + 1] <= Len) {
         UCHAR  Id = Ies[Off], L = Ies[Off + 1];
         const UCHAR *V = Ies + Off + 2;
-        BOOLEAN Full = (Id == 48 || Id == 45 || Id == 61 || Id == 127 || Id == 191 || Id == 192 ||
-                        (Id == 221 && L >= 4 && V[0] == 0x00 && V[1] == 0x50 && V[2] == 0xF2 && V[3] == 0x02));
+        /* vendor elements in full too (2.4 vs 5 GHz association comparison, notes/wifi-throughput.md 2026-10-16) */
+        BOOLEAN Full = (Id == 48 || Id == 45 || Id == 61 || Id == 127 || Id == 191 || Id == 192 || Id == 1 ||
+                        Id == 50 || Id == 59 || Id == 221);
         size_t Pos = 0;
 
         (VOID)RtlStringCbPrintfA(Line, sizeof(Line), "[ie %s] id %u len %u", Tag, Id, L);

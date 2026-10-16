@@ -101,6 +101,10 @@ _IRQL_requires_(PASSIVE_LEVEL)
 ULONG WlanMsgAmpduTid(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_ UCHAR Tid, _In_ BOOLEAN Enable);  /* MSG_* */
 ULONG WlanMsgScbAuthorize(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_reads_(6) const UCHAR *Peer);  /* MSG_* */
 ULONG WlanMsgDump(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_z_ PCSTR Section);  /* MSG_* */
+VOID  WlanMsgCounters(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_z_ PCSTR When);  /* "[cnt]" lines */
+ULONG WlanMsgStaInfo(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_reads_(6) const UCHAR *Peer);  /* "[sta]" */
+ULONG WlanMsgSetIntVar(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_z_ PCSTR Name, _In_ ULONG Value);
+ULONG WlanMsgGetVarRaw(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_z_ PCSTR Name);  /* "[var]" line */
 ULONG WlanMsgGetIntVar(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_z_ PCSTR Name, _Out_ PULONG Value);
 ULONG WlanMsgSetPm(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _In_ ULONG Mode, _Out_ PULONG Old);  /* MSG_* */
 ULONG WlanMsgGetRate(_Inout_ PWLAN_MSG_CTX M, _Inout_ PWLAN_REPORT R, _Out_ PULONG Rate500k);  /* MSG_* */

@@ -63,3 +63,6 @@ Hazard to check before writing gpp0 CON: which pins the touch / other drivers us
   normal polarity both sides (UAIF0 CTRL1 0x1BCDF7DF, codec 0x500 0x000F) or inverted both (0x1B4DF7DF / 0x008F);
   codec 0x504 0, 0x506 0x0080, 0x507/0x508 0x2020, 0x511/0x512 0/1; FLL2 {8,16,0,1,1,0,0x21F0,0,8,0} at 0x190 for a
   6.144 MHz AIF1BCLK reference. All codec values VERIFIED-by-code only.
+- **J4 detection verified** (1.0.1.24): user "unplugged and plugged twice" -> log
+  [1951.8] unplugged (RAW7 021A) / [1960.8] PLUGGED (0225) / [1981.4] unplugged / [1992.9] PLUGGED. Bit 0x10 of
+  IRQ1_RAW_STATUS_7 clear = present, as madera_jack_present. Routing / KSJACK reporting still to do.

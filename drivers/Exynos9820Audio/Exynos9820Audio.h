@@ -110,6 +110,7 @@ typedef struct _AUD_CONFIG {
  * Run log (RunLog.c). Appending is legal up to DISPATCH_LEVEL; the file is (re)written only at PASSIVE_LEVEL.
  * ====================================================================== */
 #define AUD_RUNLOG_FILE  L"\\SystemRoot\\System32\\LogFiles\\Exynos9820Audio-run.txt"
+#define AUD_RUNLOG_PREV  L"\\SystemRoot\\System32\\LogFiles\\Exynos9820Audio-prev.txt"   /* previous driver load */
 #define AUD_RUNLOG_MAX   (256u * 1024u)   /* A6: room for the KS request log (ReqLog.c) */
 
 typedef struct _AUD_RUNLOG {
@@ -181,6 +182,10 @@ typedef struct _AUD_DEVICE_CONTEXT {
     PUCHAR      CodecSysreg;
     PUCHAR      CodecGpio;
     BOOLEAN     CodecUp;
+    WDFTIMER    JackTimer;      /* CodecJack.c presence poll (passive level) */
+    BOOLEAN     JackKnown;
+    BOOLEAN     JackPresent;
+    volatile BOOLEAN JackStopping;
 
     /* Endpoint volume when Cfg.HwVolume = 1 (KS units: 1/65536 dB), applied on the amps. */
     LONG        VolumeLevel;
@@ -336,9 +341,13 @@ _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecUpdate(_Inout_ PAUD_DEVICE_CONTEXT 
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecRead32(_Inout_ PAUD_DEVICE_CONTEXT Dev, ULONG Reg, _Out_ PULONG Value);
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecWrite32(_Inout_ PAUD_DEVICE_CONTEXT Dev, ULONG Reg, ULONG Value);
 /* CodecTone.c */
+_IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecSetup(_Inout_ PAUD_DEVICE_CONTEXT Dev);
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecClockOn(_Inout_ PAUD_DEVICE_CONTEXT Dev);
 _IRQL_requires_(PASSIVE_LEVEL) VOID CodecClockOff(_Inout_ PAUD_DEVICE_CONTEXT Dev);
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecTone(_Inout_ PAUD_DEVICE_CONTEXT Dev, ULONG Ms);
+/* CodecJack.c */
+_IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecJackStart(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ WDFDEVICE Device);
+_IRQL_requires_(PASSIVE_LEVEL) VOID CodecJackStop(_Inout_ PAUD_DEVICE_CONTEXT Dev);
 
 /* Control.c - speaker trim KS property (AudControl.h); TRUE = request completed. */
 _IRQL_requires_(PASSIVE_LEVEL) BOOLEAN AudControlRequest(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ WDFREQUEST Request,

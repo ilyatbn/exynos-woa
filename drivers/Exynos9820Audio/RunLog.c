@@ -68,6 +68,42 @@ VOID AudLog(_In_opt_ PAUD_RUNLOG Log, _In_z_ _Printf_format_string_ PCSTR Fmt, .
     KeReleaseSpinLock(&Log->Lock, OldIrql);
 }
 
+/* First flush of this driver image: the previous load's log (possibly cut off by a hang/reset) becomes -prev.txt
+   instead of being overwritten (2026-10-16: the 1.0.1.22 hang left no trace). */
+static BOOLEAN AudLogRotated;
+
+/* FILE_RENAME_INFORMATION (ntifs.h layout; ntddk.h does not declare it). */
+typedef struct _AUD_RENAME_INFO {
+    BOOLEAN ReplaceIfExists;
+    HANDLE  RootDirectory;
+    ULONG   FileNameLength;
+    WCHAR   FileName[1];
+} AUD_RENAME_INFO, *PAUD_RENAME_INFO;
+
+static VOID AudLogRotate(VOID)
+{
+    UNICODE_STRING    Name;
+    OBJECT_ATTRIBUTES Oa;
+    IO_STATUS_BLOCK   Iosb;
+    HANDLE            File;
+    UCHAR             Buf[sizeof(AUD_RENAME_INFO) + sizeof(AUD_RUNLOG_PREV)];
+    PAUD_RENAME_INFO  Ren = (PAUD_RENAME_INFO)Buf;
+
+    AudLogRotated = TRUE;
+    RtlInitUnicodeString(&Name, AUD_RUNLOG_FILE);
+    InitializeObjectAttributes(&Oa, &Name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    if (!NT_SUCCESS(ZwCreateFile(&File, DELETE | SYNCHRONIZE, &Oa, &Iosb, NULL, FILE_ATTRIBUTE_NORMAL, 0, FILE_OPEN,
+                                 FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE, NULL, 0))) {
+        return;   /* no previous log */
+    }
+    RtlZeroMemory(Buf, sizeof(Buf));
+    Ren->ReplaceIfExists = TRUE;
+    Ren->FileNameLength  = sizeof(AUD_RUNLOG_PREV) - sizeof(WCHAR);
+    RtlCopyMemory(Ren->FileName, AUD_RUNLOG_PREV, Ren->FileNameLength);
+    (VOID)ZwSetInformationFile(File, &Iosb, Ren, sizeof(Buf), FileRenameInformation);
+    ZwClose(File);
+}
+
 _IRQL_requires_(PASSIVE_LEVEL)
 VOID AudLogFlush(_In_opt_ PAUD_RUNLOG Log)
 {
@@ -108,6 +144,9 @@ VOID AudLogFlush(_In_opt_ PAUD_RUNLOG Log)
         RtlCopyMemory(Copy + Used, Tail, TailLen);
     }
 
+    if (!AudLogRotated) {
+        AudLogRotate();
+    }
     RtlInitUnicodeString(&Name, AUD_RUNLOG_FILE);
     InitializeObjectAttributes(&Oa, &Name, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
     Status = ZwCreateFile(&File, GENERIC_WRITE | SYNCHRONIZE, &Oa, &Iosb, NULL, FILE_ATTRIBUTE_NORMAL,

@@ -59,6 +59,7 @@
     <ClCompile Include="Control.c" />
     <ClCompile Include="Codec.c" />
     <ClCompile Include="CodecTone.c" />
+    <ClCompile Include="CodecJack.c" />
     <ClInclude Include="Exynos9820Audio.h" />
     <ClInclude Include="AmpOtpMap.h" />
     <ResourceCompile Include="resource.rc" />

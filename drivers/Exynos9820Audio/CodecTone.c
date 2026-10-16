@@ -194,7 +194,23 @@ static BOOLEAN CodecFllEnable(_In_ PAUD_DEVICE_CONTEXT Dev, _In_ const CODEC_FLL
     return FALSE;
 }
 
-/* Patch + 32 kHz from MCLK2 + 48 kHz rate + SYSCLK 98.304 MHz from FLL1 (MCLK2, fallback MCLK1), SYSCLK on. */
+/* Once per codec reset (madera-core probe order): cs47l92 patch, then the 32 kHz clock from MCLK2 (jack detection and
+   the FLLs need it). */
+_IRQL_requires_(PASSIVE_LEVEL)
+NTSTATUS CodecSetup(_Inout_ PAUD_DEVICE_CONTEXT Dev)
+{
+    PAGED_CODE();
+
+    if (!Dev->CodecUp) {
+        return STATUS_DEVICE_NOT_READY;
+    }
+    if (!CodecApplyPatch(Dev)) {
+        return STATUS_IO_DEVICE_ERROR;
+    }
+    return CodecUpdate(Dev, R_CLOCK_32K_1, CLK_32K_ENA | CLK_32K_SRC_MASK, CLK_32K_ENA | CLK_32K_SRC_MCLK2);
+}
+
+/* 48 kHz rate + SYSCLK 98.304 MHz from FLL1 (MCLK2, fallback MCLK1), SYSCLK on. CodecSetup must have run. */
 _IRQL_requires_(PASSIVE_LEVEL)
 NTSTATUS CodecClockOn(_Inout_ PAUD_DEVICE_CONTEXT Dev)
 {
@@ -205,10 +221,6 @@ NTSTATUS CodecClockOn(_Inout_ PAUD_DEVICE_CONTEXT Dev)
     if (!Dev->CodecUp) {
         return STATUS_DEVICE_NOT_READY;
     }
-    if (!CodecApplyPatch(Dev)) {
-        return STATUS_IO_DEVICE_ERROR;
-    }
-    (VOID)CodecUpdate(Dev, R_CLOCK_32K_1, CLK_32K_ENA | CLK_32K_SRC_MASK, CLK_32K_ENA | CLK_32K_SRC_MCLK2);
     (VOID)CodecUpdate(Dev, R_SAMPLE_RATE_1, 0x001F, SAMPLE_RATE_48K);
     (VOID)CodecUpdate(Dev, R_SYSTEM_CLOCK_1, SYSCLK_SET_MASK, SYSCLK_98MHZ_FLL1);
     if (!CodecFllEnable(Dev, &CodecFllMclk2)) {

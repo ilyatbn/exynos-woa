@@ -23,7 +23,7 @@ EVT_WDF_DEVICE_D0_ENTRY           AudEvtD0Entry;
 EVT_WDF_DEVICE_D0_EXIT            AudEvtD0Exit;
 EVT_WDF_OBJECT_CONTEXT_CLEANUP    AudEvtDeviceCleanup;
 
-#define AUD_DRIVER_VERSION "1.0.1.21"
+#define AUD_DRIVER_VERSION "1.0.1.24"
 
 static AUD_CONFIG g_Cfg;
 
@@ -289,6 +289,16 @@ NTSTATUS AudEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Resources, WDFCMRE
     if (Dev->Cfg.CodecEnable) {
         Status = CodecInit(Dev);
         AudLog(Dev->Log, "CodecInit %08lX\r\n", Status);
+        AudLogFlush(Dev->Log);
+        if (NT_SUCCESS(Status)) {
+            Status = CodecSetup(Dev);
+            AudLog(Dev->Log, "CodecSetup %08lX\r\n", Status);
+            AudLogFlush(Dev->Log);
+        }
+        if (NT_SUCCESS(Status)) {
+            Status = CodecJackStart(Dev, Device);
+            AudLog(Dev->Log, "CodecJackStart %08lX\r\n", Status);
+        }
         if (NT_SUCCESS(Status) && Dev->Cfg.JackTone != 0) {
             Status = CodecTone(Dev, min(Dev->Cfg.JackTone, 5000u));
             AudLog(Dev->Log, "CodecTone %08lX\r\n", Status);
@@ -331,6 +341,7 @@ NTSTATUS AudEvtReleaseHardware(WDFDEVICE Device, WDFCMRESLIST Translated)
         AmpRelease(Dev);    /* amps off before their clocks go */
         AboxRelease(Dev);   /* stop + restore every stage-1 register */
     }
+    CodecJackStop(Dev);
     CodecRelease(Dev);
     AudUnmap(Dev);
     Dev->AboxReady = FALSE;

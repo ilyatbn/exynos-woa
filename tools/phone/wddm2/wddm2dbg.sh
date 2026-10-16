@@ -13,6 +13,7 @@
 #   probe ARGS           probe.ps1 ARGS (volatile Parameters\Probe + pnputil /restart-device), e.g. probe -Wddm2 3
 #   unprobe              delete the probe key and restart the device (back to the persistent setting)
 #   set N [reboot]       persistent Parameters\Wddm2 = N (0 = WDDM 1.3, 3 = WDDM 2.0), optionally reboot
+#   umdtrace [-Off]      machine-wide UMD logging on (off) - DWM picks it up at the next boot
 #   umdlog [EXE] [N]     newest malikm log of EXE (default dwm)
 #   bc                   Kernel-Power 41 / 1001 / 6008 events and dump files
 #   crashes              Application Error 1000 events of the last 20 min (module + offset)
@@ -75,6 +76,7 @@ umdswap) d=${1:?umdswap DIR}; r 'mkdir C:\S10eTmp\umd 2>nul' >/dev/null
 probe) r "$PS C:\\S10eTmp\\probe.ps1 $*";;
 unprobe) r "$PS C:\\S10eTmp\\unprobe.ps1";;
 set) if [ "${2:-}" = reboot ]; then r "$PS C:\\S10eTmp\\w2set.ps1 -Wddm2 ${1:?set N} -Reboot"; else r "$PS C:\\S10eTmp\\w2set.ps1 -Wddm2 ${1:?set N}"; fi;;
+umdtrace) r "$PS C:\S10eTmp\umdtrace.ps1 $*";;
 umdlog) r "$PS C:\\S10eTmp\\umdlog.ps1 -Exe ${1:-dwm} -Tail ${2:-40}";;
 bc) r "$PS C:\\S10eTmp\\bc.ps1";;
 crashes) r "$PS C:\\S10eTmp\\crashq.ps1";;

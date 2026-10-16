@@ -14,6 +14,7 @@ Phone-side scripts go to `C:\S10eTmp` with `wddm2dbg.sh push`. Outputs land in `
 | `umdswap.cmd` | (SYSTEM task) `C:\S10eTmp\umd\{maliumd,libgallium_d3d10}.dll` into System32, old ones as `.prev` (loaded DLLs can be renamed; the new ones load at the next process start / boot) |
 | `espget.cmd` | (SYSTEM task) copies `S:\WINPRAM.BIN` (the ESP is mounted at S: by S10eAgent; `mountvol /s` fails) |
 | `umdlog.ps1 [-Exe dwm]` | newest `malikm-<exe>-<pid>.txt` (Mesa winsys `malikm_tlog`, dir = machine env `MALIKM_TGSI_DIR`) |
+| `umdtrace.ps1 [-Off]` | machine env `MALIKM_TGSI_DIR=C:\S10eTmp\tlog` + `MALIKM_TRACE=1` (UMD logs per process; DWM after a reboot) |
 | `bc.ps1`, `crashq.ps1`, `dwmq.ps1` | Kernel-Power/bugcheck events + dumps; Application Error 1000 (module + offset); DWM process/modules + recent errors |
 
 Facts these rely on (see notes/gpu-wddm2-design.md, notes/gpu-full-adapter-hang.md):

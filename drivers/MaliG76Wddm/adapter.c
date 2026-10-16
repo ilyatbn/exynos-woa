@@ -34,6 +34,11 @@ ULONG MwWddm2Stubs = 0;
 /* Run 6 probe: Parameters\Probe\Ver (volatile key only) = a DXGKDDI_INTERFACE_VERSION_WDDM2_x value reported instead
  * of WDDM2_0 - does this Windows build turn away the 2.0 interface itself? 0 = WDDM2_0. */
 ULONG MwWddm2Ver = 0;
+/* S1 run 7 probe: Parameters\Probe\WddmVersion (volatile key only) = the DXGK_DRIVERCAPS.WDDMVersion reported when
+ * Wddm2 is on, instead of 0. notes/gpu-wddm3-research.md "Cross-check against G15 S1": Learn wddm-2-1-features
+ * ("Determining WDDM Version") says dxgkrnl validates caps/DDIs against the reported WDDMVersion and fails the adapter
+ * on inconsistency; both open-source WDDM 2.0 KMDs report DXGKDDI_WDDMv2 (0x2000). 0 = the runs 1-6 answer. */
+ULONG MwWddm2CapsVer = 0;
 
 /* ---- trace ---- */
 
@@ -378,7 +383,7 @@ static NTSTATUS DriverCaps(MW_ADAPTER *A, const DXGKARG_QUERYADAPTERINFO *Info)
     RtlZeroMemory(caps, size);
     /* DXGK_DRIVERCAPS.WDDMVersion: 0 for interfaces newer than WIN7 (MS Learn DXGK_DRIVERCAPS) - set for 2.0 only so
      * the 1.3 answer stays as it was. */
-    caps->WDDMVersion = MwWddm2 ? (DXGK_WDDMVERSION)0 : DXGKDDI_WDDMv1_3;
+    caps->WDDMVersion = MwWddm2 ? (DXGK_WDDMVERSION)MwWddm2CapsVer : DXGKDDI_WDDMv1_3;
     /* G76 (R11): what the Mali reports it can address (MMU_FEATURES PA bits), at most the original's 40 bits. */
     caps->HighestAcceptableAddress.QuadPart = (LONGLONG)((1ULL << bits) - 1);
     caps->MaxAllocationListSlotId = 256;   /* Render patches every allocation, SlotId = index */
@@ -851,6 +856,7 @@ static MW_MODE ReadMode(PUNICODE_STRING RegistryPath, ULONG *PramTrace)
             if (NT_SUCCESS(ZwOpenKey(&probe, KEY_READ, &oa))) {
                 w = ReadParameter(probe, L"Wddm2", w);
                 MwWddm2Ver = ReadParameter(probe, L"Ver", 0);
+                MwWddm2CapsVer = ReadParameter(probe, L"WddmVersion", 0);
                 ZwClose(probe);
             } else if (w == 4) {
                 w = 0;
@@ -916,8 +922,8 @@ static NTSTATUS InitFull(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPa
     init.Version = MwWddm2 ? (MwWddm2Ver >= DXGKDDI_INTERFACE_VERSION_WDDM2_0 && MwWddm2Ver <= DXGKDDI_INTERFACE_VERSION_WDDM2_9
                               ? MwWddm2Ver : DXGKDDI_INTERFACE_VERSION_WDDM2_0)
                            : DXGKDDI_INTERFACE_VERSION_WDDM1_3;
-    DbgPrintEx(DPFLTR_IHVVIDEO_ID, DPFLTR_ERROR_LEVEL, "MaliG76Wddm: InterfaceVersion = 0x%04x (Wddm2 %u Va %u Stubs %u)\n",
-               init.Version, MwWddm2, MwWddm2Va, MwWddm2Stubs);
+    DbgPrintEx(DPFLTR_IHVVIDEO_ID, DPFLTR_ERROR_LEVEL, "MaliG76Wddm: InterfaceVersion = 0x%04x (Wddm2 %u Va %u Stubs %u) WDDMVersion 0x%04x\n",
+               init.Version, MwWddm2, MwWddm2Va, MwWddm2Stubs, MwWddm2 ? MwWddm2CapsVer : (ULONG)DXGKDDI_WDDMv1_3);
     init.DxgkDdiAddDevice = MwAddDevice;
     init.DxgkDdiStartDevice = MwStartDevice;
     init.DxgkDdiStopDevice = T_StopDevice;

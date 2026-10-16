@@ -348,3 +348,13 @@ GpuMmu (S7): ~1500-2500 lines across KMD + winsys, multi-week.
   dxgkrnl reports no reason (ETW DxgKrnl level 5, Admin/Operational logs empty, KD with VIDEO print mask).
   Not yet tried: anything outside DRIVERCAPS/the DDI table that dxgkrnl reads at that point; these are not
   documented, and static RE of dxgkrnl is off the table. G15 S1 BLOCKED pending a decision (user).
+
+## Session 2026-10-16 evening: restart of G15 (user goal)
+User goal (verbatim): "wddm2, windows working via properly gpu acceleration. browsers working with proper gpu
+acceleration. integration with the video chip driver to make videos work properly. finally, output to hdmi via
+usb-c to hdmi dongle and our usb-c hub." alpha5 tagged at 1e5df58 (local tag, not pushed).
+- 19:45 Basis for this session = notes/gpu-wddm3-research.md (documented sources only, no RE of OS binaries).
+  Its lead: S1 runs 1-6 all reported DRIVERCAPS.WDDMVersion = 0 (adapter.c, per the stale DRIVERCAPS page);
+  Learn wddm-2-1-features "Determining WDDM Version" says dxgkrnl validates caps/DDIs against WDDMVersion and fails
+  the adapter on inconsistency; both open-source WDDM 2.0 KMDs report DXGKDDI_WDDMv2 (0x2000). Next = S1 run 7:
+  interface 0x5023 + WDDMVersion 0x2000, physical first, then + run-5 VA caps/stubs (volatile probe, restart-device).

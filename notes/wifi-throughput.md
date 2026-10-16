@@ -125,3 +125,9 @@ User report 2026-10-15: ~18 Mbit/s while copying a 725 MB file to the phone over
   debug channel Parameters\DbgDump (section | var: | set: | pm: | stainfo | cnt), sta_info decode (only the fields the
   reply's len covers), full IE bytes for rates/ext-rates/op-classes/vendor IEs. Verified on device: var:rsdb_mode ->
   {0, 1}, cnt -> wlc + macstat80 lines, stainfo -> flags line only (len 84), set:btc_mode=1 -> MSG 0.
+- Review of feb9c86 (adversarial): all 23 MCST80_* offsets re-derived by script from wl_cnt_ge80mcst_v1_t (uint32
+  index x 4) - all match (MISSBCN = missbcn_dbg); every decoded offset < 260 = the xtlv length guard; sta_info reads
+  stay inside RespLen / the struct len; GetVarRaw reads 16 B only when RespLen >= 16; no address / IP / device name
+  in the diff (grep). FOUND: (1) "set:x=" (no digits) silently wrote 0, (2) a section name >= 32 chars was skipped
+  without a log line. FIXED in 1.0.10.20 (follow-up commit): both rejected with a "[dbg]" line; device-verified
+  (set:btc_mode= / =1x ignored, =1 MSG 0, 34-char name rejected).

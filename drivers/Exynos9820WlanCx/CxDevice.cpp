@@ -120,19 +120,27 @@ CxDbgDump(PCX_DEVICE Dev)
                         Sgn = -1;
                         Eq++;
                     }
+                    PCHAR Digits = Eq;
+
                     for (V = 0; *Eq >= '0' && *Eq <= '9'; Eq++) {
                         V = V * 10 + (ULONG)(*Eq - '0');
                     }
-                    V = (ULONG)((LONG)V * Sgn);
-                    CxLog(Dev, "[dbg] set %s = %ld -> MSG %lu\r\n", A + 4, (LONG)V,
-                          WlanMsgSetIntVar(&Dev->Msg, Dev->RunR, A + 4, V));
+                    if (Eq == Digits || *Eq != 0) {   /* "set:x=" or trailing junk: never write a guessed 0 */
+                        CxLog(Dev, "[dbg] set %s: value is not a decimal integer - ignored\r\n", A + 4);
+                    } else {
+                        V = (ULONG)((LONG)V * Sgn);
+                        CxLog(Dev, "[dbg] set %s = %ld -> MSG %lu\r\n", A + 4, (LONG)V,
+                              WlanMsgSetIntVar(&Dev->Msg, Dev->RunR, A + 4, V));
+                    }
                 }
             } else if (I == 4 && RtlCompareMemory(A, "pm:", 3) == 3 && A[3] >= '0' && A[3] <= '2') {
                 V = 0xFFFFFFFF;
                 CxLog(Dev, "[dbg] PM %c -> MSG %lu (was %lu)\r\n", A[3],
                       WlanMsgSetPm(&Dev->Msg, Dev->RunR, (ULONG)(A[3] - '0'), &V), V);
-            } else if (I != 0) {
+            } else if (I != 0 && I < 32) {   /* WlanMsgDump takes section names < 32 characters */
                 (VOID)WlanMsgDump(&Dev->Msg, Dev->RunR, A);
+            } else if (I != 0) {
+                CxLog(Dev, "[dbg] '%s' not understood (sections must be < 32 characters)\r\n", A);
             }
         }
         WdfObjectDelete(Str);

@@ -71,3 +71,4 @@ bluethooth headphones, and properly transfer what you need thorugh wifi". No add
   s10egov.log ends with WTCNT 64268/65525 (still petted) and no per-second drain lines -> whole-system freeze, cluster
   watchdog reset (same signature as 18:50 and 20:29, notes/thermal-clocks.md). Temps 55-61 C. Context: Wi-Fi being
   switched between networks by the user, BT A2DP active.
+- 2026-10-16 16:4x user: BBB moved to the phone user's Videos folder: C:\Users\S10e\Videos\bbb1080.mov (was C:\S10eTmp\videos\bbb1080.mov); test.mp4 copied there too. Scratchpad mpv scripts updated.

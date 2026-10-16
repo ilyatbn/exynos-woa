@@ -415,3 +415,11 @@ usb-c to hdmi dongle and our usb-c hub." alpha5 tagged at 1e5df58 (local tag, no
   shared allocation (malikm_open_shared, the opener's device). Per-device state lives in ddi_state (saved per
   binding). No Evict on destroy (destroying an allocation drops it from the residency list - UNVERIFIED, watch for
   budget/trim complaints). Build -> s10e-artifacts\mali-umd-0069.
+- 21:02 **FIRST DESKTOP ON WDDM 2.0** (boot with persistent Parameters\Wddm2 = 3, KMD 1.0.58.1, UMD 0069): adapter
+  Started, dwm.exe + explorer up, DWM loads maliumd.dll; DWM's malikm log: "residency: runtime paging queue hr 0
+  queue 0x40000780", 8000 submits, steady "present primary ... hr 0", shared resources opened as Panfrost BOs.
+  Scan-out dump (base 0xCA000000, DPU DMA G0 +0x40) = the full Windows 11 desktop (wallpaper, icons, taskbar, clock;
+  landscape-rotated as the phone was held) - runs/wddm2/fb-w2boot-half.png. The black screen of runs 10-11 was the
+  restart-device hot swap (DWM crashed in its display-transition animation), not the 2.0 model.
+  Noise: SearchHost/StartMenuExperienceHost crash in ucrtbase (also seen on 1.3 boots - to check separately).
+  Next: S4 Windows Terminal (tracked fence), d3dtri cube fps vs 1.3, 3 boots.

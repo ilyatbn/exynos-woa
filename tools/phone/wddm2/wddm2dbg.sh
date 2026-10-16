@@ -3,6 +3,7 @@
 # Every phone-side script lives next to this file and is pushed to C:\S10eTmp by `push`. See README.md here.
 #
 #   push                 copy all phone-side scripts to C:\S10eTmp (run once per fresh Windows install / after edits)
+#   ready [MAXS]         wait until SSH answers and explorer.exe runs
 #   check                adapter status, Wddm2 value, KMD trace failures, DWM/explorer, recent crashes, dumps
 #   hb [N]               the KMD's PRAM heartbeat line N times, 4 s apart (isr, dpc, vsync, submits, presents, fence)
 #   fb [NAME]            dump the scan-out (base from DPU DMA G0 +0x40) to scratch NAME.png (pitch 4352)
@@ -37,6 +38,10 @@ push)
   done
   scp -q -O "$REPO/tools/phone/runuser2.ps1" s10e:C:/S10eTmp/ < /dev/null; echo pushed;;
 check) r "$PS C:\\S10eTmp\\w2check.ps1";;
+ready) t0=$(date +%s)   # wait (max ${1:-600} s) until SSH answers and explorer.exe runs
+    until T=10 r 'tasklist /fi "imagename eq explorer.exe" /nh' 2>/dev/null | grep -qi explorer; do
+      [ $(( $(date +%s) - t0 )) -ge "${1:-600}" ] && { echo "not ready after ${1:-600} s"; exit 1; }
+      sleep 10; done; echo "ready after $(( $(date +%s) - t0 )) s";;
 hb) for i in $(seq 1 "${1:-1}"); do
       r 'C:\S10eTmp\s10ediagx.exe dumpmmio 0x8FE04000 128 C:\S10eTmp\hb.bin >nul & type C:\S10eTmp\hb.bin' | tr -c '[:print:]' '\n' | grep HB
       [ "$i" -lt "${1:-1}" ] && sleep 4; done;;

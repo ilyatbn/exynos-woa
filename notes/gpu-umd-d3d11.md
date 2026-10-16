@@ -57,3 +57,14 @@ Why (all four user goals hang on it):
   creation and returns S_OK, but no tracked fence gets created; the app-level ID3D11Device5::CreateFence path works.
   Working hypothesis: DWM does not take the swap chain (OCCLUDED), so DXGI never sets up the DWM-bound fence -
   next: our side of that (DWM's UMD log, KMD OpenAllocation/handle failures while d3dswap runs).
+- 22:30 Composition vs HWND (tools/phone/wddm2/swapmatrix.ps1, d3dswap FRAMES comp|hwnd seq|disc BUFFERS [warp]),
+  DWM on the WDDM2_0 UMD (after reboot; presents now S_OK, before: DXGI_STATUS_OCCLUDED with DWM on D3D11_0):
+  comp seq 2 / comp seq 3 / comp disc 2 = die after BufferCount presents (NULL tracked fence); hwnd seq 2,
+  hwnd disc 2, hwnd disc 3 = all frames done. Control: comp seq 2 on WARP (Basic Render) on the phone = done.
+  => only composition swap chains on OUR adapter miss the tracked fence (Terminal SwapChainPanel, DirectComposition
+  presentation incl. browsers). d3dfence on both adapters: monitored fence GPU VA 0 on both (not the difference);
+  KMTQAITYPE_WDDM_2_0_CAPS Mali 0x1 (Support64BitAtomics) vs Basic Render 0x5 (Support64BitAtomics |
+  IoMmuSupported); DRIVERVERSION 0x7d0 vs 0xc1c.
+  INFERENCE (evidence: the only working adapter is VA-capable; Learn: physical mode is "legacy"): the composition
+  path wants a GPU-VA-capable adapter. Next = KMD GpuMmu in the mixed form of qemus/virtio-drivers-windows (a GpuMmu
+  copy/paging node, the 3D node stays physical: UMD submission unchanged) - notes/gpu-wddm2-design.md S7a.

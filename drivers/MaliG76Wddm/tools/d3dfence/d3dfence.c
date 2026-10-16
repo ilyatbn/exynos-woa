@@ -21,8 +21,11 @@ typedef NTSTATUS (APIENTRY *PFN_CREATEDEV)(D3DKMT_CREATEDEVICE *);
 typedef NTSTATUS (APIENTRY *PFN_SYNC2)(D3DKMT_CREATESYNCHRONIZATIONOBJECT2 *);
 typedef NTSTATUS (APIENTRY *PFN_QAI)(D3DKMT_QUERYADAPTERINFO *);
 
-int main(void)
+int main(int argc, char **argv)
 {
+    /* d3dfence [ADAPTER_INDEX]: default = first non-Microsoft hardware adapter; an index picks that adapter (e.g. the
+     * Basic Render Driver, as a control for the D3DKMT monitored-fence part). */
+    int want = argc > 1 ? atoi(argv[1]) : -1;
     IDXGIFactory1 *fac = NULL;
     IDXGIAdapter1 *ad = NULL, *pick = NULL;
     DXGI_ADAPTER_DESC1 desc, pdesc = {0};
@@ -36,7 +39,7 @@ int main(void)
         printf("adapter %u: %ls vendor 0x%04x device 0x%04x flags 0x%x luid %08lx:%08lx\n", i, desc.Description,
                desc.VendorId, desc.DeviceId, desc.Flags, (unsigned long)desc.AdapterLuid.HighPart,
                (unsigned long)desc.AdapterLuid.LowPart);
-        if (!pick && !(desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) && desc.VendorId != 0x1414) {
+        if (!pick && (want >= 0 ? (int)i == want : (!(desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) && desc.VendorId != 0x1414))) {
             pick = ad;
             pdesc = desc;
         } else {

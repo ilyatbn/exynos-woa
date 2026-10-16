@@ -16,6 +16,12 @@
 int main(int argc, char **argv)
 {
     int frames = argc > 1 ? atoi(argv[1]) : 10;
+    /* d3dswap FRAMES [comp|hwnd] [seq|disc] [BUFFERS]: which swap chains get a DXGI tracked fence */
+    bool comp = !(argc > 2 && !strcmp(argv[2], "hwnd"));
+    bool disc = argc > 3 && !strcmp(argv[3], "disc");
+    UINT nbuf = argc > 4 ? (UINT)atoi(argv[4]) : 2;
+    bool warp = argc > 5 && !strcmp(argv[5], "warp");   /* control: the same swap chain on WARP */
+    printf("mode %s effect %s buffers %u\n", comp ? "composition" : "hwnd", disc ? "flip-discard" : "flip-sequential", nbuf);
     IDXGIFactory2 *fac = NULL;
     IDXGIAdapter1 *ad = NULL, *pick = NULL;
     DXGI_ADAPTER_DESC1 d;
@@ -37,8 +43,10 @@ int main(int argc, char **argv)
     D3D_FEATURE_LEVEL fl = D3D_FEATURE_LEVEL_10_0, got = (D3D_FEATURE_LEVEL)0;
     ID3D11Device *dev = NULL;
     ID3D11DeviceContext *ctx = NULL;
-    hr = D3D11CreateDevice((IDXGIAdapter *)pick, D3D_DRIVER_TYPE_UNKNOWN, NULL, D3D11_CREATE_DEVICE_BGRA_SUPPORT, &fl, 1,
-                           D3D11_SDK_VERSION, &dev, &got, &ctx);
+    hr = D3D11CreateDevice(warp ? NULL : (IDXGIAdapter *)pick, warp ? D3D_DRIVER_TYPE_WARP : D3D_DRIVER_TYPE_UNKNOWN, NULL,
+                           D3D11_CREATE_DEVICE_BGRA_SUPPORT, &fl, 1, D3D11_SDK_VERSION, &dev, &got, &ctx);
+    if (warp)
+        puts("device: WARP");
     printf("D3D11CreateDevice 0x%08lx FL 0x%x\n", (unsigned long)hr, got);
     if (FAILED(hr))
         return 1;
@@ -48,7 +56,7 @@ int main(int argc, char **argv)
     wc.hInstance = GetModuleHandleW(NULL);
     wc.lpszClassName = L"d3dswap";
     RegisterClassW(&wc);
-    HWND hwnd = CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP, L"d3dswap", L"d3dswap", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+    HWND hwnd = CreateWindowExW(comp ? WS_EX_NOREDIRECTIONBITMAP : 0, L"d3dswap", L"d3dswap", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
                                 100, 100, 400, 300, NULL, NULL, wc.hInstance, NULL);
     printf("window %p\n", (void *)hwnd);
 
@@ -58,15 +66,20 @@ int main(int argc, char **argv)
     sd.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
     sd.SampleDesc.Count = 1;
     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    sd.BufferCount = 2;
+    sd.BufferCount = nbuf;
     sd.Scaling = DXGI_SCALING_STRETCH;
-    sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-    sd.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
+    sd.SwapEffect = disc ? DXGI_SWAP_EFFECT_FLIP_DISCARD : DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    sd.AlphaMode = comp ? DXGI_ALPHA_MODE_PREMULTIPLIED : DXGI_ALPHA_MODE_IGNORE;
     IDXGISwapChain1 *sc = NULL;
-    hr = fac->CreateSwapChainForComposition((IUnknown *)dev, &sd, NULL, &sc);
-    printf("CreateSwapChainForComposition 0x%08lx\n", (unsigned long)hr);
+    if (comp)
+        hr = fac->CreateSwapChainForComposition((IUnknown *)dev, &sd, NULL, &sc);
+    else
+        hr = fac->CreateSwapChainForHwnd((IUnknown *)dev, hwnd, &sd, NULL, NULL, &sc);
+    printf("CreateSwapChain 0x%08lx\n", (unsigned long)hr);
     if (FAILED(hr))
         return 1;
+    if (!comp)
+        goto frames_loop;
 
     IDCompositionDevice *dc = NULL;
     IDXGIDevice *xd = NULL;
@@ -84,6 +97,7 @@ int main(int argc, char **argv)
     tgt->SetRoot(vis);
     hr = dc->Commit();
     printf("Commit 0x%08lx\n", (unsigned long)hr);
+frames_loop:
 
     for (int f = 0; f < frames; f++) {
         ID3D11Texture2D *bb = NULL;

@@ -1,0 +1,1770 @@
+From ee3f4ebf704aded82e04938182d9e27dbfd0304e Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Fri, 16 Oct 2026 22:05:39 +0300
+Subject: [PATCH] d3d10umd: D3D11_1 / WDDM1_3 / WDDM2_0 DDI tables (pipeline
+ level 10_0) + DXGI 1.2-1.4, GPUVA/memory-architecture caps, min-precision
+ operand tokens; D3D10UMD_MAX_DDI (exynos-woa 0071)
+
+---
+ src/gallium/frontends/d3d10umd/Adapter.cpp    |  24 +-
+ src/gallium/frontends/d3d10umd/D3D11.cpp      |  61 ++
+ src/gallium/frontends/d3d10umd/D3D11.h        |  19 +
+ src/gallium/frontends/d3d10umd/D3D11Tiers.inc | 559 ++++++++++++++++++
+ src/gallium/frontends/d3d10umd/Device.cpp     |  71 ++-
+ src/gallium/frontends/d3d10umd/ShaderParse.c  |  19 +-
+ .../frontends/d3d10umd/d3d11_1_fill.inc       | 156 +++++
+ .../frontends/d3d10umd/d3d11_stubs.inc        |  66 +--
+ .../frontends/d3d10umd/d3d11x_stubs.inc       |  92 +++
+ .../frontends/d3d10umd/wddm1_3_fill.inc       | 165 ++++++
+ .../frontends/d3d10umd/wddm2_0_fill.inc       | 169 ++++++
+ 11 files changed, 1347 insertions(+), 54 deletions(-)
+ create mode 100644 src/gallium/frontends/d3d10umd/D3D11Tiers.inc
+ create mode 100644 src/gallium/frontends/d3d10umd/d3d11_1_fill.inc
+ create mode 100644 src/gallium/frontends/d3d10umd/d3d11x_stubs.inc
+ create mode 100644 src/gallium/frontends/d3d10umd/wddm1_3_fill.inc
+ create mode 100644 src/gallium/frontends/d3d10umd/wddm2_0_fill.inc
+
+diff --git a/src/gallium/frontends/d3d10umd/Adapter.cpp b/src/gallium/frontends/d3d10umd/Adapter.cpp
+index be28d99..3345c75 100644
+--- a/src/gallium/frontends/d3d10umd/Adapter.cpp
++++ b/src/gallium/frontends/d3d10umd/Adapter.cpp
+@@ -142,7 +142,19 @@ OpenAdapter10(__inout D3D10DDIARG_OPENADAPTER *pOpenData)   // IN
+    /* exynos-woa D1: the D3D11 interface unless D3D10UMD_NO_D3D11 is set (State.h SUPPORT_D3D11 stays 0). */
+    case D3D11_0_DDI_INTERFACE_VERSION:
+    case D3D11_0_7_DDI_INTERFACE_VERSION:
+-      if (D3D11Enabled())
++      if (D3D11MaxLevel() >= 110)
++         break;
++      return E_FAIL;
++   case D3D11_1_DDI_INTERFACE_VERSION:
++      if (D3D11MaxLevel() >= 111)
++         break;
++      return E_FAIL;
++   case D3DWDDM1_3_DDI_INTERFACE_VERSION:
++      if (D3D11MaxLevel() >= 113)
++         break;
++      return E_FAIL;
++   case D3DWDDM2_0_DDI_INTERFACE_VERSION:
++      if (D3D11MaxLevel() >= 120)
+          break;
+       return E_FAIL;
+    default:
+@@ -193,8 +205,11 @@ GetSupportedVersions(D3D10DDI_HADAPTER hAdapter,
+    LOG_ENTRYPOINT();
+ 
+    /* exynos-woa D1: D3D11_0 (pipeline level 10_0, D3D11.cpp) after the D3D10 versions, unless D3D10UMD_NO_D3D11. */
+-   static const UINT64 d3d11[] = { D3D11_0_DDI_SUPPORTED, D3D11_0_7_DDI_SUPPORTED };
+-   UINT32 n = ARRAYSIZE(SupportedDDIInterfaceVersions) + (D3D11Enabled() ? ARRAYSIZE(d3d11) : 0);
++   static const UINT64 d3d11[] = { D3D11_0_DDI_SUPPORTED, D3D11_0_7_DDI_SUPPORTED, D3D11_1_DDI_SUPPORTED,
++                                   D3DWDDM1_3_DDI_SUPPORTED, D3DWDDM2_0_DDI_SUPPORTED };
++   const UINT lv = D3D11MaxLevel();
++   const UINT n11 = lv >= 120 ? 5 : lv >= 113 ? 4 : lv >= 111 ? 3 : lv >= 110 ? 2 : 0;
++   UINT32 n = ARRAYSIZE(SupportedDDIInterfaceVersions) + n11;
+ 
+    if (pSupportedDDIInterfaceVersions && *puEntries < n)
+       return E_OUTOFMEMORY;
+@@ -205,7 +220,8 @@ GetSupportedVersions(D3D10DDI_HADAPTER hAdapter,
+              SupportedDDIInterfaceVersions,
+              sizeof SupportedDDIInterfaceVersions);
+       if (n > ARRAYSIZE(SupportedDDIInterfaceVersions))
+-         memcpy(pSupportedDDIInterfaceVersions + ARRAYSIZE(SupportedDDIInterfaceVersions), d3d11, sizeof d3d11);
++         memcpy(pSupportedDDIInterfaceVersions + ARRAYSIZE(SupportedDDIInterfaceVersions), d3d11,
++                n11 * sizeof d3d11[0]);
+    }
+ 
+    return S_OK;
+diff --git a/src/gallium/frontends/d3d10umd/D3D11.cpp b/src/gallium/frontends/d3d10umd/D3D11.cpp
+index f8cc472..4e9348a 100644
+--- a/src/gallium/frontends/d3d10umd/D3D11.cpp
++++ b/src/gallium/frontends/d3d10umd/D3D11.cpp
+@@ -222,6 +222,25 @@ D3D11GetCaps(const D3D10_2DDIARG_GETCAPS *pData, HRESULT *phr)
+       c->Caps = D3D11DDI_ENCODE_3DPIPELINESUPPORT_CAP(D3D11DDI_3DPIPELINELEVEL_10_0);
+       return TRUE;
+    }
++   case D3DWDDM2_0DDICAPS_GPUVA_CAPS: {
++      /* exynos-woa D3: zero here fails device creation at the WDDM2_0 interface (D3D11CreateDevice 0x887a0020 on
++       * the device; same finding in virtio-d3d11's MIT triton layer, tritonDDI.c GetCaps). The Mali AS takes
++       * 48-bit VAs (MMU_FEATURES 0x2830, notes/gpu-wddm3-research.md Q7); a resource stays far below that. */
++      if (pData->DataSize < sizeof(D3DWDDM2_0DDI_GPUVA_CAPS_DATA)) { *phr = E_INVALIDARG; return TRUE; }
++      D3DWDDM2_0DDI_GPUVA_CAPS_DATA *c = (D3DWDDM2_0DDI_GPUVA_CAPS_DATA *)pData->pData;
++      memset(c, 0, pData->DataSize);
++      c->MaxGPUVirtualAddressBitsPerResource = 32;
++      return TRUE;
++   }
++   case D3DWDDM2_0DDICAPS_MEMORY_ARCHITECTURE: {
++      /* One aperture segment of system memory; the Mali is not I/O coherent (KMD GpuInfo coherency none). */
++      if (pData->DataSize < sizeof(D3DWDDM2_0DDI_MEMORY_ARCHITECTURE_CAPS)) { *phr = E_INVALIDARG; return TRUE; }
++      D3DWDDM2_0DDI_MEMORY_ARCHITECTURE_CAPS *c = (D3DWDDM2_0DDI_MEMORY_ARCHITECTURE_CAPS *)pData->pData;
++      memset(c, 0, pData->DataSize);
++      c->UMA = TRUE;
++      c->CacheCoherent = FALSE;
++      return TRUE;
++   }
+    default:
+       return FALSE;
+    }
+@@ -242,3 +261,45 @@ D3D11Enabled(void)
+    const char *e = getenv("D3D10UMD_NO_D3D11");
+    return !(e && *e && *e != '0');
+ }
++
++/* For D3D11_1.cpp (the higher tiers reuse these conversions). */
++SIZE_T D3D11CalcPrivateGeometryShaderWithStreamOutput(D3D10DDI_HDEVICE hDevice,
++                                                      const D3D11DDIARG_CREATEGEOMETRYSHADERWITHSTREAMOUTPUT *p)
++{
++   return D11_CalcPrivateGeometryShaderWithStreamOutput(hDevice, p, NULL);
++}
++void D3D11CreateGeometryShaderWithStreamOutput(D3D10DDI_HDEVICE hDevice,
++                                               const D3D11DDIARG_CREATEGEOMETRYSHADERWITHSTREAMOUTPUT *p,
++                                               D3D10DDI_HSHADER h, D3D10DDI_HRTSHADER hRT)
++{
++   D11_CreateGeometryShaderWithStreamOutput(hDevice, p, h, hRT, NULL);
++}
++SIZE_T D3D11CalcPrivateShaderResourceViewSize(D3D10DDI_HDEVICE hDevice, const D3D11DDIARG_CREATESHADERRESOURCEVIEW *p)
++{
++   return D11_CalcPrivateShaderResourceViewSize(hDevice, p);
++}
++void D3D11CreateShaderResourceView(D3D10DDI_HDEVICE hDevice, const D3D11DDIARG_CREATESHADERRESOURCEVIEW *p,
++                                   D3D10DDI_HSHADERRESOURCEVIEW h, D3D10DDI_HRTSHADERRESOURCEVIEW hRT)
++{
++   D11_CreateShaderResourceView(hDevice, p, h, hRT);
++}
++
++/* D3D10UMD_MAX_DDI = 10 / 11.0 / 11.1 / 1.3 / 2.0 (default 2.0): the highest D3D11 DDI level offered, for A/B and
++ * rollback without a rebuild. D3D10UMD_NO_D3D11 = 1 is the same as 10. */
++UINT
++D3D11MaxLevel(void)
++{
++   if (!D3D11Enabled())
++      return 0;
++   const char *e = getenv("D3D10UMD_MAX_DDI");
++   if (!e || !*e)
++      return 120;
++   if (!strcmp(e, "10")) return 0;
++   if (!strcmp(e, "11.0")) return 110;
++   if (!strcmp(e, "11.1")) return 111;
++   if (!strcmp(e, "1.3")) return 113;
++   return 120;
++}
++
++/* ---- D2/D3: the higher DDI tiers (same translation unit) ---- */
++#include "D3D11Tiers.inc"
+diff --git a/src/gallium/frontends/d3d10umd/D3D11.h b/src/gallium/frontends/d3d10umd/D3D11.h
+index c88e0e1..c6a0631 100644
+--- a/src/gallium/frontends/d3d10umd/D3D11.h
++++ b/src/gallium/frontends/d3d10umd/D3D11.h
+@@ -7,3 +7,22 @@ void D3D11FillDeviceFuncs(D3D11DDI_DEVICEFUNCS *pFuncs);
+ BOOL D3D11GetCaps(const D3D10_2DDIARG_GETCAPS *pData, HRESULT *phr);
+ HRESULT APIENTRY D3D11ResolveSharedResource(DXGI_DDI_ARG_RESOLVESHAREDRESOURCE *pArgs);
+ BOOL D3D11Enabled(void);
++/* D2/D3 (D3D11_1.cpp) */
++void D3D11_1FillDeviceFuncs(D3D11_1DDI_DEVICEFUNCS *pFuncs);
++void D3DWDDM1_3FillDeviceFuncs(D3DWDDM1_3DDI_DEVICEFUNCS *pFuncs);
++void D3DWDDM2_0FillDeviceFuncs(D3DWDDM2_0DDI_DEVICEFUNCS *pFuncs);
++void D3D11FillDxgi(DXGI_DDI_BASE_ARGS *pArgs, UINT level);   /* level 12/13/14 = DXGI 1.2/1.3/1.4 */
++SIZE_T D3D11CalcPrivateGeometryShaderWithStreamOutput(D3D10DDI_HDEVICE hDevice,
++                                                      const D3D11DDIARG_CREATEGEOMETRYSHADERWITHSTREAMOUTPUT *p);
++void D3D11CreateGeometryShaderWithStreamOutput(D3D10DDI_HDEVICE hDevice,
++                                               const D3D11DDIARG_CREATEGEOMETRYSHADERWITHSTREAMOUTPUT *p,
++                                               D3D10DDI_HSHADER h, D3D10DDI_HRTSHADER hRT);
++SIZE_T D3D11CalcPrivateShaderResourceViewSize(D3D10DDI_HDEVICE hDevice, const D3D11DDIARG_CREATESHADERRESOURCEVIEW *p);
++void D3D11CreateShaderResourceView(D3D10DDI_HDEVICE hDevice, const D3D11DDIARG_CREATESHADERRESOURCEVIEW *p,
++                                   D3D10DDI_HSHADERRESOURCEVIEW h, D3D10DDI_HRTSHADERRESOURCEVIEW hRT);
++/* Device.cpp statics, exported for the D3D11.1+ wrappers */
++void DeviceFlush(D3D10DDI_HDEVICE hDevice);
++void DeviceCheckMultisampleQualityLevels(D3D10DDI_HDEVICE hDevice, DXGI_FORMAT Format, UINT SampleCount,
++                                         UINT *pNumQualityLevels);
++/* The highest DDI level the UMD offers: 0 = D3D10 only, 110, 111, 113, 120 (D3D10UMD_MAX_DDI, default 120). */
++UINT D3D11MaxLevel(void);
+diff --git a/src/gallium/frontends/d3d10umd/D3D11Tiers.inc b/src/gallium/frontends/d3d10umd/D3D11Tiers.inc
+new file mode 100644
+index 0000000..cb79837
+--- /dev/null
++++ b/src/gallium/frontends/d3d10umd/D3D11Tiers.inc
+@@ -0,0 +1,559 @@
++/**************************************************************************
++ *
++ * exynos-woa D2/D3 (notes/gpu-umd-d3d11.md), #included at the end of D3D11.cpp (one translation unit: the fills
++ * reuse its static wrappers and stubs): the D3D11_1, WDDM1_3 and WDDM2_0 DDI tables, still at 3D pipeline
++ * level 10_0. The tables (generated *_fill.inc) reuse the D3D11_0 assignments (D3D11.cpp); the entries whose PFN
++ * type changed again are here (D111_ = D3D11.1 type, D113_ = WDDM 1.3, D120_ = WDDM 2.0), as are the new entries
++ * that need a real body (D11x_) and the DXGI 1.2-1.4 base functions those interfaces come with.
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
++ * documentation files (the "Software"), to deal in the Software without restriction, including without limitation
++ * the rights to use, copy, modify, merge, publish, distribute, sub license, and/or sell copies of the Software, and
++ * to permit persons to whom the Software is furnished to do so, subject to the following conditions:
++ * The above copyright notice and this permission notice (including the next paragraph) shall be included in all
++ * copies or substantial portions of the Software.
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED.
++ *
++ **************************************************************************/
++
++
++/* ---- D3D11.1: constant buffers with offsets ---- */
++
++/* D3D11.1 constant buffer offsets: FirstConstant/NumConstants count 16-byte constants. With the arrays NULL (the
++ * runtime passes NULL while D3D11_OPTIONS reports no ConstantBufferOffsetting) the whole buffer is bound, as the
++ * D3D10 path does. */
++static void
++SetConstantBuffers11(mesa_shader_stage stage, D3D10DDI_HDEVICE hDevice, UINT Start, UINT Num,
++                     const D3D10DDI_HRESOURCE *ph, const UINT *pFirst, const UINT *pNum)
++{
++   struct pipe_context *pipe = CastPipeContext(hDevice);
++   for (UINT i = 0; i < Num; i++) {
++      struct pipe_constant_buffer cb;
++      memset(&cb, 0, sizeof cb);
++      cb.buffer = CastPipeResource(ph[i]);
++      if (cb.buffer) {
++         unsigned w = cb.buffer->width0;
++         unsigned off = pFirst ? pFirst[i] * 16u : 0;
++         unsigned size = pNum ? pNum[i] * 16u : w;
++         if (off > w)
++            off = w;
++         if (size > w - off)
++            size = w - off;
++         cb.buffer_offset = off;
++         cb.buffer_size = size;
++      }
++      pipe->set_constant_buffer(pipe, stage, Start + i, &cb);
++   }
++}
++
++#define D111_SETCB(Name, Stage)                                                                                   \
++   static void APIENTRY D111_##Name(D3D10DDI_HDEVICE hDevice, UINT StartSlot, UINT NumBuffers,                    \
++                                    const D3D10DDI_HRESOURCE *ph, const UINT *pFirst, const UINT *pNum)           \
++   {                                                                                                              \
++      SetConstantBuffers11(Stage, hDevice, StartSlot, NumBuffers, ph, pFirst, pNum);                              \
++   }
++D111_SETCB(VsSetConstantBuffers, MESA_SHADER_VERTEX)
++D111_SETCB(PsSetConstantBuffers, MESA_SHADER_FRAGMENT)
++D111_SETCB(GsSetConstantBuffers, MESA_SHADER_GEOMETRY)
++/* Hull/domain/compute exist only at pipeline level 11_0; nothing binds them at 10_0. */
++static void APIENTRY
++D111_HsSetConstantBuffers(D3D10DDI_HDEVICE, UINT, UINT, const D3D10DDI_HRESOURCE *, const UINT *, const UINT *) {}
++static void APIENTRY
++D111_DsSetConstantBuffers(D3D10DDI_HDEVICE, UINT, UINT, const D3D10DDI_HRESOURCE *, const UINT *, const UINT *) {}
++static void APIENTRY
++D111_CsSetConstantBuffers(D3D10DDI_HDEVICE, UINT, UINT, const D3D10DDI_HRESOURCE *, const UINT *, const UINT *) {}
++
++/* ---- D3D11.1: copies and updates with CopyFlags (D3D11_1_DDI_COPY_NO_OVERWRITE / DISCARD are hints) ---- */
++
++static void APIENTRY
++D111_ResourceUpdateSubresourceUP(D3D10DDI_HDEVICE hDevice, D3D10DDI_HRESOURCE hDst, UINT DstSub,
++                                 const D3D10_DDI_BOX *pBox, const VOID *pSys, UINT RowPitch, UINT DepthPitch,
++                                 UINT CopyFlags)
++{
++   (void)CopyFlags;
++   ResourceUpdateSubResourceUP(hDevice, hDst, DstSub, pBox, pSys, RowPitch, DepthPitch);
++}
++
++static void APIENTRY
++D111_DefaultConstantBufferUpdateSubresourceUP(D3D10DDI_HDEVICE hDevice, D3D10DDI_HRESOURCE hDst, UINT DstSub,
++                                              const D3D10_DDI_BOX *pBox, const VOID *pSys, UINT RowPitch,
++                                              UINT DepthPitch, UINT CopyFlags)
++{
++   (void)CopyFlags;
++   ResourceUpdateSubResourceUP(hDevice, hDst, DstSub, pBox, pSys, RowPitch, DepthPitch);
++}
++
++static void APIENTRY
++D111_ResourceCopyRegion(D3D10DDI_HDEVICE hDevice, D3D10DDI_HRESOURCE hDst, UINT DstSub, UINT DstX, UINT DstY,
++                        UINT DstZ, D3D10DDI_HRESOURCE hSrc, UINT SrcSub, const D3D10_DDI_BOX *pSrcBox,
++                        UINT CopyFlags)
++{
++   (void)CopyFlags;
++   ResourceCopyRegion(hDevice, hDst, DstSub, DstX, DstY, DstZ, hSrc, SrcSub, pSrcBox);
++}
++
++static void APIENTRY
++D111_ResourceConvertRegion(D3D10DDI_HDEVICE hDevice, D3D10DDI_HRESOURCE hDst, UINT DstSub, UINT DstX, UINT DstY,
++                           UINT DstZ, D3D10DDI_HRESOURCE hSrc, UINT SrcSub, const D3D10_DDI_BOX *pSrcBox,
++                           UINT CopyFlags)
++{
++   (void)CopyFlags;
++   ResourceCopyRegion(hDevice, hDst, DstSub, DstX, DstY, DstZ, hSrc, SrcSub, pSrcBox);
++}
++
++/* ---- Flush (D3D11.1 / WDDM 2.0 flavours) and the other Device.cpp statics ---- */
++
++static BOOL APIENTRY
++D111_Flush(D3D10DDI_HDEVICE hDevice, UINT FlushFlags)
++{
++   (void)FlushFlags;
++   DeviceFlush(hDevice);
++   return TRUE;   /* "TRUE if the driver submitted work" - always flushing is valid */
++}
++
++static BOOL APIENTRY
++D120_Flush(D3D10DDI_HDEVICE hDevice, UINT ContextType, UINT FlushFlags)
++{
++   (void)ContextType; (void)FlushFlags;
++   DeviceFlush(hDevice);
++   return TRUE;
++}
++
++static void APIENTRY
++D113_CheckMultisampleQualityLevels(D3D10DDI_HDEVICE hDevice, DXGI_FORMAT Format, UINT SampleCount, UINT Flags,
++                                   UINT *pNumQualityLevels)
++{
++   if (Flags) {   /* D3D11_CHECK_MULTISAMPLE_QUALITY_LEVELS_TILED_RESOURCE: no tiled resources */
++      *pNumQualityLevels = 0;
++      return;
++   }
++   DeviceCheckMultisampleQualityLevels(hDevice, Format, SampleCount, pNumQualityLevels);
++}
++
++static void APIENTRY D111_RelocateDeviceFuncs(D3D10DDI_HDEVICE, struct D3D11_1DDI_DEVICEFUNCS *) {}
++static void APIENTRY D113_RelocateDeviceFuncs(D3D10DDI_HDEVICE, struct D3DWDDM1_3DDI_DEVICEFUNCS *) {}
++static void APIENTRY D120_RelocateDeviceFuncs(D3D10DDI_HDEVICE, struct D3DWDDM2_0DDI_DEVICEFUNCS *) {}
++
++/* ---- states ---- */
++
++/* D3D11.1 blend adds per-target logic ops; logic ops are a D3D11_OPTIONS feature we do not report. */
++static void
++d111_blend(const D3D11_1_DDI_BLEND_DESC *in, D3D10_1_DDI_BLEND_DESC *out)
++{
++   memset(out, 0, sizeof *out);
++   out->AlphaToCoverageEnable = in->AlphaToCoverageEnable;
++   out->IndependentBlendEnable = in->IndependentBlendEnable;
++   for (unsigned i = 0; i < D3D10_DDI_SIMULTANEOUS_RENDER_TARGET_COUNT; i++) {
++      const D3D11_1_DDI_RENDER_TARGET_BLEND_DESC *s = &in->RenderTarget[i];
++      D3D10_DDI_RENDER_TARGET_BLEND_DESC1 *d = &out->RenderTarget[i];
++      d->BlendEnable = s->BlendEnable;
++      d->SrcBlend = s->SrcBlend;
++      d->DestBlend = s->DestBlend;
++      d->BlendOp = s->BlendOp;
++      d->SrcBlendAlpha = s->SrcBlendAlpha;
++      d->DestBlendAlpha = s->DestBlendAlpha;
++      d->BlendOpAlpha = s->BlendOpAlpha;
++      d->RenderTargetWriteMask = s->RenderTargetWriteMask;
++   }
++}
++
++static SIZE_T APIENTRY
++D111_CalcPrivateBlendStateSize(D3D10DDI_HDEVICE hDevice, const D3D11_1_DDI_BLEND_DESC *pDesc)
++{
++   D3D10_1_DDI_BLEND_DESC d;
++   d111_blend(pDesc, &d);
++   return CalcPrivateBlendStateSize1(hDevice, &d);
++}
++
++static void APIENTRY
++D111_CreateBlendState(D3D10DDI_HDEVICE hDevice, const D3D11_1_DDI_BLEND_DESC *pDesc, D3D10DDI_HBLENDSTATE h,
++                      D3D10DDI_HRTBLENDSTATE hRT)
++{
++   D3D10_1_DDI_BLEND_DESC d;
++   d111_blend(pDesc, &d);
++   CreateBlendState1(hDevice, &d, h, hRT);
++}
++
++/* D3D11.1 / WDDM 2.0 rasterizer: the D3D10 fields first (same order), then ForcedSampleCount (target-independent
++ * rasterization) and ConservativeRasterizationMode - neither is reported, so both are dropped. */
++#define RAST_COPY(in, out)                                                                                        \
++   do {                                                                                                           \
++      memset(&(out), 0, sizeof(out));                                                                             \
++      (out).FillMode = (in)->FillMode; (out).CullMode = (in)->CullMode;                                           \
++      (out).FrontCounterClockwise = (in)->FrontCounterClockwise; (out).DepthBias = (in)->DepthBias;              \
++      (out).DepthBiasClamp = (in)->DepthBiasClamp; (out).SlopeScaledDepthBias = (in)->SlopeScaledDepthBias;      \
++      (out).DepthClipEnable = (in)->DepthClipEnable; (out).ScissorEnable = (in)->ScissorEnable;                  \
++      (out).MultisampleEnable = (in)->MultisampleEnable; (out).AntialiasedLineEnable = (in)->AntialiasedLineEnable;\
++   } while (0)
++
++static SIZE_T APIENTRY
++D111_CalcPrivateRasterizerStateSize(D3D10DDI_HDEVICE hDevice, const D3D11_1_DDI_RASTERIZER_DESC *pDesc)
++{
++   D3D10_DDI_RASTERIZER_DESC d;
++   RAST_COPY(pDesc, d);
++   return CalcPrivateRasterizerStateSize(hDevice, &d);
++}
++
++static void APIENTRY
++D111_CreateRasterizerState(D3D10DDI_HDEVICE hDevice, const D3D11_1_DDI_RASTERIZER_DESC *pDesc,
++                           D3D10DDI_HRASTERIZERSTATE h, D3D10DDI_HRTRASTERIZERSTATE hRT)
++{
++   D3D10_DDI_RASTERIZER_DESC d;
++   RAST_COPY(pDesc, d);
++   CreateRasterizerState(hDevice, &d, h, hRT);
++}
++
++static SIZE_T APIENTRY
++D120_CalcPrivateRasterizerStateSize(D3D10DDI_HDEVICE hDevice, const D3DWDDM2_0DDI_RASTERIZER_DESC *pDesc)
++{
++   D3D10_DDI_RASTERIZER_DESC d;
++   RAST_COPY(pDesc, d);
++   return CalcPrivateRasterizerStateSize(hDevice, &d);
++}
++
++static void APIENTRY
++D120_CreateRasterizerState(D3D10DDI_HDEVICE hDevice, const D3DWDDM2_0DDI_RASTERIZER_DESC *pDesc,
++                           D3D10DDI_HRASTERIZERSTATE h, D3D10DDI_HRTRASTERIZERSTATE hRT)
++{
++   D3D10_DDI_RASTERIZER_DESC d;
++   RAST_COPY(pDesc, d);
++   CreateRasterizerState(hDevice, &d, h, hRT);
++}
++
++/* ---- shaders: the D3D11.1 signatures are informational and d3d10umd never reads them (Shader.cpp takes
++ * pSignatures and does not dereference it), so NULL goes down. ---- */
++
++static SIZE_T APIENTRY
++D111_CalcPrivateShaderSize(D3D10DDI_HDEVICE hDevice, const UINT *pCode, const D3D11_1DDIARG_STAGE_IO_SIGNATURES *)
++{
++   return CalcPrivateShaderSize(hDevice, pCode, NULL);
++}
++
++static void APIENTRY
++D111_CreateVertexShader(D3D10DDI_HDEVICE hDevice, const UINT *pCode, D3D10DDI_HSHADER h, D3D10DDI_HRTSHADER hRT,
++                        const D3D11_1DDIARG_STAGE_IO_SIGNATURES *)
++{
++   CreateVertexShader(hDevice, pCode, h, hRT, NULL);
++}
++
++static void APIENTRY
++D111_CreatePixelShader(D3D10DDI_HDEVICE hDevice, const UINT *pCode, D3D10DDI_HSHADER h, D3D10DDI_HRTSHADER hRT,
++                       const D3D11_1DDIARG_STAGE_IO_SIGNATURES *)
++{
++   CreatePixelShader(hDevice, pCode, h, hRT, NULL);
++}
++
++static void APIENTRY
++D111_CreateGeometryShader(D3D10DDI_HDEVICE hDevice, const UINT *pCode, D3D10DDI_HSHADER h, D3D10DDI_HRTSHADER hRT,
++                          const D3D11_1DDIARG_STAGE_IO_SIGNATURES *)
++{
++   CreateGeometryShader(hDevice, pCode, h, hRT, NULL);
++}
++
++static SIZE_T APIENTRY
++D111_CalcPrivateGeometryShaderWithStreamOutput(D3D10DDI_HDEVICE hDevice,
++                                               const D3D11DDIARG_CREATEGEOMETRYSHADERWITHSTREAMOUTPUT *pCreate,
++                                               const D3D11_1DDIARG_STAGE_IO_SIGNATURES *)
++{
++   return D3D11CalcPrivateGeometryShaderWithStreamOutput(hDevice, pCreate);
++}
++
++static void APIENTRY
++D111_CreateGeometryShaderWithStreamOutput(D3D10DDI_HDEVICE hDevice,
++                                          const D3D11DDIARG_CREATEGEOMETRYSHADERWITHSTREAMOUTPUT *pCreate,
++                                          D3D10DDI_HSHADER h, D3D10DDI_HRTSHADER hRT,
++                                          const D3D11_1DDIARG_STAGE_IO_SIGNATURES *)
++{
++   D3D11CreateGeometryShaderWithStreamOutput(hDevice, pCreate, h, hRT);
++}
++
++/* Tessellation is a pipeline level 11_0 feature: never created at 10_0. */
++static SIZE_T APIENTRY
++D111_CalcPrivateTessellationShaderSize(D3D10DDI_HDEVICE, const UINT *, const D3D11_1DDIARG_TESSELLATION_IO_SIGNATURES *)
++{
++   return sizeof(void *);
++}
++static void APIENTRY
++D111_CreateHullShader(D3D10DDI_HDEVICE, const UINT *, D3D10DDI_HSHADER, D3D10DDI_HRTSHADER,
++                      const D3D11_1DDIARG_TESSELLATION_IO_SIGNATURES *) {}
++static void APIENTRY
++D111_CreateDomainShader(D3D10DDI_HDEVICE, const UINT *, D3D10DDI_HSHADER, D3D10DDI_HRTSHADER,
++                        const D3D11_1DDIARG_TESSELLATION_IO_SIGNATURES *) {}
++
++/* ---- new D3D11.1 entries ---- */
++
++static void APIENTRY
++D11x_CheckDirectFlipSupport(D3D10DDI_HDEVICE, D3D10DDI_HRESOURCE, D3D10DDI_HRESOURCE, UINT, BOOL *pSupported)
++{
++   *pSupported = FALSE;   /* DWM keeps composing; the KMD has no direct-flip caps */
++}
++
++/* ClearView: render target views only (UAV and video processor views are pipeline level 11_0 / video features).
++ * No rects = the whole view (ClearRenderTargetView); rects = per-rect clears with a float colour. */
++static void APIENTRY
++D11x_ClearView(D3D10DDI_HDEVICE hDevice, D3D11DDI_HANDLETYPE viewType, VOID *hView, const FLOAT Color[4],
++               const D3D10_DDI_RECT *pRect, UINT NumRects)
++{
++   if (viewType != D3D10DDI_HT_RENDERTARGETVIEW || hView == NULL)
++      return;
++   D3D10DDI_HRENDERTARGETVIEW h;
++   h.pDrvPrivate = hView;
++   if (NumRects == 0 || pRect == NULL) {
++      FLOAT c[4] = { Color[0], Color[1], Color[2], Color[3] };
++      ClearRenderTargetView(hDevice, h, c);
++      return;
++   }
++   struct pipe_context *pipe = CastPipeContext(hDevice);
++   struct pipe_surface *surface = CastPipeRenderTargetView(h);
++   union pipe_color_union cc;
++   for (unsigned i = 0; i < 4; i++)
++      cc.f[i] = Color[i];
++   for (UINT r = 0; r < NumRects; r++) {
++      if (pRect[r].right <= pRect[r].left || pRect[r].bottom <= pRect[r].top)
++         continue;
++      pipe->clear_render_target(pipe, surface, &cc, pRect[r].left, pRect[r].top, pRect[r].right - pRect[r].left,
++                                pRect[r].bottom - pRect[r].top, false);
++   }
++}
++
++/* ---- WDDM 2.0 views and queries: the new structs add PlaneSlice (planar formats) and a query ContextType ---- */
++
++static void
++d120_srv(const D3DWDDM2_0DDIARG_CREATESHADERRESOURCEVIEW *in, D3D11DDIARG_CREATESHADERRESOURCEVIEW *out)
++{
++   memset(out, 0, sizeof *out);
++   out->hDrvResource = in->hDrvResource;
++   out->Format = in->Format;
++   out->ResourceDimension = in->ResourceDimension;
++   switch (in->ResourceDimension) {
++   case D3D10DDIRESOURCE_BUFFER: out->Buffer = in->Buffer; break;
++   case D3D10DDIRESOURCE_TEXTURE1D: out->Tex1D = in->Tex1D; break;
++   case D3D10DDIRESOURCE_TEXTURE2D:
++      out->Tex2D.MostDetailedMip = in->Tex2D.MostDetailedMip;
++      out->Tex2D.FirstArraySlice = in->Tex2D.FirstArraySlice;
++      out->Tex2D.MipLevels = in->Tex2D.MipLevels;
++      out->Tex2D.ArraySize = in->Tex2D.ArraySize;
++      break;
++   case D3D10DDIRESOURCE_TEXTURE3D: out->Tex3D = in->Tex3D; break;
++   case D3D10DDIRESOURCE_TEXTURECUBE: out->TexCube = in->TexCube; break;
++   case D3D11DDIRESOURCE_BUFFEREX: out->BufferEx = in->BufferEx; break;
++   default: break;
++   }
++}
++
++static SIZE_T APIENTRY
++D120_CalcPrivateShaderResourceViewSize(D3D10DDI_HDEVICE hDevice,
++                                              const D3DWDDM2_0DDIARG_CREATESHADERRESOURCEVIEW *pCreate)
++{
++   D3D11DDIARG_CREATESHADERRESOURCEVIEW v;
++   d120_srv(pCreate, &v);
++   return D3D11CalcPrivateShaderResourceViewSize(hDevice, &v);
++}
++
++static void APIENTRY
++D120_CreateShaderResourceView(D3D10DDI_HDEVICE hDevice, const D3DWDDM2_0DDIARG_CREATESHADERRESOURCEVIEW *pCreate,
++                                     D3D10DDI_HSHADERRESOURCEVIEW h, D3D10DDI_HRTSHADERRESOURCEVIEW hRT)
++{
++   D3D11DDIARG_CREATESHADERRESOURCEVIEW v;
++   d120_srv(pCreate, &v);
++   D3D11CreateShaderResourceView(hDevice, &v, h, hRT);
++}
++
++static void
++d120_rtv(const D3DWDDM2_0DDIARG_CREATERENDERTARGETVIEW *in, D3D10DDIARG_CREATERENDERTARGETVIEW *out)
++{
++   memset(out, 0, sizeof *out);
++   out->hDrvResource = in->hDrvResource;
++   out->Format = in->Format;
++   out->ResourceDimension = in->ResourceDimension;
++   switch (in->ResourceDimension) {
++   case D3D10DDIRESOURCE_BUFFER: out->Buffer = in->Buffer; break;
++   case D3D10DDIRESOURCE_TEXTURE1D: out->Tex1D = in->Tex1D; break;
++   case D3D10DDIRESOURCE_TEXTURE2D:
++      out->Tex2D.MipSlice = in->Tex2D.MipSlice;
++      out->Tex2D.FirstArraySlice = in->Tex2D.FirstArraySlice;
++      out->Tex2D.ArraySize = in->Tex2D.ArraySize;
++      break;
++   case D3D10DDIRESOURCE_TEXTURE3D: out->Tex3D = in->Tex3D; break;
++   case D3D10DDIRESOURCE_TEXTURECUBE: out->TexCube = in->TexCube; break;
++   default: break;
++   }
++}
++
++static SIZE_T APIENTRY
++D120_CalcPrivateRenderTargetViewSize(D3D10DDI_HDEVICE hDevice,
++                                            const D3DWDDM2_0DDIARG_CREATERENDERTARGETVIEW *pCreate)
++{
++   D3D10DDIARG_CREATERENDERTARGETVIEW v;
++   d120_rtv(pCreate, &v);
++   return CalcPrivateRenderTargetViewSize(hDevice, &v);
++}
++
++static void APIENTRY
++D120_CreateRenderTargetView(D3D10DDI_HDEVICE hDevice, const D3DWDDM2_0DDIARG_CREATERENDERTARGETVIEW *pCreate,
++                                   D3D10DDI_HRENDERTARGETVIEW h, D3D10DDI_HRTRENDERTARGETVIEW hRT)
++{
++   D3D10DDIARG_CREATERENDERTARGETVIEW v;
++   d120_rtv(pCreate, &v);
++   CreateRenderTargetView(hDevice, &v, h, hRT);
++}
++
++static SIZE_T APIENTRY
++D120_CalcPrivateQuerySize(D3D10DDI_HDEVICE hDevice, const D3DWDDM2_0DDIARG_CREATEQUERY *pCreate)
++{
++   D3D10DDIARG_CREATEQUERY q = { pCreate->Query, pCreate->MiscFlags };
++   return CalcPrivateQuerySize(hDevice, &q);
++}
++
++static void APIENTRY
++D120_CreateQuery(D3D10DDI_HDEVICE hDevice, const D3DWDDM2_0DDIARG_CREATEQUERY *pCreate, D3D10DDI_HQUERY h,
++                        D3D10DDI_HRTQUERY hRT)
++{
++   D3D10DDIARG_CREATEQUERY q = { pCreate->Query, pCreate->MiscFlags };
++   CreateQuery(hDevice, &q, h, hRT);
++}
++
++/* UAVs are a pipeline level 11_0 feature. */
++static SIZE_T APIENTRY
++D120_CalcPrivateUnorderedAccessViewSize(D3D10DDI_HDEVICE, const D3DWDDM2_0DDIARG_CREATEUNORDEREDACCESSVIEW *)
++{
++   return sizeof(void *);
++}
++static void APIENTRY
++D120_CreateUnorderedAccessView(D3D10DDI_HDEVICE, const D3DWDDM2_0DDIARG_CREATEUNORDEREDACCESSVIEW *,
++                               D3D11DDI_HUNORDEREDACCESSVIEW, D3D11DDI_HRTUNORDEREDACCESSVIEW) {}
++
++/* ---- generated stubs of the higher tiers ---- */
++
++#include "d3d11x_stubs.inc"
++
++/* ---- the tables ---- */
++
++void D3D11_1FillDeviceFuncs(D3D11_1DDI_DEVICEFUNCS *f)
++{
++#include "d3d11_1_fill.inc"
++}
++
++void D3DWDDM1_3FillDeviceFuncs(D3DWDDM1_3DDI_DEVICEFUNCS *f)
++{
++#include "wddm1_3_fill.inc"
++}
++
++void D3DWDDM2_0FillDeviceFuncs(D3DWDDM2_0DDI_DEVICEFUNCS *f)
++{
++#include "wddm2_0_fill.inc"
++}
++
++/* ---- DXGI 1.2 - 1.4 ---- */
++
++static HRESULT APIENTRY
++Dxgi_Blt1(DXGI_DDI_ARG_BLT1 *p)
++{
++   /* Our _Blt copies the whole source; a source sub-rectangle is not used by the present paths we see. */
++   DXGI_DDI_ARG_BLT b;
++   memset(&b, 0, sizeof b);
++   b.hDevice = p->hDevice;
++   b.hDstResource = p->hDstResource;
++   b.DstSubresource = p->DstSubresource;
++   b.DstLeft = p->DstLeft; b.DstTop = p->DstTop; b.DstRight = p->DstRight; b.DstBottom = p->DstBottom;
++   b.hSrcResource = p->hSrcResource;
++   b.SrcSubresource = p->SrcSubresource;
++   b.Flags = p->Flags;
++   b.Rotate = p->Rotate;
++   return _Blt(&b);
++}
++
++/* Offer/reclaim: everything lives in the one aperture segment (system memory); nothing to give back, nothing lost. */
++static HRESULT APIENTRY Dxgi_OfferResources(DXGI_DDI_ARG_OFFERRESOURCES *) { return S_OK; }
++static HRESULT APIENTRY
++Dxgi_ReclaimResources(DXGI_DDI_ARG_RECLAIMRESOURCES *p)
++{
++   if (p->pDiscarded)
++      for (UINT i = 0; i < p->Resources; i++)
++         p->pDiscarded[i] = FALSE;
++   return S_OK;
++}
++
++/* No multiplane overlays. */
++static HRESULT APIENTRY
++Dxgi_GetMultiplaneOverlayCaps(DXGI_DDI_ARG_GETMULTIPLANEOVERLAYCAPS *p)
++{
++   memset(&p->MultiplaneOverlayCaps, 0, sizeof p->MultiplaneOverlayCaps);
++   return S_OK;
++}
++static HRESULT APIENTRY
++Dxgi_GetMultiplaneOverlayGroupCaps(DXGI_DDI_ARG_GETMULTIPLANEOVERLAYGROUPCAPS *p)
++{
++   memset(&p->MultiplaneOverlayGroupCaps, 0, sizeof p->MultiplaneOverlayGroupCaps);
++   return S_OK;
++}
++static HRESULT APIENTRY
++Dxgi_CheckMultiplaneOverlayColorSpaceSupport(DXGI_DDI_ARG_CHECKMULTIPLANEOVERLAYCOLORSPACESUPPORT *p)
++{
++   p->Supported = FALSE;
++   return S_OK;
++}
++
++/* Present1: one surface (no MPO) -> the existing present. */
++static HRESULT APIENTRY
++Dxgi_Present1(DXGI_DDI_ARG_PRESENT1 *p)
++{
++   DXGI_DDI_ARG_PRESENT pr;
++   memset(&pr, 0, sizeof pr);
++   pr.hDevice = p->hDevice;
++   if (p->SurfacesToPresent && p->phSurfacesToPresent) {
++      pr.hSurfaceToPresent = p->phSurfacesToPresent[0].hSurface;
++      pr.SrcSubResourceIndex = p->phSurfacesToPresent[0].SubResourceIndex;
++   }
++   pr.hDstResource = p->hDstResource;
++   pr.DstSubResourceIndex = p->DstSubResourceIndex;
++   pr.pDXGIContext = p->pDXGIContext;
++   pr.Flags = p->Flags;
++   pr.FlipInterval = p->FlipInterval;
++   return _Present(&pr);
++}
++
++static HRESULT APIENTRY
++Dxgi_CheckPresentDurationSupport(DXGI_DDI_ARG_CHECKPRESENTDURATIONSUPPORT *p)
++{
++   p->ClosestSmallerDuration = 0;
++   p->ClosestLargerDuration = 0;
++   return S_OK;
++}
++
++/* Trim: residency is per allocation (malikm shim, 0069); nothing is trimmed on request. */
++static HRESULT APIENTRY Dxgi_TrimResidencySet(DXGI_DDI_ARG_TRIMRESIDENCYSET *) { return S_OK; }
++
++void
++D3D11FillDxgi(DXGI_DDI_BASE_ARGS *a, UINT level)
++{
++   if (level >= 12) {   /* DXGI 1.2 (D3D11_1) */
++      DXGI1_2_DDI_BASE_FUNCTIONS *f = a->pDXGIDDIBaseFunctions3;
++      f->pfnResolveSharedResource = D3D11ResolveSharedResource;
++      f->pfnBlt1 = Dxgi_Blt1;
++      f->pfnOfferResources = Dxgi_OfferResources;
++      f->pfnReclaimResources = Dxgi_ReclaimResources;
++      if (level == 12) {
++         f->pfnGetMultiplaneOverlayCaps = Dxgi_GetMultiplaneOverlayCaps;
++         f->pfnGetMultiplaneOverlayFilterRange = NULL;
++         f->pfnCheckMultiplaneOverlaySupport = NULL;
++         f->pfnPresentMultiplaneOverlay = NULL;
++      }
++   }
++   if (level >= 13) {   /* DXGI 1.3 (WDDM 1.3): different MPO slots, Present1 */
++      DXGI1_3_DDI_BASE_FUNCTIONS *f = a->pDXGIDDIBaseFunctions4;
++      f->pfnGetMultiplaneOverlayCaps = Dxgi_GetMultiplaneOverlayCaps;
++      f->pfnGetMultiplaneOverlayGroupCaps = Dxgi_GetMultiplaneOverlayGroupCaps;
++      f->pfnReserved1 = NULL;
++      f->pfnPresentMultiplaneOverlay = NULL;
++      f->pfnReserved2 = NULL;
++      f->pfnPresent1 = Dxgi_Present1;
++      f->pfnCheckPresentDurationSupport = Dxgi_CheckPresentDurationSupport;
++   }
++   if (level >= 14) {   /* DXGI 1.4 (WDDM 2.0) */
++      DXGI1_4_DDI_BASE_FUNCTIONS *f = a->pDXGIDDIBaseFunctions5;
++      f->pfnTrimResidencySet = Dxgi_TrimResidencySet;
++      f->pfnCheckMultiplaneOverlayColorSpaceSupport = Dxgi_CheckMultiplaneOverlayColorSpaceSupport;
++      f->pfnPresentMultiplaneOverlay1 = NULL;
++   }
++}
+diff --git a/src/gallium/frontends/d3d10umd/Device.cpp b/src/gallium/frontends/d3d10umd/Device.cpp
+index 070215f..6777f6c 100644
+--- a/src/gallium/frontends/d3d10umd/Device.cpp
++++ b/src/gallium/frontends/d3d10umd/Device.cpp
+@@ -72,6 +72,14 @@ static void APIENTRY CheckMultisampleQualityLevels(D3D10DDI_HDEVICE hDevice,
+                                           __out UINT *pNumQualityLevels);
+ static void APIENTRY SetTextFilterSize(D3D10DDI_HDEVICE hDevice, UINT Width, UINT Height);
+ 
++/* exynos-woa D2/D3: D3D11_1.cpp's Flush / CheckMultisampleQualityLevels wrappers call these. */
++void DeviceFlush(D3D10DDI_HDEVICE hDevice) { Flush(hDevice); }
++void DeviceCheckMultisampleQualityLevels(D3D10DDI_HDEVICE hDevice, DXGI_FORMAT Format, UINT SampleCount,
++                                         UINT *pNumQualityLevels)
++{
++   CheckMultisampleQualityLevels(hDevice, Format, SampleCount, pNumQualityLevels);
++}
++
+ 
+ /*
+  * ----------------------------------------------------------------------
+@@ -131,7 +139,19 @@ CreateDevice(D3D10DDI_HADAPTER hAdapter,                 // IN
+       break;
+    case D3D11_0_DDI_INTERFACE_VERSION:      /* exynos-woa D1 (D3D11.cpp) */
+    case D3D11_0_7_DDI_INTERFACE_VERSION:
+-      if (D3D11Enabled())
++      if (D3D11MaxLevel() >= 110)
++         break;
++      return E_FAIL;
++   case D3D11_1_DDI_INTERFACE_VERSION:      /* exynos-woa D2/D3 (D3D11_1.cpp) */
++      if (D3D11MaxLevel() >= 111)
++         break;
++      return E_FAIL;
++   case D3DWDDM1_3_DDI_INTERFACE_VERSION:
++      if (D3D11MaxLevel() >= 113)
++         break;
++      return E_FAIL;
++   case D3DWDDM2_0_DDI_INTERFACE_VERSION:
++      if (D3D11MaxLevel() >= 120)
+          break;
+       return E_FAIL;
+    default:
+@@ -186,21 +206,45 @@ CreateDevice(D3D10DDI_HADAPTER hAdapter,                 // IN
+     * exynos-woa D1: a D3D11 interface gets the whole D3D11DDI_DEVICEFUNCS table from D3D11.cpp (the tables' member
+     * orders differ, so the D3D10 fill below must not run on it).
+     */
+-   const BOOL is11 = pCreateData->Interface == D3D11_0_DDI_INTERFACE_VERSION ||
+-                     pCreateData->Interface == D3D11_0_7_DDI_INTERFACE_VERSION;
++   const UINT level = (pCreateData->Interface == D3D11_0_DDI_INTERFACE_VERSION ||
++                       pCreateData->Interface == D3D11_0_7_DDI_INTERFACE_VERSION) ? 110 :
++                      pCreateData->Interface == D3D11_1_DDI_INTERFACE_VERSION ? 111 :
++                      pCreateData->Interface == D3DWDDM1_3_DDI_INTERFACE_VERSION ? 113 :
++                      pCreateData->Interface == D3DWDDM2_0_DDI_INTERFACE_VERSION ? 120 : 0;
++   const BOOL is11 = level != 0;
+    {
+       malikm_tlog("CreateDevice interface 0x%08x version 0x%08x", (unsigned)pCreateData->Interface,
+                   (unsigned)pCreateData->Version);
+    }
+-   if (is11) {
+-      D3D11DDI_DEVICEFUNCS *f11 = pCreateData->p11DeviceFuncs;
+-      D3D11FillDeviceFuncs(f11);
+-      /* static here, so not in the generated fill */
+-      f11->pfnDestroyDevice = DestroyDevice;
+-      f11->pfnFlush = Flush;
+-      f11->pfnCheckFormatSupport = CheckFormatSupport;
+-      f11->pfnCheckMultisampleQualityLevels = CheckMultisampleQualityLevels;
+-      f11->pfnSetTextFilterSize = SetTextFilterSize;
++   /* static here, so not in the generated fills (the tables' Flush / CheckMultisampleQualityLevels change type at
++    * D3D11_1 / WDDM1_3 and come from D3D11_1.cpp there) */
++   if (level == 110) {
++      D3D11DDI_DEVICEFUNCS *f = pCreateData->p11DeviceFuncs;
++      D3D11FillDeviceFuncs(f);
++      f->pfnDestroyDevice = DestroyDevice;
++      f->pfnFlush = Flush;
++      f->pfnCheckFormatSupport = CheckFormatSupport;
++      f->pfnCheckMultisampleQualityLevels = CheckMultisampleQualityLevels;
++      f->pfnSetTextFilterSize = SetTextFilterSize;
++   } else if (level == 111) {
++      D3D11_1DDI_DEVICEFUNCS *f = pCreateData->p11_1DeviceFuncs;
++      D3D11_1FillDeviceFuncs(f);
++      f->pfnDestroyDevice = DestroyDevice;
++      f->pfnCheckFormatSupport = CheckFormatSupport;
++      f->pfnCheckMultisampleQualityLevels = CheckMultisampleQualityLevels;
++      f->pfnSetTextFilterSize = SetTextFilterSize;
++   } else if (level == 113) {
++      D3DWDDM1_3DDI_DEVICEFUNCS *f = pCreateData->pWDDM1_3DeviceFuncs;
++      D3DWDDM1_3FillDeviceFuncs(f);
++      f->pfnDestroyDevice = DestroyDevice;
++      f->pfnCheckFormatSupport = CheckFormatSupport;
++      f->pfnSetTextFilterSize = SetTextFilterSize;
++   } else if (level == 120) {
++      D3DWDDM2_0DDI_DEVICEFUNCS *f = pCreateData->pWDDM2_0DeviceFuncs;
++      D3DWDDM2_0FillDeviceFuncs(f);
++      f->pfnDestroyDevice = DestroyDevice;
++      f->pfnCheckFormatSupport = CheckFormatSupport;
++      f->pfnSetTextFilterSize = SetTextFilterSize;
+    }
+ 
+    /*
+@@ -342,6 +386,9 @@ CreateDevice(D3D10DDI_HADAPTER hAdapter,                 // IN
+       _Blt;
+    if (is11)   /* the D3D11_0 interface comes with the DXGI 1.1 DDI */
+       pCreateData->DXGIBaseDDI.pDXGIDDIBaseFunctions2->pfnResolveSharedResource = D3D11ResolveSharedResource;
++   /* D3D11_1 -> DXGI 1.2, WDDM1_3 -> DXGI 1.3, WDDM2_0 -> DXGI 1.4 (exynos-woa D2/D3) */
++   if (level >= 111)
++      D3D11FillDxgi(&pCreateData->DXGIBaseDDI, level == 111 ? 12 : level == 113 ? 13 : 14);
+ 
+    if (0) {
+       return S_OK;
+diff --git a/src/gallium/frontends/d3d10umd/ShaderParse.c b/src/gallium/frontends/d3d10umd/ShaderParse.c
+index 5f6f566..4ec63cc 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderParse.c
++++ b/src/gallium/frontends/d3d10umd/ShaderParse.c
+@@ -220,7 +220,10 @@ static void
+ parse_relative_operand(const unsigned **curr,
+                        struct Shader_relative_operand *operand)
+ {
+-   assert(!DECODE_IS_D3D10_SB_OPERAND_EXTENDED(**curr));
++   /* exynos-woa 0071: with the D3D11.1 DDI the runtime passes min-precision shaders as they are; the precision
++    * hint rides in an extended operand token right after the operand token. Full precision is a valid
++    * implementation of every min precision, so the token is skipped (D3D11_SB_OPERAND_MIN_PRECISION). */
++   const BOOL extended = DECODE_IS_D3D10_SB_OPERAND_EXTENDED(**curr);
+    assert(DECODE_D3D10_SB_OPERAND_NUM_COMPONENTS(**curr) == D3D10_SB_OPERAND_4_COMPONENT);
+    assert(DECODE_D3D10_SB_OPERAND_4_COMPONENT_SELECTION_MODE(**curr) == D3D10_SB_OPERAND_4_COMPONENT_SELECT_1_MODE);
+ 
+@@ -232,11 +235,14 @@ parse_relative_operand(const unsigned **curr,
+    /* Index dimension. */
+    assert(DECODE_D3D10_SB_OPERAND_INDEX_REPRESENTATION(0, **curr) == D3D10_SB_OPERAND_INDEX_IMMEDIATE32);
+ 
+-   if (DECODE_D3D10_SB_OPERAND_INDEX_DIMENSION(**curr) == D3D10_SB_OPERAND_INDEX_1D) {
++   const unsigned optoken = **curr;
++   if (extended)
++      (*curr)++;   /* the extended (min precision) token; the index tokens follow it */
++   if (DECODE_D3D10_SB_OPERAND_INDEX_DIMENSION(optoken) == D3D10_SB_OPERAND_INDEX_1D) {
+       (*curr)++;
+       operand->index[0].imm = **curr;
+    } else {
+-      assert(DECODE_D3D10_SB_OPERAND_INDEX_DIMENSION(**curr) == D3D10_SB_OPERAND_INDEX_2D);
++      assert(DECODE_D3D10_SB_OPERAND_INDEX_DIMENSION(optoken) == D3D10_SB_OPERAND_INDEX_2D);
+       (*curr)++;
+       operand->index[0].imm = **curr;
+       (*curr)++;
+@@ -426,8 +432,9 @@ Shader_parse_opcode(struct Shader_parser *parser,
+    /* Destination operands. */
+    for (i = 0; i < info->num_dst; i++) {
+       D3D10_SB_OPERAND_NUM_COMPONENTS num_components;
+-
+-      assert(!DECODE_IS_D3D10_SB_OPERAND_EXTENDED(*curr));
++      /* exynos-woa 0071: min precision on a destination arrives as an extended operand token (see
++       * parse_relative_operand); it is skipped after the operand token below. */
++      const bool dst_extended = DECODE_IS_D3D10_SB_OPERAND_EXTENDED(*curr);
+ 
+       num_components = DECODE_D3D10_SB_OPERAND_NUM_COMPONENTS(*curr);
+       if (num_components == D3D10_SB_OPERAND_4_COMPONENT) {
+@@ -445,6 +452,8 @@ Shader_parse_opcode(struct Shader_parser *parser,
+       }
+ 
+       parse_operand(&curr, &opcode->dst[i].base);
++      if (dst_extended)
++         curr++;
+       parse_operand_index(&curr, &opcode->dst[i].base);
+    }
+ 
+diff --git a/src/gallium/frontends/d3d10umd/d3d11_1_fill.inc b/src/gallium/frontends/d3d10umd/d3d11_1_fill.inc
+new file mode 100644
+index 0000000..f6a5e3b
+--- /dev/null
++++ b/src/gallium/frontends/d3d10umd/d3d11_1_fill.inc
+@@ -0,0 +1,156 @@
++/* Generated by exynos-woa tools/mesa-build/gen-d3d11-ddi.py - do not edit. */
++   f->pfnDefaultConstantBufferUpdateSubresourceUP = D111_DefaultConstantBufferUpdateSubresourceUP;
++   f->pfnVsSetConstantBuffers = D111_VsSetConstantBuffers;
++   f->pfnPsSetShaderResources = PsSetShaderResources;
++   f->pfnPsSetShader = PsSetShader;
++   f->pfnPsSetSamplers = PsSetSamplers;
++   f->pfnVsSetShader = VsSetShader;
++   f->pfnDrawIndexed = DrawIndexed;
++   f->pfnDraw = Draw;
++   f->pfnDynamicIABufferMapNoOverwrite = ResourceMap;
++   f->pfnDynamicIABufferUnmap = ResourceUnmap;
++   f->pfnDynamicConstantBufferMapDiscard = ResourceMap;
++   f->pfnDynamicIABufferMapDiscard = ResourceMap;
++   f->pfnDynamicConstantBufferUnmap = ResourceUnmap;
++   f->pfnPsSetConstantBuffers = D111_PsSetConstantBuffers;
++   f->pfnIaSetInputLayout = IaSetInputLayout;
++   f->pfnIaSetVertexBuffers = IaSetVertexBuffers;
++   f->pfnIaSetIndexBuffer = IaSetIndexBuffer;
++   f->pfnDrawIndexedInstanced = DrawIndexedInstanced;
++   f->pfnDrawInstanced = DrawInstanced;
++   f->pfnDynamicResourceMapDiscard = ResourceMap;
++   f->pfnDynamicResourceUnmap = ResourceUnmap;
++   f->pfnGsSetConstantBuffers = D111_GsSetConstantBuffers;
++   f->pfnGsSetShader = GsSetShader;
++   f->pfnIaSetTopology = IaSetTopology;
++   f->pfnStagingResourceMap = ResourceMap;
++   f->pfnStagingResourceUnmap = ResourceUnmap;
++   f->pfnVsSetShaderResources = VsSetShaderResources;
++   f->pfnVsSetSamplers = VsSetSamplers;
++   f->pfnGsSetShaderResources = GsSetShaderResources;
++   f->pfnGsSetSamplers = GsSetSamplers;
++   f->pfnSetRenderTargets = D11_SetRenderTargets;
++   f->pfnShaderResourceViewReadAfterWriteHazard = ShaderResourceViewReadAfterWriteHazard;
++   f->pfnResourceReadAfterWriteHazard = ResourceReadAfterWriteHazard;
++   f->pfnSetBlendState = SetBlendState;
++   f->pfnSetDepthStencilState = SetDepthStencilState;
++   f->pfnSetRasterizerState = SetRasterizerState;
++   f->pfnQueryEnd = QueryEnd;
++   f->pfnQueryBegin = QueryBegin;
++   f->pfnResourceCopyRegion = D111_ResourceCopyRegion;
++   f->pfnResourceUpdateSubresourceUP = D111_ResourceUpdateSubresourceUP;
++   f->pfnSoSetTargets = SoSetTargets;
++   f->pfnDrawAuto = DrawAuto;
++   f->pfnSetViewports = SetViewports;
++   f->pfnSetScissorRects = SetScissorRects;
++   f->pfnClearRenderTargetView = ClearRenderTargetView;
++   f->pfnClearDepthStencilView = ClearDepthStencilView;
++   f->pfnSetPredication = SetPredication;
++   f->pfnQueryGetData = QueryGetData;
++   f->pfnFlush = D111_Flush;
++   f->pfnGenMips = GenMips;
++   f->pfnResourceCopy = ResourceCopy;
++   f->pfnResourceResolveSubresource = ResourceResolveSubResource;
++   f->pfnResourceMap = ResourceMap;
++   f->pfnResourceUnmap = ResourceUnmap;
++   f->pfnResourceIsStagingBusy = ResourceIsStagingBusy;
++   f->pfnRelocateDeviceFuncs = D111_RelocateDeviceFuncs;
++   f->pfnCalcPrivateResourceSize = D11_CalcPrivateResourceSize;
++   f->pfnCalcPrivateOpenedResourceSize = CalcPrivateOpenedResourceSize;
++   f->pfnCreateResource = D11_CreateResource;
++   f->pfnOpenResource = OpenResource;
++   f->pfnDestroyResource = DestroyResource;
++   f->pfnCalcPrivateShaderResourceViewSize = D11_CalcPrivateShaderResourceViewSize;
++   f->pfnCreateShaderResourceView = D11_CreateShaderResourceView;
++   f->pfnDestroyShaderResourceView = DestroyShaderResourceView;
++   f->pfnCalcPrivateRenderTargetViewSize = CalcPrivateRenderTargetViewSize;
++   f->pfnCreateRenderTargetView = CreateRenderTargetView;
++   f->pfnDestroyRenderTargetView = DestroyRenderTargetView;
++   f->pfnCalcPrivateDepthStencilViewSize = D11_CalcPrivateDepthStencilViewSize;
++   f->pfnCreateDepthStencilView = D11_CreateDepthStencilView;
++   f->pfnDestroyDepthStencilView = DestroyDepthStencilView;
++   f->pfnCalcPrivateElementLayoutSize = CalcPrivateElementLayoutSize;
++   f->pfnCreateElementLayout = CreateElementLayout;
++   f->pfnDestroyElementLayout = DestroyElementLayout;
++   f->pfnCalcPrivateBlendStateSize = D111_CalcPrivateBlendStateSize;
++   f->pfnCreateBlendState = D111_CreateBlendState;
++   f->pfnDestroyBlendState = DestroyBlendState;
++   f->pfnCalcPrivateDepthStencilStateSize = CalcPrivateDepthStencilStateSize;
++   f->pfnCreateDepthStencilState = CreateDepthStencilState;
++   f->pfnDestroyDepthStencilState = DestroyDepthStencilState;
++   f->pfnCalcPrivateRasterizerStateSize = D111_CalcPrivateRasterizerStateSize;
++   f->pfnCreateRasterizerState = D111_CreateRasterizerState;
++   f->pfnDestroyRasterizerState = DestroyRasterizerState;
++   f->pfnCalcPrivateShaderSize = D111_CalcPrivateShaderSize;
++   f->pfnCreateVertexShader = D111_CreateVertexShader;
++   f->pfnCreateGeometryShader = D111_CreateGeometryShader;
++   f->pfnCreatePixelShader = D111_CreatePixelShader;
++   f->pfnCalcPrivateGeometryShaderWithStreamOutput = D111_CalcPrivateGeometryShaderWithStreamOutput;
++   f->pfnCreateGeometryShaderWithStreamOutput = D111_CreateGeometryShaderWithStreamOutput;
++   f->pfnDestroyShader = DestroyShader;
++   f->pfnCalcPrivateSamplerSize = CalcPrivateSamplerSize;
++   f->pfnCreateSampler = CreateSampler;
++   f->pfnDestroySampler = DestroySampler;
++   f->pfnCalcPrivateQuerySize = CalcPrivateQuerySize;
++   f->pfnCreateQuery = CreateQuery;
++   f->pfnDestroyQuery = DestroyQuery;
++   /* f->pfnCheckFormatSupport = CheckFormatSupport; - set by Device.cpp */
++   /* f->pfnCheckMultisampleQualityLevels = CheckMultisampleQualityLevels; - set by Device.cpp */
++   f->pfnCheckCounterInfo = CheckCounterInfo;
++   f->pfnCheckCounter = CheckCounter;
++   /* f->pfnDestroyDevice = DestroyDevice; - set by Device.cpp */
++   /* f->pfnSetTextFilterSize = SetTextFilterSize; - set by Device.cpp */
++   f->pfnResourceConvert = ResourceCopy;
++   f->pfnResourceConvertRegion = D111_ResourceConvertRegion;
++   f->pfnDrawIndexedInstancedIndirect = D11Stub_DrawIndexedInstancedIndirect;
++   f->pfnDrawInstancedIndirect = D11Stub_DrawInstancedIndirect;
++   f->pfnCommandListExecute = D11Stub_CommandListExecute;
++   f->pfnHsSetShaderResources = D11Stub_HsSetShaderResources;
++   f->pfnHsSetShader = D11Stub_HsSetShader;
++   f->pfnHsSetSamplers = D11Stub_HsSetSamplers;
++   f->pfnHsSetConstantBuffers = D111_HsSetConstantBuffers;
++   f->pfnDsSetShaderResources = D11Stub_DsSetShaderResources;
++   f->pfnDsSetShader = D11Stub_DsSetShader;
++   f->pfnDsSetSamplers = D11Stub_DsSetSamplers;
++   f->pfnDsSetConstantBuffers = D111_DsSetConstantBuffers;
++   f->pfnCreateHullShader = D111_CreateHullShader;
++   f->pfnCreateDomainShader = D111_CreateDomainShader;
++   f->pfnCheckDeferredContextHandleSizes = D11Stub_CheckDeferredContextHandleSizes;
++   f->pfnCalcDeferredContextHandleSize = D11Stub_CalcDeferredContextHandleSize;
++   f->pfnCalcPrivateDeferredContextSize = D11Stub_CalcPrivateDeferredContextSize;
++   f->pfnCreateDeferredContext = D11Stub_CreateDeferredContext;
++   f->pfnAbandonCommandList = D11Stub_AbandonCommandList;
++   f->pfnCalcPrivateCommandListSize = D11Stub_CalcPrivateCommandListSize;
++   f->pfnCreateCommandList = D11Stub_CreateCommandList;
++   f->pfnDestroyCommandList = D11Stub_DestroyCommandList;
++   f->pfnCalcPrivateTessellationShaderSize = D111_CalcPrivateTessellationShaderSize;
++   f->pfnPsSetShaderWithIfaces = D11Stub_PsSetShaderWithIfaces;
++   f->pfnVsSetShaderWithIfaces = D11Stub_VsSetShaderWithIfaces;
++   f->pfnGsSetShaderWithIfaces = D11Stub_GsSetShaderWithIfaces;
++   f->pfnHsSetShaderWithIfaces = D11Stub_HsSetShaderWithIfaces;
++   f->pfnDsSetShaderWithIfaces = D11Stub_DsSetShaderWithIfaces;
++   f->pfnCsSetShaderWithIfaces = D11Stub_CsSetShaderWithIfaces;
++   f->pfnCreateComputeShader = D11Stub_CreateComputeShader;
++   f->pfnCsSetShader = D11Stub_CsSetShader;
++   f->pfnCsSetShaderResources = D11Stub_CsSetShaderResources;
++   f->pfnCsSetSamplers = D11Stub_CsSetSamplers;
++   f->pfnCsSetConstantBuffers = D111_CsSetConstantBuffers;
++   f->pfnCalcPrivateUnorderedAccessViewSize = D11Stub_CalcPrivateUnorderedAccessViewSize;
++   f->pfnCreateUnorderedAccessView = D11Stub_CreateUnorderedAccessView;
++   f->pfnDestroyUnorderedAccessView = D11Stub_DestroyUnorderedAccessView;
++   f->pfnClearUnorderedAccessViewUint = D11Stub_ClearUnorderedAccessViewUint;
++   f->pfnClearUnorderedAccessViewFloat = D11Stub_ClearUnorderedAccessViewFloat;
++   f->pfnCsSetUnorderedAccessViews = D11Stub_CsSetUnorderedAccessViews;
++   f->pfnDispatch = D11Stub_Dispatch;
++   f->pfnDispatchIndirect = D11Stub_DispatchIndirect;
++   f->pfnSetResourceMinLOD = D11Stub_SetResourceMinLOD;
++   f->pfnCopyStructureCount = D11Stub_CopyStructureCount;
++   f->pfnRecycleCommandList = D11Stub_RecycleCommandList;
++   f->pfnRecycleCreateCommandList = D11Stub_RecycleCreateCommandList;
++   f->pfnRecycleCreateDeferredContext = D11Stub_RecycleCreateDeferredContext;
++   f->pfnRecycleDestroyCommandList = D11Stub_RecycleDestroyCommandList;
++   f->pfnDiscard = D11Stub_Discard;
++   f->pfnAssignDebugBinary = D11Stub_AssignDebugBinary;
++   f->pfnDynamicConstantBufferMapNoOverwrite = ResourceMap;
++   f->pfnCheckDirectFlipSupport = D11x_CheckDirectFlipSupport;
++   f->pfnClearView = D11x_ClearView;
+diff --git a/src/gallium/frontends/d3d10umd/d3d11_stubs.inc b/src/gallium/frontends/d3d10umd/d3d11_stubs.inc
+index 00d743a..c9a7fee 100644
+--- a/src/gallium/frontends/d3d10umd/d3d11_stubs.inc
++++ b/src/gallium/frontends/d3d10umd/d3d11_stubs.inc
+@@ -19,7 +19,7 @@ D11Stub_CommandListExecute(D3D10DDI_HDEVICE, D3D11DDI_HCOMMANDLIST)
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_HsSetShaderResources(D3D10DDI_HDEVICE, _In_range_(0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT - 1) UINT StartSlot, _In_range_(0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT - StartSlot) UINT NumViews, _In_reads_(NumViews) CONST D3D10DDI_HSHADERRESOURCEVIEW*)
++D11Stub_HsSetShaderResources(D3D10DDI_HDEVICE, UINT StartSlot, UINT NumViews, const D3D10DDI_HSHADERRESOURCEVIEW*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+@@ -31,19 +31,19 @@ D11Stub_HsSetShader(D3D10DDI_HDEVICE, D3D10DDI_HSHADER)
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_HsSetSamplers(D3D10DDI_HDEVICE, _In_range_(0, D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT - 1) UINT StartSlot, _In_range_(0, D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT - StartSlot) UINT NumSamplers, _In_reads_(NumSamplers) CONST D3D10DDI_HSAMPLER*)
++D11Stub_HsSetSamplers(D3D10DDI_HDEVICE, UINT StartSlot, UINT NumSamplers, const D3D10DDI_HSAMPLER*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_HsSetConstantBuffers(D3D10DDI_HDEVICE, _In_range_(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT - 1) UINT StartSlot, _In_range_(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT - StartSlot) UINT NumBuffers, _In_reads_(NumBuffers) CONST D3D10DDI_HRESOURCE*)
++D11Stub_HsSetConstantBuffers(D3D10DDI_HDEVICE, UINT StartSlot, UINT NumBuffers, const D3D10DDI_HRESOURCE*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_DsSetShaderResources(D3D10DDI_HDEVICE, _In_range_(0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT - 1) UINT StartSlot, _In_range_(0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT - StartSlot) UINT NumViews, _In_reads_(NumViews) CONST D3D10DDI_HSHADERRESOURCEVIEW*)
++D11Stub_DsSetShaderResources(D3D10DDI_HDEVICE, UINT StartSlot, UINT NumViews, const D3D10DDI_HSHADERRESOURCEVIEW*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+@@ -55,51 +55,51 @@ D11Stub_DsSetShader(D3D10DDI_HDEVICE, D3D10DDI_HSHADER)
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_DsSetSamplers(D3D10DDI_HDEVICE, _In_range_(0, D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT - 1) UINT StartSlot, _In_range_(0, D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT - StartSlot) UINT NumSamplers, _In_reads_(NumSamplers) CONST D3D10DDI_HSAMPLER*)
++D11Stub_DsSetSamplers(D3D10DDI_HDEVICE, UINT StartSlot, UINT NumSamplers, const D3D10DDI_HSAMPLER*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_DsSetConstantBuffers(D3D10DDI_HDEVICE, _In_range_(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT - 1) UINT StartSlot, _In_range_(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT - StartSlot) UINT NumBuffers, _In_reads_(NumBuffers) CONST D3D10DDI_HRESOURCE*)
++D11Stub_DsSetConstantBuffers(D3D10DDI_HDEVICE, UINT StartSlot, UINT NumBuffers, const D3D10DDI_HRESOURCE*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_CreateHullShader(D3D10DDI_HDEVICE, _In_reads_(pShaderCode[1]) CONST UINT* pShaderCode, D3D10DDI_HSHADER, D3D10DDI_HRTSHADER, _In_ CONST D3D11DDIARG_TESSELLATION_IO_SIGNATURES*)
++D11Stub_CreateHullShader(D3D10DDI_HDEVICE, const UINT* pShaderCode, D3D10DDI_HSHADER, D3D10DDI_HRTSHADER, const D3D11DDIARG_TESSELLATION_IO_SIGNATURES*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_CreateDomainShader(D3D10DDI_HDEVICE, _In_reads_(pShaderCode[1]) CONST UINT* pShaderCode, D3D10DDI_HSHADER, D3D10DDI_HRTSHADER, _In_ CONST D3D11DDIARG_TESSELLATION_IO_SIGNATURES*)
++D11Stub_CreateDomainShader(D3D10DDI_HDEVICE, const UINT* pShaderCode, D3D10DDI_HSHADER, D3D10DDI_HRTSHADER, const D3D11DDIARG_TESSELLATION_IO_SIGNATURES*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_CheckDeferredContextHandleSizes(D3D10DDI_HDEVICE, _Inout_ UINT* pHSizes, _Out_writes_to_opt_(*pHSizes, *pHSizes) D3D11DDI_HANDLESIZE*)
++D11Stub_CheckDeferredContextHandleSizes(D3D10DDI_HDEVICE, UINT* pHSizes, D3D11DDI_HANDLESIZE*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+ 
+ static SIZE_T APIENTRY
+-D11Stub_CalcDeferredContextHandleSize(D3D10DDI_HDEVICE, D3D11DDI_HANDLETYPE, _In_ VOID*)
++D11Stub_CalcDeferredContextHandleSize(D3D10DDI_HDEVICE, D3D11DDI_HANDLETYPE, void*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+    return sizeof(void *);
+ }
+ 
+ static SIZE_T APIENTRY
+-D11Stub_CalcPrivateDeferredContextSize(D3D10DDI_HDEVICE, _In_ CONST D3D11DDIARG_CALCPRIVATEDEFERREDCONTEXTSIZE*)
++D11Stub_CalcPrivateDeferredContextSize(D3D10DDI_HDEVICE, const D3D11DDIARG_CALCPRIVATEDEFERREDCONTEXTSIZE*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+    return sizeof(void *);
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_CreateDeferredContext(D3D10DDI_HDEVICE, _In_ CONST D3D11DDIARG_CREATEDEFERREDCONTEXT*)
++D11Stub_CreateDeferredContext(D3D10DDI_HDEVICE, const D3D11DDIARG_CREATEDEFERREDCONTEXT*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+@@ -111,14 +111,14 @@ D11Stub_AbandonCommandList(D3D10DDI_HDEVICE)
+ }
+ 
+ static SIZE_T APIENTRY
+-D11Stub_CalcPrivateCommandListSize(D3D10DDI_HDEVICE, _In_ CONST D3D11DDIARG_CREATECOMMANDLIST*)
++D11Stub_CalcPrivateCommandListSize(D3D10DDI_HDEVICE, const D3D11DDIARG_CREATECOMMANDLIST*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+    return sizeof(void *);
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_CreateCommandList(D3D10DDI_HDEVICE, _In_ CONST D3D11DDIARG_CREATECOMMANDLIST*, D3D11DDI_HCOMMANDLIST, D3D11DDI_HRTCOMMANDLIST)
++D11Stub_CreateCommandList(D3D10DDI_HDEVICE, const D3D11DDIARG_CREATECOMMANDLIST*, D3D11DDI_HCOMMANDLIST, D3D11DDI_HRTCOMMANDLIST)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+@@ -130,50 +130,50 @@ D11Stub_DestroyCommandList(D3D10DDI_HDEVICE, D3D11DDI_HCOMMANDLIST)
+ }
+ 
+ static SIZE_T APIENTRY
+-D11Stub_CalcPrivateTessellationShaderSize(D3D10DDI_HDEVICE, _In_reads_(pShaderCode[1]) CONST UINT* pShaderCode, _In_ CONST D3D11DDIARG_TESSELLATION_IO_SIGNATURES*)
++D11Stub_CalcPrivateTessellationShaderSize(D3D10DDI_HDEVICE, const UINT* pShaderCode, const D3D11DDIARG_TESSELLATION_IO_SIGNATURES*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+    return sizeof(void *);
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_PsSetShaderWithIfaces(D3D10DDI_HDEVICE, D3D10DDI_HSHADER, UINT NumClassInstances, _In_reads_(NumClassInstances) CONST UINT*, _In_reads_(NumClassInstances) CONST D3D11DDIARG_POINTERDATA*)
++D11Stub_PsSetShaderWithIfaces(D3D10DDI_HDEVICE, D3D10DDI_HSHADER, UINT NumClassInstances, const UINT*, const D3D11DDIARG_POINTERDATA*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_VsSetShaderWithIfaces(D3D10DDI_HDEVICE, D3D10DDI_HSHADER, UINT NumClassInstances, _In_reads_(NumClassInstances) CONST UINT*, _In_reads_(NumClassInstances) CONST D3D11DDIARG_POINTERDATA*)
++D11Stub_VsSetShaderWithIfaces(D3D10DDI_HDEVICE, D3D10DDI_HSHADER, UINT NumClassInstances, const UINT*, const D3D11DDIARG_POINTERDATA*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_GsSetShaderWithIfaces(D3D10DDI_HDEVICE, D3D10DDI_HSHADER, UINT NumClassInstances, _In_reads_(NumClassInstances) CONST UINT*, _In_reads_(NumClassInstances) CONST D3D11DDIARG_POINTERDATA*)
++D11Stub_GsSetShaderWithIfaces(D3D10DDI_HDEVICE, D3D10DDI_HSHADER, UINT NumClassInstances, const UINT*, const D3D11DDIARG_POINTERDATA*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_HsSetShaderWithIfaces(D3D10DDI_HDEVICE, D3D10DDI_HSHADER, UINT NumClassInstances, _In_reads_(NumClassInstances) CONST UINT*, _In_reads_(NumClassInstances) CONST D3D11DDIARG_POINTERDATA*)
++D11Stub_HsSetShaderWithIfaces(D3D10DDI_HDEVICE, D3D10DDI_HSHADER, UINT NumClassInstances, const UINT*, const D3D11DDIARG_POINTERDATA*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_DsSetShaderWithIfaces(D3D10DDI_HDEVICE, D3D10DDI_HSHADER, UINT NumClassInstances, _In_reads_(NumClassInstances) CONST UINT*, _In_reads_(NumClassInstances) CONST D3D11DDIARG_POINTERDATA*)
++D11Stub_DsSetShaderWithIfaces(D3D10DDI_HDEVICE, D3D10DDI_HSHADER, UINT NumClassInstances, const UINT*, const D3D11DDIARG_POINTERDATA*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_CsSetShaderWithIfaces(D3D10DDI_HDEVICE, D3D10DDI_HSHADER, UINT NumClassInstances, _In_reads_(NumClassInstances) CONST UINT*, _In_reads_(NumClassInstances) CONST D3D11DDIARG_POINTERDATA*)
++D11Stub_CsSetShaderWithIfaces(D3D10DDI_HDEVICE, D3D10DDI_HSHADER, UINT NumClassInstances, const UINT*, const D3D11DDIARG_POINTERDATA*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_CreateComputeShader(D3D10DDI_HDEVICE, _In_reads_(pShaderCode[1]) CONST UINT* pShaderCode, D3D10DDI_HSHADER, D3D10DDI_HRTSHADER)
++D11Stub_CreateComputeShader(D3D10DDI_HDEVICE, const UINT* pShaderCode, D3D10DDI_HSHADER, D3D10DDI_HRTSHADER)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+@@ -185,32 +185,32 @@ D11Stub_CsSetShader(D3D10DDI_HDEVICE, D3D10DDI_HSHADER)
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_CsSetShaderResources(D3D10DDI_HDEVICE, _In_range_(0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT - 1) UINT StartSlot, _In_range_(0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT - StartSlot) UINT NumViews, _In_reads_(NumViews) CONST D3D10DDI_HSHADERRESOURCEVIEW*)
++D11Stub_CsSetShaderResources(D3D10DDI_HDEVICE, UINT StartSlot, UINT NumViews, const D3D10DDI_HSHADERRESOURCEVIEW*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_CsSetSamplers(D3D10DDI_HDEVICE, _In_range_(0, D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT - 1) UINT StartSlot, _In_range_(0, D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT - StartSlot) UINT NumSamplers, _In_reads_(NumSamplers) CONST D3D10DDI_HSAMPLER*)
++D11Stub_CsSetSamplers(D3D10DDI_HDEVICE, UINT StartSlot, UINT NumSamplers, const D3D10DDI_HSAMPLER*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_CsSetConstantBuffers(D3D10DDI_HDEVICE, _In_range_(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT - 1) UINT StartSlot, _In_range_(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT - StartSlot) UINT NumBuffers, _In_reads_(NumBuffers) CONST D3D10DDI_HRESOURCE*)
++D11Stub_CsSetConstantBuffers(D3D10DDI_HDEVICE, UINT StartSlot, UINT NumBuffers, const D3D10DDI_HRESOURCE*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+ 
+ static SIZE_T APIENTRY
+-D11Stub_CalcPrivateUnorderedAccessViewSize(D3D10DDI_HDEVICE, _In_ CONST D3D11DDIARG_CREATEUNORDEREDACCESSVIEW*)
++D11Stub_CalcPrivateUnorderedAccessViewSize(D3D10DDI_HDEVICE, const D3D11DDIARG_CREATEUNORDEREDACCESSVIEW*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+    return sizeof(void *);
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_CreateUnorderedAccessView(D3D10DDI_HDEVICE, _In_ CONST D3D11DDIARG_CREATEUNORDEREDACCESSVIEW*, D3D11DDI_HUNORDEREDACCESSVIEW, D3D11DDI_HRTUNORDEREDACCESSVIEW)
++D11Stub_CreateUnorderedAccessView(D3D10DDI_HDEVICE, const D3D11DDIARG_CREATEUNORDEREDACCESSVIEW*, D3D11DDI_HUNORDEREDACCESSVIEW, D3D11DDI_HRTUNORDEREDACCESSVIEW)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+@@ -222,19 +222,19 @@ D11Stub_DestroyUnorderedAccessView(D3D10DDI_HDEVICE, D3D11DDI_HUNORDEREDACCESSVI
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_ClearUnorderedAccessViewUint(D3D10DDI_HDEVICE, D3D11DDI_HUNORDEREDACCESSVIEW, CONST UINT[4])
++D11Stub_ClearUnorderedAccessViewUint(D3D10DDI_HDEVICE, D3D11DDI_HUNORDEREDACCESSVIEW, const UINT[4])
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_ClearUnorderedAccessViewFloat(D3D10DDI_HDEVICE, D3D11DDI_HUNORDEREDACCESSVIEW, CONST FLOAT[4])
++D11Stub_ClearUnorderedAccessViewFloat(D3D10DDI_HDEVICE, D3D11DDI_HUNORDEREDACCESSVIEW, const FLOAT[4])
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_CsSetUnorderedAccessViews(D3D10DDI_HDEVICE, _In_range_(0, D3D11_1_UAV_SLOT_COUNT - 1) UINT StartSlot, _In_range_(0, D3D11_1_UAV_SLOT_COUNT - StartSlot) UINT NumViews, _In_reads_(NumViews) CONST D3D11DDI_HUNORDEREDACCESSVIEW*, _In_reads_(NumViews) CONST UINT*)
++D11Stub_CsSetUnorderedAccessViews(D3D10DDI_HDEVICE, UINT StartSlot, UINT NumViews, const D3D11DDI_HUNORDEREDACCESSVIEW*, const UINT*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+@@ -264,20 +264,20 @@ D11Stub_CopyStructureCount(D3D10DDI_HDEVICE, D3D10DDI_HRESOURCE, UINT, D3D11DDI_
+ }
+ 
+ static VOID APIENTRY
+-D11Stub_RecycleCommandList(D3D10DDI_HDEVICE /*DC-only*/, D3D11DDI_HCOMMANDLIST /* IC handle */)
++D11Stub_RecycleCommandList(D3D10DDI_HDEVICE , D3D11DDI_HCOMMANDLIST)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+ }
+ 
+ static HRESULT APIENTRY
+-D11Stub_RecycleCreateCommandList(D3D10DDI_HDEVICE, _In_ CONST D3D11DDIARG_CREATECOMMANDLIST*, D3D11DDI_HCOMMANDLIST, D3D11DDI_HRTCOMMANDLIST)
++D11Stub_RecycleCreateCommandList(D3D10DDI_HDEVICE, const D3D11DDIARG_CREATECOMMANDLIST*, D3D11DDI_HCOMMANDLIST, D3D11DDI_HRTCOMMANDLIST)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+    return E_NOTIMPL;
+ }
+ 
+ static HRESULT APIENTRY
+-D11Stub_RecycleCreateDeferredContext(D3D10DDI_HDEVICE, _In_ CONST D3D11DDIARG_CREATEDEFERREDCONTEXT*)
++D11Stub_RecycleCreateDeferredContext(D3D10DDI_HDEVICE, const D3D11DDIARG_CREATEDEFERREDCONTEXT*)
+ {
+    LOG_UNSUPPORTED_ENTRYPOINT();
+    return E_NOTIMPL;
+diff --git a/src/gallium/frontends/d3d10umd/d3d11x_stubs.inc b/src/gallium/frontends/d3d10umd/d3d11x_stubs.inc
+new file mode 100644
+index 0000000..6649794
+--- /dev/null
++++ b/src/gallium/frontends/d3d10umd/d3d11x_stubs.inc
+@@ -0,0 +1,92 @@
++/* Generated by exynos-woa tools/mesa-build/gen-d3d11-ddi.py - do not edit. */
++
++static VOID APIENTRY
++D11Stub_Discard(D3D10DDI_HDEVICE, D3D11DDI_HANDLETYPE HandleType, void* hResourceOrView, const D3D10_DDI_RECT*, UINT NumRects)
++{
++   LOG_UNSUPPORTED_ENTRYPOINT();
++}
++
++static VOID APIENTRY
++D11Stub_AssignDebugBinary(D3D10DDI_HDEVICE, D3D10DDI_HSHADER, UINT uBinarySize, const void* pBinary)
++{
++   LOG_UNSUPPORTED_ENTRYPOINT();
++}
++
++static VOID APIENTRY
++D11Stub_UpdateTileMappings(D3D10DDI_HDEVICE hDevice, D3D10DDI_HRESOURCE hTiledResource, UINT NumTiledResourceRegions, const D3DWDDM1_3DDI_TILED_RESOURCE_COORDINATE* pTiledResourceRegionStartCoords, const D3DWDDM1_3DDI_TILE_REGION_SIZE* pTiledResourceRegionSizes, D3D10DDI_HRESOURCE hTilePool, UINT NumRanges, const UINT* pRangeFlags, const UINT* pTilePoolStartOffsets, const UINT* pRangeTileCounts, UINT Flags)
++{
++   LOG_UNSUPPORTED_ENTRYPOINT();
++}
++
++static VOID APIENTRY
++D11Stub_CopyTileMappings(D3D10DDI_HDEVICE hDevice, D3D10DDI_HRESOURCE hDestTiledResource, const D3DWDDM1_3DDI_TILED_RESOURCE_COORDINATE* pDestRegionStartCoord, D3D10DDI_HRESOURCE hSourceTiledResource, const D3DWDDM1_3DDI_TILED_RESOURCE_COORDINATE* pSourceRegionStartCoord, const D3DWDDM1_3DDI_TILE_REGION_SIZE* pTileRegionSize, UINT Flags)
++{
++   LOG_UNSUPPORTED_ENTRYPOINT();
++}
++
++static VOID APIENTRY
++D11Stub_CopyTiles(D3D10DDI_HDEVICE hDevice, D3D10DDI_HRESOURCE hTiledResource, const D3DWDDM1_3DDI_TILED_RESOURCE_COORDINATE* pTileRegionStartCoord, const D3DWDDM1_3DDI_TILE_REGION_SIZE* pTileRegionSize, D3D10DDI_HRESOURCE hBuffer, UINT64 BufferStartOffsetInBytes, UINT Flags)
++{
++   LOG_UNSUPPORTED_ENTRYPOINT();
++}
++
++static VOID APIENTRY
++D11Stub_UpdateTiles(D3D10DDI_HDEVICE hDevice, D3D10DDI_HRESOURCE hDestTiledResource, const D3DWDDM1_3DDI_TILED_RESOURCE_COORDINATE* pDestTileRegionStartCoord, const D3DWDDM1_3DDI_TILE_REGION_SIZE* pDestTileRegionSize, const void* pSourceTileData, UINT Flags)
++{
++   LOG_UNSUPPORTED_ENTRYPOINT();
++}
++
++static VOID APIENTRY
++D11Stub_TiledResourceBarrier(D3D10DDI_HDEVICE hDevice, D3D11DDI_HANDLETYPE TiledResourceAccessBeforeBarrierHandleType, void* hTiledResourceAccessBeforeBarrier, D3D11DDI_HANDLETYPE TiledResourceAccessAfterBarrierHandleType, void* hTiledResourceAccessAfterBarrier)
++{
++   LOG_UNSUPPORTED_ENTRYPOINT();
++}
++
++static VOID APIENTRY
++D11Stub_GetMipPacking(D3D10DDI_HDEVICE hDevice, D3D10DDI_HRESOURCE hTiledResource, UINT* pNumPackedMips, UINT* pNumTilesForPackedMips)
++{
++   LOG_UNSUPPORTED_ENTRYPOINT();
++}
++
++static VOID APIENTRY
++D11Stub_ResizeTilePool(D3D10DDI_HDEVICE hDevice, D3D10DDI_HRESOURCE hTilePool, UINT64 NewSizeInBytes)
++{
++   LOG_UNSUPPORTED_ENTRYPOINT();
++}
++
++static VOID APIENTRY
++D11Stub_SetMarker(D3D10DDI_HDEVICE hDevice)
++{
++   LOG_UNSUPPORTED_ENTRYPOINT();
++}
++
++static VOID APIENTRY
++D11Stub_SetMarkerMode(D3D10DDI_HDEVICE hDevice, D3DWDDM1_3DDI_MARKER_TYPE Type, UINT Flags)
++{
++   LOG_UNSUPPORTED_ENTRYPOINT();
++}
++
++static VOID APIENTRY
++D11Stub_SetHardwareProtection(D3D10DDI_HDEVICE hDevice, D3D10DDI_HRESOURCE hResource, BOOL Protected)
++{
++   LOG_UNSUPPORTED_ENTRYPOINT();
++}
++
++static VOID APIENTRY
++D11Stub_GetResourceLayout(D3D10DDI_HDEVICE, D3D10DDI_HRESOURCE, UINT SubresourceCount, D3DKMT_HANDLE *, D3DWDDM2_0DDI_TEXTURE_LAYOUT *, UINT *pMipLevelSwizzleTransition, D3DWDDM2_0DDI_SUBRESOURCE_LAYOUT *)
++{
++   LOG_UNSUPPORTED_ENTRYPOINT();
++}
++
++static HRESULT APIENTRY
++D11Stub_RetrieveShaderComment(D3D10DDI_HDEVICE, D3D10DDI_HSHADER, WCHAR * pBuffer, SIZE_T * CharacterCountIncludingNullTerminator)
++{
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return E_NOTIMPL;
++}
++
++static VOID APIENTRY
++D11Stub_SetHardwareProtectionState(D3D10DDI_HDEVICE, BOOL HwProtectionEnable)
++{
++   LOG_UNSUPPORTED_ENTRYPOINT();
++}
+diff --git a/src/gallium/frontends/d3d10umd/wddm1_3_fill.inc b/src/gallium/frontends/d3d10umd/wddm1_3_fill.inc
+new file mode 100644
+index 0000000..df4fe5e
+--- /dev/null
++++ b/src/gallium/frontends/d3d10umd/wddm1_3_fill.inc
+@@ -0,0 +1,165 @@
++/* Generated by exynos-woa tools/mesa-build/gen-d3d11-ddi.py - do not edit. */
++   f->pfnDefaultConstantBufferUpdateSubresourceUP = D111_DefaultConstantBufferUpdateSubresourceUP;
++   f->pfnVsSetConstantBuffers = D111_VsSetConstantBuffers;
++   f->pfnPsSetShaderResources = PsSetShaderResources;
++   f->pfnPsSetShader = PsSetShader;
++   f->pfnPsSetSamplers = PsSetSamplers;
++   f->pfnVsSetShader = VsSetShader;
++   f->pfnDrawIndexed = DrawIndexed;
++   f->pfnDraw = Draw;
++   f->pfnDynamicIABufferMapNoOverwrite = ResourceMap;
++   f->pfnDynamicIABufferUnmap = ResourceUnmap;
++   f->pfnDynamicConstantBufferMapDiscard = ResourceMap;
++   f->pfnDynamicIABufferMapDiscard = ResourceMap;
++   f->pfnDynamicConstantBufferUnmap = ResourceUnmap;
++   f->pfnPsSetConstantBuffers = D111_PsSetConstantBuffers;
++   f->pfnIaSetInputLayout = IaSetInputLayout;
++   f->pfnIaSetVertexBuffers = IaSetVertexBuffers;
++   f->pfnIaSetIndexBuffer = IaSetIndexBuffer;
++   f->pfnDrawIndexedInstanced = DrawIndexedInstanced;
++   f->pfnDrawInstanced = DrawInstanced;
++   f->pfnDynamicResourceMapDiscard = ResourceMap;
++   f->pfnDynamicResourceUnmap = ResourceUnmap;
++   f->pfnGsSetConstantBuffers = D111_GsSetConstantBuffers;
++   f->pfnGsSetShader = GsSetShader;
++   f->pfnIaSetTopology = IaSetTopology;
++   f->pfnStagingResourceMap = ResourceMap;
++   f->pfnStagingResourceUnmap = ResourceUnmap;
++   f->pfnVsSetShaderResources = VsSetShaderResources;
++   f->pfnVsSetSamplers = VsSetSamplers;
++   f->pfnGsSetShaderResources = GsSetShaderResources;
++   f->pfnGsSetSamplers = GsSetSamplers;
++   f->pfnSetRenderTargets = D11_SetRenderTargets;
++   f->pfnShaderResourceViewReadAfterWriteHazard = ShaderResourceViewReadAfterWriteHazard;
++   f->pfnResourceReadAfterWriteHazard = ResourceReadAfterWriteHazard;
++   f->pfnSetBlendState = SetBlendState;
++   f->pfnSetDepthStencilState = SetDepthStencilState;
++   f->pfnSetRasterizerState = SetRasterizerState;
++   f->pfnQueryEnd = QueryEnd;
++   f->pfnQueryBegin = QueryBegin;
++   f->pfnResourceCopyRegion = D111_ResourceCopyRegion;
++   f->pfnResourceUpdateSubresourceUP = D111_ResourceUpdateSubresourceUP;
++   f->pfnSoSetTargets = SoSetTargets;
++   f->pfnDrawAuto = DrawAuto;
++   f->pfnSetViewports = SetViewports;
++   f->pfnSetScissorRects = SetScissorRects;
++   f->pfnClearRenderTargetView = ClearRenderTargetView;
++   f->pfnClearDepthStencilView = ClearDepthStencilView;
++   f->pfnSetPredication = SetPredication;
++   f->pfnQueryGetData = QueryGetData;
++   f->pfnFlush = D111_Flush;
++   f->pfnGenMips = GenMips;
++   f->pfnResourceCopy = ResourceCopy;
++   f->pfnResourceResolveSubresource = ResourceResolveSubResource;
++   f->pfnResourceMap = ResourceMap;
++   f->pfnResourceUnmap = ResourceUnmap;
++   f->pfnResourceIsStagingBusy = ResourceIsStagingBusy;
++   f->pfnRelocateDeviceFuncs = D113_RelocateDeviceFuncs;
++   f->pfnCalcPrivateResourceSize = D11_CalcPrivateResourceSize;
++   f->pfnCalcPrivateOpenedResourceSize = CalcPrivateOpenedResourceSize;
++   f->pfnCreateResource = D11_CreateResource;
++   f->pfnOpenResource = OpenResource;
++   f->pfnDestroyResource = DestroyResource;
++   f->pfnCalcPrivateShaderResourceViewSize = D11_CalcPrivateShaderResourceViewSize;
++   f->pfnCreateShaderResourceView = D11_CreateShaderResourceView;
++   f->pfnDestroyShaderResourceView = DestroyShaderResourceView;
++   f->pfnCalcPrivateRenderTargetViewSize = CalcPrivateRenderTargetViewSize;
++   f->pfnCreateRenderTargetView = CreateRenderTargetView;
++   f->pfnDestroyRenderTargetView = DestroyRenderTargetView;
++   f->pfnCalcPrivateDepthStencilViewSize = D11_CalcPrivateDepthStencilViewSize;
++   f->pfnCreateDepthStencilView = D11_CreateDepthStencilView;
++   f->pfnDestroyDepthStencilView = DestroyDepthStencilView;
++   f->pfnCalcPrivateElementLayoutSize = CalcPrivateElementLayoutSize;
++   f->pfnCreateElementLayout = CreateElementLayout;
++   f->pfnDestroyElementLayout = DestroyElementLayout;
++   f->pfnCalcPrivateBlendStateSize = D111_CalcPrivateBlendStateSize;
++   f->pfnCreateBlendState = D111_CreateBlendState;
++   f->pfnDestroyBlendState = DestroyBlendState;
++   f->pfnCalcPrivateDepthStencilStateSize = CalcPrivateDepthStencilStateSize;
++   f->pfnCreateDepthStencilState = CreateDepthStencilState;
++   f->pfnDestroyDepthStencilState = DestroyDepthStencilState;
++   f->pfnCalcPrivateRasterizerStateSize = D111_CalcPrivateRasterizerStateSize;
++   f->pfnCreateRasterizerState = D111_CreateRasterizerState;
++   f->pfnDestroyRasterizerState = DestroyRasterizerState;
++   f->pfnCalcPrivateShaderSize = D111_CalcPrivateShaderSize;
++   f->pfnCreateVertexShader = D111_CreateVertexShader;
++   f->pfnCreateGeometryShader = D111_CreateGeometryShader;
++   f->pfnCreatePixelShader = D111_CreatePixelShader;
++   f->pfnCalcPrivateGeometryShaderWithStreamOutput = D111_CalcPrivateGeometryShaderWithStreamOutput;
++   f->pfnCreateGeometryShaderWithStreamOutput = D111_CreateGeometryShaderWithStreamOutput;
++   f->pfnDestroyShader = DestroyShader;
++   f->pfnCalcPrivateSamplerSize = CalcPrivateSamplerSize;
++   f->pfnCreateSampler = CreateSampler;
++   f->pfnDestroySampler = DestroySampler;
++   f->pfnCalcPrivateQuerySize = CalcPrivateQuerySize;
++   f->pfnCreateQuery = CreateQuery;
++   f->pfnDestroyQuery = DestroyQuery;
++   /* f->pfnCheckFormatSupport = CheckFormatSupport; - set by Device.cpp */
++   f->pfnCheckMultisampleQualityLevels = D113_CheckMultisampleQualityLevels;
++   f->pfnCheckCounterInfo = CheckCounterInfo;
++   f->pfnCheckCounter = CheckCounter;
++   /* f->pfnDestroyDevice = DestroyDevice; - set by Device.cpp */
++   /* f->pfnSetTextFilterSize = SetTextFilterSize; - set by Device.cpp */
++   f->pfnResourceConvert = ResourceCopy;
++   f->pfnResourceConvertRegion = D111_ResourceConvertRegion;
++   f->pfnDrawIndexedInstancedIndirect = D11Stub_DrawIndexedInstancedIndirect;
++   f->pfnDrawInstancedIndirect = D11Stub_DrawInstancedIndirect;
++   f->pfnCommandListExecute = D11Stub_CommandListExecute;
++   f->pfnHsSetShaderResources = D11Stub_HsSetShaderResources;
++   f->pfnHsSetShader = D11Stub_HsSetShader;
++   f->pfnHsSetSamplers = D11Stub_HsSetSamplers;
++   f->pfnHsSetConstantBuffers = D111_HsSetConstantBuffers;
++   f->pfnDsSetShaderResources = D11Stub_DsSetShaderResources;
++   f->pfnDsSetShader = D11Stub_DsSetShader;
++   f->pfnDsSetSamplers = D11Stub_DsSetSamplers;
++   f->pfnDsSetConstantBuffers = D111_DsSetConstantBuffers;
++   f->pfnCreateHullShader = D111_CreateHullShader;
++   f->pfnCreateDomainShader = D111_CreateDomainShader;
++   f->pfnCheckDeferredContextHandleSizes = D11Stub_CheckDeferredContextHandleSizes;
++   f->pfnCalcDeferredContextHandleSize = D11Stub_CalcDeferredContextHandleSize;
++   f->pfnCalcPrivateDeferredContextSize = D11Stub_CalcPrivateDeferredContextSize;
++   f->pfnCreateDeferredContext = D11Stub_CreateDeferredContext;
++   f->pfnAbandonCommandList = D11Stub_AbandonCommandList;
++   f->pfnCalcPrivateCommandListSize = D11Stub_CalcPrivateCommandListSize;
++   f->pfnCreateCommandList = D11Stub_CreateCommandList;
++   f->pfnDestroyCommandList = D11Stub_DestroyCommandList;
++   f->pfnCalcPrivateTessellationShaderSize = D111_CalcPrivateTessellationShaderSize;
++   f->pfnPsSetShaderWithIfaces = D11Stub_PsSetShaderWithIfaces;
++   f->pfnVsSetShaderWithIfaces = D11Stub_VsSetShaderWithIfaces;
++   f->pfnGsSetShaderWithIfaces = D11Stub_GsSetShaderWithIfaces;
++   f->pfnHsSetShaderWithIfaces = D11Stub_HsSetShaderWithIfaces;
++   f->pfnDsSetShaderWithIfaces = D11Stub_DsSetShaderWithIfaces;
++   f->pfnCsSetShaderWithIfaces = D11Stub_CsSetShaderWithIfaces;
++   f->pfnCreateComputeShader = D11Stub_CreateComputeShader;
++   f->pfnCsSetShader = D11Stub_CsSetShader;
++   f->pfnCsSetShaderResources = D11Stub_CsSetShaderResources;
++   f->pfnCsSetSamplers = D11Stub_CsSetSamplers;
++   f->pfnCsSetConstantBuffers = D111_CsSetConstantBuffers;
++   f->pfnCalcPrivateUnorderedAccessViewSize = D11Stub_CalcPrivateUnorderedAccessViewSize;
++   f->pfnCreateUnorderedAccessView = D11Stub_CreateUnorderedAccessView;
++   f->pfnDestroyUnorderedAccessView = D11Stub_DestroyUnorderedAccessView;
++   f->pfnClearUnorderedAccessViewUint = D11Stub_ClearUnorderedAccessViewUint;
++   f->pfnClearUnorderedAccessViewFloat = D11Stub_ClearUnorderedAccessViewFloat;
++   f->pfnCsSetUnorderedAccessViews = D11Stub_CsSetUnorderedAccessViews;
++   f->pfnDispatch = D11Stub_Dispatch;
++   f->pfnDispatchIndirect = D11Stub_DispatchIndirect;
++   f->pfnSetResourceMinLOD = D11Stub_SetResourceMinLOD;
++   f->pfnCopyStructureCount = D11Stub_CopyStructureCount;
++   f->pfnRecycleCommandList = D11Stub_RecycleCommandList;
++   f->pfnRecycleCreateCommandList = D11Stub_RecycleCreateCommandList;
++   f->pfnRecycleCreateDeferredContext = D11Stub_RecycleCreateDeferredContext;
++   f->pfnRecycleDestroyCommandList = D11Stub_RecycleDestroyCommandList;
++   f->pfnDiscard = D11Stub_Discard;
++   f->pfnAssignDebugBinary = D11Stub_AssignDebugBinary;
++   f->pfnDynamicConstantBufferMapNoOverwrite = ResourceMap;
++   f->pfnCheckDirectFlipSupport = D11x_CheckDirectFlipSupport;
++   f->pfnClearView = D11x_ClearView;
++   f->pfnUpdateTileMappings = D11Stub_UpdateTileMappings;
++   f->pfnCopyTileMappings = D11Stub_CopyTileMappings;
++   f->pfnCopyTiles = D11Stub_CopyTiles;
++   f->pfnUpdateTiles = D11Stub_UpdateTiles;
++   f->pfnTiledResourceBarrier = D11Stub_TiledResourceBarrier;
++   f->pfnGetMipPacking = D11Stub_GetMipPacking;
++   f->pfnResizeTilePool = D11Stub_ResizeTilePool;
++   f->pfnSetMarker = D11Stub_SetMarker;
++   f->pfnSetMarkerMode = D11Stub_SetMarkerMode;
+diff --git a/src/gallium/frontends/d3d10umd/wddm2_0_fill.inc b/src/gallium/frontends/d3d10umd/wddm2_0_fill.inc
+new file mode 100644
+index 0000000..41dd02d
+--- /dev/null
++++ b/src/gallium/frontends/d3d10umd/wddm2_0_fill.inc
+@@ -0,0 +1,169 @@
++/* Generated by exynos-woa tools/mesa-build/gen-d3d11-ddi.py - do not edit. */
++   f->pfnDefaultConstantBufferUpdateSubresourceUP = D111_DefaultConstantBufferUpdateSubresourceUP;
++   f->pfnVsSetConstantBuffers = D111_VsSetConstantBuffers;
++   f->pfnPsSetShaderResources = PsSetShaderResources;
++   f->pfnPsSetShader = PsSetShader;
++   f->pfnPsSetSamplers = PsSetSamplers;
++   f->pfnVsSetShader = VsSetShader;
++   f->pfnDrawIndexed = DrawIndexed;
++   f->pfnDraw = Draw;
++   f->pfnDynamicIABufferMapNoOverwrite = ResourceMap;
++   f->pfnDynamicIABufferUnmap = ResourceUnmap;
++   f->pfnDynamicConstantBufferMapDiscard = ResourceMap;
++   f->pfnDynamicIABufferMapDiscard = ResourceMap;
++   f->pfnDynamicConstantBufferUnmap = ResourceUnmap;
++   f->pfnPsSetConstantBuffers = D111_PsSetConstantBuffers;
++   f->pfnIaSetInputLayout = IaSetInputLayout;
++   f->pfnIaSetVertexBuffers = IaSetVertexBuffers;
++   f->pfnIaSetIndexBuffer = IaSetIndexBuffer;
++   f->pfnDrawIndexedInstanced = DrawIndexedInstanced;
++   f->pfnDrawInstanced = DrawInstanced;
++   f->pfnDynamicResourceMapDiscard = ResourceMap;
++   f->pfnDynamicResourceUnmap = ResourceUnmap;
++   f->pfnGsSetConstantBuffers = D111_GsSetConstantBuffers;
++   f->pfnGsSetShader = GsSetShader;
++   f->pfnIaSetTopology = IaSetTopology;
++   f->pfnStagingResourceMap = ResourceMap;
++   f->pfnStagingResourceUnmap = ResourceUnmap;
++   f->pfnVsSetShaderResources = VsSetShaderResources;
++   f->pfnVsSetSamplers = VsSetSamplers;
++   f->pfnGsSetShaderResources = GsSetShaderResources;
++   f->pfnGsSetSamplers = GsSetSamplers;
++   f->pfnSetRenderTargets = D11_SetRenderTargets;
++   f->pfnShaderResourceViewReadAfterWriteHazard = ShaderResourceViewReadAfterWriteHazard;
++   f->pfnResourceReadAfterWriteHazard = ResourceReadAfterWriteHazard;
++   f->pfnSetBlendState = SetBlendState;
++   f->pfnSetDepthStencilState = SetDepthStencilState;
++   f->pfnSetRasterizerState = SetRasterizerState;
++   f->pfnQueryEnd = QueryEnd;
++   f->pfnQueryBegin = QueryBegin;
++   f->pfnResourceCopyRegion = D111_ResourceCopyRegion;
++   f->pfnResourceUpdateSubresourceUP = D111_ResourceUpdateSubresourceUP;
++   f->pfnSoSetTargets = SoSetTargets;
++   f->pfnDrawAuto = DrawAuto;
++   f->pfnSetViewports = SetViewports;
++   f->pfnSetScissorRects = SetScissorRects;
++   f->pfnClearRenderTargetView = ClearRenderTargetView;
++   f->pfnClearDepthStencilView = ClearDepthStencilView;
++   f->pfnSetPredication = SetPredication;
++   f->pfnQueryGetData = QueryGetData;
++   f->pfnFlush = D120_Flush;
++   f->pfnGenMips = GenMips;
++   f->pfnResourceCopy = ResourceCopy;
++   f->pfnResourceResolveSubresource = ResourceResolveSubResource;
++   f->pfnResourceMap = ResourceMap;
++   f->pfnResourceUnmap = ResourceUnmap;
++   f->pfnResourceIsStagingBusy = ResourceIsStagingBusy;
++   f->pfnRelocateDeviceFuncs = D120_RelocateDeviceFuncs;
++   f->pfnCalcPrivateResourceSize = D11_CalcPrivateResourceSize;
++   f->pfnCalcPrivateOpenedResourceSize = CalcPrivateOpenedResourceSize;
++   f->pfnCreateResource = D11_CreateResource;
++   f->pfnOpenResource = OpenResource;
++   f->pfnDestroyResource = DestroyResource;
++   f->pfnCalcPrivateShaderResourceViewSize = D120_CalcPrivateShaderResourceViewSize;
++   f->pfnCreateShaderResourceView = D120_CreateShaderResourceView;
++   f->pfnDestroyShaderResourceView = DestroyShaderResourceView;
++   f->pfnCalcPrivateRenderTargetViewSize = D120_CalcPrivateRenderTargetViewSize;
++   f->pfnCreateRenderTargetView = D120_CreateRenderTargetView;
++   f->pfnDestroyRenderTargetView = DestroyRenderTargetView;
++   f->pfnCalcPrivateDepthStencilViewSize = D11_CalcPrivateDepthStencilViewSize;
++   f->pfnCreateDepthStencilView = D11_CreateDepthStencilView;
++   f->pfnDestroyDepthStencilView = DestroyDepthStencilView;
++   f->pfnCalcPrivateElementLayoutSize = CalcPrivateElementLayoutSize;
++   f->pfnCreateElementLayout = CreateElementLayout;
++   f->pfnDestroyElementLayout = DestroyElementLayout;
++   f->pfnCalcPrivateBlendStateSize = D111_CalcPrivateBlendStateSize;
++   f->pfnCreateBlendState = D111_CreateBlendState;
++   f->pfnDestroyBlendState = DestroyBlendState;
++   f->pfnCalcPrivateDepthStencilStateSize = CalcPrivateDepthStencilStateSize;
++   f->pfnCreateDepthStencilState = CreateDepthStencilState;
++   f->pfnDestroyDepthStencilState = DestroyDepthStencilState;
++   f->pfnCalcPrivateRasterizerStateSize = D120_CalcPrivateRasterizerStateSize;
++   f->pfnCreateRasterizerState = D120_CreateRasterizerState;
++   f->pfnDestroyRasterizerState = DestroyRasterizerState;
++   f->pfnCalcPrivateShaderSize = D111_CalcPrivateShaderSize;
++   f->pfnCreateVertexShader = D111_CreateVertexShader;
++   f->pfnCreateGeometryShader = D111_CreateGeometryShader;
++   f->pfnCreatePixelShader = D111_CreatePixelShader;
++   f->pfnCalcPrivateGeometryShaderWithStreamOutput = D111_CalcPrivateGeometryShaderWithStreamOutput;
++   f->pfnCreateGeometryShaderWithStreamOutput = D111_CreateGeometryShaderWithStreamOutput;
++   f->pfnDestroyShader = DestroyShader;
++   f->pfnCalcPrivateSamplerSize = CalcPrivateSamplerSize;
++   f->pfnCreateSampler = CreateSampler;
++   f->pfnDestroySampler = DestroySampler;
++   f->pfnCalcPrivateQuerySize = D120_CalcPrivateQuerySize;
++   f->pfnCreateQuery = D120_CreateQuery;
++   f->pfnDestroyQuery = DestroyQuery;
++   /* f->pfnCheckFormatSupport = CheckFormatSupport; - set by Device.cpp */
++   f->pfnCheckMultisampleQualityLevels = D113_CheckMultisampleQualityLevels;
++   f->pfnCheckCounterInfo = CheckCounterInfo;
++   f->pfnCheckCounter = CheckCounter;
++   /* f->pfnDestroyDevice = DestroyDevice; - set by Device.cpp */
++   /* f->pfnSetTextFilterSize = SetTextFilterSize; - set by Device.cpp */
++   f->pfnResourceConvert = ResourceCopy;
++   f->pfnResourceConvertRegion = D111_ResourceConvertRegion;
++   f->pfnDrawIndexedInstancedIndirect = D11Stub_DrawIndexedInstancedIndirect;
++   f->pfnDrawInstancedIndirect = D11Stub_DrawInstancedIndirect;
++   f->pfnCommandListExecute = D11Stub_CommandListExecute;
++   f->pfnHsSetShaderResources = D11Stub_HsSetShaderResources;
++   f->pfnHsSetShader = D11Stub_HsSetShader;
++   f->pfnHsSetSamplers = D11Stub_HsSetSamplers;
++   f->pfnHsSetConstantBuffers = D111_HsSetConstantBuffers;
++   f->pfnDsSetShaderResources = D11Stub_DsSetShaderResources;
++   f->pfnDsSetShader = D11Stub_DsSetShader;
++   f->pfnDsSetSamplers = D11Stub_DsSetSamplers;
++   f->pfnDsSetConstantBuffers = D111_DsSetConstantBuffers;
++   f->pfnCreateHullShader = D111_CreateHullShader;
++   f->pfnCreateDomainShader = D111_CreateDomainShader;
++   f->pfnCheckDeferredContextHandleSizes = D11Stub_CheckDeferredContextHandleSizes;
++   f->pfnCalcDeferredContextHandleSize = D11Stub_CalcDeferredContextHandleSize;
++   f->pfnCalcPrivateDeferredContextSize = D11Stub_CalcPrivateDeferredContextSize;
++   f->pfnCreateDeferredContext = D11Stub_CreateDeferredContext;
++   f->pfnAbandonCommandList = D11Stub_AbandonCommandList;
++   f->pfnCalcPrivateCommandListSize = D11Stub_CalcPrivateCommandListSize;
++   f->pfnCreateCommandList = D11Stub_CreateCommandList;
++   f->pfnDestroyCommandList = D11Stub_DestroyCommandList;
++   f->pfnCalcPrivateTessellationShaderSize = D111_CalcPrivateTessellationShaderSize;
++   f->pfnPsSetShaderWithIfaces = D11Stub_PsSetShaderWithIfaces;
++   f->pfnVsSetShaderWithIfaces = D11Stub_VsSetShaderWithIfaces;
++   f->pfnGsSetShaderWithIfaces = D11Stub_GsSetShaderWithIfaces;
++   f->pfnHsSetShaderWithIfaces = D11Stub_HsSetShaderWithIfaces;
++   f->pfnDsSetShaderWithIfaces = D11Stub_DsSetShaderWithIfaces;
++   f->pfnCsSetShaderWithIfaces = D11Stub_CsSetShaderWithIfaces;
++   f->pfnCreateComputeShader = D11Stub_CreateComputeShader;
++   f->pfnCsSetShader = D11Stub_CsSetShader;
++   f->pfnCsSetShaderResources = D11Stub_CsSetShaderResources;
++   f->pfnCsSetSamplers = D11Stub_CsSetSamplers;
++   f->pfnCsSetConstantBuffers = D111_CsSetConstantBuffers;
++   f->pfnCalcPrivateUnorderedAccessViewSize = D120_CalcPrivateUnorderedAccessViewSize;
++   f->pfnCreateUnorderedAccessView = D120_CreateUnorderedAccessView;
++   f->pfnDestroyUnorderedAccessView = D11Stub_DestroyUnorderedAccessView;
++   f->pfnClearUnorderedAccessViewUint = D11Stub_ClearUnorderedAccessViewUint;
++   f->pfnClearUnorderedAccessViewFloat = D11Stub_ClearUnorderedAccessViewFloat;
++   f->pfnCsSetUnorderedAccessViews = D11Stub_CsSetUnorderedAccessViews;
++   f->pfnDispatch = D11Stub_Dispatch;
++   f->pfnDispatchIndirect = D11Stub_DispatchIndirect;
++   f->pfnSetResourceMinLOD = D11Stub_SetResourceMinLOD;
++   f->pfnCopyStructureCount = D11Stub_CopyStructureCount;
++   f->pfnRecycleCommandList = D11Stub_RecycleCommandList;
++   f->pfnRecycleCreateCommandList = D11Stub_RecycleCreateCommandList;
++   f->pfnRecycleCreateDeferredContext = D11Stub_RecycleCreateDeferredContext;
++   f->pfnRecycleDestroyCommandList = D11Stub_RecycleDestroyCommandList;
++   f->pfnDiscard = D11Stub_Discard;
++   f->pfnAssignDebugBinary = D11Stub_AssignDebugBinary;
++   f->pfnDynamicConstantBufferMapNoOverwrite = ResourceMap;
++   f->pfnCheckDirectFlipSupport = D11x_CheckDirectFlipSupport;
++   f->pfnClearView = D11x_ClearView;
++   f->pfnUpdateTileMappings = D11Stub_UpdateTileMappings;
++   f->pfnCopyTileMappings = D11Stub_CopyTileMappings;
++   f->pfnCopyTiles = D11Stub_CopyTiles;
++   f->pfnUpdateTiles = D11Stub_UpdateTiles;
++   f->pfnTiledResourceBarrier = D11Stub_TiledResourceBarrier;
++   f->pfnGetMipPacking = D11Stub_GetMipPacking;
++   f->pfnResizeTilePool = D11Stub_ResizeTilePool;
++   f->pfnSetMarker = D11Stub_SetMarker;
++   f->pfnSetMarkerMode = D11Stub_SetMarkerMode;
++   f->pfnSetHardwareProtection = D11Stub_SetHardwareProtection;
++   f->pfnGetResourceLayout = D11Stub_GetResourceLayout;
++   f->pfnRetrieveShaderComment = D11Stub_RetrieveShaderComment;
++   f->pfnSetHardwareProtectionState = D11Stub_SetHardwareProtectionState;
+-- 
+2.40.1.windows.1
+

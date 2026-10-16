@@ -1,18 +1,46 @@
-"""gen-d3d11-ddi.py WDK_D3D10UMDDI_H DEVICE_CPP OUT_DIR - generate the D3D11 DDI glue for Mesa d3d10umd
+"""gen-d3d11-ddi.py WDK_D3D10UMDDI_H DEVICE_CPP OUT_DIR [COMPILE_COMMANDS_JSON] - generate the D3D11 DDI glue for Mesa d3d10umd
 (notes/gpu-umd-d3d11.md D1): for D3D11DDI_DEVICEFUNCS, every member is assigned either the function d3d10umd already
 uses for that member at the D3D10.1 level (same PFN type), a hand-written wrapper (type changed; name D11_<member>),
 or a generated stub (new at D3D11). Writes d3d11_stubs.inc (stub definitions, signatures copied from the WDK
 typedefs) and d3d11_fill.inc (the assignments). Run again when the table or the WDK changes; the output is
 committed with the Mesa patch, this script with exynos-woa.
 """
+import json
+import os
 import re
+import subprocess
 import sys
 
-hdr = open(sys.argv[1], encoding='utf-8', errors='replace').read()
-# members only compiled for the rasterization-only (D3D10PSGP) build are not in our tables
-hdr = re.sub(r'#ifdef D3D10PSGP.*?#endif', '', hdr, flags=re.S)
 dev = open(sys.argv[2], encoding='utf-8').read()
 out = sys.argv[3]
+
+
+def preprocessed(compile_commands):
+    """d3d10umddi.h exactly as Mesa compiles it: the D3D11.cpp command line of the cross build, run with /E on a
+    probe that includes DriverIncludes.h. The header retypes members in place behind #if (WDDM 2.0 view creators,
+    Flush, ...), so only the preprocessed text says what the compiled tables hold."""
+    cc = json.load(open(compile_commands))
+    e = next(x for x in cc if x['file'].replace(chr(92), '/').endswith('d3d10umd/D3D11.cpp'))
+    probe = os.path.join(out, '_pp_probe.cpp')
+    open(probe, 'w').write('#include "DriverIncludes.h"' + chr(10))
+    cmd = e['command']
+    cmd = re.sub(r'\s/Fo\S+|\s-o\s*\S+|\s/Fd\S+|\s/c\b|\s-c\b|\s/showIncludes\b|\s/Fp\S+', ' ', cmd)
+    src = e['file']
+    cmd = cmd.replace(src, probe) if src in cmd else cmd + ' ' + probe
+    r = subprocess.run(cmd + ' /E', shell=True, cwd=e['directory'], capture_output=True, text=True,
+                       errors='replace')
+    os.remove(probe)
+    if r.returncode != 0 or 'D3D11DDI_DEVICEFUNCS' not in r.stdout:
+        raise SystemExit('preprocess failed: ' + r.stderr[-2000:])
+    return re.sub(r'^#.*$', '', r.stdout, flags=re.M)
+
+
+if len(sys.argv) > 4:
+    hdr = preprocessed(sys.argv[4])
+else:
+    hdr = open(sys.argv[1], encoding='utf-8', errors='replace').read()
+    # members only compiled for the rasterization-only (D3D10PSGP) build are not in our tables
+    hdr = re.sub(r'#ifdef D3D10PSGP.*?#endif', '', hdr, flags=re.S)
 
 
 def table(name):
@@ -30,7 +58,8 @@ impl.update(dict(re.findall(r'p10_1DeviceFuncs->(pfn\w+)\s*=\s*(\w+);', dev)))
 
 
 def typedef(pfn):
-    m = re.search(r'typedef\s+([\w\s]+?)\s*\(\s*APIENTRY\s*\*\s*' + pfn + r'\s*\)\s*\((.*?)\)\s*;', hdr, re.S)
+    m = re.search(r'typedef\s+([\w\s]+?)\s*\(\s*(?:APIENTRY|__stdcall)?\s*\*\s*' + pfn + r'\s*\)\s*\((.*?)\)\s*;',
+                  hdr, re.S)
     if not m:
         raise SystemExit('no typedef for ' + pfn)
     ret = ' '.join(m.group(1).split())
@@ -54,6 +83,7 @@ for pfn_t, name in t11:
     else:
         ret, params = typedef(pfn_t)
         fn = 'D11Stub_' + name[3:]
+        ret = {'void': 'VOID'}.get(ret, ret)
         if ret == 'VOID':
             body = '   LOG_UNSUPPORTED_ENTRYPOINT();'
         elif ret == 'SIZE_T':
@@ -74,3 +104,56 @@ open(out + '/d3d11_fill.inc', 'w', newline='\n').write(
 print('%d members: %d same, %d wrapped, %d stubs' % (len(t11), len(t11) - len(wrapped) - len(stubs), len(wrapped),
                                                     len(stubs)))
 print('wrappers:', ' '.join(wrapped))
+
+# ---- D2/D3 (notes/gpu-umd-d3d11.md): D3D11_1, WDDM1_3, WDDM2_0 tables from the D3D11_0 assignments ----
+base = {}
+for line in fill:
+    m = re.match(r'\s*(?:/\* )?f->(pfn\w+) = (\w+);', line)
+    if m:
+        base[m.group(1)] = m.group(2)
+t11d = {n: t for t, n in t11}
+# new members with a hand-written implementation in D3D11_1.cpp (name D11x_<member>) or an existing function
+HAND_NEW = {'CheckDirectFlipSupport', 'ClearView', 'FlushWDDM2_0', 'CalcPrivateShaderResourceViewSizeWDDM2_0',
+            'CreateShaderResourceViewWDDM2_0', 'CalcPrivateRenderTargetViewSizeWDDM2_0', 'CreateRenderTargetViewWDDM2_0',
+            'CalcPrivateQuerySizeWDDM2_0', 'CreateQueryWDDM2_0'}
+EXISTING_NEW = {'DynamicConstantBufferMapNoOverwrite': 'ResourceMap'}
+PREFIX = (('PFND3DWDDM2_0DDI', 'D120_'), ('PFND3DWDDM1_3DDI', 'D113_'), ('PFND3D11_1DDI', 'D111_'))
+stubs2, done2, hand2 = [], set(), set()
+for tname, fname in (('D3D11_1DDI_DEVICEFUNCS', 'd3d11_1_fill.inc'), ('D3DWDDM1_3DDI_DEVICEFUNCS', 'wddm1_3_fill.inc'),
+                     ('D3DWDDM2_0DDI_DEVICEFUNCS', 'wddm2_0_fill.inc')):
+    lines = []
+    for pfn_t, name in table(tname):
+        m = name[3:]
+        if name in t11d and t11d[name] == pfn_t:
+            if base[name] in LOCAL:
+                lines.append('   /* f->%s = %s; - set by Device.cpp */' % (name, base[name]))
+            else:
+                lines.append('   f->%s = %s;' % (name, base[name]))
+        elif name in t11d:
+            p = next(pre for key, pre in PREFIX if pfn_t.startswith(key))
+            lines.append('   f->%s = %s%s;' % (name, p, m))
+            hand2.add('%s%s  (%s)' % (p, m, pfn_t))
+        elif m in EXISTING_NEW:
+            lines.append('   f->%s = %s;' % (name, EXISTING_NEW[m]))
+        elif m in HAND_NEW:
+            lines.append('   f->%s = D11x_%s;' % (name, m))
+            hand2.add('D11x_%s  (%s)' % (m, pfn_t))
+        else:
+            fn = 'D11Stub_' + m
+            if fn not in done2 and ('static' not in ''.join(stubs) or fn + '(' not in ''.join(stubs)):
+                ret, params = typedef(pfn_t)
+                ret = {'void': 'VOID'}.get(ret, ret)
+                body = {'VOID': '   LOG_UNSUPPORTED_ENTRYPOINT();',
+                        'SIZE_T': '   LOG_UNSUPPORTED_ENTRYPOINT();\n   return sizeof(void *);',
+                        'HRESULT': '   LOG_UNSUPPORTED_ENTRYPOINT();\n   return E_NOTIMPL;'}[ret]
+                if fn + '(' not in ''.join(stubs):
+                    stubs2.append('static %s APIENTRY\n%s(%s)\n{\n%s\n}\n' % (ret, fn, params, body))
+                done2.add(fn)
+            lines.append('   f->%s = %s;' % (name, fn))
+    open(out + '/' + fname, 'w', newline='\n').write(
+        '/* Generated by exynos-woa tools/mesa-build/gen-d3d11-ddi.py - do not edit. */\n' + '\n'.join(lines) + '\n')
+open(out + '/d3d11x_stubs.inc', 'w', newline='\n').write(
+    '/* Generated by exynos-woa tools/mesa-build/gen-d3d11-ddi.py - do not edit. */\n\n' + '\n'.join(stubs2))
+print('tiers: %d more stubs; hand-written needed:' % len(stubs2))
+for h in sorted(hand2):
+    print('  ', h)

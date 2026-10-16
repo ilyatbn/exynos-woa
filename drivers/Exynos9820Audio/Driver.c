@@ -23,7 +23,7 @@ EVT_WDF_DEVICE_D0_ENTRY           AudEvtD0Entry;
 EVT_WDF_DEVICE_D0_EXIT            AudEvtD0Exit;
 EVT_WDF_OBJECT_CONTEXT_CLEANUP    AudEvtDeviceCleanup;
 
-#define AUD_DRIVER_VERSION "1.0.1.18"
+#define AUD_DRIVER_VERSION "1.0.1.19"
 
 static AUD_CONFIG g_Cfg;
 
@@ -60,6 +60,7 @@ static VOID AudReadConfig(_In_ WDFDRIVER Driver)
         { L"SpkAtten",   FIELD_OFFSET(AUD_CONFIG, SpkAtten) },
         { L"RcvGain",    FIELD_OFFSET(AUD_CONFIG, RcvGain) },
         { L"SpkGain",    FIELD_OFFSET(AUD_CONFIG, SpkGain) },
+        { L"CodecEnable", FIELD_OFFSET(AUD_CONFIG, CodecEnable) },
     };
     WDFKEY         Key;
     UNICODE_STRING Name;
@@ -78,6 +79,7 @@ static VOID AudReadConfig(_In_ WDFDRIVER Driver)
     g_Cfg.SpkAtten    = 0;
     g_Cfg.RcvGain     = 0x0A;   /* 10.5 dB, the boot #99 level; max AmpI2c.c AMP_GAIN_MAX */
     g_Cfg.SpkGain     = 0x0A;
+    g_Cfg.CodecEnable = 0;
 
     if (!NT_SUCCESS(WdfDriverOpenParametersRegistryKey(Driver, KEY_READ, WDF_NO_OBJECT_ATTRIBUTES, &Key))) {
         return;
@@ -174,6 +176,10 @@ NTSTATUS AudEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
            Dev->Cfg.HwVolume, Dev->Cfg.Stereo);
 
     Status = WdfWaitLockCreate(WDF_NO_OBJECT_ATTRIBUTES, &Dev->BusLock);
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+    Status = WdfWaitLockCreate(WDF_NO_OBJECT_ATTRIBUTES, &Dev->CodecLock);
     if (!NT_SUCCESS(Status)) {
         return Status;
     }
@@ -276,6 +282,10 @@ NTSTATUS AudEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Resources, WDFCMRE
             AudLog(Dev->Log, "AmpInit skipped (Parameters\\AmpInit = 0)\r\n");
         }
     }
+    if (Dev->Cfg.CodecEnable) {
+        Status = CodecInit(Dev);
+        AudLog(Dev->Log, "CodecInit %08lX\r\n", Status);
+    }
 
     Status = STATUS_SUCCESS;
     if (Dev->Render == NULL) {
@@ -313,6 +323,7 @@ NTSTATUS AudEvtReleaseHardware(WDFDEVICE Device, WDFCMRESLIST Translated)
         AmpRelease(Dev);    /* amps off before their clocks go */
         AboxRelease(Dev);   /* stop + restore every stage-1 register */
     }
+    CodecRelease(Dev);
     AudUnmap(Dev);
     Dev->AboxReady = FALSE;
     Dev->AboxAlive = FALSE;

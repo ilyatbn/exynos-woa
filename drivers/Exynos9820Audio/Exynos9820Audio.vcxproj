@@ -57,6 +57,7 @@
     <ClCompile Include="RunLog.c" />
     <ClCompile Include="ReqLog.c" />
     <ClCompile Include="Control.c" />
+    <ClCompile Include="Codec.c" />
     <ClInclude Include="Exynos9820Audio.h" />
     <ClInclude Include="AmpOtpMap.h" />
     <ResourceCompile Include="resource.rc" />

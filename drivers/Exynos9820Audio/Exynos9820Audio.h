@@ -102,6 +102,7 @@ typedef struct _AUD_CONFIG {
     ULONG SpkAtten;     /* (0 default = both at 0 dB as stock gain-media-dual-speaker; clamped to 816) - balance trim */
     ULONG RcvGain;      /* earpiece / loudspeaker analog gain AMP_GAIN_CTRL [9:5]: 0x0A default (Driver.c), */
     ULONG SpkGain;      /* clamped to 17 = stock music value (AMP_GAIN_MAX) */
+    ULONG CodecEnable;  /* 0 (default): 1 = bring up the CS47L93 jack codec at PrepareHardware (notes/d8-jack-windows.md) */
 } AUD_CONFIG, *PAUD_CONFIG;
 
 /* ======================================================================
@@ -172,6 +173,13 @@ typedef struct _AUD_DEVICE_CONTEXT {
     ULONG       SavedUsiCon;
     BOOLEAN     BusSaved;
     AUD_AMP     Amp[2];         /* [0] = R/bot @0x40 (speaker), [1] = L/rcv @0x41 (earpiece) */
+
+    /* CS47L93 jack codec over spi_2 (Codec.c). Pages mapped without _CRS (see Codec.c header). */
+    WDFWAITLOCK CodecLock;
+    PUCHAR      CodecSpi;
+    PUCHAR      CodecSysreg;
+    PUCHAR      CodecGpio;
+    BOOLEAN     CodecUp;
 
     /* Endpoint volume when Cfg.HwVolume = 1 (KS units: 1/65536 dB), applied on the amps. */
     LONG        VolumeLevel;
@@ -317,6 +325,15 @@ _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS AmpSetVolume(_Inout_ PAUD_DEVICE_CONTEXT
 _IRQL_requires_(PASSIVE_LEVEL) VOID AmpPowerDown(_Inout_ PAUD_DEVICE_CONTEXT Dev);
 _IRQL_requires_(PASSIVE_LEVEL) VOID AmpRelease(_Inout_ PAUD_DEVICE_CONTEXT Dev);
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS AmpApplyTrim(_Inout_ PAUD_DEVICE_CONTEXT Dev);
+
+/* Codec.c - CS47L93 over spi_2, PASSIVE_LEVEL, CodecLock taken inside the register accessors. */
+_IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecInit(_Inout_ PAUD_DEVICE_CONTEXT Dev);
+_IRQL_requires_(PASSIVE_LEVEL) VOID CodecRelease(_Inout_ PAUD_DEVICE_CONTEXT Dev);
+_IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecRead(_Inout_ PAUD_DEVICE_CONTEXT Dev, ULONG Reg, _Out_ PUSHORT Value);
+_IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecWrite(_Inout_ PAUD_DEVICE_CONTEXT Dev, ULONG Reg, USHORT Value);
+_IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecUpdate(_Inout_ PAUD_DEVICE_CONTEXT Dev, ULONG Reg, USHORT Mask, USHORT Value);
+_IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecRead32(_Inout_ PAUD_DEVICE_CONTEXT Dev, ULONG Reg, _Out_ PULONG Value);
+_IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecWrite32(_Inout_ PAUD_DEVICE_CONTEXT Dev, ULONG Reg, ULONG Value);
 
 /* Control.c - speaker trim KS property (AudControl.h); TRUE = request completed. */
 _IRQL_requires_(PASSIVE_LEVEL) BOOLEAN AudControlRequest(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ WDFREQUEST Request,

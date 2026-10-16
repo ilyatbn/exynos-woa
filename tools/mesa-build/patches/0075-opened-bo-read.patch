@@ -1,0 +1,85 @@
+From 3870067c55f6b535598afe567e2fe1fe675eb469 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Fri, 16 Oct 2026 23:46:29 +0300
+Subject: [PATCH] malikm shim: opened (other-process) allocations are listed
+ only when the batch uses them, and as reads - DWM lost its device with
+ redirected swap chains because its submissions named the producer's buffers
+ as writes (exynos-woa 0075)
+
+---
+ include/win32-compat/malikm_drm.c | 20 ++++++++++++++------
+ 1 file changed, 14 insertions(+), 6 deletions(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 9095464..c1f83a6 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -725,6 +725,11 @@ struct wbo {
+                               * submission, never locked, GEM_CLOSE only forgets it */
+ };
+ #define WBO_FIXED 0xffffffffu
++/* runtime_owned value of an allocation OPENED from another device/process (OpenResource - e.g. a redirected swap
++ * chain buffer in DWM). Such a buffer belongs to its producer between presents, so it is listed in a submission only
++ * when the batch itself uses it (exynos-woa G15 0075: listing every opened buffer in every DWM submission is the
++ * candidate for DxgKrnl's Render STATUS_ACCESS_DENIED -> DWM device removal with redirected swap chains). */
++#define WBO_OPENED 2u
+ static struct wbo *wbo;
+ static uint32_t wbo_cap;
+ static uint32_t wsubmit_gen, wlist_overflows;
+@@ -1999,7 +2004,7 @@ wbo_add(D3DKMT_HANDLE hAlloc, uint64_t size, uint64_t va, uint32_t runtime_owned
+ /* exynos-woa H3: an existing allocation of this process (a shared resource's, created or opened) as a Panfrost BO
+  * at the GPU address the KMD gave it; *prime_fd for drmPrimeFDToHandle. 0 on success. wddm_lock held. */
+ static int
+-wbo_from_allocation_locked(unsigned hAlloc, int *prime_fd)
++wbo_from_allocation_locked(unsigned hAlloc, int *prime_fd, uint32_t owned)
+ {
+    MW_ESCAPE_ALLOC_INFO_DATA where = {0};
+    where.Code = MW_ESCAPE_ALLOC_INFO;
+@@ -2009,7 +2014,7 @@ wbo_from_allocation_locked(unsigned hAlloc, int *prime_fd)
+                   (unsigned long long)where.GpuVa);
+       return -1;
+    }
+-   uint32_t h = wbo_add(hAlloc, where.Size, where.GpuVa, 1);
++   uint32_t h = wbo_add(hAlloc, where.Size, where.GpuVa, owned);
+    malikm_tlog("bo-from-allocation 0x%x: BO %u va 0x%llx size %llu", hAlloc, h, (unsigned long long)where.GpuVa,
+                (unsigned long long)where.Size);
+    if (!h)
+@@ -2028,7 +2033,7 @@ malikm_bo_from_allocation(unsigned hAlloc, int *prime_fd)
+    AcquireSRWLockExclusive(&wddm_lock);
+    bind_switch(tls_selected);
+    if (ddi.on && wddm == 1)
+-      ret = wbo_from_allocation_locked(hAlloc, prime_fd);
++      ret = wbo_from_allocation_locked(hAlloc, prime_fd, WBO_OPENED);
+    ReleaseSRWLockExclusive(&wddm_lock);
+    return ret;
+ }
+@@ -2069,7 +2074,7 @@ malikm_shared_bo_create(void *hRTResource, unsigned w, unsigned h, unsigned cpp,
+                   (unsigned long)hr, ai.hAllocation);
+       if (hr >= 0) {
+          w_resident(ai.hAllocation);   /* exynos-woa 0069 */
+-         ret = wbo_from_allocation_locked(ai.hAllocation, prime_fd);
++         ret = wbo_from_allocation_locked(ai.hAllocation, prime_fd, 1);
+       }
+    }
+    ReleaseSRWLockExclusive(&wddm_lock);
+@@ -2245,12 +2250,15 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+          bo->mark = gen;
+          memset(&walloc[n], 0, sizeof(walloc[n]));
+          walloc[n].hAllocation = bo->h;
+-         walloc[n].WriteOperation = 1;
++         /* Panfrost does not say which BOs a batch writes. An opened buffer (another process's - a redirected
++          * swap chain buffer in DWM) is listed as read: the consumer only samples it (0075 test: listed as a write,
++          * DWM still lost each new device right after opening the app's buffers). */
++         walloc[n].WriteOperation = bo->runtime_owned != WBO_OPENED;
+          n++;
+       }
+       uint32_t skipped = 0;
+       for (uint32_t i = 0; i < wbo_cap; i++) {
+-         if (!wbo[i].h || wbo[i].mark == gen || wbo[i].fixed || wbo[i].gone)
++         if (!wbo[i].h || wbo[i].mark == gen || wbo[i].fixed || wbo[i].gone || wbo[i].runtime_owned == WBO_OPENED)
+             continue;
+          if (n == walloc_size) {
+             skipped++;
+-- 
+2.40.1.windows.1
+

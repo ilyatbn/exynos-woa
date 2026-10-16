@@ -166,3 +166,31 @@ Chromium needs GLES 3.0 from ANGLE = D3D FL 10_1 (renderer11_utils GetMaximumCli
   frames done, DWM unchanged. Mesa commit + tools/mesa-build/patches/0074-msaa.patch.
   Diagnostic only (rule 12): Edge + allowES3OnFL10_0 - the Skia FATAL is gone (research confirmed); the GPU process
   now runs ~13 s, then exits 0xC0000005 (access violation) once, the restarted one stays up. Next: that crash.
+- 21:45 Review of 862a94b/0074: (1) MsaaFamilyFormat answers the R32 and R16 families from D32_FLOAT / D16_UNORM
+  depth support - a colour R32_FLOAT/R16_* MSAA RT is then created on the strength of the depth answer; follow-up:
+  d3dmsaa over all RT formats x 4/8/16 (create + clear + resolve) to prove each claimed level. (2) 2x = 0
+  everywhere (panfrost has no 2x) - fine for D3D, 4x is the required count. (3) LOAD is advertised but SM ld2dms
+  (LD_MS) translation path is untested - follow-up with F2 shader tests.
+- 21:50 The Edge GPU-process crash (crashpad dump, traces/.../edgegpu.dmp, cdb stack only): d3d11 WaitTrackedFenceImpl
+  <- dxgi CDXGISwapChain::AcquireBuffer <- OMSetRenderTargets <- msedge rx::StateManager11 - the same tracked-fence
+  crash as Windows Terminal (composition swap chain, no DXGI redirection). => browsers are blocked on G15 too:
+  redirection must be on by default and DWM stable with it. Back to G15.
+- 22:00 G15 fresh DWM log with 0074i + a redirected d3dswap (dwmwatch -Redirect, traces/.../dwm-redir-1332.txt):
+  DWM binding 0 opens the app's 400x300 buffers (OpenResource 0xc0001e40/0x80002a80 -> BOs 117/118), within 16 ms
+  the runtime frees them and every other DWM resource ("gone"), binding 1 is created, binding 0 destroyed = the device
+  loss, right after the first opened redirected buffers appear. No CB FAIL: the runtime's RenderCb returns >= 0 to
+  us and handles the error itself (INFERENCE: device marked lost inside the runtime, ETW "Render 0xC0000022").
+  Shim behaviour (malikm_drm.c SUBMIT, H2): every submission lists the batch BOs AND every other live BO of the
+  binding - including opened redirected buffers that, in the flip model, belong to the producing app between
+  presents. HYPOTHESIS: DxgKrnl refuses (ACCESS_DENIED) a consumer submission that references a buffer it does not
+  currently own. 0075: opened allocations (WBO_OPENED) are listed only when the batch uses them.
+- 22:10 0075 result (reboot, dwmwatch -Redirect, traces/.../dwm-redir-0075.txt): better but not fixed - the app
+  reached frame 46 (was 5) before DWM died, but the pattern stays: every new DWM device opens the two 400x300 app
+  buffers and is dropped ~300 ms later. In the batch path opened BOs are still listed with WriteOperation = 1 (all
+  batch BOs are, Panfrost has no per-BO write info). 0075b: opened BOs listed as reads.
+- 22:20 0075b (maliumd d7e7d42f) FIXES the DWM device loss: reboot, dwmwatch -Redirect 60 frames: DWM opens the
+  app's two buffers, 0 device drops (devlost: CreateDevice 1 dropped 0), app runs to "done", DWM pid unchanged.
+  0075 alone: 23 drops. ROOT CAUSE: the shim listed DWM's opened (other-process) buffers as WRITES in its
+  submissions - a flip-model consumer may only read the producer's buffers; DxgKrnl refused the Render
+  (STATUS_ACCESS_DENIED) and the runtime removed the device. (Write-listing came from H2's "batch BOs = written".)
+- 22:25 400-frame redirected composition run: done in ~10 s, DWM pid unchanged, 0 drops. Mesa commit + patches/0075-opened-bo-read.patch. Next (0076): redirection on by default (rule 12: no env switch), D3D10UMD_NO_REDIRECT=1 only for diagnosis.

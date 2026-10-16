@@ -71,6 +71,20 @@ foreach ($name in 'Microsoft.Copilot', 'Microsoft.MicrosoftOfficeHub', 'Microsof
   Get-AppxPackage -AllUsers -Name $name -ErrorAction SilentlyContinue | ForEach-Object { $p = $_; Do-It "remove appx $($p.PackageFullName)" { Remove-AppxPackage -Package $p.PackageFullName -AllUsers -ErrorAction Stop } }
   Get-AppxProvisionedPackage -Online | Where-Object DisplayName -eq $name | ForEach-Object { $p = $_; Do-It "deprovision $($p.PackageName)" { Remove-AppxProvisionedPackage -Online -PackageName $p.PackageName -ErrorAction Stop | Out-Null } }
 }
+# The Win32 Copilot desktop app (C:\Program Files (x86)\Microsoft\Copilot, Chromium-based installer; still running
+# after the appx removal on 2026-10-16): its own uninstall entry + --force-uninstall, then service/folder/task leftovers.
+Do-It 'stop copilotapp' { Get-Process copilotapp -ErrorAction SilentlyContinue | Stop-Process -Force }
+foreach ($k in 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+               'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*') {
+  Get-ItemProperty $k -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq 'Copilot' -and $_.UninstallString -match '^"([^"]+)"\s*(.*)$' } | ForEach-Object {
+    $exe = $Matches[1]; $rest = $Matches[2] + ' --force-uninstall'
+    Do-It "uninstall Copilot desktop: $exe $rest" { $p = Start-Process -FilePath $exe -ArgumentList $rest -PassThru -WindowStyle Hidden; if (-not $p.WaitForExit(180000)) { $p.Kill() } }
+  }
+}
+Do-It 'stop copilotapp (again)' { Get-Process copilotapp -ErrorAction SilentlyContinue | Stop-Process -Force }
+if (Get-Service MicrosoftCopilotElevationService -ErrorAction SilentlyContinue) { Do-It 'delete MicrosoftCopilotElevationService' { & sc.exe delete MicrosoftCopilotElevationService | Out-Null } }
+if (Test-Path 'C:\Program Files (x86)\Microsoft\Copilot') { Do-It 'remove Copilot folder' { Remove-Item 'C:\Program Files (x86)\Microsoft\Copilot' -Recurse -Force -ErrorAction Stop } }
+Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object TaskName -match 'Copilot' | ForEach-Object { $t = $_; Do-It "remove task $($t.TaskName)" { Unregister-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath -Confirm:$false } }
 RegSet 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot' 'TurnOffWindowsCopilot' 1
 RegSet 'HKCU:\Software\Policies\Microsoft\Windows\WindowsCopilot' 'TurnOffWindowsCopilot' 1
 RegSet 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'ShowCopilotButton' 0

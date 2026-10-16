@@ -24,3 +24,12 @@ log C:\S10eTmp\debloat.log).
 - Kept on purpose: audio, BT, WLAN stack, sshd, Schedule, S10eAgent, Defender, WU, XtaCache, WER, touch keyboard,
   UnistoreSvc/UserDataSvc (shell flyouts).
 - To verify after the next boot: svchost count, Start menu / taskbar / Wi-Fi / BT / audio still fine.
+- 14:18 found the Win32 Copilot desktop app still running (C:\Program Files (x86)\Microsoft\Copilot, 9 copilotapp.exe,
+  MicrosoftCopilotElevationService) - the appx removal does not cover it. Script now runs its uninstall entry
+  (copilot_setup.exe --uninstall --mscopilot --system-level + --force-uninstall), then deletes the service, folder and
+  Copilot tasks. Verified: no uninstall entry, folder, service or copilotapp process left.
+- Scheduled-task question (user: tasks 30-45 min after boot?): delayed boot/logon tasks are Autochk\Proxy (+30 min),
+  CertificateServicesClient\UserTask (+25 min, repeat 60), Work Folders Maintenance (+30 min logon) - none at the
+  ~47 min freeze. Event-log windows per boot are unusable: the phone clock restarts at 10-15 11:47:32 every boot (no
+  RTC) and jumps later, so all boots overlap. The freeze recorder now prints newly started processes per sample
+  ("NEW ...") to catch a task launching right before the hang.

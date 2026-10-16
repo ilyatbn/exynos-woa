@@ -141,3 +141,8 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   ~44-45 min after power-on. **Hypothesis: 2^36 ticks of the 26 MHz system counter = 2643 s = 44.05 min** (counter
   reset by the SoC reset). Test: read QPC (frequency + value) right after the next boot and predict the moment
   CNTVCT crosses 2^36; compare with the next freeze. UNVERIFIED until that comparison.
+- 05:52 test armed (boot at 05:50:10 by `adb reboot`): Stopwatch.Frequency 26000000; KUSER_SHARED_DATA QpcBias
+  (0x7FFE03B8) -1212029012 -> raw CNTVCT = QPC - bias = 116.3 s at 05:52:06, i.e. the counter starts at the reset.
+  PC-side logger (one ssh session, scratchpad cntlog.ps1, raw counter every 2 s with PC timestamps) predicts
+  CNTVCT = 2^36 at **06:34:17**. Pre-registered: a freeze within ~1 min of that = hypothesis supported; a freeze
+  elsewhere or none by ~06:45 = rejected.

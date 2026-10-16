@@ -1527,3 +1527,17 @@ To go back to unattended reboot loops: flash boot116-fb10m-v2.img (watchdog 1), 
 - **§43 update (12:24):** parked state reached: boot-kd6.img (7810a0bd) flashed, BCD bootdebug back OFF (bcdedit output
   "bootdebug No", kernel debug still Yes as the KD image needs), extra.cmd back to the ssh-install original, ESP
   stay.flg on, rebooted into Windows.
+
+## 44. Restart point (2026-10-16 ~11:55 local; Wi-Fi throughput DONE per user; next session: WDDM2 rewrite)
+**Committed (tree clean):** Exynos9820WlanCx 1.0.10.26 installed on the phone (c446aa1 = the fix: firmware "mfp" set from
+our RSN IE before the join - the PMF mismatch had blocked Block Ack with PMF-capable APs; d098f68 = last). Measured:
+2.4 GHz Home-X 34-41 Mbit/s (was 4-8), 5 GHz 221-282 Mbit/s single stream at ~23 % CPU. Diagnostics: Parameters\DbgDump
+(section | var: | set: | pm: | stainfo | cnt | bw40 | country:XX), counters/macstat80 every ~1 min. Details:
+notes/wifi-throughput.md. BT 1.0.0.16 unchanged. alpha4 tag = baa0caf.
+**Open, not in flight:**
+- **Silent freeze every boot at ~2832 s (47.2 min) after the SoC reset** (13 so far, predicted to the second; tracks the
+  raw counter, not Windows boot time; NOT WlanCx (froze with it removed), NOT BT, NOT a memory leak, NOT the 2^36 counter
+  wrap; KD break-in fails - the hang takes the USB/KDNET path too). notes/thermal-clocks.md. Next: boot image with the m14
+  EL3 PC sampler or the DSS/scan2dram dump to see the hung cores. Until then every session dies after ~47 min.
+- 40 MHz in 2.4 GHz: this fw keeps HT cap 20 MHz (bw_cap, mimo_bw_cap, country tried); RSDB wlc1 untested.
+- Phone leftovers: firewall rule S10eUdpTest (UDP 9998), schtasks band5/band24/wifiexp/wlanswap (one-shot, harmless).

@@ -161,3 +161,10 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   first attempt's --break-after 2800 would have fired before the freeze because KD connects only ~27 s after the
   reset). kdrun started with --break-at 08:14:03 and commands .reload; !running -ti; !cpuinfo; ~*k; r; !analyze -v; g.
   Killing the first kd host while connected did not disturb the target (ssh up at 07:29:02, KD reconnected).
+- 08:14 KD capture at the freeze FAILED: break-in at 08:14:03 -> "Failed to write breakin packet ... HOST cannot
+  communicate with the TARGET" -> the hang also takes down the KDNET/USB path (whole-system hang, not one thread).
+  Last KD output before it: routine WlanCx alive ticks (phone on HomeX-5 / 5 GHz this boot, 216 Mbit/s HE) and BT
+  stats lines (rx bursts of ~70 KB) - nothing unusual. Freeze #11 at ~08:13:48 as predicted; also on 5 GHz.
+- 08:16 experiment armed (reset 08:13:53): SYSTEM task wifiexp.cmd disables ACPI\SAMS9825\0 (WlanCx) at raw ~375 s,
+  re-enables at raw ~3000 s; KD stays attached over USB; kdrun --break-at raw 2900 s (09:02:13). A successful
+  break-in at 2900 s = the system survived past 2832 s without Wi-Fi -> WlanCx / BCM4375 implicated.

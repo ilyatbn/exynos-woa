@@ -150,3 +150,9 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   line was 06:37:25 at raw counter 73621194128 = 2831.6 s (47.2 min after the reset), then ssh died (freeze #9,
   idle). The time-to-freeze per boot is still ~47 min (consistent with #6-#8) -> next hypothesis: a resource that
   runs out at a constant rate (pool / commit leak, handle leak). Next boot: sample memory + pool counters each minute.
+- 07:25 **freeze #10 exactly as predicted**: memory sampler (scratchpad memlog.ps1, every 50 s) alive at raw 2821 s,
+  ssh dead ~2835 s (#9: alive 2831.6 s). Memory FLAT the whole boot: avail ~2.1-2.3 GB, commit ~4.0 GB, nonpaged
+  ~90-109 MB, paged ~180-237 MB, handles 54-60k, no growing pool tag (top NP: ConT 133 MB constant) -> NOT a leak.
+  => deterministic time-triggered hang at ~2832 s (47.2 min) after the SoC reset, independent of load (logger
+  traffic in #9, idle in #6-#8). Next: KD host attached from boot (kdrun.py), CTRL_BREAK ~15 s after the predicted
+  freeze to see every CPU (!running -ti) before the watchdog resets it.

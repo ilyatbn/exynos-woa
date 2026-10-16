@@ -131,3 +131,7 @@ Design source: notes/thermal-research.md (staged plan, constants table).
 - 2026-10-16 ~04:07 local: sixth silent freeze, phone IDLE (no tests running for ~15 min; WlanCx 1.0.10.20 on 2.4 GHz,
   BT 1.0.0.16 on). Same signature (ssh closed, ping answering ~1 min, then reset); being the second death in a row
   (after 03:20) BootLog parked it in TWRP. Battery 44 %. Rebooted to Windows with `adb reboot`.
+- 2026-10-16 ~05:01 local: seventh silent freeze, idle, ~46 min after the 04:15 boot (WlanCx 1.0.10.20 2.4 GHz, BT
+  on); stay.flg -> straight back to Windows (uptime 1 min at 05:03). Spacing tonight 03:20 / 04:07 / 05:01 = ~50 min
+  between freezes (each ~45-50 min after a boot) - a timer/counter-like period worth checking (log rotation? alive
+  counters? a Windows idle task?).

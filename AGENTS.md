@@ -134,3 +134,10 @@ flags or environment variables to a process (e.g. browser `--enable-angle-featur
 a test's environment) so that our driver works is **not** a solution. Such switches are allowed only as tracing /
 diagnosis tools for finding the native fix, and must be recorded as such in the notes. A milestone is reached only
 when it works without them.
+
+## 13. Stuck? Microsoft docs first
+
+When stuck - an unexplained failure code, unclear DDI/runtime behaviour, a rule the runtime enforces - research
+learn.microsoft.com (DDI reference, WDDM/DXGI/D3D design guides) **before** guessing or iterating blindly. Record
+what the docs say (URL + the sentence) in the task's notes file. Iterating by trial (build-test-build) without a
+docs check first is not allowed.

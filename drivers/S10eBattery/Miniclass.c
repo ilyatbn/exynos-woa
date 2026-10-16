@@ -137,6 +137,11 @@ static VOID SaveDiagnostics(_In_ PS10E_BATT_FDO Fdo, _In_ PS10E_BATT_READING R)
         { L"NotifyCount",   Fdo->NotifyCount },
         { L"QueryStatusCount", Fdo->QueryStatusCount },
         { L"QueriedPowerState", Fdo->QueriedPowerState },
+        /* G18 H1: USB-C block - UsbcRev = HW | FW << 8; UsbcSt0 = regs 0x06..0x09 (byte 0 = 0x06),
+           UsbcSt1 = regs 0x0A..0x0D (CC_STATUS0, CC_STATUS1, PD_STATUS0, PD_STATUS1); 0xFFFFFFFF = not read */
+        { L"UsbcRev", R->UsbcRead ? ((ULONG)R->UsbcRev[0] | ((ULONG)R->UsbcRev[1] << 8)) : 0xFFFFFFFF },
+        { L"UsbcSt0", R->UsbcRead ? *(const ULONG UNALIGNED *)&R->UsbcStatus[0] : 0xFFFFFFFF },
+        { L"UsbcSt1", R->UsbcRead ? *(const ULONG UNALIGNED *)&R->UsbcStatus[4] : 0xFFFFFFFF },
     };
     ULONG          i;
     UNICODE_STRING Name;

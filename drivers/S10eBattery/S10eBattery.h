@@ -110,6 +110,14 @@
 #define MAX77705_FG_RESISTOR_UNVERIFIED     2
 
 #define MAX77705_CHG_ADDR         0x69    /* [K] 0xD2 >> 1 */
+/* G18 H1 (notes/g18-hdmi-dp-alt.md): the USB-C / PD controller block, READ-ONLY. [K] = vendor
+ * include/linux/mfd/max77705-private.h (LineageOS lineage-23.2): USBC/MUIC client 0x4A (8-bit), registers
+ * UIC_HW_REV 0x00, UIC_FW_REV 0x01, UIC_INT..VDM_INT 0x02-0x05 (interrupt latches - NOT read here, a read would
+ * clear them), USBC_STATUS1 0x06, USBC_STATUS2 0x07, BC_STATUS 0x08, CC_STATUS0 0x0A, CC_STATUS1 0x0B,
+ * PD_STATUS0 0x0C, PD_STATUS1 0x0D. */
+#define MAX77705_USBC_ADDR        0x25    /* [K] 0x4A >> 1 */
+#define MAX77705_USBC_HW_REV      0x00
+#define MAX77705_USBC_STATUS1     0x06    /* 0x06..0x0D read as one 8-byte block */
 /* Charger watchdog (kernel max77705_charger.c set_wdtmr_kick / get_wdtmr_status, max77705_charger.h:124-245):
    CNFG_00 bit4 WDTEN; kick = CNFG_06 bits 1:0 <- 01 (WDTCLR); CHG_DTLS 0x0B = watchdog expired -> charging off.
    Linux kicks it on every health poll; under Windows nobody did, so the phone stopped charging (run batt1). */
@@ -164,6 +172,9 @@ typedef struct _S10E_BATT_READING {
     UCHAR   ChgCnfg02;       /* CHG_CNFG_02 0xB9 (CHG_CC) - diagnostics, 0xFF = not read */
     UCHAR   ChgCnfg09;       /* CHG_CNFG_09 0xC0 (CHGIN_ILIM) - diagnostics, 0xFF = not read */
     BOOLEAN WdtKicked;       /* the charger watchdog kick write succeeded this poll */
+    BOOLEAN UsbcRead;        /* G18 H1: the USB-C block answered */
+    UCHAR   UsbcRev[2];      /* UIC_HW_REV, UIC_FW_REV */
+    UCHAR   UsbcStatus[8];   /* 0x06 USBC_STATUS1 .. 0x0D PD_STATUS1 */
 } S10E_BATT_READING, *PS10E_BATT_READING;
 
 typedef struct _S10E_BATT_GLOBAL {

@@ -20,3 +20,10 @@ panel is portrait-first).
 
 ## Progress log
 - 2026-10-17 02:30 plan written. The user must plug the hub + monitor for H1's second read (ping on the app then).
+- 02:50 H1 DONE: S10eBattery 1.0.0.5 (sys 6578C452) reads the max77705 USB-C block (7-bit 0x25 = [K] 0x4A >> 1,
+  max77705-private.h) every poll, read-only, revs 0x00-0x01 + status 0x06-0x0D (interrupt latches 0x02-0x05 skipped:
+  clear-on-read). Device Parameters UsbcRev/UsbcSt0/UsbcSt1; decoder tools/phone/wddm2/usbc.ps1 (bit fields from
+  include/linux/ccic/max77705.h). First read, phone on the PC's USB cable: UsbcRev 0x1A1A (HW 0x1A, FW 0x1A), BC_STATUS
+  0x81 = VBUS present, ChgTyp 1 (SDP); CC_STATUS0 0x51 = SINK on CC1; CC_STATUS1 0x08 (ConnStat 0, Altmode 0);
+  PD_STATUS0 0x19, PD_STATUS1 0x47 = UFP, PSRDY 0. Opcode interface for H2: OPCODE_WRITE 0x21, OPCODE_READ 0x51,
+  32 data bytes ([K] max77705.h). Next: same read with the hub + HDMI monitor plugged (user).

@@ -10,7 +10,7 @@ Signature   = "$WINDOWS NT$"
 Class       = Battery
 ClassGuid   = {72631e54-78a4-11d0-bcf7-00aa00b7b32a}
 Provider    = %ProviderString%
-DriverVer   = 10/16/2026,1.0.0.4
+DriverVer   = 10/17/2026,1.0.0.5
 CatalogFile = S10eBattery.cat
 PnpLockdown = 1
 

@@ -170,5 +170,14 @@ NTSTATUS S10eMax77705Read(_Inout_ PS10E_BATT_FDO Fdo, _Out_ PS10E_BATT_READING R
         Reading->WdtKicked = NT_SUCCESS(S10eHsi2cXfer(Fdo, MAX77705_CHG_ADDR, FALSE, Write, sizeof(Write), TRUE));
     }
 
+    /* G18 H1: USB-C / PD block snapshot, read-only, revisions + status registers only (no interrupt latches). A
+       failure leaves the battery reading intact. */
+    if (NT_SUCCESS(S10eMax77705ReadN(Fdo, MAX77705_USBC_ADDR, MAX77705_USBC_HW_REV, Reading->UsbcRev,
+                                     sizeof(Reading->UsbcRev))) &&
+        NT_SUCCESS(S10eMax77705ReadN(Fdo, MAX77705_USBC_ADDR, MAX77705_USBC_STATUS1, Reading->UsbcStatus,
+                                     sizeof(Reading->UsbcStatus)))) {
+        Reading->UsbcRead = TRUE;
+    }
+
     return STATUS_SUCCESS;
 }

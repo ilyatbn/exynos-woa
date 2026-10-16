@@ -71,7 +71,7 @@ NTSTATUS MwQuerySegment4(MW_ADAPTER *A, const DXGKARG_QUERYADAPTERINFO *Info)
     d->CommitLimit = MW_SEGMENT_SIZE;
     d->Flags.Aperture = TRUE;
     d->Flags.CacheCoherent = FALSE;
-    d->Flags.CpuVisible = MwSegmentCpuVisible ? TRUE : FALSE;
+    d->Flags.CpuVisible = (MwSegmentCpuVisible && !(MwWddm2Quirk & 4)) ? TRUE : FALSE;
     out->PagingBufferSegmentId = MW_SEGMENT_ID;
     out->PagingBufferSize = 10 * PAGE_SIZE;
     out->PagingBufferPrivateDataSize = 0;

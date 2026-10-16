@@ -39,6 +39,11 @@ ULONG MwWddm2Ver = 0;
  * ("Determining WDDM Version") says dxgkrnl validates caps/DDIs against the reported WDDMVersion and fails the adapter
  * on inconsistency; both open-source WDDM 2.0 KMDs report DXGKDDI_WDDMv2 (0x2000). 0 = the runs 1-6 answer. */
 ULONG MwWddm2CapsVer = 0;
+/* S1 run 8 probe: Parameters\Probe\Quirk (volatile key only), bits = answers that differ from the WDDM 2.0 KMD that
+ * loads (qemus/virtio-drivers-windows gpu-wddm/src/adapter.rs query_info): 1 = PHYSICALADAPTERCAPS NOT_SUPPORTED,
+ * 2 = QAI 47 NOT_SUPPORTED, 4 = QUERYSEGMENT4 aperture not CpuVisible, 8 = DISPLAY_DRIVERCAPS_EXTENSION
+ * NOT_SUPPORTED. 0 = run 7. */
+ULONG MwWddm2Quirk = 0;
 
 /* ---- trace ---- */
 
@@ -472,7 +477,7 @@ static NTSTATUS APIENTRY MwQueryAdapterInfo(IN_CONST_HANDLE hAdapter, const DXGK
         case DXGKQAITYPE_PHYSICALADAPTERCAPS:
             /* WDDM 2.0 physical-engine mode: one node, paging on it, no IoMmu/GpuMmu flags. DxgkPhysicalAdapterHandle =
              * the DXGKRNL_INTERFACE::DeviceHandle from DxgkDdiStartDevice (MS Learn DXGK_PHYSICALADAPTERCAPS). */
-            if (!MwWddm2) {
+            if (!MwWddm2 || (MwWddm2Quirk & 1)) {
                 st = STATUS_NOT_SUPPORTED;
             } else if (Info->OutputDataSize < FIELD_OFFSET(DXGK_PHYSICALADAPTERCAPS, Flags) + sizeof(DXGK_PHYSICALADAPTERFLAGS)) {
                 st = STATUS_BUFFER_TOO_SMALL;
@@ -496,10 +501,18 @@ static NTSTATUS APIENTRY MwQueryAdapterInfo(IN_CONST_HANDLE hAdapter, const DXGK
             }
             break;
         case 47: /* DXGKQAITYPE_64BITONLYCAPS: zero = not restricted to 64-bit */
+            if (MwWddm2 && (MwWddm2Quirk & 2)) {
+                st = STATUS_NOT_SUPPORTED;
+                break;
+            }
             RtlZeroMemory(Info->pOutputData, Info->OutputDataSize);
             st = STATUS_SUCCESS;
             break;
         case DXGKQAITYPE_DISPLAY_DRIVERCAPS_EXTENSION:
+            if (MwWddm2 && (MwWddm2Quirk & 8)) {
+                st = STATUS_NOT_SUPPORTED;
+                break;
+            }
             RtlZeroMemory(Info->pOutputData, Info->OutputDataSize);
             st = STATUS_SUCCESS;
             break;
@@ -857,6 +870,7 @@ static MW_MODE ReadMode(PUNICODE_STRING RegistryPath, ULONG *PramTrace)
                 w = ReadParameter(probe, L"Wddm2", w);
                 MwWddm2Ver = ReadParameter(probe, L"Ver", 0);
                 MwWddm2CapsVer = ReadParameter(probe, L"WddmVersion", 0);
+                MwWddm2Quirk = ReadParameter(probe, L"Quirk", 0);
                 ZwClose(probe);
             } else if (w == 4) {
                 w = 0;

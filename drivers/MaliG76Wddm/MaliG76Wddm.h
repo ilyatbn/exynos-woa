@@ -135,6 +135,7 @@ extern ULONG MwPanelBrightness;
 extern ULONG MwCddDwmInterop;
 extern ULONG MwWddm2;
 extern ULONG MwWddm2Va;
+extern ULONG MwWddm2Quirk;
 /* Parameters\FlipBlt (default 1): a Flip present is carried out as a CPU copy of the new primary into the GOP
  * framebuffer (command.c); 0 = the original's behaviour (flips are dropped, the panel never shows them). */
 extern ULONG MwFlipBlt;

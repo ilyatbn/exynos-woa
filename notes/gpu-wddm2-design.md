@@ -358,3 +358,9 @@ usb-c to hdmi dongle and our usb-c hub." alpha5 tagged at 1e5df58 (local tag, no
   Learn wddm-2-1-features "Determining WDDM Version" says dxgkrnl validates caps/DDIs against WDDMVersion and fails
   the adapter on inconsistency; both open-source WDDM 2.0 KMDs report DXGKDDI_WDDMv2 (0x2000). Next = S1 run 7:
   interface 0x5023 + WDDMVersion 0x2000, physical first, then + run-5 VA caps/stubs (volatile probe, restart-device).
+- 19:38 S1 run 7: KMD 1.0.53.1 (sys 773cd48e, swapped via SYSTEM task, hash checked), volatile Probe Wddm2=1
+  (interface 0x5023, physical, no VA caps) + WddmVersion=0x2000, restart-device. RESULT: dxgkrnl goes PAST DRIVERCAPS
+  for the first time: trace order QueryInterface (0xC00000BB), QueryChildRelations, QAI_1 DRIVERCAPS ok, QAI_15
+  PHYSICALADAPTERCAPS ok (0x14 B), QAI_47 ok (4 B), GetNodeMetadata, QAI_11 QUERYSEGMENT4 ok (0x28 B), QAI_10
+  HISTORYBUFFERPRECISION ok, QAI_16 DISPLAY_DRIVERCAPS_EXTENSION ok (4 B) - then still code 43 POST_START.
+  => the research lead is confirmed (WDDMVersion 0 was the first gate). Next gate is after QAI_16. Unprobed (1.3 back).

@@ -118,3 +118,11 @@ is always recoverable - but the key timing gets harder as our firmware runs long
 - TWRP: the moment it goes black switch to **Volume Up + Bixby + Power** and keep holding until
   TWRP appears (releasing at the Samsung logo may boot our image again).
 - Rollback to Android: from TWRP write the stock `boot.img` back to `by-name/boot`.
+
+## 11. Windows internals: document, don't do
+
+When the easiest solution to a problem is something in Windows internals (checking or disassembling Windows
+system files/binaries, reading their internal code paths or undocumented structures), do not do it. Add an entry to
+[`notes/skipped-windows-internals.md`](notes/skipped-windows-internals.md) instead: "The best way to get the answer
+to this problem would have been to look at XXXX to solve the problem of YYYY, but due to security concerns I chose
+not to do that", plus what was done instead (our own instrumentation, documented sources, behavioural tests).

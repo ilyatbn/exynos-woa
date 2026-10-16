@@ -131,3 +131,16 @@ User report 2026-10-15: ~18 Mbit/s while copying a 725 MB file to the phone over
   in the diff (grep). FOUND: (1) "set:x=" (no digits) silently wrote 0, (2) a section name >= 32 chars was skipped
   without a log line. FIXED in 1.0.10.20 (follow-up commit): both rejected with a "[dbg]" line; device-verified
   (set:btc_mode= / =1x ignored, =1 MSG 0, 34-char name rejected).
+- 10:40 user: the PC gets 200 Mbit/s on Home-X 2.4 GHz (and ~310 on HomeX-5) -> the AP DOES aggregate; the
+  "AP-side limit" conclusion above was WRONG. (netsh's "54 Mbps" was our CX_LINK_KBPS placeholder.)
+- 10:55 **ROOT CAUSE: PMF mismatch.** Firmware var mfp = 1 (WL_MFP_CAPABLE, fw default) while our association RSN IE
+  carries caps 0x000C (no MFPC) and the 2.4 GHz AP is MFPC (caps 0x8C). Block Ack setup frames (ADDBA/DELBA action
+  category 3) are robust management frames -> with mfp 1 the firmware expected/sent them protected while the AP
+  (which saw no MFPC from us) used them unprotected -> no BA either way (txaddbareq N / rxaddbaresp 0, rxaddbareq 0).
+  The 5 GHz router does not advertise MFPC, so it worked there. Samsung dhd sets "mfp" from the connect RSN IE on
+  every connect (wl_cfg80211.c:4703-4780: MFPR 0x40 -> 2, MFPC 0x80 -> 1, else 0; wpa.h:222-223; wlioctl.h:19179-19181);
+  our driver never did. **WlanCx 1.0.10.21: "mfp" set from our RSN caps before the join** ("[join] mfp 0 (RSN caps
+  0x0C): MSG 0").
+  Verified on device, Home-X 2.4 GHz ch 9, 144 Mbit/s link: dump ampdu txaddbareq 1 rxaddbaresp 1, rxaddbareq 1,
+  tot_ampdus 4869 (8 MPDU/A-MPDU tx), rx 7 MPDU/A-MPDU; internet download (user's fibertest link, curl, 1 stream)
+  34 and 41 Mbit/s (before: 3.6-8 Mbit/s).

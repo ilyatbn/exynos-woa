@@ -2425,6 +2425,17 @@ WlanMsgConnect(PWLAN_MSG_CTX M, PWLAN_REPORT R, const WLAN_CONNECT *C, PWLAN_ASS
         ReportLine(R, "[join] security setup refused (last status %ld)\r\n", S->RespStatus);
         goto Done;
     }
+    {
+        /* PMF must match the RSN IE we send (dhd wl_cfg80211.c:4703-4780: mfp from the connect IE's RSN caps, MFPR
+           0x40 -> WL_MFP_REQUIRED 2, MFPC 0x80 -> WL_MFP_CAPABLE 1, else WL_MFP_NONE 0; wpa.h:222-223,
+           wlioctl.h:19179-19181). This fw defaults to mfp 1: with our caps 0x000C (no MFPC) it treated robust action
+           frames (ADDBA/DELBA) as protected while the AP did not - no Block Ack with a PMF-capable AP
+           (notes/wifi-throughput.md 2026-10-16). */
+        UCHAR Caps = (C->Rsn && S->OwnRsnLen > 20) ? S->OwnRsn[20] : 0;
+        ULONG Mfp  = (Caps & 0x40) ? 2 : (Caps & 0x80) ? 1 : 0;
+
+        ReportLine(R, "[join] mfp %lu (RSN caps 0x%02X): MSG %lu\r\n", Mfp, Caps, SetInt(S, "mfp", Mfp));
+    }
     if (C->Rsn && IoctlVar(S, TRUE, "wpaie", S->OwnRsn, S->OwnRsnLen, 0) != MSG_OK) {
         ReportLine(R, "[join] wpaie refused (status %ld) - the firmware builds its own RSN IE\r\n", S->RespStatus);
     }

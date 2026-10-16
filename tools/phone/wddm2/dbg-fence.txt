@@ -1,0 +1,4 @@
+bu d3d11!NDXGI::CDevice::CreateFence ".echo === NDXGI CreateFence; kc 6; g"
+bu d3d11!NDXGI::CDevice::CreateFenceImpl ".echo === NDXGI CreateFenceImpl; kc 4; g"
+g
+q

@@ -1,0 +1,8 @@
+sxe -c ".echo === EXCEPTION; kc 8; .kill; q" av
+bm dxgi!CDXGISwapChain::BindToDwm ".echo === BindToDwm enter; kc 8; bp /1 @lr \".echo === BindToDwm ret; r x0; g\"; g"
+bm dxgi!CDXGISwapChain::CreateTrackedFenceExtended ".echo === CTFE enter; kc 4; bp /1 @lr \".echo === CTFE ret; r x0; g\"; g"
+bm d3d11!NDXGI::CDevice::CreateFence ".echo === NDXGI CreateFence; bp /1 @lr \".echo === NDXGI CreateFence ret; r x0; g\"; g"
+bm d3d11!NDXGI::CDevice::WaitTrackedFenceImpl ".echo === WaitTrackedFenceImpl; r x0,x1; g"
+g
+.kill
+q

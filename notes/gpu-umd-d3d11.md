@@ -46,3 +46,14 @@ Why (all four user goals hang on it):
   (3D pipeline), 128 (threading), 129 (shader) answered, CreateDevice interface 0x000b000b (D3D11_0) version
   0x00020009, FL 10_0, fences/shared fences still ok. Terminal still dies at d3d11+0x46f4 -> D3D11_0 alone does not
   give the tracked fence; next D2/D3 (D3D11_1 + WDDM1_3/WDDM2_0 tables). DWM on 0070 = next boot.
+- 22:10 D2/D3 built (Mesa 0071 work in progress): D3D11_1, WDDM1_3, WDDM2_0 tables + DXGI 1.2-1.4. WDDM2_0 device
+  creation needed GPUVA_CAPS != 0 (and MEMORY_ARCHITECTURE UMA) - zero = D3D11CreateDevice 0x887a0020. All four
+  levels create devices (D3D10UMD_MAX_DDI bisect), fences work at each. Terminal on WDDM2_0 (interface 0x000b0020):
+  still the NULL tracked fence. Parser fix: min-precision extended operand tokens on dst/relative operands
+  (ShaderParse.c, seen with WDDM1_3: assert at :430).
+- New repro drivers/MaliG76Wddm/tools/d3dswap (composition swap chain + DComp, user session): dies on the 3rd
+  frame exactly like Terminal; both presents return DXGI_STATUS_OCCLUDED (0x087a0001). Live user-mode debugging
+  with the ARM64 cdb on the phone (tools/phone/wddm2/dbgrun.cmd + dbg-*.txt): BindToDwm is called during swap chain
+  creation and returns S_OK, but no tracked fence gets created; the app-level ID3D11Device5::CreateFence path works.
+  Working hypothesis: DWM does not take the swap chain (OCCLUDED), so DXGI never sets up the DWM-bound fence -
+  next: our side of that (DWM's UMD log, KMD OpenAllocation/handle failures while d3dswap runs).

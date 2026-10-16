@@ -544,6 +544,8 @@ NTSTATUS APIENTRY MwRecommendFunctionalVidPn(IN_CONST_HANDLE hAdapter,
     path->ContentTransformation.ScalingSupport.Identity = 1;
     path->ContentTransformation.Rotation = D3DKMDT_VPPR_IDENTITY;
     path->ContentTransformation.RotationSupport.Identity = 1;
+    if (MwWddm2)
+        path->ContentTransformation.RotationSupport.Offset0 = 1;   /* clone-mode requirement, see EnumCofunc */
     path->VidPnTargetColorBasis = D3DKMDT_CB_SRGB;
     path->VidPnTargetColorCoeffDynamicRanges.FirstChannel = 8;
     path->VidPnTargetColorCoeffDynamicRanges.SecondChannel = 8;
@@ -706,6 +708,12 @@ NTSTATUS APIENTRY MwEnumVidPnCofuncModality(IN_CONST_HANDLE hAdapter,
                 RtlZeroMemory(&upd.ContentTransformation.RotationSupport,
                               sizeof(upd.ContentTransformation.RotationSupport));
                 upd.ContentTransformation.RotationSupport.Identity = 1;
+                /* G15 S1 run 9: MS Learn "Supporting Rotation in a Display Miniport Driver", clone-mode requirements:
+                 * the primary clone path must set Offset0 (and no other offset); "If test signing is enabled, a
+                 * system bugcheck will occur" - our WDDM 2.0 adapter took 0x113 subtype 0x1C, P2 = 0xF (the support
+                 * bits we passed) right after this call. dxgkrnl adds Offset0 itself for the 1.3 adapter. */
+                if (MwWddm2)
+                    upd.ContentTransformation.RotationSupport.Offset0 = 1;
                 /* 2026-10-14 (user: landscape does not work): offer the rotations. The source mode stays the
                  * panel's 1080x2280 and QueryVidPnHWCapability reports no hardware rotation, so the OS (DWM) is
                  * expected to compose the desktop rotated into it - verified or refuted by the scan-out dump. */

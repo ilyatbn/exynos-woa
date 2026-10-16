@@ -372,3 +372,16 @@ usb-c to hdmi dongle and our usb-c hub." alpha5 tagged at 1e5df58 (local tag, no
   => physical-only ("legacy") 2.0 stays rejected on 22631 with every documented knob tried; Learn calls the mode
   legacy/to be dropped, and both open-source WDDM 2.0 KMDs declare GpuMmu. DECISION: implement GpuMmu (S7 becomes
   the main line). Mali-G76 MMU: 48-bit VA, 4 levels x 9 bits, 4 KiB tables, 8 AS (gpu-wddm3-research.md Q7).
+- 19:58 S1 run 9 (KMD 1.0.54.1, volatile Wddm2=3 = run-4 stubs CalibrateGpuClock/CreateProcess/DestroyProcess/
+  SetStablePowerState, + WddmVersion 0x2000): the 2.0 adapter PASSED the post-start check for the first time -
+  PRAM trace (WINPRAM.BIN from the ESP S:, S10eDiag ring + KMD slice) shows display bring-up QueryDeviceDescriptor,
+  RecommendMonitorModes, IsSupportedVidPn, EnumVidPnCofuncModality, then SystemDisplayEnable = BSOD: S10eDiag ring
+  "BC 0x113 P1 0x1C P2 0xF" (VIDEO_DXGKRNL_FATAL_ERROR). Phone reset by our bugcheck callback, came back on 1.3.
+  => the missing piece after WDDMVersion was R06 of amdgpu-wddm's contract table (interface >= 0x5008 + render core
+  needs CalibrateGpuClock AND SetStablePowerState) - their source is a dxgkrnl reading; our run 9 vs run 7 is the
+  device confirmation (Wddm2=1 lacks both stubs and fails post-start, Wddm2=3 has them and starts).
+  0x113/0x1C: amdgpu-wddm evidence E16 run 007 (kernel dump): DMMVIDPNPRESENTPATH::SetRotationSupport from
+  UpdatePathSupportInfo; documented on Learn "Supporting Rotation in a Display Miniport Driver" clone-mode
+  requirements: primary clone path must set Offset0, "If test signing is enabled, a system bugcheck will occur".
+  P2 0xF = our Identity+Rotate90/180/270 without Offset0. Fix in KMD 1.0.55.1 (Offset0 under Wddm2).
+  HDMI note for later: the panel is portrait-first; a secondary clone path (internal panel) needs Offset270.

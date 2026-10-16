@@ -1583,3 +1583,15 @@ Probe tooling (scratchpad): probe7.ps1 (volatile Probe key + restart-device), un
 amdgpu-wddm read-only licence, MS docs + DDI docs).
 **Next:** make DWM compose on the 2.0 adapter (S3/S4), then Terminal tracked fence; G16 chrome://gpu on FL10_0;
 G17 needs D3D11.1 video DDI + FL11_0 in the UMD (notes/gpu-browser-video-research.md); G18 HDMI.
+
+## 47. Restart point (2026-10-16 ~23:10 local; goal WDDM2 + GPU UI/browsers/video + HDMI, unattended)
+**Committed:** KMD 1.0.60.1 (phone: Parameters\Wddm2 = 5 = WDDM 2.0 mixed GpuMmu, DirectFlip = 1) - desktop on the Mali
+via DWM, D3D11 + monitored fences work, HWND flip-model swap chains work. UMD = Mesa 0069-0073 (residency, D3D11_0 ->
+WDDM2_0 UMD DDI at FL 10_0, DXGI 1.4, redirect switch, callback logging); phone has mali-umd-0073 in System32.
+Debug kit: tools/phone/wddm2 (wddm2dbg.sh + README; traces land in traces/, gitignored). Freeze: fixed (UFS w38).
+**Open blocker (S4):** composition swap chains (Windows Terminal, DirectComposition/browsers) need DXGI redirection;
+d3d10umd returned DXGI_STATUS_NO_REDIRECTION - D3D10UMD_REDIRECT=1 fixes the tracked fence, but DWM then loses its
+devices repeatedly while redirected surfaces are live (no failing call of ours) -> redirect OFF by default.
+**Next:** understand DWM's device loss with redirected surfaces from our side (KMD trace of Present/OpenAllocation
+per device, shared-allocation flags, the DXGI Blt/Present DDI path the app takes when redirected); then browsers
+(chrome://gpu, G16), video DDI (G17), HDMI (G18). Notes: notes/gpu-umd-d3d11.md, notes/gpu-wddm2-design.md.

@@ -83,3 +83,17 @@ Why (all four user goals hang on it):
   ownership of allocation-list entries in the shim (only handles opened/created on that device). The redirect switch
   stays off machine-wide (registry value removed) until then; GpuMmu (Wddm2 = 5) and DirectFlip are not needed for
   the fence (cause was the UMD) - keep Wddm2 = 5 for now (works), revisit.
+- 23:00 Method change (user: debug differently, keep traces in a gitignored folder -> traces/): no more looking
+  inside Windows binaries. Instrument our own boundary instead: every runtime (KT) callback the malikm shim makes
+  goes through a logging wrapper (HRESULT + allocation handles + device/binding), with a ring of the last calls
+  dumped on the first failure of each kind. Goal: name the call that gets STATUS_ACCESS_DENIED in DWM with redirected
+  swap chains, and the handle in it. DXGI/D3D11/DxgKrnl ETW stays as the outside view.
+- 23:05 Mesa 0072/0073 (s10e-artifacts\mali-umd-0073, maliumd db4a5e4a): D3D10UMD_REDIRECT, SRV + CheckFormatSupport +
+  SetError logging, all runtime callbacks through logging wrappers (proof-of-life lines show them live in DWM).
+  Behaviour (tools/phone/wddm2/dwmwatch.ps1, devlost.ps1): with a redirected composition swap chain live, DWM keeps
+  running for 90 s / 280 frames (presents S_OK) but recreates its D3D devices constantly (152 drops in that run, 22
+  in a 60-frame run) and eventually fail-fasts; app exit itself is survived. NONE of the shim's runtime calls fails
+  in DWM during this (no CB FAIL, no SetError) - the device loss is not caused by a call we make. Without
+  redirection: 0 drops. Traces kept in traces/wddm2-2026-10-16 (gitignored).
+  Status of the S4 goal: redirection = tracked fence works (Terminal/composition swap chains run), but DWM is not
+  stable with redirected surfaces yet -> redirect stays off by default.

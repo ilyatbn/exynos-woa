@@ -22,30 +22,20 @@
 #define   SYSCLK_ENA              0x0040u
 #define R_SAMPLE_RATE_1         0x0102u
 #define   SAMPLE_RATE_48K         0x0003u
-#define R_FLL1_CONTROL_1        0x0171u
 #define   FLL_REFCLK_SRC_MASK     0xF000u
 #define   FLL_REFCLK_SRC_SHIFT    12
 #define   FLL_HOLD                0x0004u
 #define   FLL_ENA                 0x0001u
-#define R_FLL1_CONTROL_2        0x0172u
 #define   FLL_CTRL_UPD            0x8000u
-#define R_FLL1_CONTROL_3        0x0173u
-#define R_FLL1_CONTROL_4        0x0174u
-#define R_FLL1_CONTROL_5        0x0175u
 #define   FLL_FB_DIV_MASK         0x03FFu
-#define R_FLL1_CONTROL_6        0x0176u
 #define   FLL_REFCLK_DIV_MASK     0x00C0u
 #define   FLL_REFCLK_DIV_SHIFT    6
-#define R_FLL1_CONTROL_8        0x0178u
-#define R_FLL1_CONTROL_10       0x017Au
 #define   FLL_HP_MASK             0xC000u
 #define   FLL_HP_SHIFT            14
 #define   FLL_PHASEDET_ENA        0x1000u
-#define R_FLL1_CONTROL_11       0x017Bu
 #define   FLL_LOCKDET_THR_MASK    0x001Eu
 #define   FLL_LOCKDET_THR_SHIFT   1
 #define   FLL_LOCKDET             0x0001u
-#define R_FLL1_DIGITAL_TEST_1   0x017Du
 #define   FLL_DT1_MASK            0x0103u
 #define R_OUTPUT_ENABLES_1      0x0400u
 #define   OUT2_ENA_BOTH           0x000Cu
@@ -96,10 +86,6 @@ static const ULONG CodecPatch32[][2] = {    /* AudioTone.c mPatch32 */
     { 0x31C4, 0x022AF501 }, { 0x31D4, 0x04A20C00 }, { 0x31D6, 0x022B0000 }, { 0x31D8, 0x022AFF01 },
 };
 
-typedef struct {
-    PCSTR  Name;
-    USHORT RefSrc, N, Theta, Lambda, FbDiv, RefDiv, Gains, Hp, LockThr, FastClk;
-} CODEC_FLL;
 
 static const CODEC_FLL CodecFllMclk2 = { "MCLK2 (32 kHz)", 1, 375, 0, 1, 4, 0, 0x23F0, 0, 2, 0 };
 static const CODEC_FLL CodecFllMclk1 = { "MCLK1 (26 MHz)", 0, 22, 0x045A, 0x0659, 1, 1, 0x21F0, 3, 8, 3 };
@@ -151,46 +137,48 @@ static BOOLEAN CodecApplyPatch(_In_ PAUD_DEVICE_CONTEXT Dev)
     return Bad16 < ARRAYSIZE(CodecPatch16) || Bad32 < ARRAYSIZE(CodecPatch32);
 }
 
-static VOID CodecFllDisable(_In_ PAUD_DEVICE_CONTEXT Dev)
+/* madera_fllhj_disable for the FLL whose CONTROL_1 is at B + 1 (FLL1 B 0x170, FLL2 B 0x190); Lock = its IRQ1_RAW_STATUS_2 bit. */
+VOID CodecFllDisable(_In_ PAUD_DEVICE_CONTEXT Dev, ULONG B, USHORT Lock)
 {
     ULONG Ms;
 
-    (VOID)CodecUpdate(Dev, R_FLL1_CONTROL_11, FLL_LOCKDET, 0);
-    (VOID)CodecUpdate(Dev, R_FLL1_CONTROL_1, FLL_HOLD, FLL_HOLD);
-    (VOID)CodecUpdate(Dev, R_FLL1_CONTROL_1, FLL_ENA, 0);
-    for (Ms = 0; Ms < FLL_LOCK_MAX_MS && (Rd(Dev, R_IRQ1_RAW_STATUS_2) & FLL1_LOCK_STS); Ms++) {
+    (VOID)CodecUpdate(Dev, B + 0xB, FLL_LOCKDET, 0);
+    (VOID)CodecUpdate(Dev, B + 0x1, FLL_HOLD, FLL_HOLD);
+    (VOID)CodecUpdate(Dev, B + 0x1, FLL_ENA, 0);
+    for (Ms = 0; Ms < FLL_LOCK_MAX_MS && (Rd(Dev, R_IRQ1_RAW_STATUS_2) & Lock); Ms++) {
         KeStallExecutionProcessor(1000);
     }
-    (VOID)CodecUpdate(Dev, R_FLL1_CONTROL_2, FLL_CTRL_UPD, 0);
+    (VOID)CodecUpdate(Dev, B + 0x2, FLL_CTRL_UPD, 0);
 }
 
-static BOOLEAN CodecFllEnable(_In_ PAUD_DEVICE_CONTEXT Dev, _In_ const CODEC_FLL *C)
+/* madera_fllhj_enable + apply + wait_for_fll for the FLL at B (as CodecFllDisable). TRUE = locked. */
+BOOLEAN CodecFllEnable(_In_ PAUD_DEVICE_CONTEXT Dev, ULONG B, USHORT Lock, _In_ const CODEC_FLL *C)
 {
     ULONG Ms;
 
-    (VOID)CodecUpdate(Dev, R_FLL1_CONTROL_1, FLL_HOLD, FLL_HOLD);
-    (VOID)CodecWrite(Dev, R_FLL1_CONTROL_2, C->N);
-    (VOID)CodecUpdate(Dev, R_FLL1_CONTROL_3, 0xFFFF, C->Theta);
-    (VOID)CodecUpdate(Dev, R_FLL1_CONTROL_4, 0xFFFF, C->Lambda);
-    (VOID)CodecUpdate(Dev, R_FLL1_CONTROL_5, FLL_FB_DIV_MASK, C->FbDiv);
-    (VOID)CodecUpdate(Dev, R_FLL1_CONTROL_6, FLL_REFCLK_DIV_MASK, (USHORT)(C->RefDiv << FLL_REFCLK_DIV_SHIFT));
-    (VOID)CodecUpdate(Dev, R_FLL1_CONTROL_8, 0xFFFF, C->Gains);
-    (VOID)CodecUpdate(Dev, R_FLL1_CONTROL_10, FLL_HP_MASK | FLL_PHASEDET_ENA, (USHORT)((C->Hp << FLL_HP_SHIFT) | FLL_PHASEDET_ENA));
-    (VOID)CodecUpdate(Dev, R_FLL1_CONTROL_11, FLL_LOCKDET_THR_MASK, (USHORT)(C->LockThr << FLL_LOCKDET_THR_SHIFT));
-    (VOID)CodecUpdate(Dev, R_FLL1_DIGITAL_TEST_1, FLL_DT1_MASK, C->FastClk);
-    (VOID)CodecUpdate(Dev, R_FLL1_CONTROL_1, FLL_REFCLK_SRC_MASK, (USHORT)(C->RefSrc << FLL_REFCLK_SRC_SHIFT));
-    (VOID)CodecUpdate(Dev, R_FLL1_CONTROL_1, FLL_ENA, FLL_ENA);
-    (VOID)CodecUpdate(Dev, R_FLL1_CONTROL_11, FLL_LOCKDET, FLL_LOCKDET);
-    (VOID)CodecUpdate(Dev, R_FLL1_CONTROL_2, FLL_CTRL_UPD, FLL_CTRL_UPD);
-    (VOID)CodecUpdate(Dev, R_FLL1_CONTROL_1, FLL_HOLD, 0);
+    (VOID)CodecUpdate(Dev, B + 0x1, FLL_HOLD, FLL_HOLD);
+    (VOID)CodecWrite(Dev, B + 0x2, C->N);
+    (VOID)CodecUpdate(Dev, B + 0x3, 0xFFFF, C->Theta);
+    (VOID)CodecUpdate(Dev, B + 0x4, 0xFFFF, C->Lambda);
+    (VOID)CodecUpdate(Dev, B + 0x5, FLL_FB_DIV_MASK, C->FbDiv);
+    (VOID)CodecUpdate(Dev, B + 0x6, FLL_REFCLK_DIV_MASK, (USHORT)(C->RefDiv << FLL_REFCLK_DIV_SHIFT));
+    (VOID)CodecUpdate(Dev, B + 0x8, 0xFFFF, C->Gains);
+    (VOID)CodecUpdate(Dev, B + 0xA, FLL_HP_MASK | FLL_PHASEDET_ENA, (USHORT)((C->Hp << FLL_HP_SHIFT) | FLL_PHASEDET_ENA));
+    (VOID)CodecUpdate(Dev, B + 0xB, FLL_LOCKDET_THR_MASK, (USHORT)(C->LockThr << FLL_LOCKDET_THR_SHIFT));
+    (VOID)CodecUpdate(Dev, B + 0xD, FLL_DT1_MASK, C->FastClk);
+    (VOID)CodecUpdate(Dev, B + 0x1, FLL_REFCLK_SRC_MASK, (USHORT)(C->RefSrc << FLL_REFCLK_SRC_SHIFT));
+    (VOID)CodecUpdate(Dev, B + 0x1, FLL_ENA, FLL_ENA);
+    (VOID)CodecUpdate(Dev, B + 0xB, FLL_LOCKDET, FLL_LOCKDET);
+    (VOID)CodecUpdate(Dev, B + 0x2, FLL_CTRL_UPD, FLL_CTRL_UPD);
+    (VOID)CodecUpdate(Dev, B + 0x1, FLL_HOLD, 0);
     for (Ms = 0; Ms <= FLL_LOCK_MAX_MS; Ms++) {
-        if (Rd(Dev, R_IRQ1_RAW_STATUS_2) & FLL1_LOCK_STS) {
-            AudLog(Dev->Log, "codec: FLL1 <- %s locked after %lu ms\r\n", C->Name, Ms);
+        if (Rd(Dev, R_IRQ1_RAW_STATUS_2) & Lock) {
+            AudLog(Dev->Log, "codec: FLL@%03lX <- %s locked after %lu ms\r\n", B, C->Name, Ms);
             return TRUE;
         }
         KeStallExecutionProcessor(1000);
     }
-    AudLog(Dev->Log, "codec: FLL1 <- %s NO LOCK\r\n", C->Name);
+    AudLog(Dev->Log, "codec: FLL@%03lX <- %s NO LOCK\r\n", B, C->Name);
     return FALSE;
 }
 
@@ -223,10 +211,10 @@ NTSTATUS CodecClockOn(_Inout_ PAUD_DEVICE_CONTEXT Dev)
     }
     (VOID)CodecUpdate(Dev, R_SAMPLE_RATE_1, 0x001F, SAMPLE_RATE_48K);
     (VOID)CodecUpdate(Dev, R_SYSTEM_CLOCK_1, SYSCLK_SET_MASK, SYSCLK_98MHZ_FLL1);
-    if (!CodecFllEnable(Dev, &CodecFllMclk2)) {
-        CodecFllDisable(Dev);
-        if (!CodecFllEnable(Dev, &CodecFllMclk1)) {
-            CodecFllDisable(Dev);
+    if (!CodecFllEnable(Dev, CODEC_FLL1_BASE, CODEC_FLL1_LOCK, &CodecFllMclk2)) {
+        CodecFllDisable(Dev, CODEC_FLL1_BASE, CODEC_FLL1_LOCK);
+        if (!CodecFllEnable(Dev, CODEC_FLL1_BASE, CODEC_FLL1_LOCK, &CodecFllMclk1)) {
+            CodecFllDisable(Dev, CODEC_FLL1_BASE, CODEC_FLL1_LOCK);
             return STATUS_IO_TIMEOUT;
         }
     }
@@ -245,7 +233,7 @@ VOID CodecClockOff(_Inout_ PAUD_DEVICE_CONTEXT Dev)
 
     if (Dev->CodecUp) {
         (VOID)CodecUpdate(Dev, R_SYSTEM_CLOCK_1, SYSCLK_ENA, 0);
-        CodecFllDisable(Dev);
+        CodecFllDisable(Dev, CODEC_FLL1_BASE, CODEC_FLL1_LOCK);
     }
 }
 

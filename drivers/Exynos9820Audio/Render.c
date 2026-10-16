@@ -562,8 +562,8 @@ static VOID AudDmaFillSlot(_In_ PAUD_STREAM_CONTEXT Ctx, _In_ ULONG Slot, _In_op
             R = (LONG)(((LONGLONG)R * GainR) >> 30);
         }
 
-        if (Ctx->Dev->Cfg.Stereo) {
-            Dst[4 * F + 0] = L;                                  /* earpiece amp @0x41 */
+        if (Ctx->Dev->Cfg.Stereo || Ctx->Dev->HpActive) {
+            Dst[4 * F + 0] = L;                                  /* earpiece amp @0x41 / headphone left (AIF1RX1) */
             Dst[4 * F + 1] = R;                                  /* loudspeaker amp @0x40 */
         } else {
             Dst[4 * F + 0] = 0;
@@ -847,7 +847,12 @@ static NTSTATUS AudStreamPrepareHardware(ACXSTREAM Stream)
 static VOID AudHwStop(_Inout_ PAUD_STREAM_CONTEXT Ctx)
 {
     if (Ctx->HwStarted) {
-        AmpPowerDown(Ctx->Dev);   /* amps first, with UAIF1 still clocked (AudioSpeaker.c :597-604) */
+        if (Ctx->Dev->HpActive) {
+            CodecHpStop(Ctx->Dev);    /* outputs + FLL2 off while UAIF0 still clocks */
+            Ctx->Dev->HpActive = FALSE;
+        } else {
+            AmpPowerDown(Ctx->Dev);   /* amps first, with UAIF1 still clocked (AudioSpeaker.c :597-604) */
+        }
         AboxStop(Ctx->Dev);
         Ctx->HwStarted = FALSE;
     }
@@ -906,6 +911,21 @@ static VOID AudHwStart(_Inout_ PAUD_STREAM_CONTEXT Ctx)
         return;
     }
 
+    /* J3: jack plugged at start -> headphones for this whole run (a plug change takes effect at the next run). */
+    Dev->HpActive = Dev->Cfg.HpRoute && Dev->CodecUp && Dev->JackKnown && Dev->JackPresent;
+    if (Dev->HpActive && !NT_SUCCESS(CodecHpPrepare(Dev))) {
+        Dev->HpActive = FALSE;
+    }
+    Status = AboxSelectOutput(Dev, Dev->HpActive);
+    if (!NT_SUCCESS(Status)) {
+        AudLog(Dev->Log, "stream: output selection failed (%08lX) - silent\r\n", Status);
+        if (Dev->HpActive) {
+            CodecHpStop(Dev);
+            Dev->HpActive = FALSE;
+        }
+        return;
+    }
+
     for (Slot = 0; Slot < AUD_DMA_SLOTS; Slot++) {
         AudDmaFillSlot(Ctx, Slot, (Slot == AUD_DMA_LEAD) ? AudPacketVa(Ctx, (ULONG)Ctx->CurrentPacket) : NULL);
     }
@@ -914,7 +934,14 @@ static VOID AudHwStart(_Inout_ PAUD_STREAM_CONTEXT Ctx)
     Status = AboxStart(Dev, Ctx->DmaPhys, Ctx->DmaBytes, Ctx->DmaSlotBytes, AUD_RATE, AUD_HW_SLOTS, 32);
     if (!NT_SUCCESS(Status)) {
         AudLog(Dev->Log, "stream: ABOX DMA not started (%08lX) - silent\r\n", Status);
+        if (Dev->HpActive) {
+            CodecHpStop(Dev);
+            Dev->HpActive = FALSE;
+        }
         return;
+    }
+    if (Dev->HpActive) {
+        (VOID)CodecHpStart(Dev);   /* needs UAIF0 BCLK (FLL2 reference); failure = silent headphones, stream runs */
     }
 
     (VOID)AboxRingPosition(Dev, &Count, &Ctx->HwLastRaw);
@@ -945,7 +972,7 @@ static NTSTATUS AudStreamRun(ACXSTREAM Stream)
     Ctx->State     = AcxStreamStateRun;
     (VOID)WdfTimerStart(Ctx->Timer, AudNextDue(Ctx, 0));
 
-    if (Ctx->HwStarted) {
+    if (Ctx->HwStarted && !Ctx->Dev->HpActive) {
         AmpStatus = AmpPowerUp(Ctx->Dev);
     }
 

@@ -35,6 +35,13 @@
 #define ABOX_SPUS_CTRL1          0x0204u
 #define ABOX_SPUS_SBANK_RDMA0    0x0220u
 #define   ABOX_SBANK_RDMA0_VAL     0x02000000u   /* (512 << 16) | 0, patch_9820 */
+#define   ABOX_QCH_BCLK_UAIF0      0x00000004u   /* bit2: UAIF0 BCLK keep-alive (research Q2, abox.h:157-167) */
+#define   ABOX_ROUTE_UAIF0_MASK    0x0000000Fu   /* [3:0] "ABOX UAIF0 SPK" (abox_cmpnt_v20.c:3354-3361) */
+#define   ABOX_ROUTE_UAIF0_SIFS1   0x00000002u
+#define   ABOX_ROUTE_UAIF1_MASK    0x000000F0u
+#define ABOX_UAIF0_CTRL0         0x0500u       /* abox_soc.h:305-355 */
+#define ABOX_UAIF0_CTRL1         0x0504u
+#define ABOX_UAIF0_STATUS        0x050Cu
 #define ABOX_UAIF1_CTRL0         0x0510u
 #define   ABOX_UAIF1_CTRL0_MST     0x01000014u   /* reset 0x01000010 + MODE (ABOX master) */
 #define   ABOX_UAIF_SPK_ENABLE     0x00000001u
@@ -62,6 +69,16 @@
 #define   CMU_DIV_MASK             0x000001FFu
 #define   CMU_DIV_BUSY             0x00010000u
 #define   CMU_DIV_UAIF1_6M144      95u           /* AUDIF 589.824 MHz (sboot /2) / 96 = 6.144 MHz */
+#define CMU_AUD_MUX_UAIF0        0x100Cu       /* SELECT bit0 {0 DIV, 1 CLKIO = BCLK pin}, BUSY bit16 (research Q2) */
+#define   CMU_MUX_SELECT           0x00000001u
+#define   CMU_MUX_BUSY             0x00010000u
+#define   ABOX_UAIF_CTRL0_SLAVE    0x01000010u   /* reset value, MODE bit2 clear */
+#define CMU_AUD_DIV_UAIF0        0x182Cu       /* cmucal-sfr.c:3398 */
+#define CMU_AUD_GATE_UAIF0_A     0x2020u       /* read only */
+#define CMU_AUD_GATE_UAIF0_B     0x20A4u
+#define GPIO_AUD_GPB0_CON        0x0000u       /* gpb0 = first GPIO_AUD bank (gpb1 at +0x20) */
+#define   GPB0_UAIF0_MASK          0x000FFFF0u   /* gpb0-1..4 aud_i2s0_bus; gpb0-0 = codec MCLK, untouched */
+#define   GPB0_UAIF0_FUNC          0x00022220u
 #define GPIO_AUD_GPB1_CON        0x0020u
 #define   GPB1_UAIF1_MASK          0x0000FFFFu
 #define   GPB1_UAIF1_FUNC          0x00002222u   /* gpb1-0..3 function 2 (aud_i2s1_bus) */
@@ -100,6 +117,23 @@ static const ABOX_STEP AboxStage1Seq[] = {
 };
 
 C_ASSERT(ARRAYSIZE(AboxStage1Seq) <= 16);   /* AUD_DEVICE_CONTEXT.AboxSaved */
+
+/* Headphone link (notes/d8-jack-windows.md J3, research Q6 option b): UAIF0 with the UAIF1 frame - 6.144 MHz BCLK
+   (same divider value as UAIF1), DSP-A 4 x 32, ABOX master. Applied once on the first headphone stream, restored
+   by AboxRelease. */
+static const ABOX_STEP AboxUaif0Seq[] = {
+    { ABOX_OP_RMW,        AUD_RES_CMU_AUD,     CMU_AUD_DIV_UAIF0,     CMU_DIV_MASK,     CMU_DIV_UAIF1_6M144, 0,    "DIV_UAIF0" },
+    { ABOX_OP_POLL_CLEAR, AUD_RES_CMU_AUD,     CMU_AUD_DIV_UAIF0,     CMU_DIV_BUSY,     0,                   1000, "DIV_UAIF0 busy" },
+    { ABOX_OP_RMW,        AUD_RES_CMU_AUD,     CMU_AUD_MUX_UAIF0,     CMU_MUX_SELECT,   0,                   0,    "MUX_UAIF0" },  /* HpMaster 1: 1 */
+    { ABOX_OP_POLL_CLEAR, AUD_RES_CMU_AUD,     CMU_AUD_MUX_UAIF0,     CMU_MUX_BUSY,     0,                   1000, "MUX_UAIF0 busy" },
+    { ABOX_OP_RMW,        AUD_RES_GPIO_AUD,    GPIO_AUD_GPB0_CON,     GPB0_UAIF0_MASK,  GPB0_UAIF0_FUNC,     0,    "gpb0 CON" },
+    { ABOX_OP_RMW,        AUD_RES_ABOX_IFR,    ABOX_QCHANNEL_DISABLE, ABOX_QCH_BCLK_UAIF0, ABOX_QCH_BCLK_UAIF0, 0,  "QCH UAIF0" },
+    { ABOX_OP_WRITE,      AUD_RES_ABOX_IFR,    ABOX_UAIF0_CTRL1,      0,                ABOX_UAIF1_CTRL1_4X32, 0,  "UAIF0_CTRL1" },
+    { ABOX_OP_WRITE,      AUD_RES_ABOX_IFR,    ABOX_UAIF0_CTRL0,      0,                ABOX_UAIF1_CTRL0_MST, 0,   "UAIF0_CTRL0" },  /* HpMaster 1: slave */
+    { ABOX_OP_END,        AUD_RES_ABOX_IFR,    0, 0, 0, 0, NULL },
+};
+
+C_ASSERT(ARRAYSIZE(AboxUaif0Seq) <= 10);     /* AUD_DEVICE_CONTEXT.AboxUaif0Saved */
 
 static __forceinline ULONG AudRd(_In_ PAUD_DEVICE_CONTEXT Dev, _In_ AUD_RES Region, _In_ ULONG Off)
 {
@@ -261,6 +295,63 @@ NTSTATUS AboxInit(_Inout_ PAUD_DEVICE_CONTEXT Dev)
     return STATUS_SUCCESS;
 }
 
+/* Before AboxStart, with stage 1 done: RDMA0 -> SIFS1 to the headphone codec (UAIF0) or the amps (UAIF1), never both
+   (SIFS1 feeding two UAIFs is UNVERIFIED). The UAIF0 link is set up on first use; its prior state is logged. */
+_IRQL_requires_(PASSIVE_LEVEL)
+NTSTATUS AboxSelectOutput(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ BOOLEAN Headphones)
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+    ULONG    I;
+    ULONG    Old;
+    ULONG    Route;
+
+    if (!Dev->AboxReady || Dev->AboxRunning || !AudPowerOn(Dev)) {
+        return STATUS_DEVICE_NOT_READY;
+    }
+    if (Headphones && Dev->AboxUaif0Count == 0) {
+        AudLog(Dev->Log, "abox UAIF0 before: CTRL0 %08lX CTRL1 %08lX STATUS %08lX | MUX %08lX DIV %08lX GATE %08lX %08lX | gpb0 CON %08lX\r\n",
+               AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_UAIF0_CTRL0), AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_UAIF0_CTRL1),
+               AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_UAIF0_STATUS), AudRd(Dev, AUD_RES_CMU_AUD, CMU_AUD_MUX_UAIF0),
+               AudRd(Dev, AUD_RES_CMU_AUD, CMU_AUD_DIV_UAIF0), AudRd(Dev, AUD_RES_CMU_AUD, CMU_AUD_GATE_UAIF0_A),
+               AudRd(Dev, AUD_RES_CMU_AUD, CMU_AUD_GATE_UAIF0_B), AudRd(Dev, AUD_RES_GPIO_AUD, GPIO_AUD_GPB0_CON));
+        for (I = 0; AboxUaif0Seq[I].Op != ABOX_OP_END; I++) {
+            const ABOX_STEP *S = &AboxUaif0Seq[I];
+
+            if (S->Op == ABOX_OP_POLL_CLEAR) {
+                Status = AboxPollClear(Dev, S);
+                if (!NT_SUCCESS(Status)) {
+                    break;
+                }
+                continue;
+            }
+            Old = AudRd(Dev, S->Region, S->Reg);
+            Dev->AboxUaif0Saved[I] = Old;
+            Dev->AboxUaif0Count = I + 1;
+            {
+                ULONG Val = S->Value;   /* HpMaster 1 = codec drives BCLK/LRCLK: UAIF0 slave, clock from its BCLK pin */
+
+                if (Dev->Cfg.HpMaster && S->Reg == CMU_AUD_MUX_UAIF0 && S->Region == AUD_RES_CMU_AUD) {
+                    Val = CMU_MUX_SELECT;
+                } else if (Dev->Cfg.HpMaster && S->Reg == ABOX_UAIF0_CTRL0 && S->Region == AUD_RES_ABOX_IFR) {
+                    Val = ABOX_UAIF_CTRL0_SLAVE;
+                }
+                AudWr(Dev, S->Region, S->Reg, (S->Op == ABOX_OP_RMW) ? ((Old & ~S->Mask) | (Val & S->Mask)) : Val);
+            }
+            AudLog(Dev->Log, "abox %-16s 0x%08lX -> 0x%08lX\r\n", S->Name, Old, AudRd(Dev, S->Region, S->Reg));
+        }
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
+    }
+    Old   = AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_ROUTE_CTRL0);
+    Route = (Old & ~(ABOX_ROUTE_UAIF0_MASK | ABOX_ROUTE_UAIF1_MASK)) | (Headphones ? ABOX_ROUTE_UAIF0_SIFS1 : ABOX_ROUTE_UAIF1_SIFS1);
+    AudWr(Dev, AUD_RES_ABOX_IFR, ABOX_ROUTE_CTRL0, Route);
+    Dev->AboxUaifCtrl0 = Headphones ? ABOX_UAIF0_CTRL0 : ABOX_UAIF1_CTRL0;
+    AudLog(Dev->Log, "abox output %s: ROUTE_CTRL0 0x%08lX -> 0x%08lX\r\n", Headphones ? "HEADPHONES (UAIF0)" : "speakers (UAIF1)",
+           Old, AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_ROUTE_CTRL0));
+    return STATUS_SUCCESS;
+}
+
 /* Undo AboxInit: every saved register back, in reverse order (a divider restore waits for BUSY like UEFI :619). */
 _IRQL_requires_(PASSIVE_LEVEL)
 VOID AboxRelease(_Inout_ PAUD_DEVICE_CONTEXT Dev)
@@ -268,6 +359,22 @@ VOID AboxRelease(_Inout_ PAUD_DEVICE_CONTEXT Dev)
     ULONG I;
 
     AboxStop(Dev);
+    if (Dev->AboxUaif0Count != 0 && AudPowerOn(Dev)) {
+        for (I = Dev->AboxUaif0Count; I-- > 0;) {
+            const ABOX_STEP *S = &AboxUaif0Seq[I];
+
+            if (S->Op == ABOX_OP_POLL_CLEAR) {
+                continue;
+            }
+            AudWr(Dev, S->Region, S->Reg, Dev->AboxUaif0Saved[I]);
+            if (AboxUaif0Seq[I + 1].Op == ABOX_OP_POLL_CLEAR) {
+                (VOID)AboxPollClear(Dev, &AboxUaif0Seq[I + 1]);
+            }
+        }
+        AudLog(Dev->Log, "AboxRelease: %lu UAIF0 registers restored\r\n", Dev->AboxUaif0Count);
+    }
+    Dev->AboxUaif0Count = 0;
+    Dev->AboxUaifCtrl0  = 0;
     if (Dev->AboxSavedCount == 0) {
         Dev->AboxReady = FALSE;
         return;
@@ -294,6 +401,29 @@ VOID AboxRelease(_Inout_ PAUD_DEVICE_CONTEXT Dev)
     Dev->AboxReady = FALSE;
 }
 
+/* J3 diagnostic: do the active UAIF's pins toggle? GPIO_AUD bank DAT (+0x4) over 64 reads, AND / OR (gpb1 = UAIF1 is
+   the known-good control for gpb0 = UAIF0). */
+_IRQL_requires_(PASSIVE_LEVEL)
+VOID AboxSamplePins(_In_ PAUD_DEVICE_CONTEXT Dev, _In_z_ PCSTR When)
+{
+    ULONG Bank = (Dev->AboxUaifCtrl0 == ABOX_UAIF0_CTRL0) ? GPIO_AUD_GPB0_CON : GPIO_AUD_GPB1_CON;
+    ULONG AndV = 0xFFFFFFFFu, OrV = 0, V, I;
+
+    if (!Dev->Mapped || !AudPowerOn(Dev)) {
+        return;
+    }
+    KeStallExecutionProcessor(2000);
+    for (I = 0; I < 64; I++) {
+        V = AudRd(Dev, AUD_RES_GPIO_AUD, Bank + 4);
+        AndV &= V;
+        OrV  |= V;
+        KeStallExecutionProcessor(3);
+    }
+    AudLog(Dev->Log, "%s: gpb%u DAT over 64 reads: and %02lX or %02lX (CON %08lX, MUX_UAIF0 %08lX)\r\n", When,
+           (Bank == GPIO_AUD_GPB0_CON) ? 0 : 1, AndV & 0xFF, OrV & 0xFF, AudRd(Dev, AUD_RES_GPIO_AUD, Bank),
+           AudRd(Dev, AUD_RES_CMU_AUD, CMU_AUD_MUX_UAIF0));
+}
+
 /*
  * Stage 2: UAIF1 SPK_EN, then RDMA0 plays the cyclic ring [PhysAddr, PhysAddr + Bytes) (physical: the AUD SysMMU is
  * bypassed, boot #99), PeriodBytes per BUF_OFFSET. The hardware frame is fixed: 48 kHz, 4 slots x 32 bit.
@@ -303,6 +433,7 @@ NTSTATUS AboxStart(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ PHYSICAL_ADDRESS PhysAd
                    _In_ ULONG PeriodBytes, _In_ ULONG Rate, _In_ ULONG Channels, _In_ ULONG Bits)
 {
     ULONG Str;
+    ULONG Uaif;
 
     if (!Dev->AboxReady || !AudPowerOn(Dev)) {
         AudLog(Dev->Log, "AboxStart: stage 1 not done or pd-aud off - refused\r\n");
@@ -323,7 +454,8 @@ NTSTATUS AboxStart(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ PHYSICAL_ADDRESS PhysAd
     }
 
     Str = (ULONG)PhysAddr.QuadPart;
-    AudWr(Dev, AUD_RES_ABOX_IFR, ABOX_UAIF1_CTRL0, AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_UAIF1_CTRL0) | ABOX_UAIF_SPK_ENABLE);
+    Uaif = Dev->AboxUaifCtrl0 ? Dev->AboxUaifCtrl0 : ABOX_UAIF1_CTRL0;
+    AudWr(Dev, AUD_RES_ABOX_IFR, Uaif, AudRd(Dev, AUD_RES_ABOX_IFR, Uaif) | ABOX_UAIF_SPK_ENABLE);
     KeMemoryBarrier();
     AudWr(Dev, AUD_RES_ABOX_IFR, ABOX_RDMA0_BUF_STR, Str);
     AudWr(Dev, AUD_RES_ABOX_IFR, ABOX_RDMA0_BUF_END, Str + Bytes);
@@ -333,10 +465,12 @@ NTSTATUS AboxStart(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ PHYSICAL_ADDRESS PhysAd
     AudWr(Dev, AUD_RES_ABOX_IFR, ABOX_RDMA0_CTRL0, ABOX_RDMA_CTRL0_RESET | ABOX_RDMA_FORMAT_4X32 | ABOX_RDMA_ENABLE);
     Dev->AboxRunning = TRUE;
 
-    AudLog(Dev->Log, "AboxStart: ring 0x%08lX + 0x%lX, period 0x%lX: RDMA0 CTRL0 %08lX STATUS %08lX, UAIF1 CTRL0 %08lX STATUS %08lX\r\n",
+    AboxSamplePins(Dev, "AboxStart");
+
+    AudLog(Dev->Log, "AboxStart: ring 0x%08lX + 0x%lX, period 0x%lX: RDMA0 CTRL0 %08lX STATUS %08lX, UAIF%u CTRL0 %08lX STATUS %08lX\r\n",
            Str, Bytes, PeriodBytes, AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_RDMA0_CTRL0),
-           AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_RDMA0_STATUS), AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_UAIF1_CTRL0),
-           AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_UAIF1_STATUS));
+           AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_RDMA0_STATUS), (Uaif == ABOX_UAIF0_CTRL0) ? 0 : 1, AudRd(Dev, AUD_RES_ABOX_IFR, Uaif),
+           AudRd(Dev, AUD_RES_ABOX_IFR, Uaif + (ABOX_UAIF1_STATUS - ABOX_UAIF1_CTRL0)));
     return STATUS_SUCCESS;
 }
 
@@ -345,6 +479,7 @@ _IRQL_requires_(PASSIVE_LEVEL)
 VOID AboxStop(_Inout_ PAUD_DEVICE_CONTEXT Dev)
 {
     ULONG Ms;
+    ULONG Uaif;
 
     if (!Dev->AboxRunning) {
         return;
@@ -356,7 +491,8 @@ VOID AboxStop(_Inout_ PAUD_DEVICE_CONTEXT Dev)
         return;
     }
 
-    AudWr(Dev, AUD_RES_ABOX_IFR, ABOX_UAIF1_CTRL0, AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_UAIF1_CTRL0) & ~ABOX_UAIF_SPK_ENABLE);
+    Uaif = Dev->AboxUaifCtrl0 ? Dev->AboxUaifCtrl0 : ABOX_UAIF1_CTRL0;
+    AudWr(Dev, AUD_RES_ABOX_IFR, Uaif, AudRd(Dev, AUD_RES_ABOX_IFR, Uaif) & ~ABOX_UAIF_SPK_ENABLE);
     AudWr(Dev, AUD_RES_ABOX_IFR, ABOX_RDMA0_CTRL0, ABOX_RDMA_CTRL0_RESET);
     for (Ms = 0; Ms < 50 && (AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_RDMA0_STATUS) & ABOX_RDMA_PROGRESS) != 0; Ms++) {
         KeStallExecutionProcessor(1000);
@@ -366,9 +502,10 @@ VOID AboxStop(_Inout_ PAUD_DEVICE_CONTEXT Dev)
         Dev->AboxDmaStuck = TRUE;   /* the ring memory must not be freed (UEFI :621-625 keeps the pages) */
     }
 
-    AudLog(Dev->Log, "AboxStop: after %lu ms RDMA0 STATUS %08lX%s, UAIF1 CTRL0 %08lX STATUS %08lX\r\n", Ms,
+    AudLog(Dev->Log, "AboxStop: after %lu ms RDMA0 STATUS %08lX%s, UAIF%u CTRL0 %08lX STATUS %08lX\r\n", Ms,
            AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_RDMA0_STATUS), Dev->AboxDmaStuck ? " STILL IN PROGRESS" : "",
-           AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_UAIF1_CTRL0), AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_UAIF1_STATUS));
+           (Uaif == ABOX_UAIF0_CTRL0) ? 0 : 1, AudRd(Dev, AUD_RES_ABOX_IFR, Uaif),
+           AudRd(Dev, AUD_RES_ABOX_IFR, Uaif + (ABOX_UAIF1_STATUS - ABOX_UAIF1_CTRL0)));
 }
 
 /*

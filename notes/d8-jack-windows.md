@@ -66,3 +66,18 @@ Hazard to check before writing gpp0 CON: which pins the touch / other drivers us
 - **J4 detection verified** (1.0.1.24): user "unplugged and plugged twice" -> log
   [1951.8] unplugged (RAW7 021A) / [1960.8] PLUGGED (0225) / [1981.4] unplugged / [1992.9] PLUGGED. Bit 0x10 of
   IRQ1_RAW_STATUS_7 clear = present, as madera_jack_present. Routing / KSJACK reporting still to do.
+- J3 (1.0.1.25-1.0.1.33). ABOX master (stock option): UAIF0 configured (DIV 95, MUX 0, gates open 0x00200000 like
+  UAIF1, gpb0 CON 0x00022220, QCH bit2, CTRL1 0x1B4DF7DF, CTRL0 0x01000014, ROUTE_CTRL0 0x2), gpb0-1/2 DAT toggle on
+  the AP side, codec AIF1 regs read back as written, FLL2 regs read back as programmed (191 = 0x8001 ...), yet FLL2 never
+  locked to AIF1BCLK; control test: FLL2 from MCLK2 locked in 5 ms -> FLL2 fine, BCLK not seen by the codec. Codec GPn_LVL
+  read 0 on GPIO5-8 throughout. Moving AIF1 RX enable before the lock wait changed nothing. Stock dtbo: uaif0 cpu =
+  abox_uaif_0, codec = cs47l93 dai 0 (AIF1); cs47l92 aif1 pins = GPIO5..8 (pinctrl-cs47l92.c, zero-based 4..7); single
+  DBVDD1 supply; aif1 bias-bus-hold (matches CTRL_2 0xF000). Cause of the AP->codec failure still UNKNOWN.
+- **Codec master works** (HpMaster 1, 1.0.1.32): madera_set_fmt CBM_CFM = 0x500 0x00AF (BCLK_MSTR 0x20 | INV | 6.144 MHz),
+  0x501/0x502 LRCLK_MSTR 0x0001 (registers.h:5007/5032/5046), AIF1 RATE 0 (SYSCLK rate 1); ABOX UAIF0 slave (CTRL0
+  0x01000010) clocked from its BCLK pin (MUX_UAIF0 SELECT 1, BUSY bit16; read back 0x00000001). gpb0 DAT quiet before
+  the codec starts, bits 1/2 toggling after AIF1 RX enable -> codec clocks reach the AP. "hp: ON: OUTRATE 0040 MIX
+  8020/8021 RXEN 0003 OUT_EN1 000C DAC 006B/006B". **User: "yeah i can hear it now."** Synchronous by construction: the
+  RDMA is paced by the codec's BCLK, the codec runs on SYSCLK (FLL1 <- MCLK2). 1.0.1.33 makes HpMaster 1 the default.
+- Open: route switches only at the next stream start (user: "still gotta play pause when disconnecting/reconnecting ...
+  usually windows handles that") -> J4b: separate Headphones endpoint with jack state so Windows switches.

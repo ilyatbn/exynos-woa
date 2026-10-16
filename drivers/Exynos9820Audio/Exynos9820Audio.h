@@ -104,6 +104,8 @@ typedef struct _AUD_CONFIG {
     ULONG SpkGain;      /* clamped to 17 = stock music value (AMP_GAIN_MAX) */
     ULONG CodecEnable;  /* 0 (default): 1 = bring up the CS47L93 jack codec at PrepareHardware (notes/d8-jack-windows.md) */
     ULONG JackTone;     /* 0 (default): > 0 = J2 diagnostic, codec tone on the jack for this many ms (max 5000) at start */
+    ULONG HpRoute;      /* 1 (default): a stream started with the jack plugged plays on the headphones (needs CodecEnable) */
+    ULONG HpMaster;     /* 1 (default): codec AIF1 is BCLK/LRCLK master, UAIF0 slave (works); 0 = ABOX master as stock (no lock) */
 } AUD_CONFIG, *PAUD_CONFIG;
 
 /* ======================================================================
@@ -166,6 +168,9 @@ typedef struct _AUD_DEVICE_CONTEXT {
     BOOLEAN     AboxRunning;    /* AboxStart succeeded */
     ULONG       AboxSaved[16];  /* register values before the stage-1 writes, restored by AboxRelease */
     ULONG       AboxSavedCount;
+    ULONG       AboxUaif0Saved[10];  /* UAIF0 headphone-link registers before AboxSelectOutput, restored by AboxRelease */
+    ULONG       AboxUaif0Count;
+    ULONG       AboxUaifCtrl0;      /* CTRL0 offset of the UAIF the stream drives (0 = UAIF1 default) */
     BOOLEAN     AboxDmaStuck;   /* RDMA0 progress bit never cleared after a stop: ring memory must be leaked */
 
     /* Amp state (AmpI2c.c). BusLock serialises every hsi2c_38 transfer (PASSIVE_LEVEL only). */
@@ -186,6 +191,10 @@ typedef struct _AUD_DEVICE_CONTEXT {
     BOOLEAN     JackKnown;
     BOOLEAN     JackPresent;
     volatile BOOLEAN JackStopping;
+    BOOLEAN     HpActive;       /* this stream is routed to the headphones (decided at hardware start) */
+    BOOLEAN     HpOn;           /* CodecHpStart finished: OUT2 on, unmuted */
+    BOOLEAN     HpFll2On;
+    USHORT      HpSavedOutRate; /* OUTPUT_RATE_1 before the headphone path (restored on stop) */
 
     /* Endpoint volume when Cfg.HwVolume = 1 (KS units: 1/65536 dB), applied on the amps. */
     LONG        VolumeLevel;
@@ -320,6 +329,8 @@ _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS AboxStart(_Inout_ PAUD_DEVICE_CONTEXT De
                                                   _In_ ULONG Channels, _In_ ULONG Bits);
 _IRQL_requires_(PASSIVE_LEVEL) VOID AboxStop(_Inout_ PAUD_DEVICE_CONTEXT Dev);
 _IRQL_requires_(PASSIVE_LEVEL) VOID AboxRelease(_Inout_ PAUD_DEVICE_CONTEXT Dev);
+_IRQL_requires_(PASSIVE_LEVEL) NTSTATUS AboxSelectOutput(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ BOOLEAN Headphones);
+_IRQL_requires_(PASSIVE_LEVEL) VOID AboxSamplePins(_In_ PAUD_DEVICE_CONTEXT Dev, _In_z_ PCSTR When);
 _IRQL_requires_max_(DISPATCH_LEVEL) NTSTATUS AboxRingPosition(_In_ PAUD_DEVICE_CONTEXT Dev, _Out_ PULONG Frames,
                                                               _Out_ PULONG RawStatus);
 
@@ -340,7 +351,17 @@ _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecWrite(_Inout_ PAUD_DEVICE_CONTEXT D
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecUpdate(_Inout_ PAUD_DEVICE_CONTEXT Dev, ULONG Reg, USHORT Mask, USHORT Value);
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecRead32(_Inout_ PAUD_DEVICE_CONTEXT Dev, ULONG Reg, _Out_ PULONG Value);
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecWrite32(_Inout_ PAUD_DEVICE_CONTEXT Dev, ULONG Reg, ULONG Value);
-/* CodecTone.c */
+/* CodecTone.c - FLLHJ blocks: CONTROL_1 at base + 1 (madera registers.h; FLL2 = FLL1 layout at 0x190, research Q6). */
+#define CODEC_FLL1_BASE  0x170u
+#define CODEC_FLL1_LOCK  0x0100u   /* IRQ1_RAW_STATUS_2 FLL1_LOCK_STS1 */
+#define CODEC_FLL2_BASE  0x190u
+#define CODEC_FLL2_LOCK  0x0200u   /* FLL1_LOCK_STS1 << 1 (madera_wait_for_fll) */
+typedef struct _CODEC_FLL {
+    PCSTR  Name;
+    USHORT RefSrc, N, Theta, Lambda, FbDiv, RefDiv, Gains, Hp, LockThr, FastClk;
+} CODEC_FLL;
+_IRQL_requires_(PASSIVE_LEVEL) BOOLEAN CodecFllEnable(_In_ PAUD_DEVICE_CONTEXT Dev, ULONG B, USHORT Lock, _In_ const CODEC_FLL *C);
+_IRQL_requires_(PASSIVE_LEVEL) VOID CodecFllDisable(_In_ PAUD_DEVICE_CONTEXT Dev, ULONG B, USHORT Lock);
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecSetup(_Inout_ PAUD_DEVICE_CONTEXT Dev);
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecClockOn(_Inout_ PAUD_DEVICE_CONTEXT Dev);
 _IRQL_requires_(PASSIVE_LEVEL) VOID CodecClockOff(_Inout_ PAUD_DEVICE_CONTEXT Dev);
@@ -348,6 +369,10 @@ _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecTone(_Inout_ PAUD_DEVICE_CONTEXT De
 /* CodecJack.c */
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecJackStart(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ WDFDEVICE Device);
 _IRQL_requires_(PASSIVE_LEVEL) VOID CodecJackStop(_Inout_ PAUD_DEVICE_CONTEXT Dev);
+/* CodecHp.c */
+_IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecHpPrepare(_Inout_ PAUD_DEVICE_CONTEXT Dev);
+_IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecHpStart(_Inout_ PAUD_DEVICE_CONTEXT Dev);
+_IRQL_requires_(PASSIVE_LEVEL) VOID CodecHpStop(_Inout_ PAUD_DEVICE_CONTEXT Dev);
 
 /* Control.c - speaker trim KS property (AudControl.h); TRUE = request completed. */
 _IRQL_requires_(PASSIVE_LEVEL) BOOLEAN AudControlRequest(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ WDFREQUEST Request,

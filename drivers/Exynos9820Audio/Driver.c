@@ -23,7 +23,7 @@ EVT_WDF_DEVICE_D0_ENTRY           AudEvtD0Entry;
 EVT_WDF_DEVICE_D0_EXIT            AudEvtD0Exit;
 EVT_WDF_OBJECT_CONTEXT_CLEANUP    AudEvtDeviceCleanup;
 
-#define AUD_DRIVER_VERSION "1.0.1.24"
+#define AUD_DRIVER_VERSION "1.0.1.33"
 
 static AUD_CONFIG g_Cfg;
 
@@ -62,6 +62,8 @@ static VOID AudReadConfig(_In_ WDFDRIVER Driver)
         { L"SpkGain",    FIELD_OFFSET(AUD_CONFIG, SpkGain) },
         { L"CodecEnable", FIELD_OFFSET(AUD_CONFIG, CodecEnable) },
         { L"JackTone",   FIELD_OFFSET(AUD_CONFIG, JackTone) },
+        { L"HpRoute",    FIELD_OFFSET(AUD_CONFIG, HpRoute) },
+        { L"HpMaster",   FIELD_OFFSET(AUD_CONFIG, HpMaster) },
     };
     WDFKEY         Key;
     UNICODE_STRING Name;
@@ -84,6 +86,8 @@ static VOID AudReadConfig(_In_ WDFDRIVER Driver)
     g_Cfg.SpkGain     = 0x0A;
     g_Cfg.CodecEnable = 0;
     g_Cfg.JackTone    = 0;
+    g_Cfg.HpRoute     = 1;
+    g_Cfg.HpMaster    = 1;   /* ABOX-master BCLK never reached the codec (FLL2 no lock, 1.0.1.25-31) */
 
     if (!NT_SUCCESS(WdfDriverOpenParametersRegistryKey(Driver, KEY_READ, WDF_NO_OBJECT_ATTRIBUTES, &Key))) {
         return;

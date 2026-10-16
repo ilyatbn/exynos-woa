@@ -203,3 +203,10 @@ Design source: notes/thermal-research.md (staged plan, constants table).
   after freeze #17 (due ~17:01:15). Pre-registered: no freeze by reset + ~2900 s on that boot = KD transport is the
   trigger; a freeze at ~2832 s = KD excluded. Undo: `bcdedit /debug {current} on` (dbgsettings unchanged).
 - 2026-10-16 17:01 **freeze #17** as predicted (17:01:15): last samples raw 2832.2 / 2832.6 s, CPU 2-5 %, DPC 0; ssh lost 17:01:41. KDNET still on for this boot (BCD change applies to the next).
+- 2026-10-16 18:08:44 **freeze #18 with KDNET OFF** (BCD debug No, boot reset ~17:22:13 after the 1.0.1.22 hang):
+  last sample raw **2790.9 s**, CPU 2-6 %, DPC 0, no newly started process in the last samples (recorder prints
+  "NEW ..." since 17:17); ssh reset 18:09:07. => the KD transport is NOT the trigger (pre-registered test: freeze ->
+  excluded). New detail: ~41 s earlier than the 2831.6-2835 s of #9-#17 - the first boot whose previous reset was the
+  quick hang-reset of 17:22 rather than a watchdog/TWRP cycle; whether the raw counter really restarts at 0 on that
+  reset path is UNVERIFIED (would shift the apparent hang time). Scheduled tasks checked (notes/phone-debloat.md): no
+  boot/logon task near 47 min. BCD debug left off (user: leave it off for now).

@@ -56,3 +56,5 @@ Windows reads temperatures and can throttle; lowering is fine.
 
 ## Progress log
 - 2026-10-17 05:15 plan written (phone busy finishing a Windows update restart).
+- 05:20 C4 is mostly in place: firmware/Platform/Beyond0LtePkg/AcpiTables/Madt.aslc already sets ProcessorPowerEfficiencyClass LITTLE 0 / MID 1 / BIG 2 (fixed 2026-10-11, notes/m14-smp.md: the 9810 table was inverted). To verify on the device: GetSystemCpuSetInformation EfficiencyClass per CPU; then the governor keeps MID fast during interaction.
+- 05:35 C0 code: drivers/S10ePower (legacy NT driver, build.bat), READ-ONLY: maps ACPM SRAM (PAGE_READONLY), records ipc_channels offset, ap_max and the raw channel table (0x48-byte entries) in the service key. Built (s10e-artifacts\s10epower). Not loaded yet (phone still finishing the update restart). Load: sc create S10ePower type= kernel start= demand binPath= C:\S10eTmp\S10ePower.sys; sc start S10ePower.

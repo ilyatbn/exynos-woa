@@ -1,0 +1,27 @@
+From f39d472219496101e0046b7ceb91ad4345d082d9 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 08:21:05 +0300
+Subject: [PATCH] d3d10umd video: DECODER_CAPS treats a GUID_NULL crypto type
+ as clear content (exynos-woa 0087, G17 V6b review)
+
+---
+ src/gallium/frontends/d3d10umd/Video.cpp | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/Video.cpp b/src/gallium/frontends/d3d10umd/Video.cpp
+index f1d5bb7..7a50a4b 100644
+--- a/src/gallium/frontends/d3d10umd/Video.cpp
++++ b/src/gallium/frontends/d3d10umd/Video.cpp
+@@ -642,7 +642,8 @@ Vid_QueryVideoCapabilities(D3D10DDI_HDEVICE hDevice, D3DWDDM2_0DDI_VIDEO_CAPABIL
+       if (DataSize >= sizeof(D3DWDDM2_0DDI_VIDEO_CAPABILITY_DECODER_CAPS)) {
+          D3DWDDM2_0DDI_VIDEO_CAPABILITY_DECODER_CAPS *c = (D3DWDDM2_0DDI_VIDEO_CAPABILITY_DECODER_CAPS *)pData;
+          BOOL ok = IsH264(&c->DecodeProfile) && c->SampleWidth <= VID_MAX_W && c->SampleHeight <= VID_MAX_H &&
+-                   (!c->pCryptoType || IsEqualGUID(*c->pCryptoType, kNoEncrypt));
++                   (!c->pCryptoType || IsEqualGUID(*c->pCryptoType, kNoEncrypt) ||
++                    IsEqualGUID(*c->pCryptoType, GUID_NULL));   /* no / null crypto type = clear content */
+          c->Caps = ok ? 0 : D3DWDDM2_0DDI_VIDEO_DECODER_CAP_UNSUPPORTED;
+          malikm_tlog("video: QueryVideoCapabilities DECODER_CAPS %ux%u -> 0x%x", c->SampleWidth, c->SampleHeight,
+                      c->Caps);
+-- 
+2.40.1.windows.1
+

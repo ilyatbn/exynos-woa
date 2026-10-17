@@ -133,3 +133,17 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
     under the crop (1080..1087) are not defined output - software and MFC fill them differently.
   - mftest -d3d11 fps (20.9 at 1080p vs 40 sysmem) includes MF's per-frame readback to system memory (staging copy
     + map) - not a playback number; measure with a renderer (V6c/V6d).
+- Review of 5f6fd71 / 0086 (rule 4), checked in the code:
+  - header loop: Consumed 0 + HEADER/NOT_CONSUMED -> same window again, Consumed 0 otherwise -> stop (no spin; <= 8
+    tries); driver reports Consumed = window once a picture's NALs are used (Decode.c) -> loop ends on FRAME.
+  - SPS change after pictures -> MfcRestart (CLOSE + OPEN, PPS cache cleared); a failed reopen leaves the handle
+    without a session -> later frames counted as failed, logged; no device removal (EndFrame never SetErrors).
+  - WriteOutput: rows = min(texture luma height, MFC height), CbCr source at Width*Height of the MFC picture ->
+    correct for 1080-row textures fed from 1088-row pictures (not yet run: MF used 1088 textures).
+  - CreateVideoDecoder: MfcOpen failure -> E_FAIL before any allocation; VidReserve failure closes the handle.
+    The device is opened exclusively (share 0) + one MFC session device-wide -> a second decoder (any process)
+    gets E_FAIL = that caller decodes in software.
+  - Unvalidated (stay Guided): interlaced/MBAFF (mb_adaptive only inferred from MbaffFrameFlag), PPS-id switching,
+    seeks, AppContainer callers (V6d), streams with scaling matrices (c720/c1080 are flat).
+  - Fixed (0087, maliumd d50ade0a): DECODER_CAPS treated a GUID_NULL crypto type as encrypted. Rerun after the fix:
+    c720 30/30 and c1080 (-Rows 1080) 60/60 identical.

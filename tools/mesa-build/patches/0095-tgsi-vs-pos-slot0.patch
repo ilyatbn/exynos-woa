@@ -1,0 +1,36 @@
+From 2e961fd6b5fd922ef26cc79853c2c723b40e8618 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 13:51:11 +0300
+Subject: [PATCH] panfrost: TGSI vertex shaders - sort outputs by location so
+ gl_Position is varying slot 0 (exynos-woa 0095)
+
+tgsi_to_nir numbers VS outputs in TGSI declaration order. Bifrost's position
+fast path (bi_emit_lea_attr) treats varying slot 0 as gl_Position, so a D3D
+vertex shader declaring SV_Position after another output (mpv's SPIRV-Cross
+HLSL: o0 = packed TEXCOORDs, o1 = position) stored its position as an
+ordinary varying and rasterised nothing. Assign output locations sorted by
+location, as the GLSL path does.
+---
+ src/gallium/drivers/panfrost/pan_shader.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/src/gallium/drivers/panfrost/pan_shader.c b/src/gallium/drivers/panfrost/pan_shader.c
+index 8f8a3a8..d26b95f 100644
+--- a/src/gallium/drivers/panfrost/pan_shader.c
++++ b/src/gallium/drivers/panfrost/pan_shader.c
+@@ -624,6 +624,12 @@ panfrost_create_shader_state(struct pipe_context *pctx,
+ 
+    NIR_PASS(_, nir, nir_lower_indirect_derefs_to_if_else_trees,
+             nir_var_shader_in | nir_var_shader_out, UINT32_MAX);
++   /* exynos-woa 0095: tgsi_to_nir numbers VS outputs in TGSI declaration order; GLSL sorts them by location.
++    * Bifrost's position fast path (bi_emit_lea_attr) takes varying slot 0 as gl_Position, so a D3D VS that
++    * declares SV_Position after another output (mpv's SPIRV-Cross HLSL: o0 = packed TEXCOORDs, o1 = position)
++    * stored its position as a plain varying and drew nothing. Sort by location like the GLSL path (POS = 0). */
++   if (cso->type == PIPE_SHADER_IR_TGSI && nir->info.stage == MESA_SHADER_VERTEX)
++      nir_assign_io_var_locations(nir, nir_var_shader_out);
+    NIR_PASS(_, nir, nir_lower_io, nir_var_shader_in | nir_var_shader_out,
+             glsl_type_size, nir_lower_io_use_interpolated_input_intrinsics);
+    /* nir_lower_io just computes offsets based on the original deref and
+-- 
+2.40.1.windows.1
+

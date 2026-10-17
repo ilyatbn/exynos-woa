@@ -405,3 +405,33 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   VS = 3 TEXCOORD float2 inputs, y flip; PS = Sample t1 (.x luma) + t2 (.xy chroma), cbuffer b0 (row_major float3x3
   colour matrix + offsets, packoffsets c0..c13), dither texture t0 sampled at FragCoord/64, floor() quantisation.
   Next: replay that PS (its textures/formats + cbuffer layout) in a repro.
+- 15:0x tools d3dmpvps (new): mpv's dumb-mode VS/PS verbatim + mpv's inputs (R8 / R8G8 / R16G16B16A16_FLOAT, identity
+  matrix cbuffer, cull NONE + scissor): WARP center 0xff808080 (written), Mali 0xff0000ff = clear left = NOTHING
+  WRITTEN -> mpv's black window reproduced outside mpv. (First repro version without CullMode NONE failed on WARP
+  too: mpv's VS flips y = reversed winding.) Suspect: culling despite CULL_NONE.
+- 15:1x d3dmpvps bisect on the Mali: greenps (mpv VS + constant PS) FAIL, noflip FAIL, noflip+greenps FAIL ->
+  the vertex stage. posfirst (same VS, SV_Position moved to the FRONT of the output struct = output register o0)
+  + greenps -> 0xff00ff00 written; posfirst + mpv's real PS -> 0xff808080 = WARP's value. ROOT CAUSE: our UMD
+  mishandles a VS whose SV_Position is not output register o0 (mpv's SPIRV-Cross HLSL declares it last: o2).
+- 15:2x CORRECTION from D3DDisassemble of mpv's VS (fxc vs_4_1, PC): the two float2 varyings are PACKED into one
+  register: `dcl_output o0.xy` (TEXCOORD1) + `dcl_output o0.zw` (TEXCOORD2), `dcl_output_siv o1.xyzw, position`.
+  posfirst: `dcl_output_siv o0 position`, `dcl_output o1.xy` + `o1.zw` (packing in both). So the failing shape is
+  "a (packed) generic output register BEFORE the position register", not "position at o2". ShaderTGSI.c DCL_OUTPUT /
+  DCL_OUTPUT_SIV / dcl_base_output read correct (GENERIC index = register, ureg dedups the second o0 decl, writemask
+  per component). TGSI dump (ST_DEBUG=tgsi) is compiled out in release (Debug.h st_debug 0). Next: Panfrost's
+  runtime shader dump (BIFROST_MESA_DEBUG=shaders) on d3dmpvps default vs posfirst.
+- 15:3x REAL ROOT CAUSE (BIFROST_MESA_DEBUG=shaders on d3dmpvps over ssh, dumps in scratchpad): mpv's VS NIR has
+  `out_1 (VARYING_SLOT_POS, driver_location 1)`, `out_0 (VAR0, 0)` - tgsi_to_nir keeps TGSI declaration order. The
+  IDVS position shader then stores POS with `LEA_ATTR_IMM attribute_index:1` + ST_CVT (a plain varying write);
+  posfirst stores it via the Bifrost position fast path `ST_CVT ..., r58, r59, #0x105e000` (POS_RESULT_PTR).
+  bifrost_compile.c bi_emit_lea_attr: fast path only when `nir_src_is_zero(intr->src[0])` = varying slot 0.
+  The GLSL path never hits this (st sorts outputs by location, POS = 0). Not a d3d10umd translation bug.
+  Fix (Mesa 0095, pan_shader.c): TGSI VS -> nir_assign_io_var_locations(nir, nir_var_shader_out) before nir_lower_io
+  (ttn emits store_deref, so lower_io picks the new driver_location). XFB unaffected: TGSI SO never reaches
+  pan_nir_lower_xfb (ttn does not set has_transform_feedback_varyings). FS links by location (posfirst + real PS gave
+  WARP's value with differently ordered generics), so the FS needs nothing.
+- 15:4x Mesa 0095 built (maliumd 2eaf5a39, still includes the uncommitted flip-model DxgiFns + TEMP pixel log),
+  umdswap OK. d3dmpvps: default 0xff808080 written (= WARP), greenps 0xff00ff00, posfirst 0xff808080, noflip
+  0xff808080; d3dvbring PASS. mpv via mpvbisect (4 s test.mp4, frame 3 presented pixels): hwdec=exynosmfc-copy
+  center 0xffa6afb6 quarter 0xff020202 3/4 0xff060405; hwdec=no same -> mpv's frames now carry the video (were
+  0xff000000 at all three points).

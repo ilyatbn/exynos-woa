@@ -86,3 +86,10 @@ User 2026-10-17: "yes to attempting to add a lower 720p resolution scale to see 
   returns to the saved mode) + tools/phone/g20/mode.sh (runs it in the user's session). Baseline on KMD 66:
   "current 2280x1080 @60 Hz orientation 1", one mode (landscape; EnumDisplaySettings lists modes in the current
   orientation - the "native" swap was removed for that).
+- 20:27 KMD 67 (b6012665) deployed from TWRP via totwrp.cmd + kmd-deploy.sh (prev 7647eda9 in C:\S10eTmp\kmd-prev). Rebooting to Windows.
+- 20:33 KMD 67 booted clean (ScaledModes 1). s10emode list: 2280x1080 + 1520x720 (x2, landscape). Native scan-out dump OK (traces/wddm2/g20native.png; first dump black = screen timed out -> tools/phone/g20/wake.ps1).
+- 20:34 **720p scaled mode WORKS on the device**: s10emode 1520x720 (landscape, not saved) -> "test 0 -> 0"; scan-out
+  dump traces/wddm2/g20scaled.png = the desktop at 1520x720 stretched over the whole panel, right orientation,
+  colours right (icons same as native; the wallpaper itself changed). DWM runs UMD 8abbced3 (0103); kmdstats on the
+  idle desktop: presents gpu 0.2/s, cpu copy 0.0 -> the GPU stretch path (0103 plain blit), not the KMD CPU scale.
+  Not yet seen: the user's eyes, portrait 720x1520, a game at 720p, the Settings > Display resolution list.

@@ -234,8 +234,14 @@ static void ClipRect(RECT *R, LONG W, LONG H)
  * primary pixel (X * VW / FbW, Y * VH / FbH); a rectangle [t, b) of primary rows covers Fb rows
  * [ceil(t * FbH / VH), ceil(b * FbH / VH)). The GPU path (Mesa d3d10_scanout_present) is the normal one; this is the
  * fallback for CPU-presented frames. */
+/* G22: one pixel of an A8B8G8R8 (RGBA) source as the A8R8G8B8 framebuffer wants it - red and blue swapped. */
+static __forceinline ULONG SwapRB(ULONG P)
+{
+    return (P & 0xFF00FF00u) | ((P & 0xFFu) << 16) | ((P >> 16) & 0xFFu);
+}
+
 static void ScalePresent(MW_ADAPTER *A, const MW_PRESENT_OP *Op, PUCHAR Src, LONG SrcW, LONG SrcH, LONG SrcPitch,
-                         LONG VW, LONG VH)
+                         LONG VW, LONG VH, BOOLEAN Swap)
 {
     LONG fw = (LONG)A->Fb.Width, fh = (LONG)A->Fb.Height, fp = (LONG)A->Fb.Pitch;
     ULONG n = Op->NumRects ? Op->NumRects : 1;
@@ -259,8 +265,10 @@ static void ScalePresent(MW_ADAPTER *A, const MW_PRESENT_OP *Op, PUCHAR Src, LON
             ULONG *d = (ULONG *)(A->FbVa + (SIZE_T)y * fp);
             if (Op->Kind == MW_PRESENT_BLT) {
                 const ULONG *s = (const ULONG *)(Src + (SIZE_T)((LONG)((LONG64)y * VH / fh) + dy) * SrcPitch);
-                for (LONG x = x0; x < x1 && x < fw; x++)
-                    d[x] = s[(LONG)((LONG64)x * VW / fw) + dx];
+                for (LONG x = x0; x < x1 && x < fw; x++) {
+                    ULONG p = s[(LONG)((LONG64)x * VW / fw) + dx];
+                    d[x] = Swap ? SwapRB(p) : p;
+                }
             } else {
                 for (LONG x = x0; x < x1 && x < fw; x++)
                     d[x] = Op->Color;
@@ -314,12 +322,17 @@ static void DoPresent(MW_ADAPTER *A, const MW_PRESENT_OP *Op)
         srcH = (LONG)Op->Src->Height;
         srcPitch = (LONG)(Op->Src->Pitch ? Op->Src->Pitch : Op->Src->Width * 4);
     }
+    /* G22: an RGBA (A8B8G8R8) source into the A8R8G8B8 / X8R8G8B8 framebuffer - swap red and blue while copying */
+    BOOLEAN swap = Op->Kind == MW_PRESENT_BLT && dst == A->FbVa && Op->Src->Format == D3DDDIFMT_A8B8G8R8 &&
+                   (A->Fb.ColorFormat == D3DDDIFMT_A8R8G8B8 || A->Fb.ColorFormat == D3DDDIFMT_X8R8G8B8);
+    if (swap && InterlockedIncrement(&A->RgbaPresents) == 1)
+        MwPramText(TRUE, "Present RGBA source, R/B swapped", NULL, 0, FALSE);
     if (MwScaledModes && dst == A->FbVa) {
         /* G20: the primary's own size - the flipped source, or the primary named as destination. */
         const MW_ALLOCATION *prim = Op->ToScanout ? Op->Src : Op->Dst;
         LONG vw = prim != NULL ? (LONG)prim->Width : dstW, vh = prim != NULL ? (LONG)prim->Height : dstH;
         if (vw > 0 && vh > 0 && vw <= dstW && vh <= dstH && (vw != dstW || vh != dstH)) {
-            ScalePresent(A, Op, src, srcW, srcH, srcPitch, vw, vh);
+            ScalePresent(A, Op, src, srcW, srcH, srcPitch, vw, vh, swap);
             return;
         }
     }
@@ -342,7 +355,12 @@ static void DoPresent(MW_ADAPTER *A, const MW_PRESENT_OP *Op)
             ULONG *d = (ULONG *)(dst + (SIZE_T)y * dstPitch) + r.left;
             if (Op->Kind == MW_PRESENT_BLT) {
                 const ULONG *s = (const ULONG *)(src + (SIZE_T)(y + dy) * srcPitch) + r.left + dx;
-                RtlCopyMemory(d, s, (SIZE_T)(r.right - r.left) * 4);
+                if (swap) {
+                    for (LONG x = 0; x < r.right - r.left; x++)
+                        d[x] = SwapRB(s[x]);
+                } else {
+                    RtlCopyMemory(d, s, (SIZE_T)(r.right - r.left) * 4);
+                }
             } else {
                 for (LONG x = 0; x < r.right - r.left; x++)
                     d[x] = Op->Color;

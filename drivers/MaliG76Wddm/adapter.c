@@ -21,6 +21,7 @@ ULONG MwRefresh601 = 1;
 ULONG MwFlipMmio = 1;
 ULONG MwScanoutStride = 0;
 ULONG MwOfferRotation = 0;      /* Parameters\OfferRotation: 1 = offer 90/180/270 (needs a rotating present path) */
+ULONG MwRgbaModes = 1;          /* Parameters\RgbaModes: every source mode also in A8B8G8R8 (G22; 0 = A8R8G8B8 only) */
 ULONG MwScaledModes = 1;        /* Parameters\ScaledModes: offer the 2/3-size desktop mode (G20; default on since 1.0.68.1, 0 = off) */
 ULONG MwCddDwmInterop = 1;
 /* G15 S1 (notes/gpu-wddm2-design.md): Parameters\Wddm2 = 1 -> DXGKDDI_INTERFACE_VERSION_WDDM2_0 in physical-engine mode
@@ -927,6 +928,7 @@ static MW_MODE ReadMode(PUNICODE_STRING RegistryPath, ULONG *PramTrace)
     MwScanoutStride = ReadParameter(params, L"ScanoutStride", 0);
     MwOfferRotation = ReadParameter(params, L"OfferRotation", 0);
     MwScaledModes = ReadParameter(params, L"ScaledModes", 1);
+    MwRgbaModes = ReadParameter(params, L"RgbaModes", 1);
     MwPanelCmdMode = ReadParameter(params, L"PanelCmdMode", 1);
     MwPanelBrightness = ReadParameter(params, L"PanelBrightness", 1);
     MwCddDwmInterop = ReadParameter(params, L"CddDwmInterop", 1) != 0;

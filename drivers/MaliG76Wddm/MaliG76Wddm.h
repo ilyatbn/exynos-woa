@@ -133,6 +133,9 @@ extern ULONG MwOfferRotation;
 /* Parameters\ScaledModes (default 1 since 1.0.68.1 - user-validated in landscape and portrait; 0 = off): G20 - one lower desktop mode (2/3 of the panel, 720x1520), stretched onto the
  * panel by the present path (display.c ScaledOn). */
 extern ULONG MwScaledModes;
+/* Parameters\RgbaModes (default 1): G22 - every source mode is offered in A8B8G8R8 (DXGI R8G8B8A8) as well as A8R8G8B8
+ * (display.c AddOneSourceMode); 0 = A8R8G8B8 only, the old mode list. */
+extern ULONG MwRgbaModes;
 /* Parameters\PanelCmdMode / PanelBrightness (default 1 / 1): panel.c. */
 extern ULONG MwPanelCmdMode;
 extern ULONG MwPanelBrightness;
@@ -247,6 +250,7 @@ struct _MW_ADAPTER {
     BOOLEAN SourceVisible, PathActive;
     ULONG Rotation;                 /* D3DKMDT_VIDPN_PRESENT_PATH_ROTATION of the active path (UpdateActiveVidPnPresentPath) */
     ULONG SrcW, SrcH;               /* G20: the committed source mode's size (= Fb size unless a scaled mode is set) */
+    volatile LONG RgbaPresents;     /* G22: CPU presents from an A8B8G8R8 source (R/B swapped; first one -> PRAM) */
 
     /* GPU. MmuLock serialises the address allocator and the page tables. */
     MK_GPU Gpu;

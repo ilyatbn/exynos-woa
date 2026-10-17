@@ -47,7 +47,11 @@ static int SourceKind(const MW_ADAPTER *Dev, const D3DKMDT_VIDPN_SOURCE_MODE *M)
     return 0;
 }
 
-static void FillSourceMode(MW_ADAPTER *Dev, D3DKMDT_VIDPN_SOURCE_MODE *M, BOOLEAN Scaled)
+/* G22 (notes/games-nfsu2.md): DXGI lists display modes per pixel format from our source modes - with A8R8G8B8 only,
+ * GetDisplayModeList(R8G8B8A8_UNORM) returned 0 modes and dgVoodoo / D3D11 games that enumerate RGBA modes found "no
+ * output device". With Parameters\RgbaModes (default 1) every mode is offered in A8B8G8R8 (= DXGI R8G8B8A8) too; an
+ * RGBA primary is converted at present (UMD GPU blit by format; KMD CPU copy swaps R/B, command.c). */
+static void FillSourceMode(MW_ADAPTER *Dev, D3DKMDT_VIDPN_SOURCE_MODE *M, BOOLEAN Scaled, D3DDDIFORMAT Fmt)
 {
     M->Type = D3DKMDT_RMT_GRAPHICS;
     M->Format.Graphics.PrimSurfSize.cx = Scaled ? ScaledW(Dev) : Dev->Fb.Width;
@@ -55,7 +59,7 @@ static void FillSourceMode(MW_ADAPTER *Dev, D3DKMDT_VIDPN_SOURCE_MODE *M, BOOLEA
     M->Format.Graphics.VisibleRegionSize = M->Format.Graphics.PrimSurfSize;
     /* The scaled primary is an ordinary allocation (memory.c: pitch = width * 4), never the Fb itself. */
     M->Format.Graphics.Stride = Scaled ? ScaledW(Dev) * 4 : Dev->Fb.Pitch;
-    M->Format.Graphics.PixelFormat = D3DDDIFMT_A8R8G8B8;
+    M->Format.Graphics.PixelFormat = Fmt;
     M->Format.Graphics.ColorBasis = D3DKMDT_CB_SRGB;
     M->Format.Graphics.PixelValueAccessMode = D3DKMDT_PVAM_DIRECT;
 }
@@ -518,7 +522,7 @@ static NTSTATUS PinSourceMode(MW_ADAPTER *Dev, const DXGK_VIDPN_INTERFACE *VidPn
         return st;
     st = setIf->pfnCreateNewModeInfo(set, &mode);
     if (NT_SUCCESS(st)) {
-        FillSourceMode(Dev, mode, FALSE);
+        FillSourceMode(Dev, mode, FALSE, D3DDDIFMT_A8R8G8B8);
         id = mode->Id;
         st = setIf->pfnAddMode(set, mode);
         if (!NT_SUCCESS(st))
@@ -630,17 +634,27 @@ static int PinnedSourceKind(MW_ADAPTER *Dev, const DXGK_VIDPN_INTERFACE *VidPn, 
     return kind;
 }
 
-static NTSTATUS AddOneSourceMode(MW_ADAPTER *Dev, D3DKMDT_HVIDPNSOURCEMODESET Set,
-                                 const DXGK_VIDPNSOURCEMODESET_INTERFACE *SetIf, BOOLEAN Scaled)
+static NTSTATUS AddOneSourceModeFmt(MW_ADAPTER *Dev, D3DKMDT_HVIDPNSOURCEMODESET Set,
+                                    const DXGK_VIDPNSOURCEMODESET_INTERFACE *SetIf, BOOLEAN Scaled, D3DDDIFORMAT Fmt)
 {
     D3DKMDT_VIDPN_SOURCE_MODE *mode;
     NTSTATUS st = SetIf->pfnCreateNewModeInfo(Set, &mode);
     if (!NT_SUCCESS(st))
         return st;
-    FillSourceMode(Dev, mode, Scaled);
+    FillSourceMode(Dev, mode, Scaled, Fmt);
     st = SetIf->pfnAddMode(Set, mode);
     if (!NT_SUCCESS(st))
         SetIf->pfnReleaseModeInfo(Set, mode);
+    return st;
+}
+
+/* The mode in A8R8G8B8, and with RgbaModes (full adapter) also in A8B8G8R8 (G22). */
+static NTSTATUS AddOneSourceMode(MW_ADAPTER *Dev, D3DKMDT_HVIDPNSOURCEMODESET Set,
+                                 const DXGK_VIDPNSOURCEMODESET_INTERFACE *SetIf, BOOLEAN Scaled)
+{
+    NTSTATUS st = AddOneSourceModeFmt(Dev, Set, SetIf, Scaled, D3DDDIFMT_A8R8G8B8);
+    if (NT_SUCCESS(st) && MwRgbaModes && Dev->Mode != MwModeDisplayOnly)
+        st = AddOneSourceModeFmt(Dev, Set, SetIf, Scaled, D3DDDIFMT_A8B8G8R8);
     return st;
 }
 

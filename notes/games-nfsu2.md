@@ -44,3 +44,16 @@ errors". SPEED2.EXE = 32-bit x86 (timestamp 0x420aad27).
   lists D3DDDIFMT_A8B8G8R8 among WDDM formats; the D3D11.1 DISPLAY / WDDM3 DISPLAYABLE format-support bits are newer
   than our UMD's header level. => fix in the KMD: offer every source mode in A8B8G8R8 as well, and handle an RGBA
   primary at present (UMD GPU blit converts formats by itself; the KMD CPU copy must swap R/B).
+- 22:53 KMD 1.0.69.1 (s10e-artifacts\mali-kmd-69, sys aba061b9; Parameters\RgbaModes default 1, every source mode also
+  A8B8G8R8; KMD CPU copy swaps R/B for an RGBA source) deployed from TWRP (prev af205f42), boot OK: dxgienum now lists
+  R8G8B8A8_UNORM(_SRGB) modes 1520x720 x2 + 2280x1080, same as B8G8R8A8. dgVoodoo STILL fails ("Cannot initialize the
+  DDI object" first, then "no output device"); MaxTraceLevel 2 adds nothing.
+- 22:58 What reached our UMD before dgVoodoo gave up (traces/games/malikm-SPEED2.EXE-2400.txt): CheckFormatSupport of
+  formats 70-84 = 0x0, i.e. BC1-BC5 (DXT1/3/5, ATI1/2) NOT supported. FL 10.x requires BC1-BC5; dgVoodoo needs them for
+  D3D9 DXT textures. Panfrost takes BC support from TEXTURE_FEATURES_0; new tool drivers/MaliG76Wddm/tools/gpuinfo
+  (MW_ESCAPE_GPU_INFO): GPU_ID 0x7211, TEXTURE_FEATURES0 = 0xf7fe007e -> bits 1-6, 17-26, 28-31 set; bits 7-16 CLEAR.
+  Panfrost genxml v7 texture format enum: 7 BC1 .. 16 BC7 => THIS CHIP HAS NO BCn TEXTURE DECODE (Samsung
+  integration); ETC2 (1-4, 17-19) and ASTC (20-23) are present.
+  => Native fix (G22 next): BC1-BC5 (and BC6H/BC7) emulation in the UMD - report the formats, back BC resources with
+  RGBA8 (BC4/5: R8/RG8), decompress on upload (UpdateSubresourceUP, Unmap of written maps, copies in texel space) with
+  Mesa's util_format S3TC/RGTC/BPTC unpackers. Needed by most D3D10/11 PC games too, not only dgVoodoo.

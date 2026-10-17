@@ -131,6 +131,13 @@ int main(int argc, char **argv)
     DumpMessages("commit");
 frames_loop:
 
+    /* G17 pacing (notes/g17-dxva-mfc.md): Present(1, 0) rate - a swap chain DWM composes every vblank runs ~60/s;
+     * runs of more than 20 frames print every 60th frame only, then the rate and the slowest present */
+    LARGE_INTEGER qf, q0, qp, qn;
+    double worst = 0;
+    QueryPerformanceFrequency(&qf);
+    QueryPerformanceCounter(&q0);
+    qp = q0;
     for (int f = 0; f < frames; f++) {
         ID3D11Texture2D *bb = NULL;
         ID3D11RenderTargetView *rtv = NULL;
@@ -146,13 +153,22 @@ frames_loop:
         if (bb)
             bb->Release();
         hr = sc->Present(1, 0);
-        printf("frame %d present 0x%08lx\n", f, (unsigned long)hr);
+        QueryPerformanceCounter(&qn);
+        double ms = (double)(qn.QuadPart - qp.QuadPart) * 1000.0 / qf.QuadPart;
+        qp = qn;
+        if (f > 0 && ms > worst)
+            worst = ms;
+        if (frames <= 20 || (f % 60) == 0 || FAILED(hr))
+            printf("frame %d present 0x%08lx (%.1f ms)\n", f, (unsigned long)hr, ms);
         DumpMessages("present");
         fflush(stdout);
         MSG m;
         while (PeekMessageW(&m, NULL, 0, 0, PM_REMOVE))
             DispatchMessageW(&m);
     }
-    printf("done\n");
+    {
+        double s = (double)(qp.QuadPart - q0.QuadPart) / qf.QuadPart;
+        printf("done: %d presents in %.2f s = %.1f/s, slowest %.1f ms\n", frames, s, s > 0 ? frames / s : 0.0, worst);
+    }
     return 0;
 }

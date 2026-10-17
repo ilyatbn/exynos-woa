@@ -289,3 +289,25 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   vdecmatrix defaulted to a VIDEO_DEV case -> switch removed from all of them (follow-up commit); rerun after the
   cleanup: mfd3d c720 30/30 identical, vdecmatrix PASS (1 profile without any env), actestu MFC session in the
   AppContainer, 30/30 decoded.
+- 2026-10-17 ~11:00 USER: "photos took forever to load and is barely running" -> confirms the slowness is real and
+  not limited to video: the whole Photos UI (WinUI/XAML, DComp composition) is slow. Investigating the composition
+  present path next.
+- 2026-10-17 11:1x SYSTEMIC: tools/phone/wddm2/swaprate.ps1 (d3dswap now times Present(1,0); user session, display
+  awake): composition swap chain flip-sequential 2 buffers 300 presents = 7.9/s (slowest 250 ms); plain window
+  swap chain flip-sequential 2 buffers = 7.7/s (slowest 268 ms). Every DWM-composed flip-model swap chain runs at
+  ~8 presents/s on this stack -> Photos (and any flip-model app) is slow regardless of video. Our UMD's _Present is
+  ~2 ms (earlier timing), so the 125 ms per present is spent waiting in the runtime for a buffer DWM has not
+  released (flip queue) - DWM consumes these surfaces at ~8 Hz. (GDI-drawn windows: d3dtri cube 33-37 fps.)
+- 11:2x USER is installing Graphics Tools (D3D11 debug layer) on the phone - in progress.
+- 11:3x ROOT CAUSE (drivers/MaliG76Wddm/tools/kmdstats, new: MW_ESCAPE_STATS rates): idle 0 presents; with a
+  composition swap chain presenting: KMD presents 6.6/s, ALL CPU copies (PresentBlts 6.8/s, PresentGpu 0), GPU
+  renders/submits/irqs 167/s, queue empty. DWM's flips to the primary are latched at the soft vsync (command.c Latch)
+  by DoPresent MW_PRESENT_BLT = RtlCopyMemory of the whole 1080x2280 primary (~9.8 MB) into the GOP framebuffer at
+  DISPATCH level in the DPC -> DWM paced to ~7 frames/s for anything that needs a new DWM frame (flip-model apps,
+  Photos). The H4a GPU path (Src->GpuPresented: the UMD already copied the frame on the GPU) is not taken.
+- 11:4x why no GPU present: the display is landscape now (tools/phone/orient.ps1: 1013x480 logical, rotated).
+  2026-10-14 notes (gpu-hw-path.md 19:01): in landscape DWM pre-rotates into a 1080x2280 primary and the identity-size
+  GPU blit path is used ("primary is GPU-presented", Mesa 0067 fixed the stale kprim gpu flag); 10-16 DWM log
+  (traces/wddm2-2026-10-16/dwm-redir-1332.txt) shows "scanout present N: blit+wait 0 ms" = GPU path. Today the KMD
+  reports PresentGpu 0 / PresentBlts 6.8 per s -> DWM's presents are on the CPU path again. Needs DWM's UMD log:
+  reboot with machine-wide umdtrace (after the user's Graphics Tools install finishes).

@@ -1,0 +1,50 @@
+From bbf15a40e4dcb78bab2ded6777e240e720e90f04 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 22:50:07 +0300
+Subject: [PATCH] tgsi_to_nir: set the tex source type before
+ nir_tex_instr_src_size (offset, ddx/ddy; gc_alloc'd sources are
+ uninitialised) (exynos-woa 0106)
+
+---
+ src/gallium/auxiliary/nir/tgsi_to_nir.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/src/gallium/auxiliary/nir/tgsi_to_nir.c b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+index b94ef6a..ff044d7 100644
+--- a/src/gallium/auxiliary/nir/tgsi_to_nir.c
++++ b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+@@ -1404,10 +1404,12 @@ ttn_tex(struct ttn_compile *c, nir_def **src)
+    }
+ 
+    if (tgsi_inst->Instruction.Opcode == TGSI_OPCODE_TXD) {
++      instr->src[src_number].src_type = nir_tex_src_ddx;   /* exynos-woa 0106: read by nir_tex_instr_src_size */
+       instr->src[src_number] =
+          nir_tex_src_for_ssa(nir_tex_src_ddx,
+                nir_trim_vector(b, src[1], nir_tex_instr_src_size(instr, src_number)));
+       src_number++;
++      instr->src[src_number].src_type = nir_tex_src_ddy;
+       instr->src[src_number] =
+          nir_tex_src_for_ssa(nir_tex_src_ddy,
+                nir_trim_vector(b, src[2], nir_tex_instr_src_size(instr, src_number)));
+@@ -1453,6 +1455,10 @@ ttn_tex(struct ttn_compile *c, nir_def **src)
+       src.swizzle[2] = tex_offset->SwizzleZ;
+       src.swizzle[3] = TGSI_SWIZZLE_W;
+ 
++      /* exynos-woa 0106 (notes/games-nfsu2.md): nir_tex_instr_src_size() reads this slot's src_type, and
++       * nir_tex_instr_create() leaves the sources uninitialised (gc_alloc) - set it first, or the offset gets a
++       * garbage size (a txf with a scalar offset on a 2D texture failed NIR validation and aborted dgVoodoo). */
++      instr->src[src_number].src_type = nir_tex_src_offset;
+       instr->src[src_number] = nir_tex_src_for_ssa(nir_tex_src_offset,
+                                                    nir_mov_alu(b, src, nir_tex_instr_src_size(instr, src_number)));
+       src_number++;
+@@ -1715,6 +1721,7 @@ ttn_sample(struct ttn_compile *c, nir_def **src)
+       off.swizzle[1] = tex_offset->SwizzleY;
+       off.swizzle[2] = tex_offset->SwizzleZ;
+       off.swizzle[3] = TGSI_SWIZZLE_W;
++      instr->src[n].src_type = nir_tex_src_offset;   /* exynos-woa 0106: see ttn_tex - read by nir_tex_instr_src_size */
+       instr->src[n] = nir_tex_src_for_ssa(nir_tex_src_offset,
+                                           nir_mov_alu(b, off, nir_tex_instr_src_size(instr, n)));
+       n++;
+-- 
+2.40.1.windows.1
+

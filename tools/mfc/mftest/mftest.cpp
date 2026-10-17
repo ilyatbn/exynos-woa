@@ -193,11 +193,14 @@ int wmain(int argc, wchar_t **argv)
     bool quiet = argc > 2 && wcscmp(argv[argc - 1], L"-q") == 0;
     bool d3d = false;
     UINT32 rows = 0;   // -rows N: hash only the first N picture rows (the visible part of a padded 1088 picture)
+    UINT32 cols = 0;   // -cols N: hash only the first N columns (the visible part of a padded 864 picture)
     for (int i = 2; i < argc; i++)
     {
         d3d = d3d || wcscmp(argv[i], L"-d3d11") == 0;
         if (wcscmp(argv[i], L"-rows") == 0 && i + 1 < argc)
             rows = (UINT32)_wtoi(argv[i + 1]);
+        if (wcscmp(argv[i], L"-cols") == 0 && i + 1 < argc)
+            cols = (UINT32)_wtoi(argv[i + 1]) & ~1u;   // even: CbCr pairs
     }
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     MFStartup(MF_VERSION);
@@ -291,9 +294,10 @@ int wmain(int argc, wchar_t **argv)
         if (SUCCEEDED(s->ConvertToContiguousBuffer(&b)) && SUCCEEDED(b->Lock(&p, nullptr, &len)))
         {
             UINT32 hr2 = (rows && rows < h) ? rows : h;   // hashed rows; the CbCr plane still starts after h rows
+            UINT32 wc = (cols && cols < w) ? cols : w;    // hashed columns (bytes per row, both planes)
             if (!quiet)
-                printf("frame %u: ts %lld %ux%u luma fnv 0x%08x chroma fnv 0x%08x\n", frames, ts, w, hr2,
-                       Fnv(p, w, hr2, stride), Fnv(p + stride * h, w, hr2 / 2, stride));
+                printf("frame %u: ts %lld %ux%u luma fnv 0x%08x chroma fnv 0x%08x\n", frames, ts, wc, hr2,
+                       Fnv(p, wc, hr2, stride), Fnv(p + stride * h, wc, hr2 / 2, stride));
             b->Unlock();
         }
         if (b) b->Release();

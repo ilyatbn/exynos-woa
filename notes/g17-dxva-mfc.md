@@ -274,3 +274,14 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   Photos' (XAML SwapChainPanel / composition) swap chain on this stack - DWM composes ~0.2 frames/s (dwmrate), so
   buffers return late and MF's quality control skips decodes. Same family as HANDOFF H5 ("DWM never consumes
   redirected present tokens on this stack"). Separate milestone (composition swap chains), needs the user's eyes.
+- 2026-10-17 09:30 robustness clips (tools/mfc/mkclip.py gained an optional x264-params argument; host PyAV,
+  s10e-artifacts/mfc-clips/*.h264 + .mp4): cqm (High, cqm=jvt scaling matrices), base (Baseline, CAVLC, no B),
+  main (Main, no 8x8), pyr (High, 3 B, ref=4, b-pyramid=normal, weightp=2), odd (854x480: cropping).
+  To run on the phone through MF (mfd3d.ps1: Microsoft software decode vs our DXVA/MFC, same MF pipeline).
+- 09:38 soak (tools/phone/wddm2/soak.sh 10, UMD 0092 in new processes, DWM on 0090): VERDICT OK, DWM 1332 alive,
+  0 crashes over 10 min.
+- 09:4x cliptest.ps1 (MF software vs our DXVA/MFC, all via the DXVA path, bind 0x200): base, cqm (scaling matrices ->
+  explicit PPS lists), main, pyr (ref 4, b-pyramid, weightp) IDENTICAL in order (60/60). odd (854x480): MF reports
+  864x480 frames, the 10 padding columns differ; mftest -cols / mfd3d -Cols (new): -Cols 854 -> 60/60 IDENTICAL,
+  frame 0 0x6ea9628c / 0x340ec26d both. Cropping, CQM, Baseline/Main/High, B-pyramid, weighted prediction validated.
+  Still unvalidated: interlaced/MBAFF, multiple PPS ids, seeks, resolution change mid-stream, POC type 1 (refused).

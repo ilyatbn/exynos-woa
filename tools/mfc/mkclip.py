@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""mkclip.py OUT.h264 W H FRAMES [profile] [bframes] - encode a moving test pattern with libx264 (PyAV) to an
+"""mkclip.py OUT.h264 W H FRAMES [profile] [bframes] [x264-params] - encode a moving test pattern with libx264 (PyAV) to an
 Annex-B H.264 file and print libavcodec's decode of it as per-frame FNV-1a 32 hashes of the cropped luma and NV12
 CbCr planes - the same lines tools/mfc/mfcdec prints on the phone (D10 V3, notes/d10-mfc-decode-flow.md).
 
@@ -32,12 +32,13 @@ def main():
     out, w, h, n = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])
     profile = sys.argv[5] if len(sys.argv) > 5 else "high"
     bframes = sys.argv[6] if len(sys.argv) > 6 else "2"
+    extra = sys.argv[7] if len(sys.argv) > 7 else ""   # more x264-params, e.g. cqm=jvt (scaling matrices)
     enc = av.CodecContext.create("libx264", "w")
     enc.width, enc.height, enc.pix_fmt = w, h, "yuv420p"
     enc.time_base = Fraction(1, 30)
     enc.framerate = 30
     enc.options = {"profile": profile, "bframes": bframes, "preset": "fast", "crf": "23", "g": "30",
-                   "x264-params": "annexb=1:repeat-headers=1"}
+                   "x264-params": "annexb=1:repeat-headers=1" + (":" + extra if extra else "")}
     yy, xx = np.mgrid[0:h, 0:w]
     data = bytearray()
     packets = []
@@ -71,7 +72,7 @@ def main():
         p.stream = st
         mp4.mux(p)
     mp4.close()
-    print(f"{out}: {len(data)} bytes, {w}x{h}, {n} frames, {profile}, bframes {bframes}")
+    print(f"{out}: {len(data)} bytes, {w}x{h}, {n} frames, {profile}, bframes {bframes}, x264 {extra or '-'}")
     dec = av.CodecContext.create("h264", "r")
     k = 0
     for pkt in dec.parse(bytes(data)) + dec.parse(None):

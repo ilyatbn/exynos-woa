@@ -586,3 +586,11 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   this stack (line 264), not meaningful. "Idle" now: DWM presents 13.8/s, 267 jobs/s, GPU busy 5 %, G3D 260 MHz, DWM
   CPU 24 %; Edge open + a "Setup" process at 44 % CPU (user installing a game) -> measurements contaminated, paused.
   Open: why DWM composes only ~11-14/s now (CPU/latency-bound, GPU nearly idle) vs 47-56/s before the reboot.
+- 18:4x Boot-time DWM writes no tlog (pids 1328/1316 after the 13:10/13:34/13:40 boots) although it loads the same
+  System32 maliumd (tools/phone/umdwhich.ps1: dwm/explorer/msedge all fecdbce3) - a taskkill-restarted DWM does log
+  (pid 3924) -> the boot DWM probably lacks the machine env (MALIKM_TGSI_DIR) at its start [INFER]. Mesa shim: Render
+  timing in the "submit N" line (UMD 5fd5c82a, TEMP until reviewed). FRESH DWM (3924, just restarted) + BBB with
+  audio: KMD presents 25.0/s, maps 4 = allocations 4, DWM Render mean 77-150 us max 288-903 us per submit with
+  133-143 BOs listed, DWM GPU memory 286 MB. => fresh DWM composes every video frame; the user's ~11/s state builds
+  up over time (DWM memory 190 -> 400+ MB, live BOs growing). Next: measure the same test periodically to catch the
+  degradation and what grows with it.

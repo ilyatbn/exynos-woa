@@ -1,0 +1,69 @@
+From 1337e3707b8f41d3cecb2d2749770218de54b9c0 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 15:10:23 +0300
+Subject: [PATCH] d3d10umd: DWM frame-pacing log on the scan-out present path
+ (exynos-woa 0096)
+
+Per 300 scan-out presents: mean/max of the blit + GPU wait and of the
+runtime present call (QueryPerformanceCounter), and the spacing between
+presents in vsync periods. G17 judder diagnosis.
+---
+ src/gallium/targets/d3d10umd/d3d10_gdi.c | 30 ++++++++++++++++++++++++
+ 1 file changed, 30 insertions(+)
+
+diff --git a/src/gallium/targets/d3d10umd/d3d10_gdi.c b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+index d458739..e8ec9fc 100644
+--- a/src/gallium/targets/d3d10umd/d3d10_gdi.c
++++ b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+@@ -346,6 +346,8 @@ d3d10_scanout_present(struct pipe_screen *screen, struct pipe_context *pipe, str
+       return -1;
+    }
+    DWORD t0 = GetTickCount();
++   LARGE_INTEGER q0, q1, q2;
++   QueryPerformanceCounter(&q0);
+    struct pipe_blit_info b;
+    memset(&b, 0, sizeof b);
+    b.src.resource = res;
+@@ -366,11 +368,39 @@ d3d10_scanout_present(struct pipe_screen *screen, struct pipe_context *pipe, str
+       screen->fence_reference(screen, &fence, NULL);
+    }
+    DWORD t1 = GetTickCount();
++   QueryPerformanceCounter(&q1);
+    int r = malikm_primary_present(d3d10_present_alloc, d3d10_present_dst, NULL, res->width0, res->height0,
+                                   context_private);
++   QueryPerformanceCounter(&q2);
+    static unsigned n;
+    if (n++ < 8 || (n % 300) == 0 || r != 0)
+       malikm_tlog("scanout present %u: blit+wait %lu ms, present %d", n, (unsigned long)(t1 - t0), r);
++   /* exynos-woa G17 (notes/g17-dxva-mfc.md): DWM frame pacing - per 300 presents the mean / max time of the scan-out
++    * blit + GPU wait and of the runtime present call, and the spacing between presents in vsync periods (16.7 ms):
++    * <= 1.5, <= 2.5, <= 3.5, more, and over 100 ms (idle, not counted as a miss). */
++   {
++      static LARGE_INTEGER f, last;
++      static double sb, mb, sp, mp;
++      static unsigned h[5];
++      if (!f.QuadPart)
++         QueryPerformanceFrequency(&f);
++      double bus = (double)(q1.QuadPart - q0.QuadPart) * 1e6 / f.QuadPart;
++      double pus = (double)(q2.QuadPart - q1.QuadPart) * 1e6 / f.QuadPart;
++      sb += bus; sp += pus;
++      if (bus > mb) mb = bus;
++      if (pus > mp) mp = pus;
++      if (last.QuadPart) {
++         double gap = (double)(q0.QuadPart - last.QuadPart) * 1e3 / f.QuadPart / 16.667;
++         h[gap > 6.0 ? 4 : gap <= 1.5 ? 0 : gap <= 2.5 ? 1 : gap <= 3.5 ? 2 : 3]++;
++      }
++      last = q0;
++      if ((n % 300) == 0) {
++         malikm_tlog("pacing %u: blit+wait mean %.0f max %.0f us, present mean %.0f max %.0f us, gaps 1v %u 2v %u 3v %u "
++                     "more %u idle %u", n, sb / 300, mb, sp / 300, mp, h[0], h[1], h[2], h[3], h[4]);
++         sb = mb = sp = mp = 0;
++         memset(h, 0, sizeof h);
++      }
++   }
+    return r;
+ }
+ 
+-- 
+2.40.1.windows.1
+

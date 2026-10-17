@@ -84,6 +84,7 @@ static WCHAR gKey[256];
 static S10EPOWER_STATE gState;
 static KEVENT gStopEvent;
 static PVOID gGuardThread;
+static volatile LONG gActive, gUnloading;   /* review fix (1): IOCTLs in flight vs. unload */
 
 DRIVER_INITIALIZE DriverEntry;
 static DRIVER_UNLOAD S10ePowerUnload;
@@ -241,7 +242,15 @@ static NTSTATUS AcpmSend(ACPM_CH *Ch, ULONG *Cmd)
             InterlockedIncrement((volatile LONG *)&gState.Timeouts);
             return STATUS_IO_TIMEOUT;
         }
-        KeStallExecutionProcessor(ACPM_POLL_US);
+        if (waited < 1000) {
+            KeStallExecutionProcessor(ACPM_POLL_US);
+        } else {
+            /* review fix (2): past 1 ms do not burn the CPU - sleep 1 ms per check */
+            LARGE_INTEGER ms;
+            ms.QuadPart = -10000;
+            KeDelayExecutionThread(KernelMode, FALSE, &ms);
+            waited += 1000 - ACPM_POLL_US;
+        }
     }
 }
 
@@ -293,10 +302,11 @@ static NTSTATUS SetFreq(ULONG Dom, ULONG Khz)
     cmd[0] = Dom; cmd[1] = Khz; cmd[2] = ACPM_FREQ_REQ; cmd[3] = 0;
     ExAcquireFastMutex(&gAcpmLock);
     st = AcpmSend(&gDvfs, cmd);
-    ExReleaseFastMutex(&gAcpmLock);
     if (NT_SUCCESS(st))
-        gState.CurKhz[slot] = cmd[1];   /* the reply echoes the granted rate (FREQ_GET returns 0 on this firmware) */
-    else
+        gState.CurKhz[slot] = cmd[1];   /* the reply echoes the granted rate (FREQ_GET returns 0 on this firmware);
+                                         * review fix (3): updated under the lock */
+    ExReleaseFastMutex(&gAcpmLock);
+    if (!NT_SUCCESS(st))
         InterlockedIncrement((volatile LONG *)&gState.SendFails);
     return st;
 }
@@ -404,6 +414,14 @@ static NTSTATUS S10ePowerIoctl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     ULONG_PTR info = 0;
 
     UNREFERENCED_PARAMETER(DeviceObject);
+    InterlockedIncrement(&gActive);
+    if (gUnloading) {
+        InterlockedDecrement(&gActive);
+        Irp->IoStatus.Status = STATUS_DELETE_PENDING;
+        Irp->IoStatus.Information = 0;
+        IoCompleteRequest(Irp, IO_NO_INCREMENT);
+        return STATUS_DELETE_PENDING;
+    }
     switch (s->Parameters.DeviceIoControl.IoControlCode) {
     case IOCTL_S10EPOWER_SET_FREQ:
         if (inLen < sizeof(S10EPOWER_SET_FREQ)) { st = STATUS_BUFFER_TOO_SMALL; break; }
@@ -422,13 +440,19 @@ static NTSTATUS S10ePowerIoctl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     Irp->IoStatus.Status = st;
     Irp->IoStatus.Information = info;
     IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    InterlockedDecrement(&gActive);
     return st;
 }
 
 static VOID S10ePowerUnload(PDRIVER_OBJECT DriverObject)
 {
     UNICODE_STRING dos;
+    LARGE_INTEGER ms;
     UNREFERENCED_PARAMETER(DriverObject);
+    InterlockedExchange(&gUnloading, 1);
+    ms.QuadPart = -10000;
+    while (gActive != 0)
+        KeDelayExecutionThread(KernelMode, FALSE, &ms);   /* review fix (1): no IOCTL left touching the MMIO */
     if (gGuardThread != NULL) {
         KeSetEvent(&gStopEvent, IO_NO_INCREMENT, FALSE);
         KeWaitForSingleObject(gGuardThread, Executive, KernelMode, FALSE, NULL);

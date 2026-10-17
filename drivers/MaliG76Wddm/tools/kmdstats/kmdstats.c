@@ -93,5 +93,13 @@ int main(int argc, char **argv)
            "submits %.1f, irqs %.1f, jobs %.1f\n", secs, R(Presents), R(PresentBlts), R(PresentGpu), R(PresentFills),
            R(PresentSkips), R(Renders), R(Submits), R(Irqs), R(JobsDone));
     printf("fence %u/%u queued %u running %u\n", s1.LastCompletedFence, s1.LastSubmittedFence, s1.Queued, s1.Running);
+    /* G17 (notes/g17-dxva-mfc.md): failures and VidMm paging over the interval - candidates for ~1 s GPU stalls */
+    printf("failed %u timed out %u resets %u | allocations %u (now %u) | maps %u map fails %u unmaps %u | paging ops", s1.JobsFailed - s0.JobsFailed,
+           s1.JobsTimedOut - s0.JobsTimedOut, s1.Resets - s0.Resets, s1.Allocations - s0.Allocations, s1.Allocations, s1.Maps - s0.Maps, s1.MapFails - s0.MapFails,
+           s1.Unmaps - s0.Unmaps);
+    for (int i = 0; i < 16; i++)
+        if (s1.PagingOps[i] != s0.PagingOps[i])
+            printf(" [%d] %u", i, s1.PagingOps[i] - s0.PagingOps[i]);
+    printf("\n");
     return 0;
 }

@@ -547,3 +547,20 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   BBB at 72.5 fps untimed (3x real time) -> decoder throughput is not the limit. => mpv mostly WAITS (low CPU, low
   GPU, few presents). Next: app-side present pacing log (UMD 49d9cb7a, TEMP until reviewed) during the user's own
   foreground playback.
+- 17:8x ROOT CAUSE CANDIDATE (strong): GPU memory. App present pacing (UMD 49d9cb7a, user's own foreground BBB run):
+  mpv's present does NOT block (flush+wait mean 0.2 ms, present call 0.15-0.27 ms) but mpv's presents are irregular
+  (per 120: 18-28 gaps of 100-250 ms, 6-9 > 250 ms); DWM blit+wait max 997 ms / 497 ms. No TDR/GPU events
+  (tools/phone/gpuevents.ps1). kmdstats (now prints failures / allocations / maps / paging ops) during BBB: presents
+  1.6-1.7/s, failed 0, timeouts 0, resets 0, NEW allocations 15 but MAP_APERTURE_SEGMENT 611 / UNMAP 606 in 15 s
+  (idle: 0) = VidMm residency THRASH. tools/phone/gpumem.ps1 (GPU Adapter/Process Memory counters): adapter shared
+  usage 891 MB idle / 910 MB playing, committed 1350 / 1490 MB; DWM (pid 2056, running since its 12:03 restart)
+  857-890 MB; mpv 147 MB. Segment = MW_SEGMENT_SIZE 1 GB (MaliG76Wddm.h:32), CommitLimit 1 GB. DWM + mpv > 1 GB ->
+  every context switch evicts the other's set (malikm lists EVERY live BO per submit: DWM ~180, mpv ~55).
+  DWM's ~880 MB is abnormal -> leak/accumulation in DWM's UMD (Panfrost BO cache? redirection surfaces? scan-out
+  imports?). Possibly also the missing quick-settings icons (allocation failures). Next: DWM growth over time.
+- 17:9x DWM GPU memory flat at idle (852 MB committed / 886 MB shared over 60 s, gpumem.ps1 -Name dwm) - not a
+  running leak. DWM's tlog: allocations listed per submit ~103 before the mpv runs, 160-203 during/after them, and it
+  stays there. Mechanism: malikm_drm.c submit lists EVERY live BO (H2), including BOs parked in Panfrost's BO cache;
+  the shim ignored MADVISE (retained = 1 only). Fix (Mesa 0097, UMD fecdbce3): MADVISE DONTNEED -> wbo.idle (not
+  listed), WILLNEED / use in a batch -> listed again; pages never discarded (retained 1). Fake (non-WDDM) path
+  untouched. Deployed + phone reboot (fresh DWM, also clears the shell icon state after my dwm taskkill).

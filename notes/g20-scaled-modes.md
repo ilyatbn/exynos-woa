@@ -78,3 +78,11 @@ User 2026-10-17: "yes to attempting to add a lower 720p resolution scale to see 
   resource's own size (Resource.cpp:485 malikm_primary_create(templat.width0, templat.height0)), so the quad branch
   now passes res dims (was so dims - equal for rot 3, and the 2/4 branch never ran).
   Built: s10e-artifacts\mali-umd-0103 (maliumd 8abbced3), mali-umd-0103-x86 (maliumd32 3ff1b027).
+- Review of 8717649 / Mesa 0103: no other primary-vs-scan-out size check in malikm_drm.c (only the scan-out BO import, 1758-1769); panfrost blit = util_blitter_blit (scaled blits supported). Nothing found.
+- Deployed (Windows live, 2026-10-17 ~20:35): UMD 0103 ARM64 via wddm2dbg.sh umdswap (8abbced3, loads at next boot),
+  x86 maliumd32 3ff1b027 into SysWOW64 (old renamed .old); Parameters\ScaledModes = 1 (inactive until KMD 67 boots).
+  KMD 67 still to swap from TWRP (kmd-deploy.sh).
+- Test tool: drivers/S10eDiag/S10eMode.c (s10emode list | WxH [save] | native [save]; NOT saved by default, so a reboot
+  returns to the saved mode) + tools/phone/g20/mode.sh (runs it in the user's session). Baseline on KMD 66:
+  "current 2280x1080 @60 Hz orientation 1", one mode (landscape; EnumDisplaySettings lists modes in the current
+  orientation - the "native" swap was removed for that).

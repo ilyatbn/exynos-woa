@@ -25,6 +25,8 @@ cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /D UNICODE /D _UNICODE /Fo"%OUT%\S1
 if errorlevel 1 exit /b 5
 cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /D _CRT_SECURE_NO_WARNINGS /Fo"%OUT%\S10eRotate.obj" /Fe"%OUT%\s10erotate.exe" "%SRC%S10eRotate.c" /link /MACHINE:ARM64 /SUBSYSTEM:CONSOLE /Brepro user32.lib
 if errorlevel 1 exit /b 7
+cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /D _CRT_SECURE_NO_WARNINGS /Fo"%OUT%\S10eMode.obj" /Fe"%OUT%\s10emode.exe" "%SRC%S10eMode.c" /link /MACHINE:ARM64 /SUBSYSTEM:CONSOLE /Brepro user32.lib
+if errorlevel 1 exit /b 17
 cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /D _CRT_SECURE_NO_WARNINGS /Fo"%OUT%\S10ePerf.obj" /Fe"%OUT%\s10eperf.exe" "%SRC%S10ePerf.c" /link /MACHINE:ARM64 /SUBSYSTEM:CONSOLE /Brepro
 if errorlevel 1 exit /b 8
 cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /D UNICODE /D _UNICODE /D _CRT_SECURE_NO_WARNINGS /Fo"%OUT%\S10eTouchLog.obj" /Fe"%OUT%\s10etouchlog.exe" "%SRC%S10eTouchLog.c" /link /MACHINE:ARM64 /SUBSYSTEM:WINDOWS /Brepro user32.lib gdi32.lib advapi32.lib

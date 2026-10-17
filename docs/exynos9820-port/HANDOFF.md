@@ -1679,5 +1679,7 @@ MHz same), present CPU cost (< 5 ms), display-off (same with display awake), vsy
 DWM composes ~0.2 frames/s while Photos presents (tools dwmrate) -> composition of composition/XAML swap chains on
 this stack is the suspect (H5 family). Phone UMD maliumd 9d9ca53a (0092). Display: wake.ps1 before tests (it had gone
 off with timeout "never" - cause unknown).
+**Also validated (09:45):** 10-min soak OK (DWM alive, 0 crashes) on the new UMD; robustness clips bit-exact through
+DXVA/MFC (CQM scaling matrices, Baseline, Main, B-pyramid + 4 refs + weightp, 854x480 cropping) - tools/mfc/cliptest.ps1.
 **Next:** user: look at Photos playing test.mp4 (is video visible/smooth?), HDMI; me: composition swap chains (DWM
 consumption of presents) as its own milestone.

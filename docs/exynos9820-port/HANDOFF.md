@@ -1641,3 +1641,16 @@ After the Windows update restart: KMD 1.0.61.1 installed + validated (panel-owne
 feature list + known limits. Next (user directive, memory clocks-directive-20261017): S10ePower C1 (AllowSend +
 AllowTmu -> temperatures), C2 frequency requests, touch driver 6.0.5058.7 + governor, C5 max-clock tests. S10ePower
 service is created (start= demand, read-only so far). HDMI waits for the user.
+
+## 52. Restart point (2026-10-17 ~08:00 local)
+**Committed since 51:** G19 dynamic clocks (MILESTONES line): S10ePower (C:\S10eTmp\S10ePower.sys, service auto,
+AllowSend=1 + AllowTmu=1 in its service key) - temperatures + FREQ_REQ + thermal guard; touch driver 6.0.5058.7
+(installed via pnputil); S10eGovernor service (C:\S10eTmp\s10egovernor.exe, auto, depends on S10ePower; Parameters =
+ceilings 1950000/2314000/702000, boost 1742000/2106000/433000, EffLittle 1456000, GpuFloor 260000). Validated:
+temperatures, down/up requests measured, screen-off minimum, C5 max clocks (LITTLE 1.95 GHz, MID 2.314 GHz, GPU
+702 MHz measured by cycle counter), services survive a reboot. Open: touch boost needs a real finger (user), sustained
+(minutes) thermals under full load not measured, MIF untouched (2314 MHz MID / 650+ MHz GPU want MIF >= 2.093 GHz
+for performance per DT tables). Rollback: `sc config S10eGovernor start= demand` + `sc stop S10eGovernor` (clocks
+return to the boot rates), `reg add ...S10ePower /v AllowSend /d 0` to make S10ePower read-only.
+**In flight:** battery 16 % -> phone parked in TWRP to charge. **Next:** G17 V6a (UMD video DDI skeleton) offline;
+HDMI with the user.

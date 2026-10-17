@@ -721,3 +721,10 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   CpuVisibleOnDemand = 3: Windows STUCK at the boot spinner (user, 18:4x); no ping/ssh/adb. Rollback: user forces
   TWRP, kmd-deploy.sh mali-kmd-63 (1.0.63.1, no on-demand flag, last good boot). Registry value 3 stays (1.0.63.1
   ignores it).
+- Recovery: forced reset left NTFS dirty -> TWRP mounts it read-only (kmd-deploy refused, correctly - no forced rw /
+  fsck). Instead: ESP (FAT, by-name/cache) S10EDIAG\nogpu.flg from TWRP -> Windows booted on Basic Display (68 s),
+  registry CpuVisibleOnDemand = 0, nogpu.flg removed from S:, clean restart -> desktop on the Mali (84 s) with KMD
+  1.0.65.1 in mode 0 (= 1.0.63.1 behaviour). Samsung debug_history: only normal boot / recovery entries (no crash).
+  Source default of the parameter set to 0 (a bad default must not be able to hang a boot).
+- Plan: on-demand only for allocations the shim creates for Panfrost BOs, selected by a private MW_ALLOCATION_INFO
+  flag from the UMD - primaries, CDD/shadow/shared and other runtime allocations keep CpuVisible.

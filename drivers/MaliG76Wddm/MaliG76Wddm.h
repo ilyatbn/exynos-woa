@@ -140,6 +140,7 @@ extern ULONG MwWddm2Va;
 extern ULONG MwWddm2Quirk;
 extern ULONG MwWddm2Gpummu;
 extern ULONG MwDirectFlip;
+extern ULONG MwCpuOnDemand;   /* adapter.c: Parameters\CpuVisibleOnDemand */
 extern ULONG MwFlipIndependent;
 /* Parameters\FlipBlt (default 1): a Flip present is carried out as a CPU copy of the new primary into the GOP
  * framebuffer (command.c); 0 = the original's behaviour (flips are dropped, the panel never shows them). */

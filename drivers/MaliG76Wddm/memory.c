@@ -132,6 +132,16 @@ static NTSTATUS NewAllocation(MW_ADAPTER *A, const MW_ALLOCATION_INFO *In, DXGK_
      * Learn gpu-segments "Accessing allocations by physical address": only AccessedPhysically allocations may be. */
     if (MwWddm2Gpummu)
         Out->FlagsWddm2.AccessedPhysically = 1;
+    /* G-game: CPU address space for the CPU view only while it is mapped (adapter.c MwCpuOnDemand) */
+    if (MwWddm2 && MwCpuOnDemand) {
+        /* 1: both flags (no effect: CpuVisible keeps the permanent VA); 2: on-demand only (VA gone, but the logon
+         * never finished - a display surface needs CpuVisible); 3: on-demand only except primaries */
+        BOOLEAN primary = (In->Flags & MW_ALLOC_PRIMARY) != 0;
+        if (MwCpuOnDemand == 1 || (MwCpuOnDemand == 3 && !primary) || MwCpuOnDemand == 2)
+            Out->FlagsWddm2.CpuVisibleOnDemand = 1;
+        if (MwCpuOnDemand == 2 || (MwCpuOnDemand == 3 && !primary))
+            Out->FlagsWddm2.CpuVisible = 0;
+    }
     return STATUS_SUCCESS;
 }
 

@@ -524,3 +524,4 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   5 s without touch (video playback has no touch) and never sets MIF.
   Next (native fix): S10eGovernor - G3D from GPU load (not only touch), MIF 2093000 while the screen is on and the
   GPU is above its floor, 421000 when the screen is off / GPU at floor.
+- 17:3x REVIEW c14bf78 (S10ePower v2): rates between the two verified ends round DOWN to 421000 (documented in ctl help); the driver never lowers MIF after a set - stays at 2093000 until the governor manages it (battery) -> governor task. REVIEW e59037a (kmdstats busy): header said ~1000x/s, measured ~500/s (2487 samples / 5 s) -> comment fixed in its own commit.

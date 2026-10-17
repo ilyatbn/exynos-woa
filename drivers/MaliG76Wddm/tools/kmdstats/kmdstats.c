@@ -4,7 +4,7 @@
  * skipped, renders, submits, GPU interrupts. G17 pacing (notes/g17-dxva-mfc.md): where DWM's frames go.
  *
  *   kmdstats [seconds]
- *   kmdstats busy [seconds]   sample the job queue ~1000x/s: share of samples with a job running (~ GPU busy) and
+ *   kmdstats busy [seconds]   sample the job queue (~500x/s measured: escape + Sleep(1)): share of samples with a job running (~ GPU busy) and
  *                             the queue depth histogram
  *
  * SPDX-License-Identifier: GPL-2.0

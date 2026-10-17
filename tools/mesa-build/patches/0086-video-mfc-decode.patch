@@ -1,0 +1,831 @@
+From 55dc5bdabc737b5a2bd15991d124e7e9ef3f02ea Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 08:19:12 +0300
+Subject: [PATCH] d3d10umd video: H.264 decode on the Exynos MFC (exynos-woa
+ 0086, G17 V6b3) - SPS/PPS rebuilt from DXVA picture parameters (VideoH264.c),
+ decode-order MFC session per decoder, slice NALs per EndFrame, NV12 written
+ into the output view; Media Foundation decodes bit-exact (720p and 1080p with
+ B-frames)
+
+---
+ src/gallium/frontends/d3d10umd/Video.cpp   | 351 ++++++++++++++++++++-
+ src/gallium/frontends/d3d10umd/VideoH264.c | 307 ++++++++++++++++++
+ src/gallium/frontends/d3d10umd/VideoH264.h |  47 +++
+ src/gallium/frontends/d3d10umd/meson.build |   1 +
+ 4 files changed, 695 insertions(+), 11 deletions(-)
+ create mode 100644 src/gallium/frontends/d3d10umd/VideoH264.c
+ create mode 100644 src/gallium/frontends/d3d10umd/VideoH264.h
+
+diff --git a/src/gallium/frontends/d3d10umd/Video.cpp b/src/gallium/frontends/d3d10umd/Video.cpp
+index b2f14f7..f1d5bb7 100644
+--- a/src/gallium/frontends/d3d10umd/Video.cpp
++++ b/src/gallium/frontends/d3d10umd/Video.cpp
+@@ -20,11 +20,43 @@
+ #include "D3D11.h"
+ 
+ #include "Debug.h"
++#include "VideoH264.h"
++
++#include "util/u_inlines.h"
+ 
+ #include <initguid.h>
++#include <winioctl.h>
++#include <cfgmgr32.h>
++#include <stdio.h>
++
++#pragma comment(lib, "cfgmgr32.lib")
+ 
+ extern "C" void malikm_tlog(const char *fmt, ...);
+ 
++/* The MFC decoder (exynos-woa drivers/Exynos9820Mfc/MfcIoctl.h, IOCTL version 1, Flags from driver 1.0.0.7): one
++ * session per open handle, Annex-B access units in, one NV12 picture (Width x Height luma, then Width x Height/2
++ * interleaved CbCr, stride Width) out per decoded picture; decode order makes it the picture of this call. */
++static const GUID kMfcInterface = { 0x6a2e8c51, 0x0b7d, 0x4c3e, { 0x8f, 0x14, 0x98, 0x2a, 0xc0, 0xde, 0x0d, 0x10 } };
++#define IOCTL_MFC_OPEN         CTL_CODE(FILE_DEVICE_UNKNOWN, 0x900, METHOD_BUFFERED, FILE_ANY_ACCESS)
++#define IOCTL_MFC_DECODE       CTL_CODE(FILE_DEVICE_UNKNOWN, 0x901, METHOD_OUT_DIRECT, FILE_ANY_ACCESS)
++#define IOCTL_MFC_CLOSE        CTL_CODE(FILE_DEVICE_UNKNOWN, 0x902, METHOD_BUFFERED, FILE_ANY_ACCESS)
++#define MFC_OPEN_DECODE_ORDER  0x1u
++#define MFC_DEC_HEADER         0x01u
++#define MFC_DEC_FRAME          0x02u
++#define MFC_DEC_EOS            0x04u
++#define MFC_DEC_NOT_CONSUMED   0x08u
++#define MFC_DEC_ERROR          0x10u
++#define MFC_MAX_WINDOW         ((4u << 20) - 512u)
++
++struct MfcOpenIn {
++   unsigned Version, Codec, Flags;
++};
++
++struct MfcDecodeOut {
++   unsigned Flags, Consumed, Width, Height, CropLeft, CropTop, CropRight, CropBottom, FrameType, R2h, Error,
++            DisplayStatus, FrameBytes, HwMicroseconds;
++};
++
+ /* MS Learn / WDK d3d10umddi.h: D3D11_1DDI_DECODER_PROFILE_H264_VLD_NOFGT; dxva.h DXVA_NoEncrypt */
+ static const GUID kH264VldNoFgt = { 0x1b81be68, 0xa0c7, 0x11d3, { 0xb9, 0x84, 0x00, 0xc0, 0x4f, 0x2e, 0x73, 0xc5 } };
+ static const GUID kNoEncrypt = { 0x1b81bed0, 0xa0c7, 0x11d3, { 0xb9, 0x84, 0x00, 0xc0, 0x4f, 0x2e, 0x73, 0xc5 } };
+@@ -33,12 +65,36 @@ static const GUID kNoEncrypt = { 0x1b81bed0, 0xa0c7, 0x11d3, { 0xb9, 0x84, 0x00,
+ #define VID_MAX_W 1920
+ #define VID_MAX_H 1088
+ 
++/* a growable byte buffer in the (POD, runtime-allocated) decoder object */
++struct VidBytes {
++   uint8_t *p;
++   UINT size, cap;
++};
++
+ struct VideoDecoder {
+    D3D11_1DDI_VIDEO_DECODER_DESC Desc;
+    D3D11_1DDI_VIDEO_DECODER_CONFIG Config;
+    void *Output;            /* current frame's output view (VideoOutputView *) */
+    unsigned Frames;
+    unsigned BufferCounts[11];
++   /* V6b3: the frame's DXVA buffers (copied at SubmitBuffers) */
++   uint8_t Pp[VH264_PP_SIZE];   /* DXVA_PicParams_H264 */
++   uint8_t Qm[VH264_QM_SIZE];   /* DXVA_Qmatrix_H264 */
++   BOOL HavePp, HaveQm;
++   VidBytes Slices;         /* DXVA_Slice_H264_Short[] */
++   VidBytes Bits;           /* the bitstream buffer */
++   /* the MFC session and what it has been fed */
++   HANDLE Mfc;
++   BOOL SessionUsed;        /* pictures sent since the session was opened */
++   uint8_t Sps[128];
++   size_t SpsLen;
++   uint8_t Pps[1024];
++   size_t PpsLen;
++   VidBytes Au;             /* the access unit sent to the MFC */
++   VidBytes Out;            /* MfcDecodeOut + one NV12 picture */
++   FILE *Dump;              /* tracing: the Annex-B stream, when MALIKM_TGSI_DIR is set */
++   unsigned Decoded, Failed;
++   BOOL ToldUnsupported;
+ };
+ 
+ struct VideoOutputView {
+@@ -167,6 +223,82 @@ Vid_CalcPrivateVideoDecoderSize(D3D10DDI_HDEVICE hDevice, CONST D3D11_1DDIARG_CR
+    return sizeof(VideoDecoder);
+ }
+ 
++static BOOL
++VidReserve(VidBytes *b, UINT size)
++{
++   if (size <= b->cap)
++      return TRUE;
++   uint8_t *p = (uint8_t *)realloc(b->p, size);
++   if (!p)
++      return FALSE;
++   b->p = p;
++   b->cap = size;
++   return TRUE;
++}
++
++static BOOL
++VidAppend(VidBytes *b, const void *data, UINT size)
++{
++   if (!VidReserve(b, b->size + size))
++      return FALSE;
++   memcpy(b->p + b->size, data, size);
++   b->size += size;
++   return TRUE;
++}
++
++/* open the MFC device interface and a decode-order H.264 session on it */
++static HANDLE
++MfcOpen(void)
++{
++   ULONG len = 0;
++   WCHAR *list;
++   HANDLE h;
++   MfcOpenIn in = { 1u, 0u, MFC_OPEN_DECODE_ORDER };
++   DWORD got;
++
++   if (CM_Get_Device_Interface_List_SizeW(&len, (LPGUID)&kMfcInterface, NULL,
++                                          CM_GET_DEVICE_INTERFACE_LIST_PRESENT) != CR_SUCCESS || len < 2) {
++      malikm_tlog("video: no MFC device interface");
++      return INVALID_HANDLE_VALUE;
++   }
++   list = (WCHAR *)calloc(len, sizeof(WCHAR));
++   if (!list)
++      return INVALID_HANDLE_VALUE;
++   if (CM_Get_Device_Interface_ListW((LPGUID)&kMfcInterface, NULL, list, len,
++                                     CM_GET_DEVICE_INTERFACE_LIST_PRESENT) != CR_SUCCESS || !list[0]) {
++      free(list);
++      return INVALID_HANDLE_VALUE;
++   }
++   h = CreateFileW(list, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
++   free(list);
++   if (h == INVALID_HANDLE_VALUE) {
++      malikm_tlog("video: MFC open failed %lu", GetLastError());
++      return h;
++   }
++   if (!DeviceIoControl(h, IOCTL_MFC_OPEN, &in, sizeof(in), NULL, 0, &got, NULL)) {
++      malikm_tlog("video: IOCTL_MFC_OPEN failed %lu", GetLastError());
++      CloseHandle(h);
++      return INVALID_HANDLE_VALUE;
++   }
++   return h;
++}
++
++/* a new sequence (SPS changed after pictures were decoded): a fresh session, the MFC sets up buffers per header */
++static BOOL
++MfcRestart(VideoDecoder *d)
++{
++   MfcOpenIn in = { 1u, 0u, MFC_OPEN_DECODE_ORDER };
++   DWORD got;
++   DeviceIoControl(d->Mfc, IOCTL_MFC_CLOSE, NULL, 0, NULL, 0, &got, NULL);
++   d->SessionUsed = FALSE;
++   d->PpsLen = 0;
++   if (!DeviceIoControl(d->Mfc, IOCTL_MFC_OPEN, &in, sizeof(in), NULL, 0, &got, NULL)) {
++      malikm_tlog("video: session restart failed %lu", GetLastError());
++      return FALSE;
++   }
++   return TRUE;
++}
++
+ static HRESULT APIENTRY
+ Vid_CreateVideoDecoder(D3D10DDI_HDEVICE hDevice, CONST D3D11_1DDIARG_CREATEVIDEODECODER *pArgs,
+                        D3D11_1DDI_HDECODE hDecode, D3D11_1DDI_HRTDECODE hRTDecode)
+@@ -180,7 +312,26 @@ Vid_CreateVideoDecoder(D3D10DDI_HDEVICE hDevice, CONST D3D11_1DDIARG_CREATEVIDEO
+    }
+    d->Desc = pArgs->Desc;
+    d->Config = pArgs->Config;
+-   malikm_tlog("video: decoder %ux%u created", d->Desc.SampleWidth, d->Desc.SampleHeight);
++   d->Mfc = MfcOpen();
++   if (d->Mfc == INVALID_HANDLE_VALUE) {
++      /* no MFC (driver missing, busy with another session, or not reachable from this process): the caller falls
++       * back to its software decoder */
++      return E_FAIL;
++   }
++   /* the largest picture the session returns: the coded size of the biggest stream this decoder accepts */
++   if (!VidReserve(&d->Out, sizeof(MfcDecodeOut) + VID_MAX_W * VID_MAX_H * 3u / 2u)) {
++      CloseHandle(d->Mfc);
++      return E_OUTOFMEMORY;
++   }
++   {
++      const char *dir = getenv("MALIKM_TGSI_DIR");   /* tracing: keep the stream the MFC gets */
++      if (dir && *dir) {
++         char path[MAX_PATH];
++         snprintf(path, sizeof(path), "%s\\vdec-%lu-%p.h264", dir, GetCurrentProcessId(), (void *)d);
++         d->Dump = fopen(path, "wb");
++      }
++   }
++   malikm_tlog("video: decoder %ux%u created, MFC session open", d->Desc.SampleWidth, d->Desc.SampleHeight);
+    return S_OK;
+ }
+ 
+@@ -189,8 +340,17 @@ Vid_DestroyVideoDecoder(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HDECODE hDecode)
+ {
+    (void)hDevice;
+    VideoDecoder *d = (VideoDecoder *)hDecode.pDrvPrivate;
+-   malikm_tlog("video: decoder destroyed after %u frames (pp %u iq %u sc %u bs %u)", d->Frames, d->BufferCounts[1],
+-               d->BufferCounts[5], d->BufferCounts[6], d->BufferCounts[7]);
++   malikm_tlog("video: decoder destroyed after %u frames (decoded %u, failed %u; pp %u iq %u sc %u bs %u)", d->Frames,
++               d->Decoded, d->Failed, d->BufferCounts[1], d->BufferCounts[5], d->BufferCounts[6], d->BufferCounts[7]);
++   if (d->Mfc && d->Mfc != INVALID_HANDLE_VALUE)
++      CloseHandle(d->Mfc);   /* closing the handle ends the session (MfcIoctl.h) */
++   if (d->Dump)
++      fclose(d->Dump);
++   free(d->Slices.p);
++   free(d->Bits.p);
++   free(d->Au.p);
++   free(d->Out.p);
++   memset(d, 0, sizeof(*d));
+ }
+ 
+ static HRESULT APIENTRY
+@@ -222,14 +382,59 @@ CountBuffer(VideoDecoder *d, UINT Type, UINT Size)
+       malikm_tlog("video: frame %u buffer type %u size %u", d->Frames, Type, Size);
+ }
+ 
++/* copy one submitted buffer (a runtime-created DYNAMIC decoder buffer the caller has written) into the decoder */
++static HRESULT
++TakeBuffer(D3D10DDI_HDEVICE hDevice, VideoDecoder *d, D3D10DDI_HRESOURCE hRes, UINT Type, UINT Offset, UINT Size)
++{
++   struct pipe_context *pipe = CastPipeContext(hDevice);
++   struct pipe_resource *res = CastResource(hRes)->resource;
++   VidBytes *dst = NULL;
++
++   CountBuffer(d, Type, Size);
++   if (!res || (uint64_t)Offset + Size > res->width0)
++      return E_INVALIDARG;
++   switch (Type) {
++   case D3D11_1DDI_VIDEO_DECODER_BUFFER_PICTURE_PARAMETERS:
++      if (Size < sizeof(d->Pp))
++         return E_INVALIDARG;
++      pipe_buffer_read(pipe, res, Offset, sizeof(d->Pp), d->Pp);
++      d->HavePp = TRUE;
++      return S_OK;
++   case D3D11_1DDI_VIDEO_DECODER_BUFFER_INVERSE_QUANTIZATION_MATRIX:
++      if (Size < sizeof(d->Qm))
++         return E_INVALIDARG;
++      pipe_buffer_read(pipe, res, Offset, sizeof(d->Qm), d->Qm);
++      d->HaveQm = TRUE;
++      return S_OK;
++   case D3D11_1DDI_VIDEO_DECODER_BUFFER_SLICE_CONTROL:
++      dst = &d->Slices;
++      break;
++   case D3D11_1DDI_VIDEO_DECODER_BUFFER_BITSTREAM:
++      dst = &d->Bits;
++      break;
++   default:
++      return E_INVALIDARG;
++   }
++   dst->size = 0;
++   if (!VidReserve(dst, Size))
++      return E_OUTOFMEMORY;
++   if (Size)
++      pipe_buffer_read(pipe, res, Offset, Size, dst->p);
++   dst->size = Size;
++   return S_OK;
++}
++
+ static HRESULT APIENTRY
+ Vid_VideoDecoderSubmitBuffers(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HDECODE hDecode, UINT Count,
+                               CONST D3D11_1DDI_VIDEO_DECODER_BUFFER_DESC *pDesc)
+ {
+-   (void)hDevice;
+    VideoDecoder *d = (VideoDecoder *)hDecode.pDrvPrivate;
+-   for (UINT i = 0; i < Count; i++)
+-      CountBuffer(d, pDesc[i].BufferType, pDesc[i].DataSize);
++   for (UINT i = 0; i < Count; i++) {
++      HRESULT hr = TakeBuffer(hDevice, d, pDesc[i].hResource, pDesc[i].BufferType, pDesc[i].DataOffset,
++                              pDesc[i].DataSize);
++      if (FAILED(hr))
++         return hr;
++   }
+    return S_OK;
+ }
+ 
+@@ -237,23 +442,147 @@ static HRESULT APIENTRY
+ Vid_VideoDecoderSubmitBuffers1(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HDECODE hDecode, UINT Count,
+                                CONST D3DWDDM2_0DDI_VIDEO_DECODER_BUFFER_DESC1 *pDesc)
+ {
+-   (void)hDevice;
+    VideoDecoder *d = (VideoDecoder *)hDecode.pDrvPrivate;
+    for (UINT i = 0; i < Count; i++) {
+       if (pDesc[i].pIV || pDesc[i].SubSampleMappingCount)
+          return E_INVALIDARG;   /* no encryption */
+-      CountBuffer(d, pDesc[i].BufferType, pDesc[i].DataSize);
++      HRESULT hr = TakeBuffer(hDevice, d, pDesc[i].hResource, pDesc[i].BufferType, pDesc[i].DataOffset,
++                              pDesc[i].DataSize);
++      if (FAILED(hr))
++         return hr;
+    }
+    return S_OK;
+ }
+ 
++/* the frame's access unit: SPS / PPS when they differ from what the session has, then the slice NAL units (short
++ * slice format: each slice control entry locates one NAL unit, start code included, in the bitstream buffer) */
++static BOOL
++BuildAccessUnit(VideoDecoder *d)
++{
++   UINT n = d->Slices.size / VH264_SLICE_SIZE;
++   unsigned loc0, len0;
++   uint8_t sps[sizeof(d->Sps)], pps[sizeof(d->Pps)];
++   size_t spsLen, ppsLen;
++   unsigned type = 0;
++   int ppsId;
++
++   d->Au.size = 0;
++   if (!n)
++      return FALSE;
++   vh264_slice(d->Slices.p, 0, &loc0, &len0);
++   if (loc0 >= d->Bits.size)
++      return FALSE;
++   ppsId = vh264_slice_pps_id(d->Bits.p + loc0, d->Bits.size - loc0, &type);
++   if (ppsId < 0)
++      return FALSE;
++   spsLen = vh264_write_sps(d->Pp, d->Desc.SampleWidth, d->Desc.SampleHeight, sps, sizeof(sps));
++   ppsLen = vh264_write_pps(d->Pp, d->HaveQm ? d->Qm : NULL, (unsigned)ppsId, pps, sizeof(pps));
++   if (!spsLen || !ppsLen)
++      return FALSE;
++   if (spsLen != d->SpsLen || memcmp(sps, d->Sps, spsLen)) {
++      if (d->SessionUsed && !MfcRestart(d))
++         return FALSE;
++      memcpy(d->Sps, sps, spsLen);
++      d->SpsLen = spsLen;
++      d->PpsLen = 0;
++      if (!VidAppend(&d->Au, sps, (UINT)spsLen))
++         return FALSE;
++   }
++   if (ppsLen != d->PpsLen || memcmp(pps, d->Pps, ppsLen)) {
++      memcpy(d->Pps, pps, ppsLen);
++      d->PpsLen = ppsLen;
++      if (!VidAppend(&d->Au, pps, (UINT)ppsLen))
++         return FALSE;
++   }
++   for (UINT i = 0; i < n; i++) {
++      unsigned loc, len;
++      vh264_slice(d->Slices.p, i, &loc, &len);
++      if (loc > d->Bits.size || len > d->Bits.size - loc || !VidAppend(&d->Au, d->Bits.p + loc, len))
++         return FALSE;
++   }
++   return d->Au.size <= MFC_MAX_WINDOW;
++}
++
++/* the MFC's NV12 picture into the output view's array slice (Resource::nv12_height layout) */
++static void
++WriteOutput(D3D10DDI_HDEVICE hDevice, VideoDecoder *d, const MfcDecodeOut *o)
++{
++   struct pipe_context *pipe = CastPipeContext(hDevice);
++   VideoOutputView *v = (VideoOutputView *)d->Output;
++   Resource *r = v ? CastResource(v->Resource) : NULL;
++   const uint8_t *y = (const uint8_t *)(o + 1);
++   struct pipe_box box;
++
++   if (!r || !r->resource || !r->nv12_height)
++      return;
++   unsigned w = MIN2(r->resource->width0, o->Width);
++   unsigned h = MIN2(r->nv12_height, o->Height);
++   u_box_3d(0, 0, v->ArraySlice, w, h, 1, &box);
++   pipe->texture_subdata(pipe, r->resource, 0, PIPE_MAP_WRITE, &box, y, o->Width, 0);
++   u_box_3d(0, r->nv12_height, v->ArraySlice, w, h / 2u, 1, &box);
++   pipe->texture_subdata(pipe, r->resource, 0, PIPE_MAP_WRITE, &box, y + o->Width * o->Height, o->Width, 0);
++}
++
+ static VOID APIENTRY
+ Vid_VideoDecoderEndFrame(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HDECODE hDecode)
+ {
+-   (void)hDevice;
+    VideoDecoder *d = (VideoDecoder *)hDecode.pDrvPrivate;
+-   if (d->Frames++ == 0)
+-      malikm_tlog("video: EndFrame - no decode backend yet (V6a), output left as is");
++   unsigned frame = d->Frames++;
++   BOOL done = FALSE;
++
++   /* EndFrame cannot fail (VOID; a SetError here removes the device): a picture that does not decode is counted,
++    * logged and leaves the output view as it was */
++   if (!d->HavePp || !d->Output) {
++      d->Failed++;
++      goto out;
++   }
++   if (unsigned why = vh264_check(d->Pp)) {
++      if (!d->ToldUnsupported)
++         malikm_tlog("video: stream not supported by the MFC bridge (reason %u)", why);
++      d->ToldUnsupported = TRUE;
++      d->Failed++;
++      goto out;
++   }
++   if (!BuildAccessUnit(d)) {
++      malikm_tlog("video: frame %u: no access unit (%u slice bytes, %u bitstream bytes)", frame, d->Slices.size,
++                  d->Bits.size);
++      d->Failed++;
++      goto out;
++   }
++   if (d->Dump)
++      fwrite(d->Au.p, 1, d->Au.size, d->Dump);
++   d->SessionUsed = TRUE;
++   for (UINT off = 0, tries = 0; off < d->Au.size && tries < 8 && !done; tries++) {
++      const MfcDecodeOut *o = (const MfcDecodeOut *)d->Out.p;
++      DWORD got = 0;
++      if (!DeviceIoControl(d->Mfc, IOCTL_MFC_DECODE, d->Au.p + off, d->Au.size - off, d->Out.p, d->Out.cap, &got,
++                           NULL) || got < sizeof(MfcDecodeOut)) {
++         malikm_tlog("video: frame %u: IOCTL_MFC_DECODE failed %lu", frame, GetLastError());
++         break;
++      }
++      if (frame < 5 || (o->Flags & MFC_DEC_ERROR))
++         malikm_tlog("video: frame %u: mfc flags 0x%x consumed %u of %u, %ux%u type %u err 0x%x, %u us", frame,
++                     o->Flags, o->Consumed, d->Au.size - off, o->Width, o->Height, o->FrameType, o->Error,
++                     o->HwMicroseconds);
++      if ((o->Flags & MFC_DEC_FRAME) && got >= sizeof(MfcDecodeOut) + o->Width * o->Height * 3u / 2u) {
++         WriteOutput(hDevice, d, o);
++         d->Decoded++;
++         done = TRUE;
++      }
++      /* Consumed 0: display only (not expected in decode order) or a header parsed from a buffer the session wants
++       * again from the start (MfcIoctl.h / vendor SEQ_DONE) - the same window again. Otherwise continue from there
++       * (the driver reports the whole window once a picture's NAL units are used). */
++      if (o->Consumed == 0 && (o->Flags & (MFC_DEC_NOT_CONSUMED | MFC_DEC_HEADER)))
++         continue;
++      if (o->Consumed == 0)
++         break;
++      off += o->Consumed;
++   }
++   if (!done)
++      d->Failed++;
++out:
++   d->HavePp = d->HaveQm = FALSE;
++   d->Slices.size = d->Bits.size = 0;
+    d->Output = NULL;
+ }
+ 
+diff --git a/src/gallium/frontends/d3d10umd/VideoH264.c b/src/gallium/frontends/d3d10umd/VideoH264.c
+new file mode 100644
+index 0000000..556bccb
+--- /dev/null
++++ b/src/gallium/frontends/d3d10umd/VideoH264.c
+@@ -0,0 +1,307 @@
++/*
++ * exynos-woa G17 V6b3: SPS / PPS synthesis from DXVA H.264 picture parameters - see VideoH264.h. Syntax: ITU-T H.264
++ * 7.3.2.1.1 (SPS), 7.3.2.2 (PPS), 7.3.2.1.1.1 (scaling_list), 7.4.1 (emulation prevention), Table A-1 (levels).
++ */
++
++#include "VideoH264.h"
++
++#include <windows.h>
++#include <dxva.h>
++#include <string.h>
++
++_Static_assert(sizeof(DXVA_PicParams_H264) == VH264_PP_SIZE, "DXVA_PicParams_H264 size");
++_Static_assert(sizeof(DXVA_Qmatrix_H264) == VH264_QM_SIZE, "DXVA_Qmatrix_H264 size");
++_Static_assert(sizeof(DXVA_Slice_H264_Short) == VH264_SLICE_SIZE, "DXVA_Slice_H264_Short size");
++
++struct bw {
++   uint8_t rbsp[1024];
++   unsigned bits;
++   int overflow;
++};
++
++static void
++put(struct bw *b, unsigned v, unsigned n)
++{
++   while (n--) {
++      unsigned byte = b->bits >> 3;
++      if (byte >= sizeof(b->rbsp)) {
++         b->overflow = 1;
++         return;
++      }
++      if ((b->bits & 7) == 0)
++         b->rbsp[byte] = 0;
++      if ((v >> n) & 1)
++         b->rbsp[byte] |= (uint8_t)(0x80u >> (b->bits & 7));
++      b->bits++;
++   }
++}
++
++static void
++ue(struct bw *b, unsigned v)
++{
++   unsigned x = v + 1, len = 0;
++   while ((x >> len) > 1)
++      len++;
++   put(b, 0, len);
++   put(b, x, len + 1);
++}
++
++static void
++se(struct bw *b, int v)
++{
++   ue(b, v > 0 ? 2u * (unsigned)v - 1u : 2u * (unsigned)(-v));
++}
++
++static void
++trailing(struct bw *b)
++{
++   put(b, 1, 1);
++   while (b->bits & 7)
++      put(b, 0, 1);
++}
++
++/* start code + NAL header + RBSP with emulation prevention bytes (7.4.1) */
++static size_t
++nal(const struct bw *b, uint8_t header, uint8_t *out, size_t cap)
++{
++   size_t n = 0, zeros = 0, len = b->bits >> 3;
++   if (b->overflow || cap < 5)
++      return 0;
++   out[n++] = 0; out[n++] = 0; out[n++] = 0; out[n++] = 1; out[n++] = header;
++   for (size_t i = 0; i < len; i++) {
++      if (n + 2 > cap)
++         return 0;
++      if (zeros >= 2 && b->rbsp[i] <= 3) {
++         out[n++] = 3;
++         zeros = 0;
++      }
++      out[n++] = b->rbsp[i];
++      zeros = b->rbsp[i] == 0 ? zeros + 1 : 0;
++   }
++   return n;
++}
++
++unsigned
++vh264_check(const void *p)
++{
++   const DXVA_PicParams_H264 *pp = (const DXVA_PicParams_H264 *)p;
++   if (pp->pic_order_cnt_type == 1)
++      return VH264_UNSUPPORTED_POC1;
++   if (pp->num_slice_groups_minus1 != 0)
++      return VH264_UNSUPPORTED_SLICE_GROUPS;
++   if (pp->chroma_format_idc != 1 || pp->bit_depth_luma_minus8 || pp->bit_depth_chroma_minus8)
++      return VH264_UNSUPPORTED_CHROMA;
++   return 0;
++}
++
++/* Table A-1: the smallest level (from 3.0) whose MaxFS holds the frame and whose MaxDpbMbs holds the references */
++static unsigned
++level_idc(unsigned frame_mbs, unsigned num_ref_frames)
++{
++   static const unsigned lv[][3] = {
++      { 30, 1620, 8100 }, { 31, 3600, 18000 }, { 32, 5120, 20480 }, { 40, 8192, 32768 },
++      { 42, 8704, 34816 }, { 50, 22080, 110400 }, { 51, 36864, 184320 },
++   };
++   unsigned refs = num_ref_frames ? num_ref_frames : 1;
++   for (unsigned i = 0; i < sizeof(lv) / sizeof(lv[0]); i++)
++      if (frame_mbs <= lv[i][1] && refs * frame_mbs <= lv[i][2])
++         return lv[i][0];
++   return 52;
++}
++
++size_t
++vh264_write_sps(const void *p, unsigned sample_w, unsigned sample_h, uint8_t *out, size_t cap)
++{
++   const DXVA_PicParams_H264 *pp = (const DXVA_PicParams_H264 *)p;
++   struct bw b;
++   unsigned w_mbs = pp->wFrameWidthInMbsMinus1 + 1u;
++   unsigned h_mbs = pp->wFrameHeightInMbsMinus1 + 1u;   /* frame height in MBs (DXVA: FrameHeightInMbs) */
++   unsigned frame_mbs_only = pp->frame_mbs_only_flag;
++   unsigned crop_r = 0, crop_b = 0;
++
++   if (vh264_check(pp))
++      return 0;
++   memset(&b, 0, sizeof(b));
++   put(&b, 100, 8);                      /* profile_idc: High (the PPS may carry 8x8 transform / scaling lists) */
++   put(&b, 0, 8);                        /* constraint_set flags + reserved_zero_2bits */
++   put(&b, level_idc(w_mbs * h_mbs, pp->num_ref_frames), 8);
++   ue(&b, 0);                            /* seq_parameter_set_id */
++   ue(&b, pp->chroma_format_idc);        /* 1 (vh264_check) */
++   ue(&b, pp->bit_depth_luma_minus8);
++   ue(&b, pp->bit_depth_chroma_minus8);
++   put(&b, 0, 1);                        /* qpprime_y_zero_transform_bypass_flag: not in DXVA, lossless not offered */
++   put(&b, 0, 1);                        /* seq_scaling_matrix_present_flag: the PPS carries the effective lists */
++   ue(&b, pp->log2_max_frame_num_minus4);
++   ue(&b, pp->pic_order_cnt_type);
++   if (pp->pic_order_cnt_type == 0)
++      ue(&b, pp->log2_max_pic_order_cnt_lsb_minus4);
++   ue(&b, pp->num_ref_frames);           /* max_num_ref_frames */
++   put(&b, 1, 1);                        /* gaps_in_frame_num_value_allowed_flag: not in DXVA; 1 tolerates gaps */
++   ue(&b, w_mbs - 1);                    /* pic_width_in_mbs_minus1 */
++   ue(&b, (frame_mbs_only ? h_mbs : h_mbs / 2u) - 1u);   /* pic_height_in_map_units_minus1 */
++   put(&b, frame_mbs_only, 1);
++   if (!frame_mbs_only)
++      put(&b, pp->MbaffFrameFlag, 1);   /* mb_adaptive_frame_field_flag: only visible through MbaffFrameFlag */
++   put(&b, pp->direct_8x8_inference_flag, 1);
++   /* frame cropping to the decoder's output size (4:2:0: CropUnitX 2, CropUnitY 2 * (2 - frame_mbs_only)) */
++   if (sample_w && sample_w < w_mbs * 16u)
++      crop_r = (w_mbs * 16u - sample_w) / 2u;
++   if (sample_h && sample_h < h_mbs * 16u)
++      crop_b = (h_mbs * 16u - sample_h) / (2u * (2u - frame_mbs_only));
++   put(&b, crop_r || crop_b, 1);
++   if (crop_r || crop_b) {
++      ue(&b, 0);
++      ue(&b, crop_r);
++      ue(&b, 0);
++      ue(&b, crop_b);
++   }
++   put(&b, 0, 1);                        /* vui_parameters_present_flag */
++   trailing(&b);
++   return nal(&b, 0x67, out, cap);       /* nal_ref_idc 3, nal_unit_type 7 */
++}
++
++static int
++flat(const UCHAR *l, unsigned n)
++{
++   for (unsigned i = 0; i < n; i++)
++      if (l[i] != 16)
++         return 0;
++   return 1;
++}
++
++/* 7.3.2.1.1.1 with explicit values: the DXVA lists are in coding (zig-zag) order */
++static void
++scaling_list(struct bw *b, const UCHAR *l, unsigned n)
++{
++   int last = 8;
++   for (unsigned j = 0; j < n; j++) {
++      int delta = (int)l[j] - last;
++      if (delta > 127)
++         delta -= 256;
++      else if (delta < -128)
++         delta += 256;
++      se(b, delta);
++      last = l[j];
++   }
++}
++
++size_t
++vh264_write_pps(const void *p, const void *q, unsigned pps_id, uint8_t *out, size_t cap)
++{
++   const DXVA_PicParams_H264 *pp = (const DXVA_PicParams_H264 *)p;
++   const DXVA_Qmatrix_H264 *qm = (const DXVA_Qmatrix_H264 *)q;
++   struct bw b;
++   int matrices = 0;
++
++   if (vh264_check(pp))
++      return 0;
++   if (qm) {
++      for (unsigned i = 0; i < 6; i++)
++         matrices |= !flat(qm->bScalingLists4x4[i], 16);
++      for (unsigned i = 0; i < 2 && pp->transform_8x8_mode_flag; i++)
++         matrices |= !flat(qm->bScalingLists8x8[i], 64);
++   }
++   memset(&b, 0, sizeof(b));
++   ue(&b, pps_id);
++   ue(&b, 0);                                         /* seq_parameter_set_id */
++   put(&b, pp->entropy_coding_mode_flag, 1);
++   put(&b, pp->pic_order_present_flag, 1);            /* bottom_field_pic_order_in_frame_present_flag */
++   ue(&b, 0);                                         /* num_slice_groups_minus1 (vh264_check) */
++   ue(&b, pp->num_ref_idx_l0_active_minus1);          /* DXVA: the PPS defaults */
++   ue(&b, pp->num_ref_idx_l1_active_minus1);
++   put(&b, pp->weighted_pred_flag, 1);
++   put(&b, pp->weighted_bipred_idc, 2);
++   se(&b, pp->pic_init_qp_minus26);
++   se(&b, pp->pic_init_qs_minus26);
++   se(&b, pp->chroma_qp_index_offset);
++   put(&b, pp->deblocking_filter_control_present_flag, 1);
++   put(&b, pp->constrained_intra_pred_flag, 1);
++   put(&b, pp->redundant_pic_cnt_present_flag, 1);
++   if (pp->transform_8x8_mode_flag || matrices || pp->second_chroma_qp_index_offset != pp->chroma_qp_index_offset) {
++      put(&b, pp->transform_8x8_mode_flag, 1);
++      put(&b, matrices, 1);                           /* pic_scaling_matrix_present_flag */
++      if (matrices) {
++         for (unsigned i = 0; i < 6u + 2u * pp->transform_8x8_mode_flag; i++) {
++            put(&b, 1, 1);                            /* pic_scaling_list_present_flag[i] */
++            if (i < 6)
++               scaling_list(&b, qm->bScalingLists4x4[i], 16);
++            else
++               scaling_list(&b, qm->bScalingLists8x8[i - 6], 64);
++         }
++      }
++      se(&b, pp->second_chroma_qp_index_offset);
++   }
++   trailing(&b);
++   return nal(&b, 0x68, out, cap);                    /* nal_ref_idc 3, nal_unit_type 8 */
++}
++
++void
++vh264_slice(const void *slices, unsigned i, unsigned *location, unsigned *bytes)
++{
++   const DXVA_Slice_H264_Short *s = (const DXVA_Slice_H264_Short *)slices + i;
++   *location = s->BSNALunitDataLocation;
++   *bytes = s->SliceBytesInBuffer;
++}
++
++/* RBSP bit reader over the first bytes of a NAL unit (emulation prevention bytes dropped) */
++struct br {
++   uint8_t d[32];
++   unsigned len, pos;
++};
++
++static unsigned
++get1(struct br *r)
++{
++   if (r->pos >= r->len * 8u)
++      return 1;   /* past the end: terminates ue() */
++   unsigned v = (r->d[r->pos >> 3] >> (7 - (r->pos & 7))) & 1;
++   r->pos++;
++   return v;
++}
++
++static int
++read_ue(struct br *r, unsigned *v)
++{
++   unsigned zeros = 0, x = 0;
++   while (get1(r) == 0)
++      if (++zeros > 20)
++         return 0;
++   for (unsigned i = 0; i < zeros; i++)
++      x = (x << 1) | get1(r);
++   *v = (1u << zeros) - 1u + x;
++   return r->pos <= r->len * 8u;
++}
++
++int
++vh264_slice_pps_id(const uint8_t *data, size_t len, unsigned *nal_unit_type)
++{
++   struct br r;
++   size_t i = 0, zeros = 0;
++   unsigned first_mb, slice_type, pps_id, type;
++
++   if (len >= 4 && !data[0] && !data[1] && !data[2] && data[3] == 1)
++      i = 4;
++   else if (len >= 3 && !data[0] && !data[1] && data[2] == 1)
++      i = 3;
++   else
++      return -1;
++   if (i >= len)
++      return -1;
++   type = data[i++] & 0x1f;
++   if (nal_unit_type)
++      *nal_unit_type = type;
++   if (type != 1 && type != 5)
++      return -1;
++   memset(&r, 0, sizeof(r));
++   for (; i < len && r.len < sizeof(r.d); i++) {
++      if (zeros >= 2 && data[i] == 3) {
++         zeros = 0;
++         continue;
++      }
++      r.d[r.len++] = data[i];
++      zeros = data[i] == 0 ? zeros + 1 : 0;
++   }
++   if (!read_ue(&r, &first_mb) || !read_ue(&r, &slice_type) || !read_ue(&r, &pps_id) || pps_id > 255)
++      return -1;
++   return (int)pps_id;
++}
+diff --git a/src/gallium/frontends/d3d10umd/VideoH264.h b/src/gallium/frontends/d3d10umd/VideoH264.h
+new file mode 100644
+index 0000000..cba770e
+--- /dev/null
++++ b/src/gallium/frontends/d3d10umd/VideoH264.h
+@@ -0,0 +1,47 @@
++/*
++ * exynos-woa G17 V6b3 (notes/g17-dxva-mfc.md): the stateless -> stateful bridge for the MFC. DXVA H.264 hands the
++ * driver the parsed parameter sets (DXVA_PicParams_H264, DXVA_Qmatrix_H264) and the slice NAL units; the MFC wants
++ * an Annex-B stream. These functions rebuild SPS / PPS NAL units (start code included) that decode the slices the
++ * same way: every syntax element the slice data depends on comes from the picture parameters, the rest takes the
++ * value an encoder would choose (profile High, the smallest level that holds the frame size and the reference
++ * frames, no VUI). Pure C, no driver state.
++ *
++ * The DXVA structures stay inside VideoH264.c: dxva.h does not compile as C++ with clang (its enum masks shift ~0),
++ * so the driver passes them as bytes of the sizes below (checked against dxva.h there).
++ */
++#pragma once
++
++#include <stddef.h>
++#include <stdint.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#define VH264_PP_SIZE     1040u   /* sizeof(DXVA_PicParams_H264) */
++#define VH264_QM_SIZE     224u    /* sizeof(DXVA_Qmatrix_H264) */
++#define VH264_SLICE_SIZE  10u     /* sizeof(DXVA_Slice_H264_Short) */
++
++/* Why a picture cannot be bridged (0 = it can). */
++#define VH264_UNSUPPORTED_POC1          1   /* pic_order_cnt_type 1: its SPS cycle is not in DXVA_PicParams_H264 */
++#define VH264_UNSUPPORTED_SLICE_GROUPS  2   /* FMO (num_slice_groups_minus1 > 0) */
++#define VH264_UNSUPPORTED_CHROMA        3   /* not 4:2:0 8-bit */
++
++unsigned vh264_check(const void *pp);
++
++/* SPS (id 0) / PPS (id pps_id, referring to SPS 0) as NAL units with a 4-byte start code. Returns the length, or 0
++ * when cap is too small or vh264_check fails. sample_w / sample_h: the decoder's output size (frame cropping). qm may
++ * be NULL (flat matrices). */
++size_t vh264_write_sps(const void *pp, unsigned sample_w, unsigned sample_h, uint8_t *out, size_t cap);
++size_t vh264_write_pps(const void *pp, const void *qm, unsigned pps_id, uint8_t *out, size_t cap);
++
++/* entry i of a DXVA_Slice_H264_Short array: where its NAL unit is in the bitstream buffer */
++void vh264_slice(const void *slices, unsigned i, unsigned *location, unsigned *bytes);
++
++/* pic_parameter_set_id and nal_unit_type of a slice NAL unit (data starts at its start code, 3 or 4 bytes).
++ * Returns the pps id, or -1 when the data is not a slice header. */
++int vh264_slice_pps_id(const uint8_t *data, size_t len, unsigned *nal_unit_type);
++
++#ifdef __cplusplus
++}
++#endif
+diff --git a/src/gallium/frontends/d3d10umd/meson.build b/src/gallium/frontends/d3d10umd/meson.build
+index 5e7c1e2..916211f 100644
+--- a/src/gallium/frontends/d3d10umd/meson.build
++++ b/src/gallium/frontends/d3d10umd/meson.build
+@@ -13,6 +13,7 @@ libd3d10umd = static_library(
+     'Device.cpp',
+     'D3D11.cpp',
+     'Video.cpp',
++    'VideoH264.c',
+     'Draw.cpp',
+     'DxgiFns.cpp',
+     'Format.cpp',
+-- 
+2.40.1.windows.1
+

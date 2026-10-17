@@ -115,3 +115,21 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   would read as UNSUPPORTED - not seen (MF got 0), fold into V6b3 (accept GUID_NULL). Histogram query (2.4) -> SetError
   only reachable through 2.4 tables we do not expose. Generator: 73 stubs (was 74), wddm2_0 fill points at
   Vid_QueryVideoCapabilities (git diff of the .inc). mfd3d.ps1 hash split checked against mftest's line format.
+- V6b3 code (Mesa working copy, maliumd 679fa413): VideoH264.c/.h (SPS/PPS synthesis from DXVA_PicParams_H264 +
+  DXVA_Qmatrix_H264: High profile, level = smallest of Table A-1 holding frame size and num_ref_frames, gaps allowed,
+  cropping to the decoder's output size, no VUI; PPS id from the first slice header; scaling lists explicit in the
+  PPS when not flat; POC type 1 / FMO / non-4:2:0-8bit refused). dxva.h does not compile as C++ under clang-cl
+  ((~0)<<n enum masks) -> DXVA structs only in the .c, sizes static_asserted (1040/224/10 = what MF submits).
+  Video.cpp: MFC session per decoder (cfgmgr32 interface list -> CreateFile -> IOCTL_MFC_OPEN DECODE_ORDER; failure
+  -> CreateVideoDecoder E_FAIL = caller's software fallback), buffers copied at SubmitBuffers (pipe_buffer_read),
+  EndFrame = SPS/PPS when changed (SPS change after pictures -> session restart) + slice NALs -> IOCTL_MFC_DECODE
+  loop -> texture_subdata of luma + CbCr into the output view's array slice. Tracing: the Annex-B stream goes to
+  %MALIKM_TGSI_DIR%\vdec-<pid>-<obj>.h264.
+- 2026-10-17 V6b3 DONE on the phone (0086, maliumd 679fa413, driver 1.0.0.7), mfd3d.ps1 -Dev:
+  - c720.mp4 (30 frames): the MFC decodes every picture (first call = header, consumed 15 = synthesized SPS+PPS;
+    then ~5 ms per picture), hashes IDENTICAL to the sysmem (Microsoft software) decode, in order.
+  - c1080.mp4 (60 frames, I P B P B decode order): decoded 60 failed 0, ~10 ms per picture. Full 1088 rows differ
+    from software; -Rows 1080 (mftest -rows, new): all 60 IDENTICAL, frame 0 = mfcdec/libavcodec 0x26ffa70f. The 8 rows
+    under the crop (1080..1087) are not defined output - software and MFC fill them differently.
+  - mftest -d3d11 fps (20.9 at 1080p vs 40 sysmem) includes MF's per-frame readback to system memory (staging copy
+    + map) - not a playback number; measure with a renderer (V6c/V6d).

@@ -1,0 +1,55 @@
+# G20 - lower (scaled) desktop resolutions, e.g. 720x1520 on the 1080x2280 panel
+
+User 2026-10-17: "yes to attempting to add a lower 720p resolution scale to see if that helps later in games".
+
+## Facts so far
+- The panel (S6E3FA7, command-mode DSI) runs only at its native 1080x2280; MaliG76Wddm exposes ONE source mode and
+  one target mode (display.c header: "one source, one target, one mode, identity transforms").
+- Present path today: DWM's 1080x2280 primary -> UMD d3d10_scanout_present GPU blit into the scan-out BO (1:1), or
+  the rotated path (landscape), or the KMD CPU copy (DoPresent). A smaller source needs a stretch in that blit.
+- Candidate mode: 720x1520 (exactly 2/3 of 1080x2280, same 19:9 aspect).
+
+## Plan
+1. MS Learn: how a WDDM driver offers a source mode smaller than the target (VidPN present path scaling,
+   D3DKMDT_VPPS_*, source/target mode sets in EnumVidPnCofuncModality / IsSupportedVidPn / CommitVidPn).
+2. KMD display.c: add the scaled source mode(s) + path scaling support.
+3. UMD d3d10_gdi.c: stretch blit (LINEAR) when the primary is smaller than the scan-out; KMD DoPresent fallback.
+4. Test with nogpu.flg recovery ready (a VidPN mistake can leave the display black at boot).
+
+## Progress log
+- MS Learn D3DKMDT_VIDPN_PRESENT_PATH_SCALING (https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmdt/
+  ne-d3dkmdt-_d3dkmdt_vidpn_present_path_scaling): "D3DKMDT_VPPS_IDENTITY ... available only if the path's source mode
+  has the same spatial resolution as the path's target mode"; "D3DKMDT_VPPS_STRETCHED Indicates that the source content
+  is scaled to fit the path's target"; ASPECTRATIOCENTEREDMAX keeps the aspect (Win7+); "If a driver cannot support
+  the requested scaling value on the specified path, its calls to DxgkDdiCommitVidPn should return
+  STATUS_GRAPHICS_VIDPN_MODALITY_NOT_SUPPORTED". => a 720x1520 source on the 1080x2280 target needs the path's
+  ScalingSupport to include Stretched (and/or AspectRatioCenteredMax - same aspect, same picture).
+- MS Learn "Querying VidPN Hardware Capabilities" (https://learn.microsoft.com/en-us/windows-hardware/drivers/display/
+  querying-vidpnhardware-capabilities): table row "Hardware cannot perform cloning, scaling, or rotation
+  transformations. These operations are performed by the driver." -> DriverRotation=1, DriverScaling=1. So the OS does
+  NOT scale for us: whichever way it is reported, the driver produces the scaled picture (HW plane scaler or an
+  intermediate blit). Our case = driver blit, report DriverScaling=1 on a scaled path (and DriverRotation=1 when rotated,
+  matching what our rotate blit already does). "the driver is required to set ... Reserved ... to 0".
+- Code read 2026-10-17 (persisted before coding):
+  - display.c: FillSourceMode = Fb w/h/pitch; IsSupportedVidPn + CommitVidPn accept only Fb-sized pinned source;
+    AddSourceMode adds one mode; Cofunc ScalingSupport = Identity only; Recommend pins native identity;
+    QueryVidPnHWCapability zeroes everything.
+  - memory.c: shared primaries are sized from pCreateSharedPrimarySurfaceData (720x1520 primary = 720x1520 alloc, ok).
+    MwEscapeScanout reports the Fb (scan-out) size to the UMD - unchanged (the scan-out stays 1080x2280).
+  - command.c DoPresent: 1:1 copies clipped to the Fb (ToScanout flips + Blt/Fill to a primary). Latch (MMIO flip at
+    vsync, DISPATCH) calls DoPresent with the whole primary. GpuPresented primaries skip the CPU copy.
+  - Mesa d3d10_gdi.c d3d10_scanout_present: rotated path draws a full-target quad (scales by construction, NEAREST);
+    unrotated path = pipe->blit with dst box == src box, refused (CPU path) unless res == scan-out size.
+- Design:
+  - KMD, Parameters\ScaledModes (default 0, full adapter only): source mode set = native (Fb pitch) + 2/3 size
+    (720x1520, stride w*4). Cofunctional: scaling pinned STRETCHED/ARCM -> only the scaled mode; IDENTITY pinned -> only
+    native; source pinned scaled -> ScalingSupport {Stretched, AspectRatioCenteredMax}; pinned native -> {Identity};
+    nothing pinned -> all three. Commit stores SrcW/SrcH. HWCapability DriverScaling=1 on a scaled path (rotation bit
+    left as before - out of scope). DoPresent: nearest-neighbour scale when the primary is smaller than the Fb.
+  - UMD: unrotated blit -> dst box = whole scan-out, LINEAR filter when sizes differ; rotated quad -> accept smaller
+    res, LINEAR when scaled.
+- KMD 1.0.67.1 built (s10e-artifacts\mali-kmd-67, sys 9aa5ab58): Parameters\ScaledModes (default 0) - display.c
+  ScaledOn/SourceKind/PinnedSourceKind, AddSourceMode cofunctional with the path scaling, Cofunc scaling support by
+  pinned source, Commit stores SrcW/SrcH (MwLog CommitSrcWxH), HWCapability DriverScaling=1 on a scaled path;
+  command.c ScalePresent (nearest, CPU fallback; gated on ScaledModes). Device test pending (needs the UMD stretch too,
+  else GPU-presented frames of a 720x1520 primary fall to the CPU path = still visible via ScalePresent).

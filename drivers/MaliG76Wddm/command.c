@@ -229,6 +229,50 @@ static void ClipRect(RECT *R, LONG W, LONG H)
     if (R->bottom > H) R->bottom = H;
 }
 
+/* G20 (notes/g20-scaled-modes.md): a present into the Fb from a primary smaller than the Fb (the scaled source mode,
+ * VW x VH) - nearest-neighbour stretch of each rectangle (primary coordinates) onto the Fb. Fb pixel (X, Y) shows
+ * primary pixel (X * VW / FbW, Y * VH / FbH); a rectangle [t, b) of primary rows covers Fb rows
+ * [ceil(t * FbH / VH), ceil(b * FbH / VH)). The GPU path (Mesa d3d10_scanout_present) is the normal one; this is the
+ * fallback for CPU-presented frames. */
+static void ScalePresent(MW_ADAPTER *A, const MW_PRESENT_OP *Op, PUCHAR Src, LONG SrcW, LONG SrcH, LONG SrcPitch,
+                         LONG VW, LONG VH)
+{
+    LONG fw = (LONG)A->Fb.Width, fh = (LONG)A->Fb.Height, fp = (LONG)A->Fb.Pitch;
+    ULONG n = Op->NumRects ? Op->NumRects : 1;
+
+    for (ULONG i = 0; i < n; i++) {
+        RECT r = Op->NumRects ? Op->Rects[i] : Op->DstRect;
+        LONG dx = Op->SrcRect.left - Op->DstRect.left, dy = Op->SrcRect.top - Op->DstRect.top;
+
+        ClipRect(&r, VW, VH);
+        if (Op->Kind == MW_PRESENT_BLT) {
+            if (r.left + dx < 0) r.left = -dx;
+            if (r.top + dy < 0) r.top = -dy;
+            if (r.right + dx > SrcW) r.right = SrcW - dx;
+            if (r.bottom + dy > SrcH) r.bottom = SrcH - dy;
+        }
+        if (r.right <= r.left || r.bottom <= r.top)
+            continue;
+        LONG y0 = (LONG)(((LONG64)r.top * fh + VH - 1) / VH), y1 = (LONG)(((LONG64)r.bottom * fh + VH - 1) / VH);
+        LONG x0 = (LONG)(((LONG64)r.left * fw + VW - 1) / VW), x1 = (LONG)(((LONG64)r.right * fw + VW - 1) / VW);
+        for (LONG y = y0; y < y1 && y < fh; y++) {
+            ULONG *d = (ULONG *)(A->FbVa + (SIZE_T)y * fp);
+            if (Op->Kind == MW_PRESENT_BLT) {
+                const ULONG *s = (const ULONG *)(Src + (SIZE_T)((LONG)((LONG64)y * VH / fh) + dy) * SrcPitch);
+                for (LONG x = x0; x < x1 && x < fw; x++)
+                    d[x] = s[(LONG)((LONG64)x * VW / fw) + dx];
+            } else {
+                for (LONG x = x0; x < x1 && x < fw; x++)
+                    d[x] = Op->Color;
+            }
+        }
+    }
+    if (Op->Kind == MW_PRESENT_BLT)
+        A->PresentBlts++;
+    else
+        A->PresentFills++;
+}
+
 /* Carry out a present on the CPU. 32-bit pixels only. */
 static void DoPresent(MW_ADAPTER *A, const MW_PRESENT_OP *Op)
 {
@@ -269,6 +313,15 @@ static void DoPresent(MW_ADAPTER *A, const MW_PRESENT_OP *Op)
         srcW = (LONG)Op->Src->Width;
         srcH = (LONG)Op->Src->Height;
         srcPitch = (LONG)(Op->Src->Pitch ? Op->Src->Pitch : Op->Src->Width * 4);
+    }
+    if (MwScaledModes && dst == A->FbVa) {
+        /* G20: the primary's own size - the flipped source, or the primary named as destination. */
+        const MW_ALLOCATION *prim = Op->ToScanout ? Op->Src : Op->Dst;
+        LONG vw = prim != NULL ? (LONG)prim->Width : dstW, vh = prim != NULL ? (LONG)prim->Height : dstH;
+        if (vw > 0 && vh > 0 && vw <= dstW && vh <= dstH && (vw != dstW || vh != dstH)) {
+            ScalePresent(A, Op, src, srcW, srcH, srcPitch, vw, vh);
+            return;
+        }
     }
 
     for (ULONG i = 0; i < n; i++) {

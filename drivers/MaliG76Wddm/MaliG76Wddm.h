@@ -130,6 +130,9 @@ extern ULONG MwSoftVsync;
 /* Parameters\ScanoutStride (default 0 = off): see MW_RESTRIDE_PIXELS (display.c MwRestride). */
 extern ULONG MwScanoutStride;
 extern ULONG MwOfferRotation;
+/* Parameters\ScaledModes (default 0): G20 - one lower desktop mode (2/3 of the panel, 720x1520), stretched onto the
+ * panel by the present path (display.c ScaledOn). */
+extern ULONG MwScaledModes;
 /* Parameters\PanelCmdMode / PanelBrightness (default 1 / 1): panel.c. */
 extern ULONG MwPanelCmdMode;
 extern ULONG MwPanelBrightness;
@@ -243,6 +246,7 @@ struct _MW_ADAPTER {
     SIZE_T FbSize;
     BOOLEAN SourceVisible, PathActive;
     ULONG Rotation;                 /* D3DKMDT_VIDPN_PRESENT_PATH_ROTATION of the active path (UpdateActiveVidPnPresentPath) */
+    ULONG SrcW, SrcH;               /* G20: the committed source mode's size (= Fb size unless a scaled mode is set) */
 
     /* GPU. MmuLock serialises the address allocator and the page tables. */
     MK_GPU Gpu;

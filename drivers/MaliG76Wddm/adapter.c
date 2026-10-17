@@ -21,6 +21,7 @@ ULONG MwRefresh601 = 1;
 ULONG MwFlipMmio = 1;
 ULONG MwScanoutStride = 0;
 ULONG MwOfferRotation = 0;      /* Parameters\OfferRotation: 1 = offer 90/180/270 (needs a rotating present path) */
+ULONG MwScaledModes = 0;        /* Parameters\ScaledModes: 1 = offer the 2/3-size desktop mode (G20) */
 ULONG MwCddDwmInterop = 1;
 /* G15 S1 (notes/gpu-wddm2-design.md): Parameters\Wddm2 = 1 -> DXGKDDI_INTERFACE_VERSION_WDDM2_0 in physical-engine mode
  * (no GPU VA caps; Render/Patch/SubmitCommand unchanged). Default 0 = the WDDM 1.3 adapter, byte-identical paths. */
@@ -925,6 +926,7 @@ static MW_MODE ReadMode(PUNICODE_STRING RegistryPath, ULONG *PramTrace)
     MwFlipMmio = ReadParameter(params, L"FlipMmio", 1) != 0;
     MwScanoutStride = ReadParameter(params, L"ScanoutStride", 0);
     MwOfferRotation = ReadParameter(params, L"OfferRotation", 0);
+    MwScaledModes = ReadParameter(params, L"ScaledModes", 0);
     MwPanelCmdMode = ReadParameter(params, L"PanelCmdMode", 1);
     MwPanelBrightness = ReadParameter(params, L"PanelBrightness", 1);
     MwCddDwmInterop = ReadParameter(params, L"CddDwmInterop", 1) != 0;

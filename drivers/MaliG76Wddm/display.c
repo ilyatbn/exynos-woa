@@ -21,13 +21,40 @@ static UINT BytesPerPixel(D3DDDIFORMAT F)
     return (F == D3DDDIFMT_A8R8G8B8 || F == D3DDDIFMT_X8R8G8B8) ? 4 : 0;
 }
 
-static void FillSourceMode(MW_ADAPTER *Dev, D3DKMDT_VIDPN_SOURCE_MODE *M)
+/* G20 (notes/g20-scaled-modes.md): with Parameters\ScaledModes the full adapter offers a second, lower source mode,
+ * 2/3 of the panel (720x1520 on 1080x2280, the same aspect). The target mode stays the panel's; MS Learn
+ * D3DKMDT_VIDPN_PRESENT_PATH_SCALING: IDENTITY is "available only if the path's source mode has the same spatial
+ * resolution as the path's target mode", so the scaled mode goes with STRETCHED / ASPECTRATIOCENTEREDMAX (the same
+ * picture here), and the present path stretches it (Mesa d3d10_scanout_present on the GPU, DoPresent on the CPU). */
+static BOOLEAN ScaledOn(const MW_ADAPTER *Dev)
+{
+    return MwScaledModes != 0 && Dev->Mode != MwModeDisplayOnly && Dev->Fb.Width >= 3 && Dev->Fb.Height >= 3;
+}
+
+static ULONG ScaledW(const MW_ADAPTER *Dev) { return Dev->Fb.Width * 2 / 3; }
+static ULONG ScaledH(const MW_ADAPTER *Dev) { return Dev->Fb.Height * 2 / 3; }
+
+/* 1 = the native mode, 2 = the scaled mode (if offered), 0 = neither. */
+static int SourceKind(const MW_ADAPTER *Dev, const D3DKMDT_VIDPN_SOURCE_MODE *M)
+{
+    if (M->Type != D3DKMDT_RMT_GRAPHICS)
+        return 0;
+    if (M->Format.Graphics.PrimSurfSize.cx == Dev->Fb.Width && M->Format.Graphics.PrimSurfSize.cy == Dev->Fb.Height)
+        return 1;
+    if (ScaledOn(Dev) && M->Format.Graphics.PrimSurfSize.cx == ScaledW(Dev) &&
+        M->Format.Graphics.PrimSurfSize.cy == ScaledH(Dev))
+        return 2;
+    return 0;
+}
+
+static void FillSourceMode(MW_ADAPTER *Dev, D3DKMDT_VIDPN_SOURCE_MODE *M, BOOLEAN Scaled)
 {
     M->Type = D3DKMDT_RMT_GRAPHICS;
-    M->Format.Graphics.PrimSurfSize.cx = Dev->Fb.Width;
-    M->Format.Graphics.PrimSurfSize.cy = Dev->Fb.Height;
+    M->Format.Graphics.PrimSurfSize.cx = Scaled ? ScaledW(Dev) : Dev->Fb.Width;
+    M->Format.Graphics.PrimSurfSize.cy = Scaled ? ScaledH(Dev) : Dev->Fb.Height;
     M->Format.Graphics.VisibleRegionSize = M->Format.Graphics.PrimSurfSize;
-    M->Format.Graphics.Stride = Dev->Fb.Pitch;
+    /* The scaled primary is an ordinary allocation (memory.c: pitch = width * 4), never the Fb itself. */
+    M->Format.Graphics.Stride = Scaled ? ScaledW(Dev) * 4 : Dev->Fb.Pitch;
     M->Format.Graphics.PixelFormat = D3DDDIFMT_A8R8G8B8;
     M->Format.Graphics.ColorBasis = D3DKMDT_CB_SRGB;
     M->Format.Graphics.PixelValueAccessMode = D3DKMDT_PVAM_DIRECT;
@@ -251,6 +278,8 @@ NTSTATUS MwDisplayStart(MW_ADAPTER *A)
     MwPanelStart(A);
     A->SourceVisible = TRUE;
     A->PathActive = TRUE;
+    A->SrcW = A->Fb.Width;
+    A->SrcH = A->Fb.Height;
     return STATUS_SUCCESS;
 }
 
@@ -444,10 +473,7 @@ NTSTATUS APIENTRY MwIsSupportedVidPn(IN_CONST_HANDLE hAdapter, DXGKARG_ISSUPPORT
     st = setIf->pfnAcquirePinnedModeInfo(set, &pinned);
     /* Supported if nothing is pinned yet, or what is pinned is our mode. */
     if (NT_SUCCESS(st)) {
-        Arg->IsVidPnSupported = pinned == NULL ||
-            (pinned->Type == D3DKMDT_RMT_GRAPHICS &&
-             pinned->Format.Graphics.PrimSurfSize.cx == dev->Fb.Width &&
-             pinned->Format.Graphics.PrimSurfSize.cy == dev->Fb.Height);
+        Arg->IsVidPnSupported = pinned == NULL || SourceKind(dev, pinned) != 0;
         if (pinned != NULL)
             setIf->pfnReleaseModeInfo(set, pinned);
     }
@@ -473,7 +499,7 @@ static NTSTATUS PinSourceMode(MW_ADAPTER *Dev, const DXGK_VIDPN_INTERFACE *VidPn
         return st;
     st = setIf->pfnCreateNewModeInfo(set, &mode);
     if (NT_SUCCESS(st)) {
-        FillSourceMode(Dev, mode);
+        FillSourceMode(Dev, mode, FALSE);
         id = mode->Id;
         st = setIf->pfnAddMode(set, mode);
         if (!NT_SUCCESS(st))
@@ -566,15 +592,52 @@ NTSTATUS APIENTRY MwRecommendFunctionalVidPn(IN_CONST_HANDLE hAdapter,
     return NT_SUCCESS(st) ? STATUS_SUCCESS : STATUS_GRAPHICS_NO_RECOMMENDED_FUNCTIONAL_VIDPN;
 }
 
-/* Give the source and target of a path our mode if nothing is pinned. */
-static NTSTATUS AddSourceMode(MW_ADAPTER *Dev, const DXGK_VIDPN_INTERFACE *VidPn, D3DKMDT_HVIDPN H,
-                              D3DDDI_VIDEO_PRESENT_SOURCE_ID Src)
+/* G20: SourceKind of the pinned source mode of Src (0 = nothing pinned or not ours). */
+static int PinnedSourceKind(MW_ADAPTER *Dev, const DXGK_VIDPN_INTERFACE *VidPn, D3DKMDT_HVIDPN H,
+                            D3DDDI_VIDEO_PRESENT_SOURCE_ID Src)
 {
     D3DKMDT_HVIDPNSOURCEMODESET set;
     const DXGK_VIDPNSOURCEMODESET_INTERFACE *setIf;
     const D3DKMDT_VIDPN_SOURCE_MODE *pinned = NULL;
+    int kind = 0;
+
+    if (!NT_SUCCESS(VidPn->pfnAcquireSourceModeSet(H, Src, &set, &setIf)))
+        return 0;
+    if (NT_SUCCESS(setIf->pfnAcquirePinnedModeInfo(set, &pinned)) && pinned != NULL) {
+        kind = SourceKind(Dev, pinned);
+        setIf->pfnReleaseModeInfo(set, pinned);
+    }
+    VidPn->pfnReleaseSourceModeSet(H, set);
+    return kind;
+}
+
+static NTSTATUS AddOneSourceMode(MW_ADAPTER *Dev, D3DKMDT_HVIDPNSOURCEMODESET Set,
+                                 const DXGK_VIDPNSOURCEMODESET_INTERFACE *SetIf, BOOLEAN Scaled)
+{
     D3DKMDT_VIDPN_SOURCE_MODE *mode;
-    NTSTATUS st;
+    NTSTATUS st = SetIf->pfnCreateNewModeInfo(Set, &mode);
+    if (!NT_SUCCESS(st))
+        return st;
+    FillSourceMode(Dev, mode, Scaled);
+    st = SetIf->pfnAddMode(Set, mode);
+    if (!NT_SUCCESS(st))
+        SetIf->pfnReleaseModeInfo(Set, mode);
+    return st;
+}
+
+/* Give the source and target of a path our mode if nothing is pinned. G20: the source modes cofunctional with the
+ * path's scaling - IDENTITY pinned: the native mode only; STRETCHED / ASPECTRATIOCENTEREDMAX pinned: the scaled
+ * mode only; otherwise both (the scaled one only with ScaledModes). */
+static NTSTATUS AddSourceMode(MW_ADAPTER *Dev, const DXGK_VIDPN_INTERFACE *VidPn, D3DKMDT_HVIDPN H,
+                              D3DDDI_VIDEO_PRESENT_SOURCE_ID Src, D3DKMDT_VIDPN_PRESENT_PATH_SCALING Scaling)
+{
+    BOOLEAN stretch = Scaling == D3DKMDT_VPPS_STRETCHED || Scaling == D3DKMDT_VPPS_ASPECTRATIOCENTEREDMAX;
+    BOOLEAN addNative = !stretch || !ScaledOn(Dev);
+    BOOLEAN addScaled = ScaledOn(Dev) && Scaling != D3DKMDT_VPPS_IDENTITY;
+    D3DKMDT_HVIDPNSOURCEMODESET set;
+    const DXGK_VIDPNSOURCEMODESET_INTERFACE *setIf;
+    const D3DKMDT_VIDPN_SOURCE_MODE *pinned = NULL;
+    NTSTATUS st = STATUS_SUCCESS;
 
     st = VidPn->pfnAcquireSourceModeSet(H, Src, &set, &setIf);
     if (!NT_SUCCESS(st))
@@ -589,13 +652,10 @@ static NTSTATUS AddSourceMode(MW_ADAPTER *Dev, const DXGK_VIDPN_INTERFACE *VidPn
     st = VidPn->pfnCreateNewSourceModeSet(H, Src, &set, &setIf);
     if (!NT_SUCCESS(st))
         return st;
-    st = setIf->pfnCreateNewModeInfo(set, &mode);
-    if (NT_SUCCESS(st)) {
-        FillSourceMode(Dev, mode);
-        st = setIf->pfnAddMode(set, mode);
-        if (!NT_SUCCESS(st))
-            setIf->pfnReleaseModeInfo(set, mode);
-    }
+    if (addNative)
+        st = AddOneSourceMode(Dev, set, setIf, FALSE);
+    if (NT_SUCCESS(st) && addScaled)
+        st = AddOneSourceMode(Dev, set, setIf, TRUE);
     if (NT_SUCCESS(st))
         st = VidPn->pfnAssignSourceModeSet(H, Src, set);
     if (!NT_SUCCESS(st))
@@ -684,7 +744,8 @@ NTSTATUS APIENTRY MwEnumVidPnCofuncModality(IN_CONST_HANDLE hAdapter,
                    (((ULONG)path->ContentTransformation.Scaling & 0xFF) << 8) |
                    ((ULONG)path->ContentTransformation.Rotation & 0xFF), TRUE);
         if (!srcPivot) {
-            r = AddSourceMode(dev, vidpn, Arg->hConstrainingVidPn, path->VidPnSourceId);
+            r = AddSourceMode(dev, vidpn, Arg->hConstrainingVidPn, path->VidPnSourceId,
+                              path->ContentTransformation.Scaling);
             if (!NT_SUCCESS(r))
                 MwLog(dev, L"Fail_AddSourceMode", (ULONG)r);
         }
@@ -694,7 +755,8 @@ NTSTATUS APIENTRY MwEnumVidPnCofuncModality(IN_CONST_HANDLE hAdapter,
                 MwLog(dev, L"Fail_AddTargetMode", (ULONG)r);
         }
 
-        /* Identity scaling and rotation, and nothing else. */
+        /* Identity scaling and rotation, and nothing else - G20: with ScaledModes, the scalings cofunctional with the
+         * pinned source mode (native: Identity; scaled: Stretched + AspectRatioCenteredMax; none pinned: all three). */
         if (NT_SUCCESS(r) && !xfPivot &&
             (path->ContentTransformation.Scaling == D3DKMDT_VPPS_UNPINNED ||
              path->ContentTransformation.Rotation == D3DKMDT_VPPR_UNPINNED)) {
@@ -702,7 +764,14 @@ NTSTATUS APIENTRY MwEnumVidPnCofuncModality(IN_CONST_HANDLE hAdapter,
             if (upd.ContentTransformation.Scaling == D3DKMDT_VPPS_UNPINNED) {
                 RtlZeroMemory(&upd.ContentTransformation.ScalingSupport,
                               sizeof(upd.ContentTransformation.ScalingSupport));
-                upd.ContentTransformation.ScalingSupport.Identity = 1;
+                if (ScaledOn(dev)) {
+                    int kind = PinnedSourceKind(dev, vidpn, Arg->hConstrainingVidPn, path->VidPnSourceId);
+                    upd.ContentTransformation.ScalingSupport.Identity = kind != 2;
+                    upd.ContentTransformation.ScalingSupport.Stretched = kind != 1;
+                    upd.ContentTransformation.ScalingSupport.AspectRatioCenteredMax = kind != 1;
+                } else {
+                    upd.ContentTransformation.ScalingSupport.Identity = 1;
+                }
             }
             if (upd.ContentTransformation.Rotation == D3DKMDT_VPPR_UNPINNED) {
                 RtlZeroMemory(&upd.ContentTransformation.RotationSupport,
@@ -781,9 +850,12 @@ NTSTATUS APIENTRY MwCommitVidPn(IN_CONST_HANDLE hAdapter, const DXGKARG_COMMITVI
     }
     st = setIf->pfnAcquirePinnedModeInfo(set, &pinned);
     if (NT_SUCCESS(st) && pinned != NULL) {
-        BOOLEAN ours = pinned->Type == D3DKMDT_RMT_GRAPHICS &&
-                       pinned->Format.Graphics.PrimSurfSize.cx == dev->Fb.Width &&
-                       pinned->Format.Graphics.PrimSurfSize.cy == dev->Fb.Height;
+        BOOLEAN ours = SourceKind(dev, pinned) != 0;
+        if (ours) {
+            dev->SrcW = (ULONG)pinned->Format.Graphics.PrimSurfSize.cx;
+            dev->SrcH = (ULONG)pinned->Format.Graphics.PrimSurfSize.cy;
+            MwLog(dev, L"CommitSrcWxH", (dev->SrcW << 16) | (dev->SrcH & 0xFFFF));
+        }
         setIf->pfnReleaseModeInfo(set, pinned);
         st = ours ? STATUS_SUCCESS : STATUS_GRAPHICS_INVALID_VIDPN;
         dev->PathActive = ours;
@@ -844,8 +916,17 @@ NTSTATUS APIENTRY MwRecommendMonitorModes(IN_CONST_HANDLE hAdapter,
 NTSTATUS APIENTRY MwQueryVidPnHWCapability(IN_CONST_HANDLE hAdapter,
                                            DXGKARG_QUERYVIDPNHWCAPABILITY *Arg)
 {
-    UNREFERENCED_PARAMETER(hAdapter);
+    MW_ADAPTER *dev = (MW_ADAPTER *)hAdapter;
+    const DXGK_VIDPN_INTERFACE *vidpn;
+
     RtlZeroMemory(&Arg->VidPnHWCaps, sizeof(Arg->VidPnHWCaps));
+    /* G20: MS Learn "Querying VidPN Hardware Capabilities" - hardware that "cannot perform ... scaling" reports
+     * DriverScaling = 1 ("These operations are performed by the driver"): the scaled mode is stretched by our
+     * present blit. Rotation stays reported as before (0). */
+    if (ScaledOn(dev) &&
+        NT_SUCCESS(dev->Dxgk.DxgkCbQueryVidPnInterface(Arg->hFunctionalVidPn, DXGK_VIDPN_INTERFACE_VERSION_V1, &vidpn)) &&
+        PinnedSourceKind(dev, vidpn, Arg->hFunctionalVidPn, Arg->SourceId) == 2)
+        Arg->VidPnHWCaps.DriverScaling = 1;
     return STATUS_SUCCESS;
 }
 

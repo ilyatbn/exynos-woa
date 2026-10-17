@@ -68,3 +68,11 @@ errors". SPEED2.EXE = 32-bit x86 (timestamp 0x420aad27).
 - Built (not flashed) a host image: s10e-artifacts/boot-host-gpuon-nowdt.img = HEAD 5c445be + build-only
   GPU_POWER_ON 1 + WINDOWS_WATCHDOG 0 (the HANDOFF §39 interactive recipe; USB_KD_DEVICE 0 is HEAD's default).
   Flashing needs the user's go-ahead; back up the current boot partition first (its image is not recorded).
+- 23:08-23:13 FLASHED (user: "if you don't need the debug firmware for the game, proceed"): tools/phone/bootflash.sh
+  (backup -> flash -> readback -> rm WINRUN.FLG). The phone had been on **boot-vidc2.img** (b94fcbfb, backup
+  s10e-artifacts/boot-backups/boot-before-20261017-230830.img). First host image (HEAD defaults) would have dropped
+  Bluetooth / MFC (BT_UART_PROBE and MFC_* default 0 in HEAD; vidc2 = btmfc3 + VIDC gate with them on) - replaced
+  before booting by **boot-host-btmfc.img** (6db74a58) = HEAD 5c445be + GPU_POWER_ON 1, WINDOWS_WATCHDOG 0,
+  BT_UART_PROBE 1, MFC_PROBE/POWER/FWBOOT 1, USB_KD_DEVICE 0 (host). Boot OK: ACPI\PNP0D10\0 xHCI + USB 3.0 root hub
+  OK; Bluetooth radio + paired devices, Exynos9820 MFC Video Codec, BCM4375 BT transport, Wi-Fi, Mali, audio, touch
+  OK (tools/phone/devcheck.ps1); only problem devices = CPU 6/7 (parked M4s, as before). Keyboard test = user.

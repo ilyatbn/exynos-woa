@@ -1730,3 +1730,21 @@ Next order of work:
 3. DWM per-session leak (~19 MB: one opened flip buffer of each app window never DestroyResource'd).
 4. DWM teardown hang after taskkill (and the unkillable-process class).
 5. x64-emulated apps (ARM64EC/ARM64X UMD), HDMI (G18) with the user, Photos ~5 fps, Graphics Tools WU decision.
+
+## 56. Restart point (2026-10-17 ~23:15 local)
+
+**Phone state changed:** firmware = **s10e-artifacts/boot-host-btmfc.img** (6db74a58: HEAD 5c445be + build-only
+GPU_POWER_ON 1, WINDOWS_WATCHDOG 0, BT_UART_PROBE 1, MFC_PROBE/POWER/FWBOOT 1; USB_KD_DEVICE 0 = USB-C HOST, no KDNET).
+Previous = boot-vidc2.img (KD image), backup in s10e-artifacts/boot-backups. Flash tool: tools/phone/bootflash.sh.
+KMD 1.0.69.1 (ScaledModes + RgbaModes default on), UMD ARM64 0105 / x86 0106 live (System32 / SysWOW64).
+
+Done this session (notes): G20 720p scaled mode (done); G21 game profile -> Mesa 0104 profile + 0105 per-BO WAIT_BO;
+G22 RGBA source modes (KMD 69); NFSU2 (notes/games-nfsu2.md): no D3D9 DDI -> dgVoodoo2 (CHPE) in C:\Games\src ->
+Mesa 0106 (tgsi_to_nir tex src sizes) -> blocked: this Mali has NO BCn decode (TEXTURE_FEATURES0 bits 7-16 clear).
+Research docs for the owner's researcher: docs/exynos9820-port/research-requests.md, mongoose-research-guide.md.
+
+Next order of work:
+1. BC1-BC7 emulation in the UMD (decompress to RGBA8/R8/RG8 on upload) - unblocks dgVoodoo/NFSU2 and DXT PC games.
+2. Present wait (R1): ~10.5 ms CPU<->GPU serialisation per frame in DxgiFns present.
+3. Screen slow-wake outage (notes/g21-submissions.md) - open.
+4. Older queue (section 55): x86 UMD in the INF, slab page release, DWM leak / teardown hang, x64 apps, HDMI.

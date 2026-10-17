@@ -698,3 +698,4 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   pools, staging, cached BOs) fills 4 GB. Fix direction: SUB-ALLOCATION in the shim (pack small BOs into >= 32 MB
   allocations) - also cuts allocation-list length per submission (DWM). The unlock-on-unmap change is NOT the fix
   (kept out of commits unless shown useful).
+- Phone back on committed code: UMD 7b20fbf6 (ARM64, = Mesa 91b4559/0101) via umdswap, x86 8cd52259 in SysWOW64; DWM still runs the boot-time f036180b (same source minus a comment). KMD 1.0.63.1 (2.5 GiB segment) deployed from TWRP.

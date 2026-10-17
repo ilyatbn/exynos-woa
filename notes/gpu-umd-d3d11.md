@@ -312,3 +312,4 @@ Chromium needs GLES 3.0 from ANGLE = D3D FL 10_1 (renderer11_utils GetMaximumCli
   (panel.c PanelWatchThread) waits on {watch event, owner process}; owner exit while still the owner -> DCS display
   on + PanelOwnerExits counter; on clears the owner. Started in MwPanelStart when PanelOk, stopped in MwPanelStop.
   Test after the update restart: s10ekeys screen-off, kill s10ekeys -> panel must relight (PanelOwnerExits 1).
+- 05:06 KMD 1.0.61.1 VALIDATED on the device (after the Windows update restart): PanelWatchThread status 0; panelon.exe 0 (escape off from a process that exits at once) -> PanelDisplayPower 0x101 (on), PanelPowerChanges 2, PanelOwnerExits 1 = the KMD relit the panel when the owner died.

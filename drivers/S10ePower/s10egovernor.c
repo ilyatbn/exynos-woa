@@ -200,6 +200,7 @@ static void Run(void)
     HANDLE touch = NULL;
     ULONGLONG lastTouch = 0, lastStat = 0;
     unsigned ncpu, i, loops = 0;
+    BOOL wasOff = FALSE;   /* review fix (4): own screen-off state for the counter */
     double gpuBusy = -1;
 
     GetSystemInfo(&si);
@@ -239,13 +240,12 @@ static void Run(void)
         if (!screen) {
             for (i = 0; i < 3; i++)
                 Set(&gDom[i], gDom[i].Ladder[0]);
-            if (gDom[0].Quiet != 0xFFFFFFFF)
+            if (!wasOff)
                 gScreenOffs++;
-            gDom[0].Quiet = 0xFFFFFFFF;   /* marks "off" for the counter */
+            wasOff = TRUE;
         } else {
             double busy[2] = { 0, 0 };
-            if (gDom[0].Quiet == 0xFFFFFFFF)
-                gDom[0].Quiet = 0;
+            wasOff = FALSE;
             qsi(8, now, sizeof(now[0]) * ncpu, NULL);
             for (i = 0; i < ncpu; i++) {
                 double total = (double)(now[i].KernelTime.QuadPart - prev[i].KernelTime.QuadPart) +

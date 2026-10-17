@@ -354,3 +354,35 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   +323 = 46/s. => the screen off/on did NOT bring back the CPU-copy path, but DWM's way of presenting changed
   (DdiPresent 58/s -> 7-9/s, the rest as vsync-latched flips). The earlier CPU-copy state has another trigger
   (candidates left: UMD swaps while DWM runs, a rotation/mode change, long uptime).
+- 13:0x USER: mpv instead of Photos -> "nothing is playing, blank screen". tools/mfc/mpvtest.ps1 (new): mpv
+  (C:\S10eTmp\mpv, D10 V5 custom llvm-mingw build) --hwdec=d3d11va --vo=gpu --gpu-api=d3d11 --d3d11-warp=no:
+  vo/gpu/d3d11 on the Mali at FL 10_1, flip model, R8G8B8A8 swap chain, rgba16hf FBOs, shaderc ok;
+  "Unsupported hwdec: d3d11va" (this ffmpeg build has no D3D11VA) -> software decode; "first video frame after
+  restart shown" at 0.87 s, then the log stops at 1.06 s, status stuck at V 00:00:00 Dropped 2 -> mpv's GPU render
+  loop hangs after the first frame (the D10 T4 "mpv black on Mali").
+- 13:1x the hung mpv (pid 5148) cannot be killed: taskkill "SUCCESS" but the process stays with 1 thread waiting
+  (WaitReason Executive) = stuck in a kernel wait during process exit; GPU queue empty (fence 203183/203183); KMD DDI
+  ring balanced (no DDI inside our driver). Later mpv runs collide with it (no log). Reboot needed.
+- 13:1x after the reboot, mpv with machine-wide trace (malikm-mpv.exe-7732): FL 10_1 device, 3 present buffers
+  1704x959 (shared BOs), first presents go through gdi_present (its window found) at 62-63 ms each (CPU readback +
+  SetDIBits), then "idle 10015 ms via event, ret -110": the shim's wddm_idle waited 10 s for ddi.last_event and timed
+  out, while the KMD reports every fence complete -> the event the shim waits on is never signalled (no GPU hang).
+  Just before: "CB ok? Signal2 hr 0" x2 (mpv's device signals a monitored fence through the runtime). mpv stays hung
+  (pid 7732). Also: windowed hwnd swap chains present by GPU->CPU readback + GDI = 63 ms per 1704x959 frame (~15 fps
+  cap for windowed apps like mpv) - separate item.
+- 13:2x analysis: the shim's per-submission completion event is EnqueueCpuEvent on the context; it never fires ->
+  the context is stalled behind a wait. mpv hung after exactly 3 presents = its BufferCount. Its presents were drawn
+  by gdi_present (window of that size found) and the runtime present was skipped (H5 0063 rule: "drawn into its window
+  -> no runtime present", from when DWM did not consume redirected presents). Flip model then waits for buffer
+  releases that never come -> context stall. d3dswap hwnd ran fine because its window size differs from the buffers
+  (no gdi match -> runtime present). Test: MALIKM_NO_GDI_PRESENT=1 machine-wide (diagnosis only, rule 12).
+- 13:3x with MALIKM_NO_GDI_PRESENT=1 (machine, diagnosis) after a reboot: mpv --vo=gpu d3d11 on the Mali plays and
+  exits normally ("Exiting... (End of file)", no stuck process); presents go to the runtime ("present allocation N:
+  hr 0"), V reached 00:00:09 of the 10 s window, no drops in the status line. => gdi_present's skip of the runtime
+  present is what hangs flip-model windowed swap chains. Native fix = UMD default (not the env var).
+- 13:4x UMD default GDI off (maliumd eb4985ff), env var removed: mpv plays + exits natively (End of file, 0 stuck). BUT windowed d3dtri cube: 4.8 fps via the runtime present (was 33-37 via gdi_present) -> the runtime present is slow for its swap chain kind; need to keep GDI for that kind only.
+- 13:5x swap chain kinds in the UMD trace: d3dtri cube (blt model, DISCARD) buffers misc 0x8 DISCARD_ON_PRESENT,
+  not shared; mpv (flip model) buffers misc 0x20002 SHARED | DISPLAYABLE_SURFACE (DWM opens them). Mesa 0094
+  (maliumd d8c86f68): Resource::flip_model = BIND_PRESENT && MISC_SHARED; gdi_present only for non-flip-model buffers.
+  Natively (no env): d3dtri cube 35.7 fps (GDI path), mpv --vo=gpu d3d11 plays to EOF and exits (0 stuck),
+  swaprate comp 59.1/s, hwnd 59.3/s. MALIKM_NO_GDI_PRESENT machine variable removed.

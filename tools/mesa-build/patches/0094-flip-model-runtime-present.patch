@@ -1,0 +1,59 @@
+From 09b7408e563e795bdb6e1d16f81403e422ee7f43 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 13:14:27 +0300
+Subject: [PATCH] d3d10umd: flip-model swap chain buffers always present
+ through the runtime (exynos-woa 0094) - drawing them with GDI and skipping
+ the present hung mpv after BufferCount frames; blt-model buffers keep the GDI
+ path
+
+---
+ src/gallium/frontends/d3d10umd/DxgiFns.cpp  | 4 +++-
+ src/gallium/frontends/d3d10umd/Resource.cpp | 2 ++
+ src/gallium/frontends/d3d10umd/State.h      | 3 +++
+ 3 files changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+index c2ec901..300fdf5 100644
+--- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
++++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+@@ -234,7 +234,9 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
+        * for DWM, which never consumes them on this stack: run s1 (5-minute cube) the context stalled behind them
+        * (GPU waits of 0.7 s, 1 s, then > 2 s) until dxgkrnl reset the GPU (TDR, Display 4101) and removed the
+        * device (0x887A0005). Only without a window to draw into does the frame go through the runtime. */
+-      if (gdi_present(device->pipe, pSrcResource->resource))   /* H4c (0061): what DWM does compose */
++      /* G17: flip-model buffers (Resource::flip_model) always go to the runtime: drawing them with GDI and skipping the
++       * present hung mpv after BufferCount frames (DXGI waited for buffer releases that never came) */
++      if (!pSrcResource->flip_model && gdi_present(device->pipe, pSrcResource->resource))   /* H4c (0061) */
+          return S_OK;
+       unsigned hDst = pPresentData->hDstResource ? CastResource(pPresentData->hDstResource)->kmt_present : 0;
+       if (malikm_allocation_present(pSrcResource->kmt_present, hDst, pPresentData->pDXGIContext) == 0)
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index 887e751..c2ac4ec 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -331,6 +331,8 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+ #endif
+ 
+    pResource->Format = pCreateResource->Format;
++   pResource->flip_model = (pCreateResource->BindFlags & D3D10_DDI_BIND_PRESENT) &&
++                           (pCreateResource->MiscFlags & D3D10_DDI_RESOURCE_MISC_SHARED);
+    pResource->MipLevels = pCreateResource->MipLevels;
+ 
+    struct pipe_resource templat;
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index 0697a25..aa96e42 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -188,6 +188,9 @@ struct Resource
+     * Width x (Height + Height/2): the luma plane, then the interleaved CbCr plane (Height/2 rows of Width bytes) -
+     * the layout the MFC returns and the video processor (V6c) reads. nv12_height = the luma height, 0 if not NV12. */
+    unsigned nv12_height;
++   /* G17 (notes/g17-dxva-mfc.md): a flip-model swap chain buffer (created SHARED - DWM opens it): its presents must reach
++    * the runtime (DXGI waits for the buffer releases), so the GDI fallback (DxgiFns.cpp gdi_present) is not used for it */
++   bool flip_model;
+ };
+ 
+ 
+-- 
+2.40.1.windows.1
+

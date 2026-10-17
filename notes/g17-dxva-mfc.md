@@ -487,3 +487,19 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   / 293 / 293 / 293, GPU 400 / 260 MHz): DWM composed nothing in these runs although it composed 37.6/s earlier with
   the same command. Display timeout is 0 (never), governor ScreenOffs 0, DSIM line counter moving. Unknown: what the
   screen shows (mpv window covered / screen turned off with the power button?) - asking the user.
+- 16:4x USER: "still choppy" (looked at Windows, not mpv, during the 0-present runs). DWM's own UMD log: no present
+  from 11:38 to ~12:01 phone time (the 4 zero runs), resumed when the user picked the phone up -> DWM idle while mpv
+  played, cause unknown (separate oddity, not chased).
+- 16:5x DWM pacing instrumentation (d3d10_gdi.c d3d10_scanout_present, QPC; tlog "pacing N" per 300 presents: blit+wait
+  and runtime-present mean/max, gaps between presents in vsync periods). UMD fafaa8c5, dwm restarted (taskkill, auto
+  relaunch). mpv default config: blit+wait mean 3.4-3.7 ms (max ~10.5), present call 0.8 ms (max 7.3);
+  gaps 1v 120-137 / 2v 160-161 / 3v 2-6 of 300 -> half of DWM's frames slip a vsync; the time is lost BEFORE the
+  present (composition waiting on the GPU), not in the present path.
+- 16:6x mpv option bisect (DIAGNOSIS ONLY, rule 12), DWM presents/s and gaps 1v/2v of 300:
+  default 36.7 (120/160) | --profile=fast 56.2 (285/15) | --gpu-dumb-mode=yes 54.5 (275/22) |
+  --fbo-format=rgba8 35.0 (105/184) | --linear-downscaling=no 35.6 | --correct-downscaling=no 37.2 | --dither-depth=no
+  34.9 | --dscale=bilinear 35.9 (131/159) | --cscale=bilinear 42.3 (193/105) | --scale=bilinear 43.9 (191/105).
+  Jobs/s went UP with profile=fast (1390) -> GPU time of mpv's default lanczos-family scaler passes (many texture
+  taps/pixel), not job count. Same frame rate at GPU 702 MHz (16:1x) -> suspect memory bandwidth: MIF clock is
+  untouched under Windows, rate UNKNOWN (clocks-dvfs.md:61); Samsung's G3D table pairs 702 MHz with MIF >= 2093000
+  (gpu-odin-rom.md F2). Next task: read the MIF rate (verified constants only), then raise it if low.

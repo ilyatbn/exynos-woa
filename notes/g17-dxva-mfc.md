@@ -90,3 +90,13 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   display 1323232..., -order 1232323... (I P B P B = decode order), same 60 picture hashes, 0 errors, display order
   identical to the 1.0.0.6 baseline; -order needs 62 calls instead of 64 (no display-only drain steps). After the
   reboot (UMD 0084 in DWM): cube 36.5 fps, 0 present failures. Battery 17 %.
+- Review of f056296 (rule 4):
+  - D_DISPLAY_DELAY persists in the MFC registers (0xF000.. kept until reset): a display-order session AFTER an
+    order session was untested -> ordertest.ps1 -OrderFirst: display order still identical to baseline, same set. OK.
+  - Old callers: Exynos9820MfcMft (Mft.cpp:439) and mfcdec build MFC_OPEN_IN by aggregate init -> Flags = 0; driver
+    accepts 8-byte inputs (FIELD_OFFSET minimum) - checked in code, both sizes compile against the new header.
+  - Unknown flag bits -> STATUS_NOT_SUPPORTED (Driver.c). Self-test session (Driver.c:198) zeroed by MfcSessionInit
+    -> display order. OK.
+  - Pre-existing, not from this commit: sys-deploy.sh picks the FIRST <inf>_arm64_* DriverStore folder (two exist for
+    exynos9820mfc) - harmless here (service loads System32\drivers), noted for DriverStore-run drivers.
+  - INF says 1.0.0.7 but the phone's DriverStore INF is still 1.0.0.6 (sys-only swap) - expected for sys-deploy.

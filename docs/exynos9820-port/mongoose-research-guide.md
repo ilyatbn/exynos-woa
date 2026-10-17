@@ -56,7 +56,12 @@ with public symbols.
 **Watch it live first (safest, most useful):**
 - Boot the 8-core KD image, break in early, and use public debugger commands: `!cpuinfo` (per-CPU ID registers as
   Windows sees them), `!prcb <n>` and `dt nt!_KPRCB` (per-processor state), `~<n>` + `r` (switch to processor n and
-  dump its registers, including system registers WinDbg can show), `!running -t` / `!thread` (what each CPU runs).
+  dump its general registers), `!running -t` / `!thread` (what each CPU runs).
+- **System registers:** KD's `rdmsr` does not read ARM64 system registers (m14-m4-summary.md §4). Use the values
+  Windows saved in each processor's KPRCB (an earlier session dumped MIDR/SCTLR/ACTLR/CPACR/TCR from every KPRCB,
+  m14-smp.md ~601). Or ask for a park-stub build that writes the core's own registers into its mailbox page before
+  Windows starts; the mailbox map is in `Beyond0LteParkStub.S` (+0xF60.. ID registers). A mailbox page can be read
+  from KD with `!dq [uc]`; for gicc n the pages have been at 0xBA240000 + (n-1)*0x1000 in every run so far.
 - Repeat every few seconds until the hang. Record what the M4s run just before the last good break-in.
 - Compare an A75 and an M4 side by side: anything set differently (feature bits, control registers) is a lead.
 
@@ -105,6 +110,30 @@ Raw output: attach the WinDbg log
 
 With this, the firmware side can (for example) set a different initial state on the M4s, present the cores
 differently in ACPI, or add what Samsung's kernel does for the M4 — without the agent itself reading Windows code.
+
+## 5b. Project tooling and pitfalls (read before any KD run)
+
+- **Read first:** notes/m14-m4-summary.md (one page: facts, the ruled-out table, tools, pitfalls), then
+  notes/m14-m4-brief-other-model.md (spec of the untested stub flag 7 and the build / flash / KD recipe), then
+  notes/m14-smp.md from "## PC sampler" on.
+- **KD runner:** `firmware/tools/kdrun/kdrun.exe <log> <total_s> <break_s> [reboot|twrp|go|every] [init-cmds]
+  [per-break-cmds]`. Only one debugger at a time; the per-break command file is re-read at every break-in.
+- **Test switches** are build-only defines (park / offer masks, stress / coherency / PC-sampler masks, real MPIDR,
+  no-HW-AF). Each defaults to the old behaviour; m14-m4-summary.md §3 lists them with their files.
+- **Pitfalls that cost hours before:**
+  - Timed KD break-ins during the failing window turn the hang into a reset loop; use a passive run to see the real
+    failure.
+  - Without `stay.flg` the harness restarts a healthy Windows, which looks like a freeze. "Shutdown occurred" in the
+    KD log means a clean restart.
+  - A leftover `WINRUN.FLG` changes the next boot path.
+  - Reading SCI registers over KD can hang the SoC.
+- **Images already built:** the safe 6-core KD image `boot-kd6.img`; `m4eff1` (f161ec88, never run); `m4one1`
+  (77225b39, one M4). All are in s10e-artifacts (m14-smp.md).
+
+## 5c. Other data that would help, beyond the M4 hang
+
+The owner's researcher can also answer the questions in [research-requests.md](research-requests.md) (graphics,
+display wake, D3D9, x64 apps, Task Manager clocks). Use the same answer format as there.
 
 ## 6. Tool ideas (optional)
 

@@ -603,3 +603,20 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   presented (2 of the 3 swap-chain buffers mixed up in DWM's view). 80 steps back over 240 frames = every third frame
   displayed out of order -> the visible stutter. Timing metrics could not show it. Next: DWM-side OpenResource /
   shared-allocation mapping (three same-size buffers).
+- 18:6x CAUSE of the out-of-order frames: d3d10umd _RotateResourceIdentities (upstream) COPIES contents around the
+  ring (res[i] <- res[i+1], last <- old 0) while every Resource keeps its own kernel allocation (kmt_present) -> right
+  after Present it overwrites the buffer just handed to DWM (DWM composes at the next vsync) with an older frame;
+  also 2 full-frame GPU copies per present. MS Learn (DXGI_DDI_BASE_FUNCTIONS, pfnRotateResourceIdentities,
+  https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/dxgiddi/ns-dxgiddi-dxgi_ddi_base_functions):
+  "must exchange identities ... X, Y, and Z ... must rotate those handles to refer to Y, Z, and X ... the user-mode
+  display driver should swap the kernel handles of the corresponding resources. However, the driver should not swap
+  the corresponding runtime (RT) handles." / "views can refer to resources ... the driver must re-create such views.
+  Also, the driver might be required to reapply currently bound views." -> fix: rotate the identities (pipe storage +
+  kernel allocation fields), re-create views of the rotated resources, rebind bound ones.
+- 18:7x Mesa 0099 attempt (identity rotation + view registry, UMD 6ac70770) deployed + `taskkill dwm` at ~14:06 phone
+  time -> DWM did not come back for 7 min (screen black). tools/phone/dwmevents.ps1 (new): taskkills at 13:57 and
+  14:00 were followed by "Dwminit: process has exited ... Restart count 1" + 9027 in the same second; the 14:06 kill
+  logged its exit only at 14:13:41, right after I restored e7bde40b (umdswap from System32\*.old) -> the killed DWM
+  (pid 8204, running the OLD e7bde40b with the seqpix hook) hung in teardown; the new UMD was never loaded = 0099
+  untested, not proven bad. Recovered by `shutdown /r` (DWM up after 92 s). Separate issue: process teardown hangs
+  (also seen with mpv earlier: unkillable, WaitReason Executive). Next: deploy 0099 + reboot (no taskkill), flipseq.

@@ -594,3 +594,12 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   133-143 BOs listed, DWM GPU memory 286 MB. => fresh DWM composes every video frame; the user's ~11/s state builds
   up over time (DWM memory 190 -> 400+ MB, live BOs growing). Next: measure the same test periodically to catch the
   degradation and what grows with it.
+- 18:5x USER: "maybe I'm seeing the same frames multiple times" + fresh DWM (25 presents/s) still "same, not good".
+  NEW tools flipseq (drivers/MaliG76Wddm/tools/flipseq: maximized window, flip-discard 3 buffers, 42 ms frames,
+  frame number painted as B8G8R8A8 G/B) + TEMP DWM hook "seqpix" (d3d10_gdi.c d3d10_scanout_present: centre pixel of
+  every composed frame while C:\S10eTmp\seqpix.flg exists; UMD e7bde40b) + tools/mfc/seqpix.py decoder.
+  RESULT (DWM pid 8204): 243 frames carry a number; shown sequence 2 1 2 1 3 5 4 6 8 7 9 11 10 12 14 13 15 ...
+  -> in every group of 3 the 2nd and 3rd frames are SWAPPED: DWM composes buffer X's content when buffer Y is
+  presented (2 of the 3 swap-chain buffers mixed up in DWM's view). 80 steps back over 240 frames = every third frame
+  displayed out of order -> the visible stutter. Timing metrics could not show it. Next: DWM-side OpenResource /
+  shared-allocation mapping (three same-size buffers).

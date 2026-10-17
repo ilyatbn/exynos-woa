@@ -245,3 +245,18 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
 - Review of f29670e: photostest printed a CPU figure that is not trustworthy (identical 297 ms for 10/15/22 s
   windows) while its header advertised it -> removed (follow-up commit); the evidence is the MFC ownership probe and
   the UMD log.
+- 2026-10-17 09:2x Photos frame rate investigation (temporary UMD timing builds, machine-wide trace on/off):
+  - decode timeline (every-100th + window logs): frames 0-39 at ~12 fps incl. start, then frames 40->100 in 16 s
+    (~3.8 fps) while VP blts continue at ~16-20/s -> MF quality management skips decodes because the renderer is late;
+    the VP re-blits old frames. Not the GPU clock: identical at G3D 702 MHz (governor stopped, then restarted).
+  - only one shim idle wait (485 ms) in a whole run -> not the cause.
+  - _Present timing (presents 100-139, both Photos swap chains 637x1133 video + 1152x1152 UI): flush 0.1-3 ms, GPU
+    wait < 0.6 ms, gdi_present window search 0.8-4.6 ms (never finds a window: wasted, "none drawn"), runtime
+    allocation present ~0.1 ms (OK). Present intervals of the video chain: 31 / 62 ms multiples.
+  - hypothesis "KMD soft vsync timer (KeSetTimerEx 16 ms) rounds to 31.25 ms at the default clock tick" -> measured
+    with drivers/MaliG76Wddm/tools/vblank (D3DKMTWaitForVerticalBlankEvent, user session via tools/phone/userrun.ps1):
+    mean 16.13 ms (62.0 Hz), min 8.92, max 39.08 ms -> NOT 32 Hz; jittery (timer-based) but 60 Hz on average.
+  - open: why Photos' presenter paces at 31/62 ms (DXGI present statistics / composition token completion on this
+    stack?). mfplay (frame server, no presents) runs real time. Next step: present-statistics / frame latency
+    waitable behaviour of composition swap chains on the maliwddm runtime (MS Learn first).
+  Phone UMD after the cleanup: maliumd 9d9ca53a (0092, no timing code).

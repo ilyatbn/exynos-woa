@@ -1,0 +1,26 @@
+From a89c4244a0eaf1af5d628da1f1442c095c37a03a Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 09:17:22 +0300
+Subject: [PATCH] d3d10umd video: log every 100th decoded picture (exynos-woa
+ 0092) - decode rate vs presentation rate in traces
+
+---
+ src/gallium/frontends/d3d10umd/Video.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/Video.cpp b/src/gallium/frontends/d3d10umd/Video.cpp
+index bf2301e..4604c13 100644
+--- a/src/gallium/frontends/d3d10umd/Video.cpp
++++ b/src/gallium/frontends/d3d10umd/Video.cpp
+@@ -563,7 +563,7 @@ Vid_VideoDecoderEndFrame(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HDECODE hDecode)
+          malikm_tlog("video: frame %u: IOCTL_MFC_DECODE failed %lu", frame, GetLastError());
+          break;
+       }
+-      if (frame < 5 || (o->Flags & MFC_DEC_ERROR))
++      if (frame < 5 || (frame % 100) == 0 || (o->Flags & MFC_DEC_ERROR))   /* + every 100th: decode rate */
+          malikm_tlog("video: frame %u: mfc flags 0x%x consumed %u of %u, %ux%u type %u err 0x%x, %u us", frame,
+                      o->Flags, o->Consumed, d->Au.size - off, o->Width, o->Height, o->FrameType, o->Error,
+                      o->HwMicroseconds);
+-- 
+2.40.1.windows.1
+

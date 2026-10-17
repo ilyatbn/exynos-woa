@@ -435,3 +435,12 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   0xff808080; d3dvbring PASS. mpv via mpvbisect (4 s test.mp4, frame 3 presented pixels): hwdec=exynosmfc-copy
   center 0xffa6afb6 quarter 0xff020202 3/4 0xff060405; hwdec=no same -> mpv's frames now carry the video (were
   0xff000000 at all three points).
+- 15:5x REVIEW of fffe833 / Mesa 2e961fd (0095): (1) claim "GLSL path sorts by location": st_program.c:397
+  nir_recompute_io_bases assigns bases in location order -> true (comment names no wrong function). (2) ttn writes
+  outputs with store_deref (tgsi_to_nir.c:2404/2508), so nir_lower_io picks up the re-assigned driver_location -
+  confirmed by the run (default variant now written). (3) FS linkage by location: posfirst + real PS matched WARP
+  before the fix with reordered generics -> no FS change needed. (4) XFB: ttn never sets
+  has_transform_feedback_varyings, pan_nir_lower_xfb unreachable for TGSI -> unaffected (TGSI SO was already not
+  wired on panfrost: separate gap, not touched). (5) Regression sweep on the phone: d3dtri PASS, d3dmsaa PASS,
+  d3dvbring PASS, d3dfill all phases presented (user session), d3dswap 64.8/s; d3dsm41 lod 1/8 differ = the known
+  Bifrost lod gap (notes/gpu-umd-d3d11.md:276, 0080c), not new. No follow-up found.

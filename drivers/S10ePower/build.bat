@@ -39,8 +39,12 @@ cl.exe /nologo /W4 /WX /O2 /MT /Fo"%OUT%\cpustress.obj" /Fe"%OUT%\cpustress.exe"
 if errorlevel 1 exit /b 9
 del "%OUT%\cpustress.obj" >nul 2>&1
 echo CPUSTRESS_BUILD_OK
-cl.exe /nologo /W4 /WX /O2 /MT /D _CRT_SECURE_NO_WARNINGS /I "%SRC%..\MaliG76Wddm\include" /Fo"%OUT%\clocks.obj" /Fe"%OUT%\clocks.exe" "%SRC%clocks.c" /link /MACHINE:ARM64 /SUBSYSTEM:CONSOLE gdi32.lib advapi32.lib /Brepro
+cl.exe /nologo /W4 /WX /O2 /MT /D _CRT_SECURE_NO_WARNINGS /I "%SRC%..\MaliG76Wddm\include" /Fo"%OUT%\clockscli.obj" /Fe"%OUT%\clockscli.exe" "%SRC%clockscli.c" /link /MACHINE:ARM64 /SUBSYSTEM:CONSOLE gdi32.lib advapi32.lib /Brepro
 if errorlevel 1 exit /b 10
+del "%OUT%\clockscli.obj" >nul 2>&1
+echo CLOCKSCLI_BUILD_OK
+cl.exe /nologo /W4 /WX /O2 /MT /D _CRT_SECURE_NO_WARNINGS /I "%SRC%..\MaliG76Wddm\include" /Fo"%OUT%\clocks.obj" /Fe"%OUT%\clocks.exe" "%SRC%clocks.c" /link /MACHINE:ARM64 /SUBSYSTEM:WINDOWS gdi32.lib user32.lib advapi32.lib /Brepro
+if errorlevel 1 exit /b 11
 del "%OUT%\clocks.obj" >nul 2>&1
 echo CLOCKS_BUILD_OK
 echo CPUSETS_BUILD_OK

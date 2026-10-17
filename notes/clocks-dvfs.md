@@ -122,3 +122,4 @@ Windows reads temperatures and can throttle; lowering is fine.
 - Windows' Task Manager "base speed 1.79 GHz" = Win32_Processor MaxClockSpeed / ~MHz from boot (cpu0 1456, cpu4
   1794), its "speed" = an estimate; it does not see ACPM rates.
 - REVIEW 2250edd: governor lowered MIF before the CPUs on screen-off (MID could sit at 2400 with MIF 421 for a moment) -> fixed: MIF up before the CPUs (screen on), down after them (screen off). Deployed.
+- clocks.exe is now a small GUI window (user: 'Core #0-5 - x / y, keep it simple'): Core #n - measured / table max MHz + GPU line, 1 s refresh, DPI-aware, measurement on a worker thread; the console variant is clockscli.exe (S10eTmp, for ssh). Deployed to the desktop and running. Governor in normal use (screen on): fast cores measured 2395 / 2389 MHz = the 2.4 GHz step is used.

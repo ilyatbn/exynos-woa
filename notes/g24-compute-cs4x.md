@@ -112,3 +112,7 @@ double-precision values". (Raw / structured buffer SRVs: the "Plus_RawAndStructu
   then: windowed 1520x720 to DWM. User check pending.
 - User 2026-10-18: "dont forget to port all these changes to the x64 platform when we get it working" -> the ARM64 UMD
   (same Mesa source) gets 0120-0122 + all G24 patches on its next deploy; it has 0111-0119 already (mali-umd-0119).
+- Review a921f37: 0120 only changes primaries whose resource is transposed to a 90/270 mode - DWM's (720x1520 for mode
+  720x1520) and dgVoodoo's NONPREROTATED ones are not (checked in the dwm / SPEED2-3356 tlogs). 0121 keeps the CPU
+  copy path strict, so a rotated fullscreen primary in a non-RGBA8 format (or MSAA) still fails its present - open,
+  no test case yet. 0122 touches only the quad path, which DWM never takes (0 "rotated" presents).

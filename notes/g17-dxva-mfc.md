@@ -444,3 +444,18 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   wired on panfrost: separate gap, not touched). (5) Regression sweep on the phone: d3dtri PASS, d3dmsaa PASS,
   d3dvbring PASS, d3dfill all phases presented (user session), d3dswap 64.8/s; d3dsm41 lod 1/8 differ = the known
   Bifrost lod gap (notes/gpu-umd-d3d11.md:276, 0080c), not new. No follow-up found.
+- 15:6x On-screen check attempts (user away, asked for a screenshot): GDI CopyFromScreen in the user session = all
+  white (8614 B, same as the 10-16 photos-2 shot -> GDI readback is blind on the GPU-present desktop); scan-out dump
+  (wddm2dbg fb, base reg 0x19071040 -> 0xca000000) all black while frames flow (DSIM counter moving) -> that window
+  is not the one being flipped on the H4b path; PC webcam: Access denied 0x80070005 = PC privacy "let desktop apps
+  access camera" = Deny (user setting, left alone). New: tools/mfc/mpvshot.ps1 (mpv + GDI shot in ONE userrun -
+  a second userrun/runuser2 while mpv plays collides on the task), tools/mfc/umdlogtail.ps1.
+- 15:7x FINDING from malikm-mpv.exe-5684 (mpvshot -After 25 run, 1704x959 window): TEMP frames 1-3 carry the video
+  (center 0xffa6afb6) but frames 100 and 200 are 0xff000000 at all three points -> mpv's frames go BLACK after the
+  first few presents. 0095 fixed the first frames only; something later (MFC frames after the start? the swap chain
+  buffer rotation? mpv's interpolation/redraw path?) renders black. Next: TEMP frame-100 raw dump (UMD b4c6a989).
+- 15:8x CORRECTION of 15:7x: the TEMP frame-100 raw dump (frame-5596-1704x959.bgra -> traces/g17/mpv-frame100.png,
+  not committed: traces/ is ignored) is a CORRECT video frame (night scene: the ramp + car; centre / quarter / 3/4
+  sample points fall on black background, hence 0xff000000). mpv's frames carry the video throughout - nothing goes
+  black. Image sent to the user. Panel itself still not seen (no capture path: GDI white, scan-out window black,
+  webcam blocked by PC privacy). TEMP frame dump removed from the UMD again (not committed, never in Mesa history).

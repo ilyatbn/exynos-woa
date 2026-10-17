@@ -230,3 +230,15 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   MFC device interface is present (CM_Get_Device_Interface_List_Size, once per process; absent -> hidden, callers
   keep software). No environment variables: mfd3d c1080 -Rows 1080 -> DXVA texture array, 60/60 identical;
   actestu (AppContainer) -> MFC session open, 30/30 decoded. (-Dev switches of the test scripts are now no-ops.)
+- 2026-10-17 09:0x V6d2 real app: Photos (Microsoft.Windows.Photos 2026.11090, Arm64, AppContainer) playing
+  test.mp4 (tools/mfc/photostest.ps1: copies the clip to the user's Videos, ms-photos:viewer, probes the MFC).
+  - while Photos plays, a second MFC session is refused (IOCTL_MFC_OPEN 170 ERROR_BUSY) -> Photos holds the decoder;
+    a few s after Photos exits the MFC is free again (mfcdec 30/30) - the "busy right after kill" is teardown.
+  - machine-wide trace (umdtrace.ps1, then -Off), photoslog.ps1: Photos' UMD log: "MFC present - profile exposed",
+    VP 1920x1080 created, decoder 1920x1088 "MFC session open", frames I/P/B at ~8 ms, VP blts 1920x1080 ->
+    1133x637 (its window) at ~4.5 ms CPU; blt 100 -> 200 in 6.7 s = ~15 blt/s (clip is 24 fps) -> frames likely
+    dropped somewhere (present/composition or MF late-frame drop): follow-up.
+  - photostest's CPU figure (297 ms in every run) is not trustworthy (same value for 10/15/22 s) - drop it.
+  - GDI screenshot (shot.ps1) all white, wddm2dbg fb dump all black (stale scan-out register on the WDDM2 path?),
+    PC webcam (camshot.ps1) returns empty JPEGs now -> no visual confirmation yet (needs the user or a working
+    capture path).

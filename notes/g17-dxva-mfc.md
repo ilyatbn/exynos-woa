@@ -699,3 +699,25 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   allocations) - also cuts allocation-list length per submission (DWM). The unlock-on-unmap change is NOT the fix
   (kept out of commits unless shown useful).
 - Phone back on committed code: UMD 7b20fbf6 (ARM64, = Mesa 91b4559/0101) via umdswap, x86 8cd52259 in SysWOW64; DWM still runs the boot-time f036180b (same source minus a comment). KMD 1.0.63.1 (2.5 GiB segment) deployed from TWRP.
+- RESEARCH (user: "research online about this"): MS Learn DXGK_ALLOCATIONINFOFLAGS_WDDM2_0
+  (https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmddi/ns-d3dkmddi-_dxgk_allocationinfoflags_wddm2_0):
+  "CpuVisibleOnDemand - When this member is set, the video memory manager will try to allocate the virtual address
+  for the allocation when it is mapped/locked. This will result in the allocation not having a permanent virtual
+  address, which reduces the amount of virtual address space used. It behaves similarly to the CpuVisible flag in
+  that it's an allocation directly accessible by the CPU, but it just gets the virtual address for it 'on demand'
+  instead of being permanently assigned." -> our KMD sets CpuVisible on every allocation (memory.c NewAllocation) =
+  a permanent CPU VA per allocation = the 32 MB reservations (behaviourally: vatest). Documented fix: CpuVisibleOnDemand
+  (WDDM 2.x FlagsWddm2). Other findings: freedreno (Mesa) has a sub-allocation heap for small BOs (MR 20263; source
+  src/freedreno/drm/freedreno_bo_heap.c: util_vma_heap over equal-size blocks, no shared BOs, needs userspace fencing)
+  = the fallback design; MS docs do not name the 32 MB figure itself.
+- KMD 1.0.64.1 (s10e-artifacts\mali-kmd-64, sys f9d98bf4): Parameters\CpuVisibleOnDemand (default 1 = CpuVisible + CpuVisibleOnDemand (d3dkmddi.h 0x00040000), 2 = on-demand only, 0 = off), WDDM 2 mode only (phone Wddm2 = 5). Test: vatest 32 MB reservation counts.
+- CpuVisibleOnDemand results: mode 1 (CpuVisible + OnDemand) -> vatest unchanged (129); mode 1 + shim
+  unlock-on-unmap (UMD 6ad89c26) -> unchanged; mode 2 (OnDemand only, CpuVisible cleared) -> 32 MB reservations GONE
+  (1 / 1 / 1 / 1 / 1 instead of 5 / 46 / 88 / 129), DYNAMIC Map works -> dxgkrnl honours the flag for our WDDM 2 KMD,
+  and CpuVisible itself forces the permanent CPU VA. BUT mode 2 desktop: DWM up (40 MB), LogonUI 305 MB, explorer
+  never started (session stuck at logon / LogonUI) -> some allocations need CpuVisible (primaries?). Next: mode 3 =
+  OnDemand only, except MW_ALLOC_PRIMARY keeps CpuVisible.
+- KMD 1.0.65.1 (mali-kmd-65, sys aadeabdd) mode 3 (on-demand only except MW_ALLOC_PRIMARY) + registry
+  CpuVisibleOnDemand = 3: Windows STUCK at the boot spinner (user, 18:4x); no ping/ssh/adb. Rollback: user forces
+  TWRP, kmd-deploy.sh mali-kmd-63 (1.0.63.1, no on-demand flag, last good boot). Registry value 3 stays (1.0.63.1
+  ignores it).

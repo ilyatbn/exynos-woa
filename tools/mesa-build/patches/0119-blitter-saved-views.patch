@@ -1,0 +1,31 @@
+From 8841b80ec13649392df3aabcf2a1a341fef2d545 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 00:52:13 +0300
+Subject: [PATCH] u_blitter: save at most PIPE_MAX_SAMPLERS fragment sampler
+ views (exynos-woa G24 0119)
+
+D3D10 binds up to 128 SRVs; dgVoodoo/NFSU2 used a slot above 31 and Panfrost's blit-from-staging asserted. The blitter
+binds slots 0-1 only and never unbinds trailing slots, so views past the saved array are never disturbed.
+---
+ src/gallium/auxiliary/util/u_blitter.h | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/src/gallium/auxiliary/util/u_blitter.h b/src/gallium/auxiliary/util/u_blitter.h
+index 27da87b..8d1f9e3 100644
+--- a/src/gallium/auxiliary/util/u_blitter.h
++++ b/src/gallium/auxiliary/util/u_blitter.h
+@@ -534,7 +534,10 @@ util_blitter_save_fragment_sampler_views(struct blitter_context *blitter,
+                                          struct pipe_sampler_view **views)
+ {
+    unsigned i;
+-   assert(num_views <= ARRAY_SIZE(blitter->saved_sampler_views));
++   /* exynos-woa G24: D3D10 binds up to 128 SRVs (dgVoodoo uses a slot above 31; this asserted in Panfrost's
++    * blit-from-staging). The blitter binds slots 0-1 only and never unbinds trailing slots, so the views past the
++    * saved array are never disturbed - saving the first ones is enough. */
++   num_views = MIN2(num_views, ARRAY_SIZE(blitter->saved_sampler_views));
+ 
+    blitter->saved_num_sampler_views = num_views;
+    for (i = 0; i < num_views; i++)
+-- 
+2.40.1.windows.1
+

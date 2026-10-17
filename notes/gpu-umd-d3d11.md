@@ -281,3 +281,15 @@ Chromium needs GLES 3.0 from ANGLE = D3D FL 10_1 (renderer11_utils GetMaximumCli
   panfrost TEXTURE_SAMPLES sysval (v6-v8 cannot read the descriptor). Mesa patch 0080-sm41-fixes.patch.
 - 01:50 Edge GPU process: 256-slot allocation list overflows (70+ live BOs not listed per submit, 0081 tlog). MS Learn: physical-mode engines keep the WDDM 1.x allocation/patch list model (gpu-virtual-memory-in-wddm-2-0) so 'list every live BO' stays; D3DDDICB_RENDER New*Size are [in/out] requests, honoured only with D3DDDICB_RENDERFLAGS Resize* bits (0081b without them: still 256). 0081c sets them (want = listed + skipped + 64, max 4096; patch list >= allocation list).
 - 02:00 0081c (maliumd fa2109d9): Edge YouTube 60 s - no overflow, list grows to 331 entries, no CB FAIL / Render failed, GPU process stable. Mesa patch 0081-list-grow.patch.
+- 03:00 USER REPORT: Start menu and Quick Settings (wifi/bt/cast flyout) do not open. Cause chain (WER dumps of
+  StartMenuExperienceHost/SearchHost/ShellExperienceHost via werdump.ps1, cdb stacks): 0xC0000409 ucrtbase
+  invalid_parameter <- _write_internal <- fwrite <- maliumd d3d10_create_screen (the "Panfrost found no Mali device,
+  using softpipe" fprintf) <- CreateDevice. (1) AppContainer processes have no stderr; with machine-wide
+  MALIKM_TGSI_DIR the 0079 redirect freopen'd into C:\S10eTmp\tlog (not writable there) and the NUL fallback failed
+  too -> closed stream -> fail-fast. (2) Why the fallback at all: 0082c (failure reason recorded) shows the WDDM probe
+  succeeded; malikm_open's placeholder `_open("NUL")` fails in AppContainers -> fd -1 -> softpipe.
+  Fixes: 0082 stderr only to a file proven writable, 0082b else the process temp dir (GetTempPath = Packages\<pkg>\AC\
+  Temp, tools/phone/wddm2/sandboxlogs.ps1 lists them), 0082c reason string, 0082d placeholder fd = anonymous pipe read
+  end instead of NUL. umdtrace switched OFF machine-wide (it must not stay on). User confirmed with 0082b: Start and
+  Quick Settings open (on softpipe). 0082d should give them the Mali.
+- 03:10 0082d (maliumd 03fd837f): new StartMenuExperienceHost loads maliumd and writes no fallback line (Panfrost screen created), no new crash. Mesa patch 0082-appcontainer.patch.

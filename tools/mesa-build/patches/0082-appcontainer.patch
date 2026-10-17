@@ -1,0 +1,235 @@
+From f5f79cea133a38af6a193babb76e88c7c59dd74f Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 03:53:38 +0300
+Subject: [PATCH] malikm shim / d3d10umd: AppContainer shell processes (Start,
+ Search, Quick Settings) - stderr only to a file proven writable, else the
+ process temp dir; placeholder fds from an anonymous pipe instead of NUL
+ (AppContainers cannot open NUL -> they fell back to softpipe and fail-fasted
+ in the fallback message); WDDM probe failure reason kept (exynos-woa 0082)
+
+---
+ include/win32-compat/malikm_drm.c        | 120 ++++++++++++++++++-----
+ src/gallium/targets/d3d10umd/d3d10_gdi.c |   6 +-
+ 2 files changed, 98 insertions(+), 28 deletions(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index e2cbd17..7de473c 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -65,6 +65,23 @@ static SRWLOCK dev_lock = SRWLOCK_INIT;
+ 
+ static int trace_on(void);
+ 
++/* exynos-woa 0082d: a placeholder CRT fd (the "DRM fd" Panfrost holds) without opening a file. AppContainer
++ * processes (StartMenuExperienceHost, SearchHost, ShellExperienceHost) cannot open "NUL" - with _open("NUL") they
++ * fell back to softpipe ("Panfrost found no Mali device" with an empty WDDM failure reason, 0082c). The read end of
++ * an anonymous pipe is a real handle anywhere; _dup / _close work on it. */
++static int
++placeholder_fd(void)
++{
++   HANDLE r = NULL, w = NULL;
++   if (!CreatePipe(&r, &w, NULL, 0))
++      return -1;
++   CloseHandle(w);
++   int fd = _open_osfhandle((intptr_t)r, _O_RDONLY | _O_NOINHERIT);
++   if (fd < 0)
++      CloseHandle(r);
++   return fd;
++}
++
+ int
+ malikm_open(void)
+ {
+@@ -77,14 +94,14 @@ malikm_open(void)
+       if (wddm_init() == 0) {
+          if (trace_on())
+             fprintf(stderr, "malikm: no \\\\.\\MaliG52; using the maliwddm adapter\n");
+-         return _open("NUL", _O_RDWR | _O_NOINHERIT);
++         return placeholder_fd();
+       }
+       fprintf(stderr, "malikm: cannot open \\\\.\\MaliG52 (error %lu), and no maliwddm adapter\n",
+               (unsigned long)err);
+       errno = err == ERROR_FILE_NOT_FOUND ? ENOENT : ENODEV;
+       return -1;
+    }
+-   int fd = _open("NUL", _O_RDWR | _O_NOINHERIT);
++   int fd = placeholder_fd();
+    if (fd < 0) {
+       CloseHandle(h);
+       return -1;
+@@ -225,25 +242,55 @@ malikm_diag_init(void)
+     * fail-fasts (0xC0000409 in ucrtbase!_write_internal <- malikm wddm_drm fprintf, Edge GPU process, 0078 run).
+     * Without a log directory such a stderr goes to NUL. */
+    HANDLE h = GetStdHandle(STD_ERROR_HANDLE);
+-   bool no_stderr = h == NULL || h == INVALID_HANDLE_VALUE || _fileno(stderr) < 0 ||
+-                    _get_osfhandle(_fileno(stderr)) == (intptr_t)INVALID_HANDLE_VALUE;
+-   if (!d || !*d) {
+-      if (no_stderr)
+-         freopen("NUL", "w", stderr);
+-      return;
+-   }
++   intptr_t oh = _fileno(stderr) >= 0 ? _get_osfhandle(_fileno(stderr)) : (intptr_t)INVALID_HANDLE_VALUE;
++   bool no_stderr = h == NULL || h == INVALID_HANDLE_VALUE || oh == (intptr_t)INVALID_HANDLE_VALUE ||
++                    GetFileType((HANDLE)oh) == FILE_TYPE_UNKNOWN;
+    if (no_stderr) {
+-      char exe[MAX_PATH] = "x", p[MAX_PATH];
+-      GetModuleFileNameA(NULL, exe, MAX_PATH);
+-      const char *b = strrchr(exe, '\\');
+-      b = b ? b + 1 : exe;
+-      snprintf(p, sizeof(p), "%s\\malikm-%s-%lu-stderr.txt", d, b, (unsigned long)GetCurrentProcessId());
+-      if (freopen(p, "a", stderr))
+-         setvbuf(stderr, NULL, _IONBF, 0);
+-      else
+-         freopen("NUL", "w", stderr);   /* 0079b: a sandboxed process (Edge GPU) may not write the tlog directory;
+-                                         * the failed freopen closed stderr - same fail-fast as no stderr */
++      /* 0082: the tlog file only if it can really be opened - a failed freopen closes stderr, and AppContainer
++       * processes (StartMenuExperienceHost, SearchHost, ShellExperienceHost: 0xC0000409 in ucrtbase!_write_internal
++       * <- maliumd d3d10_create_screen fwrite, 0081c dumps) cannot write C:\S10eTmp\tlog. Otherwise NUL. */
++      bool done_file = false;
++      if (d && *d) {
++         char exe[MAX_PATH] = "x", p[MAX_PATH];
++         GetModuleFileNameA(NULL, exe, MAX_PATH);
++         const char *b = strrchr(exe, '\\');
++         b = b ? b + 1 : exe;
++         snprintf(p, sizeof(p), "%s\\malikm-%s-%lu-stderr.txt", d, b, (unsigned long)GetCurrentProcessId());
++         FILE *t = fopen(p, "a");
++         if (t) {
++            fclose(t);
++            if (freopen(p, "a", stderr)) {
++               setvbuf(stderr, NULL, _IONBF, 0);
++               done_file = true;
++            }
++         }
++      }
++      if (!done_file) {
++         /* 0082b: the process's own temp directory (GetTempPath is the AppContainer's AC\Temp in a sandboxed
++          * package process - writable there) keeps the diagnostics; NUL only if even that fails */
++         char tp[MAX_PATH], exe[MAX_PATH] = "x", p[MAX_PATH];
++         DWORD n = GetTempPathA(MAX_PATH, tp);
++         GetModuleFileNameA(NULL, exe, MAX_PATH);
++         const char *b = strrchr(exe, '\\');
++         b = b ? b + 1 : exe;
++         FILE *t = NULL;
++         if (n && n < MAX_PATH) {
++            snprintf(p, sizeof(p), "%smalikm-%s-%lu-stderr.txt", tp, b, (unsigned long)GetCurrentProcessId());
++            t = fopen(p, "a");
++         }
++         if (t) {
++            fclose(t);
++            if (freopen(p, "a", stderr))
++               setvbuf(stderr, NULL, _IONBF, 0);
++            else
++               freopen("NUL", "w", stderr);
++         } else {
++            freopen("NUL", "w", stderr);
++         }
++      }
+    }
++   if (!d || !*d)
++      return;
+    /* exynos-woa H5 (0058): only in the test (d3dtri), and removed when this DLL unloads. Run h3q: LogonUI unloads
+     * the UMD; the handler 0057 left registered then ran in unloaded memory on the next exception (an ordinary
+     * RPC cancel), faulted, recursed and overflowed the stack - 0057 itself crashed LogonUI. */
+@@ -606,7 +653,7 @@ drmSyncobjExportSyncFile(int fd, uint32_t handle, int *sync_file_fd)
+ 
+    if (call(fd, IOCTL_MALIKM_DRM, &m, sizeof(m)))
+       return -1;
+-   int sfd = _open("NUL", _O_RDWR | _O_NOINHERIT);
++   int sfd = placeholder_fd();
+    if (sfd < 0)
+       return -1;
+    AcquireSRWLockExclusive(&sync_lock);
+@@ -855,6 +902,10 @@ wddm_on(void)
+ 
+ /* Find the adapter that answers MW_ESCAPE_GPU_INFO, open a device and a
+  * context on it. 0 on success. */
++/* exynos-woa 0082c: why the WDDM probe failed, kept for d3d10umd's softpipe fallback message (the first probe
++ * runs in OpenAdapter, before malikm_diag_init gives a console-less process a stderr). */
++char malikm_init_reason[160];
++
+ static int
+ wddm_init(void)
+ {
+@@ -871,39 +922,56 @@ wddm_init(void)
+    R(MakeResident); R(CreatePagingQueue);
+ #undef R
+    if (!kmt.CreateDevice || !kmt.CreateContext || !kmt.CreateAllocation || !kmt.DestroyAllocation ||
+-       !kmt.Lock || !kmt.Unlock || !kmt.Render || !kmt.Escape || !kmt.EnumAdapters2 || !kmt.WaitForIdle)
++       !kmt.Lock || !kmt.Unlock || !kmt.Render || !kmt.Escape || !kmt.EnumAdapters2 || !kmt.WaitForIdle) {
++      snprintf(malikm_init_reason, sizeof(malikm_init_reason), "gdi32 D3DKMT entry points missing"); fprintf(stderr, "malikm-wddm: init: %s\n", malikm_init_reason);   /* 0082b: name the failing step */
+       return -1;
++   }
+ 
+    D3DKMT_ADAPTERINFO info[16];
+    D3DKMT_ENUMADAPTERS2 en = {0};
+    en.NumAdapters = 16;
+    en.pAdapters = info;
+-   if (kmt.EnumAdapters2(&en) < 0)
++   NTSTATUS est = kmt.EnumAdapters2(&en);
++   if (est < 0) {
++      snprintf(malikm_init_reason, sizeof(malikm_init_reason), "EnumAdapters2 0x%08lx", (unsigned long)est); fprintf(stderr, "malikm-wddm: init: %s\n", malikm_init_reason);
+       return -1;
++   }
+    for (ULONG i = 0; i < en.NumAdapters && !wadapter; i++) {
+       MW_ESCAPE_GPU_INFO_DATA g = {0};
+       g.Code = MW_ESCAPE_GPU_INFO;
+       wadapter = info[i].hAdapter;
+-      if (kmt_escape(0, &g, sizeof(g)) >= 0 && g.Count != 0 && g.Valid != 0)
++      NTSTATUS xs = kmt_escape(0, &g, sizeof(g));
++      if (xs >= 0 && g.Count != 0 && g.Valid != 0)
+          wgpu = g;
+       else
+          wadapter = 0;
++      snprintf(malikm_init_reason, sizeof(malikm_init_reason), "adapter %lu escape GPU_INFO 0x%08lx count %u valid %u", (unsigned long)i,
++              (unsigned long)xs, (unsigned)g.Count, (unsigned)g.Valid); fprintf(stderr, "malikm-wddm: init: %s\n", malikm_init_reason);
+    }
+-   if (!wadapter)
++   if (!wadapter) {
++      if (!malikm_init_reason[0])
++         snprintf(malikm_init_reason, sizeof(malikm_init_reason), "no Mali adapter among %lu", (unsigned long)en.NumAdapters);
+       return -1;
++   }
+ 
+    D3DKMT_CREATEDEVICE dev = {0};
+    dev.hAdapter = wadapter;
+-   if (kmt.CreateDevice(&dev) < 0)
++   NTSTATUS cs = kmt.CreateDevice(&dev);
++   if (cs < 0) {
++      snprintf(malikm_init_reason, sizeof(malikm_init_reason), "CreateDevice 0x%08lx", (unsigned long)cs); fprintf(stderr, "malikm-wddm: init: %s\n", malikm_init_reason);
+       return -1;
++   }
+    wdevice = dev.hDevice;
+    D3DKMT_CREATECONTEXT ctx = {0};
+    ctx.hDevice = wdevice;
+    ctx.NodeOrdinal = 0;
+    ctx.EngineAffinity = 1;
+    ctx.ClientHint = D3DKMT_CLIENTHINT_DX10;
+-   if (kmt.CreateContext(&ctx) < 0)
++   NTSTATUS xc = kmt.CreateContext(&ctx);
++   if (xc < 0) {
++      snprintf(malikm_init_reason, sizeof(malikm_init_reason), "CreateContext 0x%08lx", (unsigned long)xc); fprintf(stderr, "malikm-wddm: init: %s\n", malikm_init_reason);
+       return -1;
++   }
+    wcontext = ctx.hContext;
+    wcmd = ctx.pCommandBuffer;
+    wcmd_size = ctx.CommandBufferSize;
+diff --git a/src/gallium/targets/d3d10umd/d3d10_gdi.c b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+index a9ab83c..d458739 100644
+--- a/src/gallium/targets/d3d10umd/d3d10_gdi.c
++++ b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+@@ -549,8 +549,10 @@ d3d10_create_screen(void)
+          if (screen)
+             screen->flush_frontbuffer = d3d10_pan_flush_frontbuffer;
+       }
+-      if (screen == NULL)
+-         fprintf(stderr, "d3d10umd: Panfrost found no Mali device, using softpipe\n");
++      if (screen == NULL) {
++         extern char malikm_init_reason[];   /* exynos-woa 0082c, malikm_drm.c */
++         fprintf(stderr, "d3d10umd: Panfrost found no Mali device (%s), using softpipe\n", malikm_init_reason);
++      }
+    }
+ #endif
+ 
+-- 
+2.40.1.windows.1
+

@@ -21,3 +21,9 @@ if errorlevel 1 exit /b 3
 if errorlevel 1 exit /b 4
 del "%OUT%\S10ePower.obj" >nul 2>&1
 echo S10EPOWER_BUILD_OK %OUT%
+set INCLUDE=%KIT%\Include\%KV%\um;%KIT%\Include\%KV%\shared;%KIT%\Include\%KV%\ucrt;%SAVED_INCLUDE%
+cl.exe /nologo /W4 /WX /O2 /MT /D _CRT_SECURE_NO_WARNINGS /Fo"%OUT%\s10epowerctl.obj" /Fe"%OUT%\s10epowerctl.exe" "%SRC%s10epowerctl.c" /link /MACHINE:ARM64 /SUBSYSTEM:CONSOLE /Brepro
+if errorlevel 1 exit /b 5
+"%KIT%\bin\%KV%\x64\signtool.exe" sign /sha1 5DD5DEE1747244C5F5F66F41D94C0A59C4443E48 /fd SHA256 "%OUT%\s10epowerctl.exe" >nul
+del "%OUT%\s10epowerctl.obj" >nul 2>&1
+echo S10EPOWERCTL_BUILD_OK

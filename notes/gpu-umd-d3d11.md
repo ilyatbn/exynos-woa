@@ -293,3 +293,17 @@ Chromium needs GLES 3.0 from ANGLE = D3D FL 10_1 (renderer11_utils GetMaximumCli
   end instead of NUL. umdtrace switched OFF machine-wide (it must not stay on). User confirmed with 0082b: Start and
   Quick Settings open (on softpipe). 0082d should give them the Mali.
 - 03:10 0082d (maliumd 03fd837f): new StartMenuExperienceHost loads maliumd and writes no fallback line (Panfrost screen created), no new crash. Mesa patch 0082-appcontainer.patch.
+- 04:05 Reboot request (shutdown /r) turned into "Updates are underway" servicing: TrustedInstaller/TiWorker since
+  23:59 (TiWorker CPU climbing ~5 s / 20 s), explorer gone, LogonUI (on maliumd, no fallback line) presenting - the
+  scan-out holds the updates screen (traces/wddm2/logonui.png) and KMD presents keep counting, but the USER SEES A
+  BLACK PANEL. => the panel/backlight is off while DWM/LogonUI still present: suspect the KMD's monitor power path
+  (DxgkDdiSetPowerState for the child / SetVidPnSourceVisibility during shutdown; panel never re-enabled). Also a
+  candidate for the earlier "black screen" moments. Follow-up task: KMD display power path trace + fix.
+  Told the user not to hard-reboot during servicing.
+- 04:20 Black panel during the update restart explained: KMD trace PanelDisplayPower = 0x1 (DCS display-off, ok),
+  PanelPowerChanges 1 - the user's power press ran s10ekeys "screen" (blank window + MW_ESCAPE_PANEL_POWER off); the
+  shutdown killed s10ekeys without WM_DESTROY, so nothing sent display-on; LogonUI's "Updates are underway" was in the
+  scan-out but the AMOLED was dark. Rescue tool drivers/MaliG76Wddm/tools/panelon (D3DKMTEnumAdapters2 + escape, works
+  from SSH/session 0): "adapter 0: escape 0x0 done 1" -> panel on. Fix task: KMD must light the panel itself when
+  the escape's owner goes away (shutdown / session end / process exit) - e.g. tie "off" to the escaping process and
+  turn on in DxgkDdiDestroyProcess / on system power transitions, or on any new present after a DWM restart.

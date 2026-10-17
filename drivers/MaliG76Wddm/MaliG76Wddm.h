@@ -315,6 +315,15 @@ struct _MW_ADAPTER {
     KEVENT RampEvent;           /* brightness fade (panel.c PanelRampThread): set by SetBrightness */
     PVOID RampThread;           /* referenced thread object, NULL when not running */
     volatile LONG RampStop;
+    /* Panel-off owner watch (panel.c, 2026-10-17): MW_ESCAPE_PANEL_POWER off references the escaping process (s10ekeys'
+     * blank window); if that process ends without sending "on" (killed by a shutdown, logoff, crash) the watcher lights
+     * the panel - otherwise the AMOLED stays dark over a live desktop / LogonUI ("Updates are underway" run). */
+    KEVENT PanelWatchEvent;     /* owner changed / stop */
+    PVOID PanelWatchThread;     /* referenced thread object, NULL when not running */
+    volatile LONG PanelWatchStop;
+    PVOID PanelOffOwner;        /* referenced PEPROCESS that turned the panel off, NULL when on / none */
+    KSPIN_LOCK PanelOwnerLock;
+    volatile LONG PanelOwnerExits; /* times the watcher relit the panel after the owner ended */
     volatile UCHAR RampLevel;   /* level now on the panel (Brightness = the target) */
     volatile LONG BrightnessQueries, BrightnessSets;
 };
@@ -323,6 +332,7 @@ struct _MW_ADAPTER {
 void MwPanelStart(MW_ADAPTER *A);
 void MwPanelStop(MW_ADAPTER *A);
 void MwPanelDisplayPower(MW_ADAPTER *A, BOOLEAN On);
+void MwPanelEscapePower(MW_ADAPTER *A, BOOLEAN On);   /* escape: off makes the caller the owner (panel.c) */
 NTSTATUS MwPanelQueryInterface(MW_ADAPTER *A, PQUERY_INTERFACE Qi);
 
 /* ---- trace: Seen_<ddi>, Fail_<ddi> in the device's registry key ---- */

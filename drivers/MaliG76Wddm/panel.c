@@ -230,6 +230,112 @@ static VOID PanelRampThread(PVOID Context)
     PsTerminateSystemThread(STATUS_SUCCESS);
 }
 
+/* ---- panel-off owner watch ---- */
+
+static PVOID PanelTakeOwner(MW_ADAPTER *A, PVOID NewOwner)
+{
+    KIRQL irql;
+    PVOID old;
+    KeAcquireSpinLock(&A->PanelOwnerLock, &irql);
+    old = A->PanelOffOwner;
+    A->PanelOffOwner = NewOwner;
+    KeReleaseSpinLock(&A->PanelOwnerLock, irql);
+    return old;
+}
+
+static VOID PanelWatchThread(PVOID Context)
+{
+    MW_ADAPTER *a = (MW_ADAPTER *)Context;
+
+    for (;;) {
+        PVOID owner;
+        KIRQL irql;
+        NTSTATUS st;
+
+        KeAcquireSpinLock(&a->PanelOwnerLock, &irql);
+        owner = a->PanelOffOwner;
+        if (owner != NULL)
+            ObReferenceObject(owner);           /* our own reference for the wait */
+        KeReleaseSpinLock(&a->PanelOwnerLock, irql);
+
+        if (owner == NULL) {
+            KeWaitForSingleObject(&a->PanelWatchEvent, Executive, KernelMode, FALSE, NULL);
+        } else {
+            PVOID objs[2] = { &a->PanelWatchEvent, owner };
+            st = KeWaitForMultipleObjects(2, objs, WaitAny, Executive, KernelMode, FALSE, NULL, NULL);
+            if (st == STATUS_WAIT_1) {
+                /* the process that darkened the panel is gone - if it is still the owner, light the panel */
+                PVOID cur = PanelTakeOwner(a, NULL);
+                if (cur == owner) {
+                    ObDereferenceObject(cur);
+                    InterlockedIncrement(&a->PanelOwnerExits);
+                    MwPanelDisplayPower(a, TRUE);
+                    MwLog(a, L"PanelOwnerExits", (ULONG)a->PanelOwnerExits);
+                } else if (cur != NULL) {
+                    (void)PanelTakeOwner(a, cur);   /* a new owner arrived meanwhile: keep it */
+                }
+            }
+            ObDereferenceObject(owner);
+        }
+        if (a->PanelWatchStop)
+            break;
+    }
+    PsTerminateSystemThread(STATUS_SUCCESS);
+}
+
+static void PanelWatchStart(MW_ADAPTER *A)
+{
+    HANDLE h;
+    NTSTATUS st;
+
+    KeInitializeEvent(&A->PanelWatchEvent, SynchronizationEvent, FALSE);
+    KeInitializeSpinLock(&A->PanelOwnerLock);
+    A->PanelWatchStop = 0;
+    A->PanelOffOwner = NULL;
+    st = PsCreateSystemThread(&h, THREAD_ALL_ACCESS, NULL, NULL, NULL, PanelWatchThread, A);
+    if (NT_SUCCESS(st)) {
+        st = ObReferenceObjectByHandle(h, SYNCHRONIZE, *PsThreadType, KernelMode, &A->PanelWatchThread, NULL);
+        ZwClose(h);
+    }
+    if (!NT_SUCCESS(st))
+        A->PanelWatchThread = NULL;
+    MwLog(A, L"PanelWatchThread", (ULONG)st);
+}
+
+static void PanelWatchStopThread(MW_ADAPTER *A)
+{
+    PVOID owner;
+    if (A->PanelWatchThread == NULL)
+        return;
+    InterlockedExchange(&A->PanelWatchStop, 1);
+    KeSetEvent(&A->PanelWatchEvent, IO_NO_INCREMENT, FALSE);
+    KeWaitForSingleObject(A->PanelWatchThread, Executive, KernelMode, FALSE, NULL);
+    ObDereferenceObject(A->PanelWatchThread);
+    A->PanelWatchThread = NULL;
+    owner = PanelTakeOwner(A, NULL);
+    if (owner != NULL)
+        ObDereferenceObject(owner);
+}
+
+/* MW_ESCAPE_PANEL_POWER from the calling process (escape context = the caller's process): off records the caller as the
+ * owner, on clears it. */
+void MwPanelEscapePower(MW_ADAPTER *A, BOOLEAN On)
+{
+    PVOID old;
+    if (!On && A->PanelWatchThread != NULL) {
+        PEPROCESS p = PsGetCurrentProcess();
+        ObReferenceObject(p);
+        old = PanelTakeOwner(A, p);
+    } else {
+        old = PanelTakeOwner(A, NULL);
+    }
+    if (old != NULL)
+        ObDereferenceObject(old);
+    if (A->PanelWatchThread != NULL)
+        KeSetEvent(&A->PanelWatchEvent, IO_NO_INCREMENT, FALSE);
+    MwPanelDisplayPower(A, On);
+}
+
 static void PanelRampStart(MW_ADAPTER *A, UCHAR StartLevel)
 {
     HANDLE h;
@@ -363,6 +469,8 @@ void MwPanelStart(MW_ADAPTER *A)
     MwLog(A, L"PanelStep", step);
     if (A->BrightnessOk)
         PanelRampStart(A, (UCHAR)startLevel);
+    if (A->PanelOk)
+        PanelWatchStart(A);
 }
 
 void MwPanelStop(MW_ADAPTER *A)
@@ -370,6 +478,7 @@ void MwPanelStop(MW_ADAPTER *A)
     BOOLEAN restoreFailed = FALSE;
 
     PanelRampStop(A);       /* before the restore: the fade thread may hold PanelLock */
+    PanelWatchStopThread(A);
     if (A->PanelDsim != NULL && A->PanelDecon != NULL) {
         /* Leave the panel as sboot set it for whoever drives the screen next (Basic Display has no brightness). */
         ExAcquireFastMutex(&A->PanelLock);

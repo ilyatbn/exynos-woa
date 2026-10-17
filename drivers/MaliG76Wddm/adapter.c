@@ -673,7 +673,7 @@ static NTSTATUS APIENTRY MwEscape(IN_CONST_HANDLE hAdapter, const DXGKARG_ESCAPE
 
         if (Esc->PrivateDriverDataSize < sizeof(MW_ESCAPE_PANEL_POWER_DATA))
             return STATUS_INVALID_PARAMETER;
-        MwPanelDisplayPower(a, pp->On != 0);
+        MwPanelEscapePower(a, pp->On != 0);   /* off: the caller becomes the owner; relit if it dies (panel.c) */
         pp->Done = (a->PanelDisplayOn == (pp->On != 0)) ? 1u : 0u;
         return STATUS_SUCCESS;
     }

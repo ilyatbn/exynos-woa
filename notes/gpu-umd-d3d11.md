@@ -307,3 +307,8 @@ Chromium needs GLES 3.0 from ANGLE = D3D FL 10_1 (renderer11_utils GetMaximumCli
   from SSH/session 0): "adapter 0: escape 0x0 done 1" -> panel on. Fix task: KMD must light the panel itself when
   the escape's owner goes away (shutdown / session end / process exit) - e.g. tie "off" to the escaping process and
   turn on in DxgkDdiDestroyProcess / on system power transitions, or on any new present after a DWM restart.
+- 04:35 KMD 1.0.61.1 (sys CE25C7A9, built, NOT yet on the phone): panel-off owner watch - MW_ESCAPE_PANEL_POWER off
+  references the escaping process (PsGetCurrentProcess, escape runs in the caller's context), a system thread
+  (panel.c PanelWatchThread) waits on {watch event, owner process}; owner exit while still the owner -> DCS display
+  on + PanelOwnerExits counter; on clears the owner. Started in MwPanelStart when PanelOk, stopped in MwPanelStop.
+  Test after the update restart: s10ekeys screen-off, kill s10ekeys -> panel must relight (PanelOwnerExits 1).

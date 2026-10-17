@@ -147,3 +147,11 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
     seeks, AppContainer callers (V6d), streams with scaling matrices (c720/c1080 are flat).
   - Fixed (0087, maliumd d50ade0a): DECODER_CAPS treated a GUID_NULL crypto type as encrypted. Rerun after the fix:
     c720 30/30 and c1080 (-Rows 1080) 60/60 identical.
+- 2026-10-17 V6c1: tools/mfc/mfplay (Media Engine frame server on the Mali: Play + OnVideoStreamTick +
+  TransferVideoFrame into a BGRA RT, muted, staging readback hashes) + mfplayq.ps1. c720.mp4 (1 s, 30 frames):
+  - both without and with the DXVA profile: playback runs and ends, frames correct-looking (frame 0/1 hashes equal in
+    both runs), BUT MF calls CreateVideoProcessorEnum ~25x (our stub -> E_NOTIMPL) and falls back to its CPU
+    conversion: only 5 (sw decode) / 9 (MFC decode) of 30 frames reach the texture in ~2.5 s (2-3 fps delivered).
+  - with the profile the MFC decodes all pictures (~5 ms each) -> the bottleneck is the missing video processor.
+  => V6c2: D3D11 video processor DDI (enum + caps + processor + input/output views + VideoProcessorBlt NV12->BGRA
+  with scaling on the GPU).

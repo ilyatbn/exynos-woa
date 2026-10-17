@@ -135,11 +135,15 @@ static NTSTATUS NewAllocation(MW_ADAPTER *A, const MW_ALLOCATION_INFO *In, DXGK_
     /* G-game: CPU address space for the CPU view only while it is mapped (adapter.c MwCpuOnDemand) */
     if (MwWddm2 && MwCpuOnDemand) {
         /* 1: both flags (no effect: CpuVisible keeps the permanent VA); 2: on-demand only (VA gone, but the logon
-         * never finished - a display surface needs CpuVisible); 3: on-demand only except primaries */
+         * never finished - a display surface needs CpuVisible); 3: on-demand only except primaries (boot hung);
+         * 4: on-demand only for allocations the UMD shim marks MW_ALLOC_CPU_ONDEMAND (Panfrost BOs) - every
+         * runtime/system allocation (primaries, CDD, shared surfaces) keeps CpuVisible */
         BOOLEAN primary = (In->Flags & MW_ALLOC_PRIMARY) != 0;
-        if (MwCpuOnDemand == 1 || (MwCpuOnDemand == 3 && !primary) || MwCpuOnDemand == 2)
+        BOOLEAN marked = (In->Flags & MW_ALLOC_CPU_ONDEMAND) != 0;
+        BOOLEAN ondemand = MwCpuOnDemand == 2 || (MwCpuOnDemand == 3 && !primary) || (MwCpuOnDemand == 4 && marked);
+        if (MwCpuOnDemand == 1 || ondemand)
             Out->FlagsWddm2.CpuVisibleOnDemand = 1;
-        if (MwCpuOnDemand == 2 || (MwCpuOnDemand == 3 && !primary))
+        if (ondemand)
             Out->FlagsWddm2.CpuVisible = 0;
     }
     return STATUS_SUCCESS;

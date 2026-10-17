@@ -25,6 +25,8 @@ typedef unsigned __int64 mw_u64;
 /* Allocation private data (D3DDDI_ALLOCATIONINFO.pPrivateDriverData). */
 #define MW_ALLOC_NOEXEC         0x1     /* not shader code: may lie anywhere, XN */
 #define MW_ALLOC_PRIMARY        0x2     /* scan-out capable (step d) */
+#define MW_ALLOC_CPU_ONDEMAND   0x4     /* exynos-woa G-game: CPU address space only while locked (KMD parameter
+                                         * CpuVisibleOnDemand = 4) - set by the shim on Panfrost BOs only */
 
 typedef struct _MW_ALLOCATION_INFO {
     mw_u32 Version;                     /* MW_ABI_VERSION */

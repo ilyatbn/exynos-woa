@@ -728,3 +728,12 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   Source default of the parameter set to 0 (a bad default must not be able to hang a boot).
 - Plan: on-demand only for allocations the shim creates for Panfrost BOs, selected by a private MW_ALLOCATION_INFO
   flag from the UMD - primaries, CDD/shadow/shared and other runtime allocations keep CpuVisible.
+- KMD 1.0.66.1 (mali-kmd-66, sys 7647eda9) mode 4 = on-demand only for MW_ALLOC_CPU_ONDEMAND allocations (ABI flag 0x4, both headers); shim CREATE_BO sets it (+ unlock-on-unmap, UMD cd78f3da / x86 bda7eb10). Registry CpuVisibleOnDemand = 4. Deploying (UMDs live, KMD via TWRP).
+- Mode 4 + shim marking ALL Panfrost BOs (UMD cd78f3da): vatest 32 MB reservations 1 (fixed), game VM ~1 GB (fixed),
+  BUT the display: frozen logon screen, then "a frame every few seconds" (user) - DWM (64-bit) with on-demand BOs
+  composes terribly. Mode 0 restored by reg + reboot.
+- FINAL shape (UMD 8982a14d ARM64 / 168ca705 x86, KMD 1.0.66.1 mode 4 via registry): the shim marks
+  MW_ALLOC_CPU_ONDEMAND and unlocks on unmap ONLY in the 32-bit build (#if !defined(_WIN64)); 64-bit processes
+  (DWM, mpv) unchanged. Result: desktop normal after reboot (81 s); game: VM flat at 639 MB (was -> 4031 MB and dying),
+  no CREATE_BO failures, Unity "Direct3D 11.0 [level 10.1], Renderer: Arm Mali-G76 MP12"; KairoGames 95 % of one core
+  (x86 emulation), KMD presents 5.5/s, GPU engine ~0 for the game at that moment (loading?). User check pending.

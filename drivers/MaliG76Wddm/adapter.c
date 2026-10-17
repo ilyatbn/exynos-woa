@@ -61,7 +61,9 @@ ULONG MwWddm2Gpummu = 0;
  * .FlipIndependent (Learn WDDM 1.3 independent flip). */
 ULONG MwDirectFlip = 0;
 /* G-game (notes/g17-dxva-mfc.md): Parameters\CpuVisibleOnDemand - 0 off, 1 CpuVisible + CpuVisibleOnDemand (no effect),
- * 2 on-demand only (logon never finished), 3 on-demand only except primaries (boot hung) - default 0. MS Learn DXGK_ALLOCATIONINFOFLAGS_WDDM2_0: with it "the video memory manager will try to
+ * 2 on-demand only (logon never finished), 3 on-demand only except primaries (boot hung), 4 on-demand only for
+ * allocations the shim marks MW_ALLOC_CPU_ONDEMAND (Panfrost BOs) - default 0. MS Learn DXGK_ALLOCATIONINFOFLAGS_WDDM2_0:
+ * with it "the video memory manager will try to
  * allocate the virtual address for the allocation when it is mapped/locked ... which reduces the amount of virtual
  * address space used". Plain CpuVisible cost every allocation a permanent 32 MB of the process's CPU address space
  * (vatest) - a 32-bit game ran out of its 4 GB. WDDM 2.x only (FlagsWddm2). */

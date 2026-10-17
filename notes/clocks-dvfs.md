@@ -71,3 +71,10 @@ Windows reads temperatures and can throttle; lowering is fine.
 - 05:40 C4 conclusion: Balanced plan SCHEDPOLICY = SHORTSCHEDPOLICY = 5 (Automatic: MS Learn configuration-for-hetero-power-scheduling-schedulingpolicy 'the OS determines the policy based on system configuration and QoS type'), CPMINCORES 10 %. With MADT efficiency classes live (cpusets), Windows 11's QoS scheduling already puts high-QoS (foreground/UI) threads on the A75s and EcoQoS/background on the A55s - the native mechanism for 'UI real-time, background lower priority'. No setting changed. The governor's job: keep the A75s fast during interaction (touch boost) and let the A55s idle low.
 - 05:40 C1 DONE (device): AllowSend=1 + AllowTmu=1, sc stop/start S10ePower -> DvfsChannelOk 1, TmuChannelOk 1, READ_TEMP replies: MID 47 C, LITTLE 47 C, G3D 46 C at idle (registry 0x33/0x32/0x2e on the first log line), 12 sends, 0 fails, 0 timeouts, guard level 0 (caps = ladder max, nothing requested). First temperatures read by Windows on this phone. Battery 7 % -> parking in TWRP to charge (unattended rule) before C2.
 - 05:45 governor: GPU load from Windows' own GPU Engine counters (PDH \GPU Engine(*engtype_3D)\Utilization Percentage, busiest instance, every 200 ms): target 1.25 x busy x ceiling, floor half the ceiling with the screen on; fallback to the old rule if the counter is unavailable. Built.
+- 06:30 C2 DONE (device, traces/wddm2-2026-10-16/c2-down.txt): Windows FREQ_REQ via S10ePower: LITTLE 442000 -> s10eperf
+  cpu0-3 ~0.43-0.44 GHz, MID 650000 -> cpu4-5 ~0.64-0.65 GHz; restore 1456000/1794000 -> ~1.45/~1.79 GHz. 61 sends,
+  0 fails, 0 timeouts, temps 54-61 C. Before any request this boot the cores measured ~1.71-1.74 GHz (LITTLE) /
+  ~2.10 GHz (MID) = the 1742000/2106000 steps, NOT the UEFI 1456000/1794000 (Beyond0LteTouchPowerDxe
+  BEYOND0LTE_DVFS_*_KHZ) - likely the UEFI request was skipped by its progress-0x66 self-healing guard on this boot
+  path (after the TWRP reset); where 1742/2106 come from (sboot / ACPM init level) is UNVERIFIED. Temperature at
+  those rates after boot: 58 C, 54 C after lowering. Windows now owns the CPU clocks.

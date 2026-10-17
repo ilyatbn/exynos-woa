@@ -101,3 +101,4 @@ Windows reads temperatures and can throttle; lowering is fine.
   702 MHz (sustained minutes-long thermals not measured yet - the S10ePower guard caps at 83/88 C).
   Governor ceilings set (Parameters): MaxLittle 1950000, MaxMid 2314000, MaxG3d 702000; touch boost BoostLittle
   1742000, BoostMid 2106000, BoostG3d 433000.
+- 07:55 governor efficiency points (C5 follow-up): EffLittle 1456000 (LITTLE load tracking stops there unless a core > 90 % or boost), GpuFloor 260000 (was half the ceiling = 377 MHz at idle). Idle after deploy: LITTLE 1456 (background), MID 507, G3D 260 MHz.

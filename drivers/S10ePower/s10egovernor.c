@@ -82,6 +82,9 @@ static DOMAIN gDom[3] = {
     { "G3D", S10EPOWER_DOM_G3D, 260000, 260000, 0, 0, 0, kLadderG3d, ARRAYSIZE(kLadderG3d) },
 };
 static unsigned gBoostMs = 300, gDownSamples = 6, gMinIntervalMs = 200;
+/* efficiency points (C5 follow-up): LITTLE load tracking stops at EffLittle unless a core is pegged (> 90 %) or
+ * boosting - background work belongs on slow A55s; the GPU never goes below GpuFloor with the screen on */
+static unsigned gEffLittle = 1456000, gGpuFloor = 260000;
 static volatile LONG gDisplayOn = 1;
 static HANDLE gStop, gPower = INVALID_HANDLE_VALUE;
 static SERVICE_STATUS_HANDLE gSs;
@@ -109,6 +112,8 @@ static void LoadConfig(void)
     gBoostMs = Reg(k, "BoostMs", 300);
     gDownSamples = Reg(k, "DownSamples", 6);
     gMinIntervalMs = Reg(k, "MinIntervalMs", 200);   /* 0.0.1 run: ~5 changes/s from SSH/WMI load spikes */
+    gEffLittle = Reg(k, "EffLittle", 1456000);
+    gGpuFloor = Reg(k, "GpuFloor", 260000);
     if (k)
         RegCloseKey(k);
 }
@@ -262,13 +267,18 @@ static void Run(void)
                 unsigned target;
                 if (boost) {
                     target = StepAtLeast(d, d->Boost);
-                } else if (i < 2) {
-                    target = StepAtLeast(d, (unsigned)(busy[i] * 1.25 * d->Max));
+                } else if (i == 0) {
+                    unsigned want = (unsigned)(busy[0] * 1.25 * d->Max);
+                    if (busy[0] < 0.90 && want > gEffLittle)
+                        want = gEffLittle;
+                    target = StepAtLeast(d, want);
+                } else if (i == 1) {
+                    target = StepAtLeast(d, (unsigned)(busy[1] * 1.25 * d->Max));
                 } else if (gpuBusy >= 0) {
                     /* GPU: load tracking on the busiest 3D engine (1.25 x busy x ceiling), floor = half the ceiling
                      * while the screen is on so composition never starts from the minimum */
                     unsigned want = (unsigned)(gpuBusy * 1.25 * d->Max);
-                    target = StepAtLeast(d, want > d->Max / 2 ? want : d->Max / 2);
+                    target = StepAtLeast(d, want > gGpuFloor ? want : gGpuFloor);
                 } else {
                     /* no GPU counter: keep the ceiling; half-ceiling step after 5 s without touch + idle CPUs */
                     BOOL idle = (!lastTouch || t - lastTouch > 5000) && busy[0] < 0.10 && busy[1] < 0.10;

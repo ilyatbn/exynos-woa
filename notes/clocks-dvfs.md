@@ -67,3 +67,4 @@ Windows reads temperatures and can throttle; lowering is fine.
   ap_poll 1, owner 64** (the TMU plugin - consistent with stock DT acpm_tmu = 9), id 10 q3. Channel 9 layout verified
   live; tzid mapping still from the DT. Next: C1 (AllowSend=1, AllowTmu=1: READ_TEMP every second) after the alpha6
   soak.
+- 05:30 C4 check (device, drivers/S10ePower/cpusets.c): GetSystemCpuSetInformation: cpu0-3 EfficiencyClass 0, cpu4-5 EfficiencyClass 1, cpu5 Parked 1 at idle (core parking active), each core its own LLC index. => Windows' heterogeneous scheduling is on (UI/high-QoS threads prefer the A75s). Remaining native levers: power-plan processor settings (heterogeneous thread scheduling policy / short-running policy, core parking min cores / unpark speed) - research MS docs before changing.

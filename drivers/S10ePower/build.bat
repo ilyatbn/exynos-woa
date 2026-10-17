@@ -32,3 +32,7 @@ if errorlevel 1 exit /b 6
 "%KIT%\bin\%KV%\x64\signtool.exe" sign /sha1 5DD5DEE1747244C5F5F66F41D94C0A59C4443E48 /fd SHA256 "%OUT%\s10egovernor.exe" >nul
 del "%OUT%\s10egovernor.obj" >nul 2>&1
 echo S10EGOVERNOR_BUILD_OK
+cl.exe /nologo /W4 /WX /O2 /MT /Fo"%OUT%\cpusets.obj" /Fe"%OUT%\cpusets.exe" "%SRC%cpusets.c" /link /MACHINE:ARM64 /SUBSYSTEM:CONSOLE /Brepro
+if errorlevel 1 exit /b 7
+del "%OUT%\cpusets.obj" >nul 2>&1
+echo CPUSETS_BUILD_OK

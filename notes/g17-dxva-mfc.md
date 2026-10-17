@@ -632,3 +632,17 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
 - 18:9x USER: "Yeah that fixed it" (mpv video smooth after Mesa 0099). VRAM still growing (open): 15 min after the
   14:16 boot DWM 1344 total committed 492 MB, Explorer 204 MB, adapter 915 MB committed; DWM submits list 290-314
   live BOs (Render mean 254-331 us, max ~1.2 ms) vs ~140 at a fresh start.
+
+## G-game: 3D game on CPU (2026-10-17, user: "barely runs, 100% CPU, no GPU")
+- Desktop shortcut -> C:\Users\S10e\Downloads\Game.Dev.Story.v2.54\...\KairoGames.exe (tools/phone/lnk.ps1, new):
+  Unity 2019.4.33f1 IL2CPP, 32-bit x86 (UnityCrashHandler32.exe) -> runs under x86 emulation on ARM64.
+- Unity Player.log (AppData\LocalLow\Kairosoft\...): "Direct3D 11.0 [level 11.1], Renderer: Microsoft Basic Render
+  Driver" = WARP on the CPU. Cause: a 32-bit process cannot load our ARM64 maliumd.dll; the INF names only
+  UserModeDriverName (MaliG76Wddm.inf:60), no 32-bit UMD -> device creation on the Mali adapter impossible -> WARP.
+- MS Learn (WDDM 64-Bit Issues, https://learn.microsoft.com/en-us/windows-hardware/drivers/display/microsoft-windows-
+  vista-display-driver-64-bit-issues): "a 32-bit user-mode display driver must be provided in addition to the 64-bit
+  user-mode display driver"; INF "HKR,, UserModeDriverNameWow, %REG_MULTI_SZ%, Xxx.dll", DLL copied to
+  %systemroot%\SysWOW64; private data to the KMD must not use pointer-size types and must keep 64-bit alignment.
+- Plan: (1) x86 (i686) build of the Mesa UMD (llvm-mingw i686 target); (2) ABI audit of MW_* private structs and
+  escapes for 32/64 layout; (3) test install (SysWOW64 + UserModeDriverNameWow) with a 32-bit D3D11 test app,
+  then the game; (4) INF + package (native). x64-emulated apps (ARM64EC/ARM64X UMD) = separate later task.

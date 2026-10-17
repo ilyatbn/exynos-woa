@@ -1,0 +1,132 @@
+From f99f3588313a538d8873894e9d744afb8ad85d0e Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 00:02:52 +0300
+Subject: [PATCH] d3d10umd: parse the D3D11 compute 4.x / raw-structured buffer
+ tokens (exynos-woa 0112)
+
+---
+ src/gallium/frontends/d3d10umd/ShaderParse.c | 52 +++++++++++++++++---
+ src/gallium/frontends/d3d10umd/ShaderParse.h |  5 ++
+ 2 files changed, 51 insertions(+), 6 deletions(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/ShaderParse.c b/src/gallium/frontends/d3d10umd/ShaderParse.c
+index 5d5d19a..9f0a6c9 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderParse.c
++++ b/src/gallium/frontends/d3d10umd/ShaderParse.c
+@@ -56,6 +56,7 @@ Shader_parse_init(struct Shader_parser *parser,
+ #define OP_TEST_BOOLEAN (1 << 2) /* test boolean in opcode specific control */
+ #define OP_DCL (1 << 3) /* custom opcode specific control */
+ #define OP_RESINFO_RET_TYPE (1 << 4) /* return type for resinfo */
++#define OP_SYNC (1 << 5) /* exynos-woa G24: sync flags in opcode specific control */
+ 
+ struct dx10_opcode_info {
+    D3D10_SB_OPCODE_TYPE type;
+@@ -182,7 +183,24 @@ opcode_info[D3D10_SB_NUM_OPCODES] = {
+    {_(D3D10_1_SB_OPCODE_LOD),                            1, 3, 0},
+    {_(D3D10_1_SB_OPCODE_GATHER4),                        1, 3, 0},
+    {_(D3D10_1_SB_OPCODE_SAMPLE_POS),                     1, 2, 0},
+-   {_(D3D10_1_SB_OPCODE_SAMPLE_INFO),                    1, 1, OP_RESINFO_RET_TYPE}
++   {_(D3D10_1_SB_OPCODE_SAMPLE_INFO),                    1, 1, OP_RESINFO_RET_TYPE},
++   /* exynos-woa G24 (notes/g24-compute-cs4x.md): the D3D11 tokens of compute shader 4.x (cs_4_0 / cs_4_1) and of raw /
++    * structured buffers in other 4.x shaders. Operand layouts: d3d11TokenizedProgramFormat.hpp (declarations) and the
++    * sm5 asm reference (ld_raw dst, byteOffset, t#/g#/u#; ld_structured dst, index, byteOffset, t#/g#/u#; store_raw
++    * u#/g#, byteOffset, value; store_structured u#/g#, index, byteOffset, value). Other D3D11 opcodes stay zero
++    * entries (no operands, skipped by length). */
++   [D3D11_SB_OPCODE_DCL_THREAD_GROUP] =                  {_(D3D11_SB_OPCODE_DCL_THREAD_GROUP), 0, 0, OP_DCL},
++   [D3D11_SB_OPCODE_DCL_UNORDERED_ACCESS_VIEW_RAW] =     {_(D3D11_SB_OPCODE_DCL_UNORDERED_ACCESS_VIEW_RAW), 1, 0, OP_DCL},
++   [D3D11_SB_OPCODE_DCL_UNORDERED_ACCESS_VIEW_STRUCTURED] = {_(D3D11_SB_OPCODE_DCL_UNORDERED_ACCESS_VIEW_STRUCTURED), 1, 0, OP_DCL},
++   [D3D11_SB_OPCODE_DCL_THREAD_GROUP_SHARED_MEMORY_RAW] = {_(D3D11_SB_OPCODE_DCL_THREAD_GROUP_SHARED_MEMORY_RAW), 1, 0, OP_DCL},
++   [D3D11_SB_OPCODE_DCL_THREAD_GROUP_SHARED_MEMORY_STRUCTURED] = {_(D3D11_SB_OPCODE_DCL_THREAD_GROUP_SHARED_MEMORY_STRUCTURED), 1, 0, OP_DCL},
++   [D3D11_SB_OPCODE_DCL_RESOURCE_RAW] =                  {_(D3D11_SB_OPCODE_DCL_RESOURCE_RAW), 1, 0, OP_DCL},
++   [D3D11_SB_OPCODE_DCL_RESOURCE_STRUCTURED] =           {_(D3D11_SB_OPCODE_DCL_RESOURCE_STRUCTURED), 1, 0, OP_DCL},
++   [D3D11_SB_OPCODE_LD_RAW] =                            {_(D3D11_SB_OPCODE_LD_RAW), 1, 2, 0},
++   [D3D11_SB_OPCODE_STORE_RAW] =                         {_(D3D11_SB_OPCODE_STORE_RAW), 1, 2, 0},
++   [D3D11_SB_OPCODE_LD_STRUCTURED] =                     {_(D3D11_SB_OPCODE_LD_STRUCTURED), 1, 3, 0},
++   [D3D11_SB_OPCODE_STORE_STRUCTURED] =                  {_(D3D11_SB_OPCODE_STORE_STRUCTURED), 1, 3, 0},
++   [D3D11_SB_OPCODE_SYNC] =                              {_(D3D11_SB_OPCODE_SYNC), 0, 0, OP_SYNC},
+ };
+ 
+ #undef _
+@@ -369,6 +387,8 @@ Shader_parse_opcode(struct Shader_parser *parser,
+       } else if (info->flags & OP_RESINFO_RET_TYPE) {
+          opcode->specific.resinfo_ret_type =
+             DECODE_D3D10_SB_RESINFO_INSTRUCTION_RETURN_TYPE(*curr);
++      } else if (info->flags & OP_SYNC) {
++         opcode->specific.sync_flags = DECODE_D3D11_SB_SYNC_FLAGS(*curr);   /* exynos-woa G24 */
+       } else {
+          /* Warn if there are bits set in the opcode-specific controls (bits 23:11 inclusive)*/
+          if (*curr & ((1 << 24) - (1 << 11))) {
+@@ -397,11 +417,9 @@ Shader_parse_opcode(struct Shader_parser *parser,
+ 
+    curr++;
+ 
+-   if (opcode_is_extended) {
+-      /* NOTE: DECODE_IS_D3D10_SB_OPCODE_DOUBLE_EXTENDED is broken.
+-       */
+-      assert(!((*curr & D3D10_SB_OPERAND_DOUBLE_EXTENDED_MASK) >> D3D10_SB_OPERAND_DOUBLE_EXTENDED_SHIFT));
+-
++   /* exynos-woa G24: extended opcode tokens may chain (bit 31 of each says another follows); D3D11 resource-dim /
++    * return-type tokens (on buffer loads) carry nothing the translation needs and are skipped. */
++   while (opcode_is_extended) {
+       switch (DECODE_D3D10_SB_EXTENDED_OPCODE_TYPE(*curr)) {
+       case D3D10_SB_EXTENDED_OPCODE_EMPTY:
+          break;
+@@ -410,10 +428,14 @@ Shader_parse_opcode(struct Shader_parser *parser,
+          opcode->imm_texel_offset.v = DECODE_IMMEDIATE_D3D10_SB_ADDRESS_OFFSET(D3D10_SB_IMMEDIATE_ADDRESS_OFFSET_V, *curr);
+          opcode->imm_texel_offset.w = DECODE_IMMEDIATE_D3D10_SB_ADDRESS_OFFSET(D3D10_SB_IMMEDIATE_ADDRESS_OFFSET_W, *curr);
+          break;
++      case D3D11_SB_EXTENDED_OPCODE_RESOURCE_DIM:
++      case D3D11_SB_EXTENDED_OPCODE_RESOURCE_RETURN_TYPE:
++         break;
+       default:
+          assert(0);
+       }
+ 
++      opcode_is_extended = DECODE_IS_D3D10_SB_OPCODE_EXTENDED(*curr);
+       curr++;
+    }
+ 
+@@ -597,6 +619,24 @@ Shader_parse_opcode(struct Shader_parser *parser,
+    case D3D10_SB_OPCODE_DCL_INDEX_RANGE:
+       opcode->specific.index_range_count = *curr++;
+       break;
++   /* exynos-woa G24: compute 4.x declaration trailers */
++   case D3D11_SB_OPCODE_DCL_THREAD_GROUP:
++      opcode->specific.thread_group.x = *curr++;
++      opcode->specific.thread_group.y = *curr++;
++      opcode->specific.thread_group.z = *curr++;
++      break;
++   case D3D11_SB_OPCODE_DCL_UNORDERED_ACCESS_VIEW_STRUCTURED:
++   case D3D11_SB_OPCODE_DCL_RESOURCE_STRUCTURED:
++      opcode->specific.structured.stride = *curr++;
++      break;
++   case D3D11_SB_OPCODE_DCL_THREAD_GROUP_SHARED_MEMORY_RAW:
++      opcode->specific.structured.stride = 0;
++      opcode->specific.structured.count = *curr++;   /* byte count */
++      break;
++   case D3D11_SB_OPCODE_DCL_THREAD_GROUP_SHARED_MEMORY_STRUCTURED:
++      opcode->specific.structured.stride = *curr++;
++      opcode->specific.structured.count = *curr++;
++      break;
+    default:
+       break;
+    }
+diff --git a/src/gallium/frontends/d3d10umd/ShaderParse.h b/src/gallium/frontends/d3d10umd/ShaderParse.h
+index 8db47c8..67568f1 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderParse.h
++++ b/src/gallium/frontends/d3d10umd/ShaderParse.h
+@@ -134,6 +134,11 @@ struct Shader_opcode {
+       struct dx10_indexable_temp dcl_indexable_temp;
+       unsigned index_range_count;
+       struct dx10_global_flags global_flags;
++      /* exynos-woa G24 (compute 4.x): dcl_thread_group x/y/z; dcl_*_structured stride (+ TGSM count); dcl_tgsm_raw
++       * byte count (in count, stride 0); sync flags (D3D11_SB_SYNC_*) */
++      struct { unsigned x, y, z; } thread_group;
++      struct { unsigned stride, count; } structured;
++      unsigned sync_flags;
+    } specific;
+    D3D10_SB_NAME dcl_siv_name;
+    D3D10_SB_RESOURCE_RETURN_TYPE dcl_resource_ret_type[4];
+-- 
+2.40.1.windows.1
+

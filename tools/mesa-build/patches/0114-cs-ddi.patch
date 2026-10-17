@@ -1,0 +1,701 @@
+From 258da97a5ab719fe8b0878e12941d1340a0aeb56 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 00:08:33 +0300
+Subject: [PATCH] d3d10umd: DirectCompute 4.x - CreateComputeShader (TGSI->NIR
+ CSO), CsSet*, buffer UAVs, raw/structured SRVs, Dispatch(Indirect), UAV
+ clears; CS4x cap on (exynos-woa 0114)
+
+---
+ src/gallium/frontends/d3d10umd/Compute.cpp    | 328 ++++++++++++++++++
+ src/gallium/frontends/d3d10umd/Compute.h      |  31 ++
+ src/gallium/frontends/d3d10umd/D3D11.cpp      |  26 +-
+ src/gallium/frontends/d3d10umd/D3D11Tiers.inc |  73 +++-
+ src/gallium/frontends/d3d10umd/Resource.cpp   |   3 +
+ src/gallium/frontends/d3d10umd/Shader.cpp     |  14 +-
+ src/gallium/frontends/d3d10umd/State.h        |  21 ++
+ src/gallium/frontends/d3d10umd/meson.build    |   1 +
+ 8 files changed, 484 insertions(+), 13 deletions(-)
+ create mode 100644 src/gallium/frontends/d3d10umd/Compute.cpp
+ create mode 100644 src/gallium/frontends/d3d10umd/Compute.h
+
+diff --git a/src/gallium/frontends/d3d10umd/Compute.cpp b/src/gallium/frontends/d3d10umd/Compute.cpp
+new file mode 100644
+index 0000000..4f49e03
+--- /dev/null
++++ b/src/gallium/frontends/d3d10umd/Compute.cpp
+@@ -0,0 +1,328 @@
++/*
++ * Compute.cpp --
++ *    exynos-woa G24 (notes/g24-compute-cs4x.md): DirectCompute 4.x - compute shaders (cs_4_0 / cs_4_1), raw and
++ *    structured buffer views (SRV / UAV), Dispatch / DispatchIndirect, UAV clears - on the D3D11 DDI at feature level
++ *    10_x (D3D11DDICAPS_SHADER_COMPUTE_PLUS_RAW_AND_STRUCTURED_BUFFERS_IN_SHADER_4_X). MS Learn "Compute Shader
++ *    Overview", "Using Compute Shader on Direct3D 10.x Hardware": one UAV (raw or structured buffer), <= 768 threads per
++ *    group with Z = 1, 16 KB groupshared, no atomics, no doubles.
++ *
++ *    The DXBC is translated to TGSI (ShaderTGSI.c Shader_tgsi_translate_ex), then to NIR here (Panfrost takes NIR
++ *    compute CSOs only), with the groupshared size as static_shared_mem. Raw / structured t# and u# become SSBO
++ *    bindings 0..n-1 in declaration order (Shader_extra::buffers); Dispatch binds the current views to them.
++ *
++ * SPDX-License-Identifier: MIT
++ */
++
++#include "Compute.h"
++#include "Shader.h"
++#include "ShaderParse.h"
++#include "State.h"
++#include "Debug.h"
++#include "Format.h"
++
++#include "nir/tgsi_to_nir.h"
++#include "tgsi/tgsi_ureg.h"
++#include "util/format/u_format.h"
++#include "util/u_inlines.h"
++#include "util/u_memory.h"
++
++extern "C" void malikm_tlog(const char *fmt, ...);
++
++
++static inline UnorderedAccessView *
++CastUnorderedAccessView(D3D11DDI_HUNORDEREDACCESSVIEW h)
++{
++   return static_cast<UnorderedAccessView *>(h.pDrvPrivate);
++}
++
++
++void APIENTRY
++CreateComputeShader(D3D10DDI_HDEVICE hDevice, const UINT *pShaderCode, D3D10DDI_HSHADER hShader,
++                    D3D10DDI_HRTSHADER hRTShader)
++{
++   LOG_ENTRYPOINT();
++   Device *pDevice = CastDevice(hDevice);
++   struct pipe_context *pipe = pDevice->pipe;
++   Shader *pShader = CastShader(hShader);
++   (void)hRTShader;
++
++   memset(pShader, 0, sizeof *pShader);
++   pShader->type = MESA_SHADER_COMPUTE;
++   pShader->extra = (struct Shader_extra *)CALLOC_STRUCT(Shader_extra);
++   if (!pShader->extra) {
++      SetError(hDevice, E_OUTOFMEMORY);
++      return;
++   }
++   const struct tgsi_token *tokens = Shader_tgsi_translate_ex(pShaderCode, NULL, pShader->extra);
++   if (!tokens) {
++      SetError(hDevice, E_OUTOFMEMORY);
++      return;
++   }
++   nir_shader *nir = tgsi_to_nir(tokens, pipe->screen, false);
++   ureg_free_tokens(tokens);
++
++   struct pipe_compute_state cs;
++   memset(&cs, 0, sizeof cs);
++   cs.ir_type = PIPE_SHADER_IR_NIR;
++   cs.prog = nir;
++   cs.static_shared_mem = pShader->extra->shared_size;
++   pShader->handle = pipe->create_compute_state(pipe, &cs);
++
++   static unsigned logged;
++   if (logged++ < 16)
++      malikm_tlog("CreateComputeShader: group %ux%ux%u shared %u B buffers %u -> %p", pShader->extra->block[0],
++                  pShader->extra->block[1], pShader->extra->block[2], pShader->extra->shared_size,
++                  pShader->extra->num_buffers, pShader->handle);
++   if (!pShader->handle)
++      SetError(hDevice, E_OUTOFMEMORY);
++}
++
++
++void APIENTRY
++CsSetShader(D3D10DDI_HDEVICE hDevice, D3D10DDI_HSHADER hShader)
++{
++   LOG_ENTRYPOINT();
++   Device *pDevice = CastDevice(hDevice);
++   Shader *pShader = hShader.pDrvPrivate ? CastShader(hShader) : NULL;
++
++   pDevice->bound_cs = pShader;
++   pDevice->pipe->bind_compute_state(pDevice->pipe, pShader ? pShader->handle : NULL);
++}
++
++
++void APIENTRY
++CsSetShaderResources(D3D10DDI_HDEVICE hDevice, UINT StartSlot, UINT NumViews,
++                     const D3D10DDI_HSHADERRESOURCEVIEW *phViews)
++{
++   LOG_ENTRYPOINT();
++   Device *pDevice = CastDevice(hDevice);
++   struct pipe_sampler_view **views = pDevice->sampler_views[MESA_SHADER_COMPUTE];
++
++   for (UINT i = 0; i < NumViews && StartSlot + i < PIPE_MAX_SHADER_SAMPLER_VIEWS; i++) {
++      ShaderResourceView *v = phViews[i].pDrvPrivate ? CastShaderResourceView(phViews[i]) : NULL;
++      pDevice->cs_srvs[StartSlot + i] = v;   /* raw / structured buffers: bound at Dispatch */
++      views[StartSlot + i] = v ? v->handle : NULL;
++   }
++   pDevice->pipe->set_sampler_views(pDevice->pipe, MESA_SHADER_COMPUTE, 0, PIPE_MAX_SHADER_SAMPLER_VIEWS, 0, views);
++}
++
++
++void APIENTRY
++CsSetSamplers(D3D10DDI_HDEVICE hDevice, UINT StartSlot, UINT NumSamplers, const D3D10DDI_HSAMPLER *phSamplers)
++{
++   LOG_ENTRYPOINT();
++   Device *pDevice = CastDevice(hDevice);
++   void **samplers = pDevice->samplers[MESA_SHADER_COMPUTE];
++
++   for (UINT i = 0; i < NumSamplers && StartSlot + i < PIPE_MAX_SAMPLERS; i++)
++      samplers[StartSlot + i] = CastPipeSamplerState(phSamplers[i]);
++   pDevice->pipe->bind_sampler_states(pDevice->pipe, MESA_SHADER_COMPUTE, 0, PIPE_MAX_SAMPLERS, samplers);
++}
++
++
++void APIENTRY
++CsSetConstantBuffers(D3D10DDI_HDEVICE hDevice, UINT StartSlot, UINT NumBuffers, const D3D10DDI_HRESOURCE *phBuffers)
++{
++   LOG_ENTRYPOINT();
++   Device *pDevice = CastDevice(hDevice);
++
++   for (UINT i = 0; i < NumBuffers; i++) {
++      struct pipe_constant_buffer cb;
++      memset(&cb, 0, sizeof cb);
++      cb.buffer = CastPipeResource(phBuffers[i]);
++      cb.buffer_size = cb.buffer ? cb.buffer->width0 : 0;
++      pDevice->pipe->set_constant_buffer(pDevice->pipe, MESA_SHADER_COMPUTE, StartSlot + i, &cb);
++   }
++}
++
++
++SIZE_T APIENTRY
++CalcPrivateUnorderedAccessViewSize(D3D10DDI_HDEVICE hDevice, const D3D11DDIARG_CREATEUNORDEREDACCESSVIEW *pCreate)
++{
++   (void)hDevice;
++   (void)pCreate;
++   return sizeof(UnorderedAccessView);
++}
++
++
++/* Bytes per element of a buffer view: 4 for raw, the resource's structure stride for structured (format UNKNOWN),
++ * else the typed format's size. */
++static unsigned
++BufferViewElementSize(const Resource *r, DXGI_FORMAT format, bool raw)
++{
++   if (raw)
++      return 4;
++   if (format == DXGI_FORMAT_UNKNOWN)
++      return r->byte_stride;
++   enum pipe_format f = FormatTranslate(format, false);
++   return f == PIPE_FORMAT_NONE ? 4 : util_format_get_blocksize(f);
++}
++
++
++void APIENTRY
++CreateUnorderedAccessView(D3D10DDI_HDEVICE hDevice, const D3D11DDIARG_CREATEUNORDEREDACCESSVIEW *pCreate,
++                          D3D11DDI_HUNORDEREDACCESSVIEW hView, D3D11DDI_HRTUNORDEREDACCESSVIEW hRTView)
++{
++   LOG_ENTRYPOINT();
++   UnorderedAccessView *u = CastUnorderedAccessView(hView);
++   (void)hRTView;
++
++   memset(u, 0, sizeof *u);
++   if (pCreate->ResourceDimension != D3D10DDIRESOURCE_BUFFER &&
++       pCreate->ResourceDimension != D3D11DDIRESOURCE_BUFFEREX) {
++      /* typed texture UAVs are cs_5_0 only - not offered at feature level 10_x */
++      LOG_UNSUPPORTED(true);
++      SetError(hDevice, E_NOTIMPL);
++      return;
++   }
++   Resource *r = CastResource(pCreate->hDrvResource);
++   unsigned es = BufferViewElementSize(r, pCreate->Format, !!(pCreate->Buffer.Flags & D3D11_DDI_BUFFER_UAV_FLAG_RAW));
++   pipe_resource_reference(&u->resource, r->resource);
++   u->offset = pCreate->Buffer.FirstElement * es;
++   u->size = pCreate->Buffer.NumElements * es;
++}
++
++
++void APIENTRY
++DestroyUnorderedAccessView(D3D10DDI_HDEVICE hDevice, D3D11DDI_HUNORDEREDACCESSVIEW hView)
++{
++   LOG_ENTRYPOINT();
++   Device *pDevice = CastDevice(hDevice);
++   UnorderedAccessView *u = CastUnorderedAccessView(hView);
++
++   for (unsigned i = 0; i < ARRAY_SIZE(pDevice->cs_uavs); i++)
++      if (pDevice->cs_uavs[i] == u)
++         pDevice->cs_uavs[i] = NULL;
++   pipe_resource_reference(&u->resource, NULL);
++}
++
++
++void APIENTRY
++CsSetUnorderedAccessViews(D3D10DDI_HDEVICE hDevice, UINT StartSlot, UINT NumViews,
++                          const D3D11DDI_HUNORDEREDACCESSVIEW *phViews, const UINT *pUAVInitialCounts)
++{
++   LOG_ENTRYPOINT();
++   Device *pDevice = CastDevice(hDevice);
++   (void)pUAVInitialCounts;   /* append / counter UAVs are cs_5_0 only */
++
++   for (UINT i = 0; i < NumViews && StartSlot + i < ARRAY_SIZE(pDevice->cs_uavs); i++)
++      pDevice->cs_uavs[StartSlot + i] = phViews[i].pDrvPrivate ? CastUnorderedAccessView(phViews[i]) : NULL;
++}
++
++
++/* Bind the current views to the bound compute shader's SSBO slots and launch. */
++static void
++LaunchCompute(Device *pDevice, UINT x, UINT y, UINT z, struct pipe_resource *indirect, unsigned indirect_offset)
++{
++   struct pipe_context *pipe = pDevice->pipe;
++   Shader *cs = pDevice->bound_cs;
++   if (!cs || !cs->handle || !cs->extra)
++      return;
++
++   const struct Shader_extra *ex = cs->extra;
++   struct pipe_shader_buffer bufs[SHADER_MAX_BUFFERS];
++   unsigned writable = 0;
++   memset(bufs, 0, sizeof bufs);
++   for (unsigned i = 0; i < ex->num_buffers; i++) {
++      if (ex->buffers[i].uav) {
++         UnorderedAccessView *u = pDevice->cs_uavs[ex->buffers[i].slot];
++         if (u) {
++            bufs[i].buffer = u->resource;
++            bufs[i].buffer_offset = u->offset;
++            bufs[i].buffer_size = u->size;
++         }
++         writable |= 1u << i;
++      } else {
++         ShaderResourceView *v = pDevice->cs_srvs[ex->buffers[i].slot];
++         if (v) {
++            bufs[i].buffer = v->buffer;
++            bufs[i].buffer_offset = v->buffer_offset;
++            bufs[i].buffer_size = v->buffer_size;
++         }
++      }
++   }
++   if (ex->num_buffers)
++      pipe->set_shader_buffers(pipe, MESA_SHADER_COMPUTE, 0, ex->num_buffers, bufs, writable);
++
++   struct pipe_grid_info info;
++   memset(&info, 0, sizeof info);
++   info.work_dim = 3;
++   info.block[0] = ex->block[0];
++   info.block[1] = ex->block[1];
++   info.block[2] = ex->block[2];
++   info.grid[0] = x;
++   info.grid[1] = y;
++   info.grid[2] = z;
++   info.indirect = indirect;
++   info.indirect_offset = indirect_offset;
++   pipe->launch_grid(pipe, &info);
++   /* D3D orders a dispatch's UAV writes before later work that reads the buffer */
++   pipe->memory_barrier(pipe, PIPE_BARRIER_ALL);
++
++   static unsigned logged;
++   if (logged++ < 8)
++      malikm_tlog("Dispatch %ux%ux%u (group %ux%ux%u, %u buffers%s)", x, y, z, ex->block[0], ex->block[1], ex->block[2],
++                  ex->num_buffers, indirect ? ", indirect" : "");
++}
++
++
++void APIENTRY
++Dispatch(D3D10DDI_HDEVICE hDevice, UINT ThreadGroupCountX, UINT ThreadGroupCountY, UINT ThreadGroupCountZ)
++{
++   LOG_ENTRYPOINT();
++   if (ThreadGroupCountX && ThreadGroupCountY && ThreadGroupCountZ)
++      LaunchCompute(CastDevice(hDevice), ThreadGroupCountX, ThreadGroupCountY, ThreadGroupCountZ, NULL, 0);
++}
++
++
++void APIENTRY
++DispatchIndirect(D3D10DDI_HDEVICE hDevice, D3D10DDI_HRESOURCE hBufferForArgs, UINT AlignedByteOffsetForArgs)
++{
++   LOG_ENTRYPOINT();
++   LaunchCompute(CastDevice(hDevice), 0, 0, 0, CastPipeResource(hBufferForArgs), AlignedByteOffsetForArgs);
++}
++
++
++/* Raw / structured buffer UAVs: D3D fills every 32-bit element with Values[0] (MS Learn ClearUnorderedAccessViewUint:
++ * "for raw or structured buffers only the first value is used"). */
++void APIENTRY
++ClearUnorderedAccessViewUint(D3D10DDI_HDEVICE hDevice, D3D11DDI_HUNORDEREDACCESSVIEW hView, const UINT Values[4])
++{
++   LOG_ENTRYPOINT();
++   UnorderedAccessView *u = CastUnorderedAccessView(hView);
++   if (u->resource && u->size)
++      CastDevice(hDevice)->pipe->clear_buffer(CastDevice(hDevice)->pipe, u->resource, u->offset, u->size, &Values[0], 4);
++}
++
++
++void APIENTRY
++ClearUnorderedAccessViewFloat(D3D10DDI_HDEVICE hDevice, D3D11DDI_HUNORDEREDACCESSVIEW hView, const FLOAT Values[4])
++{
++   LOG_ENTRYPOINT();
++   UnorderedAccessView *u = CastUnorderedAccessView(hView);
++   if (u->resource && u->size)
++      CastDevice(hDevice)->pipe->clear_buffer(CastDevice(hDevice)->pipe, u->resource, u->offset, u->size, &Values[0], 4);
++}
++
++
++/* A raw (D3D11_DDI_BUFFEREX_SRV_FLAG_RAW) or structured (format UNKNOWN) buffer SRV: no sampler view - the byte range
++ * is bound as an SSBO by the shaders that declare it. Returns false for other views. */
++bool
++CreateBufferExShaderResourceView(D3D10DDI_HDEVICE hDevice, const D3D11DDIARG_CREATESHADERRESOURCEVIEW *pCreate,
++                                 D3D10DDI_HSHADERRESOURCEVIEW hView)
++{
++   (void)hDevice;
++   if (pCreate->ResourceDimension != D3D11DDIRESOURCE_BUFFEREX)
++      return false;
++   bool raw = !!(pCreate->BufferEx.Flags & D3D11_DDI_BUFFEREX_SRV_FLAG_RAW);
++   if (!raw && pCreate->Format != DXGI_FORMAT_UNKNOWN)
++      return false;   /* a typed buffer view: the normal sampler-view path */
++   ShaderResourceView *v = CastShaderResourceView(hView);
++   Resource *r = CastResource(pCreate->hDrvResource);
++   unsigned es = BufferViewElementSize(r, pCreate->Format, raw);
++   memset(v, 0, sizeof *v);
++   pipe_resource_reference(&v->buffer, r->resource);
++   v->buffer_offset = pCreate->BufferEx.FirstElement * es;
++   v->buffer_size = pCreate->BufferEx.NumElements * es;
++   return true;
++}
+diff --git a/src/gallium/frontends/d3d10umd/Compute.h b/src/gallium/frontends/d3d10umd/Compute.h
+new file mode 100644
+index 0000000..ed081b2
+--- /dev/null
++++ b/src/gallium/frontends/d3d10umd/Compute.h
+@@ -0,0 +1,31 @@
++/*
++ * Compute.h --
++ *    exynos-woa G24: DirectCompute 4.x entry points (Compute.cpp).
++ *
++ * SPDX-License-Identifier: MIT
++ */
++
++#ifndef COMPUTE_H
++#define COMPUTE_H
++
++#include "DriverIncludes.h"
++
++void APIENTRY CreateComputeShader(D3D10DDI_HDEVICE, const UINT *, D3D10DDI_HSHADER, D3D10DDI_HRTSHADER);
++void APIENTRY CsSetShader(D3D10DDI_HDEVICE, D3D10DDI_HSHADER);
++void APIENTRY CsSetShaderResources(D3D10DDI_HDEVICE, UINT, UINT, const D3D10DDI_HSHADERRESOURCEVIEW *);
++void APIENTRY CsSetSamplers(D3D10DDI_HDEVICE, UINT, UINT, const D3D10DDI_HSAMPLER *);
++void APIENTRY CsSetConstantBuffers(D3D10DDI_HDEVICE, UINT, UINT, const D3D10DDI_HRESOURCE *);
++SIZE_T APIENTRY CalcPrivateUnorderedAccessViewSize(D3D10DDI_HDEVICE, const D3D11DDIARG_CREATEUNORDEREDACCESSVIEW *);
++void APIENTRY CreateUnorderedAccessView(D3D10DDI_HDEVICE, const D3D11DDIARG_CREATEUNORDEREDACCESSVIEW *,
++                                        D3D11DDI_HUNORDEREDACCESSVIEW, D3D11DDI_HRTUNORDEREDACCESSVIEW);
++void APIENTRY DestroyUnorderedAccessView(D3D10DDI_HDEVICE, D3D11DDI_HUNORDEREDACCESSVIEW);
++void APIENTRY CsSetUnorderedAccessViews(D3D10DDI_HDEVICE, UINT, UINT, const D3D11DDI_HUNORDEREDACCESSVIEW *,
++                                        const UINT *);
++void APIENTRY Dispatch(D3D10DDI_HDEVICE, UINT, UINT, UINT);
++void APIENTRY DispatchIndirect(D3D10DDI_HDEVICE, D3D10DDI_HRESOURCE, UINT);
++void APIENTRY ClearUnorderedAccessViewUint(D3D10DDI_HDEVICE, D3D11DDI_HUNORDEREDACCESSVIEW, const UINT[4]);
++void APIENTRY ClearUnorderedAccessViewFloat(D3D10DDI_HDEVICE, D3D11DDI_HUNORDEREDACCESSVIEW, const FLOAT[4]);
++bool CreateBufferExShaderResourceView(D3D10DDI_HDEVICE, const D3D11DDIARG_CREATESHADERRESOURCEVIEW *,
++                                      D3D10DDI_HSHADERRESOURCEVIEW);
++
++#endif /* COMPUTE_H */
+diff --git a/src/gallium/frontends/d3d10umd/D3D11.cpp b/src/gallium/frontends/d3d10umd/D3D11.cpp
+index de82936..0b243c4 100644
+--- a/src/gallium/frontends/d3d10umd/D3D11.cpp
++++ b/src/gallium/frontends/d3d10umd/D3D11.cpp
+@@ -30,6 +30,7 @@
+ #include "Debug.h"
+ 
+ #include "D3D11.h"
++#include "Compute.h"   /* exynos-woa G24 */
+ 
+ #include <string.h>
+ #include <stdlib.h>
+@@ -74,6 +75,7 @@ D11_CreateResource(D3D10DDI_HDEVICE hDevice, const D3D11DDIARG_CREATERESOURCE *p
+                    D3D10DDI_HRESOURCE hResource, D3D10DDI_HRTRESOURCE hRTResource)
+ {
+    CreateResource(hDevice, (const D3D10DDIARG_CREATERESOURCE *)pCreate, hResource, hRTResource);
++   CastResource(hResource)->byte_stride = pCreate->ByteStride;   /* exynos-woa G24: structured buffer views */
+ }
+ 
+ /* D3D11DDIARG_CREATESHADERRESOURCEVIEW = the D3D10.1 struct plus the BufferEx (raw/structured buffer) union member;
+@@ -108,6 +110,8 @@ D11_CreateShaderResourceView(D3D10DDI_HDEVICE hDevice, const D3D11DDIARG_CREATES
+                              D3D10DDI_HSHADERRESOURCEVIEW hView, D3D10DDI_HRTSHADERRESOURCEVIEW hRTView)
+ {
+    D3D10_1DDIARG_CREATESHADERRESOURCEVIEW v;
++   if (CreateBufferExShaderResourceView(hDevice, pCreate, hView))   /* exynos-woa G24: raw / structured buffers */
++      return;
+    d11_srv_to_101(pCreate, &v);
+    {
+       /* exynos-woa D4: DWM fail-fasts on CreateShaderResourceView of redirected swap chain buffers - what it asks */
+@@ -210,6 +214,20 @@ void
+ D3D11FillDeviceFuncs(D3D11DDI_DEVICEFUNCS *f)
+ {
+ #include "d3d11_fill.inc"
++   /* exynos-woa G24 (Compute.cpp): DirectCompute 4.x replaces the generated stubs */
++   f->pfnCreateComputeShader = CreateComputeShader;
++   f->pfnCsSetShader = CsSetShader;
++   f->pfnCsSetShaderResources = CsSetShaderResources;
++   f->pfnCsSetSamplers = CsSetSamplers;
++   f->pfnCsSetConstantBuffers = CsSetConstantBuffers;
++   f->pfnCalcPrivateUnorderedAccessViewSize = CalcPrivateUnorderedAccessViewSize;
++   f->pfnCreateUnorderedAccessView = CreateUnorderedAccessView;
++   f->pfnDestroyUnorderedAccessView = DestroyUnorderedAccessView;
++   f->pfnClearUnorderedAccessViewUint = ClearUnorderedAccessViewUint;
++   f->pfnClearUnorderedAccessViewFloat = ClearUnorderedAccessViewFloat;
++   f->pfnCsSetUnorderedAccessViews = CsSetUnorderedAccessViews;
++   f->pfnDispatch = Dispatch;
++   f->pfnDispatchIndirect = DispatchIndirect;
+ }
+ 
+ /* GetCaps answers for the D3D11 types (Adapter.cpp GetCaps); FALSE = not a D3D11 type. */
+@@ -227,10 +245,10 @@ D3D11GetCaps(const D3D10_2DDIARG_GETCAPS *pData, HRESULT *phr)
+       if (pData->DataSize < sizeof(D3D11DDI_SHADER_CAPS)) { *phr = E_INVALIDARG; return TRUE; }
+       memset(pData->pData, 0, pData->DataSize);   /* no doubles */
+       {
+-         /* exynos-woa G23 DIAGNOSIS ONLY (AGENTS.md rule 12): D3D10UMD_DIAG_CS4X=1 advertises compute shaders at
+-          * FL 10_x (the CS entry points are still stubs) - does an application (dgVoodoo) then try to create one? */
+-         const char *cs = getenv("D3D10UMD_DIAG_CS4X");
+-         if (cs && *cs == '1')
++         /* exynos-woa G24 (Compute.cpp): DirectCompute 4.x at FL 10_x - dgVoodoo's D3D11 FL10 backend requires it
++          * (notes/g23-bc-emulation.md). D3D10UMD_NO_CS4X=1 hides it again - diagnosis only (AGENTS.md rule 12). */
++         const char *no = getenv("D3D10UMD_NO_CS4X");
++         if (!(no && *no == '1'))
+             ((D3D11DDI_SHADER_CAPS *)pData->pData)->Caps |= D3D11DDICAPS_SHADER_COMPUTE_PLUS_RAW_AND_STRUCTURED_BUFFERS_IN_SHADER_4_X;
+       }
+       return TRUE;
+diff --git a/src/gallium/frontends/d3d10umd/D3D11Tiers.inc b/src/gallium/frontends/d3d10umd/D3D11Tiers.inc
+index cb79837..78ed12c 100644
+--- a/src/gallium/frontends/d3d10umd/D3D11Tiers.inc
++++ b/src/gallium/frontends/d3d10umd/D3D11Tiers.inc
+@@ -55,13 +55,12 @@ SetConstantBuffers11(mesa_shader_stage stage, D3D10DDI_HDEVICE hDevice, UINT Sta
+ D111_SETCB(VsSetConstantBuffers, MESA_SHADER_VERTEX)
+ D111_SETCB(PsSetConstantBuffers, MESA_SHADER_FRAGMENT)
+ D111_SETCB(GsSetConstantBuffers, MESA_SHADER_GEOMETRY)
+-/* Hull/domain/compute exist only at pipeline level 11_0; nothing binds them at 10_0. */
++/* Hull/domain exist only at pipeline level 11_0; nothing binds them at 10_0. Compute 4.x is real since G24. */
+ static void APIENTRY
+ D111_HsSetConstantBuffers(D3D10DDI_HDEVICE, UINT, UINT, const D3D10DDI_HRESOURCE *, const UINT *, const UINT *) {}
+ static void APIENTRY
+ D111_DsSetConstantBuffers(D3D10DDI_HDEVICE, UINT, UINT, const D3D10DDI_HRESOURCE *, const UINT *, const UINT *) {}
+-static void APIENTRY
+-D111_CsSetConstantBuffers(D3D10DDI_HDEVICE, UINT, UINT, const D3D10DDI_HRESOURCE *, const UINT *, const UINT *) {}
++D111_SETCB(CsSetConstantBuffers, MESA_SHADER_COMPUTE)
+ 
+ /* ---- D3D11.1: copies and updates with CopyFlags (D3D11_1_DDI_COPY_NO_OVERWRITE / DISCARD are hints) ---- */
+ 
+@@ -413,15 +412,33 @@ D120_CreateQuery(D3D10DDI_HDEVICE hDevice, const D3DWDDM2_0DDIARG_CREATEQUERY *p
+    CreateQuery(hDevice, &q, h, hRT);
+ }
+ 
+-/* UAVs are a pipeline level 11_0 feature. */
++/* exynos-woa G24: buffer UAVs (DirectCompute 4.x); the WDDM 2.0 struct differs from the D3D11 one only in Tex2D
++ * (PlaneSlice), which buffer views do not use. */
++static void
++d120_uav(const D3DWDDM2_0DDIARG_CREATEUNORDEREDACCESSVIEW *in, D3D11DDIARG_CREATEUNORDEREDACCESSVIEW *out)
++{
++   memset(out, 0, sizeof *out);
++   out->hDrvResource = in->hDrvResource;
++   out->Format = in->Format;
++   out->ResourceDimension = in->ResourceDimension;
++   if (in->ResourceDimension == D3D10DDIRESOURCE_BUFFER || in->ResourceDimension == D3D11DDIRESOURCE_BUFFEREX)
++      out->Buffer = in->Buffer;
++}
+ static SIZE_T APIENTRY
+-D120_CalcPrivateUnorderedAccessViewSize(D3D10DDI_HDEVICE, const D3DWDDM2_0DDIARG_CREATEUNORDEREDACCESSVIEW *)
++D120_CalcPrivateUnorderedAccessViewSize(D3D10DDI_HDEVICE hDevice, const D3DWDDM2_0DDIARG_CREATEUNORDEREDACCESSVIEW *p)
+ {
+-   return sizeof(void *);
++   D3D11DDIARG_CREATEUNORDEREDACCESSVIEW v;
++   d120_uav(p, &v);
++   return CalcPrivateUnorderedAccessViewSize(hDevice, &v);
+ }
+ static void APIENTRY
+-D120_CreateUnorderedAccessView(D3D10DDI_HDEVICE, const D3DWDDM2_0DDIARG_CREATEUNORDEREDACCESSVIEW *,
+-                               D3D11DDI_HUNORDEREDACCESSVIEW, D3D11DDI_HRTUNORDEREDACCESSVIEW) {}
++D120_CreateUnorderedAccessView(D3D10DDI_HDEVICE hDevice, const D3DWDDM2_0DDIARG_CREATEUNORDEREDACCESSVIEW *p,
++                               D3D11DDI_HUNORDEREDACCESSVIEW h, D3D11DDI_HRTUNORDEREDACCESSVIEW hRT)
++{
++   D3D11DDIARG_CREATEUNORDEREDACCESSVIEW v;
++   d120_uav(p, &v);
++   CreateUnorderedAccessView(hDevice, &v, h, hRT);
++}
+ 
+ /* ---- generated stubs of the higher tiers ---- */
+ 
+@@ -432,16 +449,56 @@ D120_CreateUnorderedAccessView(D3D10DDI_HDEVICE, const D3DWDDM2_0DDIARG_CREATEUN
+ void D3D11_1FillDeviceFuncs(D3D11_1DDI_DEVICEFUNCS *f)
+ {
+ #include "d3d11_1_fill.inc"
++   /* exynos-woa G24 (Compute.cpp): DirectCompute 4.x replaces the generated stubs (CsSetConstantBuffers and, at WDDM 2.0,
++    * the UAV size/create entries keep their tier-specific wrappers, which are real now) */
++   f->pfnCreateComputeShader = CreateComputeShader;
++   f->pfnCsSetShader = CsSetShader;
++   f->pfnCsSetShaderResources = CsSetShaderResources;
++   f->pfnCsSetSamplers = CsSetSamplers;
++   f->pfnDestroyUnorderedAccessView = DestroyUnorderedAccessView;
++   f->pfnClearUnorderedAccessViewUint = ClearUnorderedAccessViewUint;
++   f->pfnClearUnorderedAccessViewFloat = ClearUnorderedAccessViewFloat;
++   f->pfnCsSetUnorderedAccessViews = CsSetUnorderedAccessViews;
++   f->pfnDispatch = Dispatch;
++   f->pfnDispatchIndirect = DispatchIndirect;
++   f->pfnCalcPrivateUnorderedAccessViewSize = CalcPrivateUnorderedAccessViewSize;
++   f->pfnCreateUnorderedAccessView = CreateUnorderedAccessView;
+ }
+ 
+ void D3DWDDM1_3FillDeviceFuncs(D3DWDDM1_3DDI_DEVICEFUNCS *f)
+ {
+ #include "wddm1_3_fill.inc"
++   /* exynos-woa G24 (Compute.cpp): DirectCompute 4.x replaces the generated stubs (CsSetConstantBuffers and, at WDDM 2.0,
++    * the UAV size/create entries keep their tier-specific wrappers, which are real now) */
++   f->pfnCreateComputeShader = CreateComputeShader;
++   f->pfnCsSetShader = CsSetShader;
++   f->pfnCsSetShaderResources = CsSetShaderResources;
++   f->pfnCsSetSamplers = CsSetSamplers;
++   f->pfnDestroyUnorderedAccessView = DestroyUnorderedAccessView;
++   f->pfnClearUnorderedAccessViewUint = ClearUnorderedAccessViewUint;
++   f->pfnClearUnorderedAccessViewFloat = ClearUnorderedAccessViewFloat;
++   f->pfnCsSetUnorderedAccessViews = CsSetUnorderedAccessViews;
++   f->pfnDispatch = Dispatch;
++   f->pfnDispatchIndirect = DispatchIndirect;
++   f->pfnCalcPrivateUnorderedAccessViewSize = CalcPrivateUnorderedAccessViewSize;
++   f->pfnCreateUnorderedAccessView = CreateUnorderedAccessView;
+ }
+ 
+ void D3DWDDM2_0FillDeviceFuncs(D3DWDDM2_0DDI_DEVICEFUNCS *f)
+ {
+ #include "wddm2_0_fill.inc"
++   /* exynos-woa G24 (Compute.cpp): DirectCompute 4.x replaces the generated stubs (CsSetConstantBuffers and, at WDDM 2.0,
++    * the UAV size/create entries keep their tier-specific wrappers, which are real now) */
++   f->pfnCreateComputeShader = CreateComputeShader;
++   f->pfnCsSetShader = CsSetShader;
++   f->pfnCsSetShaderResources = CsSetShaderResources;
++   f->pfnCsSetSamplers = CsSetSamplers;
++   f->pfnDestroyUnorderedAccessView = DestroyUnorderedAccessView;
++   f->pfnClearUnorderedAccessViewUint = ClearUnorderedAccessViewUint;
++   f->pfnClearUnorderedAccessViewFloat = ClearUnorderedAccessViewFloat;
++   f->pfnCsSetUnorderedAccessViews = CsSetUnorderedAccessViews;
++   f->pfnDispatch = Dispatch;
++   f->pfnDispatchIndirect = DispatchIndirect;
+ }
+ 
+ /* ---- DXGI 1.2 - 1.4 ---- */
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index 13f08c8..78e7618 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -170,6 +170,9 @@ translate_resource_flags(UINT flags)
+    if (flags & D3D10_DDI_BIND_STREAM_OUTPUT)
+       bind |= PIPE_BIND_STREAM_OUTPUT;
+ 
++   if (flags & D3D11_DDI_BIND_UNORDERED_ACCESS)   /* exynos-woa G24: buffer UAVs are SSBOs */
++      bind |= PIPE_BIND_SHADER_BUFFER;
++
+    if (flags & D3D10_DDI_BIND_PRESENT)
+       bind |= PIPE_BIND_DISPLAY_TARGET;
+ 
+diff --git a/src/gallium/frontends/d3d10umd/Shader.cpp b/src/gallium/frontends/d3d10umd/Shader.cpp
+index cd98d81..591ca33 100644
+--- a/src/gallium/frontends/d3d10umd/Shader.cpp
++++ b/src/gallium/frontends/d3d10umd/Shader.cpp
+@@ -308,6 +308,11 @@ DestroyShader(D3D10DDI_HDEVICE hDevice,   // IN
+       case MESA_SHADER_GEOMETRY:
+          pipe->delete_gs_state(pipe, pShader->handle);
+          break;
++      case MESA_SHADER_COMPUTE:   /* exynos-woa G24 */
++         if (CastDevice(hDevice)->bound_cs == pShader)
++            CastDevice(hDevice)->bound_cs = NULL;
++         pipe->delete_compute_state(pipe, pShader->handle);
++         break;
+       default:
+          assert(0);
+       }
+@@ -316,6 +321,8 @@ DestroyShader(D3D10DDI_HDEVICE hDevice,   // IN
+    if (pShader->state.tokens) {
+       ureg_free_tokens(pShader->state.tokens);
+    }
++   FREE(pShader->extra);   /* exynos-woa G24 */
++   pShader->extra = NULL;
+ }
+ 
+ 
+@@ -1379,8 +1386,13 @@ DestroyShaderResourceView(D3D10DDI_HDEVICE hDevice,                           //
+    struct pipe_context *pipe = pDevice->pipe;
+ 
+    ViewListRemove(&pDevice->srv_list, pSRView);
+-   pipe->sampler_view_release(pipe, pSRView->handle);
++   if (pSRView->handle)   /* exynos-woa G24: raw / structured buffer views have none */
++      pipe->sampler_view_release(pipe, pSRView->handle);
+    pSRView->handle = NULL;
++   for (unsigned i = 0; i < PIPE_MAX_SHADER_SAMPLER_VIEWS; i++)
++      if (pDevice->cs_srvs[i] == pSRView)
++         pDevice->cs_srvs[i] = NULL;
++   pipe_resource_reference(&pSRView->buffer, NULL);
+ }
+ 
+ 
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index 9c4b0b7..9d912e6 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -56,6 +56,8 @@ CastAdapter(D3D10DDI_HADAPTER hAdapter)
+    return static_cast<Adapter *>(hAdapter.pDrvPrivate);
+ }
+ 
++struct Shader_extra;
++
+ struct Shader
+ {
+    void *handle;
+@@ -63,6 +65,15 @@ struct Shader
+    struct pipe_shader_state state;
+    unsigned output_mapping[PIPE_MAX_SHADER_OUTPUTS];
+    bool output_resolved;
++   /* exynos-woa G24 (Compute.cpp): compute shaders - SSBO slot map, groupshared size, thread group size */
++   struct Shader_extra *extra;
++};
++
++/* exynos-woa G24 (Compute.cpp): a raw / structured / typed buffer UAV - the byte range bound as an SSBO */
++struct UnorderedAccessView
++{
++   struct pipe_resource *resource;
++   unsigned offset, size;
+ };
+ 
+ struct Query;
+@@ -99,6 +110,11 @@ struct Device
+    struct pipe_stream_output_target *so_targets[PIPE_MAX_SO_BUFFERS];
+    struct pipe_stream_output_target *draw_so_target;
+    Shader *bound_empty_gs;
++   /* exynos-woa G24 (Compute.cpp): compute state - the bound CS, the CS SRV objects (raw / structured buffers are
++    * bound at Dispatch) and the CS UAVs */
++   Shader *bound_cs;
++   struct ShaderResourceView *cs_srvs[PIPE_MAX_SHADER_SAMPLER_VIEWS];
++   struct UnorderedAccessView *cs_uavs[8];
+    Shader *bound_vs;
+ 
+    unsigned max_dual_source_render_targets;
+@@ -205,6 +221,8 @@ struct Resource
+    enum pipe_format bc_format;
+    uint8_t **bc_shadow;
+    unsigned *bc_map_usage;
++   /* exynos-woa G24: D3D11 structure byte stride (D3D11DDIARG_CREATERESOURCE::ByteStride), for structured views */
++   unsigned byte_stride;
+ };
+ 
+ 
+@@ -410,6 +428,9 @@ CastPipeSamplerState(D3D10DDI_HSAMPLER hSampler)
+ struct ShaderResourceView
+ {
+    struct pipe_sampler_view *handle;
++   /* exynos-woa G24: a raw / structured buffer view (handle NULL): the byte range shaders read as an SSBO */
++   struct pipe_resource *buffer;
++   unsigned buffer_offset, buffer_size;
+    struct Device *rot_dev;                       /* exynos-woa G17 (0099): on rot_dev's srv_list, NULL if not */
+    struct ShaderResourceView *rot_prev, *rot_next;
+ };
+diff --git a/src/gallium/frontends/d3d10umd/meson.build b/src/gallium/frontends/d3d10umd/meson.build
+index e715b79..dd553f6 100644
+--- a/src/gallium/frontends/d3d10umd/meson.build
++++ b/src/gallium/frontends/d3d10umd/meson.build
+@@ -12,6 +12,7 @@ libd3d10umd = static_library(
+     'Debug.cpp',
+     'Device.cpp',
+     'D3D11.cpp',
++    'Compute.cpp',
+     'Video.cpp',
+     'VideoH264.c',
+     'VideoProc.cpp',
+-- 
+2.40.1.windows.1
+

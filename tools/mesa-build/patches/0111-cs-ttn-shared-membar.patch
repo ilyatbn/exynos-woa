@@ -1,0 +1,91 @@
+From 661718e67cf8829eb406c9af8e1ab360b6eb1723 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 00:02:35 +0300
+Subject: [PATCH] tgsi_to_nir: shared memory (TGSI MEMORY load/store), barriers
+ with memory semantics, MEMBAR (exynos-woa 0111)
+
+---
+ src/gallium/auxiliary/nir/tgsi_to_nir.c | 39 +++++++++++++++++++++++--
+ 1 file changed, 37 insertions(+), 2 deletions(-)
+
+diff --git a/src/gallium/auxiliary/nir/tgsi_to_nir.c b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+index ff044d7..90bda1e 100644
+--- a/src/gallium/auxiliary/nir/tgsi_to_nir.c
++++ b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+@@ -249,6 +249,9 @@ ttn_emit_declaration(struct ttn_compile *c)
+       /* Nothing to record for system values. */
+    } else if (file == TGSI_FILE_BUFFER) {
+       /* Nothing to record for buffers. */
++   } else if (file == TGSI_FILE_MEMORY) {
++      /* exynos-woa G24 (d3d10umd compute, D3D groupshared): shared memory; its size comes with the compute CSO
++       * (pipe_compute_state::static_shared_mem) - TGSI declarations carry none. */
+    } else if (file == TGSI_FILE_IMAGE) {
+       /* Nothing to record for images. */
+    } else if (file == TGSI_FILE_SAMPLER) {
+@@ -863,7 +866,8 @@ ttn_get_src(struct ttn_compile *c, struct tgsi_full_src_register *tgsi_fsrc,
+    } else if (tgsi_src->File == TGSI_FILE_SAMPLER ||
+               tgsi_src->File == TGSI_FILE_SAMPLER_VIEW ||
+               tgsi_src->File == TGSI_FILE_IMAGE ||
+-              tgsi_src->File == TGSI_FILE_BUFFER) {
++              tgsi_src->File == TGSI_FILE_BUFFER ||
++              tgsi_src->File == TGSI_FILE_MEMORY) {   /* exynos-woa G24: shared memory too */
+       /* Only the index of the resource gets used in texturing, and it will
+        * handle looking that up on its own instead of using the nir_alu_src.
+        */
+@@ -1014,7 +1018,20 @@ ttn_lit(nir_builder *b, nir_def **src)
+ static void
+ ttn_barrier(nir_builder *b)
+ {
+-   nir_barrier(b, .execution_scope = SCOPE_WORKGROUP);
++   /* exynos-woa G24: D3D sync_*_t (GroupMemoryBarrierWithGroupSync) also orders groupshared and buffer memory -
++    * an execution-only barrier let threads read shared memory before their neighbours' writes were visible. The
++    * d3d10umd frontend is the only TGSI producer on this platform. */
++   nir_barrier(b, .execution_scope = SCOPE_WORKGROUP, .memory_scope = SCOPE_WORKGROUP,
++               .memory_semantics = NIR_MEMORY_ACQ_REL, .memory_modes = nir_var_mem_shared | nir_var_mem_ssbo);
++}
++
++/* exynos-woa G24: TGSI MEMBAR (D3D sync without _t) - a memory-only barrier; conservatively device scope over
++ * shared, buffer and global memory, whatever the flags operand asks for. */
++static void
++ttn_membar(nir_builder *b)
++{
++   nir_barrier(b, .memory_scope = SCOPE_DEVICE, .memory_semantics = NIR_MEMORY_ACQ_REL,
++               .memory_modes = nir_var_mem_shared | nir_var_mem_ssbo | nir_var_mem_global);
+ }
+ 
+ static void
+@@ -1860,6 +1877,20 @@ ttn_mem(struct ttn_compile *c, nir_def **src)
+       UNREACHABLE("unexpected memory opcode");
+    }
+ 
++   if (file == TGSI_FILE_MEMORY) {
++      /* exynos-woa G24 (d3d10umd compute): byte-addressed shared memory (D3D groupshared / TGSM), base 0 */
++      unsigned wm = tgsi_inst->Dst[0].Register.WriteMask;
++      unsigned n = util_last_bit(wm);
++      nir_def *addr = ttn_channel(b, src[addr_src_index], X);
++      if (tgsi_inst->Instruction.Opcode == TGSI_OPCODE_LOAD) {
++         nir_def *v = nir_load_shared(b, n, 32, addr, .base = 0, .align_mul = 4);
++         return nir_pad_vector_imm_int(b, v, 0, 4);
++      }
++      nir_store_shared(b, nir_swizzle(b, src[1], SWIZ(X, Y, Z, W), n), addr, .base = 0, .write_mask = wm,
++                       .align_mul = 4);
++      return NULL;
++   }
++
+    if (file == TGSI_FILE_BUFFER) {
+       nir_intrinsic_op op;
+ 
+@@ -2351,6 +2382,10 @@ ttn_emit_instruction(struct ttn_compile *c)
+       ttn_barrier(b);
+       break;
+ 
++   case TGSI_OPCODE_MEMBAR:   /* exynos-woa G24 */
++      ttn_membar(b);
++      break;
++
+    case TGSI_OPCODE_DDX:
+       dst = nir_ddx(b, src[0]);
+       break;
+-- 
+2.40.1.windows.1
+

@@ -1,0 +1,354 @@
+From f93244f88c5474319bbdcdc83e96fbd6a4a0c2a2 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 00:02:52 +0300
+Subject: [PATCH] d3d10umd: translate cs_4_x - thread ids, raw/structured
+ buffer and groupshared load/store, sync; buffer slot map + shared size out
+ (exynos-woa 0113)
+
+---
+ src/gallium/frontends/d3d10umd/ShaderParse.h |  20 ++
+ src/gallium/frontends/d3d10umd/ShaderTGSI.c  | 248 +++++++++++++++++++
+ 2 files changed, 268 insertions(+)
+
+diff --git a/src/gallium/frontends/d3d10umd/ShaderParse.h b/src/gallium/frontends/d3d10umd/ShaderParse.h
+index 67568f1..08716c7 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderParse.h
++++ b/src/gallium/frontends/d3d10umd/ShaderParse.h
+@@ -177,6 +177,26 @@ const struct tgsi_token *
+ Shader_tgsi_translate(const unsigned *code,
+                       unsigned *output_mapping);
+ 
++/* exynos-woa G24 (notes/g24-compute-cs4x.md): what a translated shader needs bound beyond the D3D10 state - the TGSI
++ * BUFFER (SSBO binding) index of every raw / structured t# and u# it declares, its groupshared size and (compute) its
++ * thread group size. */
++#define SHADER_MAX_BUFFERS 16
++struct Shader_buffer_binding {
++   unsigned char uav;    /* 0: t# (read-only SRV), 1: u# (UAV) */
++   unsigned char slot;   /* the t# / u# register number */
++};
++struct Shader_extra {
++   unsigned num_buffers;
++   struct Shader_buffer_binding buffers[SHADER_MAX_BUFFERS];
++   unsigned shared_size;
++   unsigned block[3];
++};
++
++const struct tgsi_token *
++Shader_tgsi_translate_ex(const unsigned *code,
++                         unsigned *output_mapping,
++                         struct Shader_extra *extra);
++
+ /* exynos-woa F2: the context whose get_sample_position answers samplepos (set once per device creation) */
+ struct pipe_context;
+ void
+diff --git a/src/gallium/frontends/d3d10umd/ShaderTGSI.c b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+index 2dc9fa7..eb3806b 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderTGSI.c
++++ b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+@@ -265,6 +265,26 @@ struct Shader_xlate {
+    struct Shader_label *labels;
+    uint num_labels;
+    uint max_labels;
++
++   /* exynos-woa G24 (compute 4.x, raw / structured buffers): TGSI BUFFER index + 1 (0 = not a buffer) and structure
++    * stride of each t# / u#; the groupshared regions (g#) as byte ranges of one TGSI MEMORY block; the compute system
++    * values (declared on first use). */
++   struct Shader_extra *extra;
++   struct Shader_extra local_extra;
++   struct { unsigned buffer, stride; } srvbuf[SHADER_MAX_RESOURCES];
++   struct { unsigned buffer, stride; } uavbuf[8];
++   struct { bool declared; unsigned base, stride; } tgsm[32];
++   struct ureg_src memory;
++   bool memory_declared;
++   struct ureg_src cs_tid, cs_gid;
++   bool cs_sv_declared;
++};
++
++/* exynos-woa G24: a raw / structured access target - the TGSI BUFFER or MEMORY register, structure stride, byte base */
++struct buf_ref {
++   bool ok;
++   struct ureg_src reg;
++   unsigned stride, base;
+ };
+ 
+ static uint
+@@ -894,6 +914,96 @@ translate_dst_operand(struct Shader_xlate *sx,
+    return reg;
+ }
+ 
++/* exynos-woa G24: vThreadID = group id * group size + thread id in group; vThreadIDInGroupFlattened from the thread id
++ * (the group size is the dcl_thread_group constant). */
++static struct ureg_src
++cs_system_value(struct Shader_xlate *sx, unsigned type)
++{
++   struct ureg_program *ureg = sx->ureg;
++   const unsigned *b = sx->extra->block;
++   if (!sx->cs_sv_declared) {
++      sx->cs_tid = ureg_DECL_system_value(ureg, TGSI_SEMANTIC_THREAD_ID, 0);
++      sx->cs_gid = ureg_DECL_system_value(ureg, TGSI_SEMANTIC_BLOCK_ID, 0);
++      sx->cs_sv_declared = true;
++   }
++   switch (type) {
++   case D3D11_SB_OPERAND_TYPE_INPUT_THREAD_ID: {
++      struct ureg_dst t = ureg_DECL_temporary(ureg);
++      ureg_UMAD(ureg, t, sx->cs_gid, ureg_imm4u(ureg, b[0], b[1], b[2], 0), sx->cs_tid);
++      return ureg_src(t);
++   }
++   case D3D11_SB_OPERAND_TYPE_INPUT_THREAD_GROUP_ID:
++      return sx->cs_gid;
++   case D3D11_SB_OPERAND_TYPE_INPUT_THREAD_ID_IN_GROUP:
++      return sx->cs_tid;
++   default: {   /* D3D11_SB_OPERAND_TYPE_INPUT_THREAD_ID_IN_GROUP_FLATTENED */
++      struct ureg_dst t = ureg_writemask(ureg_DECL_temporary(ureg), TGSI_WRITEMASK_X);
++      ureg_UMAD(ureg, t, ureg_scalar(sx->cs_tid, TGSI_SWIZZLE_Y), ureg_imm1u(ureg, b[0]),
++                ureg_scalar(sx->cs_tid, TGSI_SWIZZLE_X));
++      ureg_UMAD(ureg, t, ureg_scalar(sx->cs_tid, TGSI_SWIZZLE_Z), ureg_imm1u(ureg, b[0] * b[1]),
++                ureg_scalar(ureg_src(t), TGSI_SWIZZLE_X));
++      return ureg_scalar(ureg_src(t), TGSI_SWIZZLE_X);
++   }
++   }
++}
++
++/* exynos-woa G24: the buffer a raw / structured access names (t#, u# or g#). */
++static struct buf_ref
++resolve_buffer(struct Shader_xlate *sx, const struct Shader_operand *op)
++{
++   struct buf_ref r;
++   unsigned i = op->index[0].imm;
++   memset(&r, 0, sizeof r);
++   switch (op->type) {
++   case D3D10_SB_OPERAND_TYPE_RESOURCE:
++      if (i < SHADER_MAX_RESOURCES && sx->srvbuf[i].buffer) {
++         r.reg = ureg_src_register(TGSI_FILE_BUFFER, sx->srvbuf[i].buffer - 1);
++         r.stride = sx->srvbuf[i].stride;
++         r.ok = true;
++      }
++      break;
++   case D3D11_SB_OPERAND_TYPE_UNORDERED_ACCESS_VIEW:
++      if (i < 8 && sx->uavbuf[i].buffer) {
++         r.reg = ureg_src_register(TGSI_FILE_BUFFER, sx->uavbuf[i].buffer - 1);
++         r.stride = sx->uavbuf[i].stride;
++         r.ok = true;
++      }
++      break;
++   case D3D11_SB_OPERAND_TYPE_THREAD_GROUP_SHARED_MEMORY:
++      if (i < 32 && sx->tgsm[i].declared) {
++         r.reg = sx->memory;
++         r.stride = sx->tgsm[i].stride;
++         r.base = sx->tgsm[i].base;
++         r.ok = true;
++      }
++      break;
++   default:
++      break;
++   }
++   return r;
++}
++
++static struct ureg_src translate_src_operand(struct Shader_xlate *sx, const struct Shader_src_operand *operand,
++                                             const enum dx10_opcode_format format);
++
++/* exynos-woa G24: byte address = index * stride + byte offset (structured) or the byte offset (raw), + the g# base */
++static struct ureg_src
++buffer_address(struct Shader_xlate *sx, const struct buf_ref *r, const struct Shader_src_operand *index,
++               const struct Shader_src_operand *offset)
++{
++   struct ureg_program *ureg = sx->ureg;
++   struct ureg_dst a = ureg_writemask(ureg_DECL_temporary(ureg), TGSI_WRITEMASK_X);
++   struct ureg_src off = ureg_scalar(translate_src_operand(sx, offset, OF_UINT), TGSI_SWIZZLE_X);
++   if (index)
++      ureg_UMAD(ureg, a, ureg_scalar(translate_src_operand(sx, index, OF_UINT), TGSI_SWIZZLE_X),
++                ureg_imm1u(ureg, r->stride), off);
++   else
++      ureg_MOV(ureg, a, off);
++   if (r->base)
++      ureg_UADD(ureg, a, ureg_scalar(ureg_src(a), TGSI_SWIZZLE_X), ureg_imm1u(ureg, r->base));
++   return ureg_scalar(ureg_src(a), TGSI_SWIZZLE_X);
++}
++
+ static struct ureg_src
+ translate_src_operand(struct Shader_xlate *sx,
+                       const struct Shader_src_operand *operand,
+@@ -1088,6 +1198,14 @@ translate_src_operand(struct Shader_xlate *sx,
+       reg = sx->prim_id;
+       break;
+ 
++   /* exynos-woa G24: compute shader system values */
++   case D3D11_SB_OPERAND_TYPE_INPUT_THREAD_ID:
++   case D3D11_SB_OPERAND_TYPE_INPUT_THREAD_GROUP_ID:
++   case D3D11_SB_OPERAND_TYPE_INPUT_THREAD_ID_IN_GROUP:
++   case D3D11_SB_OPERAND_TYPE_INPUT_THREAD_ID_IN_GROUP_FLATTENED:
++      reg = cs_system_value(sx, operand->base.type);
++      break;
++
+    default:
+       reg = ureg_src(translate_operand(sx, &operand->base, 0));
+    }
+@@ -1283,6 +1401,14 @@ expand_unary_to_scalarf(struct ureg_program *ureg, unary_ureg_func func,
+ const struct tgsi_token *
+ Shader_tgsi_translate(const unsigned *code,
+                       unsigned *output_mapping)
++{
++   return Shader_tgsi_translate_ex(code, output_mapping, NULL);
++}
++
++const struct tgsi_token *
++Shader_tgsi_translate_ex(const unsigned *code,
++                         unsigned *output_mapping,
++                         struct Shader_extra *extra)
+ {
+    struct Shader_xlate sx;
+    struct Shader_parser parser;
+@@ -1295,6 +1421,8 @@ Shader_tgsi_translate(const unsigned *code,
+    uint i, j;
+ 
+    memset(&sx, 0, sizeof sx);
++   sx.extra = extra ? extra : &sx.local_extra;   /* exynos-woa G24 */
++   memset(sx.extra, 0, sizeof *sx.extra);
+ 
+    Shader_parse_init(&parser, code);
+ 
+@@ -1326,6 +1454,9 @@ Shader_tgsi_translate(const unsigned *code,
+    case D3D10_SB_GEOMETRY_SHADER:
+       ureg = ureg_create(MESA_SHADER_GEOMETRY);
+       break;
++   case D3D11_SB_COMPUTE_SHADER:   /* exynos-woa G24: cs_4_0 / cs_4_1 */
++      ureg = ureg_create(MESA_SHADER_COMPUTE);
++      break;
+    default:
+       UNREACHABLE("unsupported D3D10_SB_SHADER\n");
+    }
+@@ -2076,6 +2207,8 @@ Shader_tgsi_translate(const unsigned *code,
+       case D3D10_SB_OPCODE_DCL_INPUT:
+          if (parser.header.type == D3D10_SB_VERTEX_SHADER) {
+             dcl_vs_input(&sx, ureg, &opcode.dst[0]);
++         } else if (parser.header.type == D3D11_SB_COMPUTE_SHADER) {
++            /* exynos-woa G24: vThreadID & co. are system values, declared where first used (cs_system_value) */
+          } else {
+             assert(parser.header.type == D3D10_SB_GEOMETRY_SHADER);
+             dcl_gs_input(&sx, ureg, &opcode.dst[0]);
+@@ -2383,6 +2516,121 @@ Shader_tgsi_translate(const unsigned *code,
+       case D3D10_SB_OPCODE_DCL_GLOBAL_FLAGS:
+          /* Ignore */
+          break;
++
++      /* exynos-woa G24 (notes/g24-compute-cs4x.md): compute 4.x and raw / structured buffers */
++      case D3D11_SB_OPCODE_DCL_THREAD_GROUP:
++         sx.extra->block[0] = opcode.specific.thread_group.x;
++         sx.extra->block[1] = opcode.specific.thread_group.y;
++         sx.extra->block[2] = opcode.specific.thread_group.z;
++         ureg_property(ureg, TGSI_PROPERTY_CS_FIXED_BLOCK_WIDTH, sx.extra->block[0]);
++         ureg_property(ureg, TGSI_PROPERTY_CS_FIXED_BLOCK_HEIGHT, sx.extra->block[1]);
++         ureg_property(ureg, TGSI_PROPERTY_CS_FIXED_BLOCK_DEPTH, sx.extra->block[2]);
++         break;
++
++      case D3D11_SB_OPCODE_DCL_RESOURCE_RAW:
++      case D3D11_SB_OPCODE_DCL_RESOURCE_STRUCTURED:
++      case D3D11_SB_OPCODE_DCL_UNORDERED_ACCESS_VIEW_RAW:
++      case D3D11_SB_OPCODE_DCL_UNORDERED_ACCESS_VIEW_STRUCTURED: {
++         bool uav = opcode.type == D3D11_SB_OPCODE_DCL_UNORDERED_ACCESS_VIEW_RAW ||
++                    opcode.type == D3D11_SB_OPCODE_DCL_UNORDERED_ACCESS_VIEW_STRUCTURED;
++         bool structured = opcode.type == D3D11_SB_OPCODE_DCL_RESOURCE_STRUCTURED ||
++                           opcode.type == D3D11_SB_OPCODE_DCL_UNORDERED_ACCESS_VIEW_STRUCTURED;
++         unsigned slot = opcode.dst[0].base.index[0].imm;
++         if ((uav ? slot >= 8 : slot >= SHADER_MAX_RESOURCES) || sx.extra->num_buffers >= SHADER_MAX_BUFFERS) {
++            LOG_UNSUPPORTED(true);
++            break;
++         }
++         unsigned b = sx.extra->num_buffers++;
++         ureg_DECL_buffer(ureg, b, false);
++         sx.extra->buffers[b].uav = uav;
++         sx.extra->buffers[b].slot = (unsigned char)slot;
++         if (uav) {
++            sx.uavbuf[slot].buffer = b + 1;
++            sx.uavbuf[slot].stride = structured ? opcode.specific.structured.stride : 0;
++         } else {
++            sx.srvbuf[slot].buffer = b + 1;
++            sx.srvbuf[slot].stride = structured ? opcode.specific.structured.stride : 0;
++         }
++         break;
++      }
++
++      case D3D11_SB_OPCODE_DCL_THREAD_GROUP_SHARED_MEMORY_RAW:
++      case D3D11_SB_OPCODE_DCL_THREAD_GROUP_SHARED_MEMORY_STRUCTURED: {
++         unsigned g = opcode.dst[0].base.index[0].imm;
++         unsigned bytes = opcode.type == D3D11_SB_OPCODE_DCL_THREAD_GROUP_SHARED_MEMORY_RAW
++                             ? opcode.specific.structured.count
++                             : opcode.specific.structured.stride * opcode.specific.structured.count;
++         if (g >= 32) {
++            LOG_UNSUPPORTED(true);
++            break;
++         }
++         if (!sx.memory_declared) {
++            sx.memory = ureg_DECL_memory(ureg, TGSI_MEMORY_TYPE_SHARED);
++            sx.memory_declared = true;
++         }
++         sx.tgsm[g].declared = true;
++         sx.tgsm[g].base = sx.extra->shared_size;
++         sx.tgsm[g].stride = opcode.specific.structured.stride;
++         sx.extra->shared_size += (bytes + 3) & ~3u;
++         break;
++      }
++
++      case D3D11_SB_OPCODE_LD_RAW:
++      case D3D11_SB_OPCODE_LD_STRUCTURED: {
++         bool structured = opcode.type == D3D11_SB_OPCODE_LD_STRUCTURED;
++         const struct Shader_src_operand *res = &opcode.src[structured ? 2 : 1];
++         struct buf_ref r = resolve_buffer(&sx, &res->base);
++         unsigned dmask = opcode.dst[0].mask >> D3D10_SB_OPERAND_4_COMPONENT_MASK_SHIFT, need = 0, c;
++         if (!r.ok) {
++            LOG_UNSUPPORTED(true);
++            break;
++         }
++         /* load the dwords the resource swizzle selects for the written components, then move them by it */
++         for (c = 0; c < 4; c++)
++            if (dmask & (1u << c))
++               need = MAX2(need, (unsigned)res->swizzle[c] + 1);
++         if (!need)
++            break;
++         struct ureg_src addr = buffer_address(&sx, &r, structured ? &opcode.src[0] : NULL,
++                                               &opcode.src[structured ? 1 : 0]);
++         struct ureg_dst tmp = ureg_DECL_temporary(ureg);
++         struct ureg_dst ld = ureg_writemask(tmp, (1u << need) - 1);
++         struct ureg_src lsrc[2] = { r.reg, addr };
++         ureg_memory_insn(ureg, TGSI_OPCODE_LOAD, &ld, 1, lsrc, 2, 0, TGSI_TEXTURE_BUFFER, PIPE_FORMAT_NONE);
++         ureg_MOV(ureg, translate_dst_operand(&sx, &opcode.dst[0], opcode.saturate),
++                  ureg_swizzle(ureg_src(tmp), res->swizzle[0], res->swizzle[1], res->swizzle[2], res->swizzle[3]));
++         ureg_release_temporary(ureg, tmp);
++         break;
++      }
++
++      case D3D11_SB_OPCODE_STORE_RAW:
++      case D3D11_SB_OPCODE_STORE_STRUCTURED: {
++         bool structured = opcode.type == D3D11_SB_OPCODE_STORE_STRUCTURED;
++         struct buf_ref r = resolve_buffer(&sx, &opcode.dst[0].base);
++         unsigned wmask = opcode.dst[0].mask >> D3D10_SB_OPERAND_4_COMPONENT_MASK_SHIFT;
++         if (!r.ok || !wmask) {
++            LOG_UNSUPPORTED(!r.ok);
++            break;
++         }
++         struct ureg_src addr = buffer_address(&sx, &r, structured ? &opcode.src[0] : NULL,
++                                               &opcode.src[structured ? 1 : 0]);
++         /* value components x, y, ... go to consecutive dwords (D3D raw/structured store masks are .x/.xy/.xyz/.xyzw) */
++         struct ureg_src value = translate_src_operand(&sx, &opcode.src[structured ? 2 : 1], OF_UINT);
++         struct ureg_dst st = ureg_writemask(ureg_dst(r.reg), wmask);
++         struct ureg_src ssrc[2] = { addr, value };
++         ureg_memory_insn(ureg, TGSI_OPCODE_STORE, &st, 1, ssrc, 2, 0, TGSI_TEXTURE_BUFFER, PIPE_FORMAT_NONE);
++         break;
++      }
++
++      case D3D11_SB_OPCODE_SYNC: {
++         unsigned f = opcode.specific.sync_flags;
++         if (f & D3D11_SB_SYNC_THREADS_IN_GROUP)
++            ureg_BARRIER(ureg);   /* tgsi_to_nir: execution + groupshared/buffer memory, workgroup scope */
++         else if (f & (D3D11_SB_SYNC_THREAD_GROUP_SHARED_MEMORY | D3D11_SB_SYNC_UNORDERED_ACCESS_VIEW_MEMORY_GROUP |
++                       D3D11_SB_SYNC_UNORDERED_ACCESS_VIEW_MEMORY_GLOBAL))
++            ureg_MEMBAR(ureg, ureg_imm1u(ureg, TGSI_MEMBAR_SHADER_BUFFER | TGSI_MEMBAR_SHARED));
++         break;
++      }
+       default:
+          {
+             uint i;
+-- 
+2.40.1.windows.1
+

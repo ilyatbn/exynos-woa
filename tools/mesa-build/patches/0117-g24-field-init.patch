@@ -1,0 +1,51 @@
+From ba38cda6726e4fc9d449c76d7a403f856e3e3397 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 00:37:18 +0300
+Subject: [PATCH] d3d10umd: G24 fields of non-compute shaders / texture SRVs
+ were never initialised (exynos-woa G24)
+
+DestroyShaderResourceView released a garbage SRV::buffer (NFSU2/dgVoodoo: pipe_reference count != -1 assert at
+ResizeBuffers); DestroyShader freed Shader::extra of every stage. Texture SRV creates now clear the buffer fields and
+extra is freed for compute shaders only (the only create that zeroes the object).
+---
+ src/gallium/frontends/d3d10umd/Shader.cpp | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/Shader.cpp b/src/gallium/frontends/d3d10umd/Shader.cpp
+index 64d0518..204f64f 100644
+--- a/src/gallium/frontends/d3d10umd/Shader.cpp
++++ b/src/gallium/frontends/d3d10umd/Shader.cpp
+@@ -344,8 +344,10 @@ DestroyShader(D3D10DDI_HDEVICE hDevice,   // IN
+    if (pShader->state.tokens) {
+       ureg_free_tokens(pShader->state.tokens);
+    }
+-   FREE(pShader->extra);   /* exynos-woa G24 */
+-   pShader->extra = NULL;
++   if (pShader->type == MESA_SHADER_COMPUTE) {   /* exynos-woa G24: only CreateComputeShader zeroes the object */
++      FREE(pShader->extra);
++      pShader->extra = NULL;
++   }
+ }
+ 
+ 
+@@ -1241,6 +1243,8 @@ CreateShaderResourceView(
+    struct pipe_context *pipe = CastPipeContext(hDevice);
+    ShaderResourceView *pSRView = CastShaderResourceView(hShaderResourceView);
+    pSRView->rot_dev = NULL;   /* exynos-woa G17 (0099): not registered until created */
++   pSRView->buffer = NULL;    /* exynos-woa G24: DestroyShaderResourceView releases it; the private memory is not zeroed */
++   pSRView->buffer_offset = pSRView->buffer_size = 0;
+    struct pipe_resource *resource;
+    enum pipe_format format;
+ 
+@@ -1330,6 +1334,8 @@ CreateShaderResourceView1(
+    struct pipe_context *pipe = CastPipeContext(hDevice);
+    ShaderResourceView *pSRView = CastShaderResourceView(hShaderResourceView);
+    pSRView->rot_dev = NULL;   /* exynos-woa G17 (0099): not registered until created */
++   pSRView->buffer = NULL;    /* exynos-woa G24: DestroyShaderResourceView releases it; the private memory is not zeroed */
++   pSRView->buffer_offset = pSRView->buffer_size = 0;
+    struct pipe_resource *resource;
+    enum pipe_format format;
+ 
+-- 
+2.40.1.windows.1
+

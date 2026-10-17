@@ -1,0 +1,53 @@
+From e475284e4d210ea37b735be8409a0e74413a6755 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 00:32:53 +0300
+Subject: [PATCH] d3d10umd: structured buffer SRVs also arrive as
+ D3D10DDIRESOURCE_BUFFER (exynos-woa G24)
+
+D3D11_SRV_DIMENSION_BUFFER with DXGI_FORMAT_UNKNOWN reaches the DDI as a BUFFER view, not BUFFEREX; the SSBO slot stayed
+unbound and Panfrost asserted ssbo_mask at dispatch. d3dcs 7/7 vs WARP after this.
+---
+ src/gallium/frontends/d3d10umd/Compute.cpp | 20 ++++++++++++++++----
+ 1 file changed, 16 insertions(+), 4 deletions(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/Compute.cpp b/src/gallium/frontends/d3d10umd/Compute.cpp
+index 4f49e03..0da1cec 100644
+--- a/src/gallium/frontends/d3d10umd/Compute.cpp
++++ b/src/gallium/frontends/d3d10umd/Compute.cpp
+@@ -312,9 +312,21 @@ CreateBufferExShaderResourceView(D3D10DDI_HDEVICE hDevice, const D3D11DDIARG_CRE
+                                  D3D10DDI_HSHADERRESOURCEVIEW hView)
+ {
+    (void)hDevice;
+-   if (pCreate->ResourceDimension != D3D11DDIRESOURCE_BUFFEREX)
++   /* A structured view may come as D3D10DDIRESOURCE_BUFFER (D3D11_SRV_DIMENSION_BUFFER, format UNKNOWN) as well as
++    * BUFFEREX; raw views are BUFFEREX with the RAW flag (d3dcs run 2: the BUFFER form left the SSBO slot unbound). */
++   bool raw;
++   UINT first, num;
++   if (pCreate->ResourceDimension == D3D11DDIRESOURCE_BUFFEREX) {
++      raw = !!(pCreate->BufferEx.Flags & D3D11_DDI_BUFFEREX_SRV_FLAG_RAW);
++      first = pCreate->BufferEx.FirstElement;
++      num = pCreate->BufferEx.NumElements;
++   } else if (pCreate->ResourceDimension == D3D10DDIRESOURCE_BUFFER) {
++      raw = false;
++      first = pCreate->Buffer.FirstElement;
++      num = pCreate->Buffer.NumElements;
++   } else {
+       return false;
+-   bool raw = !!(pCreate->BufferEx.Flags & D3D11_DDI_BUFFEREX_SRV_FLAG_RAW);
++   }
+    if (!raw && pCreate->Format != DXGI_FORMAT_UNKNOWN)
+       return false;   /* a typed buffer view: the normal sampler-view path */
+    ShaderResourceView *v = CastShaderResourceView(hView);
+@@ -322,7 +334,7 @@ CreateBufferExShaderResourceView(D3D10DDI_HDEVICE hDevice, const D3D11DDIARG_CRE
+    unsigned es = BufferViewElementSize(r, pCreate->Format, raw);
+    memset(v, 0, sizeof *v);
+    pipe_resource_reference(&v->buffer, r->resource);
+-   v->buffer_offset = pCreate->BufferEx.FirstElement * es;
+-   v->buffer_size = pCreate->BufferEx.NumElements * es;
++   v->buffer_offset = first * es;
++   v->buffer_size = num * es;
+    return true;
+ }
+-- 
+2.40.1.windows.1
+

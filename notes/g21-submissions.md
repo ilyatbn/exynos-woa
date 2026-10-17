@@ -68,3 +68,4 @@ Measured (notes/g20-scaled-modes.md, gamebench): native gameplay 15 presents/s w
   the 2280x1080 mode sets my gamebench runs requested at 21:2x-21:3x ("test 0 -> 0") never re-created DWM primaries -
   the display had already timed out (~20 min after the last wake) and the requests queued. No long GPU waits logged.
   OPEN: slow wake from display-off, possibly with mode changes requested while off. Not explained yet.
+- 21:55 ARM64 UMD 0105 (mali-umd-0105, maliumd a17abe1c) staged in System32 via umdswap (new 64-bit processes now; DWM after reboot). x86 0105 = 27f737ef in SysWOW64.

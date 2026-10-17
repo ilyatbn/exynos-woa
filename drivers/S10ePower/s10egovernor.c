@@ -47,16 +47,18 @@ static double GpuBusy(void)
 {
     static BYTE buf[16384];
     DWORD bytes = sizeof(buf), n = 0, i;
-    double best = 0;
+    double sum = 0;
     PDH_FMT_COUNTERVALUE_ITEM_W *items = (PDH_FMT_COUNTERVALUE_ITEM_W *)buf;
     if (!gGpuQuery || PdhCollectQueryData(gGpuQuery) != ERROR_SUCCESS)
         return -1;
     if (PdhGetFormattedCounterArrayW(gGpuCounter, PDH_FMT_DOUBLE | PDH_FMT_NOCAP100, &bytes, &n, items) != ERROR_SUCCESS)
         return -1;
+    /* G17 (notes/g17-dxva-mfc.md): the instances are per process (pid_N_..._engtype_3D) - the engine's load is their
+     * SUM. The busiest single instance (the old max) saw only mpv's share and held the GPU at 433 MHz under video. */
     for (i = 0; i < n; i++)
-        if (items[i].FmtValue.CStatus == ERROR_SUCCESS && items[i].FmtValue.doubleValue > best)
-            best = items[i].FmtValue.doubleValue;
-    return best / 100.0;
+        if (items[i].FmtValue.CStatus == ERROR_SUCCESS && items[i].FmtValue.doubleValue > 0)
+            sum += items[i].FmtValue.doubleValue;
+    return sum >= 100.0 ? 1.0 : sum / 100.0;
 }
 
 static const GUID kConsoleDisplayState = { 0x6fe69556, 0x704a, 0x47a0, { 0x8f, 0x24, 0xc2, 0x8d, 0x93, 0x6f, 0xda, 0x47 } };
@@ -85,7 +87,17 @@ static unsigned gBoostMs = 300, gDownSamples = 6, gMinIntervalMs = 200;
 /* efficiency points (C5 follow-up): LITTLE load tracking stops at EffLittle unless a core is pegged (> 90 %) or
  * boosting - background work belongs on slow A55s; the GPU never goes below GpuFloor with the screen on */
 static unsigned gEffLittle = 1456000, gGpuFloor = 260000;
+/* G17 (notes/g17-dxva-mfc.md 17:4x): above GpuMaxBusyPct summed 3D-engine load the GPU goes to its ceiling. DWM's
+ * composition queues behind the app's jobs (one in-order queue, no preemption), so frame pacing needs clock headroom,
+ * not the ~80 % busy point that 1.25 x busy x ceiling settles at (mpv: 572 MHz -> DWM 43.6/s, 702 MHz -> 53/s). */
+static unsigned gGpuMaxBusyPct = 50;
 static volatile LONG gDisplayOn = 1;
+/* MIF (S10ePower v2): only the two device-verified devfreq_mif rates (notes/m15-perf.md:98). Screen on = 2093000 (the
+ * rate Linux runs here; G3D 702 MHz needs it, notes/g17-dxva-mfc.md 17:2x), screen off = 421000. Matching Samsung's
+ * per-G3D-step MIF column needs the full MIF ladder (UNVERIFIED steps) - not done. */
+#define MIF_ON   2093000u
+#define MIF_OFF  421000u
+static unsigned gMifCur;   /* 0 = not set by us yet */
 static HANDLE gStop, gPower = INVALID_HANDLE_VALUE;
 static SERVICE_STATUS_HANDLE gSs;
 static SERVICE_STATUS gStatus;
@@ -114,6 +126,7 @@ static void LoadConfig(void)
     gMinIntervalMs = Reg(k, "MinIntervalMs", 200);   /* 0.0.1 run: ~5 changes/s from SSH/WMI load spikes */
     gEffLittle = Reg(k, "EffLittle", 1456000);
     gGpuFloor = Reg(k, "GpuFloor", 260000);
+    gGpuMaxBusyPct = Reg(k, "GpuMaxBusyPct", 50);
     if (k)
         RegCloseKey(k);
 }
@@ -171,6 +184,25 @@ static void Set(DOMAIN *d, unsigned khz)
         if (gConsole)
             printf("%lu %s -> %u kHz (granted %u)\n", GetTickCount(), d->Name, khz,
                    s.CurKhz[d == &gDom[0] ? 0 : d == &gDom[1] ? 1 : 2]);
+    }
+}
+
+static void SetMif(unsigned khz)
+{
+    S10EPOWER_SET_FREQ f;
+    S10EPOWER_STATE s;
+    DWORD got = 0;
+    if (khz == gMifCur)
+        return;
+    f.Domain = S10EPOWER_DOM_MIF;
+    f.Khz = khz;
+    if (DeviceIoControl(gPower, IOCTL_S10EPOWER_SET_FREQ, &f, sizeof(f), &s, sizeof(s), &got, NULL)) {
+        gMifCur = khz;
+        gChanges++;
+        if (gConsole)
+            printf("%lu MIF -> %u kHz (granted %u)\n", GetTickCount(), khz, got >= sizeof(s) ? s.MifCurKhz : 0);
+    } else {
+        gMifCur = khz;   /* an older S10ePower without MIF: do not retry every 50 ms */
     }
 }
 
@@ -242,6 +274,7 @@ static void Run(void)
         }
         screen = gDisplayOn && PanelLit();
         boost = screen && lastTouch && t - lastTouch < gBoostMs;
+        SetMif(screen ? MIF_ON : MIF_OFF);
         if (!screen) {
             for (i = 0; i < 3; i++)
                 Set(&gDom[i], gDom[i].Ladder[0]);
@@ -277,7 +310,7 @@ static void Run(void)
                 } else if (gpuBusy >= 0) {
                     /* GPU: load tracking on the busiest 3D engine (1.25 x busy x ceiling), floor = half the ceiling
                      * while the screen is on so composition never starts from the minimum */
-                    unsigned want = (unsigned)(gpuBusy * 1.25 * d->Max);
+                    unsigned want = gpuBusy * 100 >= gGpuMaxBusyPct ? d->Max : (unsigned)(gpuBusy * 1.25 * d->Max);
                     target = StepAtLeast(d, want > gGpuFloor ? want : gGpuFloor);
                 } else {
                     /* no GPU counter: keep the ceiling; half-ceiling step after 5 s without touch + idle CPUs */
@@ -307,11 +340,13 @@ static void Run(void)
             Stat("CurLittle", gDom[0].Cur); Stat("CurMid", gDom[1].Cur); Stat("CurG3d", gDom[2].Cur);
             Stat("TouchEvent", touch != NULL);
             Stat("GpuBusyPct", gpuBusy < 0 ? 0xFFFFFFFF : (unsigned)(gpuBusy * 100));
+            Stat("CurMif", gMifCur);
         }
     }
     /* leaving: back to the boot rates so nothing stays at a minimum without a governor */
     for (i = 0; i < 3; i++)
         Set(&gDom[i], gDom[i].Max);
+    SetMif(MIF_ON);   /* what Linux runs; the sboot rate is UNKNOWN */
     CloseHandle(gPower);
 }
 

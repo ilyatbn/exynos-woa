@@ -525,3 +525,12 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   Next (native fix): S10eGovernor - G3D from GPU load (not only touch), MIF 2093000 while the screen is on and the
   GPU is above its floor, 421000 when the screen is off / GPU at floor.
 - 17:3x REVIEW c14bf78 (S10ePower v2): rates between the two verified ends round DOWN to 421000 (documented in ctl help); the driver never lowers MIF after a set - stays at 2093000 until the governor manages it (battery) -> governor task. REVIEW e59037a (kmdstats busy): header said ~1000x/s, measured ~500/s (2487 samples / 5 s) -> comment fixed in its own commit.
+- 17:4x S10eGovernor fix (native, no switches; s10egovernor.exe deployed, old kept as s10egovernor.exe.pre-mif):
+  (1) GpuBusy = SUM of the per-process "GPU Engine(*engtype_3D)" instances, capped at 100 % (was the busiest single
+  instance = mpv's share only); (2) MIF 2093000 with the screen on, 421000 off, 2093000 on exit (SetMif, verified rates
+  only; per-G3D-step MIF needs the full devfreq_mif ladder - read it from TWRP sysfs next time in TWRP);
+  (3) GpuMaxBusyPct (registry, default 50): summed 3D load >= 50 % -> G3D ceiling.
+  Measured, mpv default config: MIF 421000 + G3D 702 (my baseline mistake, no governor) 9.5 presents/s (gaps 1v 115,
+  "more" 64) -> MIF is decisive. Governor (1)+(2): G3D 572, 43.6/s, 1v 200-201 / 2v 99. + (3): G3D 702, 47.5/s,
+  1v 237-239 / 2v 57-63 of 300; after playback G3D back to 260, MIF stays 2093000 (screen on); G3D 52 C.
+  Deploy gotcha: `cd /d C:\S10eTmp && ...` over ssh failed ("cannot find the path") - use full paths.

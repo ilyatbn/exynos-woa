@@ -123,3 +123,11 @@ double-precision values". (Raw / structured buffer SRVs: the "Plus_RawAndStructu
   the 640x480 shared BOs). The windowed run (no mode change) played for minutes. Web search: nothing for this address.
   Next config: FullScreenMode=false + WindowedAttributes=borderless, fullscreensize (no mode change, screen-size
   window); conf backups .bak-exclusive / .bak-fake. tools/phone/games/dgvconf.ps1 for conf edits.
+- G25 scoping (2026-10-18): dgVoodoo's two GS disassembled on the PC (tools/mesa-build/dxbcdis/dxbcdis.py: tlog token
+  dump -> DXBC container with the DXBC checksum -> D3DDisassemble; zero checksum = E_FAIL): both gs_4_0,
+  dcl_inputprimitive point, dcl_outputtopology trianglestrip, dcl_maxout 4, 4 emits = D3D9 POINT SPRITES (size from
+  cb0[96]/[97] = point size min/max + attenuation A/B/C, quad around the projected position;
+  traces/games/nfsu2-gs0.txt, nfsu2-gs1.txt). Without a GS the sprites rasterize as 1-pixel points (particles).
+  Mesa src/poly (Asahi: gallium/drivers/asahi/agx_state.c drives poly_nir_lower_gs -> count / copy / pre-GS compute
+  shaders + CL kernels poly/cl/geometry.cl) is the general GS-via-compute path; our Panfrost build already has the CL
+  precompile toolchain (libpan). Multi-day port - G25 stays open.

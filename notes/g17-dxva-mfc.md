@@ -459,3 +459,31 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   sample points fall on black background, hence 0xff000000). mpv's frames carry the video throughout - nothing goes
   black. Image sent to the user. Panel itself still not seen (no capture path: GDI white, scan-out window black,
   webcam blocked by PC privacy). TEMP frame dump removed from the UMD again (not committed, never in Mesa history).
+- 15:9x USER (MALIKM_NO_GDI_PRESENT=1 for mpv only, diagnosis): "works but still kinda bad" -> DWM DOES compose the
+  runtime present of mpv's windowed flip-model chain. The 14:1x conclusion ("not composed, H4c") was drawn while mpv
+  rendered black (the 0095 bug) and is WRONG. Native fix = committed 0094 as is (flip-model buffers skip gdi_present,
+  runtime present only): the uncommitted "GDI draw + runtime present" edit and the TEMP pixel log reverted, never
+  committed. UMD f212a640 (= Mesa 2e961fd, 0095) deployed. "No sound" = mpvshot/mpvtest pass --no-audio (test only).
+  USER earlier with the GDI draw: "working but very choppy" (GDI readback 63-78 ms/frame -> ~13 fps).
+- 16:0x Smoothness measurements, native path (UMD f212a640, test.mp4 1080p23.976, exynosmfc-copy, gpu/d3d11):
+  tools/mfc/mpvstats.lua (new, --script): every second decdrop=0 delayed=0 vf-fps=23.98, time-pos tracks real time
+  -> mpv delivers every frame on time. kmdstats 10 s during playback: presents 37.6/s all GPU-path (idle desktop 0),
+  renders = submits = jobs 1017/s, irqs 1016/s. cputop 8 s: dwm 45.9 %, mpv 27.3 %, explorer 19.9 %, MsMpEng 16 %
+  of one core (6 cores) - not CPU-bound; mpv threads 16.9 / 11.3 %, none pegged. => DWM composes at ~38 Hz, not 60:
+  24 fps video on an uneven ~38 Hz composition = judder. Suspect: ~1000 tiny GPU jobs/s (per-submission latency /
+  serialisation), who issues them is next.
+- 16:1x Clock test (S10eGovernor stopped, s10epowerctl set g3d 702000, gpuclock 702.0 MHz before / during / after):
+  mpv playback kmdstats 10 s presents 37.9/s, jobs 1011/s - SAME as at ~410 MHz (37.6 / 1017) -> not GPU-clock bound.
+  Governor restarted (sc start), back in control. Governor policy note: with no touch for 5 s it steps the GPU to
+  half ceiling - video playback has no touch (separate follow-up, not the judder cause per this test).
+- 16:2x Interrupts: maligpu.c MkIsr is the only Gpu->Irqs++ (the 1 ms PollDpc path -> Reap -> MkJobTakeStatus reads
+  JOB_INT_RAWSTAT, never MkIsr), so kmdstats irqs 1016/s = real ISRs ~ jobs: completion is interrupt-driven, the
+  "1 ms poll caps jobs at ~1000/s" idea is wrong. Per-process submits (UMD tlog "submit N"): mpv ~460/s (~19 per
+  video frame), DWM ~560-1450/s. DWM present path (d3d10_gdi.c d3d10_scanout_present): full-screen blit into the
+  scan-out BO + fence_finish (CPU wait) + present, every composition.
+- 16:3x tools/mfc/mpvrate.sh (new; first version hung in its wait loop: empty -Opts made mpvshot fail -> fixed, 60 s
+  start deadline; the stopped bash loop survived TaskStop and kept launching mpv - killed). Clean runs after that:
+  default config / --profile=fast / --gpu-dumb-mode=yes / dumb + --window-scale=0.5 -> presents 0.0 in ALL (jobs 485
+  / 293 / 293 / 293, GPU 400 / 260 MHz): DWM composed nothing in these runs although it composed 37.6/s earlier with
+  the same command. Display timeout is 0 (never), governor ScreenOffs 0, DSIM line counter moving. Unknown: what the
+  screen shows (mpv window covered / screen turned off with the power button?) - asking the user.

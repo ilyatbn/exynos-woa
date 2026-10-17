@@ -57,3 +57,14 @@ errors". SPEED2.EXE = 32-bit x86 (timestamp 0x420aad27).
   => Native fix (G22 next): BC1-BC5 (and BC6H/BC7) emulation in the UMD - report the formats, back BC resources with
   RGBA8 (BC4/5: R8/RG8), decompress on upload (UpdateSubresourceUP, Unmap of written maps, copies in texel space) with
   Mesa's util_format S3TC/RGTC/BPTC unpackers. Needed by most D3D10/11 PC games too, not only dgVoodoo.
+
+## USB-C to A dongle: keyboard does not light up (user, 2026-10-17 ~22:55)
+- tools/phone/usbstate.ps1: ACPI\PNP0D10\0 (XHC0, the USB host controller) known to Windows but NOT present; no USB
+  devices; BCD debug No. tools/phone/uefilogusb.ps1 (S:\UEFILOG.TXT, last written 10-15 11:47 - newer images no longer
+  write it): "UsbHost: KD device bring-up Success, UFN0 visible to Windows, XHC0 hidden" - the M14/M17 KD image family
+  (BEYOND0LTE_USB_KD_DEVICE 1) keeps the USB-C port in DEVICE mode for KDNET: no VBUS boost, no xHCI -> a passive
+  OTG dongle gets no 5 V. Host mode itself worked in Windows on 10-11 (notes/m16-usb.md runs 13-16: dongle keyboard +
+  mouse, dock, USB stick; OTG_ILIM 1.2 A); MILESTONES M10 rows are stale.
+- Built (not flashed) a host image: s10e-artifacts/boot-host-gpuon-nowdt.img = HEAD 5c445be + build-only
+  GPU_POWER_ON 1 + WINDOWS_WATCHDOG 0 (the HANDOFF §39 interactive recipe; USB_KD_DEVICE 0 is HEAD's default).
+  Flashing needs the user's go-ahead; back up the current boot partition first (its image is not recorded).

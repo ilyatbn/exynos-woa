@@ -121,3 +121,4 @@ Windows reads temperatures and can throttle; lowering is fine.
   thermally limited (~1 min to the 83 C trip) - bursts and 2-thread loads benefit. Governor MaxMid = 2400000.
 - Windows' Task Manager "base speed 1.79 GHz" = Win32_Processor MaxClockSpeed / ~MHz from boot (cpu0 1456, cpu4
   1794), its "speed" = an estimate; it does not see ACPM rates.
+- REVIEW 2250edd: governor lowered MIF before the CPUs on screen-off (MID could sit at 2400 with MIF 421 for a moment) -> fixed: MIF up before the CPUs (screen on), down after them (screen off). Deployed.

@@ -288,10 +288,13 @@ static void Run(void)
         }
         screen = gDisplayOn && PanelLit();
         boost = screen && lastTouch && t - lastTouch < gBoostMs;
-        SetMif(screen ? MIF_ON : MIF_OFF);
+        /* MID 2400000 needs MIF 2093000 (DT mif-perf): MIF goes up before the CPUs and down after them */
+        if (screen)
+            SetMif(MIF_ON);
         if (!screen) {
             for (i = 0; i < 3; i++)
                 Set(&gDom[i], gDom[i].Ladder[0]);
+            SetMif(MIF_OFF);
             if (!wasOff)
                 gScreenOffs++;
             wasOff = TRUE;

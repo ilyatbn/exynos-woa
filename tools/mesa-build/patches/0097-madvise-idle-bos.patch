@@ -1,0 +1,71 @@
+From b1dd130b656007101b0330f06461df28e2e962ff Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 16:15:14 +0300
+Subject: [PATCH] malikm: honour MADVISE - BOs parked in Panfrost's BO cache
+ are not listed in submissions (exynos-woa 0097)
+
+Every live BO was listed in every submission, so a process's whole BO cache
+stayed in VidMm's working set: DWM grew to ~880 MB of the 1 GB aperture
+segment and, with an app beside it, VidMm evicted and remapped ~40
+allocations/s; the GPU stalled for up to 1 s. DONTNEED marks a BO idle (not
+listed), WILLNEED or use in a batch lists it again; pages are never dropped.
+---
+ include/win32-compat/malikm_drm.c | 20 +++++++++++++++++---
+ 1 file changed, 17 insertions(+), 3 deletions(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 7de473c..58a72f4 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -785,6 +785,8 @@ struct wbo {
+    uint32_t fixed;           /* exynos-woa H4b: not an allocation - memory the KMD keeps mapped in the GPU address
+                               * space for good (the scan-out framebuffer, h = WBO_FIXED): never listed in a
+                               * submission, never locked, GEM_CLOSE only forgets it */
++   uint32_t idle;            /* exynos-woa G17 (0097): Panfrost parked it in its BO cache (MADVISE DONTNEED) - not
++                              * listed in submissions until it is taken back (WILLNEED), so VidMm may evict it */
+ };
+ #define WBO_FIXED 0xffffffffu
+ /* runtime_owned value of an allocation OPENED from another device/process (OpenResource - e.g. a redirected swap
+@@ -2317,9 +2319,19 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+       a->offset = bo->va;
+       return 0;
+    }
+-   case MALIKM_NR_PANFROST_MADVISE:
+-      ((struct drm_panfrost_madvise *)b)->retained = 1;
++   case MALIKM_NR_PANFROST_MADVISE: {
++      /* exynos-woa G17 (notes/g17-dxva-mfc.md 17:8x): every live BO is listed in every submission (H2), so a
++       * process's whole BO cache stayed in VidMm's working set - DWM ~880 MB of a 1 GB segment; with an app beside
++       * it VidMm evicted and remapped ~40 allocations/s and the GPU stalled for up to 1 s. Panfrost marks a BO
++       * DONTNEED when it parks it in its cache and WILLNEED before reusing it (pan_bo.c cache put/fetch): parked BOs
++       * are not listed. Their pages are never discarded, so retained is always 1. */
++      struct drm_panfrost_madvise *a = (void *)b;
++      struct wbo *bo = wddm_bo(a->handle);
++      if (bo)
++         bo->idle = a->madv == PANFROST_MADV_DONTNEED;
++      a->retained = 1;
+       return 0;
++   }
+    case MALIKM_NR_PANFROST_WAIT_BO:
+       if (!wddm_bo(((struct drm_panfrost_wait_bo *)b)->handle))
+          return -MK_ENOENT;
+@@ -2349,6 +2361,7 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+          if (n == walloc_size)
+             return -MK_E2BIG;
+          bo->mark = gen;
++         bo->idle = 0;   /* a batch that uses it is the authority (Panfrost sends WILLNEED first anyway) */
+          memset(&walloc[n], 0, sizeof(walloc[n]));
+          walloc[n].hAllocation = bo->h;
+          /* Panfrost does not say which BOs a batch writes. An opened buffer (another process's - a redirected
+@@ -2359,7 +2372,8 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+       }
+       uint32_t skipped = 0;
+       for (uint32_t i = 0; i < wbo_cap; i++) {
+-         if (!wbo[i].h || wbo[i].mark == gen || wbo[i].fixed || wbo[i].gone || wbo[i].runtime_owned == WBO_OPENED)
++         if (!wbo[i].h || wbo[i].mark == gen || wbo[i].fixed || wbo[i].gone || wbo[i].idle ||
++             wbo[i].runtime_owned == WBO_OPENED)
+             continue;
+          if (n == walloc_size) {
+             skipped++;
+-- 
+2.40.1.windows.1
+

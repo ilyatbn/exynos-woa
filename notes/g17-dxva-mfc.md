@@ -564,3 +564,10 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   the shim ignored MADVISE (retained = 1 only). Fix (Mesa 0097, UMD fecdbce3): MADVISE DONTNEED -> wbo.idle (not
   listed), WILLNEED / use in a batch -> listed again; pages never discarded (retained 1). Fake (non-WDDM) path
   untouched. Deployed + phone reboot (fresh DWM, also clears the shell icon state after my dwm taskkill).
+- 18:0x VERIFIED after reboot (UMD fecdbce3 = Mesa 0097 + 0098 log): DWM GPU memory 190 MB at boot+61 s, 225 MB
+  playing (was ~880). First run at boot+61 s: presents 2.5/s (post-boot startup; mpv's tlog showed no present -
+  not repeated). Settled run, BBB 1080p24 with audio (volume 5), mpvstats + log: presents 24.8/s (= the video's 24
+  fps; DWM composes per changed frame), maps 5 / unmaps 5 in 12 s (= new allocations, thrash gone), GPU busy 47.2 %,
+  G3D 377 MHz (governor), MIF 2093000, decdrop 0 over 28.5 s, delayed 0; app pacing 480/600: present gaps 120/120
+  in 25-50 ms (wait mean 146-184 us, present 114-137 us). => the choppy playback was VidMm residency thrash caused
+  by listing Panfrost's cached BOs. Mesa 0097 (b1dd130, madvise) and 0098 (08dba8e, app pacing log) committed.

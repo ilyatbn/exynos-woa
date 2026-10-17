@@ -1,0 +1,65 @@
+From 08dba8e4417cb50f3a5ab39974d2b847602a4995 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 16:15:15 +0300
+Subject: [PATCH] d3d10umd: app present pacing log on the swap-chain allocation
+ path (exynos-woa 0098)
+
+Per 120 presents: mean/max of the flush + GPU wait and of the runtime
+present call, and the spacing between presents. G17 diagnosis.
+---
+ src/gallium/frontends/d3d10umd/DxgiFns.cpp | 32 +++++++++++++++++++++-
+ 1 file changed, 31 insertions(+), 1 deletion(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+index 300fdf5..8bc9998 100644
+--- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
++++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+@@ -225,6 +225,8 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
+     * the frame is finished first (DWM or the KMD read it once the present is queued), no CPU copy. */
+    if (pSrcResource && pSrcResource->kmt_present && !pSrcResource->kmt_primary) {
+       struct pipe_fence_handle *fence = NULL;
++      LARGE_INTEGER q0, q1, q2;
++      QueryPerformanceCounter(&q0);
+       device->pipe->flush(device->pipe, &fence, 0);
+       if (fence) {
+          device->pipe->screen->fence_finish(device->pipe->screen, NULL, fence, 100 * 1000 * 1000ull);
+@@ -239,7 +241,35 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
+       if (!pSrcResource->flip_model && gdi_present(device->pipe, pSrcResource->resource))   /* H4c (0061) */
+          return S_OK;
+       unsigned hDst = pPresentData->hDstResource ? CastResource(pPresentData->hDstResource)->kmt_present : 0;
+-      if (malikm_allocation_present(pSrcResource->kmt_present, hDst, pPresentData->pDXGIContext) == 0)
++      QueryPerformanceCounter(&q1);
++      int pr = malikm_allocation_present(pSrcResource->kmt_present, hDst, pPresentData->pDXGIContext);
++      QueryPerformanceCounter(&q2);
++      /* exynos-woa G17 (notes/g17-dxva-mfc.md): app present pacing - per 120 presents the mean / max of the flush +
++       * GPU wait and of the runtime present call, and the spacing between presents (ms buckets). */
++      {
++         static LARGE_INTEGER f, last;
++         static double sw, mw, sp, mp;
++         static unsigned n, h[5];
++         if (!f.QuadPart)
++            QueryPerformanceFrequency(&f);
++         double wus = (double)(q1.QuadPart - q0.QuadPart) * 1e6 / f.QuadPart;
++         double pus = (double)(q2.QuadPart - q1.QuadPart) * 1e6 / f.QuadPart;
++         sw += wus; sp += pus;
++         if (wus > mw) mw = wus;
++         if (pus > mp) mp = pus;
++         if (last.QuadPart) {
++            double gap = (double)(q0.QuadPart - last.QuadPart) * 1e3 / f.QuadPart;
++            h[gap <= 25 ? 0 : gap <= 50 ? 1 : gap <= 100 ? 2 : gap <= 250 ? 3 : 4]++;
++         }
++         last = q0;
++         if ((++n % 120) == 0) {
++            malikm_tlog("app pacing %u: wait mean %.0f max %.0f us, present mean %.0f max %.0f us, gaps <=25ms %u "
++                        "<=50 %u <=100 %u <=250 %u more %u", n, sw / 120, mw, sp / 120, mp, h[0], h[1], h[2], h[3], h[4]);
++            sw = mw = sp = mp = 0;
++            memset(h, 0, sizeof h);
++         }
++      }
++      if (pr == 0)
+          return S_OK;
+    }
+    d3d10_present_flip = pPresentData->Flags.Flip;
+-- 
+2.40.1.windows.1
+

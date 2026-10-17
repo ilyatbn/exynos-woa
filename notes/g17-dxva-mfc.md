@@ -226,3 +226,7 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;WD)(A;;GR;;;AC)(A;;GR;;;S-1-15-2-2)(A;;GR;;;RC)", devnode via mfcacl -Set.
   After reboot: device object DACL D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FR;;;WD)(A;;FR;;;AC)(A;;FR;;;S-1-15-2-2)(A;;FR;;;RC);
   AppContainer decode 30/30 on the MFC; ordertest (mfcdec read-only handle): 60 frames, decode order, identical.
+- 2026-10-17 V6d2 (0091, maliumd 1cb628cb): the D3D10UMD_VIDEO_DEV gate is gone; the profile is exposed when the
+  MFC device interface is present (CM_Get_Device_Interface_List_Size, once per process; absent -> hidden, callers
+  keep software). No environment variables: mfd3d c1080 -Rows 1080 -> DXVA texture array, 60/60 identical;
+  actestu (AppContainer) -> MFC session open, 30/30 decoded. (-Dev switches of the test scripts are now no-ops.)

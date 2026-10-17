@@ -1,0 +1,325 @@
+From db5fb49413e5582cd8f2f322623cf3215a51b648 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 17:20:15 +0300
+Subject: [PATCH] d3d10umd: RotateResourceIdentities rotates identities, not
+ contents; views follow (exynos-woa 0099)
+
+The upstream implementation copied pixels around the back-buffer ring while
+every Resource kept its own kernel allocation, so right after a Present it
+overwrote the buffer just handed to DWM with an older frame: DWM showed a
+3-buffer flip chain as 3 5 4 6 8 7 ... (tools flipseq). MS Learn
+pfnRotateResourceIdentities: rotate X, Y, Z to Y, Z, X, swap the kernel
+handles (not the runtime handles) and re-create views. The whole driver
+Resource rotates; a per-device registry of render-target and shader-resource
+views lets them, and the bound framebuffer / sampler views, follow the
+storage. flipseq afterwards: 0 1 2 3 ... in order.
+---
+ src/gallium/frontends/d3d10umd/DxgiFns.cpp    | 136 +++++++++++-------
+ .../frontends/d3d10umd/OutputMerger.cpp       |   3 +
+ src/gallium/frontends/d3d10umd/Shader.cpp     |   7 +
+ src/gallium/frontends/d3d10umd/State.h        |  39 +++++
+ 4 files changed, 133 insertions(+), 52 deletions(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+index 8bc9998..21d3e42 100644
+--- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
++++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+@@ -400,68 +400,100 @@ _RotateResourceIdentities( DXGI_DDI_ARG_ROTATE_RESOURCE_IDENTITIES *RotateResour
+ {
+    LOG_ENTRYPOINT();
+ 
+-   if (RotateResourceIdentities->Resources <= 1) {
++   /* exynos-woa G17 (0099, notes/g17-dxva-mfc.md 18:5x-18:6x): rotate IDENTITIES, not contents. Upstream copied the
++    * pixels around the ring while every Resource kept its own kernel allocation, so right after a Present it
++    * overwrote the buffer just handed to DWM with an older frame (flipseq: DWM showed 3 5 4 6 8 7 ...). MS Learn
++    * (DXGI_DDI_BASE_FUNCTIONS, pfnRotateResourceIdentities): "if the array of resources refers to resources X, Y, and
++    * Z ... must rotate those handles to refer to Y, Z, and X ... should swap the kernel handles of the corresponding
++    * resources. However, the driver should not swap the corresponding runtime (RT) handles" and "views can refer to
++    * resources ... the driver must re-create such views. Also, the driver might be required to reapply currently
++    * bound views." A Resource holds no RT handle, so the whole driver Resource (storage, kernel allocations,
++    * transfers, stream-output target) rotates; views of the rotated resources and the bound framebuffer / sampler
++    * views are pointed at the new storage. */
++   UINT n = RotateResourceIdentities->Resources;
++   if (n <= 1)
+       return S_OK;
++   if (n > 16) {
++      LOG_UNSUPPORTED(n > 16);
++      return E_INVALIDARG;
+    }
+ 
+-   struct pipe_context *pipe = CastPipeDevice(RotateResourceIdentities->hDevice);
+-   struct pipe_screen *screen = pipe->screen;
+-
+-   struct pipe_resource *resource0 = CastPipeResource(RotateResourceIdentities->pResources[0]);
+-
+-   assert(resource0);
+-   LOG_UNSUPPORTED(resource0->last_level);
+-
+-   /*
+-    * XXX: Copying is not very efficient, but it is much simpler than the
+-    * alternative of recreating all views.
+-    */
++   Device *pDevice = CastDevice(RotateResourceIdentities->hDevice);
++   struct pipe_context *pipe = pDevice->pipe;
++   Resource *res[16];
++   struct pipe_resource *oldp[16];
++   for (UINT i = 0; i < n; i++) {
++      res[i] = CastResource(RotateResourceIdentities->pResources[i]);
++      if (!res[i])
++         return E_INVALIDARG;
++      oldp[i] = res[i]->resource;
++   }
+ 
+-   struct pipe_resource *temp_resource;
+-   temp_resource = screen->resource_create(screen, resource0);
+-   assert(temp_resource);
+-   if (!temp_resource) {
+-      return E_OUTOFMEMORY;
++   /* X, Y, Z -> Y, Z, X: handle i now owns what handle i+1 owned */
++   Resource first = *res[0];
++   for (UINT i = 0; i + 1 < n; i++)
++      *res[i] = *res[i + 1];
++   *res[n - 1] = first;
++
++   /* a view created on handle i referenced oldp[i]; it must now reference res[i]->resource = oldp[i + 1] */
++   auto remap = [&](struct pipe_resource *p) -> struct pipe_resource * {
++      for (UINT i = 0; i < n; i++)
++         if (p == oldp[i])
++            return oldp[(i + 1) % n];
++      return NULL;
++   };
++
++   for (RenderTargetView *v = pDevice->rtv_list; v; v = v->rot_next) {
++      struct pipe_resource *np = remap(v->surface.texture);
++      if (np)
++         pipe_resource_reference(&v->surface.texture, np);
+    }
+ 
+-   struct pipe_box src_box;
+-   src_box.x = 0;
+-   src_box.y = 0;
+-   src_box.z = 0;
+-   src_box.width  = resource0->width0;
+-   src_box.height = resource0->height0;
+-   src_box.depth  = resource0->depth0;
+-
+-   for (UINT i = 0; i < RotateResourceIdentities->Resources + 1; ++i) {
+-      struct pipe_resource *src_resource;
+-      struct pipe_resource *dst_resource;
+-
+-      if (i < RotateResourceIdentities->Resources) {
+-         src_resource = CastPipeResource(RotateResourceIdentities->pResources[i]);
+-      } else {
+-         src_resource = temp_resource;
++   bool fb_changed = false;
++   for (unsigned i = 0; i < pDevice->fb.nr_cbufs; i++) {
++      struct pipe_resource *np = remap(pDevice->fb.cbufs[i].texture);
++      if (np) {
++         pipe_resource_reference(&pDevice->fb.cbufs[i].texture, np);
++         fb_changed = true;
+       }
+-
+-      if (i > 0) {
+-         dst_resource = CastPipeResource(RotateResourceIdentities->pResources[i - 1]);
+-      } else {
+-         dst_resource = temp_resource;
++   }
++   {
++      struct pipe_resource *np = remap(pDevice->fb.zsbuf.texture);
++      if (np) {
++         pipe_resource_reference(&pDevice->fb.zsbuf.texture, np);
++         fb_changed = true;
+       }
+-
+-      assert(dst_resource);
+-      assert(src_resource);
+-
+-      pipe->resource_copy_region(pipe,
+-                                 dst_resource,
+-                                 0, // dst_level
+-                                 0, 0, 0, // dst_x,y,z
+-                                 src_resource,
+-                                 0, // src_level
+-                                 &src_box);
++   }
++   if (fb_changed)
++      pipe->set_framebuffer_state(pipe, &pDevice->fb);
++
++   for (ShaderResourceView *v = pDevice->srv_list; v; v = v->rot_next) {
++      struct pipe_resource *np = v->handle ? remap(v->handle->texture) : NULL;
++      if (!np)
++         continue;
++      struct pipe_sampler_view *old = v->handle;
++      struct pipe_sampler_view *nv = pipe->create_sampler_view(pipe, np, old);   /* same format / levels / swizzle */
++      if (!nv)
++         continue;
++      v->handle = nv;
++      for (unsigned st = 0; st < MESA_SHADER_STAGES; st++) {
++         bool bound = false;
++         for (unsigned k = 0; k < PIPE_MAX_SHADER_SAMPLER_VIEWS; k++) {
++            if (pDevice->sampler_views[st][k] == old) {
++               pDevice->sampler_views[st][k] = nv;
++               bound = true;
++            }
++         }
++         if (bound)
++            pipe->set_sampler_views(pipe, (mesa_shader_stage)st, 0, PIPE_MAX_SHADER_SAMPLER_VIEWS, 0,
++                                    pDevice->sampler_views[st]);
++      }
++      pipe->sampler_view_release(pipe, old);
+    }
+ 
+-   pipe_resource_reference(&temp_resource, NULL);
+-
++   static unsigned logged;
++   if (logged++ < 4)
++      malikm_tlog("RotateResourceIdentities: %u resources, identities rotated (no copy)", n);
+    return S_OK;
+ }
+ 
+diff --git a/src/gallium/frontends/d3d10umd/OutputMerger.cpp b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+index ccda02e..4835369 100644
+--- a/src/gallium/frontends/d3d10umd/OutputMerger.cpp
++++ b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+@@ -85,6 +85,7 @@ CreateRenderTargetView(
+ 
+    struct pipe_resource *resource = CastPipeResource(pCreateRenderTargetView->hDrvResource);
+    RenderTargetView *pRTView = CastRenderTargetView(hRenderTargetView);
++   pRTView->rot_dev = NULL;   /* exynos-woa G17 (0099): not registered until created */
+ 
+    struct pipe_surface desc;
+ 
+@@ -130,6 +131,7 @@ CreateRenderTargetView(
+    }
+ 
+    pRTView->surface = desc;
++   ViewListAdd(&CastDevice(hDevice)->rtv_list, pRTView, CastDevice(hDevice));
+ }
+ 
+ 
+@@ -153,6 +155,7 @@ DestroyRenderTargetView(D3D10DDI_HDEVICE hDevice,                       // IN
+ 
+    RenderTargetView *pRTView = CastRenderTargetView(hRenderTargetView);
+ 
++   ViewListRemove(&CastDevice(hDevice)->rtv_list, pRTView);
+    pipe_resource_reference(&pRTView->surface.texture, NULL);
+ }
+ 
+diff --git a/src/gallium/frontends/d3d10umd/Shader.cpp b/src/gallium/frontends/d3d10umd/Shader.cpp
+index df6ffa1..80d18ca 100644
+--- a/src/gallium/frontends/d3d10umd/Shader.cpp
++++ b/src/gallium/frontends/d3d10umd/Shader.cpp
+@@ -1196,6 +1196,7 @@ CreateShaderResourceView(
+ 
+    struct pipe_context *pipe = CastPipeContext(hDevice);
+    ShaderResourceView *pSRView = CastShaderResourceView(hShaderResourceView);
++   pSRView->rot_dev = NULL;   /* exynos-woa G17 (0099): not registered until created */
+    struct pipe_resource *resource;
+    enum pipe_format format;
+ 
+@@ -1251,6 +1252,8 @@ CreateShaderResourceView(
+    }
+ 
+    pSRView->handle = pipe->create_sampler_view(pipe, resource, &desc);
++   if (pSRView->handle)   /* exynos-woa G17 (0099) */
++      ViewListAdd(&CastDevice(hDevice)->srv_list, pSRView, CastDevice(hDevice));
+ }
+ 
+ 
+@@ -1276,6 +1279,7 @@ CreateShaderResourceView1(
+ 
+    struct pipe_context *pipe = CastPipeContext(hDevice);
+    ShaderResourceView *pSRView = CastShaderResourceView(hShaderResourceView);
++   pSRView->rot_dev = NULL;   /* exynos-woa G17 (0099): not registered until created */
+    struct pipe_resource *resource;
+    enum pipe_format format;
+ 
+@@ -1333,6 +1337,8 @@ CreateShaderResourceView1(
+    }
+ 
+    pSRView->handle = pipe->create_sampler_view(pipe, resource, &desc);
++   if (pSRView->handle)   /* exynos-woa G17 (0099) */
++      ViewListAdd(&CastDevice(hDevice)->srv_list, pSRView, CastDevice(hDevice));
+ }
+ 
+ 
+@@ -1360,6 +1366,7 @@ DestroyShaderResourceView(D3D10DDI_HDEVICE hDevice,                           //
+    Device *pDevice = CastDevice(hDevice);
+    struct pipe_context *pipe = pDevice->pipe;
+ 
++   ViewListRemove(&pDevice->srv_list, pSRView);
+    pipe->sampler_view_release(pipe, pSRView->handle);
+    pSRView->handle = NULL;
+ }
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index aa96e42..cbe68d4 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -68,9 +68,16 @@ struct Shader
+ struct Query;
+ struct ElementLayout;
+ 
++struct RenderTargetView;
++struct ShaderResourceView;
++
+ struct Device
+ {
+    struct pipe_screen *screen;
++   /* exynos-woa G17 (0099): the device's live render-target / shader-resource views, so RotateResourceIdentities can
++    * point them at the rotated storage (MS Learn: "the driver must re-create such views") */
++   struct RenderTargetView *rtv_list;
++   struct ShaderResourceView *srv_list;
+    struct pipe_context *pipe;
+ 
+    struct cso_context *cso;
+@@ -239,6 +246,8 @@ struct RenderTargetView
+ {
+    struct pipe_surface surface;
+    D3D10DDI_HRTRENDERTARGETVIEW hRTRenderTargetView;
++   struct Device *rot_dev;                       /* exynos-woa G17 (0099): on rot_dev's rtv_list, NULL if not */
++   struct RenderTargetView *rot_prev, *rot_next;
+ };
+ 
+ 
+@@ -394,8 +403,38 @@ CastPipeSamplerState(D3D10DDI_HSAMPLER hSampler)
+ struct ShaderResourceView
+ {
+    struct pipe_sampler_view *handle;
++   struct Device *rot_dev;                       /* exynos-woa G17 (0099): on rot_dev's srv_list, NULL if not */
++   struct ShaderResourceView *rot_prev, *rot_next;
+ };
+ 
++/* exynos-woa G17 (0099): view registry for RotateResourceIdentities (DxgiFns.cpp) */
++template <typename V>
++static inline void
++ViewListAdd(V **head, V *v, struct Device *dev)
++{
++   v->rot_dev = dev;
++   v->rot_prev = NULL;
++   v->rot_next = *head;
++   if (*head)
++      (*head)->rot_prev = v;
++   *head = v;
++}
++
++template <typename V>
++static inline void
++ViewListRemove(V **head, V *v)
++{
++   if (!v->rot_dev)
++      return;
++   if (v->rot_prev)
++      v->rot_prev->rot_next = v->rot_next;
++   else
++      *head = v->rot_next;
++   if (v->rot_next)
++      v->rot_next->rot_prev = v->rot_prev;
++   v->rot_dev = NULL;
++}
++
+ 
+ static inline ShaderResourceView *
+ CastShaderResourceView(D3D10DDI_HSHADERRESOURCEVIEW hShaderResourceView)
+-- 
+2.40.1.windows.1
+

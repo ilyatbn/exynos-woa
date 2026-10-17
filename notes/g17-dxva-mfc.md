@@ -620,3 +620,12 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   (pid 8204, running the OLD e7bde40b with the seqpix hook) hung in teardown; the new UMD was never loaded = 0099
   untested, not proven bad. Recovered by `shutdown /r` (DWM up after 92 s). Separate issue: process teardown hangs
   (also seen with mpv earlier: unkillable, WaitReason Executive). Next: deploy 0099 + reboot (no taskkill), flipseq.
+- 18:8x FIXED (frame order): Mesa 0099 (db5fb49) deployed + reboot (DWM loads it at boot, no taskkill): DWM pid 1344
+  logs "RotateResourceIdentities: 3 resources, identities rotated (no copy)"; flipseq 240 frames -> seqpix sequence
+  0 1 2 3 ... 174 ... in order: steps back 0, skipped 0, repeats 3 (DWM recomposing while waiting). Was 3 5 4 6 8 7 ..
+  (80 steps back / 240). Mesa 0100 (b6aae71) = Render timing log. seqpix TEMP not committed (d3d10_gdi.c reverted;
+  the deployed 6ac70770 still has it, flag off = one GetFileAttributes per 60 presents).
+  REVIEW 0099: rotates the whole driver Resource (storage, kmt_*, transfers, so_target); RTV/SRV registry repoints
+  views + bound fb + bound sampler views. Gaps (documented, not fixed): UAVs on swap-chain buffers and bound
+  stream-output targets are not remapped (unusual for back buffers; UAVs barely exist at FL 10_1). Create error
+  paths leave rot_dev NULL -> destroy safe; n > 16 refused (DXGI max BufferCount 16).

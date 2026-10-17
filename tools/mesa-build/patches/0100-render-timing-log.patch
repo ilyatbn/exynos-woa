@@ -1,0 +1,56 @@
+From b6aae71a6cab78bff9d6e0db5e923c7413a2b100 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 17:20:15 +0300
+Subject: [PATCH] malikm: Render CPU time per submission in the submit log
+ (exynos-woa 0100)
+
+Mean / max of the runtime Render call over each 500 submissions, with the
+listed and live BO counts. G17 diagnosis.
+---
+ include/win32-compat/malikm_drm.c | 22 ++++++++++++++++++++--
+ 1 file changed, 20 insertions(+), 2 deletions(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 58a72f4..baf89bf 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -2395,7 +2395,10 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+       c->Slot = (a->requirements & PANFROST_JD_REQ_FS) ? 0 : 1;
+       c->Jc = a->jc;
+       wlist_want = n + skipped + 64;
++      LARGE_INTEGER rq0, rq1;
++      QueryPerformanceCounter(&rq0);
+       NTSTATUS st = w_render(sizeof(*c), n);
++      QueryPerformanceCounter(&rq1);
+       if (st < 0) {
+          static unsigned fails;
+          /* exynos-woa H5 (0058): run h3q - 174 "panfrost_batch_submit failed: 5" in Explorer with no reason */
+@@ -2407,8 +2410,23 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+          return -MK_EIO;
+       }
+       wseq++;
+-      if ((wseq % 500) == 0)
+-         malikm_tlog("submit %llu (%u allocations listed)", (unsigned long long)wseq, n);
++      {
++         /* exynos-woa G17 (notes/g17-dxva-mfc.md): CPU time in the runtime's Render per submission (VidMm walks the
++          * allocation list on every call) - mean / max over the 500 submissions before each "submit" line */
++         static LARGE_INTEGER qf;
++         static double rsum, rmax;
++         if (!qf.QuadPart)
++            QueryPerformanceFrequency(&qf);
++         double us = (double)(rq1.QuadPart - rq0.QuadPart) * 1e6 / qf.QuadPart;
++         rsum += us;
++         if (us > rmax)
++            rmax = us;
++         if ((wseq % 500) == 0) {
++            malikm_tlog("submit %llu (%u allocations listed, %u live BOs): Render mean %.0f max %.0f us",
++                        (unsigned long long)wseq, n, n + skipped, rsum / 500, rmax);
++            rsum = rmax = 0;
++         }
++      }
+       return 0;
+    }
+    case MALIKM_NR_GEM_CLOSE: {
+-- 
+2.40.1.windows.1
+

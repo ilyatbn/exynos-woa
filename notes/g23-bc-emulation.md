@@ -35,3 +35,20 @@ RGTC unpack). Step 2 (later): re-compress to a format the GPU decodes (ASTC/ETC2
   fix now, noted): Map READ of a BCn subresource returns the shadow (zeros unless an earlier map wrote it); copies
   between a BCn and a non-BCn format (D3D10.1 reinterpret copies, e.g. BC1 <-> R32G32_UINT) are not emulated; memory 4x
   (BC2/3/5) to 8x (BC1/4) per texture - step 2 (re-compression to ASTC/ETC2) addresses that.
+- 23:5x d3dcaps tool (drivers/MaliG76Wddm/tools/d3dcaps, Mali vs WARP at FL 10_1, traces/games/d3dcaps-1.txt): 62
+  differences; WARP-only: D3D10_X_HARDWARE_OPTIONS (CS 4.x), 2x MSAA levels, B4G4R4A4 RT/blend (DXGI 115: our
+  FormatTranslate had no entry -> answered NOT_SUPPORTED, a bit reserved for R10G10B10_XR_BIAS) and minor ones.
+  Fixed 115 (-> PIPE_FORMAT_B4G4R4A4_UNORM, Panfrost VTR): now RT/blend like WARP; dgVoodoo still fails.
+- dbgcap D11Stub lines all from other processes (DWM), never the game.
+- DIAGNOSIS (rule 12, env D3D10UMD_DIAG_CS4X=1 makes GetCaps SHADER advertise CS 4.x; tools/phone/games/
+  gamedbg-cs4x.ps1): dgVoodoo then calls D11Stub_CreateComputeShader x4 + CsSetSamplers and the "Cannot initialize
+  the DDI object / no output device" errors are GONE; the game then exits 3 (abort) later (stubs).
+  => ROOT CAUSE: dgVoodoo's D3D11 FL10 backend requires compute shaders 4.x (D3D10_X_HARDWARE_OPTIONS). Native fix =
+  implement CS 4.0/4.1 in the UMD (CreateComputeShader + CsSet*, raw/structured buffer SRV/UAV, TGSM, Dispatch).
+- Commits: Mesa 0109 (patches/0109-b4g4r4a4.patch: DXGI 115 -> PIPE B4G4R4A4), 0110 (0110-diag-cs4x.patch: the
+  diagnosis switch; default off). Builds: x86 mali-umd-0109-x86 (c02a34ea) in SysWOW64; ARM64 mali-umd-0110 (5f697c79)
+  in System32 via umdswap (new processes; DWM after a reboot). d3dbc ARM64 build: 0 of 63 differ -> PASS
+  (traces/games/d3dbc-arm64.txt). dgVoodoo release D3D9.dll + normal conf back in C:\Games\src.
+- STATUS: step 1 (BC emulation) DONE and verified on both UMDs. NFSU2 via dgVoodoo is NOT ingame yet: it needs compute
+  shaders 4.x (next task: G24 CS 4.x in the UMD - large: DXBC cs_4_x parse + TGSI compute, raw/structured buffer
+  SRV/UAV, TGSM, Dispatch, the CsSet* DDIs).

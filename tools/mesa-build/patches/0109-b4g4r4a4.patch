@@ -1,0 +1,27 @@
+From f55d765ba5c0984fdfaa87208d9b0b30adfb65fb Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 23:48:31 +0300
+Subject: [PATCH 109/110] d3d10umd: DXGI_FORMAT_B4G4R4A4_UNORM ->
+ PIPE_FORMAT_B4G4R4A4_UNORM (was NOT_SUPPORTED) (exynos-woa 0109)
+
+---
+ src/gallium/frontends/d3d10umd/Format.cpp | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/gallium/frontends/d3d10umd/Format.cpp b/src/gallium/frontends/d3d10umd/Format.cpp
+index 578d611..216a33c 100644
+--- a/src/gallium/frontends/d3d10umd/Format.cpp
++++ b/src/gallium/frontends/d3d10umd/Format.cpp
+@@ -280,6 +280,9 @@ FormatTranslate(DXGI_FORMAT Format, BOOL depth)
+       return PIPE_FORMAT_B5G6R5_UNORM;
+    case DXGI_FORMAT_B5G5R5A1_UNORM:
+       return PIPE_FORMAT_B5G5R5A1_UNORM;
++   case DXGI_FORMAT_B4G4R4A4_UNORM:   /* exynos-woa G23: DXGI 1.2 16-bit format (D3D9 A4R4G4B4); answered
++                                       * NOT_SUPPORTED before, a bit the WDK reserves for R10G10B10_XR_BIAS */
++      return PIPE_FORMAT_B4G4R4A4_UNORM;
+    case DXGI_FORMAT_B8G8R8A8_UNORM:
+       return PIPE_FORMAT_B8G8R8A8_UNORM;
+    case DXGI_FORMAT_B8G8R8X8_UNORM:
+-- 
+2.40.1.windows.1
+

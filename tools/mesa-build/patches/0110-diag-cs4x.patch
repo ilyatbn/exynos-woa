@@ -1,0 +1,31 @@
+From 5c8935ca43031d953624879de2db54215961b0b8 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 23:48:31 +0300
+Subject: [PATCH 110/110] d3d11: D3D10UMD_DIAG_CS4X=1 advertises CS 4.x -
+ diagnosis only (exynos-woa 0110)
+
+---
+ src/gallium/frontends/d3d10umd/D3D11.cpp | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/src/gallium/frontends/d3d10umd/D3D11.cpp b/src/gallium/frontends/d3d10umd/D3D11.cpp
+index 19b16aa..de82936 100644
+--- a/src/gallium/frontends/d3d10umd/D3D11.cpp
++++ b/src/gallium/frontends/d3d10umd/D3D11.cpp
+@@ -226,6 +226,13 @@ D3D11GetCaps(const D3D10_2DDIARG_GETCAPS *pData, HRESULT *phr)
+    case D3D11DDICAPS_SHADER:
+       if (pData->DataSize < sizeof(D3D11DDI_SHADER_CAPS)) { *phr = E_INVALIDARG; return TRUE; }
+       memset(pData->pData, 0, pData->DataSize);   /* no doubles */
++      {
++         /* exynos-woa G23 DIAGNOSIS ONLY (AGENTS.md rule 12): D3D10UMD_DIAG_CS4X=1 advertises compute shaders at
++          * FL 10_x (the CS entry points are still stubs) - does an application (dgVoodoo) then try to create one? */
++         const char *cs = getenv("D3D10UMD_DIAG_CS4X");
++         if (cs && *cs == '1')
++            ((D3D11DDI_SHADER_CAPS *)pData->pData)->Caps |= D3D11DDICAPS_SHADER_COMPUTE_PLUS_RAW_AND_STRUCTURED_BUFFERS_IN_SHADER_4_X;
++      }
+       return TRUE;
+    case D3D11DDICAPS_3DPIPELINESUPPORT: {
+       if (pData->DataSize < sizeof(D3D11DDI_3DPIPELINESUPPORT_CAPS)) { *phr = E_INVALIDARG; return TRUE; }
+-- 
+2.40.1.windows.1
+

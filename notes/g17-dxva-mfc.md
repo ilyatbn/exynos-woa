@@ -536,3 +536,14 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   Deploy gotcha: `cd /d C:\S10eTmp && ...` over ssh failed ("cannot find the path") - use full paths.
 - 17:5x REVIEW cb8e9e0: SetMif marked the rate as set on ANY failed IOCTL (meant for an old driver) -> one transient ACPM failure would have left MIF unset all session. Fix: MIF support probed once (GET_STATE size >= v2 struct, stat MifControl), failed requests retried at most every 5 s. Device: MIF forced to 421000, governor restarted -> MifControl 1, CurMif 2093000, driver MIF cur 2093000. Other review points (no change): any app >= 50 % GPU load runs at 702 MHz (thermal guard 83/88 C caps it); MIF at 2093000 whenever the screen is on (Linux does the same here) - battery cost, refine with the full MIF ladder.
 - 17:6x TEMP MALIKM_NO_LINEAR_CONVERT reverted (never committed); clean UMD 71ef0e38 (= Mesa 1337e37, 0096) deployed (umdswap; DWM keeps its loaded copy until it restarts).
+- 17:7x USER: "exactly the same as before, not smooth at all" + NEW: quick-settings icons (Wi-Fi, battery saver,
+  hotspot) missing or tiny. DWM pacing during the user's own BBB playback: mostly 3v gaps (1v 0-54 / 2v 78-158 /
+  3v 95-216 of 300) - much worse than my no-audio runs. One run overlapped (user's mpv + mine) - void.
+  bbb1080.mov = h264 1920x1080 24 fps + aac 48 kHz (C:\Users\S10e\Videos). My BBB run with audio (volume 5, launched
+  via userrun = not foreground): presents 10.1/s, GPU busy 26.6 %, mpvstats decdrop 374 by t=28 s (mpv drops frames
+  to keep A/V sync), delayed 0. mpv log: one wasapi under-run at start, then "Audio/Video desynchronisation detected"
+  at 2.95 s. coretop (new tools/phone/coretop.ps1) BBB no audio: presents 18.8, CPU 13 %, MID 507 MHz; with audio:
+  presents 3.5, cpu4 51 %, G3D 260 (governor sees no GPU load). tools/mfc/decbench.ps1 (new): exynosmfc-copy decodes
+  BBB at 72.5 fps untimed (3x real time) -> decoder throughput is not the limit. => mpv mostly WAITS (low CPU, low
+  GPU, few presents). Next: app-side present pacing log (UMD 49d9cb7a, TEMP until reviewed) during the user's own
+  foreground playback.

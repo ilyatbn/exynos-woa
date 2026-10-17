@@ -53,3 +53,18 @@ User 2026-10-17: "yes to attempting to add a lower 720p resolution scale to see 
   pinned source, Commit stores SrcW/SrcH (MwLog CommitSrcWxH), HWCapability DriverScaling=1 on a scaled path;
   command.c ScalePresent (nearest, CPU fallback; gated on ScaledModes). Device test pending (needs the UMD stretch too,
   else GPU-presented frames of a 720x1520 primary fall to the CPU path = still visible via ScalePresent).
+- Review of ab0ebf2 (KMD):
+  - checked: ScaledModes=0 keeps the old behaviour - SourceKind 1 == the old size test, AddSourceMode adds native only
+    (addScaled needs ScaledOn), Cofunc support Identity only, HWCaps zero (ScaledOn gate), DoPresent scale gated.
+  - checked: GpuPresented freeze risk - Mesa malikm_primary_present marks a primary GPU-presented only on the GPU
+    path (bgrx NULL); a refused (size-mismatch) frame goes present_copy -> KMD DoPresent -> ScalePresent. No freeze.
+  - checked: ScalePresent bounds - source row y*VH/fh in [top, bottom) for y in [ceil(top*fh/VH), ceil(bottom*fh/VH)),
+    likewise x; r clipped to the primary and source, so indices stay inside.
+  - FOUND: IsSupportedVidPn accepts a pinned scaled source on a path whose scaling is pinned IDENTITY (invalid per the
+    MS Learn sentence above). -> follow-up commit.
+  - NOTE (for the UMD task): the rotated GPU present passes so->width0/height0 to malikm_primary_present, which must
+    equal the kernel primary (source mode, unrotated) size; with a scaled mode that is (res->height0, res->width0),
+    not the scan-out size.
+  - SrcW/SrcH are only logged (CommitSrcWxH), DoPresent uses the primary's own size - stated in the header comment.
+- Follow-up (review of ab0ebf2): IsSupportedVidPn rejects a scaled pinned source with an IDENTITY path for source 0.
+  KMD 1.0.67.1 rebuilt (s10e-artifacts\mali-kmd-67, sys b6012665).

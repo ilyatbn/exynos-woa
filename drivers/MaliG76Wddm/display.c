@@ -473,9 +473,28 @@ NTSTATUS APIENTRY MwIsSupportedVidPn(IN_CONST_HANDLE hAdapter, DXGKARG_ISSUPPORT
     st = setIf->pfnAcquirePinnedModeInfo(set, &pinned);
     /* Supported if nothing is pinned yet, or what is pinned is our mode. */
     if (NT_SUCCESS(st)) {
-        Arg->IsVidPnSupported = pinned == NULL || SourceKind(dev, pinned) != 0;
+        int kind = pinned != NULL ? SourceKind(dev, pinned) : -1;
+        Arg->IsVidPnSupported = kind != 0;
         if (pinned != NULL)
             setIf->pfnReleaseModeInfo(set, pinned);
+        /* G20: a scaled source cannot go with a pinned IDENTITY scaling (MS Learn D3DKMDT_VPPS_IDENTITY: "available
+         * only if the path's source mode has the same spatial resolution as the path's target mode"). */
+        if (kind == 2) {
+            D3DKMDT_HVIDPNTOPOLOGY topo;
+            const DXGK_VIDPNTOPOLOGY_INTERFACE *topoIf;
+            const D3DKMDT_VIDPN_PRESENT_PATH *path = NULL, *next;
+            if (NT_SUCCESS(vidpn->pfnGetTopology(Arg->hDesiredVidPn, &topo, &topoIf)) &&
+                topoIf->pfnAcquireFirstPathInfo(topo, &path) == STATUS_SUCCESS) {
+                while (path != NULL) {
+                    if (path->VidPnSourceId == 0 && path->ContentTransformation.Scaling == D3DKMDT_VPPS_IDENTITY)
+                        Arg->IsVidPnSupported = FALSE;
+                    if (topoIf->pfnAcquireNextPathInfo(topo, path, &next) != STATUS_SUCCESS)
+                        next = NULL;
+                    topoIf->pfnReleasePathInfo(topo, path);
+                    path = next;
+                }
+            }
+        }
     }
     vidpn->pfnReleaseSourceModeSet(Arg->hDesiredVidPn, set);
     MwPramText(FALSE, "IsSupported pinned.ok ", NULL, ((pinned != NULL) ? 0x10u : 0u) | (Arg->IsVidPnSupported ? 1u : 0u), TRUE);

@@ -745,3 +745,9 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   no doc statement found; rule 11: not traced inside Windows]. The earlier "VM flat at 639 MB" run was the game
   failing its allocations (no tiler heap -> black screen + music). On-demand is a dead end for 32-bit apps.
   => Sub-allocation in the 32-bit shim (pack small BOs into large allocations, one 32 MB CPU view per slab).
+- SUB-ALLOCATION (Mesa shim 0102, 32-bit only; UMD ARM64 5f5ee20c = no functional change for 64-bit, x86 2483830a):
+  small (<= 2 MB) no-exec non-heap BOs carved from 32 MB slab allocations (locked once), listed once per submission
+  via the slab's mark, closed pages back to the slab after the GPU finished (wsubdead with wdead_flush), zero-filled
+  on allocation; exec / heap / larger BOs unchanged; unlock-on-unmap dropped (no benefit seen; unsafe with slabs);
+  KMD CpuVisibleOnDemand registry back to 0 (nothing marks on-demand any more). Game: VM settles at ~1.16 GB (was
+  -> 4031 MB and dying), 3 slabs for 279 live BOs, no create-bo / Render failures, KMD presents 16.8/s. User check.

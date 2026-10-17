@@ -98,6 +98,8 @@ static volatile LONG gDisplayOn = 1;
 #define MIF_ON   2093000u
 #define MIF_OFF  421000u
 static unsigned gMifCur;   /* 0 = not set by us yet */
+static BOOL gMifOk;        /* S10ePower v2+ (state carries the Mif fields) - probed once in Run */
+static ULONGLONG gMifRetry; /* after a failed request: next try not before this tick */
 static HANDLE gStop, gPower = INVALID_HANDLE_VALUE;
 static SERVICE_STATUS_HANDLE gSs;
 static SERVICE_STATUS gStatus;
@@ -192,7 +194,7 @@ static void SetMif(unsigned khz)
     S10EPOWER_SET_FREQ f;
     S10EPOWER_STATE s;
     DWORD got = 0;
-    if (khz == gMifCur)
+    if (!gMifOk || khz == gMifCur || GetTickCount64() < gMifRetry)
         return;
     f.Domain = S10EPOWER_DOM_MIF;
     f.Khz = khz;
@@ -202,7 +204,7 @@ static void SetMif(unsigned khz)
         if (gConsole)
             printf("%lu MIF -> %u kHz (granted %u)\n", GetTickCount(), khz, got >= sizeof(s) ? s.MifCurKhz : 0);
     } else {
-        gMifCur = khz;   /* an older S10ePower without MIF: do not retry every 50 ms */
+        gMifRetry = GetTickCount64() + 5000;   /* review of cb8e9e0: a failed request is retried, at most every 5 s */
     }
 }
 
@@ -249,6 +251,13 @@ static void Run(void)
     if (gPower == INVALID_HANDLE_VALUE) {
         Stat("LastError", GetLastError());
         return;
+    }
+    {
+        S10EPOWER_STATE st;
+        DWORD got = 0;
+        gMifOk = DeviceIoControl(gPower, IOCTL_S10EPOWER_GET_STATE, NULL, 0, &st, sizeof(st), &got, NULL) &&
+                 got >= sizeof(st);
+        Stat("MifControl", gMifOk);
     }
     qsi(8 /* SystemProcessorPerformanceInformation */, prev, sizeof(prev[0]) * ncpu, NULL);
     GpuInit();

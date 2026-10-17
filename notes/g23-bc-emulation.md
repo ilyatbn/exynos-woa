@@ -28,3 +28,10 @@ RGTC unpack). Step 2 (later): re-compress to a format the GPU decodes (ASTC/ETC2
   SetError), then tears down without a single CreateVertexShader (DDI trace, traces/games/malikm-SPEED2.EXE-1668.txt);
   OutputAPI d3d11_fl10_0 the same; d3d11warp WORKS (game proceeds to EnumAdapterModes). Next call is refused above the
   UMD (runtime validation) or dgVoodoo's own check; the D3D11 debug layer (Graphics Tools) is unavailable (WU blocked).
+- Review of Mesa 0107: checked - (1) UpdateSubresourceUP with a box: pSysMemUP points at the box origin (D3D rule), the
+  decode starts there - right; box clamped to the mip. (2) array / cube layers: subResourceBox gives box.z = layer,
+  depth 1 - the z loops decode one slice. (3) typeless BCn: FormatTranslate -> DXT*_RGBA -> RGBA8 backing; sRGB views
+  of it reinterpret RGBA8 as SRGB (same layout). (4) sRGB: decode with the UNORM variant, store raw. Limitations (no
+  fix now, noted): Map READ of a BCn subresource returns the shadow (zeros unless an earlier map wrote it); copies
+  between a BCn and a non-BCn format (D3D10.1 reinterpret copies, e.g. BC1 <-> R32G32_UINT) are not emulated; memory 4x
+  (BC2/3/5) to 8x (BC1/4) per texture - step 2 (re-compression to ASTC/ETC2) addresses that.

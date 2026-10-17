@@ -1,0 +1,58 @@
+# Dynamic CPU / GPU clocks (DVFS) + UI priority under Windows
+
+User directive 2026-10-17 (memory clocks-directive-20261017): after alpha6 - dynamic CPU and GPU clocks (minimum with
+the screen off and when idle, spin up on touch so the UI is smooth), find the highest usable clocks assuming the two
+big (cheetah/M4) cores never work, same for the GPU, and a scheme where the UI gets real-time performance while idle
+and background work gets lower priority. Standing rule (memory thermals-before-clocks): no clock INCREASE before
+Windows reads temperatures and can throttle; lowering is fine.
+
+## Facts already established (do not re-derive)
+- notes/cpu-driver-9820.md F2/F9/F11: CPU clusters are driven by ACPM IPC (mailbox 0x15900000+0x1000, SRAM
+  0x2039000+0x30000, framework at SRAM+0x7000), DVFS domain idx 2 LITTLE (A55 x4, 442 MHz..1.95 GHz, 13 OPPs),
+  3 MID (A75 x2, 507/650 MHz..2.4 GHz, 17 OPPs; 2.4/2.314 GHz need MIF >= 2.093 GHz), 4 BIG (M4 x2, not running
+  under Windows). Message u32[4] {idx | seq<<16, kHz, opcode FREQ_REQ 0 / FREQ_GET 1, 0}, doorbell INTGR0
+  (1<<ch)<<16, polling INTSR1, 15 ms timeout; a mis-paired/unanswered request makes the kernel emergency-reset - the
+  ACPM is load-bearing. Verified in the shipped kernel binary (F11).
+- notes/m15-perf.md runs 31/32: UEFI (Beyond0LteTouchPowerDxe / GpuAcpm.c) already sends FREQ_REQ - today's fixed
+  clocks: LITTLE 1456 MHz, MID 1794 MHz (s10eperf measures ~1.45 / ~1.79 GHz), GPU 260 MHz (ACPM ch 0 id 10,
+  table 702..156 MHz, notes/thermal-research.md Q5). Windows itself has no ACPM client and no DVFS.
+- notes/thermal-research.md: temperatures = ACPM ch 9 READ_TEMP (tz 0..4 BIG/MID/LITTLE/G3D/ISP, reply w1[31:24]
+  deg C); the TMU hardware trip (115 C) is probably NOT armed under Windows -> the phone is unprotected; stage plan
+  0-3 (UEFI read-only check, Windows logging, ACPI thermal zones, passive cooling). DT trips: CPU control 83 C, GPU
+  88 C, alerts 95-110 C, hot 115 C.
+- Idle states: PSCI standby per class (F4). Energy data (F5) ranks LITTLE < MID < BIG.
+
+## Design
+1. **S10ePower KMDF driver** (one owner of the ACPM mailbox under Windows - serialized, polling mode, never leaves a
+   request unanswered): FREQ_REQ/FREQ_GET for idx 2/3 (CPU) and the GPU domain, READ_TEMP ch 9 for tz 1..3. Reads
+   the per-SKU OPP ladder from ACPM SRAM fvmap (F9 point 3) instead of hard-coding. IOCTL interface + registry stats.
+   Thermal guard inside the driver: any request above a temperature-dependent cap is clamped (CPU 83 C / GPU 88 C
+   control temps step clocks down; >= 95 C forces minimum). This makes clock increases allowed under the rule.
+2. **Governor** (user-mode service S10eGovernor, SYSTEM): inputs - display state (power setting notification
+   GUID_CONSOLE_DISPLAY_STATE + our panel escape state), per-cluster CPU load (NtQuerySystemInformation
+   SystemProcessorPerformanceInformation, 20-50 ms), GPU busy (KMD stats escape MW_ESCAPE_STATS), touch activity
+   (touch driver interrupt count / an event the touch driver sets). Policy: screen off -> all minimum; idle ->
+   minimum; touch -> immediate boost of MID + GPU for N ms (input boost, like Android's touchboost); load-tracking
+   in between (schedutil-like: next freq = 1.25 * util * max). Hysteresis to avoid thrash; rate-limit ACPM calls.
+3. **UI priority (native Windows mechanism)**: the Windows 11 scheduler places high-QoS (foreground/UI) threads on
+   higher-performance cores and EcoQoS/background threads on efficient cores when the firmware describes
+   heterogeneity - ACPI MADT GICC EfficiencyClass (LITTLE 0, MID 1) + PPTT. Check what our MADT says today; set the
+   classes (firmware/ACPI change, boot path!) so foreground work lands on the A75s and background on the A55s. Then
+   the governor can keep LITTLE low and MID fast when the user interacts. (Research MS docs: "heterogeneous
+   processors / efficiency class" before changing.)
+4. **Max-clock tests** (after 1's thermal guard): step LITTLE to 1.95 GHz, MID to 2.4 GHz (needs MIF), GPU above
+   260 MHz (DT ladder 156..702), each under a sustained load (s10eperf cpu, cube/gfxperf GPU) while logging temps;
+   stop at the first instability or when the control temperature is reached within N minutes; record sustained vs
+   burst limits.
+
+## Tasks (one commit each)
+- C0 Stage-0 style read-only check from Windows: ACPM framework + ch 9 READ_TEMP once (S10ePower skeleton, read-only),
+  temperatures in the registry. Validates the channel layout under Windows before any write.
+- C1 FREQ_GET for idx 2/3/GPU, fvmap ladder read (still read-only).
+- C2 FREQ_REQ (down only first: screen-off minimum test), thermal guard.
+- C3 governor service (display state, idle, touch boost, load tracking).
+- C4 MADT efficiency classes (research first; firmware change; boot hazard -> rollback plan).
+- C5 max-clock tests with temperature logging; set the governor's ceilings from the results.
+
+## Progress log
+- 2026-10-17 05:15 plan written (phone busy finishing a Windows update restart).

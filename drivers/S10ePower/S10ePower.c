@@ -63,6 +63,9 @@ static const ULONG gLadderMid[] = { 2314000, 2210000, 2106000, 2002000, 1898000,
                                     1508000, 1404000, 1222000, 1066000, 962000, 845000, 754000, 650000, 507000 };
 static const ULONG gLadderG3d[] = { 702000, 650000, 572000, 433000, 377000, 325000, 260000, 200000, 156000 };
                                     /* exynos9820-mali_common.dtsi gpu_dvfs_table (LineageOS lineage-23.2) */
+/* MIF: only the two device-verified ends of devfreq_mif (TWRP sysfs 421000..2093000, cur 2093000 under Linux;
+ * notes/m15-perf.md:98) - the steps between are not recorded, so nothing else is requested. */
+static const ULONG gLadderMif[] = { 2093000, 421000 };
 /* UEFI boot rates (notes/m15-perf.md run 32, notes/gpu-m16-g3don.md): the cap when no temperature is known */
 #define BOOT_LITTLE  1456000u
 #define BOOT_MID     1794000u
@@ -289,12 +292,35 @@ static ULONG RoundDown(const ULONG *L, ULONG N, ULONG Khz)
     return L[N - 1];
 }
 
+/* G17: MIF has no thermal cap here (Linux holds it at 2093000 all the time) and no slot in the 3-domain arrays. */
+static NTSTATUS SetMif(ULONG Khz)
+{
+    ULONG cmd[4];
+    NTSTATUS st;
+
+    if (!gState.AllowSend || !gDvfs.Ok)
+        return STATUS_INVALID_DEVICE_REQUEST;
+    gState.MifReqKhz = Khz;
+    cmd[0] = S10EPOWER_DOM_MIF; cmd[1] = RoundDown(gLadderMif, ARRAYSIZE(gLadderMif), Khz);
+    cmd[2] = ACPM_FREQ_REQ; cmd[3] = 0;
+    ExAcquireFastMutex(&gAcpmLock);
+    st = AcpmSend(&gDvfs, cmd);
+    if (NT_SUCCESS(st))
+        gState.MifCurKhz = cmd[1];
+    ExReleaseFastMutex(&gAcpmLock);
+    if (!NT_SUCCESS(st))
+        InterlockedIncrement((volatile LONG *)&gState.SendFails);
+    return st;
+}
+
 static NTSTATUS SetFreq(ULONG Dom, ULONG Khz)
 {
     ULONG n, slot, cmd[4];
     const ULONG *l = Ladder(Dom, &n, &slot);
     NTSTATUS st;
 
+    if (Dom == S10EPOWER_DOM_MIF)
+        return SetMif(Khz);
     if (l == NULL || !gState.AllowSend || !gDvfs.Ok)
         return STATUS_INVALID_DEVICE_REQUEST;
     gState.ReqKhz[slot] = Khz;
@@ -430,9 +456,9 @@ static NTSTATUS S10ePowerIoctl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
             break;
         __fallthrough;
     case IOCTL_S10EPOWER_GET_STATE:
-        if (outLen < sizeof(S10EPOWER_STATE)) { st = STATUS_BUFFER_TOO_SMALL; break; }
-        RtlCopyMemory(buf, &gState, sizeof(gState));
-        info = sizeof(gState);
+        if (outLen < S10EPOWER_STATE_V1_SIZE) { st = STATUS_BUFFER_TOO_SMALL; break; }
+        info = min(outLen, sizeof(gState));   /* version-1 callers get the version-1 prefix */
+        RtlCopyMemory(buf, &gState, info);
         break;
     default:
         st = STATUS_INVALID_DEVICE_REQUEST;
@@ -485,7 +511,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     ExInitializeFastMutex(&gAcpmLock);
     KeInitializeEvent(&gStopEvent, NotificationEvent, FALSE);
     RtlZeroMemory(&gState, sizeof(gState));
-    gState.Version = 1;
+    gState.Version = 2;
     for (i = 0; i < S10EPOWER_TZ_COUNT; i++)
         gState.TempC[i] = 0xFF;
     gState.CurKhz[0] = BOOT_LITTLE; gState.CurKhz[1] = BOOT_MID; gState.CurKhz[2] = BOOT_G3D;

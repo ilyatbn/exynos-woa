@@ -17,12 +17,15 @@
 #define S10EPOWER_DOM_LITTLE  2u
 #define S10EPOWER_DOM_MID     3u
 #define S10EPOWER_DOM_G3D     10u
+/* MIF (memory controller): enum acpm_dvfs_id dvfs_mif = 0 (cal_acpm_dvfs_exynos9820.h, notes/gpu-m16-g3don.md:37);
+ * not exercised from Windows before G17 (notes/g17-dxva-mfc.md) */
+#define S10EPOWER_DOM_MIF     0u
 
 /* Thermal zones (ACPM ch 9 READ_TEMP tzid; DT ids 0 BIG, 1 MID, 2 LITTLE, 3 G3D, 4 ISP - tz->id equality UNVERIFIED) */
 #define S10EPOWER_TZ_COUNT    5u
 
 typedef struct _S10EPOWER_STATE {
-    unsigned int Version;              /* 1 */
+    unsigned int Version;              /* 2 (1 had no Mif* fields) */
     unsigned int AllowSend;            /* registry switch: 0 = read-only (C0) */
     unsigned int TempC[S10EPOWER_TZ_COUNT];   /* last READ_TEMP per tz, 0xFF = not read */
     unsigned int TempReads, TempFails;
@@ -31,7 +34,12 @@ typedef struct _S10EPOWER_STATE {
     unsigned int ReqKhz[3];            /* last requested (before the cap) */
     unsigned int Sends, SendFails, Timeouts;
     unsigned int GuardLevel;           /* 0 none, 1 control temp, 2 alert, 3 emergency minimum */
+    /* version 2: filled only for callers whose buffer holds them (older tools pass the version-1 size) */
+    unsigned int MifCurKhz;            /* granted MIF rate, 0 = never requested since load (boot rate UNKNOWN) */
+    unsigned int MifReqKhz;            /* last requested MIF rate */
 } S10EPOWER_STATE;
+
+#define S10EPOWER_STATE_V1_SIZE  ((unsigned int)FIELD_OFFSET(S10EPOWER_STATE, MifCurKhz))
 
 typedef struct _S10EPOWER_SET_FREQ {
     unsigned int Domain;               /* S10EPOWER_DOM_* */

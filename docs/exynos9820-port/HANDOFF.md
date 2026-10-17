@@ -1634,3 +1634,10 @@ dark because s10ekeys' screen-off was killed by the shutdown - relit with panelo
 TiWorker runs. User said "forget HDMI for now" (G18 H1 second read with the hub waits).
 **Next:** after the restart: confirm desktop + Start/Quick Settings on the Mali (sandboxlogs.ps1 shows no softpipe
 lines), kmdswap 1.0.61.1 + test (s10ekeys screen off, kill it -> panel relights), then G17 DXVA bridge.
+
+## 51. alpha6 tagged (2026-10-17 ~05:35 local, local tag only like alpha5 - not pushed)
+After the Windows update restart: KMD 1.0.61.1 installed + validated (panel-owner watch), 20-min soak clean (DWM alive,
+0 crashes), d3dmsaa PASS, d3dsm41 7/8 (lod gap), Terminal, composition chain, Edge YouTube, Start menu. Tag message =
+feature list + known limits. Next (user directive, memory clocks-directive-20261017): S10ePower C1 (AllowSend +
+AllowTmu -> temperatures), C2 frequency requests, touch driver 6.0.5058.7 + governor, C5 max-clock tests. S10ePower
+service is created (start= demand, read-only so far). HDMI waits for the user.

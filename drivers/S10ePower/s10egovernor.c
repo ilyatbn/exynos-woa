@@ -20,10 +20,44 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pdh.h>
 #include "S10ePowerIoctl.h"
 
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "user32.lib")
+#pragma comment(lib, "pdh.lib")
+
+/* GPU busy: Windows' own "GPU Engine" counters (the scheduler's per-engine running time, as in Task Manager):
+ * the busiest 3D engine instance in percent, sampled every 4th loop (200 ms). -1 = counter unavailable. */
+static PDH_HQUERY gGpuQuery;
+static PDH_HCOUNTER gGpuCounter;
+
+static void GpuInit(void)
+{
+    if (PdhOpenQueryW(NULL, 0, &gGpuQuery) != ERROR_SUCCESS ||
+        PdhAddEnglishCounterW(gGpuQuery, L"\\GPU Engine(*engtype_3D)\\Utilization Percentage", 0, &gGpuCounter) !=
+            ERROR_SUCCESS) {
+        gGpuQuery = NULL;
+        return;
+    }
+    PdhCollectQueryData(gGpuQuery);
+}
+
+static double GpuBusy(void)
+{
+    static BYTE buf[16384];
+    DWORD bytes = sizeof(buf), n = 0, i;
+    double best = 0;
+    PDH_FMT_COUNTERVALUE_ITEM_W *items = (PDH_FMT_COUNTERVALUE_ITEM_W *)buf;
+    if (!gGpuQuery || PdhCollectQueryData(gGpuQuery) != ERROR_SUCCESS)
+        return -1;
+    if (PdhGetFormattedCounterArrayW(gGpuCounter, PDH_FMT_DOUBLE | PDH_FMT_NOCAP100, &bytes, &n, items) != ERROR_SUCCESS)
+        return -1;
+    for (i = 0; i < n; i++)
+        if (items[i].FmtValue.CStatus == ERROR_SUCCESS && items[i].FmtValue.doubleValue > best)
+            best = items[i].FmtValue.doubleValue;
+    return best / 100.0;
+}
 
 static const GUID kConsoleDisplayState = { 0x6fe69556, 0x704a, 0x47a0, { 0x8f, 0x24, 0xc2, 0x8d, 0x93, 0x6f, 0xda, 0x47 } };
                                          /* GUID_CONSOLE_DISPLAY_STATE (winnt.h) */
@@ -163,7 +197,8 @@ static void Run(void)
     SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION prev[8], now[8];
     HANDLE touch = NULL;
     ULONGLONG lastTouch = 0, lastStat = 0;
-    unsigned ncpu, i;
+    unsigned ncpu, i, loops = 0;
+    double gpuBusy = -1;
 
     GetSystemInfo(&si);
     ncpu = si.dwNumberOfProcessors > 8 ? 8 : si.dwNumberOfProcessors;
@@ -176,6 +211,8 @@ static void Run(void)
         return;
     }
     qsi(8 /* SystemProcessorPerformanceInformation */, prev, sizeof(prev[0]) * ncpu, NULL);
+    GpuInit();
+    Stat("GpuCounter", gGpuQuery != NULL);
     for (;;) {
         DWORD w;
         BOOL screen, boost;
@@ -189,6 +226,8 @@ static void Run(void)
         if (w == WAIT_OBJECT_0)
             break;
         t = GetTickCount64();
+        if ((++loops & 3) == 0)
+            gpuBusy = GpuBusy();
         if (w == WAIT_OBJECT_0 + 1) {
             lastTouch = t;
             gTouches++;
@@ -223,9 +262,13 @@ static void Run(void)
                     target = StepAtLeast(d, d->Boost);
                 } else if (i < 2) {
                     target = StepAtLeast(d, (unsigned)(busy[i] * 1.25 * d->Max));
+                } else if (gpuBusy >= 0) {
+                    /* GPU: load tracking on the busiest 3D engine (1.25 x busy x ceiling), floor = half the ceiling
+                     * while the screen is on so composition never starts from the minimum */
+                    unsigned want = (unsigned)(gpuBusy * 1.25 * d->Max);
+                    target = StepAtLeast(d, want > d->Max / 2 ? want : d->Max / 2);
                 } else {
-                    /* GPU: no busy counter yet. Screen on keeps the ceiling; it only steps down (to the next lower
-                     * ladder step, never to the minimum) after 5 s without touch while the CPUs are idle (< 10 %). */
+                    /* no GPU counter: keep the ceiling; half-ceiling step after 5 s without touch + idle CPUs */
                     BOOL idle = (!lastTouch || t - lastTouch > 5000) && busy[0] < 0.10 && busy[1] < 0.10;
                     target = StepAtLeast(d, idle ? d->Max / 2 : d->Max);
                 }
@@ -243,6 +286,7 @@ static void Run(void)
             Stat("Changes", gChanges); Stat("Touches", gTouches); Stat("ScreenOffs", gScreenOffs);
             Stat("CurLittle", gDom[0].Cur); Stat("CurMid", gDom[1].Cur); Stat("CurG3d", gDom[2].Cur);
             Stat("TouchEvent", touch != NULL);
+            Stat("GpuBusyPct", gpuBusy < 0 ? 0xFFFFFFFF : (unsigned)(gpuBusy * 100));
         }
     }
     /* leaving: back to the boot rates so nothing stays at a minimum without a governor */

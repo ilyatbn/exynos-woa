@@ -70,3 +70,10 @@ the fix" -> a 32-bit BC memory stress test before/after.
   (D3D's format-reinterpreting copy) copies ETC bits, not BC bits; (2) Map(READ) of a BC texture returns the CPU shadow,
   stale if the GPU wrote the texture by a copy. No test case / no app seen doing either.
 - OPEN: the commit message's "600 fit" is the v2 run; the v3 run (same allocation behaviour) is in progress.
+- d3dbcmem final (mali-umd-0123-x86): RESULT 600 textures fit (600 MB BC), mean upload 807 ms (traces/games/d3dbcmem-etc-v3.txt).
+- ARM64 0123 deployed (System32; previous kept as maliumd.dll.old0119): d3dcs 7/7 PASS, d3dbc lossy 0/126 differ (ARM64).
+  Browser check NOT run: run-as-user.ps1's task stayed "Queued" - default task settings do not start on battery, and the
+  phone was on battery (13%, discharging: the USB-C port holds the user's keyboard dongle, no charging). Fixed
+  run-as-user.ps1 (AllowStartIfOnBatteries; repo drivers/S10eDiag/esp + phone copy). Testing stopped at the 15% battery
+  floor; TWRP parking would not charge without the PC cable -> user notified. ARM64 0123 is in System32: the next reboot
+  loads it into DWM without the browser check (rollback: maliumd.dll.old0119 / .old0110).

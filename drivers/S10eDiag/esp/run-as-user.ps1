@@ -7,7 +7,10 @@ $u = "$($o.Domain)\$($o.User)"
 "user $u"
 $a = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Script`""
 $p = New-ScheduledTaskPrincipal -UserId $u -LogonType Interactive -RunLevel Limited
-Register-ScheduledTask -TaskName S10eUserRun -Action $a -Principal $p -Force | Out-Null
+# The default task settings do not start on battery: the task stays Queued (2026-10-18, phone on battery while the
+# USB-C port held a keyboard dongle) - and this script then deleted it unrun.
+$st = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+Register-ScheduledTask -TaskName S10eUserRun -Action $a -Principal $p -Settings $st -Force | Out-Null
 Start-ScheduledTask -TaskName S10eUserRun
 "started $(Get-Date -Format HH:mm:ss.fff)"
 $t0 = Get-Date

@@ -1,0 +1,366 @@
+From 611adf02b136163796fe7e5897e7a05b51a91b36 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 23:41:10 +0300
+Subject: [PATCH 107/108] d3d10umd: emulate BC1-BC5 where the screen cannot
+ sample them - uncompressed backing, decoded at upload/unmap (exynos-woa 0107)
+
+---
+ src/gallium/frontends/d3d10umd/Device.cpp   |   7 +
+ src/gallium/frontends/d3d10umd/Format.cpp   |  36 +++++
+ src/gallium/frontends/d3d10umd/Format.h     |  11 ++
+ src/gallium/frontends/d3d10umd/Resource.cpp | 146 ++++++++++++++++++++
+ src/gallium/frontends/d3d10umd/Shader.cpp   |  12 ++
+ src/gallium/frontends/d3d10umd/State.h      |   7 +
+ 6 files changed, 219 insertions(+)
+
+diff --git a/src/gallium/frontends/d3d10umd/Device.cpp b/src/gallium/frontends/d3d10umd/Device.cpp
+index d6128e7..2e4f8ac 100644
+--- a/src/gallium/frontends/d3d10umd/Device.cpp
++++ b/src/gallium/frontends/d3d10umd/Device.cpp
+@@ -685,6 +685,13 @@ CheckFormatSupportCaps(D3D10DDI_HDEVICE hDevice, DXGI_FORMAT Format, UINT *pForm
+ 
+    }
+ 
++   /* exynos-woa G23: BC1-BC5 are emulated (decompressed into FormatBcBacking at upload) where the screen cannot sample
++    * them - feature level 10.x requires sampling them (Resource.cpp bc_*). Sampling only: BCn is never a target. */
++   enum pipe_format bc_backing = FormatBcBacking(screen, format);
++   if (bc_backing != PIPE_FORMAT_NONE &&
++       screen->is_format_supported(screen, bc_backing, PIPE_TEXTURE_2D, 0, 0, PIPE_BIND_SAMPLER_VIEW))
++      *pFormatCaps |= D3D10_DDI_FORMAT_SUPPORT_SHADER_SAMPLE;
++
+ #if SUPPORT_MSAA
+    /* exynos-woa F1: the MSAA bits follow the family's 4x answer (CheckMultisampleQualityLevels uses the same), for
+     * render-target and depth formats alike; LOAD (ld2dms) only where the format is sampled at all. */
+diff --git a/src/gallium/frontends/d3d10umd/Format.cpp b/src/gallium/frontends/d3d10umd/Format.cpp
+index 57076f2..578d611 100644
+--- a/src/gallium/frontends/d3d10umd/Format.cpp
++++ b/src/gallium/frontends/d3d10umd/Format.cpp
+@@ -34,6 +34,7 @@
+ #include <stdint.h>
+ 
+ #include "Format.h"
++#include "pipe/p_screen.h"   /* exynos-woa G23: FormatBcBacking */
+ #include "State.h"
+ 
+ #include "Debug.h"
+@@ -43,6 +44,41 @@
+ #define HAVE_SRGB 1
+ 
+ 
++enum pipe_format
++FormatBcBacking(struct pipe_screen *screen, enum pipe_format f)
++{
++   enum pipe_format b;
++   switch (f) {
++   case PIPE_FORMAT_DXT1_RGB: case PIPE_FORMAT_DXT1_RGBA: case PIPE_FORMAT_DXT3_RGBA: case PIPE_FORMAT_DXT5_RGBA:
++      b = PIPE_FORMAT_R8G8B8A8_UNORM; break;
++   case PIPE_FORMAT_DXT1_SRGB: case PIPE_FORMAT_DXT1_SRGBA: case PIPE_FORMAT_DXT3_SRGBA: case PIPE_FORMAT_DXT5_SRGBA:
++      b = PIPE_FORMAT_R8G8B8A8_SRGB; break;
++   case PIPE_FORMAT_RGTC1_UNORM: b = PIPE_FORMAT_R8_UNORM; break;
++   case PIPE_FORMAT_RGTC1_SNORM: b = PIPE_FORMAT_R8_SNORM; break;
++   case PIPE_FORMAT_RGTC2_UNORM: b = PIPE_FORMAT_R8G8_UNORM; break;
++   case PIPE_FORMAT_RGTC2_SNORM: b = PIPE_FORMAT_R8G8_SNORM; break;
++   default:
++      return PIPE_FORMAT_NONE;
++   }
++   if (screen->is_format_supported(screen, f, PIPE_TEXTURE_2D, 0, 0, PIPE_BIND_SAMPLER_VIEW))
++      return PIPE_FORMAT_NONE;   /* sampled natively: no emulation */
++   return b;
++}
++
++
++enum pipe_format
++FormatBcDecode(enum pipe_format f)
++{
++   switch (f) {
++   case PIPE_FORMAT_DXT1_SRGB: return PIPE_FORMAT_DXT1_RGB;
++   case PIPE_FORMAT_DXT1_SRGBA: return PIPE_FORMAT_DXT1_RGBA;
++   case PIPE_FORMAT_DXT3_SRGBA: return PIPE_FORMAT_DXT3_RGBA;
++   case PIPE_FORMAT_DXT5_SRGBA: return PIPE_FORMAT_DXT5_RGBA;
++   default: return f;
++   }
++}
++
++
+ enum pipe_format
+ FormatTranslate(DXGI_FORMAT Format, BOOL depth)
+ {
+diff --git a/src/gallium/frontends/d3d10umd/Format.h b/src/gallium/frontends/d3d10umd/Format.h
+index 2ee4371..526a67a 100644
+--- a/src/gallium/frontends/d3d10umd/Format.h
++++ b/src/gallium/frontends/d3d10umd/Format.h
+@@ -38,6 +38,17 @@
+ enum pipe_format
+ FormatTranslate(DXGI_FORMAT Format, BOOL depth);
+ 
++/* exynos-woa G23 (notes/g23-bc-emulation.md): BCn emulation for a screen that cannot sample DXT / RGTC (the S10e's
++ * Mali-G76: TEXTURE_FEATURES0 bits 7-16 = BC1..BC7 clear). FormatBcBacking = the uncompressed format a BCn texture is
++ * stored in (sRGB kept), PIPE_FORMAT_NONE if f is not BC1-BC5 or the screen samples it itself. FormatBcDecode = the
++ * format its data is unpacked from: the UNORM variant of an sRGB DXT format, so the bytes stay sRGB-encoded (Mesa's
++ * sRGB DXT unpack linearises to 8 bits, which would band the darks). */
++struct pipe_screen;
++enum pipe_format
++FormatBcBacking(struct pipe_screen *screen, enum pipe_format f);
++enum pipe_format
++FormatBcDecode(enum pipe_format f);
++
+ const char *
+ FormatToName(DXGI_FORMAT Format);
+ 
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index c2ac4ec..13f08c8 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -43,6 +43,48 @@
+ #include "util/u_surface.h"
+ #include "frontend/winsys_handle.h"   /* G13 0034: OpenResource over external memory */
+ #include "drm-uapi/drm_fourcc.h"      /* exynos-woa H3: DRM_FORMAT_MOD_LINEAR for BO imports */
++#include "util/format/u_format.h"
++
++
++/* exynos-woa G23 (notes/g23-bc-emulation.md): BCn emulation helpers. bc_unpack_rect decodes the top-left w x h texels
++ * of BCn data (src, src_stride = bytes per row of blocks; always whole 4x4 blocks) into dst (the backing format,
++ * dst_stride): the padded block area is decoded into a scratch buffer first, so edge blocks of small or odd-sized mips
++ * never write past the destination. */
++extern "C" void malikm_tlog(const char *fmt, ...);
++
++static void
++bc_unpack_rect(enum pipe_format bc, enum pipe_format backing, uint8_t *dst, unsigned dst_stride,
++               const uint8_t *src, unsigned src_stride, unsigned w, unsigned h)
++{
++   if (!w || !h)
++      return;
++   unsigned pw = align(w, 4), ph = align(h, 4);
++   unsigned bpp = util_format_get_blocksize(backing);
++   /* decode into the backing's byte layout: an sRGB backing gets the raw (still sRGB-encoded) bytes of the UNORM decode */
++   enum pipe_format layout = backing == PIPE_FORMAT_R8G8B8A8_SRGB ? PIPE_FORMAT_R8G8B8A8_UNORM : backing;
++   uint8_t *tmp = (uint8_t *)malloc((size_t)pw * ph * bpp);
++   if (!tmp)
++      return;
++   if (!util_format_translate(layout, tmp, pw * bpp, 0, 0, bc, src, src_stride, 0, 0, pw, ph)) {
++      static unsigned fails;
++      if (fails++ < 4)
++         malikm_tlog("BC emulation: decode %s -> %s failed", util_format_name(bc), util_format_name(layout));
++   } else {
++      util_copy_rect(dst, layout, dst_stride, 0, 0, w, h, tmp, pw * bpp, 0, 0);
++   }
++   free(tmp);
++}
++
++/* Clamp a box to the size of a mip level (D3D boxes on BC textures are block-aligned and may reach past a small mip). */
++static void
++bc_clamp_box(const struct pipe_resource *r, unsigned level, struct pipe_box *b)
++{
++   int w = (int)u_minify(r->width0, level), h = (int)u_minify(r->height0, level);
++   if (b->x + b->width > w)
++      b->width = w > b->x ? w - b->x : 0;
++   if (b->y + b->height > h)
++      b->height = h > b->y ? h - b->y : 0;
++}
+ extern "C" void malikm_tlog(const char *fmt, ...);   /* exynos-woa H4: timing/event log (malikm_drm.c) */
+ 
+ 
+@@ -351,6 +393,17 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+    } else {
+       BOOL bindDepthStencil = !!(pCreateResource->BindFlags & D3D10_DDI_BIND_DEPTH_STENCIL);
+       templat.format = FormatTranslate(pCreateResource->Format, bindDepthStencil);
++      /* exynos-woa G23: BCn the screen cannot sample -> stored uncompressed, decoded at every upload (bc_*) */
++      enum pipe_format bc_backing = FormatBcBacking(screen, templat.format);
++      if (bc_backing != PIPE_FORMAT_NONE) {
++         pResource->bc_format = FormatBcDecode(templat.format);
++         static unsigned bc_logged;
++         if (bc_logged++ < 8)
++            malikm_tlog("BC emulation: %s %ux%u mips %u array %u -> %s", util_format_name(templat.format),
++                        pCreateResource->pMipInfoList[0].TexelWidth, pCreateResource->pMipInfoList[0].TexelHeight,
++                        pCreateResource->MipLevels, pCreateResource->ArraySize, util_format_name(bc_backing));
++         templat.format = bc_backing;
++      }
+    }
+ 
+    templat.width0     = pCreateResource->pMipInfoList[0].TexelWidth;
+@@ -538,6 +591,11 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+                for (int z = 0; z < box.depth; ++z) {
+                   uint8_t *dst = (uint8_t*)map + z*transfer->layer_stride;
+                   const uint8_t *src = (const uint8_t*)pInitialDataUP->pSysMem + z*pInitialDataUP->SysMemSlicePitch;
++                  if (pResource->bc_format != PIPE_FORMAT_NONE) {   /* exynos-woa G23 */
++                     bc_unpack_rect(pResource->bc_format, templat.format, dst, transfer->stride, src,
++                                    pInitialDataUP->SysMemPitch, box.width, box.height);
++                     continue;
++                  }
+                   util_copy_rect(dst,
+                                  templat.format,
+                                  transfer->stride,
+@@ -722,6 +780,14 @@ DestroyResource(D3D10DDI_HDEVICE hDevice,       // IN
+       }
+    }
+    free(pResource->transfers);
++   if (pResource->bc_shadow) {   /* exynos-woa G23 */
++      for (UINT i = 0; i < pResource->NumSubResources; i++)
++         free(pResource->bc_shadow[i]);
++      free(pResource->bc_shadow);
++      free(pResource->bc_map_usage);
++      pResource->bc_shadow = NULL;
++      pResource->bc_map_usage = NULL;
++   }
+ 
+    if (pResource->kmt_primary) {
+       malikm_primary_destroy(pResource->kmt_primary);
+@@ -802,6 +868,32 @@ ResourceMap(D3D10DDI_HDEVICE hDevice,                                // IN
+ 
+    assert(!pResource->transfers[SubResource]);
+ 
++   if (pResource->bc_format != PIPE_FORMAT_NONE && !pResource->buffer) {
++      /* exynos-woa G23: the application maps compressed data - hand out a BCn shadow of the subresource; a write map is
++       * decoded into the uncompressed resource at Unmap. The shadow holds what earlier maps wrote (uploads through
++       * UpdateSubresource / initial data are not mirrored into it: a READ map of those returns zeros). */
++      if (!pResource->bc_shadow) {
++         pResource->bc_shadow = (uint8_t **)calloc(pResource->NumSubResources, sizeof(uint8_t *));
++         pResource->bc_map_usage = (unsigned *)calloc(pResource->NumSubResources, sizeof(unsigned));
++      }
++      unsigned bc_level;
++      struct pipe_box bc_box;
++      subResourceBox(resource, SubResource, &bc_level, &bc_box);
++      unsigned row = DIV_ROUND_UP(bc_box.width, 4) * util_format_get_blocksize(pResource->bc_format);
++      unsigned slice = row * DIV_ROUND_UP(bc_box.height, 4);
++      if (pResource->bc_shadow && !pResource->bc_shadow[SubResource])
++         pResource->bc_shadow[SubResource] = (uint8_t *)calloc(1, (size_t)slice * bc_box.depth);
++      if (!pResource->bc_shadow || !pResource->bc_shadow[SubResource]) {
++         SetError(hDevice, E_OUTOFMEMORY);
++         return;
++      }
++      pResource->bc_map_usage[SubResource] = usage;
++      pMappedSubResource->pData = pResource->bc_shadow[SubResource];
++      pMappedSubResource->RowPitch = row;
++      pMappedSubResource->DepthPitch = slice;
++      return;
++   }
++
+    void *map;
+    if (pResource->buffer) {
+       map = pipe->buffer_map(pipe,
+@@ -852,6 +944,30 @@ ResourceUnmap(D3D10DDI_HDEVICE hDevice,      // IN
+ 
+    assert(SubResource < pResource->NumSubResources);
+ 
++   if (pResource->bc_map_usage && pResource->bc_map_usage[SubResource]) {
++      /* exynos-woa G23: decode what the application wrote into the shadow (see ResourceMap) */
++      unsigned usage = pResource->bc_map_usage[SubResource];
++      pResource->bc_map_usage[SubResource] = 0;
++      if (usage & PIPE_MAP_WRITE) {
++         unsigned level;
++         struct pipe_box box;
++         subResourceBox(pResource->resource, SubResource, &level, &box);
++         struct pipe_transfer *transfer;
++         void *map = pipe->texture_map(pipe, pResource->resource, level,
++                                       PIPE_MAP_WRITE | (usage & PIPE_MAP_UNSYNCHRONIZED), &box, &transfer);
++         if (map) {
++            unsigned row = DIV_ROUND_UP(box.width, 4) * util_format_get_blocksize(pResource->bc_format);
++            unsigned slice = row * DIV_ROUND_UP(box.height, 4);
++            for (int z = 0; z < box.depth; ++z)
++               bc_unpack_rect(pResource->bc_format, pResource->resource->format,
++                              (uint8_t *)map + z * transfer->layer_stride, transfer->stride,
++                              pResource->bc_shadow[SubResource] + (size_t)z * slice, row, box.width, box.height);
++            pipe_texture_unmap(pipe, transfer);
++         }
++      }
++      return;
++   }
++
+    if (pResource->transfers[SubResource]) {
+       if (pResource->buffer) {
+          pipe_buffer_unmap(pipe, pResource->transfers[SubResource]);
+@@ -1043,6 +1159,18 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
+       src_box.depth  = u_minify(src_resource->depth0,  src_level);
+    }
+ 
++   if (pSrcResource->bc_format != PIPE_FORMAT_NONE || pDstResource->bc_format != PIPE_FORMAT_NONE) {
++      /* exynos-woa G23: block-aligned BCn boxes may reach past a small mip of the uncompressed backing */
++      bc_clamp_box(src_resource, src_level, &src_box);
++      int dw = (int)u_minify(dst_resource->width0, dst_level), dh = (int)u_minify(dst_resource->height0, dst_level);
++      if ((int)DstX + src_box.width > dw)
++         src_box.width = dw > (int)DstX ? dw - (int)DstX : 0;
++      if ((int)DstY + src_box.height > dh)
++         src_box.height = dh > (int)DstY ? dh - (int)DstY : 0;
++      if (!src_box.width || !src_box.height)
++         return;
++   }
++
+    if (areResourcesCompatible(src_resource, dst_resource)) {
+       pipe->resource_copy_region(pipe,
+                                  dst_resource, dst_level,
+@@ -1212,6 +1340,24 @@ ResourceUpdateSubResourceUP(D3D10DDI_HDEVICE hDevice,                // IN
+       subResourceBox(dst_resource, DstSubResource, &level, &box);
+    }
+ 
++   if (pDstResource->bc_format != PIPE_FORMAT_NONE && !pDstResource->buffer) {
++      /* exynos-woa G23: compressed source data -> decode into the uncompressed box */
++      bc_clamp_box(dst_resource, level, &box);
++      if (!box.width || !box.height)
++         return;
++      struct pipe_transfer *bc_transfer;
++      void *bc_map = pipe->texture_map(pipe, dst_resource, level, PIPE_MAP_WRITE | PIPE_MAP_DISCARD_RANGE, &box,
++                                       &bc_transfer);
++      if (bc_map) {
++         for (int z = 0; z < box.depth; ++z)
++            bc_unpack_rect(pDstResource->bc_format, dst_resource->format,
++                           (uint8_t *)bc_map + z * bc_transfer->layer_stride, bc_transfer->stride,
++                           (const uint8_t *)pSysMemUP + (size_t)z * DepthPitch, RowPitch, box.width, box.height);
++         pipe_texture_unmap(pipe, bc_transfer);
++      }
++      return;
++   }
++
+    struct pipe_transfer *transfer;
+    void *map;
+    if (pDstResource->buffer) {
+diff --git a/src/gallium/frontends/d3d10umd/Shader.cpp b/src/gallium/frontends/d3d10umd/Shader.cpp
+index 80d18ca..cd98d81 100644
+--- a/src/gallium/frontends/d3d10umd/Shader.cpp
++++ b/src/gallium/frontends/d3d10umd/Shader.cpp
+@@ -1204,6 +1204,12 @@ CreateShaderResourceView(
+    memset(&desc, 0, sizeof desc);
+    resource = CastPipeResource(pCreateSRView->hDrvResource);
+    format = FormatTranslate(pCreateSRView->Format, false);
++   {
++      /* exynos-woa G23: a view of an emulated BCn texture reads its uncompressed backing (the view's own sRGB-ness) */
++      enum pipe_format bc_backing = FormatBcBacking(pipe->screen, format);
++      if (bc_backing != PIPE_FORMAT_NONE)
++         format = bc_backing;
++   }
+ 
+    u_sampler_view_default_template(&desc,
+                                    resource,
+@@ -1287,6 +1293,12 @@ CreateShaderResourceView1(
+    memset(&desc, 0, sizeof desc);
+    resource = CastPipeResource(pCreateSRView->hDrvResource);
+    format = FormatTranslate(pCreateSRView->Format, false);
++   {
++      /* exynos-woa G23: a view of an emulated BCn texture reads its uncompressed backing (the view's own sRGB-ness) */
++      enum pipe_format bc_backing = FormatBcBacking(pipe->screen, format);
++      if (bc_backing != PIPE_FORMAT_NONE)
++         format = bc_backing;
++   }
+ 
+    u_sampler_view_default_template(&desc,
+                                    resource,
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index cbe68d4..9c4b0b7 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -198,6 +198,13 @@ struct Resource
+    /* G17 (notes/g17-dxva-mfc.md): a flip-model swap chain buffer (created SHARED - DWM opens it): its presents must reach
+     * the runtime (DXGI waits for the buffer releases), so the GDI fallback (DxgiFns.cpp gdi_present) is not used for it */
+    bool flip_model;
++   /* exynos-woa G23 (notes/g23-bc-emulation.md): BCn emulation - the BCn format the data is decoded from (FormatBcDecode;
++    * PIPE_FORMAT_NONE = not emulated, the resource is in its own format). The pipe resource is in FormatBcBacking. Per
++    * subresource: the compressed buffer a Map hands out (allocated at the first map, kept; decoded into the resource
++    * at the Unmap of a write map) and the PIPE_MAP_* usage of the open map (0 = none). */
++   enum pipe_format bc_format;
++   uint8_t **bc_shadow;
++   unsigned *bc_map_usage;
+ };
+ 
+ 
+-- 
+2.40.1.windows.1
+

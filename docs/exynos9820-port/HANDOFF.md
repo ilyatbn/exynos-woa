@@ -1683,3 +1683,24 @@ off with timeout "never" - cause unknown).
 DXVA/MFC (CQM scaling matrices, Baseline, Main, B-pyramid + 4 refs + weightp, 854x480 cropping) - tools/mfc/cliptest.ps1.
 **Next:** user: look at Photos playing test.mp4 (is video visible/smooth?), HDMI; me: composition swap chains (DWM
 consumption of presents) as its own milestone.
+
+## 54. Restart point (2026-10-17 ~15:30 local)
+
+Committed (exynos-woa main, last ae51419; Mesa working copy last 1337e37 = patch 0096, clean tree):
+- mpv renders on the Mali: Mesa 0095 (TGSI VS outputs sorted by location - Bifrost took varying slot 0 as
+  gl_Position). Flip-model buffers: runtime present only (0094 as committed) - DWM composes them; the GDI-draw interim
+  was wrong (concluded while mpv still rendered black) and is gone.
+- Judder cause = clocks: S10ePower v2 (MIF control, verified 2093000 / 421000 only), S10eGovernor (GPU load = SUM of
+  per-process 3D instances, GPU ceiling above 50 % load, MIF 2093000 screen on / 421000 off). mpv default config:
+  DWM 35 -> 47.5 presents/s, on-time compositions 35-40 % -> ~80 %. Mesa 0096 = DWM pacing log ("pacing N" in DWM's
+  tlog). Tools: tools/mfc/mpvrate.sh, mpvshot.ps1, mpvstats.lua, umdlogtail.ps1; kmdstats busy.
+- On the phone: UMD 71ef0e38 (0096, DWM still runs the 0096-equivalent fafaa8c5 until it restarts), S10ePower.sys v2,
+  s10egovernor.exe (old copies *.pre-mif in C:\S10eTmp). umdtrace still machine-wide ON.
+
+Next order of work:
+1. User eyes on mpv (sound on) - remaining ~20 % late compositions; audio stutter (user-reported, open).
+2. Read the full devfreq_mif ladder in TWRP (sysfs available_frequencies) -> per-G3D-step MIF (Samsung table,
+   gpu-odin-rom.md F2) to cut the screen-on MIF battery cost.
+3. Remaining pacing: DWM's composition queues behind app jobs (one in-order queue, no preemption).
+4. Blank screensaver (120 s) voids measurements - mpvrate.sh dismisses it.
+5. Photos ~5 fps (open), DWM CPU-copy trigger (open), Graphics Tools WU decision (user), HDMI (G18) with the user.

@@ -403,15 +403,19 @@ static NTSTATUS
 MfcIoOpen(_In_ PMFC_DEVICE M, _In_ WDFREQUEST Request, _In_ WDFFILEOBJECT File)
 {
     MFC_OPEN_IN *In;
+    size_t       Length;
+    ULONG        Flags;
     NTSTATUS     Status;
 
-    Status = WdfRequestRetrieveInputBuffer(Request, sizeof(*In), (PVOID *)&In, NULL);
+    // Flags is optional: callers built against the 8-byte structure (Version, Codec) still open
+    Status = WdfRequestRetrieveInputBuffer(Request, FIELD_OFFSET(MFC_OPEN_IN, Flags), (PVOID *)&In, &Length);
     if (!NT_SUCCESS(Status))
     {
         return Status;
     }
 
-    if ((In->Version != MFC_IOCTL_VERSION) || (In->Codec != MFC_CODEC_H264))
+    Flags = (Length >= sizeof(*In)) ? In->Flags : 0;
+    if ((In->Version != MFC_IOCTL_VERSION) || (In->Codec != MFC_CODEC_H264) || ((Flags & ~MFC_OPEN_DECODE_ORDER) != 0))
     {
         return STATUS_NOT_SUPPORTED;
     }
@@ -428,6 +432,7 @@ MfcIoOpen(_In_ PMFC_DEVICE M, _In_ WDFREQUEST Request, _In_ WDFFILEOBJECT File)
 
     MfcSessionInit(&M->Session, M->Buffer + MFC_SESSION_OFFSET, M->BufferPa.LowPart + MFC_SESSION_OFFSET,
                    M->SessionSize, MFC_CODEC_OFFSET_LARGE - MFC_CPB_OFFSET);
+    M->Session.DecodeOrder = (Flags & MFC_OPEN_DECODE_ORDER) != 0;
     Status = MfcSessionOpen(M, &M->Session);
     if (NT_SUCCESS(Status))
     {

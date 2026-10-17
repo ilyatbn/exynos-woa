@@ -88,7 +88,7 @@ int main(int argc, char **argv)
 
     if (argc < 2)
     {
-        fprintf(stderr, "usage: mfcdec <in.h264> [out.nv12] [-q]\n");
+        fprintf(stderr, "usage: mfcdec <in.h264> [out.nv12] [-q] [-order]\n");
         return 2;
     }
 
@@ -96,6 +96,8 @@ int main(int argc, char **argv)
     {
         if (strcmp(argv[i], "-q") == 0)
             quiet = 1;
+        else if (strcmp(argv[i], "-order") == 0)
+            open.Flags = MFC_OPEN_DECODE_ORDER;   // decode order (G17 V6b1, driver 1.0.0.7+)
         else
             outPath = argv[i];
     }

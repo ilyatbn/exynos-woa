@@ -23,10 +23,13 @@ DEFINE_GUID(GUID_DEVINTERFACE_EXYNOS9820_MFC, 0x6a2e8c51, 0x0b7d, 0x4c3e, 0x8f, 
 #define MFC_CODEC_H264     0u
 #define MFC_MAX_WINDOW     ((4u << 20) - 512u)   // CPB 4 MiB, 512 B kept free (mfc_macros.h)
 
+#define MFC_OPEN_DECODE_ORDER 0x1u   // pictures come back in decode order, each with the call that decoded it (DXVA)
+
 typedef struct _MFC_OPEN_IN
 {
     unsigned int Version;   // MFC_IOCTL_VERSION
     unsigned int Codec;     // MFC_CODEC_H264
+    unsigned int Flags;     // MFC_OPEN_* (driver 1.0.0.7+; an 8-byte input = 0)
 } MFC_OPEN_IN;
 
 #define MFC_DEC_HEADER        0x01u   // sequence header parsed and buffers set up; no picture this call

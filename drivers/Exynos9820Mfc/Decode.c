@@ -260,7 +260,13 @@ MfcSessionHeader(_In_ PMFC_DEVICE M, _Inout_ PMFC_SESSION S, _In_ ULONG Length, 
     ULONG Consumed;
 
     MfcSetStream(M, S, Length);
-    Wr(M, MFC_REG_D_DEC_OPTIONS, 0x0000A400u);     // conceal 4<<8 | REALLOC | SPECIAL_PARSING (vendor default)
+    // conceal 4<<8 | REALLOC | SPECIAL_PARSING (vendor default); decode order (mfc_cmd.c seq header): display delay
+    // enable (bit 3) with D_DISPLAY_DELAY 0 + DECODING_ORDER_ENABLE (bit 17)
+    if (S->DecodeOrder)
+    {
+        Wr(M, MFC_REG_D_DISPLAY_DELAY, 0);
+    }
+    Wr(M, MFC_REG_D_DEC_OPTIONS, 0x0000A400u | (S->DecodeOrder ? ((1u << 3) | (1u << 17)) : 0u));
     Wr(M, MFC_REG_D_FORCE_PIXEL_VAL, 0x08020000u);
     Wr(M, MFC_REG_PIXEL_FORMAT, 0x10u);            // NV12 | P010_decoding (9820 DT)
     Wr(M, MFC_REG_D_SEI_ENABLE, 0x74u);            // recovery | static info | HDR10+ (fw date >= 0x180709)

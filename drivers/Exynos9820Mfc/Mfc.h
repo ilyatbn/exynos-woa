@@ -35,6 +35,7 @@
 #define MFC_REG_ERROR_CODE           0xF074u
 #define MFC_REG_D_CRC_CTRL           0xF0B0u
 #define MFC_REG_D_DEC_OPTIONS        0xF0B4u
+#define MFC_REG_D_DISPLAY_DELAY      0xF0B8u     // mfc_regs.h; used with D_DEC_OPTIONS bit 3 (DISPLAY_DELAY_EN)
 #define MFC_REG_D_SEI_ENABLE         0xF0C4u
 #define MFC_REG_D_FORCE_PIXEL_VAL    0xF0C8u
 #define MFC_REG_D_MIN_NUM_DPB        0xF0F0u
@@ -132,6 +133,7 @@ typedef struct _MFC_SESSION
     BOOLEAN  Opened;
     BOOLEAN  Ready;           // INIT_BUFFERS done
     BOOLEAN  Ended;           // drain reported DECODING_EMPTY
+    BOOLEAN  DecodeOrder;     // MFC_OPEN_DECODE_ORDER: display delay 0 + decoding order (each picture right after its decode)
     ULONG    InstNo;
     ULONG    Width;
     ULONG    Height;

@@ -72,3 +72,21 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
     Video.cpp (rg getenv: none).
 - F1 fixed (0084, maliumd 6151a3bc on the phone): vdecmatrix default -> "decoder profiles: 0" (d3dvdec exit 3, MF keeps
   software decode); D3D10UMD_VIDEO_DEV=1 -> PASS. F2 fixed: vdecmatrix.ps1 header/cases now match the UMD.
+- 2026-10-17 V6b design input: DXVA wants each picture in its own output surface at EndFrame (decode order); our MFC
+  session returns display order (D_DISPLAY_DELAY never written = -1). LineageOS exynos9820 mfc (facts, no code):
+  mfc_regs.h D_DISPLAY_DELAY 0xF0B8, D_DEC_OPTIONS 0xF0B4 bits: DISPLAY_DELAY_EN 3, FMO_ASO 4, IDR_DECODING 6,
+  CONCEAL 8, PARALLEL_DISABLE 11, REALLOC 13, SPECIAL_PARSING 15, THUMBNAIL 16, DECODING_ORDER_ENABLE 17;
+  mfc_cmd.c seq header: display_delay >= 0 -> EN bit + write D_DISPLAY_DELAY; decoding_order -> bit 17.
+  D_DECODED_STATUS 0xF644 [2:0] 0 DECODING_ONLY 1 DECODING_DISPLAY 2 DISPLAY_ONLY 3 EMPTY.
+  -> V6b1: MFC_OPEN_IN flag "decode order" (delay 0 + bit 17), mfcdec option, verify frame-type order on a B clip.
+- V6b1 code: Exynos9820Mfc 1.0.0.7 (sys 5B65121A..., s10e-artifacts/mfc-1.0.0.7): MFC_OPEN_IN.Flags (optional; 8-byte
+  input = 0) with MFC_OPEN_DECODE_ORDER -> SEQ_HEADER writes D_DISPLAY_DELAY 0 + D_DEC_OPTIONS 0xA400|bit3|bit17.
+  mfcdec -order. Baseline (driver 1.0.0.6, display order) c1080.h264: 60 frames, types I B P B P ..., 0 errors,
+  C:\S10eTmp\mfc\base-c1080.txt. Deploy via TWRP (pnputil live swap = 0x122 in D10): tools/phone/totwrp.cmd (new).
+- 07:5x first V6b1 try: ordertest.ps1 -> -order gave the SAME display order (types 1323...). drvhash.ps1 (new): the
+  service loads C:\Windows\System32\drivers\Exynos9820Mfc.sys (5B0F295E, 10/15 = 1.0.0.6), sys-deploy only swapped the
+  DriverStore copy (5B65121A). sys-deploy.sh now also replaces the System32\drivers copy when it exists. Redo.
+- 2026-10-17 08:05 V6b1 DONE (Exynos9820Mfc 1.0.0.7 loaded from System32\drivers, 5B65121A): ordertest.ps1 c1080 ->
+  display 1323232..., -order 1232323... (I P B P B = decode order), same 60 picture hashes, 0 errors, display order
+  identical to the 1.0.0.6 baseline; -order needs 62 calls instead of 64 (no display-only drain steps). After the
+  reboot (UMD 0084 in DWM): cube 36.5 fps, 0 present failures. Battery 17 %.

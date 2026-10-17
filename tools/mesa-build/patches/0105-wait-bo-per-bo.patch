@@ -1,0 +1,143 @@
+From f0918334747e0516106254de9d29a090447db904 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 21:42:41 +0300
+Subject: [PATCH 105/105] malikm: WAIT_BO waits for the BO's own submission
+ (per-BO use_seq, event ring), timeout 0 = busy check (exynos-woa 0105)
+
+---
+ include/win32-compat/malikm_drm.c | 72 ++++++++++++++++++++++++++++---
+ 1 file changed, 66 insertions(+), 6 deletions(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 03e23d3..15585d2 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -792,6 +792,7 @@ struct wbo {
+    uint32_t sub;             /* exynos-woa G-game (0102): carved from wslab[sub - 1] (h = the slab's allocation), 0 if
+                               * the BO is an allocation of its own */
+    uint32_t sub_page, sub_pages;   /* its first page in the slab and its length in pages */
++   uint64_t use_seq;         /* exynos-woa G21: wseq of the last submission whose batch named it (WAIT_BO waits for it) */
+ };
+ #define WBO_FIXED 0xffffffffu
+ /* runtime_owned value of an allocation OPENED from another device/process (OpenResource - e.g. a redirected swap
+@@ -849,6 +850,13 @@ struct ddi_state {
+     * last_event is older than it and waiting on it alone would return
+     * early. wddm_idle() polls the KMD's fences instead while this is set. */
+    int last_unsignalled;
++   /* exynos-woa G21 (notes/g21-submissions.md): the completion events of the last WEV_RING submissions (ev_seq = their
++    * wseq; last_event is the newest of them) and the newest submission known complete. The KMD runs one in-order
++    * queue, so a submission is done once any event of the same or a later one is signalled. */
++   HANDLE ev[32];
++   uint64_t ev_seq[32];
++   unsigned ev_next;
++   uint64_t done_seq;
+    /* exynos-woa 0069 (WDDM 2.0, notes/gpu-wddm2-design.md S3): this device's paging queue. resid 0 = not tried yet,
+     * 1 = on, -1 = the adapter has no residency calls (WDDM 1.x: the KMD's patch list makes VidMm map each BO). */
+    int resid;
+@@ -1211,8 +1219,13 @@ w_render(UINT commandLength, UINT allocations)
+          sig.Flags.EnqueueCpuEvent = 1;
+          sig.CpuEventHandle = ev;
+          if (ddi.cb.pfnSignalSynchronizationObject2Cb(ddi.device, &sig) >= 0) {
+-            if (ddi.last_event)
+-               CloseHandle(ddi.last_event);
++            /* G21: kept in the ring (the slot's oldest event is closed) for per-BO waits; this submission becomes
++             * wseq + 1 when the caller counts it */
++            unsigned k = ddi.ev_next++ % 32;
++            if (ddi.ev[k])
++               CloseHandle(ddi.ev[k]);
++            ddi.ev[k] = ev;
++            ddi.ev_seq[k] = wseq + 1;
+             ddi.last_event = ev;
+             ddi.last_unsignalled = 0;
+             return 0;
+@@ -1312,11 +1325,47 @@ wddm_idle(void)
+       w.hDevice = wdevice;
+       ret = kmt.WaitForIdle(&w) >= 0 ? 0 : -MK_EIO;
+    }
+-   if (ret == 0)
++   if (ret == 0) {
+       wdead_flush();
++      ddi.done_seq = wseq;   /* G21 */
++   }
+    return ret;
+ }
+ 
++/* exynos-woa G21 (notes/g21-submissions.md): WAIT_BO for a BO last used by submission Seq. Poll (timeout 0) = a busy
++ * check: 0 if done, -EBUSY if not (Linux panfrost_ioctl_wait_bo's answer for a zero timeout). Otherwise wait (<= 10 s,
++ * as wddm_idle) for that submission only. Run 3548/6504: answering every WAIT_BO with wddm_idle() (all submitted work)
++ * cost the game 37 waits / 12.9 ms per frame and serialised its CPU and GPU work. */
++static int
++wddm_wait_seq(uint64_t seq, int poll)
++{
++   if (!ddi.on)
++      return wddm_idle();
++   if (seq <= ddi.done_seq)
++      return 0;
++   HANDLE h = NULL;
++   uint64_t hs = 0;
++   for (unsigned i = 0; i < 32; i++)
++      if (ddi.ev[i] && ddi.ev_seq[i] >= seq && (!h || ddi.ev_seq[i] < hs)) {
++         h = ddi.ev[i];
++         hs = ddi.ev_seq[i];
++      }
++   if (!h)   /* the newest submissions had no event (signal callback failed): the old way */
++      return poll ? -MK_EBUSY : wddm_idle();
++   DWORD t0 = GetTickCount();
++   DWORD r = WaitForSingleObject(h, poll ? 0 : 10000);
++   if (r == WAIT_OBJECT_0) {
++      if (hs > ddi.done_seq)
++         ddi.done_seq = hs;
++      wdead_try_flush();
++      return 0;
++   }
++   if (!poll)
++      malikm_tlog("wait bo: submission %llu not done after %lu ms", (unsigned long long)seq,
++                  (unsigned long)(GetTickCount() - t0));
++   return poll ? -MK_EBUSY : -MK_ETIMEDOUT;
++}
++
+ /* Present for d3d10umd on the hardware runtime: Bgrx is the frame, linear
+  * and top-down; it is copied into a surface of the runtime device and
+  * handed to DXGI, which has maliwddm blt it (on the CPU, for now) to the
+@@ -1458,6 +1507,9 @@ malikm_unbind_device(void *hRTDevice)
+    int i = bind_for_device(hRTDevice);
+    if (i >= 0) {
+       bind_switch(i);
++      for (unsigned k = 0; k < 32; k++)   /* exynos-woa G21: the submission events (last_event is one of them) */
++         if (ddi.ev[k])
++            CloseHandle(ddi.ev[k]);
+       free(wbo);
+       free(wdead);
+       free(wslab);      /* exynos-woa G-game (0102): the slab allocations go with the device, like the others */
+@@ -2491,10 +2543,13 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+       a->retained = 1;
+       return 0;
+    }
+-   case MALIKM_NR_PANFROST_WAIT_BO:
+-      if (!wddm_bo(((struct drm_panfrost_wait_bo *)b)->handle))
++   case MALIKM_NR_PANFROST_WAIT_BO: {
++      struct drm_panfrost_wait_bo *a = (void *)b;
++      struct wbo *bo = wddm_bo(a->handle);
++      if (!bo)
+          return -MK_ENOENT;
+-      return wddm_idle();
++      return wddm_wait_seq(bo->use_seq, a->timeout_ns == 0);   /* exynos-woa G21: that BO's submission only */
++   }
+    case MALIKM_NR_PANFROST_SUBMIT: {
+       struct drm_panfrost_submit *a = (void *)b;
+       const uint32_t *bos = (const uint32_t *)(b + a->bo_handles);
+@@ -2573,6 +2628,11 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+          return -MK_EIO;
+       }
+       wseq++;
++      for (uint32_t i = 0; i < a->bo_handle_count; i++) {   /* exynos-woa G21: what WAIT_BO waits for */
++         struct wbo *ubo = wddm_bo(bos[i]);
++         if (ubo)
++            ubo->use_seq = wseq;
++      }
+       wdead_try_flush();   /* exynos-woa G17 VRAM (0101): earlier closes whose work has completed */
+       {
+          /* exynos-woa G17 (notes/g17-dxva-mfc.md): CPU time in the runtime's Render per submission (VidMm walks the
+-- 
+2.40.1.windows.1
+

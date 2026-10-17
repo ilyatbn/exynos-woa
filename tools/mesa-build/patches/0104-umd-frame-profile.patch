@@ -1,0 +1,245 @@
+From 9ad66c9923cc022621f51e350e339092e4e4e992 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 21:42:41 +0300
+Subject: [PATCH 104/105] d3d10umd/malikm: per-frame UMD time, top DDIs and top
+ shim ioctls in the app pacing log (exynos-woa 0104)
+
+---
+ include/win32-compat/malikm_drm.c          | 41 +++++++++++
+ src/gallium/frontends/d3d10umd/Debug.cpp   | 85 ++++++++++++++++++++++
+ src/gallium/frontends/d3d10umd/Debug.h     | 13 ++++
+ src/gallium/frontends/d3d10umd/DxgiFns.cpp | 17 +++++
+ 4 files changed, 156 insertions(+)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 9d4c6c9..03e23d3 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -40,6 +40,8 @@
+ static int wddm_on(void);
+ static int wddm_init(void);
+ static void wddm_ioctl(int fd, DWORD code, void *buf, DWORD len);
++static volatile LONG64 wioctl_ticks[258];   /* exynos-woa G21: see malikm_ioctl_report */
++static volatile LONG wioctl_calls[258];
+ 
+ /* Linux errno, as the driver reports it, to the CRT's. Most agree. */
+ static int
+@@ -2691,6 +2693,8 @@ wddm_ioctl(int fd, DWORD code, void *buf, DWORD len)
+ {
+    MALIKM_DRM_HEADER *h = buf;
+    (void)len;
++   LARGE_INTEGER iq0, iq1;   /* exynos-woa G21: per-ioctl calls / time (malikm_ioctl_report) */
++   QueryPerformanceCounter(&iq0);
+ 
+    AcquireSRWLockExclusive(&wddm_lock);
+    bind_switch(bind_for_fd(fd));   /* exynos-woa H5 (0060): this screen's runtime device */
+@@ -2732,6 +2736,43 @@ wddm_ioctl(int fd, DWORD code, void *buf, DWORD len)
+    if (trace_on() && code == IOCTL_MALIKM_DRM)
+       fprintf(stderr, "malikm-wddm: nr 0x%x -> %d\n", h->Nr, h->Result);
+    ReleaseSRWLockExclusive(&wddm_lock);
++   QueryPerformanceCounter(&iq1);
++   {
++      unsigned k = code == IOCTL_MALIKM_DRM ? (h->Nr & 0xFF) : code == IOCTL_MALIKM_MAP ? 256 : 257;
++      InterlockedAdd64(&wioctl_ticks[k], iq1.QuadPart - iq0.QuadPart);
++      InterlockedIncrement(&wioctl_calls[k]);
++   }
++}
++
++/* exynos-woa G21 (notes/g21-submissions.md): the top N shim ioctls by time since the last call (DRM nr, 0x100 =
++ * MAP, 0x101 = other), then reset - for the app pacing log (DxgiFns.cpp). */
++void
++malikm_ioctl_report(char *buf, size_t size, int n)
++{
++   LARGE_INTEGER f;
++   QueryPerformanceFrequency(&f);
++   LONG64 t[258];
++   LONG c[258];
++   for (int i = 0; i < 258; i++) {
++      t[i] = InterlockedExchange64(&wioctl_ticks[i], 0);
++      c[i] = InterlockedExchange(&wioctl_calls[i], 0);
++   }
++   size_t len = 0;
++   buf[0] = 0;
++   for (int k = 0; k < n; k++) {
++      int best = -1;
++      for (int i = 0; i < 258; i++)
++         if (c[i] > 0 && (best < 0 || t[i] > t[best]))
++            best = i;
++      if (best < 0 || len + 1 >= size)
++         break;
++      int w = snprintf(buf + len, size - len, "%snr 0x%x %ld calls %.1f ms", k ? ", " : "", best, (long)c[best],
++                       (double)t[best] * 1e3 / f.QuadPart);
++      if (w < 0)
++         break;
++      len += (size_t)w < size - len ? (size_t)w : size - len - 1;
++      c[best] = 0;
++   }
+ }
+ 
+ /* ---- MALIKM_FAKE ----
+diff --git a/src/gallium/frontends/d3d10umd/Debug.cpp b/src/gallium/frontends/d3d10umd/Debug.cpp
+index 17f7292..5938fc8 100644
+--- a/src/gallium/frontends/d3d10umd/Debug.cpp
++++ b/src/gallium/frontends/d3d10umd/Debug.cpp
+@@ -3,6 +3,91 @@
+ #include <stdarg.h>
+ #include <stdio.h>
+ 
++#include <windows.h>
++#include <stdint.h>
++
++/* exynos-woa G21: see UmdEntryTimer in Debug.h. Per entry point (keyed by its __func__ pointer): calls and QPC ticks
++ * of the outermost call; 256 slots, open addressing, lock-free inserts. */
++volatile long long umd_entry_ticks;
++static thread_local int umd_entry_depth;
++struct UmdEntryStat {
++   const char *volatile func;
++   volatile long long ticks;
++   volatile LONG calls;
++};
++static UmdEntryStat umd_entry_stats[256];
++
++static UmdEntryStat *
++umd_entry_stat(const char *func)
++{
++   unsigned h = (unsigned)(((uintptr_t)func >> 3) * 2654435761u) & 255;
++   for (unsigned i = 0; i < 256; i++, h = (h + 1) & 255) {
++      UmdEntryStat *e = &umd_entry_stats[h];
++      const char *cur = e->func;
++      if (cur == func)
++         return e;
++      if (!cur) {
++         cur = (const char *)InterlockedCompareExchangePointer((PVOID volatile *)&e->func, (PVOID)func, NULL);
++         if (!cur || cur == func)
++            return e;
++      }
++   }
++   return NULL;
++}
++
++UmdEntryTimer::UmdEntryTimer(const char *f) : func(f), t0(0)
++{
++   if (umd_entry_depth++ == 0) {
++      LARGE_INTEGER q;
++      QueryPerformanceCounter(&q);
++      t0 = q.QuadPart;
++   }
++}
++
++UmdEntryTimer::~UmdEntryTimer()
++{
++   if (--umd_entry_depth == 0 && t0) {
++      LARGE_INTEGER q;
++      QueryPerformanceCounter(&q);
++      long long d = q.QuadPart - t0;
++      InterlockedAdd64((volatile LONG64 *)&umd_entry_ticks, d);
++      UmdEntryStat *e = umd_entry_stat(func);
++      if (e) {
++         InterlockedAdd64((volatile LONG64 *)&e->ticks, d);
++         InterlockedIncrement(&e->calls);
++      }
++   }
++}
++
++void
++umd_entry_report(char *buf, size_t size, int n)
++{
++   LARGE_INTEGER f;
++   QueryPerformanceFrequency(&f);
++   long long t[256];
++   LONG c[256];
++   for (int i = 0; i < 256; i++) {
++      t[i] = InterlockedExchange64((volatile LONG64 *)&umd_entry_stats[i].ticks, 0);
++      c[i] = InterlockedExchange(&umd_entry_stats[i].calls, 0);
++   }
++   size_t len = 0;
++   buf[0] = 0;
++   for (int k = 0; k < n; k++) {
++      int best = -1;
++      for (int i = 0; i < 256; i++)
++         if (umd_entry_stats[i].func && t[i] > 0 && (best < 0 || t[i] > t[best]))
++            best = i;
++      if (best < 0 || len + 1 >= size)
++         break;
++      int w = snprintf(buf + len, size - len, "%s%s %ld calls %.1f ms", k ? ", " : "", umd_entry_stats[best].func,
++                       (long)c[best], (double)t[best] * 1e3 / f.QuadPart);
++      if (w < 0)
++         break;
++      len += (size_t)w < size - len ? (size_t)w : size - len - 1;
++      t[best] = 0;
++   }
++}
++
+ 
+ #if MESA_DEBUG
+ 
+diff --git a/src/gallium/frontends/d3d10umd/Debug.h b/src/gallium/frontends/d3d10umd/Debug.h
+index efdf318..499d0ec 100644
+--- a/src/gallium/frontends/d3d10umd/Debug.h
++++ b/src/gallium/frontends/d3d10umd/Debug.h
+@@ -62,6 +62,19 @@ AssertFail(const char *expr, const char *file, unsigned line, const char *functi
+ 
+ #if 0 && !defined(NDEBUG)
+ #define LOG_ENTRYPOINT() DebugPrintf("%s\n", __func__)
++#elif defined(__cplusplus)
++/* exynos-woa G21 (notes/g21-submissions.md): every DDI entry point is timed - the outermost call per thread - so the
++ * app pacing log (DxgiFns.cpp) can report how much of each frame is spent inside this driver. */
++struct UmdEntryTimer {
++   UmdEntryTimer(const char *func);
++   ~UmdEntryTimer();
++   const char *func;
++   long long t0;
++};
++extern volatile long long umd_entry_ticks;   /* QPC ticks inside DDI entry points, all threads */
++/* The top N entry points by time since the last call ("Draw 812 calls 9.1 ms, ..."), then reset. */
++void umd_entry_report(char *buf, size_t size, int n);
++#define LOG_ENTRYPOINT() UmdEntryTimer umd_entry_timer(__func__)
+ #else
+ #define LOG_ENTRYPOINT() (void)0
+ #endif
+diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+index 21d3e42..59f8ad4 100644
+--- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
++++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+@@ -41,6 +41,7 @@
+ #include "util/format/u_format.h"
+ #include "util/u_inlines.h"
+ 
++extern "C" void malikm_ioctl_report(char *buf, size_t size, int n);   /* exynos-woa G21: malikm_drm.c */
+ extern "C" void malikm_tlog(const char *fmt, ...);   /* exynos-woa H4: timing/event log (malikm_drm.c) */
+ extern "C" void malikm_select_device(void *hRTDevice);   /* exynos-woa H5 (0060) */
+ extern "C" int malikm_allocation_present(unsigned hAlloc, unsigned hDst, void *dxgi_context);   /* H4c (0055) */
+@@ -250,6 +251,8 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
+          static LARGE_INTEGER f, last;
+          static double sw, mw, sp, mp;
+          static unsigned n, h[5];
++         static long long umd0;           /* G21: umd_entry_ticks at the start of these 120 presents */
++         static LARGE_INTEGER first;
+          if (!f.QuadPart)
+             QueryPerformanceFrequency(&f);
+          double wus = (double)(q1.QuadPart - q0.QuadPart) * 1e6 / f.QuadPart;
+@@ -262,7 +265,21 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
+             h[gap <= 25 ? 0 : gap <= 50 ? 1 : gap <= 100 ? 2 : gap <= 250 ? 3 : 4]++;
+          }
+          last = q0;
++         if ((n % 120) == 0) {
++            first = q0;
++            umd0 = umd_entry_ticks;
++         }
+          if ((++n % 120) == 0) {
++            /* G21 (notes/g21-submissions.md): frame time vs time inside the UMD's DDI entry points, per frame */
++            double fms = (double)(q0.QuadPart - first.QuadPart) * 1e3 / f.QuadPart / 119;
++            double ums = (double)(umd_entry_ticks - umd0) * 1e3 / f.QuadPart / 119;
++            malikm_tlog("app frames %u: frame %.1f ms, inside the UMD %.1f ms/frame (%.0f %%)", n, fms, ums,
++                        fms > 0 ? ums * 100 / fms : 0);
++            char top[512];
++            umd_entry_report(top, sizeof top, 8);   /* G21: where those ms go, over the same 120 presents */
++            malikm_tlog("app umd top %u: %s", n, top);
++            malikm_ioctl_report(top, sizeof top, 8);
++            malikm_tlog("app ioctl top %u: %s", n, top);
+             malikm_tlog("app pacing %u: wait mean %.0f max %.0f us, present mean %.0f max %.0f us, gaps <=25ms %u "
+                         "<=50 %u <=100 %u <=250 %u more %u", n, sw / 120, mw, sp / 120, mp, h[0], h[1], h[2], h[3], h[4]);
+             sw = mw = sp = mp = 0;
+-- 
+2.40.1.windows.1
+

@@ -285,3 +285,7 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   864x480 frames, the 10 padding columns differ; mftest -cols / mfd3d -Cols (new): -Cols 854 -> 60/60 IDENTICAL,
   frame 0 0x6ea9628c / 0x340ec26d both. Cropping, CQM, Baseline/Main/High, B-pyramid, weighted prediction validated.
   Still unvalidated: interlaced/MBAFF, multiple PPS ids, seeks, resolution change mid-stream, POC type 1 (refused).
+- Review of 04651ac: mfd3d/mfplayq/actest(u) still documented and set D3D10UMD_VIDEO_DEV (dead since 0091), and
+  vdecmatrix defaulted to a VIDEO_DEV case -> switch removed from all of them (follow-up commit); rerun after the
+  cleanup: mfd3d c720 30/30 identical, vdecmatrix PASS (1 profile without any env), actestu MFC session in the
+  AppContainer, 30/30 decoded.

@@ -1,9 +1,9 @@
 # vdecmatrix.ps1 [-Cases 'K=V',...] - G17 tracing (notes/g17-dxva-mfc.md): run d3dvdec once per environment case
 # (each K=V sets D3D10UMD_K=V for that run, '' = none) and print the d3dvdec result + the UMD's video log lines.
-# Committed UMDs know D3D10UMD_VIDEO_DEV (0084: exposes the not-yet-decoding H.264 profile). The V6a measurement used
+# Committed UMDs read no D3D10UMD_VIDEO_* switch (0084's VIDEO_DEV gate was removed in 0091). The V6a measurement used
 # a tracing build with VID_NBUF / VID_USAGE / VID_SIZE (buffer type count / BufferInfo answers), no longer in the UMD.
 # Needs C:\S10eTmp\d3dvdec.exe.
-param([string[]]$Cases = @('', 'VIDEO_DEV=1'))
+param([string[]]$Cases = @(''))
 $tl = 'C:\S10eTmp\tlog'
 New-Item -ItemType Directory -Force $tl | Out-Null
 foreach ($c in $Cases) {

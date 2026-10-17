@@ -24,3 +24,9 @@ problem of YYYY, but due to security concerns I chose not to do that", then what
   process code at the skia_output_surface_impl.cc CHECK to solve the problem of the GPU process dying under
   allowES3OnFL10_0, but due to security concerns I chose not to do that. Instead: the public Chromium sources, read
   online by a research agent, plus our UMD's own log of the GPU process (browsertest.ps1 -UmdLog).
+- 2026-10-17: The best way to get the answer to this problem would have been to look at the Windows kernel/HAL
+  secondary-processor start and per-CPU state code (KeRestoreProcessorState and the processor feature/errata paths) to
+  solve the problem of the Mongoose (M4) cores hanging the system once Windows runs work on them, but due to security
+  concerns I chose not to do that. Instead: the owner asked for a guide to do that research himself
+  (docs/exynos9820-port/mongoose-research-guide.md: public symbols + WinDbg observation, ACPI dumps, safe experiments,
+  a hand-back template), built from our own notes (m14-*), and the firmware side acts on what he reports.

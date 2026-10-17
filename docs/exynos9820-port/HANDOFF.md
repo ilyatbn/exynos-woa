@@ -1704,3 +1704,29 @@ Next order of work:
 3. Remaining pacing: DWM's composition queues behind app jobs (one in-order queue, no preemption).
 4. Blank screensaver (120 s) voids measurements - mpvrate.sh dismisses it.
 5. Photos ~5 fps (open), DWM CPU-copy trigger (open), Graphics Tools WU decision (user), HDMI (G18) with the user.
+
+## 55. Restart point (2026-10-17 ~19:30 local)
+
+Committed (exynos-woa main; Mesa working copy last a2f5c0c = patch 0102, clean except nothing):
+- Video smooth (user-confirmed): Mesa 0097 (cached BOs not listed: VidMm thrash), 0099 (RotateResourceIdentities
+  rotates identities - DWM had shown flip chains out of order), 0101 (closed BOs destroyed promptly), 0100/0098/0096
+  diagnostics (Render timing, app/DWM pacing logs). Tools: flipseq + seqpix (frame order), vatest/vaprobe (address
+  space), gpumem/gpuengine/coretop/memcommit/lastboot/appcrash/dwmevents, kmdstats busy/paging.
+- 32-bit games: x86 UMD (build-mesa-g76.ps1 stage x86 -> s10e-artifacts\mali-g12-x86\maliumd32.dll), installed BY HAND:
+  C:\Windows\SysWOW64\maliumd32.dll + HKLM\...\Class\{4d36e968-...}\0000 UserModeDriverNameWow = maliumd32.dll x4
+  (dxgkrnl reads it at boot). Mesa 0102: 32-bit build sub-allocates small BOs from 32 MB slabs (each allocation's
+  CPU view costs 32 MB of address space; CpuVisibleOnDemand is refused in 32-bit processes and wrecks DWM in 64-bit).
+  The Unity game (Game Dev Story) runs on the Mali (user: "working now").
+- KMD 1.0.66.1 deployed: segment 2.5 GiB; Parameters\CpuVisibleOnDemand (0 off = default and current registry
+  value; modes 2/3 broke logon / hung boot - never set them without nogpu.flg recovery ready).
+- Governor: GPU load = sum of 3D instances, MIF 2093000 screen on, GpuMaxBusyPct 30, MidMaxBusyPct 50 (game
+  17.6 -> 22.8 presents/s).
+- Recovery learned: a forced reset leaves NTFS dirty (TWRP read-only) -> ESP S10EDIAG\nogpu.flg from TWRP boots
+  Windows on Basic Display; fix the registry there; remove the flag; clean restart.
+
+Next order of work:
+1. Package the x86 UMD in the INF (UserModeDriverNameWow + SysWOW64 CopyFiles) - native install.
+2. 0102 follow-up: release closed slab pages by submission sequence (busy processes keep them).
+3. DWM per-session leak (~19 MB: one opened flip buffer of each app window never DestroyResource'd).
+4. DWM teardown hang after taskkill (and the unkillable-process class).
+5. x64-emulated apps (ARM64EC/ARM64X UMD), HDMI (G18) with the user, Photos ~5 fps, Graphics Tools WU decision.

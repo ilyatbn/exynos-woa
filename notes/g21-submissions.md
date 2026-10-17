@@ -48,3 +48,16 @@ Measured (notes/g20-scaled-modes.md, gamebench): native gameplay 15 presents/s w
 - Next: ARM64 build (DWM, Edge and every 64-bit app do the same full waits in WAIT_BO - DWM benefits too, but a wrong
   per-BO wait there shows as corruption on the desktop: test with a reboot + the user's eyes); then consider the
   Present wait (10.5 ms CPU<->GPU serialisation per frame).
+- Review of Mesa f091833 (0105):
+  - timeouts: every panfrost_bo_wait caller passes 0 or INT64_MAX (rg pan_bo.c/pan_context.c/pan_resource.c) -> poll /
+    <= 10 s covers all; uapi timeout is absolute but Mesa never passes other values. Mesa's panfrost_kmod_bo_wait treats
+    -1 with ETIMEDOUT or EBUSY as "busy" (panfrost_kmod.c:440-444); MK_EBUSY 16 == CRT EBUSY 16 (crt_errno passes it).
+  - ordering: a CPU event enqueued with SignalSynchronizationObject2 on the context fires after all earlier work of
+    that context; waiting on the first ring event >= seq is therefore sufficient whatever the KMD's slot order
+    (vertex/tiler vs fragment submits of one batch both stamp; the later seq wins).
+  - seq bookkeeping: w_render stores wseq+1 only after a successful pfnRenderCb + signal; SUBMIT increments wseq right
+    after, so they agree; a failed Render returns before both. No event (signal failed) -> old wddm_idle / -EBUSY.
+  - scope unchanged vs before: own process's submissions only (opened BOs of other processes were never covered).
+  - lifetime: 32 events per binding stay open (was 1); unbind now closes them (the old last_event leaked at unbind).
+  - Nothing to fix. 0104: D3D11.cpp entry points carry no LOG_ENTRYPOINT (the D3D11 wrappers call timed D3D10
+    functions; untimed ones make "inside the UMD" a lower bound).

@@ -571,3 +571,4 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   G3D 377 MHz (governor), MIF 2093000, decdrop 0 over 28.5 s, delayed 0; app pacing 480/600: present gaps 120/120
   in 25-50 ms (wait mean 146-184 us, present 114-137 us). => the choppy playback was VidMm residency thrash caused
   by listing Panfrost's cached BOs. Mesa 0097 (b1dd130, madvise) and 0098 (08dba8e, app pacing log) committed.
+- 18:1x REVIEW Mesa 0097: make_evictable's only caller is panfrost_bo_cache_put (pan_bo.c:275) after the last reference; fetch calls make_unevictable (WILLNEED) before reuse (pan_bo.c:220) -> no batch reaches an idle BO unlisted; in-flight work listed it in its own submission. Cached BOs still hold system memory (only out of the residency set) - Panfrost's 1 s stale eviction runs on cache_put. No follow-up. Review 0098: TEMP-free, log every 120 presents only.

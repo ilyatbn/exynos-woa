@@ -347,3 +347,10 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   the 260 MHz floor. tools/phone/threadtop.ps1: no Photos thread pegged (busiest 21 % / 18 %, most threads waiting).
   => Photos waits on something per frame, it is not CPU-bound. Open.
   Phone after cleanup: KMD 1.0.62.1, UMD 0093 (maliumd fede1bcd; same source as 2be0d7c9, rebuilt), machine-wide trace OFF (DWM keeps tracing until the next boot).
+- 12:5x USER turned the screen off and on, asked whether the fallback happened. Measured right after:
+  kmdstats during d3dswap comp: KMD presents 6.6/s and 9.0/s, ALL GPU (cpu copy 0) - right after the reboot the same
+  test gave 58.4/s; d3dswap itself still 58.0/s. vblankq: 59 Hz, time-critical p10/p90 16.70/17.35 ms (vsync timer
+  survived). No lock screen (no LogonUI). PRAM heartbeat over 7.0 s: vsync +413 (59 Hz), p (presents + latches)
+  +323 = 46/s. => the screen off/on did NOT bring back the CPU-copy path, but DWM's way of presenting changed
+  (DdiPresent 58/s -> 7-9/s, the rest as vsync-latched flips). The earlier CPU-copy state has another trigger
+  (candidates left: UMD swaps while DWM runs, a rotation/mode change, long uptime).

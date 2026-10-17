@@ -69,3 +69,4 @@ Measured (notes/g20-scaled-modes.md, gamebench): native gameplay 15 presents/s w
   the display had already timed out (~20 min after the last wake) and the requests queued. No long GPU waits logged.
   OPEN: slow wake from display-off, possibly with mode changes requested while off. Not explained yet.
 - 21:55 ARM64 UMD 0105 (mali-umd-0105, maliumd a17abe1c) staged in System32 via umdswap (new 64-bit processes now; DWM after reboot). x86 0105 = 27f737ef in SysWOW64.
+- 22:16 after the KMD 68 reboot DWM runs the ARM64 0105 UMD (a17abe1c), Responding; kmdstats: failed 0, timed out 0, resets 0. Visual check by the user pending (any corruption -> roll back via System32\maliumd.dll.*.old).

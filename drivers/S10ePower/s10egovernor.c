@@ -71,16 +71,17 @@ static const unsigned kLadderG3d[] = { 156000, 200000, 260000, 325000, 377000, 4
 typedef struct {
     const char *Name;
     unsigned Dom, Max, Boost, Cur, Quiet;
+    ULONGLONG LastChange;    /* tick of the last request: at most one change per MinIntervalMs (boost exempt) */
     const unsigned *Ladder;
     unsigned Count;
 } DOMAIN;
 
 static DOMAIN gDom[3] = {
-    { "LITTLE", S10EPOWER_DOM_LITTLE, 1456000, 1456000, 0, 0, kLadderLittle, ARRAYSIZE(kLadderLittle) },
-    { "MID", S10EPOWER_DOM_MID, 1794000, 1794000, 0, 0, kLadderMid, ARRAYSIZE(kLadderMid) },
-    { "G3D", S10EPOWER_DOM_G3D, 260000, 260000, 0, 0, kLadderG3d, ARRAYSIZE(kLadderG3d) },
+    { "LITTLE", S10EPOWER_DOM_LITTLE, 1456000, 1456000, 0, 0, 0, kLadderLittle, ARRAYSIZE(kLadderLittle) },
+    { "MID", S10EPOWER_DOM_MID, 1794000, 1794000, 0, 0, 0, kLadderMid, ARRAYSIZE(kLadderMid) },
+    { "G3D", S10EPOWER_DOM_G3D, 260000, 260000, 0, 0, 0, kLadderG3d, ARRAYSIZE(kLadderG3d) },
 };
-static unsigned gBoostMs = 300, gDownSamples = 6;
+static unsigned gBoostMs = 300, gDownSamples = 6, gMinIntervalMs = 200;
 static volatile LONG gDisplayOn = 1;
 static HANDLE gStop, gPower = INVALID_HANDLE_VALUE;
 static SERVICE_STATUS_HANDLE gSs;
@@ -107,6 +108,7 @@ static void LoadConfig(void)
     gDom[2].Max = Reg(k, "MaxG3d", 260000);     gDom[2].Boost = Reg(k, "BoostG3d", gDom[2].Max);
     gBoostMs = Reg(k, "BoostMs", 300);
     gDownSamples = Reg(k, "DownSamples", 6);
+    gMinIntervalMs = Reg(k, "MinIntervalMs", 200);   /* 0.0.1 run: ~5 changes/s from SSH/WMI load spikes */
     if (k)
         RegCloseKey(k);
 }
@@ -272,12 +274,20 @@ static void Run(void)
                     BOOL idle = (!lastTouch || t - lastTouch > 5000) && busy[0] < 0.10 && busy[1] < 0.10;
                     target = StepAtLeast(d, idle ? d->Max / 2 : d->Max);
                 }
-                if (target >= d->Cur) {
+                if (target == d->Cur) {
+                    d->Quiet = 0;
+                } else if (!boost && t - d->LastChange < gMinIntervalMs) {
+                    /* rate limit: wait (a pending down-step keeps counting) */
+                    if (target < d->Cur)
+                        d->Quiet++;
+                } else if (target > d->Cur) {
                     d->Quiet = 0;
                     Set(d, target);
+                    d->LastChange = t;
                 } else if (++d->Quiet >= gDownSamples) {
                     d->Quiet = 0;
                     Set(d, target);
+                    d->LastChange = t;
                 }
             }
         }

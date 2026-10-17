@@ -78,3 +78,4 @@ Windows reads temperatures and can throttle; lowering is fine.
   BEYOND0LTE_DVFS_*_KHZ) - likely the UEFI request was skipped by its progress-0x66 self-healing guard on this boot
   path (after the TWRP reset); where 1742/2106 come from (sboot / ACPM init level) is UNVERIFIED. Temperature at
   those rates after boot: 58 C, 54 C after lowering. Windows now owns the CPU clocks.
+- 06:50 C3 first run (device): touch driver 6.0.5058.7 installed (pnputil, active - Win32_PnPSignedDriver), S10eTouchActivity exists (SSH admin gets access denied = exists; SYSTEM governor opens it: TouchEvent 1). S10eGovernor service (start= demand) running: GpuCounter 1; idle: LITTLE 546-650 MHz, MID 507 MHz, G3D 156 MHz; ~5 changes/s at first -> MinIntervalMs 200 (boost exempt) -> ~3/s, tracking real load bursts. 0 ACPM fails. Touch boost not yet exercised (needs a finger - user).

@@ -61,3 +61,10 @@ Measured (notes/g20-scaled-modes.md, gamebench): native gameplay 15 presents/s w
   - lifetime: 32 events per binding stay open (was 1); unbind now closes them (the old last_event leaked at unbind).
   - Nothing to fix. 0104: D3D11.cpp entry points carry no LOG_ENTRYPOINT (the D3D11 wrappers call timed D3D10
     functions; untimed ones make "inside the UMD" a lower bound).
+- 21:45 SCREEN OUTAGE: from ~21:20 the scan-out stayed black; injected input (wake.ps1) and the user's power button
+  did not wake it ("screen wont start on my end either"); it came back by itself after a while (user: "took a while.
+  weird"). tools/phone/g21/wakeevents.ps1: no Display/dxgkrnl/Kernel-Power/DWM events, no TDR, DWM same process since
+  boot (Responding). DWM tlog (traces/g21/malikm-dwm.exe-1360.txt): last primary re-creation = 720x1520 at ~20:58;
+  the 2280x1080 mode sets my gamebench runs requested at 21:2x-21:3x ("test 0 -> 0") never re-created DWM primaries -
+  the display had already timed out (~20 min after the last wake) and the requests queued. No long GPU waits logged.
+  OPEN: slow wake from display-off, possibly with mode changes requested while off. Not explained yet.

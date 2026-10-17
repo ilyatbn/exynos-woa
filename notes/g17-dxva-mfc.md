@@ -190,3 +190,32 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
     debug tools in repo) -> tools/mesa-build/gen-videoproc-h.py, header regenerated with it (0089).
   - Unvalidated: background fill / letterboxing (dst != target), studio-RGB output, BGRX output, 601 content, real
     apps (Media Player / Photos: AppContainer -> V6d).
+- 2026-10-17 V6d: tools/mfc/acrun (CreateAppContainerProfile + CreateProcess with SECURITY_CAPABILITIES, no
+  capabilities) + actest.ps1 (-Setup fixture C:\S10eTmp\ac readable by S-1-15-2-1) + actestu.ps1 (runs it in the
+  user's session: from SSH an AppContainer child dies 0xC0000142, no window station).
+  - mftest -d3d11 in the AppContainer, -Dev: UMD "MFC open failed 5" (ACCESS_DENIED) -> MF software decode
+    (texture bind 0), 22 frames reported (30 outside - to recheck after the fix).
+  - mfcacl.ps1: DEVPKEY_Device_SecuritySDS empty (class default; no AppContainer ACE).
+  - MS Learn: device security = INF DDInstall.HW AddReg "HKR,,Security,,<SDDL>" (whole stack, at device start);
+    after installation via the device installation functions (DEVPKEY_Device_SecuritySDS / SPDRP_SECURITY_SDS).
+    The HSA custom-capability route is for apps that open devices themselves - not our case (a system UMD in any app).
+  - INF 1.0.0.8: Security "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;WD)(A;;GRGW;;;AC)(A;;GRGW;;;S-1-15-2-2)".
+    Attack surface note: sandboxed apps can now send bitstreams to the MFC driver/firmware (same exposure as a GPU
+    vendor's D3D11 decode path); the driver checks window sizes (MFC_MAX_WINDOW) - the firmware parses the stream.
+- mfcacl.ps1 -Set (CM_Set_DevNode_PropertyW DEVPKEY_Device_SecuritySDS, CR 0): pnputil /properties shows the SDDL
+  (Get-PnpDeviceProperty does not list that key - readback switched to pnputil). Effective at the next device start
+  -> clean reboot (no live device restart: the D10 live driver swap ended in 0x122).
+- 08:4x after the reboot still "MFC open failed 5". mfcsd.ps1 (new: CreateFile READ_CONTROL on the interface path +
+  GetSecurityInfo): device object DACL = D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x1201bf;;;WD)(A;;0x1200a9;;;RC) = the
+  default; the property had not applied. pnputil showed only {4d1ebee8...},26 printed by GUID, no
+  DEVPKEY_Device_Security: CM_Set_DevNode_PropertyW stored a plain property. mfcacl.ps1 rewritten to the documented
+  SetupDiSetDeviceRegistryPropertyW(SPDRP_SECURITY_SDS): now DEVPKEY_Device_Security (binary, named) =
+  D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GWGR;;;WD)(A;;GWGR;;;AC)(A;;GWGR;;;S-1-15-2-2); stray [26] deleted (-CleanStray).
+  Rebooting again.
+- 2026-10-17 08:49 V6d1 DONE: after the reboot mfcsd.ps1 -> device object DACL
+  D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x12019f;;;WD)(A;;0x12019f;;;AC)(A;;0x12019f;;;S-1-15-2-2). actestu -Dev: inside the
+  AppContainer the UMD opens the MFC ("decoder 1280x720 created, MFC session open"), 30 frames decoded on the MFC
+  (decoded 30 failed 0), texture array 12 bind 0x200 (DXVA path); before: ACCESS_DENIED -> software, 22 frames.
+  Fresh installs get the same descriptor from INF 1.0.0.8 [Mfc_Install.NT.HW] (not reinstalled on the phone: the
+  live driver reinstall risk, D10 0x122) - the phone's devnode got it through mfcacl.ps1 -Set (documented
+  post-install path), so INF and devnode agree.

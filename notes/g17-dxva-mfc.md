@@ -737,3 +737,11 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   (DWM, mpv) unchanged. Result: desktop normal after reboot (81 s); game: VM flat at 639 MB (was -> 4031 MB and dying),
   no CREATE_BO failures, Unity "Direct3D 11.0 [level 10.1], Renderer: Arm Mali-G76 MP12"; KairoGames 95 % of one core
   (x86 emulation), KMD presents 5.5/s, GPU engine ~0 for the game at that moment (loading?). User check pending.
+- User: game "black screen, not loading" then "music started playing, screen still black". Shim log (permanent
+  create-bo FAIL log + TEMP ok log): in the 32-bit game EVERY allocation marked MW_ALLOC_CPU_ONDEMAND fails with
+  E_INVALIDARG (0x80070057): first the 32 MB tiler heaps (Panfrost flags 0x3), after excluding heaps every 4 KB
+  noexec BO; zero marked BOs succeeded. In the 64-bit vatest the same KMD flags (mode 2/4) worked. => dxgkrnl accepts
+  CpuVisibleOnDemand allocations for 64-bit processes and rejects them for WOW64 (32-bit) ones [observed behaviour,
+  no doc statement found; rule 11: not traced inside Windows]. The earlier "VM flat at 639 MB" run was the game
+  failing its allocations (no tiler heap -> black screen + music). On-demand is a dead end for 32-bit apps.
+  => Sub-allocation in the 32-bit shim (pack small BOs into large allocations, one 32 MB CPU view per slab).

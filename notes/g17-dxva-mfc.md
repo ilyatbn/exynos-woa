@@ -573,3 +573,16 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   by listing Panfrost's cached BOs. Mesa 0097 (b1dd130, madvise) and 0098 (08dba8e, app pacing log) committed.
 - 18:1x REVIEW Mesa 0097: make_evictable's only caller is panfrost_bo_cache_put (pan_bo.c:275) after the last reference; fetch calls make_unevictable (WILLNEED) before reuse (pan_bo.c:220) -> no batch reaches an idle BO unlisted; in-flight work listed it in its own submission. Cached BOs still hold system memory (only out of the residency set) - Panfrost's 1 s stale eviction runs on cache_put. No follow-up. Review 0098: TEMP-free, log every 120 presents only.
 - 18:2x 16:34 local: phone restarted - tools/phone/lastboot.ps1 (new): User32 1074 at 13:33:34 phone time, RuntimeBroker on behalf of user S10e (= Start menu restart by the user), no 6008/41/1001 -> clean, not a crash.
+- 18:3x USER after reboot + own restarts: "nothing changed" (still choppy). The user's own runs (mpv pids 920, 7940,
+  7932; umdlogtail -ProcId): app pacing 111-118 of 120 presents in 25-50 ms, 2-4 per 120 at 100-250 ms -> mpv
+  delivers almost every frame on time in the user's playback too. My BBB run at that point: mpv 120/120 on time, maps
+  110 = allocations 109 (no thrash) BUT KMD presents 11.1/s -> DWM put only ~11 of 24 frames/s on screen.
+  DWM has written NO tlog since the 13:10 reboot (pids 1328/1316; fopen in C:\S10eTmp\tlog, ACL grants Authenticated
+  Users modify; other processes log) - the "DWM pacing" lines I quoted after the reboot were stale (pid 2056) - my
+  "24.8/s fixed" verdict rested on KMD presents only. DWM loads maliumd + D3D10Warp; GPU Engine counters
+  (tools/phone/gpuengine.ps1, new): DWM 18-21 % 3D on the Mali adapter, ~0 on the Basic Render one -> DWM composes on
+  the Mali. GPU memory now DWM 400 MB, Explorer 221 MB, pid 6208 127 MB (adapter shared 778 MB) - grows again after
+  boot. vblank (user session) 59.0 Hz p50 16.81 ms (vsync fine). DWM_TIMING_INFO refreshes ~0.2/s = same as before
+  this stack (line 264), not meaningful. "Idle" now: DWM presents 13.8/s, 267 jobs/s, GPU busy 5 %, G3D 260 MHz, DWM
+  CPU 24 %; Edge open + a "Setup" process at 44 % CPU (user installing a game) -> measurements contaminated, paused.
+  Open: why DWM composes only ~11-14/s now (CPU/latency-bound, GPU nearly idle) vs 47-56/s before the reboot.

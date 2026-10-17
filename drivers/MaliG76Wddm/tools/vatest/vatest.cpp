@@ -5,7 +5,7 @@
  * ways: DEFAULT without data (GPU only), DEFAULT with initial data (an upload), DYNAMIC mapped once from the CPU.
  * A behavioural test instead of reading Windows internals (AGENTS rule 11).
  *
- *   vatest [N=40]
+ *   vatest [N=40] [side=256]   (textures side x side RGBA8)
  *
  * SPDX-License-Identifier: GPL-2.0
  */
@@ -56,6 +56,7 @@ static void Count(const char *what)
 int main(int argc, char **argv)
 {
     int n = argc > 1 ? atoi(argv[1]) : 40;
+    UINT side = argc > 2 ? (UINT)atoi(argv[2]) : 256;
     IDXGIFactory1 *fac = NULL;
     IDXGIAdapter1 *ad = NULL, *pick = NULL;
     DXGI_ADAPTER_DESC1 d;
@@ -80,7 +81,7 @@ int main(int argc, char **argv)
         return 1;
     Count("device created");
     D3D11_TEXTURE2D_DESC td = {0};
-    td.Width = 256; td.Height = 256; td.MipLevels = 1; td.ArraySize = 1;
+    td.Width = side; td.Height = side; td.MipLevels = 1; td.ArraySize = 1;
     td.Format = DXGI_FORMAT_R8G8B8A8_UNORM; td.SampleDesc.Count = 1;
     td.Usage = D3D11_USAGE_DEFAULT; td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
     ID3D11Texture2D **t = (ID3D11Texture2D **)calloc(3 * n, sizeof(*t));
@@ -90,8 +91,8 @@ int main(int argc, char **argv)
     char buf[64];
     snprintf(buf, sizeof buf, "+%d DEFAULT, no data", n);
     Count(buf);
-    static unsigned char px[256 * 256 * 4];
-    D3D11_SUBRESOURCE_DATA sd = { px, 256 * 4, 0 };
+    unsigned char *px = (unsigned char *)calloc((size_t)side * side, 4);
+    D3D11_SUBRESOURCE_DATA sd = { px, side * 4, 0 };
     for (int i = 0; i < n; i++)
         dev->CreateTexture2D(&td, &sd, &t[n + i]);
     ctx->Flush();

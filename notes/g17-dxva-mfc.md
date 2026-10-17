@@ -690,3 +690,11 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   while the buffer lives - and released textures' BOs live on in Panfrost's BO cache; the shim keeps every BO locked
   (pfnLockCb at MAP, "the Lock stays until GEM_CLOSE"). Next test: shim UNMAP really unlocks + Panfrost unmaps BOs it
   parks in its cache (re-mmap at fetch) -> does the count drop?
+- Test: shim UNMAP really unlocks (UMD c2d3b2a8, x86 f12bbdbe; Panfrost munmaps a BO before caching it) -> vatest
+  unchanged (46/88/129, 129 after release) -> the reservation is NOT the Lock. vatest size sweep: 20 x 16x16 textures
+  -> +21 empty 32 MB reservations (committed +0.2 MB); 20 x 2048x2048 (16 MB) -> +1 empty reservation, committed +325 MB
+  -> every GPU allocation takes CPU address space in 32 MB steps for its lifetime (small ones ~empty 32 MB regions,
+  large ones mostly committed). 64-bit processes do not notice; a 32-bit one with a few hundred small BOs (Panfrost
+  pools, staging, cached BOs) fills 4 GB. Fix direction: SUB-ALLOCATION in the shim (pack small BOs into >= 32 MB
+  allocations) - also cuts allocation-list length per submission (DWM). The unlock-on-unmap change is NOT the fix
+  (kept out of commits unless shown useful).

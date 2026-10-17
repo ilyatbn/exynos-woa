@@ -80,3 +80,14 @@ Windows reads temperatures and can throttle; lowering is fine.
   those rates after boot: 58 C, 54 C after lowering. Windows now owns the CPU clocks.
 - 06:50 C3 first run (device): touch driver 6.0.5058.7 installed (pnputil, active - Win32_PnPSignedDriver), S10eTouchActivity exists (SSH admin gets access denied = exists; SYSTEM governor opens it: TouchEvent 1). S10eGovernor service (start= demand) running: GpuCounter 1; idle: LITTLE 546-650 MHz, MID 507 MHz, G3D 156 MHz; ~5 changes/s at first -> MinIntervalMs 200 (boost exempt) -> ~3/s, tracking real load bursts. 0 ACPM fails. Touch boost not yet exercised (needs a finger - user).
 - 07:00 screen-off test (panelon 0 12 = panel dark for 12 s, process alive): governor ScreenOffs 1, all domains at minimum (LITTLE 442000, MID 507000, G3D 156000); after relight load tracking resumes (LITTLE 1456000, MID 754000). 2164 ACPM sends, 0 fails. Services set to start at boot: S10ePower auto, S10eGovernor auto depend= S10ePower.
+- 07:10 reboot test: S10ePower + S10eGovernor auto-start RUNNING after boot, 201 sends 0 fails; temps 63 C right after
+  boot. Battery 16 % -> 15-min dark-panel (panelon 0 900) measurement running before C5.
+- Review of S10ePower / s10egovernor (harsh): (1) S10ePower has no rundown protection - an IOCTL racing Unload could
+  touch unmapped MMIO; SCM refuses to stop a driver with a running dependent (governor depends on it), but a manual
+  `sc stop` order mistake remains possible -> follow-up: IoAcquireRemoveLock-style counter. (2) AcpmSend busy-waits with
+  KeStallExecutionProcessor up to 100 ms per request while holding a FAST_MUTEX (APC_LEVEL) - acceptable for 3/s, but a
+  timeout costs a full CPU for 100 ms; follow-up: KeDelayExecutionThread after the first 1 ms. (3) gState fields
+  written by the guard thread and the IOCTL path without a lock - benign counters/caps, but CurKhz could race; follow-up:
+  update CurKhz under gAcpmLock. (4) Governor screen-off counter reuses gDom[0].Quiet as a marker - fragile; follow-up:
+  own flag. (5) tzid mapping (1 MID, 2 LITTLE, 3 G3D) is still DT-derived - the readings are plausible and track load
+  (47 idle -> 63 boot), not independently proven per zone. (6) Ladders duplicated in driver and governor.

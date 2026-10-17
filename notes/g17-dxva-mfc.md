@@ -629,3 +629,6 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   views + bound fb + bound sampler views. Gaps (documented, not fixed): UAVs on swap-chain buffers and bound
   stream-output targets are not remapped (unusual for back buffers; UAVs barely exist at FL 10_1). Create error
   paths leave rot_dev NULL -> destroy safe; n > 16 refused (DXGI max BufferCount 16).
+- 18:9x USER: "Yeah that fixed it" (mpv video smooth after Mesa 0099). VRAM still growing (open): 15 min after the
+  14:16 boot DWM 1344 total committed 492 MB, Explorer 204 MB, adapter 915 MB committed; DWM submits list 290-314
+  live BOs (Render mean 254-331 us, max ~1.2 ms) vs ~140 at a fresh start.

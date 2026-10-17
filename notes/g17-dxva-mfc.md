@@ -751,3 +751,15 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   on allocation; exec / heap / larger BOs unchanged; unlock-on-unmap dropped (no benefit seen; unsafe with slabs);
   KMD CpuVisibleOnDemand registry back to 0 (nothing marks on-demand any more). Game: VM settles at ~1.16 GB (was
   -> 4031 MB and dying), 3 slabs for 279 live BOs, no create-bo / Render failures, KMD presents 16.8/s. User check.
+- USER: "looks like its working now" (game draws). Perf (user playing): KairoGames 124 % CPU = two threads (68.8 /
+  53.4 %) on the MID cores cpu4/cpu5 (56-63 % each, not pegged), GPU busy 40.6 % at 433 MHz, presents 17.6-21/s;
+  app pacing: GPU wait 0.8 ms, present 0.1 ms, frame gaps 50-100 ms -> frame-latency bound (x86 emulation + waits).
+  Ceilings (governor stopped, MID 2314 / G3D 702): 23.4/s. Governor: MidMaxBusyPct (default 50: busiest MID core
+  >= 50 % -> MID ceiling) and GpuMaxBusyPct 50 -> 30. Natively after the change: 22.8/s, MID 2314, G3D 702,
+  temps MID 66 / G3D 58 C.
+- REVIEW 0102: listing via slab mark OK; GEM_CLOSE of a slab BO never unlocks (slab lock); UNMAP back to no-op;
+  allocation_gone ignores slab BOs (not runtime-owned); binding save/load/unbind cover the slab state; 64-bit only
+  gets the unused wsub_alloc (warning). WEAKNESS (follow-up task): closed slab pages return only when a
+  wdead_try_flush happens to see the last submission completed (or a wdead threshold idles) - a process submitting
+  continuously may keep them for long and grow new slabs (game VM 912 -> 1158 MB, then flat). Fix: release per
+  dead entry by the submission sequence it was closed after vs the completed fence.

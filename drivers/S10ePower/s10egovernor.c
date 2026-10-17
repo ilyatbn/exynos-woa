@@ -90,7 +90,11 @@ static unsigned gEffLittle = 1456000, gGpuFloor = 260000;
 /* G17 (notes/g17-dxva-mfc.md 17:4x): above GpuMaxBusyPct summed 3D-engine load the GPU goes to its ceiling. DWM's
  * composition queues behind the app's jobs (one in-order queue, no preemption), so frame pacing needs clock headroom,
  * not the ~80 % busy point that 1.25 x busy x ceiling settles at (mpv: 572 MHz -> DWM 43.6/s, 702 MHz -> 53/s). */
-static unsigned gGpuMaxBusyPct = 50;
+static unsigned gGpuMaxBusyPct = 30;
+/* G-game (notes/g17-dxva-mfc.md): a frame-latency-bound app (Unity under x86 emulation: two threads ~60 % on the MID
+ * cores, GPU ~40 %) runs at 17.6 presents/s with 1.25 x busy targets (MID 2002, G3D 433 MHz) and ~23 at the ceilings.
+ * Above MidMaxBusyPct on the busiest MID core the MID cluster goes to its ceiling; GpuMaxBusyPct 50 -> 30. */
+static unsigned gMidMaxBusyPct = 50;
 static volatile LONG gDisplayOn = 1;
 /* MIF (S10ePower v2): only the two device-verified devfreq_mif rates (notes/m15-perf.md:98). Screen on = 2093000 (the
  * rate Linux runs here; G3D 702 MHz needs it, notes/g17-dxva-mfc.md 17:2x), screen off = 421000. Matching Samsung's
@@ -128,7 +132,8 @@ static void LoadConfig(void)
     gMinIntervalMs = Reg(k, "MinIntervalMs", 200);   /* 0.0.1 run: ~5 changes/s from SSH/WMI load spikes */
     gEffLittle = Reg(k, "EffLittle", 1456000);
     gGpuFloor = Reg(k, "GpuFloor", 260000);
-    gGpuMaxBusyPct = Reg(k, "GpuMaxBusyPct", 50);
+    gGpuMaxBusyPct = Reg(k, "GpuMaxBusyPct", 30);
+    gMidMaxBusyPct = Reg(k, "MidMaxBusyPct", 50);
     if (k)
         RegCloseKey(k);
 }
@@ -315,7 +320,7 @@ static void Run(void)
                         want = gEffLittle;
                     target = StepAtLeast(d, want);
                 } else if (i == 1) {
-                    target = StepAtLeast(d, (unsigned)(busy[1] * 1.25 * d->Max));
+                    target = StepAtLeast(d, busy[1] * 100 >= gMidMaxBusyPct ? d->Max : (unsigned)(busy[1] * 1.25 * d->Max));
                 } else if (gpuBusy >= 0) {
                     /* GPU: load tracking on the busiest 3D engine (1.25 x busy x ceiling), floor = half the ceiling
                      * while the screen is on so composition never starts from the minimum */

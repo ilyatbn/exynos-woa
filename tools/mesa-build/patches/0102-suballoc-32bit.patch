@@ -1,0 +1,333 @@
+From a2f5c0ce8fd1150e3933b436baee588033317569 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 19:25:53 +0300
+Subject: [PATCH] malikm: sub-allocate small BOs from 32 MB slabs in 32-bit
+ processes; log refused BO creates (exynos-woa 0102)
+
+Every allocation's permanent CPU view costs a process 32 MB of address space;
+a 32-bit Unity game with a few hundred small BOs filled its 4 GB and every
+allocation failed (0x8876017c). CpuVisibleOnDemand allocations are refused
+(E_INVALIDARG) in 32-bit processes. In the 32-bit build small (<= 2 MB)
+no-exec non-heap BOs are carved from 32 MB slab allocations (locked once,
+listed once per submission, pages returned after the GPU finished, zero-filled
+on allocation), as freedreno's BO heap does. 64-bit behaviour unchanged. The
+game now stays at ~1.2 GB (279 BOs in 3 slabs). MW_ALLOC_CPU_ONDEMAND (ABI
+flag for the KMD's CpuVisibleOnDemand mode 4) is defined but not set.
+---
+ include/win32-compat/malikm_drm.c   | 179 ++++++++++++++++++++++++++--
+ include/win32-compat/maliwddm_abi.h |   2 +
+ 2 files changed, 172 insertions(+), 9 deletions(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 6488e76..9d4c6c9 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -787,6 +787,9 @@ struct wbo {
+                               * submission, never locked, GEM_CLOSE only forgets it */
+    uint32_t idle;            /* exynos-woa G17 (0097): Panfrost parked it in its BO cache (MADVISE DONTNEED) - not
+                               * listed in submissions until it is taken back (WILLNEED), so VidMm may evict it */
++   uint32_t sub;             /* exynos-woa G-game (0102): carved from wslab[sub - 1] (h = the slab's allocation), 0 if
++                              * the BO is an allocation of its own */
++   uint32_t sub_page, sub_pages;   /* its first page in the slab and its length in pages */
+ };
+ #define WBO_FIXED 0xffffffffu
+ /* runtime_owned value of an allocation OPENED from another device/process (OpenResource - e.g. a redirected swap
+@@ -869,6 +872,29 @@ static uint64_t wdead_bytes;   /* exynos-woa G17 VRAM (0101): size of the closed
+ #define WDEAD_FLUSH 64
+ #define WDEAD_FLUSH_BYTES (32ull << 20)
+ 
++/* exynos-woa G-game (0102, notes/g17-dxva-mfc.md): sub-allocation for 32-bit processes. Every allocation's permanent
++ * CPU view costs a process 32 MB of address space (vatest), so a 32-bit game with a few hundred small BOs filled its
++ * 4 GB; CpuVisibleOnDemand allocations are refused (E_INVALIDARG) in 32-bit processes. Small no-exec BOs are carved
++ * from WSLAB_SIZE allocations instead (one CPU view each, locked once); a closed BO's pages return to its slab only
++ * after the GPU is done with it (wsubdead, freed with wdead). The design follows freedreno's BO heap
++ * (src/freedreno/drm/freedreno_bo_heap.c: small BOs from equal-size blocks, nothing shared, userspace fencing). */
++#define WSLAB_SIZE   (32u << 20)
++#define WSLAB_PAGES  (WSLAB_SIZE >> 12)
++#define WSUB_MAX     (2u << 20)     /* larger BOs keep an allocation of their own */
++struct wslab {
++   D3DKMT_HANDLE h;
++   uint64_t va;
++   uint8_t *cpu;
++   uint32_t mark;                    /* the submission that last listed the slab's allocation */
++   uint32_t free_pages;
++   uint32_t bits[WSLAB_PAGES / 32];  /* 1 = page in use (or waiting in wsubdead) */
++};
++struct wsubdead { uint32_t slab, page, pages; };
++static struct wslab *wslab;
++static uint32_t wslab_n, wslab_cap;
++static struct wsubdead *wsubdead;
++static uint32_t wsubdead_n, wsubdead_cap;
++
+ static KMT_FN
+ kmt_resolve(const char *name)
+ {
+@@ -1239,6 +1265,14 @@ wdead_flush(void)
+       fprintf(stderr, "malikm-wddm: destroyed %u closed allocations after idle\n", wdead_n);
+    wdead_n = 0;
+    wdead_bytes = 0;
++   /* exynos-woa G-game (0102): closed sub-allocated BOs - their pages are free again */
++   for (uint32_t i = 0; i < wsubdead_n; i++) {
++      struct wslab *s = &wslab[wsubdead[i].slab];
++      for (uint32_t p = wsubdead[i].page; p < wsubdead[i].page + wsubdead[i].pages; p++)
++         s->bits[p >> 5] &= ~(1u << (p & 31));
++      s->free_pages += wsubdead[i].pages;
++   }
++   wsubdead_n = 0;
+ }
+ 
+ /* exynos-woa G17 VRAM (0101, notes/g17-dxva-mfc.md): closed BOs waited for 64 entries or an idle wait before being
+@@ -1249,7 +1283,7 @@ wdead_flush(void)
+ static void
+ wdead_try_flush(void)
+ {
+-   if (!wdead_n || !ddi.on)
++   if ((!wdead_n && !wsubdead_n) || !ddi.on)
+       return;
+    if (!ddi.last_unsignalled && (!ddi.last_event || WaitForSingleObject(ddi.last_event, 0) == WAIT_OBJECT_0))
+       wdead_flush();
+@@ -1320,6 +1354,10 @@ struct binding {
+    D3DKMT_HANDLE *wdead;
+    uint32_t wdead_n, wdead_cap;
+    uint64_t wdead_bytes;
++   struct wslab *wslab;                 /* exynos-woa G-game (0102) */
++   uint32_t wslab_n, wslab_cap;
++   struct wsubdead *wsubdead;
++   uint32_t wsubdead_n, wsubdead_cap;
+    struct kprim_entry kprim[MAX_KPRIM];
+    uint32_t scanout_h;
+ };
+@@ -1338,6 +1376,8 @@ bind_save(struct binding *b)
+    b->wpatch = wpatch; b->wpatch_size = wpatch_size;
+    b->wgpu = wgpu; b->wseq = wseq;
+    b->wdead = wdead; b->wdead_n = wdead_n; b->wdead_cap = wdead_cap; b->wdead_bytes = wdead_bytes;
++   b->wslab = wslab; b->wslab_n = wslab_n; b->wslab_cap = wslab_cap;
++   b->wsubdead = wsubdead; b->wsubdead_n = wsubdead_n; b->wsubdead_cap = wsubdead_cap;
+    memcpy(b->kprim, kprim, sizeof(kprim));
+    b->scanout_h = scanout_h;
+ }
+@@ -1352,6 +1392,8 @@ bind_load(const struct binding *b)
+    wpatch = b->wpatch; wpatch_size = b->wpatch_size;
+    wgpu = b->wgpu; wseq = b->wseq;
+    wdead = b->wdead; wdead_n = b->wdead_n; wdead_cap = b->wdead_cap; wdead_bytes = b->wdead_bytes;
++   wslab = b->wslab; wslab_n = b->wslab_n; wslab_cap = b->wslab_cap;
++   wsubdead = b->wsubdead; wsubdead_n = b->wsubdead_n; wsubdead_cap = b->wsubdead_cap;
+    memcpy(kprim, b->kprim, sizeof(kprim));
+    scanout_h = b->scanout_h;
+ }
+@@ -1416,6 +1458,8 @@ malikm_unbind_device(void *hRTDevice)
+       bind_switch(i);
+       free(wbo);
+       free(wdead);
++      free(wslab);      /* exynos-woa G-game (0102): the slab allocations go with the device, like the others */
++      free(wsubdead);
+       struct binding empty;
+       memset(&empty, 0, sizeof(empty));
+       bind_load(&empty);   /* the globals: nothing bound */
+@@ -2122,6 +2166,83 @@ wbo_add(D3DKMT_HANDLE hAlloc, uint64_t size, uint64_t va, uint32_t runtime_owned
+    return h;
+ }
+ 
++/* exynos-woa G-game (0102): a small no-exec BO carved from a slab (see wslab); its handle, 0 if no slab space could be
++ * found or made (the caller then creates an allocation of its own). wddm_lock held. */
++static uint32_t
++wsub_alloc(uint64_t sz)
++{
++   uint32_t pages = (uint32_t)((sz + 4095) >> 12), si, first = 0;
++   for (si = 0; si < wslab_n; si++) {
++      struct wslab *s = &wslab[si];
++      if (s->free_pages < pages)
++         continue;
++      uint32_t run = 0;
++      for (uint32_t p = 0; p < WSLAB_PAGES; p++) {
++         if (s->bits[p >> 5] & (1u << (p & 31))) {
++            run = 0;
++            continue;
++         }
++         if (run++ == 0)
++            first = p;
++         if (run == pages)
++            goto found;
++      }
++   }
++   /* no room: a new slab */
++   if (wslab_n == wslab_cap) {
++      uint32_t cap = wslab_cap ? wslab_cap * 2 : 8;
++      struct wslab *n = realloc(wslab, cap * sizeof(*n));
++      if (!n)
++         return 0;
++      wslab = n;
++      wslab_cap = cap;
++   }
++   {
++      MW_ALLOCATION_INFO pi = {0};
++      pi.Version = MW_ABI_VERSION;
++      pi.Flags = MW_ALLOC_NOEXEC;
++      pi.Size = WSLAB_SIZE;
++      D3DDDI_ALLOCATIONINFO ai = {0};
++      ai.pPrivateDriverData = &pi;
++      ai.PrivateDriverDataSize = sizeof(pi);
++      if (w_create(&ai) < 0)
++         return 0;
++      MW_ESCAPE_ALLOC_INFO_DATA where = {0};
++      where.Code = MW_ESCAPE_ALLOC_INFO;
++      where.hAllocation = ai.hAllocation;
++      void *cpu = NULL;
++      if (w_escape(&where, sizeof(where)) < 0 || where.GpuVa == 0 || !(cpu = w_lock(ai.hAllocation))) {
++         w_destroy(ai.hAllocation);
++         return 0;
++      }
++      si = wslab_n++;
++      memset(&wslab[si], 0, sizeof(wslab[si]));
++      wslab[si].h = ai.hAllocation;
++      wslab[si].va = where.GpuVa;
++      wslab[si].cpu = cpu;
++      wslab[si].free_pages = WSLAB_PAGES;
++      first = 0;
++      malikm_tlog("slab %u: allocation 0x%x va 0x%llx (%u MB)", si, ai.hAllocation, (unsigned long long)where.GpuVa,
++                  WSLAB_SIZE >> 20);
++   }
++found:
++   {
++      struct wslab *s = &wslab[si];
++      uint32_t h = wbo_add(s->h, (uint64_t)pages << 12, s->va + ((uint64_t)first << 12), 0);
++      if (!h)
++         return 0;
++      for (uint32_t p = first; p < first + pages; p++)
++         s->bits[p >> 5] |= 1u << (p & 31);
++      s->free_pages -= pages;
++      wbo[h - 1].sub = si + 1;
++      wbo[h - 1].sub_page = first;
++      wbo[h - 1].sub_pages = pages;
++      wbo[h - 1].cpu = s->cpu + ((size_t)first << 12);
++      memset(wbo[h - 1].cpu, 0, (size_t)pages << 12);   /* a new GEM BO is zero-filled; recycled slab pages are not */
++      return h;
++   }
++}
++
+ /* exynos-woa H3: an existing allocation of this process (a shared resource's, created or opened) as a Panfrost BO
+  * at the GPU address the KMD gave it; *prime_fd for drmPrimeFDToHandle. 0 on success. wddm_lock held. */
+ static int
+@@ -2297,6 +2418,18 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+       uint64_t sz = ((uint64_t)a->size + 4095) & ~4095ull;
+       if (a->flags & PANFROST_BO_HEAP)
+          sz = (sz + 0x1fffff) & ~0x1fffffull;
++#if !defined(_WIN64)
++      /* exynos-woa G-game (0102): 32-bit processes carve small no-exec BOs from slabs (see wslab) - one 32 MB CPU
++       * view per slab instead of per BO. Not shader code (the 16 MB exec window), not the tiler heap. */
++      if ((a->flags & PANFROST_BO_NOEXEC) && !(a->flags & PANFROST_BO_HEAP) && sz <= WSUB_MAX) {
++         uint32_t h = wsub_alloc(sz);
++         if (h) {
++            a->handle = h;
++            a->offset = wbo[h - 1].va;
++            return 0;
++         }
++      }
++#endif
+       MW_ALLOCATION_INFO pi = {0};
+       pi.Version = MW_ABI_VERSION;
+       pi.Flags = (a->flags & PANFROST_BO_NOEXEC) ? MW_ALLOC_NOEXEC : 0;
+@@ -2304,8 +2437,14 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+       D3DDDI_ALLOCATIONINFO ai = {0};
+       ai.pPrivateDriverData = &pi;
+       ai.PrivateDriverDataSize = sizeof(pi);
+-      if (w_create(&ai) < 0)
++      if (w_create(&ai) < 0) {
++         /* exynos-woa G-game (0102): which BOs the runtime / KMD refuse (first 32) */
++         static unsigned nf;
++         if (nf++ < 32)
++            malikm_tlog("create-bo FAIL %u: size %llu panfrost flags 0x%x mw flags 0x%x", nf, (unsigned long long)sz,
++                        a->flags, pi.Flags);
+          return -MK_ENOMEM;
++      }
+       MW_ESCAPE_ALLOC_INFO_DATA where = {0};
+       where.Code = MW_ESCAPE_ALLOC_INFO;
+       where.hAllocation = ai.hAllocation;
+@@ -2374,12 +2513,14 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+          struct wbo *bo = wddm_bo(bos[i]);
+          if (!bo)
+             return -MK_ENOENT;
+-         if (bo->mark == gen || bo->fixed || bo->gone)
++         /* exynos-woa G-game (0102): a sub-allocated BO is listed as its slab's allocation, once per submission */
++         uint32_t *mk = bo->sub ? &wslab[bo->sub - 1].mark : &bo->mark;
++         bo->idle = 0;   /* a batch that uses it is the authority (Panfrost sends WILLNEED first anyway) */
++         if (*mk == gen || bo->fixed || bo->gone)
+             continue;
+          if (n == walloc_size)
+             return -MK_E2BIG;
+-         bo->mark = gen;
+-         bo->idle = 0;   /* a batch that uses it is the authority (Panfrost sends WILLNEED first anyway) */
++         *mk = gen;
+          memset(&walloc[n], 0, sizeof(walloc[n]));
+          walloc[n].hAllocation = bo->h;
+          /* Panfrost does not say which BOs a batch writes. An opened buffer (another process's - a redirected
+@@ -2390,14 +2531,16 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+       }
+       uint32_t skipped = 0;
+       for (uint32_t i = 0; i < wbo_cap; i++) {
+-         if (!wbo[i].h || wbo[i].mark == gen || wbo[i].fixed || wbo[i].gone || wbo[i].idle ||
+-             wbo[i].runtime_owned == WBO_OPENED)
++         if (!wbo[i].h)
++            continue;
++         uint32_t *mk = wbo[i].sub ? &wslab[wbo[i].sub - 1].mark : &wbo[i].mark;   /* G-game (0102) */
++         if (*mk == gen || wbo[i].fixed || wbo[i].gone || wbo[i].idle || wbo[i].runtime_owned == WBO_OPENED)
+             continue;
+          if (n == walloc_size) {
+             skipped++;
+             continue;
+          }
+-         wbo[i].mark = gen;
++         *mk = gen;
+          memset(&walloc[n], 0, sizeof(walloc[n]));
+          walloc[n].hAllocation = wbo[i].h;
+          n++;
+@@ -2473,6 +2616,24 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+          memset(bo, 0, sizeof(*bo));
+          return 0;
+       }
++      if (bo->sub) {
++         /* exynos-woa G-game (0102): a slab's BO - its pages return to the slab once the GPU is done (wdead_flush);
++          * the slab stays locked and allocated */
++         if (wsubdead_n == wsubdead_cap) {
++            uint32_t cap = wsubdead_cap ? wsubdead_cap * 2 : 256;
++            struct wsubdead *n = realloc(wsubdead, cap * sizeof(*n));
++            if (!n) {
++               memset(bo, 0, sizeof(*bo));   /* leak the pages rather than reuse them under a running job */
++               return 0;
++            }
++            wsubdead = n;
++            wsubdead_cap = cap;
++         }
++         wsubdead[wsubdead_n++] = (struct wsubdead){bo->sub - 1, bo->sub_page, bo->sub_pages};
++         memset(bo, 0, sizeof(*bo));
++         wdead_try_flush();
++         return 0;
++      }
+       if (bo->cpu && !bo->gone)
+          w_unlock(bo->h);
+       if (bo->runtime_owned) {
+@@ -2559,7 +2720,7 @@ wddm_ioctl(int fd, DWORD code, void *buf, DWORD len)
+       break;
+    }
+    case IOCTL_MALIKM_UNMAP:
+-      h->Result = 0;   /* the Lock stays until GEM_CLOSE */
++      h->Result = 0;   /* the Lock stays until GEM_CLOSE (a slab BO's lock is its slab's, see wslab) */
+       break;
+    case IOCTL_MALIKM_DRM:
+       h->Result = wddm_drm(h->Nr, (uint8_t *)(h + 1), h->Size);
+diff --git a/include/win32-compat/maliwddm_abi.h b/include/win32-compat/maliwddm_abi.h
+index 7f0831c..8bd6ae0 100644
+--- a/include/win32-compat/maliwddm_abi.h
++++ b/include/win32-compat/maliwddm_abi.h
+@@ -25,6 +25,8 @@ typedef unsigned __int64 mw_u64;
+ /* Allocation private data (D3DDDI_ALLOCATIONINFO.pPrivateDriverData). */
+ #define MW_ALLOC_NOEXEC         0x1     /* not shader code: may lie anywhere, XN */
+ #define MW_ALLOC_PRIMARY        0x2     /* scan-out capable (step d) */
++#define MW_ALLOC_CPU_ONDEMAND   0x4     /* exynos-woa G-game: CPU address space only while locked (KMD parameter
++                                         * CpuVisibleOnDemand = 4) - set by the shim on Panfrost BOs only */
+ 
+ typedef struct _MW_ALLOCATION_INFO {
+     mw_u32 Version;                     /* MW_ABI_VERSION */
+-- 
+2.40.1.windows.1
+

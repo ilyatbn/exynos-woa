@@ -1621,3 +1621,16 @@ fa2109d9) in System32; machine env MALIKM_TGSI_DIR still on (umdtrace -Off to st
 Graphite needs FL12, D3D lod on Bifrost wrong (d3dsm41 7/8), WebGL MSAA off (ANGLE stops at our 2x = 0).
 **Next:** G17 video (MFC decode integrated with D3D11 / Media Foundation), G18 HDMI. Optional: user check of real
 browsing smoothness.
+
+## 50. Restart point (2026-10-17 ~04:40 local)
+**Committed since 49:** Mesa 0082 (AppContainer shell processes - Start menu / Search / Quick Settings - could not open
+"NUL": softpipe fallback + fail-fast on a dead stderr; now Panfrost; user confirmed Start + Quick Settings open),
+machine env MALIKM_TGSI_DIR switched OFF (never leave it on), G18 H1 (S10eBattery 1.0.0.5 reads the max77705 USB-C
+block, read-only; usbc.ps1), parking lot FL 11_0 (parkinglot/fl11-chrome-video.md), G17 = UMD DXVA bridge for MF
+apps (user decision; Chrome needs FL 11_0), panelon rescue tool, KMD 1.0.61.1 panel-off owner watch (BUILT, NOT
+INSTALLED: C:\Users\ilya\code\s10e-artifacts\maliwddm-1.0.61.1, install with wddm2dbg.sh kmdswap ...sys + reboot).
+**In flight:** the phone is finishing a Windows servicing restart ("Updates are underway", TiWorker); the panel was
+dark because s10ekeys' screen-off was killed by the shutdown - relit with panelon.exe. Do NOT hard-reset while
+TiWorker runs. User said "forget HDMI for now" (G18 H1 second read with the hub waits).
+**Next:** after the restart: confirm desktop + Start/Quick Settings on the Mali (sandboxlogs.ps1 shows no softpipe
+lines), kmdswap 1.0.61.1 + test (s10ekeys screen off, kill it -> panel relights), then G17 DXVA bridge.

@@ -1,0 +1,33 @@
+From f8809e27aaf2c30a8ac019a3fe7c3590c21bd91c Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 01:20:00 +0300
+Subject: [PATCH] malikm_drm: GPU scan-out present accepts a transposed kernel
+ primary (exynos-woa G24 0121)
+
+With 0120 the size check failed every rotated fullscreen present, which fell back to a CPU flip of the unrotated
+primary: the panel alternated between the two (user: flicker portrait/landscape).
+---
+ include/win32-compat/malikm_drm.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 1ad6df9..35e2dd8 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -1760,7 +1760,12 @@ malikm_primary_present(unsigned hAlloc, unsigned hDst, const void *bgrx, unsigne
+    for (int i = 0; i < MAX_KPRIM; i++) {
+       if (kprim[i].h != hAlloc)
+          continue;
+-      if (kprim[i].w != w || kprim[i].hgt != h)
++      /* G24 (0122): a rotated fullscreen primary's kernel allocation has the mode's non-rotated size (Resource.cpp,
++       * 0121) - transposed to the presented resource. Fine for the GPU path (the frame is in the scan-out already);
++       * the CPU copy needs the exact size. */
++      bool same = kprim[i].w == w && kprim[i].hgt == h;
++      bool transposed = kprim[i].w == h && kprim[i].hgt == w;
++      if (!same && !(transposed && bgrx == NULL))
+          goto out;
+       /* exynos-woa H4b: bgrx NULL = the frame is in the scan-out framebuffer already (the UMD blitted it there on
+        * the GPU): the allocation is marked GPU-presented once (MW_ESCAPE_SCANOUT), so the KMD's blt / flip latch
+-- 
+2.40.1.windows.1
+

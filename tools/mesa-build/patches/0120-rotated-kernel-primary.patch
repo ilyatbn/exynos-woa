@@ -1,0 +1,49 @@
+From d0e6d747aa32c2f3e9515e466ed06de7de1d6020 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 01:20:00 +0300
+Subject: [PATCH] d3d10umd: rotated fullscreen primary -> kernel allocation at
+ the mode's non-rotated size; log primary flags (exynos-woa G24 0120)
+
+MS Learn (Supporting Rotation in a Display Miniport Driver): the kernel uses non-rotated surface dimensions for the
+shared primary. A 1520x720 primary for a 720x1520 ROTATE90 mode made SetDisplayMode fail (E_FAIL): no DXGI exclusive
+fullscreen on the rotated desktop (d3dfs).
+---
+ src/gallium/frontends/d3d10umd/Resource.cpp | 20 +++++++++++++++++---
+ 1 file changed, 17 insertions(+), 3 deletions(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index 78e7618..dffa12b 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -535,11 +535,25 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+        * on the 1080x2280 panel) and the driver rotates (D3DDDIARG_CREATERESOURCE). The scan-out present
+        * (d3d10_gdi.c) reads the mode's rotation from here. */
+       d3d10_primary_rotation = (int)pCreateResource->pPrimaryDesc->ModeDesc.Rotation;
+-      malikm_tlog("primary %ux%u rotation %d vidpn %u", templat.width0, templat.height0, d3d10_primary_rotation,
+-                  pCreateResource->pPrimaryDesc->VidPnSourceId);
++      malikm_tlog("primary %ux%u rotation %d vidpn %u flags 0x%x mode %ux%u", templat.width0, templat.height0,
++                  d3d10_primary_rotation, pCreateResource->pPrimaryDesc->VidPnSourceId,
++                  pCreateResource->pPrimaryDesc->Flags, pCreateResource->pPrimaryDesc->ModeDesc.Width,
++                  pCreateResource->pPrimaryDesc->ModeDesc.Height);   /* G24: flags 0x2 = NONPREROTATED */
++      /* G24 (notes/g24-compute-cs4x.md): MS Learn "Supporting Rotation in a Display Miniport Driver": "The Microsoft
++       * DirectX graphics kernel subsystem uses non-rotated surface dimensions to create the shared primary surface."
++       * A rotation-unaware fullscreen swap chain on the rotated desktop has a 1520x720 primary resource for a 720x1520
++       * mode (ModeDesc is non-rotated, Rotation 90): the kernel primary at the resource's size made the runtime's
++       * SetDisplayMode fail (E_FAIL, d3dfs). The kernel allocation takes the mode's dimensions then. */
++      const DXGI_DDI_MODE_DESC *md = &pCreateResource->pPrimaryDesc->ModeDesc;
++      unsigned kw = templat.width0, kh = templat.height0;
++      if ((md->Rotation == DXGI_DDI_MODE_ROTATION_ROTATE90 || md->Rotation == DXGI_DDI_MODE_ROTATION_ROTATE270) &&
++          md->Width == templat.height0 && md->Height == templat.width0) {
++         kw = md->Width;
++         kh = md->Height;
++      }
+       unsigned h = 0;
+       if (malikm_primary_create(hRTResource.handle, pCreateResource->pPrimaryDesc->VidPnSourceId,
+-                                templat.width0, templat.height0, &h, !no_scanout) == 0)
++                                kw, kh, &h, !no_scanout) == 0)
+          pResource->kmt_primary = h;
+    }
+ 
+-- 
+2.40.1.windows.1
+

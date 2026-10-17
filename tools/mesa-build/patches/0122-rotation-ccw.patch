@@ -1,0 +1,40 @@
+From 73e464b9e913aea92d97922a0bc9cfa7d3165eb3 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 01:20:01 +0300
+Subject: [PATCH] d3d10_gdi: rotation quad - 90 is counter-clockwise
+ (exynos-woa G24 0122)
+
+MS Learn: all rotation degrees are counter-clockwise; the clockwise guess (never used by DWM, which pre-rotates) put
+d3dfs's top-left quadrant bottom-right. User-verified: upper left now.
+---
+ src/gallium/targets/d3d10umd/d3d10_gdi.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/src/gallium/targets/d3d10umd/d3d10_gdi.c b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+index 9ae79ff..28b9cea 100644
+--- a/src/gallium/targets/d3d10umd/d3d10_gdi.c
++++ b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+@@ -249,15 +249,17 @@ d3d10_scanout_rotate(struct pipe_screen *screen, struct pipe_context *pipe, stru
+    cso_set_fragment_shader_handle(cso, d3d10_rot_fs);
+ 
+    /* Destination corners top-left, top-right, bottom-left, bottom-right (NDC y -1 = row 0 with this viewport)
+-    * and the source texel each one shows. 90 = the source turned clockwise, 270 = counter-clockwise (which
++    * and the source texel each one shows. MS Learn "Supporting Rotation in a Display Miniport Driver": "All rotation
++    * degrees are defined in the counter-clockwise direction" - G24 d3dfs: the clockwise guess put the top-left
++    * corner bottom-right (which
+     * DXGI value is which on this panel: checked by the scan-out dump - the taskbar must sit on the long edge
+     * the user holds at the bottom). */
+    static const float uv[5][4][2] = {
+       { {0, 0}, {1, 0}, {0, 1}, {1, 1} },   /* unused */
+       { {0, 0}, {1, 0}, {0, 1}, {1, 1} },   /* identity */
+-      { {0, 1}, {0, 0}, {1, 1}, {1, 0} },   /* 90 */
++      { {1, 0}, {1, 1}, {0, 0}, {0, 1} },   /* 90 (G24 0123: counter-clockwise, MS Learn - was the 270 entry) */
+       { {1, 1}, {0, 1}, {1, 0}, {0, 0} },   /* 180 */
+-      { {1, 0}, {1, 1}, {0, 0}, {0, 1} },   /* 270 */
++      { {0, 1}, {0, 0}, {1, 1}, {1, 0} },   /* 270 */
+    };
+    static const float pos[4][2] = { {-1, -1}, {1, -1}, {-1, 1}, {1, 1} };
+    float v[4][2][4];
+-- 
+2.40.1.windows.1
+

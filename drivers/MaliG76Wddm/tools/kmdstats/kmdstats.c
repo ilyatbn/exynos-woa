@@ -4,6 +4,8 @@
  * skipped, renders, submits, GPU interrupts. G17 pacing (notes/g17-dxva-mfc.md): where DWM's frames go.
  *
  *   kmdstats [seconds]
+ *   kmdstats busy [seconds]   sample the job queue ~1000x/s: share of samples with a job running (~ GPU busy) and
+ *                             the queue depth histogram
  *
  * SPDX-License-Identifier: GPL-2.0
  */
@@ -12,9 +14,11 @@
 #include <d3dkmthk.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "maliwddm_abi.h"
 
 #pragma comment(lib, "gdi32.lib")
+#pragma comment(lib, "winmm.lib")
 
 static NTSTATUS KmtEscape(D3DKMT_HANDLE adapter, void *data, UINT size)
 {
@@ -46,7 +50,8 @@ static D3DKMT_HANDLE FindAdapter(void)
 
 int main(int argc, char **argv)
 {
-    int secs = argc > 1 ? atoi(argv[1]) : 5;
+    int busy = argc > 1 && !strcmp(argv[1], "busy");
+    int secs = argc > 1 + busy ? atoi(argv[1 + busy]) : 5;
     D3DKMT_HANDLE a = FindAdapter();
     MW_ESCAPE_STATS_DATA s0 = { 0 }, s1 = { 0 };
     if (!a) {
@@ -54,6 +59,29 @@ int main(int argc, char **argv)
         return 1;
     }
     s0.Code = s1.Code = MW_ESCAPE_STATS;
+    if (busy) {
+        /* G17 pacing (notes/g17-dxva-mfc.md): how often the KMD has a job chain on the GPU */
+        unsigned n = 0, run = 0, depth[5] = { 0 };
+        LARGE_INTEGER f, t0, t;
+        QueryPerformanceFrequency(&f);
+        QueryPerformanceCounter(&t0);
+        timeBeginPeriod(1);
+        do {
+            MW_ESCAPE_STATS_DATA x = { 0 };
+            x.Code = MW_ESCAPE_STATS;
+            if (KmtEscape(a, &x, sizeof(x)) < 0)
+                return 1;
+            n++;
+            run += x.Running != 0;
+            depth[x.Queued > 4 ? 4 : x.Queued]++;
+            Sleep(1);
+            QueryPerformanceCounter(&t);
+        } while ((t.QuadPart - t0.QuadPart) < (LONGLONG)secs * f.QuadPart);
+        timeEndPeriod(1);
+        printf("busy over %d s: %u samples, job running in %.1f %%; queued 0:%u 1:%u 2:%u 3:%u 4+:%u\n", secs, n,
+               100.0 * run / n, depth[0], depth[1], depth[2], depth[3], depth[4]);
+        return 0;
+    }
     if (KmtEscape(a, &s0, sizeof(s0)) < 0)
         return 1;
     Sleep(secs * 1000);

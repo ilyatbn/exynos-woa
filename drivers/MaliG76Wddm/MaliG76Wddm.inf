@@ -23,6 +23,7 @@
 ;   ModeRefreshExact 1   full adapter: DescribeAllocation reports a primary at the target mode's exact refresh rational
 ;   Refresh601 1  full adapter: timing frequencies as reduced rationals (60/1) instead of PixelRate/total
 ;   FlipMmio 1    full adapter: FlipOnVSyncMmIo - flips via SetVidPnSourceAddress, latched (CPU copy) at the next soft vsync
+;   ScaledModes 1 full adapter: a second desktop mode at 2/3 of the panel (720x1520), stretched by the present path
 ;
 ; SPDX-License-Identifier: GPL-2.0
 ;
@@ -32,7 +33,7 @@ Signature   = "$WINDOWS NT$"
 Class       = Display
 ClassGuid   = {4D36E968-E325-11CE-BFC1-08002BE10318}
 Provider    = %ProviderName%
-DriverVer   = 10/17/2026,1.0.67.1
+DriverVer   = 10/17/2026,1.0.68.1
 CatalogFile = MaliG76Wddm.cat
 PnpLockdown = 1
 

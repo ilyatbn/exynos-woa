@@ -130,7 +130,7 @@ extern ULONG MwSoftVsync;
 /* Parameters\ScanoutStride (default 0 = off): see MW_RESTRIDE_PIXELS (display.c MwRestride). */
 extern ULONG MwScanoutStride;
 extern ULONG MwOfferRotation;
-/* Parameters\ScaledModes (default 0): G20 - one lower desktop mode (2/3 of the panel, 720x1520), stretched onto the
+/* Parameters\ScaledModes (default 1 since 1.0.68.1 - user-validated in landscape and portrait; 0 = off): G20 - one lower desktop mode (2/3 of the panel, 720x1520), stretched onto the
  * panel by the present path (display.c ScaledOn). */
 extern ULONG MwScaledModes;
 /* Parameters\PanelCmdMode / PanelBrightness (default 1 / 1): panel.c. */

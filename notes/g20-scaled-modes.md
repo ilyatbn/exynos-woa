@@ -114,3 +114,7 @@ User 2026-10-17: "yes to attempting to add a lower 720p resolution scale to see 
   each other), LITTLE cores mostly idle; 2.25x fewer pixels gave only +30 % -> mostly CPU/per-frame-latency bound
   (emulated x86 + Unity + D3D11 runtime + our UMD), with a serialized GPU part per frame (GPU time adds to the frame,
   does not overlap). Lead to check: ~18 Render DDI submissions per frame (each a kernel round trip + Mali job chain).
+- 22:00 USER: "720p mode on portrait works fine btw. you can bake it in properly." -> KMD 1.0.68.1 (s10e-artifacts\
+  mali-kmd-68, sys af205f42): Parameters\ScaledModes default 1 (0 = off), INF switch list documents it, DriverVer bump.
+  Verified 22:14: registry value DELETED on the phone, KMD 68 swapped from TWRP (prev b6012665), reboot -> s10emode
+  list still offers 2280x1080 + 1520x720 (current 1520x720 = the user's saved mode). G20 done.

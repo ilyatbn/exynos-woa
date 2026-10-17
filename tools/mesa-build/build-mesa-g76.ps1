@@ -12,6 +12,11 @@ Follows wddm-mali-g52 .github/workflows/mesa.yml (job `panfrost`), adapted to an
   4 cross    the ARM64 build: clang-cl --target=aarch64-pc-windows-msvc + MSVC ARM64 libs/link,
              -Dmesa-clc=system (reference stubs) -Dprecomp-compiler=system (step 3's exe).
   5 collect  DLLs -> s10e-artifacts\mali-g12 with SHA256SUMS and dumpbin /headers.
+  6 x86      G-game (notes/g17-dxva-mfc.md): the 32-bit x86 UMD for WOW64 processes (MS Learn "WDDM 64-Bit Issues":
+             UserModeDriverNameWow, SysWOW64). clang-cl --target=i686-pc-windows-msvc + MSVC x86 libs, a cross
+             build that runs its own x86 panfrost_compile.exe on the x64 host (-Dprecomp-compiler=enabled,
+             needs_exe_wrapper = false): the precompiled shader blobs memcpy Mesa structs, so the compiler that
+             writes them must have the x86 layout. Collected to $Out-x86 (maliumd32.dll + libgallium_d3d10.dll).
 Nothing of Mesa is vendored in this repo; all paths below are external.
 #>
 param(
@@ -29,7 +34,7 @@ $ErrorActionPreference = 'Continue'
 
 $Stage = @($Stage | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 foreach ($s in $Stage) {
-  if ($s -notin 'all', 'source', 'libpan', 'host', 'cross', 'collect') { throw "unknown stage '$s'" }
+  if ($s -notin 'all', 'source', 'libpan', 'host', 'cross', 'collect', 'x86') { throw "unknown stage '$s'" }
 }
 
 $MesaOrig = Join-Path $Mali 'mesa-26.2'          # never modified
@@ -40,9 +45,10 @@ $Venv = Join-Path $Mali 'venv'
 $Libpan = Join-Path $Work 'libpan-prebuilt'
 $HostBuild = Join-Path $Work 'build-host-x64'
 $CrossBuild = Join-Path $Work 'build-arm64'
+$X86Build = Join-Path $Work 'build-x86'
 $Flex = Join-Path $Work 'winflexbison'
 $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
-function Want($s) { $Stage -contains 'all' -or $Stage -contains $s }
+function Want($s) { ($Stage -contains 'all' -and $s -ne 'x86') -or $Stage -contains $s }   # x86 only on request
 function Check($what) { if ($LASTEXITCODE) { throw "$what failed ($LASTEXITCODE)" } }
 function ToWsl($p) { '/mnt/' + $p.Substring(0, 1).ToLower() + ($p.Substring(2) -replace '\\', '/') }
 
@@ -183,4 +189,53 @@ if (Want 'collect') {
   Pop-Location
   Get-Content (Join-Path $Out 'SHA256SUMS')
   Select-String -Path (Join-Path $Out 'dumpbin-headers.txt') -Pattern 'machine \(|subsystem|DLL characteristics' | ForEach-Object Line
+}
+
+if (Want 'x86') {
+  Use-VcVars 'vcvarsamd64_x86.bat'   # first: it resets the environment (x64-hosted tools, x86 libs)
+  Common-Tools
+  Remove-Item env:CC, env:CXX -ErrorAction SilentlyContinue
+  $cl = (Join-Path $Llvm 'clang-cl.exe') -replace '\\', '/'
+  $lib = (Join-Path $Llvm 'llvm-lib.exe') -replace '\\', '/'
+  $rc = (Join-Path $Llvm 'llvm-rc.exe') -replace '\\', '/'
+  New-Item -ItemType Directory -Force $Work | Out-Null
+  $x86cross = Join-Path $Work 'x86-windows.cross'
+  @"
+[binaries]
+c = ['$cl', '--target=i686-pc-windows-msvc']
+cpp = ['$cl', '--target=i686-pc-windows-msvc']
+c_ld = 'link'
+cpp_ld = 'link'
+ar = '$lib'
+windres = '$rc'
+
+[properties]
+needs_exe_wrapper = false
+
+[host_machine]
+system = 'windows'
+cpu_family = 'x86'
+cpu = 'i686'
+endian = 'little'
+"@ | Set-Content -Encoding ascii $x86cross
+  if (-not (Test-Path (Join-Path $X86Build 'build.ninja'))) {
+    meson setup $X86Build $Mesa --backend=ninja --cross-file $x86cross -Dbuildtype=debugoptimized -Dprecomp-compiler=enabled @MesonOpts
+    Check 'x86 meson setup'
+  }
+  ninja -C $X86Build -k 0 2>&1 | Tee-Object (Join-Path $Work 'build-x86.log')
+  Check 'x86 build'
+  $umd = Join-Path $X86Build 'src\gallium\targets\d3d10umd\libgallium_d3d10.dll'
+  if (-not (Test-Path $umd)) { throw 'x86 libgallium_d3d10.dll was not built' }
+  $o86 = "$Out-x86"
+  New-Item -ItemType Directory -Force $o86 | Out-Null
+  Copy-Item $umd, ($umd -replace '\.dll$', '.pdb') $o86 -Force
+  Copy-Item $umd (Join-Path $o86 'maliumd32.dll') -Force
+  Push-Location $o86
+  Get-ChildItem -Path * -File -Include *.dll, *.pdb | Get-FileHash -Algorithm SHA256 |
+    ForEach-Object { '{0}  {1}' -f $_.Hash.ToLower(), (Split-Path -Leaf $_.Path) } | Set-Content -Encoding ascii SHA256SUMS
+  & { dumpbin /nologo /headers libgallium_d3d10.dll | Select-String 'machine \(' ; dumpbin /nologo /dependents libgallium_d3d10.dll } |
+    Set-Content -Encoding ascii dumpbin-x86.txt
+  Pop-Location
+  Get-Content (Join-Path $o86 'SHA256SUMS')
+  Get-Content (Join-Path $o86 'dumpbin-x86.txt')
 }

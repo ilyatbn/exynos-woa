@@ -646,3 +646,19 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
 - Plan: (1) x86 (i686) build of the Mesa UMD (llvm-mingw i686 target); (2) ABI audit of MW_* private structs and
   escapes for 32/64 layout; (3) test install (SysWOW64 + UserModeDriverNameWow) with a 32-bit D3D11 test app,
   then the game; (4) INF + package (native). x64-emulated apps (ARM64EC/ARM64X UMD) = separate later task.
+- Step 1 done: build-mesa-g76.ps1 stage x86 (clang-cl --target=i686-pc-windows-msvc, vcvarsamd64_x86, cross file with
+  needs_exe_wrapper = false, -Dprecomp-compiler=enabled so the x86 panfrost_compile writes the shader blobs with x86
+  struct layout) built first try: s10e-artifacts\mali-g12-x86\maliumd32.dll 3af65bb5 (machine 14C x86), imports
+  VCRUNTIME140 + api-ms-win-crt-*; phone has SysWOW64\vcruntime140.dll (2020 build - may need vc_redist.x86).
+- Step 2 ABI audit: include/maliwddm_abi.h has only mw_u32/mw_u64 fields, no pointers/SIZE_T/HANDLE; MSVC-ABI x86
+  aligns 64-bit members to 8 like x64 -> MW_ALLOCATION_INFO, MW_COMMAND, MW_ESCAPE_* identical in the 32-bit UMD
+  and the 64-bit KMD. (Pointer-free by design; CPU views from Lock are process-local.)
+- Step 3 (test install): maliumd32.dll -> SysWOW64, HKLM\...\Class\{4d36e968-...}\0000 UserModeDriverNameWow =
+  maliumd32.dll x4 (reg add; INF not changed yet). Before reboot: game still on Basic Render (no tlog for it) ->
+  dxgkrnl reads the value at adapter start. After reboot: Unity Player.log "Direct3D 11.0 [level 10.1], Renderer: Arm
+  Mali-G76 MP12" + malikm-KairoGames.exe-1888 tlog = the x86 UMD works (ABI ok, vcruntime140 of 2020 sufficient).
+- Game then dies: stderr "DRM_IOCTL_PANFROST_CREATE_BO failed (err=12)"; tlog "Allocate hr 0x8876017c"
+  (D3DERR_OUTOFVIDEOMEMORY) after ~7100 allocations (MakeResident counter 0x1be1). The one aperture segment is 1 GB
+  (MW_SEGMENT_SIZE; MaliG76Wddm.h:31: must stay below 4 GB - 32 MB, MK_VA_START..MK_VA_END is ONE 4 GB GPU address
+  space for all processes) and DWM + Explorer alone held ~915 MB committed before the game started.
+  => the game is blocked by the VRAM problem: (a) DWM's growth (500-900 MB), (b) the 1 GB segment (could be ~3.9 GB).

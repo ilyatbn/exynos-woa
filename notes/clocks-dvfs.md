@@ -91,3 +91,13 @@ Windows reads temperatures and can throttle; lowering is fine.
   update CurKhz under gAcpmLock. (4) Governor screen-off counter reuses gDom[0].Quiet as a marker - fragile; follow-up:
   own flag. (5) tzid mapping (1 MID, 2 LITTLE, 3 G3D) is still DT-derived - the readings are plausible and track load
   (47 idle -> 63 boot), not independently proven per zone. (6) Ladders duplicated in driver and governor.
+- 07:40 C5 DONE (device, 30/25 s steps, battery 17 %, governor stopped during tests):
+  MID 1794 -> 2314 MHz: every step granted and measured (s10eperf cpu4-5 1.79/1.89/2.00/2.10/2.20/2.31 GHz), peak
+  74 C (2210 step), 67-69 C at 2314 (traces/.../c5-mid.txt). LITTLE 1456 -> 1950 MHz: 1.44/1.56/1.72/1.82/1.92-1.94 GHz,
+  peak 60 C (c5-little.txt). G3D 260 -> 702 MHz with d3dtri cube: 0 present failures at every step, G3D <= 54 C, cube
+  36.6 -> 38.8 fps (not GPU-bound) (c5-gpu.txt); real GPU clock via MW_ESCAPE_CLOCK (new tool
+  drivers/MaliG76Wddm/tools/gpuclock): requested 156/260/433/702 -> measured 156.0/260.0/432.3/702.0 MHz.
+  Result: with the 2 big cores off, the full DT ladders are usable on burst: LITTLE 1.95 GHz, MID 2.314 GHz, GPU
+  702 MHz (sustained minutes-long thermals not measured yet - the S10ePower guard caps at 83/88 C).
+  Governor ceilings set (Parameters): MaxLittle 1950000, MaxMid 2314000, MaxG3d 702000; touch boost BoostLittle
+  1742000, BoostMid 2106000, BoostG3d 433000.

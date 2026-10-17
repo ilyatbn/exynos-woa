@@ -1654,3 +1654,24 @@ for performance per DT tables). Rollback: `sc config S10eGovernor start= demand`
 return to the boot rates), `reg add ...S10ePower /v AllowSend /d 0` to make S10ePower read-only.
 **In flight:** battery 16 % -> phone parked in TWRP to charge. **Next:** G17 V6a (UMD video DDI skeleton) offline;
 HDMI with the user.
+
+## 53. Restart point (2026-10-17 ~09:10 local)
+**Committed since 52:** G17 hardware video for Windows apps, V6a-V6d (notes/g17-dxva-mfc.md has every measurement):
+- Mesa 0083-0091 (tools/mesa-build/patches; working copy commits as ilyatbn): D3D11 video DDI (RetrieveSubObject
+  2/3, generated stubs), H.264 VLD_NOFGT decode on the MFC (VideoH264.c rebuilds SPS/PPS from DXVA picture
+  parameters; decode-order MFC session per decoder; NV12 into the output view), QueryVideoCapabilities, GPU video
+  processor (VideoProc.cpp + VideoCsc.c NIR compute NV12->RGBA, then pipe->blit), profile exposed when the MFC device
+  is present (no env gate). Phone UMD = maliumd 1cb628cb (0091), loaded by DWM after the next reboot (new processes
+  already use it).
+- Exynos9820Mfc 1.0.0.7 sys on the phone (MFC_OPEN_DECODE_ORDER); INF 1.0.0.9 carries the device Security
+  (SY/BA all, Everyone/AC/LPAC/RC read); the phone's devnode got the same SDDL via tools/mfc/mfcacl.ps1 -Set
+  (verified effective with mfcsd.ps1 after reboot).
+- Validated on the phone: MF Source Reader decode bit-exact (720p, 1080p B-frames, visible rows); Media Engine 1080p24
+  real time (mfplay); inside an AppContainer (acrun); Photos (packaged) plays test.mp4 on the MFC + GPU VP (its UMD
+  log + MFC busy probe). Not yet: visual confirmation (screenshot/fb/webcam paths all failed), Photos ~15-20
+  blt/s vs 24 fps (drops?), interlaced/seek/PPS switching/scaling-matrix streams, Edge (needs FL 11_0: parking lot).
+- tools: d3dvdec (debug mode), mftest -d3d11/-rows, mfplay(-noread), mfd3d/mfplayq/vdecmatrix/actest(u)/photostest/
+  photoslog/ordertest/mfcacl/mfcsd/appx/drvhash/totwrp (clean restart into TWRP).
+**Blocked on the user:** D3D11 debug layer (Graphics Tools optional feature) - Add-WindowsCapability over SSH is
+0x80070005 and a SYSTEM task was declined; webcam returns empty images.
+**Next:** Photos frame rate (present/composition vs MF drops; GPU governor floor 260 MHz?), then HDMI with the user.

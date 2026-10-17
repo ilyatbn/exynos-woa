@@ -342,3 +342,8 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   Photos still ~5 fps decode / ~15 blt/s (frame 100 at +20.6 s) -> DWM, vsync and decode are fine; the limit is in
   Photos' own render loop (~66 ms per video frame). Next suspect: event queries (QueryGetData with DO_NOT_FLUSH
   blocks in our UMD: wait = Flags & DO_NOT_FLUSH) - TEMP timing next.
+- 12:5x Photos: TEMP event-query timing -> no event-query polls at all (not the cause). tools/phone/cputop.ps1:
+  Photos 115 % of one core (6 cores), svchost 26, MsMpEng 26, dwm 18, System 14; CPUs already at max clocks, GPU at
+  the 260 MHz floor. tools/phone/threadtop.ps1: no Photos thread pegged (busiest 21 % / 18 %, most threads waiting).
+  => Photos waits on something per frame, it is not CPU-bound. Open.
+  Phone after cleanup: KMD 1.0.62.1, UMD 0093 (maliumd fede1bcd; same source as 2be0d7c9, rebuilt), machine-wide trace OFF (DWM keeps tracing until the next boot).

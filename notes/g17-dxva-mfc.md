@@ -684,3 +684,9 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   shim locks every BO at creation (pfnLockCb, kept mapped). Hypothesis: each lock of an aperture allocation costs a
   32 MB CPU VA reservation in the process (done by the runtime/VidMm). Rule 11: not investigated inside Windows;
   behavioural test next (lock vs no lock, count the 32 MB regions).
+- vatest (new, drivers/MaliG76Wddm/tools/vatest, ARM64, behavioural - rule 11): empty 32 MB private reservations in
+  its own address space: before device 0, device 5, +40 DEFAULT no data 46, +40 DEFAULT with data 88, +40 DYNAMIC
+  mapped 129, after releasing all 120 textures still 129 -> ONE 32 MB reservation per GPU buffer, never returned
+  while the buffer lives - and released textures' BOs live on in Panfrost's BO cache; the shim keeps every BO locked
+  (pfnLockCb at MAP, "the Lock stays until GEM_CLOSE"). Next test: shim UNMAP really unlocks + Panfrost unmaps BOs it
+  parks in its cache (re-mmap at fetch) -> does the count drop?

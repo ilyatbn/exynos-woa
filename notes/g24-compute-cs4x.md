@@ -116,3 +116,10 @@ double-precision values". (Raw / structured buffer SRVs: the "Plus_RawAndStructu
   720x1520) and dgVoodoo's NONPREROTATED ones are not (checked in the dwm / SPEED2-3356 tlogs). 0121 keeps the CPU
   copy path strict, so a rotated fullscreen primary in a non-RGBA8 format (or MSAA) still fails its present - open,
   no test case yet. 0122 touches only the quad path, which DWM never takes (0 "rotated" presents).
+- After the reboot (keyboard dongle; ARM64 UMD 0119 now in DWM, desktop fine): user "its now starting and crashing" in
+  fake fullscreen. 3 WER events 30 s apart, same fault as the exclusive-fullscreen run: SPEED2+0x6562b
+  `mov esi,[eax+4]` with eax=0xAAAAAAAA (the game's freed-memory fill) = a use-after-free in game code, right after
+  dgVoodoo recreates its present buffers at 640x480 (tlog malikm-SPEED2.EXE-3100: 10500 presents at ~9 ms/frame, then
+  the 640x480 shared BOs). The windowed run (no mode change) played for minutes. Web search: nothing for this address.
+  Next config: FullScreenMode=false + WindowedAttributes=borderless, fullscreensize (no mode change, screen-size
+  window); conf backups .bak-exclusive / .bak-fake. tools/phone/games/dgvconf.ps1 for conf edits.

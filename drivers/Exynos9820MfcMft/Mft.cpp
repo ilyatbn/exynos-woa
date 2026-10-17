@@ -430,7 +430,7 @@ private:
         if (CM_Get_Device_Interface_ListW((LPGUID)&GUID_DEVINTERFACE_EXYNOS9820_MFC, nullptr, list, ARRAYSIZE(list),
                                           CM_GET_DEVICE_INTERFACE_LIST_PRESENT) != CR_SUCCESS || list[0] == 0)
             return false;
-        m_Dev = CreateFileW(list, GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+        m_Dev = CreateFileW(list, GENERIC_READ, 0, nullptr, OPEN_EXISTING, 0, nullptr);   // FILE_ANY_ACCESS IOCTLs
         return m_Dev != INVALID_HANDLE_VALUE;
     }
 

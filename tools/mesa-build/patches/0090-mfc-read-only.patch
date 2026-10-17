@@ -1,0 +1,28 @@
+From 4d4b67e496cfec45f2f8a47d5fc9dc844c5bd55a Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 08:54:48 +0300
+Subject: [PATCH] d3d10umd video: open the MFC read-only (exynos-woa 0090, G17
+ V6d review) - its IOCTLs are FILE_ANY_ACCESS and the device grants sandboxed
+ callers read only
+
+---
+ src/gallium/frontends/d3d10umd/Video.cpp | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/Video.cpp b/src/gallium/frontends/d3d10umd/Video.cpp
+index fc703a3..c64e6b0 100644
+--- a/src/gallium/frontends/d3d10umd/Video.cpp
++++ b/src/gallium/frontends/d3d10umd/Video.cpp
+@@ -269,7 +269,8 @@ MfcOpen(void)
+       free(list);
+       return INVALID_HANDLE_VALUE;
+    }
+-   h = CreateFileW(list, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
++   /* read access is all the IOCTLs need (FILE_ANY_ACCESS): the device grants sandboxed callers no more (INF) */
++   h = CreateFileW(list, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+    free(list);
+    if (h == INVALID_HANDLE_VALUE) {
+       malikm_tlog("video: MFC open failed %lu", GetLastError());
+-- 
+2.40.1.windows.1
+

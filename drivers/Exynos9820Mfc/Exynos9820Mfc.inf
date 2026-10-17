@@ -8,7 +8,7 @@ Signature="$WINDOWS NT$"
 Class=System
 ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
 Provider=%ProviderName%
-DriverVer=10/17/2026,1.0.0.8
+DriverVer=10/17/2026,1.0.0.9
 CatalogFile=Exynos9820Mfc.cat
 PnpLockdown=1
 
@@ -37,13 +37,14 @@ CopyFiles=Mfc_CopyFiles
 
 ; G17 V6d (notes/g17-dxva-mfc.md): device object security (MS Learn "Setting Device Object Registry Properties During
 ; Installation", INF AddReg "Security"). The D3D11 video decoder of the GPU driver opens this device from inside
-; whatever process plays video, packaged apps included: SYSTEM and Administrators all access, Everyone read/write,
-; ALL APPLICATION PACKAGES (AC) and ALL RESTRICTED APPLICATION PACKAGES (S-1-15-2-2) read/write.
+; whatever process plays video, packaged apps included: SYSTEM and Administrators all access; Everyone, ALL
+; APPLICATION PACKAGES (AC), ALL RESTRICTED APPLICATION PACKAGES (S-1-15-2-2) and restricted tokens (RC) read - the
+; IOCTLs are FILE_ANY_ACCESS, a read handle is enough.
 [Mfc_Install.NT.HW]
 AddReg=Mfc_Security_AddReg
 
 [Mfc_Security_AddReg]
-HKR,,Security,,"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;WD)(A;;GRGW;;;AC)(A;;GRGW;;;S-1-15-2-2)"
+HKR,,Security,,"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;WD)(A;;GR;;;AC)(A;;GR;;;S-1-15-2-2)(A;;GR;;;RC)"
 
 [Mfc_CopyFiles]
 Exynos9820Mfc.sys

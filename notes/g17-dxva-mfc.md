@@ -219,3 +219,10 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   Fresh installs get the same descriptor from INF 1.0.0.8 [Mfc_Install.NT.HW] (not reinstalled on the phone: the
   live driver reinstall risk, D10 0x122) - the phone's devnode got it through mfcacl.ps1 -Set (documented
   post-install path), so INF and devnode agree.
+- Review of 3c547af (rule 4): infverif /w on the INF: only the pre-existing DIRID 12 (System32\drivers) errors,
+  nothing on the Security AddReg; package + catalog build. Found: (1) the default descriptor's RC (restricted
+  token) ACE was dropped -> restricted-token sandboxes would lose access; (2) GRGW was more than needed - every MFC
+  IOCTL is FILE_ANY_ACCESS. Fixed: UMD opens GENERIC_READ (0090, maliumd b4f226ff), mfcdec + MFT too, INF 1.0.0.9
+  "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GR;;;WD)(A;;GR;;;AC)(A;;GR;;;S-1-15-2-2)(A;;GR;;;RC)", devnode via mfcacl -Set.
+  After reboot: device object DACL D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FR;;;WD)(A;;FR;;;AC)(A;;FR;;;S-1-15-2-2)(A;;FR;;;RC);
+  AppContainer decode 30/30 on the MFC; ordertest (mfcdec read-only handle): 60 frames, decode order, identical.

@@ -42,7 +42,7 @@ static HANDLE OpenMfc(void)
         return INVALID_HANDLE_VALUE;
     }
 
-    h = CreateFileW(list, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    h = CreateFileW(list, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);   // IOCTLs are FILE_ANY_ACCESS (INF grants read)
     if (h == INVALID_HANDLE_VALUE)
         fprintf(stderr, "open %ls: %lu\n", list, GetLastError());
     return h;

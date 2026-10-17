@@ -100,3 +100,14 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   - Pre-existing, not from this commit: sys-deploy.sh picks the FIRST <inf>_arm64_* DriverStore folder (two exist for
     exynos9820mfc) - harmless here (service loads System32\drivers), noted for DriverStore-run drivers.
   - INF says 1.0.0.7 but the phone's DriverStore INF is still 1.0.0.6 (sys-only swap) - expected for sys-deploy.
+- 2026-10-17 V6b2: tools/mfc/mftest -d3d11 (Source Reader + IMFDXGIDeviceManager on a Mali VIDEO_SUPPORT device) and
+  tools/mfc/mfd3d.ps1 (sysmem vs d3d11 hashes + UMD video log).
+  - profile hidden (0084 default): MF decodes in software into our NV12 textures (bind 0, then STAGING readback):
+    30/30 frames, hashes IDENTICAL to sysmem -> NV12 texture upload/copy/map path correct.
+  - D3D10UMD_VIDEO_DEV=1, 0084: MF calls QueryVideoCapabilities (WDDM 2.0 DDI, MS Learn: "WDDM 2.0 or later drivers
+    must implement") -> our stub SetError(E_NOTIMPL) -> device removed, ReadSample 0x887a0005.
+  - 0085 (maliumd d5f7aca8): QueryVideoCapabilities implemented (DECODER_CAPS 0 for H.264 <= 1920x1088, no
+    downsampling) -> Microsoft's decoder takes the DXVA path: CreateResource NV12 1280x720 ARRAY 12 bind 0x200,
+    CreateVideoDecoder 1280x720 raw 2, 30 frames each with PP 1040 B / IQ 224 B / slice control 110 B (11 short
+    slices x 10 B) / bitstream (39040, 20352, ...), DECODER_CAPS re-asked every frame, decoder destroyed after 30.
+    Hashes differ (no decode yet, expected). Next V6b3: the decode (SPS/PPS synthesis + MFC + NV12 copy).

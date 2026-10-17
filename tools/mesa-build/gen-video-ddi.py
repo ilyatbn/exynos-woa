@@ -22,7 +22,7 @@ HAND = {
     'CalcPrivateVideoDecoderSize', 'CreateVideoDecoder', 'DestroyVideoDecoder', 'VideoDecoderBeginFrame',
     'VideoDecoderEndFrame', 'VideoDecoderSubmitBuffers', 'CalcPrivateVideoDecoderOutputViewSize',
     'CreateVideoDecoderOutputView', 'DestroyVideoDecoderOutputView', 'GetContentProtectionCaps',
-    'VideoDecoderExtension', 'VideoDecoderGetHandle', 'VideoDecoderSubmitBuffers1',
+    'VideoDecoderExtension', 'VideoDecoderGetHandle', 'VideoDecoderSubmitBuffers1', 'QueryVideoCapabilities',
 }
 
 

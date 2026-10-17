@@ -1,0 +1,113 @@
+From 5a2f485be2e847e2055863469ee04dfc2d037885 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 08:09:14 +0300
+Subject: [PATCH] d3d10umd video: QueryVideoCapabilities (exynos-woa 0085, G17
+ V6b2) - DECODER_CAPS real time for H.264 up to the MFC limit, no
+ downsampling; Media Foundation asks it before creating a decoder and the
+ E_NOTIMPL stub removed the device
+
+---
+ src/gallium/frontends/d3d10umd/Video.cpp      | 53 +++++++++++++++++++
+ .../frontends/d3d10umd/video_fill_wddm2_0.inc |  2 +-
+ .../frontends/d3d10umd/video_stubs.inc        |  8 ---
+ 3 files changed, 54 insertions(+), 9 deletions(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/Video.cpp b/src/gallium/frontends/d3d10umd/Video.cpp
+index 76a42ee..b2f14f7 100644
+--- a/src/gallium/frontends/d3d10umd/Video.cpp
++++ b/src/gallium/frontends/d3d10umd/Video.cpp
+@@ -300,6 +300,59 @@ Vid_VideoDecoderGetHandle(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HDECODE hDecode,
+    return E_NOTIMPL;
+ }
+ 
++/* MS Learn PFND3DWDDM2_0DDI_QUERYVIDEOCAPABILITIES ("WDDM 2.0 or later drivers must implement this function"; Media
++ * Foundation asks DECODER_CAPS before it creates a decoder - a SetError here removes the device). The MFC decodes
++ * H.264 up to VID_MAX_W x VID_MAX_H in real time (1080p ~10 ms per picture, notes/g17-dxva-mfc.md) and does not
++ * downsample. */
++static VOID APIENTRY
++Vid_QueryVideoCapabilities(D3D10DDI_HDEVICE hDevice, D3DWDDM2_0DDI_VIDEO_CAPABILITY_QUERY QueryType, UINT DataSize,
++                           VOID *pData)
++{
++   switch (QueryType) {
++   case D3DWDDM2_0DDI_VIDEO_CAPABILITY_QUERY_DECODER_CAPS:
++      if (DataSize >= sizeof(D3DWDDM2_0DDI_VIDEO_CAPABILITY_DECODER_CAPS)) {
++         D3DWDDM2_0DDI_VIDEO_CAPABILITY_DECODER_CAPS *c = (D3DWDDM2_0DDI_VIDEO_CAPABILITY_DECODER_CAPS *)pData;
++         BOOL ok = IsH264(&c->DecodeProfile) && c->SampleWidth <= VID_MAX_W && c->SampleHeight <= VID_MAX_H &&
++                   (!c->pCryptoType || IsEqualGUID(*c->pCryptoType, kNoEncrypt));
++         c->Caps = ok ? 0 : D3DWDDM2_0DDI_VIDEO_DECODER_CAP_UNSUPPORTED;
++         malikm_tlog("video: QueryVideoCapabilities DECODER_CAPS %ux%u -> 0x%x", c->SampleWidth, c->SampleHeight,
++                     c->Caps);
++         return;
++      }
++      break;
++   case D3DWDDM2_0DDI_VIDEO_CAPABILITY_QUERY_DECODER_DOWNSAMPLING:
++      if (DataSize >= sizeof(D3DWDDM2_0DDI_VIDEO_CAPABILITY_DECODER_DOWNSAMPLING)) {
++         D3DWDDM2_0DDI_VIDEO_CAPABILITY_DECODER_DOWNSAMPLING *d =
++            (D3DWDDM2_0DDI_VIDEO_CAPABILITY_DECODER_DOWNSAMPLING *)pData;
++         d->Supported = FALSE;
++         d->RealTime = FALSE;
++         return;
++      }
++      break;
++   case D3DWDDM2_0DDI_VIDEO_CAPABILITY_QUERY_RECOMMEND_DECODER_DOWNSAMPLING:
++      if (DataSize >= sizeof(D3DWDDM2_0DDI_VIDEO_CAPABILITY_RECOMMEND_DECODER_DOWNSAMPLING)) {
++         /* no downsampling: recommend the input itself */
++         D3DWDDM2_0DDI_VIDEO_CAPABILITY_RECOMMEND_DECODER_DOWNSAMPLING *r =
++            (D3DWDDM2_0DDI_VIDEO_CAPABILITY_RECOMMEND_DECODER_DOWNSAMPLING *)pData;
++         if (r->pOutputDesc && r->pInputDesc)
++            *r->pOutputDesc = *r->pInputDesc;
++         r->OutputColorSpace = r->InputColorSpace;
++         return;
++      }
++      break;
++   case D3DWDDM2_0DDI_VIDEO_CAPABILITY_QUERY_DECODER_DOWNSAMPLE_OUTPUT_FORMAT:
++      if (DataSize >= sizeof(D3DWDDM2_0DDI_VIDEO_CAPABILITY_DECODER_DOWNSAMPLE_OUTPUT_FORMAT)) {
++         ((D3DWDDM2_0DDI_VIDEO_CAPABILITY_DECODER_DOWNSAMPLE_OUTPUT_FORMAT *)pData)->Supported = FALSE;
++         return;
++      }
++      break;
++   default:
++      break;
++   }
++   malikm_tlog("video: QueryVideoCapabilities type %u size %u: invalid", (unsigned)QueryType, DataSize);
++   SetError(hDevice, E_INVALIDARG);
++}
++
+ #include "video_stubs.inc"
+ 
+ static void
+diff --git a/src/gallium/frontends/d3d10umd/video_fill_wddm2_0.inc b/src/gallium/frontends/d3d10umd/video_fill_wddm2_0.inc
+index f4d27c4..f78e0fb 100644
+--- a/src/gallium/frontends/d3d10umd/video_fill_wddm2_0.inc
++++ b/src/gallium/frontends/d3d10umd/video_fill_wddm2_0.inc
+@@ -83,7 +83,7 @@
+    f->pfnGetDataForNewHardwareKey = VidStub_GetDataForNewHardwareKey_3DWDDM2_0;
+    f->pfnCheckCryptoSessionStatus = VidStub_CheckCryptoSessionStatus_3DWDDM2_0;
+    f->pfnVideoDecoderSubmitBuffers1 = Vid_VideoDecoderSubmitBuffers1;
+-   f->pfnQueryVideoCapabilities = VidStub_QueryVideoCapabilities_3DWDDM2_0;
++   f->pfnQueryVideoCapabilities = Vid_QueryVideoCapabilities;
+    f->pfnCheckVideoProcessorFormatConversion = VidStub_CheckVideoProcessorFormatConversion_3DWDDM2_0;
+    f->pfnVideoDecoderEnableDownsampling = VidStub_VideoDecoderEnableDownsampling_3DWDDM2_0;
+    f->pfnVideoDecoderUpdateDownsampling = VidStub_VideoDecoderUpdateDownsampling_3DWDDM2_0;
+diff --git a/src/gallium/frontends/d3d10umd/video_stubs.inc b/src/gallium/frontends/d3d10umd/video_stubs.inc
+index 466001b..474aec2 100644
+--- a/src/gallium/frontends/d3d10umd/video_stubs.inc
++++ b/src/gallium/frontends/d3d10umd/video_stubs.inc
+@@ -512,14 +512,6 @@ VidStub_CheckCryptoSessionStatus_3DWDDM2_0(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_
+    SetError(hDevice, E_NOTIMPL);
+ }
+ 
+-static VOID APIENTRY
+-VidStub_QueryVideoCapabilities_3DWDDM2_0(D3D10DDI_HDEVICE hDevice, D3DWDDM2_0DDI_VIDEO_CAPABILITY_QUERY QueryType, UINT DataSize, void* pData)
+-{
+-   malikm_tlog("video stub VidStub_QueryVideoCapabilities_3DWDDM2_0");
+-   LOG_UNSUPPORTED_ENTRYPOINT();
+-   SetError(hDevice, E_NOTIMPL);
+-}
+-
+ static VOID APIENTRY
+ VidStub_CheckVideoProcessorFormatConversion_3DWDDM2_0(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HVIDEOPROCESSORENUM hProcessorEnum, D3DWDDM2_0DDI_CHECK_VIDEO_PROCESSOR_FORMAT_CONVERSION* pConversion)
+ {
+-- 
+2.40.1.windows.1
+

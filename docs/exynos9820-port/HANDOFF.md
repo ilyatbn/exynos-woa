@@ -1754,7 +1754,9 @@ Next order of work:
 **Phone state:** firmware boot-host-btmfc.img (unchanged; USB-C host works, the user's keyboard dongle enumerates).
 KMD 1.0.69.1. **UMD x86 = mali-umd-0123-x86** (SysWOW64; Mesa 0111-0123). **UMD ARM64 = mali-umd-0119** (System32;
 Mesa 0111-0119, CS 4.x advertised, loaded by DWM since the 01:23 reboot - desktop fine); previous ARM64 kept as
-System32\maliumd.dll.old0110. ARM64 0123 is built (s10e-artifacts/mali-umd-0123) but NOT deployed/tested yet.
+System32\maliumd.dll.old0110. UPDATE ~03:05: ARM64 = mali-umd-0123 now in System32 (d3dcs 7/7, d3dbc lossy 126/126; previous kept as
+maliumd.dll.old0119); browser check NOT done - battery 13% and not charging (the keyboard dongle holds the USB-C port);
+testing stopped, user notified.
 NFSU2: C:\Games\src, dgVoodoo.conf = windowed borderless fullscreen-size (backups .bak-exclusive / .bak-fake),
 desktop shortcut SPEED2.lnk (launch it in the foreground; the game crashes on focus loss / its own resolution change).
 
@@ -1764,7 +1766,7 @@ user-verified upright), G26 BC->ETC2/EAC transcode (0123; d3dbc lossy 126/126, d
 NFSU2 reached the game; the race load ran out of 32-bit address space -> G26.
 
 Next order of work:
-1. ARM64 0123: deploy (keep .old), d3dcs 7/7 + d3dbc lossy on ARM64, then browsers (Edge/Brave GPU page + WebGL) with
+1. (charge first) ARM64 0123 is deployed and tested (d3dcs, d3dbc); still to do: browsers (Edge/Brave GPU page + WebGL) with
    CS 4.x advertised (G24 review follow-up) before the next reboot puts it into DWM. User wants all fixes on 64-bit.
 2. User test: NFSU2 race load with UMD x86 0123 (cannot be reproduced unattended; d3dbcmem is the proxy).
 3. G26 speed: ~0.5 s (BC1) / ~0.8-1 s (BC3) per 1024x1024 upload under x86 emulation; T/H ETC2 modes for 2-colour

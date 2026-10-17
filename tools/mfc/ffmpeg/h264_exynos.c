@@ -118,7 +118,7 @@ static int open_device(AVCodecContext *avctx, ExynosMfcContext *s)
         av_log(avctx, AV_LOG_ERROR, "no Exynos9820Mfc device (driver not running)\n");
         return AVERROR(ENODEV);
     }
-    s->dev = CreateFileW(list, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    s->dev = CreateFileW(list, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);   // IOCTLs are FILE_ANY_ACCESS; the device grants users read only (INF 1.0.0.9)
     if (s->dev == INVALID_HANDLE_VALUE) {
         av_log(avctx, AV_LOG_ERROR, "cannot open the Exynos9820Mfc device (%lu) - in use by another player?\n",
                GetLastError());

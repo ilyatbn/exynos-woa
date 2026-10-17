@@ -386,3 +386,10 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   (maliumd d8c86f68): Resource::flip_model = BIND_PRESENT && MISC_SHARED; gdi_present only for non-flip-model buffers.
   Natively (no env): d3dtri cube 35.7 fps (GDI path), mpv --vo=gpu d3d11 plays to EOF and exits (0 stuck),
   swaprate comp 59.1/s, hwnd 59.3/s. MALIKM_NO_GDI_PRESENT machine variable removed.
+- 14:0x mpv on the phone with its config (tools/mfc/ffmpeg/mpv.conf now: hwdec=exynosmfc-copy, vo=gpu, gpu-api=d3d11;
+  the WARP interim removed; old config kept as portable_config/mpv.conf.warp-20261017): first run software decode -
+  "h264_exynos: cannot open the Exynos9820Mfc device (5)": the ffmpeg wrapper opened GENERIC_READ|GENERIC_WRITE and
+  the device grants users read only since INF 1.0.0.9 (the V6d1 review fixed UMD/mfcdec/MFT but missed this wrapper).
+  h264_exynos.c -> GENERIC_READ; incremental llvm-mingw rebuild (build-ffmpeg.sh), avcodec-63.dll 519acdf4 deployed
+  (old kept as .prev-20261017). mpvtest test.mp4 15 s: "Using hardware decoding (exynosmfc-copy)", Mali FL 10_1
+  renderer, played to 00:00:14 of the window, no Dropped counter, exits at EOF. => mpv: MFC decode + Mali render.

@@ -1,0 +1,870 @@
+From 01b4102a40cc5ef165795192382898cb11b7ca8e Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 02:31:46 +0300
+Subject: [PATCH] d3d10umd: BC1-BC5 re-compressed to ETC2 / EAC on upload where
+ the GPU samples it (exynos-woa G26 0123)
+
+The G23 RGBA8 backing took 4-8x the memory: NFSU2 (32-bit, not large-address-aware) ran its 2 GB out loading a race.
+BcEtc.c: palette-based ETC1-mode / punch-through / EAC encoders (layouts from Mesa's own ETC2 decoder), own BC
+decoders; transcoded in block-row bands on the thread pool (3.7x on the S10e). Same block size and grid as the BC data.
+D3D10UMD_BC_DECODE=1 keeps the RGBA8 backing and D3D10UMD_BC_THREADS=n sets the workers: diagnosis only. First 16 BC
+uploads log map / transcode / unmap times. d3dbc lossy 126/126 (soft data >= 32 dB vs WARP, 1-bit alpha exact);
+d3dbcmem: 600 1024x1024 BC textures fit in a 32-bit process (decode backing: ~260, then the crash).
+---
+ src/gallium/frontends/d3d10umd/BcEtc.c      | 595 ++++++++++++++++++++
+ src/gallium/frontends/d3d10umd/BcEtc.h      |  40 ++
+ src/gallium/frontends/d3d10umd/Format.cpp   |  19 +
+ src/gallium/frontends/d3d10umd/Resource.cpp |  94 ++++
+ src/gallium/frontends/d3d10umd/meson.build  |   1 +
+ 5 files changed, 749 insertions(+)
+ create mode 100644 src/gallium/frontends/d3d10umd/BcEtc.c
+ create mode 100644 src/gallium/frontends/d3d10umd/BcEtc.h
+
+diff --git a/src/gallium/frontends/d3d10umd/BcEtc.c b/src/gallium/frontends/d3d10umd/BcEtc.c
+new file mode 100644
+index 0000000..51722cd
+--- /dev/null
++++ b/src/gallium/frontends/d3d10umd/BcEtc.c
+@@ -0,0 +1,595 @@
++/*
++ * exynos-woa G26 (notes/g26-bc-etc2.md): BC1-BC5 -> ETC2 / EAC re-compression, see BcEtc.h.
++ *
++ * A BC block is a palette - at most 4 colours (BC1 / the colour half of BC2 / BC3) or 8 levels (BC3 alpha, BC4, BC5
++ * halves; BC2's explicit alpha: at most 16) - plus a per-texel index. It is decoded into that form (own decoders, no
++ * per-texel unpack) and encoded per distinct value with its texel count, which keeps the encoder fast enough for
++ * games' load times under WOW64's x86 emulation (v1, texel by texel: ~4 s per 1024x1024 BC3 texture on the phone).
++ *  - RGB: ETC1-style differential (5-bit base + 3-bit delta) for both flips; individual (4-bit bases) only when the
++ *    differential delta had to be clamped. The base of a sub-block is its average colour, the table and the modifiers
++ *    are chosen by weighted squared error in closed form (err(m) = S2 - 2 m S1 + m^2 W; the clamp to 0..255 is ignored
++ *    while choosing). No T / H / planar modes (the encoder never makes R+dR, G+dG or B+dB leave 0..31).
++ *  - Punch-through (ETC2_RGB8A1): differential only (the diff bit is the opaque bit); a block with transparent texels
++ *    has opaque = 0, index 2 = transparent black (BC1's transparent texel is black too), modifiers {0, +b, -b}.
++ *  - EAC (alpha 8-bit, R11 unsigned / signed): per table a multiplier from the value range, the base from the centre;
++ *    each value takes the nearest of the table's 8 decoded levels (ascending order, early exit).
++ * Layouts: src/mesa/main/texcompress_etc.c (etc2_rgb8_parse_block, etc2_rgb8_fetch_texel, etc2_alpha8 / r11 /
++ * signed_r11 fetch) and src/util/format/texcompress_etc_tmp.h (etc1 tables and base colours). BC decoding follows the
++ * D3D10 functional spec's BC1-BC5 definitions (BC2 / BC3 colour always 4-colour).
++ * SPDX-License-Identifier: MIT
++ */
++#include "BcEtc.h"
++
++#include <limits.h>
++#include <string.h>
++
++static const int etc1_tab[8][4] = {
++   {2, 8, -2, -8}, {5, 17, -5, -17}, {9, 29, -9, -29}, {13, 42, -13, -42},
++   {18, 60, -18, -60}, {24, 80, -24, -80}, {33, 106, -33, -106}, {47, 183, -47, -183},
++};
++/* punch-through, opaque = 0: modifiers per index {0, +b, transparent, -b} */
++static const int etc2_nonopaque_b[8] = {8, 17, 29, 42, 60, 80, 106, 183};
++static const int eac_tab[16][8] = {
++   {-3, -6, -9, -15, 2, 5, 8, 14}, {-3, -7, -10, -13, 2, 6, 9, 12}, {-2, -5, -8, -13, 1, 4, 7, 12},
++   {-2, -4, -6, -13, 1, 3, 5, 12}, {-3, -6, -8, -12, 2, 5, 7, 11}, {-3, -7, -9, -11, 2, 6, 8, 10},
++   {-4, -7, -8, -11, 3, 6, 7, 10}, {-3, -5, -8, -11, 2, 4, 7, 10}, {-2, -6, -8, -10, 1, 5, 7, 9},
++   {-2, -5, -8, -10, 1, 4, 7, 9}, {-2, -4, -8, -10, 1, 3, 7, 9}, {-2, -5, -7, -10, 1, 4, 6, 9},
++   {-3, -4, -7, -10, 2, 3, 6, 9}, {-1, -2, -3, -10, 0, 1, 2, 9}, {-4, -6, -8, -9, 3, 5, 7, 8},
++   {-3, -5, -7, -9, 2, 4, 6, 8},
++};
++/* 65536 / (tmax - tmin) per table (every table has tmax - tmin in {29, 25, 23, 21, 19, 17}) */
++static const int eac_inv_span[16] = {2260, 2621, 2621, 2621, 2849, 3121, 3121, 3121,
++                                     3449, 3449, 3449, 3449, 3449, 3449, 3855, 3855};
++/* the EAC indices in ascending modifier order (indices 3..0 are the negative ones, largest magnitude first) */
++static const int eac_order[8] = {3, 2, 1, 0, 4, 5, 6, 7};
++
++/* luma-like channel weights for the RGB error */
++#define WR 3
++#define WG 6
++#define WB 1
++#define WSUM (WR + WG + WB)
++
++static inline int
++clampi(int v, int lo, int hi)
++{
++   return v < lo ? lo : v > hi ? hi : v;
++}
++
++enum pipe_format
++bcetc_target(enum pipe_format bc)
++{
++   switch (bc) {
++   case PIPE_FORMAT_DXT1_RGB: return PIPE_FORMAT_ETC2_RGB8;
++   case PIPE_FORMAT_DXT1_RGBA: return PIPE_FORMAT_ETC2_RGB8A1;
++   case PIPE_FORMAT_DXT3_RGBA:
++   case PIPE_FORMAT_DXT5_RGBA: return PIPE_FORMAT_ETC2_RGBA8;
++   case PIPE_FORMAT_RGTC1_UNORM: return PIPE_FORMAT_ETC2_R11_UNORM;
++   case PIPE_FORMAT_RGTC1_SNORM: return PIPE_FORMAT_ETC2_R11_SNORM;
++   case PIPE_FORMAT_RGTC2_UNORM: return PIPE_FORMAT_ETC2_RG11_UNORM;
++   case PIPE_FORMAT_RGTC2_SNORM: return PIPE_FORMAT_ETC2_RG11_SNORM;
++   default: return PIPE_FORMAT_NONE;
++   }
++}
++
++/* ---- RGB ---- */
++
++/* A block as a colour palette: entry e has colour col[e] (and trans[e] = a transparent texel, punch-through only);
++ * texel i (row-major y * 4 + x) shows entry of[i]. */
++struct rgbpal {
++   int n;
++   int col[16][3];
++   uint8_t trans[16];
++   uint8_t of[16];
++};
++
++/* Texel (x, y) of a block belongs to sub-block 1 when: */
++static inline int
++sub_of(int flip, int i)
++{
++   return flip ? ((i >> 2) >= 2) : ((i & 3) >= 2);
++}
++
++/* Best table for one sub-block (cnt[e] = its texels showing entry e, transparent ones excluded) against base b; eidx[e]
++ * gets each entry's index. Returns the error. */
++static int
++fit_sub(const struct rgbpal *p, const int *cnt, const int b[3], bool nonopaque, int *table, uint8_t eidx[16])
++{
++   int s1[16], s2[16], c[16], ent[16], n = 0;
++   for (int e = 0; e < p->n; e++) {
++      if (!cnt[e])
++         continue;
++      int dr = p->col[e][0] - b[0], dg = p->col[e][1] - b[1], db = p->col[e][2] - b[2];
++      s1[n] = WR * dr + WG * dg + WB * db;
++      s2[n] = WR * dr * dr + WG * dg * dg + WB * db * db;
++      c[n] = cnt[e];
++      ent[n++] = e;
++   }
++   if (!n) {
++      *table = 0;
++      return 0;
++   }
++   int best = INT_MAX, best_t = 0;
++   uint8_t best_k[16] = {0};
++   for (int t = 0; t < 8; t++) {
++      int mods[4], ks[4], nk;
++      if (nonopaque) {
++         mods[0] = 0; ks[0] = 0;
++         mods[1] = etc2_nonopaque_b[t]; ks[1] = 1;
++         mods[2] = -etc2_nonopaque_b[t]; ks[2] = 3;
++         nk = 3;
++      } else {
++         for (int k = 0; k < 4; k++) {
++            mods[k] = etc1_tab[t][k];
++            ks[k] = k;
++         }
++         nk = 4;
++      }
++      int err = 0;
++      uint8_t kk[16];
++      for (int q = 0; q < n && err < best; q++) {
++         int e_best = INT_MAX, k_best = 0;
++         for (int k = 0; k < nk; k++) {
++            int m = mods[k], e = s2[q] - 2 * m * s1[q] + m * m * WSUM;
++            if (e < e_best) {
++               e_best = e;
++               k_best = ks[k];
++            }
++         }
++         err += e_best * c[q];
++         kk[q] = (uint8_t)k_best;
++      }
++      if (err < best) {
++         best = err;
++         best_t = t;
++         memcpy(best_k, kk, (size_t)n);
++      }
++   }
++   for (int q = 0; q < n; q++)
++      eidx[ent[q]] = best_k[q];
++   *table = best_t;
++   return best;
++}
++
++static void
++pack_rgb(uint8_t out[8], bool diff, bool bit1, int flip, const int q0[3], const int q1[3], int t0, int t1,
++         const uint8_t idx[16])
++{
++   for (int c = 0; c < 3; c++) {
++      if (diff)
++         out[c] = (uint8_t)((q0[c] << 3) | ((q1[c] - q0[c]) & 0x7));
++      else
++         out[c] = (uint8_t)((q0[c] << 4) | q1[c]);
++   }
++   out[3] = (uint8_t)((t0 << 5) | (t1 << 2) | ((bit1 ? 1 : 0) << 1) | flip);
++   uint32_t w = 0;
++   for (int i = 0; i < 16; i++) {
++      int k = idx[i], bit = (i >> 2) + (i & 3) * 4;   /* bit = y + x * 4 */
++      w |= (uint32_t)((k >> 1) & 1) << (16 + bit);
++      w |= (uint32_t)(k & 1) << bit;
++   }
++   out[4] = (uint8_t)(w >> 24);
++   out[5] = (uint8_t)(w >> 16);
++   out[6] = (uint8_t)(w >> 8);
++   out[7] = (uint8_t)w;
++}
++
++static void
++encode_rgb_pal(const struct rgbpal *p, bool punchthrough, bool allow_individual, uint8_t out[8])
++{
++   bool nonopaque = false;
++   for (int i = 0; i < 16; i++)
++      nonopaque |= punchthrough && p->trans[p->of[i]];
++   if (punchthrough)
++      allow_individual = false;   /* RGB8A1: the diff bit is the opaque bit - differential mode only */
++
++   int best = INT_MAX;
++   /* the flip whose two sub-blocks vary least inside themselves (weighted colour variance); only that one is fitted -
++    * half the work (G26 v3: x86 under WOW64 emulation is the budget), bcetc-test shows the cost in dB */
++   int chosen = 0;
++   {
++      long var[2] = {0, 0};
++      for (int flip = 0; flip < 2; flip++) {
++         long s1[2][3] = {{0}}, s2[2][3] = {{0}}, n[2] = {0, 0};
++         for (int i = 0; i < 16; i++) {
++            int e = p->of[i], s = sub_of(flip, i);
++            if (punchthrough && p->trans[e])
++               continue;
++            for (int c = 0; c < 3; c++) {
++               s1[s][c] += p->col[e][c];
++               s2[s][c] += p->col[e][c] * p->col[e][c];
++            }
++            n[s]++;
++         }
++         static const int wt[3] = {WR, WG, WB};
++         for (int s = 0; s < 2; s++)
++            for (int c = 0; c < 3; c++)
++               if (n[s])
++                  var[flip] += wt[c] * (s2[s][c] - s1[s][c] * s1[s][c] / n[s]);
++      }
++      chosen = var[1] < var[0];
++   }
++   for (int flip = 0; flip < 2; flip++) {
++      if (flip != chosen)
++         continue;
++      int cnt[2][16], sum[2][3] = {{0}}, tot[2] = {0};
++      memset(cnt, 0, sizeof cnt);
++      for (int i = 0; i < 16; i++) {
++         int e = p->of[i], s = sub_of(flip, i);
++         if (punchthrough && p->trans[e])
++            continue;
++         cnt[s][e]++;
++         for (int c = 0; c < 3; c++)
++            sum[s][c] += p->col[e][c];
++         tot[s]++;
++      }
++      int avg[2][3];
++      for (int s = 0; s < 2; s++)
++         for (int c = 0; c < 3; c++)
++            avg[s][c] = tot[s] ? (sum[s][c] + tot[s] / 2) / tot[s] : 0;
++
++      /* differential: 5-bit bases, the second within -4..3 of the first (moved toward the first only, so it stays in
++       * 0..31) */
++      bool clamped = false;
++      {
++         int q0[3], q1[3], b0[3], b1[3];
++         for (int c = 0; c < 3; c++) {
++            q0[c] = (avg[0][c] * 31 + 127) / 255;
++            int q = (avg[1][c] * 31 + 127) / 255, d = clampi(q - q0[c], -4, 3);
++            clamped |= d != q - q0[c];
++            q1[c] = q0[c] + d;
++            b0[c] = (q0[c] << 3) | (q0[c] >> 2);
++            b1[c] = (q1[c] << 3) | (q1[c] >> 2);
++         }
++         uint8_t e0[16], e1[16];
++         int t0 = 0, t1 = 0;
++         int e = fit_sub(p, cnt[0], b0, nonopaque, &t0, e0);
++         if (e < best)
++            e += fit_sub(p, cnt[1], b1, nonopaque, &t1, e1);
++         if (e < best) {
++            best = e;
++            uint8_t idx[16];
++            for (int i = 0; i < 16; i++) {
++               int en = p->of[i];
++               idx[i] = (punchthrough && p->trans[en]) ? 2 : (sub_of(flip, i) ? e1[en] : e0[en]);
++            }
++            pack_rgb(out, true, punchthrough ? !nonopaque : true, flip, q0, q1, t0, t1, idx);
++         }
++      }
++      /* individual: 4-bit bases - only worth it when the sub-blocks were too far apart for the delta */
++      if (allow_individual && clamped) {
++         int q0[3], q1[3], b0[3], b1[3];
++         for (int c = 0; c < 3; c++) {
++            q0[c] = (avg[0][c] * 15 + 127) / 255;
++            q1[c] = (avg[1][c] * 15 + 127) / 255;
++            b0[c] = q0[c] * 17;
++            b1[c] = q1[c] * 17;
++         }
++         uint8_t e0[16], e1[16];
++         int t0 = 0, t1 = 0;
++         int e = fit_sub(p, cnt[0], b0, false, &t0, e0);
++         if (e < best)
++            e += fit_sub(p, cnt[1], b1, false, &t1, e1);
++         if (e < best) {
++            best = e;
++            uint8_t idx[16];
++            for (int i = 0; i < 16; i++)
++               idx[i] = sub_of(flip, i) ? e1[p->of[i]] : e0[p->of[i]];
++            pack_rgb(out, false, false, flip, q0, q1, t0, t1, idx);
++         }
++      }
++   }
++}
++
++void
++bcetc_encode_rgb(const uint8_t rgba[64], bool punchthrough, bool allow_individual, uint8_t out[8])
++{
++   struct rgbpal p;
++   p.n = 0;
++   for (int i = 0; i < 16; i++) {
++      const uint8_t *t = rgba + i * 4;
++      uint8_t tr = punchthrough && t[3] < 128;
++      int e = 0;
++      for (; e < p.n; e++)
++         if (p.col[e][0] == t[0] && p.col[e][1] == t[1] && p.col[e][2] == t[2] && p.trans[e] == tr)
++            break;
++      if (e == p.n) {
++         p.col[e][0] = t[0]; p.col[e][1] = t[1]; p.col[e][2] = t[2];
++         p.trans[e] = tr;
++         p.n++;
++      }
++      p.of[i] = (uint8_t)e;
++   }
++   encode_rgb_pal(&p, punchthrough, allow_individual, out);
++}
++
++/* ---- EAC ---- */
++
++#ifdef BCETC_STATS
++unsigned bcetc_stats_table[3][16];   /* PC test only: which EAC table wins, per kind */
++#endif
++
++/* n distinct values val[e] (texel i shows of[i]) in the target's units. */
++static void
++encode_eac_pal(const int *val, int n, const uint8_t of[16], int kind, uint8_t out[8])
++{
++   int cnt[16] = {0};
++   for (int i = 0; i < 16; i++)
++      cnt[of[i]]++;
++   int lo = val[0], hi = val[0];
++   for (int e = 1; e < n; e++) {
++      lo = val[e] < lo ? val[e] : lo;
++      hi = val[e] > hi ? val[e] : hi;
++   }
++   int unit = kind == 0 ? 1 : 8;
++   int bmin = kind == 2 ? -127 : 0, bmax = kind == 2 ? 127 : 255;
++   int vmin = kind == 2 ? -1023 : 0, vmax = kind == 0 ? 255 : kind == 1 ? 2047 : 1023;
++   int bias = kind == 1 ? 4 : 0;
++   int best = INT_MAX, bb = 0, bm = 0, bt = 0;
++   uint8_t bidx[16] = {0};
++   if (lo == hi && kind == 0) {
++      /* flat alpha: multiplier 0 decodes the base everywhere - exact */
++      bb = lo;
++      best = 0;
++   }
++   /* the distinct values in ascending order: one merge walk against the (ascending) decoded levels per table */
++   int ord[16];
++   for (int e = 0; e < n; e++) {
++      int j = e;
++      while (j > 0 && val[ord[j - 1]] > val[e]) {
++         ord[j] = ord[j - 1];
++         j--;
++      }
++      ord[j] = e;
++   }
++   int shift = kind == 0 ? 1 : 4;   /* log2(2 * unit) */
++   for (int t = 0; t < 16 && best > 0; t++) {
++      /* one multiplier per table, from the range / the table's span (v2: m0 + 1 and 0 as well cost 2-3x for ~0.1 dB,
++       * bcetc-test), by a 16.16 reciprocal - no divisions; R11's multiplier-0 form (modifiers unscaled, +-15 in 11-bit
++       * units) for small ranges */
++      int mult = (kind != 0 && hi - lo <= 24) ? 0
++                 : clampi((((hi - lo) * eac_inv_span[t]) / unit + 32768) >> 16, 1, 15);
++      int scale = mult ? mult * unit : 1;   /* alpha never takes mult 0 here (flat is handled above) */
++      /* base so that the table's centre lands on the range's centre (every table has tmin + tmax = -1) */
++      int num = (lo + hi) + scale - 2 * bias;
++      int base = clampi((num + (1 << (shift - 1))) >> shift, bmin, bmax);
++      {
++         int dec[8], b0 = base * unit + bias;
++         for (int k = 0; k < 8; k++)
++            dec[k] = clampi(b0 + eac_tab[t][eac_order[k]] * scale, vmin, vmax);
++         int err = 0;
++         uint8_t idx[16];
++         int k = 0;
++         for (int q = 0; q < n && err < best; q++) {
++            int e = ord[q], v = val[e];
++            while (k < 7 && dec[k] < v)   /* v ascending: k only moves forward */
++               k++;
++            int kk = k;
++            if (kk > 0 && v - dec[kk - 1] <= dec[kk] - v)   /* the nearest is k or k - 1 */
++               kk--;
++            int d = v - dec[kk];
++            err += d * d * cnt[e];
++            idx[e] = (uint8_t)eac_order[kk];
++         }
++         if (err < best) {
++            best = err;
++            bb = base;
++            bm = mult;
++            bt = t;
++            memcpy(bidx, idx, (size_t)n);
++         }
++      }
++   }
++#ifdef BCETC_STATS
++   bcetc_stats_table[kind][bt]++;
++#endif
++   out[0] = (uint8_t)(bb & 0xff);
++   out[1] = (uint8_t)((bm << 4) | bt);
++   /* the 48 index bits (texel (x, y) at bit ((3 - y) + (3 - x) * 4) * 3) as two 24-bit halves: bits 24-47 are
++    * texels x 0-1, bits 0-23 texels x 2-3 */
++   uint32_t ih = 0, il = 0;
++   for (int i = 0; i < 16; i++) {
++      int x = i & 3, y = i >> 2, bit = ((3 - y) + (3 - x) * 4) * 3;
++      if (bit >= 24)
++         ih |= (uint32_t)bidx[of[i]] << (bit - 24);
++      else
++         il |= (uint32_t)bidx[of[i]] << bit;
++   }
++   out[2] = (uint8_t)(ih >> 16);
++   out[3] = (uint8_t)(ih >> 8);
++   out[4] = (uint8_t)ih;
++   out[5] = (uint8_t)(il >> 16);
++   out[6] = (uint8_t)(il >> 8);
++   out[7] = (uint8_t)il;
++}
++
++void
++bcetc_encode_eac(const int v[16], int kind, uint8_t out[8])
++{
++   int val[16], n = 0;
++   uint8_t of[16];
++   for (int i = 0; i < 16; i++) {
++      int e = 0;
++      while (e < n && val[e] != v[i])
++         e++;
++      if (e == n)
++         val[n++] = v[i];
++      of[i] = (uint8_t)e;
++   }
++   encode_eac_pal(val, n, of, kind, out);
++}
++
++/* ---- BC decoding into palettes ---- */
++
++static inline void
++rgb565(unsigned c, int out[3])
++{
++   int r = (c >> 11) & 31, g = (c >> 5) & 63, b = c & 31;
++   out[0] = (r << 3) | (r >> 2);
++   out[1] = (g << 2) | (g >> 4);
++   out[2] = (b << 3) | (b >> 2);
++}
++
++/* BC1 colour block (also the colour half of BC2 / BC3: four_colour). rgba: BC1 with alpha (3-colour blocks' index 3 is
++ * transparent black); otherwise it is opaque black. */
++static void
++bc1_pal(const uint8_t *b, bool four_colour, bool rgba, struct rgbpal *p)
++{
++   unsigned c0 = b[0] | (b[1] << 8), c1 = b[2] | (b[3] << 8);
++   rgb565(c0, p->col[0]);
++   rgb565(c1, p->col[1]);
++   memset(p->trans, 0, sizeof p->trans);
++   if (four_colour || c0 > c1) {
++      for (int c = 0; c < 3; c++) {
++         p->col[2][c] = (2 * p->col[0][c] + p->col[1][c] + 1) / 3;
++         p->col[3][c] = (p->col[0][c] + 2 * p->col[1][c] + 1) / 3;
++      }
++   } else {
++      for (int c = 0; c < 3; c++) {
++         p->col[2][c] = (p->col[0][c] + p->col[1][c] + 1) / 2;
++         p->col[3][c] = 0;
++      }
++      p->trans[3] = rgba;
++   }
++   p->n = 4;
++   uint32_t idx = b[4] | (b[5] << 8) | (b[6] << 16) | ((uint32_t)b[7] << 24);
++   for (int i = 0; i < 16; i++)
++      p->of[i] = (uint8_t)((idx >> (2 * i)) & 3);
++}
++
++/* BC3 alpha / BC4 / one half of BC5: the 8 levels in the target's units (kind 0 alpha 0..255, 1 R11 unsigned 0..2047,
++ * 2 R11 signed -1023..1023) and the per-texel level. */
++static void
++bc_alpha_pal(const uint8_t *b, int kind, int val[8], uint8_t of[16])
++{
++   int a0, a1, sgn = kind == 2;
++   if (sgn) {
++      a0 = (int8_t)b[0];
++      a1 = (int8_t)b[1];
++      a0 = a0 < -127 ? -127 : a0;
++      a1 = a1 < -127 ? -127 : a1;
++   } else {
++      a0 = b[0];
++      a1 = b[1];
++   }
++   /* level k = num[k] / den (in 8-bit / 7-bit-signed units) */
++   int num[8], den;
++   num[0] = a0;
++   num[1] = a1;
++   if (a0 > a1) {
++      den = 7;
++      num[0] = a0 * 7;
++      num[1] = a1 * 7;
++      for (int k = 2; k < 8; k++)
++         num[k] = (8 - k) * a0 + (k - 1) * a1;
++   } else {
++      den = 5;
++      num[0] = a0 * 5;
++      num[1] = a1 * 5;
++      for (int k = 2; k < 6; k++)
++         num[k] = (6 - k) * a0 + (k - 1) * a1;
++      num[6] = (sgn ? -127 : 0) * 5;
++      num[7] = (sgn ? 127 : 255) * 5;
++   }
++   for (int k = 0; k < 8; k++) {
++      /* 32-bit arithmetic on purpose (|num| <= 255 * 7, so n2 * 2047 * 2 < 2^23): 64-bit divisions are helper calls
++       * in the 32-bit (WOW64) UMD */
++      int s, n2 = num[k];
++      switch (kind) {
++      case 0: s = (n2 * 2 + den) / (2 * den); break;                                     /* 0..255 */
++      case 1: s = (n2 * 2047 * 2 + 255 * den) / (2 * 255 * den); break;                 /* 0..2047 */
++      default:                                                                           /* -1023..1023 */
++         s = n2 >= 0 ? (n2 * 1023 * 2 + 127 * den) / (2 * 127 * den) : -((-n2 * 1023 * 2 + 127 * den) / (2 * 127 * den));
++         break;
++      }
++      val[k] = s;
++   }
++   /* 48 index bits as two 24-bit halves (8 texels each): no 64-bit shifts in the 32-bit UMD */
++   uint32_t lo24 = b[2] | (b[3] << 8) | ((uint32_t)b[4] << 16), hi24 = b[5] | (b[6] << 8) | ((uint32_t)b[7] << 16);
++   for (int i = 0; i < 8; i++) {
++      of[i] = (uint8_t)((lo24 >> (3 * i)) & 7);
++      of[8 + i] = (uint8_t)((hi24 >> (3 * i)) & 7);
++   }
++}
++
++static void
++eac_from_levels(const int lev[8], const uint8_t lof[16], int kind, uint8_t out[8])
++{
++   /* drop unused / duplicate levels: the fit runs per distinct value */
++   int val[8], n = 0, map[8];
++   for (int k = 0; k < 8; k++)
++      map[k] = -1;
++   uint8_t of[16];
++   for (int i = 0; i < 16; i++) {
++      int k = lof[i];
++      if (map[k] < 0) {
++         int e = 0;
++         while (e < n && val[e] != lev[k])
++            e++;
++         if (e == n)
++            val[n++] = lev[k];
++         map[k] = e;
++      }
++      of[i] = (uint8_t)map[k];
++   }
++   encode_eac_pal(val, n, of, kind, out);
++}
++
++void
++bcetc_transcode(enum pipe_format bc, enum pipe_format etc, uint8_t *dst, unsigned dst_stride,
++                const uint8_t *src, unsigned src_stride, unsigned w, unsigned h)
++{
++   unsigned bs = (bc == PIPE_FORMAT_DXT1_RGB || bc == PIPE_FORMAT_DXT1_RGBA || bc == PIPE_FORMAT_RGTC1_UNORM ||
++                  bc == PIPE_FORMAT_RGTC1_SNORM) ? 8 : 16;
++   unsigned bw = (w + 3) / 4, bh = (h + 3) / 4;
++   (void)etc;   /* same block size as bc by construction (bcetc_target) */
++   if (bcetc_target(bc) == PIPE_FORMAT_NONE)
++      return;
++   for (unsigned by = 0; by < bh; by++) {
++      for (unsigned bx = 0; bx < bw; bx++) {
++         const uint8_t *s = src + (size_t)by * src_stride + (size_t)bx * bs;
++         uint8_t *d = dst + (size_t)by * dst_stride + (size_t)bx * bs;
++         struct rgbpal p;
++         int lev[8];
++         uint8_t lof[16];
++         switch (bc) {
++         case PIPE_FORMAT_DXT1_RGB:
++            bc1_pal(s, false, false, &p);
++            encode_rgb_pal(&p, false, true, d);
++            break;
++         case PIPE_FORMAT_DXT1_RGBA:
++            bc1_pal(s, false, true, &p);
++            encode_rgb_pal(&p, true, false, d);
++            break;
++         case PIPE_FORMAT_DXT3_RGBA: {
++            int a[16];
++            for (int i = 0; i < 16; i++)
++               a[i] = ((s[i / 2] >> (4 * (i & 1))) & 15) * 17;
++            bcetc_encode_eac(a, 0, d);
++            bc1_pal(s + 8, true, false, &p);
++            encode_rgb_pal(&p, false, true, d + 8);
++            break;
++         }
++         case PIPE_FORMAT_DXT5_RGBA:
++            bc_alpha_pal(s, 0, lev, lof);
++            eac_from_levels(lev, lof, 0, d);
++            bc1_pal(s + 8, true, false, &p);
++            encode_rgb_pal(&p, false, true, d + 8);
++            break;
++         case PIPE_FORMAT_RGTC1_UNORM:
++         case PIPE_FORMAT_RGTC1_SNORM:
++         case PIPE_FORMAT_RGTC2_UNORM:
++         case PIPE_FORMAT_RGTC2_SNORM: {
++            int kind = (bc == PIPE_FORMAT_RGTC1_SNORM || bc == PIPE_FORMAT_RGTC2_SNORM) ? 2 : 1;
++            int halves = (bc == PIPE_FORMAT_RGTC2_UNORM || bc == PIPE_FORMAT_RGTC2_SNORM) ? 2 : 1;
++            for (int hf = 0; hf < halves; hf++) {
++               bc_alpha_pal(s + 8 * hf, kind, lev, lof);
++               eac_from_levels(lev, lof, kind, d + 8 * hf);
++            }
++            break;
++         }
++         default:
++            return;
++         }
++      }
++   }
++}
+diff --git a/src/gallium/frontends/d3d10umd/BcEtc.h b/src/gallium/frontends/d3d10umd/BcEtc.h
+new file mode 100644
+index 0000000..97de046
+--- /dev/null
++++ b/src/gallium/frontends/d3d10umd/BcEtc.h
+@@ -0,0 +1,40 @@
++/*
++ * exynos-woa G26 (notes/g26-bc-etc2.md): BC1-BC5 re-compressed to ETC2 / EAC on upload, for GPUs that sample ETC2 but
++ * not BCn (Mali-G76: TEXTURE_FEATURES0 bits 1-4 + 17-19 set, 7-16 clear). Every target block has the size and the 4x4
++ * texel footprint of its source block, so layouts, pitches and box arithmetic are those of the BC data:
++ *   BC1 RGB -> ETC2_RGB8, BC1 RGBA -> ETC2_RGB8A1 (punch-through), BC2 / BC3 -> ETC2_RGBA8 (EAC alpha),
++ *   BC4 U/S -> ETC2_R11 U/S (EAC), BC5 U/S -> ETC2_RG11 U/S.
++ * Bit layouts follow Mesa's own decoder (src/mesa/main/texcompress_etc.c, src/util/format/texcompress_etc_tmp.h).
++ * SPDX-License-Identifier: MIT
++ */
++#ifndef BCETC_H
++#define BCETC_H
++
++#include "util/format/u_formats.h"
++#include <stdbool.h>
++#include <stdint.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/* The ETC2 / EAC format BCn data of format bc (a UNORM / SNORM BCn format; sRGB is the caller's business) is
++ * re-compressed to, PIPE_FORMAT_NONE if none. */
++enum pipe_format bcetc_target(enum pipe_format bc);
++
++/* Re-compress the w x h texel rectangle (whole 4x4 blocks: ceil(w/4) x ceil(h/4) of them) of BCn data src (src_stride =
++ * bytes per block row) to the ETC2 / EAC format etc (bcetc_target(bc), or its sRGB twin) at dst (dst_stride = bytes per
++ * block row). */
++void bcetc_transcode(enum pipe_format bc, enum pipe_format etc, uint8_t *dst, unsigned dst_stride,
++                     const uint8_t *src, unsigned src_stride, unsigned w, unsigned h);
++
++/* Single-block entry points (the PC test, tools/mesa-build/bcetc-test). rgba: 16 texels, row-major (y * 4 + x), RGBA8.
++ * v: 16 values, row-major, in the target's units (alpha 0..255, R11 unsigned 0..2047, signed -1023..1023). */
++void bcetc_encode_rgb(const uint8_t rgba[64], bool punchthrough, bool allow_individual, uint8_t out[8]);
++void bcetc_encode_eac(const int v[16], int kind /* 0 alpha8, 1 r11 unsigned, 2 r11 signed */, uint8_t out[8]);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif
+diff --git a/src/gallium/frontends/d3d10umd/Format.cpp b/src/gallium/frontends/d3d10umd/Format.cpp
+index 216a33c..50daded 100644
+--- a/src/gallium/frontends/d3d10umd/Format.cpp
++++ b/src/gallium/frontends/d3d10umd/Format.cpp
+@@ -35,6 +35,9 @@
+ 
+ #include "Format.h"
+ #include "pipe/p_screen.h"   /* exynos-woa G23: FormatBcBacking */
++#include "BcEtc.h"           /* exynos-woa G26 */
++#include "util/format/u_format.h"
++#include <stdlib.h>
+ #include "State.h"
+ 
+ #include "Debug.h"
+@@ -62,6 +65,22 @@ FormatBcBacking(struct pipe_screen *screen, enum pipe_format f)
+    }
+    if (screen->is_format_supported(screen, f, PIPE_TEXTURE_2D, 0, 0, PIPE_BIND_SAMPLER_VIEW))
+       return PIPE_FORMAT_NONE;   /* sampled natively: no emulation */
++   /* exynos-woa G26 (notes/g26-bc-etc2.md): re-compress to the ETC2 / EAC format of the same block size where the
++    * screen samples it (BcEtc.c) - the decoded RGBA8 backing took 4-8x the memory and ran NFSU2's 2 GB address space
++    * out. D3D10UMD_BC_DECODE=1 keeps the uncompressed backing: diagnosis only (AGENTS.md rule 12). */
++   static int force_decode = -1;
++   if (force_decode < 0) {
++      const char *e = getenv("D3D10UMD_BC_DECODE");
++      force_decode = e && *e == '1';
++   }
++   enum pipe_format etc = bcetc_target(FormatBcDecode(f));
++   if (etc != PIPE_FORMAT_NONE && !force_decode) {
++      if (util_format_is_srgb(f))
++         etc = util_format_srgb(etc);
++      if (etc != PIPE_FORMAT_NONE &&
++          screen->is_format_supported(screen, etc, PIPE_TEXTURE_2D, 0, 0, PIPE_BIND_SAMPLER_VIEW))
++         return etc;
++   }
+    return b;
+ }
+ 
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index dffa12b..f58f482 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -44,6 +44,7 @@
+ #include "frontend/winsys_handle.h"   /* G13 0034: OpenResource over external memory */
+ #include "drm-uapi/drm_fourcc.h"      /* exynos-woa H3: DRM_FORMAT_MOD_LINEAR for BO imports */
+ #include "util/format/u_format.h"
++#include "BcEtc.h"   /* exynos-woa G26 */
+ 
+ 
+ /* exynos-woa G23 (notes/g23-bc-emulation.md): BCn emulation helpers. bc_unpack_rect decodes the top-left w x h texels
+@@ -52,12 +53,79 @@
+  * never write past the destination. */
+ extern "C" void malikm_tlog(const char *fmt, ...);
+ 
++/* exynos-woa G26 (notes/g26-bc-etc2.md): the BC -> ETC2 transcode of a large rectangle runs in bands of block rows on
++ * the process's Windows thread pool (games upload hundreds of 1024x1024 textures while loading; one core under WOW64
++ * emulation took ~1 s per BC3 texture). Every band writes its own rows only. */
++struct bcetc_job {
++   enum pipe_format bc, etc;
++   uint8_t *dst;
++   const uint8_t *src;
++   unsigned dst_stride, src_stride, w, h, rows_per_band, bands;
++   volatile LONG next;
++};
++
++static VOID CALLBACK
++bcetc_band(PTP_CALLBACK_INSTANCE, PVOID ctx, PTP_WORK)
++{
++   struct bcetc_job *j = (struct bcetc_job *)ctx;
++   for (;;) {
++      LONG b = InterlockedIncrement(&j->next) - 1;
++      if (b >= (LONG)j->bands)
++         return;
++      unsigned r0 = (unsigned)b * j->rows_per_band;
++      unsigned h0 = r0 * 4, hb = MIN2(j->rows_per_band * 4, j->h - h0);
++      bcetc_transcode(j->bc, j->etc, j->dst + (size_t)r0 * j->dst_stride, j->dst_stride,
++                      j->src + (size_t)r0 * j->src_stride, j->src_stride, j->w, hb);
++   }
++}
++
++static void
++bcetc_transcode_parallel(enum pipe_format bc, enum pipe_format etc, uint8_t *dst, unsigned dst_stride,
++                         const uint8_t *src, unsigned src_stride, unsigned w, unsigned h)
++{
++   unsigned rows = (h + 3) / 4, blocks = rows * ((w + 3) / 4);
++   static unsigned workers;
++   if (!workers) {
++      SYSTEM_INFO si;
++      GetSystemInfo(&si);
++      workers = CLAMP(si.dwNumberOfProcessors, 1, 8);
++      /* D3D10UMD_BC_THREADS=n: diagnosis only (AGENTS.md rule 12) - measures what the bands buy */
++      const char *e = getenv("D3D10UMD_BC_THREADS");
++      if (e && atoi(e) > 0)
++         workers = CLAMP((unsigned)atoi(e), 1, 8);
++      malikm_tlog("BC transcode: %u workers (%lu processors)", workers, (unsigned long)si.dwNumberOfProcessors);
++   }
++   struct bcetc_job j;
++   j.bc = bc; j.etc = etc; j.dst = dst; j.src = src;
++   j.dst_stride = dst_stride; j.src_stride = src_stride; j.w = w; j.h = h;
++   j.rows_per_band = MAX2(1, rows / (workers * 4));   /* ~4 bands per worker: an even spread */
++   j.bands = (rows + j.rows_per_band - 1) / j.rows_per_band;
++   j.next = 0;
++   PTP_WORK work = NULL;
++   if (blocks < 1024 || workers < 2 || j.bands < 2 || !(work = CreateThreadpoolWork(bcetc_band, &j, NULL))) {
++      bcetc_transcode(bc, etc, dst, dst_stride, src, src_stride, w, h);
++      return;
++   }
++   for (unsigned i = 1; i < workers; i++)
++      SubmitThreadpoolWork(work);
++   /* this thread takes bands too, then waits for the rest */
++   bcetc_band(NULL, &j, work);
++   WaitForThreadpoolWorkCallbacks(work, FALSE);
++   CloseThreadpoolWork(work);
++}
++
+ static void
+ bc_unpack_rect(enum pipe_format bc, enum pipe_format backing, uint8_t *dst, unsigned dst_stride,
+                const uint8_t *src, unsigned src_stride, unsigned w, unsigned h)
+ {
+    if (!w || !h)
+       return;
++   if (util_format_is_compressed(backing)) {
++      /* exynos-woa G26: an ETC2 / EAC backing (FormatBcBacking) - re-compressed block for block, same block grid
++       * and size, straight into the mapped blocks (dst_stride = bytes per block row) */
++      bcetc_transcode_parallel(bc, backing, dst, dst_stride, src, src_stride, w, h);
++      return;
++   }
+    unsigned pw = align(w, 4), ph = align(h, 4);
+    unsigned bpp = util_format_get_blocksize(backing);
+    /* decode into the backing's byte layout: an sRGB backing gets the raw (still sRGB-encoded) bytes of the UNORM decode */
+@@ -586,6 +654,12 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+             pipe_buffer_unmap(pipe, transfer);
+          }
+       } else {
++         /* exynos-woa G26: where a BC texture's upload time goes (map / transcode / unmap), first 16 textures */
++         LARGE_INTEGER bt0, bt1, bfreq;
++         double bc_ms[3] = {0, 0, 0};
++         bool bc_time = pResource->bc_format != PIPE_FORMAT_NONE;
++         if (bc_time)
++            QueryPerformanceFrequency(&bfreq);
+          for (UINT SubResource = 0; SubResource < pResource->NumSubResources; ++SubResource) {
+             const D3D10_DDIARG_SUBRESOURCE_UP* pInitialDataUP =
+                   &pCreateResource->pInitialDataUP[SubResource];
+@@ -596,6 +670,8 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+ 
+             struct pipe_transfer *transfer;
+             void *map;
++            if (bc_time)
++               QueryPerformanceCounter(&bt0);
+             map = pipe->texture_map(pipe,
+                                     pResource->resource,
+                                     level,
+@@ -604,6 +680,11 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+                                     &box,
+                                     &transfer);
+             assert(map);
++            if (bc_time) {
++               QueryPerformanceCounter(&bt1);
++               bc_ms[0] += (double)(bt1.QuadPart - bt0.QuadPart) * 1000.0 / bfreq.QuadPart;
++               bt0 = bt1;
++            }
+             if (map) {
+                for (int z = 0; z < box.depth; ++z) {
+                   uint8_t *dst = (uint8_t*)map + z*transfer->layer_stride;
+@@ -621,9 +702,22 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+                                  pInitialDataUP->SysMemPitch,
+                                  0, 0);
+                }
++               if (bc_time) {
++                  QueryPerformanceCounter(&bt1);
++                  bc_ms[1] += (double)(bt1.QuadPart - bt0.QuadPart) * 1000.0 / bfreq.QuadPart;
++                  bt0 = bt1;
++               }
+                pipe_texture_unmap(pipe, transfer);
++               if (bc_time) {
++                  QueryPerformanceCounter(&bt1);
++                  bc_ms[2] += (double)(bt1.QuadPart - bt0.QuadPart) * 1000.0 / bfreq.QuadPart;
++               }
+             }
+          }
++         static unsigned bc_logged;
++         if (bc_time && bc_logged++ < 16)
++            malikm_tlog("BC upload %s %ux%u: map %.1f ms, transcode %.1f ms, unmap %.1f ms", util_format_name(templat.format),
++                        templat.width0, templat.height0, bc_ms[0], bc_ms[1], bc_ms[2]);
+       }
+    }
+ }
+diff --git a/src/gallium/frontends/d3d10umd/meson.build b/src/gallium/frontends/d3d10umd/meson.build
+index dd553f6..38c4e25 100644
+--- a/src/gallium/frontends/d3d10umd/meson.build
++++ b/src/gallium/frontends/d3d10umd/meson.build
+@@ -13,6 +13,7 @@ libd3d10umd = static_library(
+     'Device.cpp',
+     'D3D11.cpp',
+     'Compute.cpp',
++    'BcEtc.c',
+     'Video.cpp',
+     'VideoH264.c',
+     'VideoProc.cpp',
+-- 
+2.40.1.windows.1
+

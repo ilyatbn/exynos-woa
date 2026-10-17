@@ -8,6 +8,10 @@
  * Every texel of every mip is read back with Texture2D.Load into a 16x16 RGBA32F target and compared, within one step of
  * the 8-bit format the emulation stores into (1/200 for UNORM, 1/117 for SNORM and sRGB).
  * Exit 0 = all match. Build: build-d3dbc.cmd (x86 - the 32-bit UMD is the one games use - or ARM64).
+ * G26 (notes/g26-bc-etc2.md): "d3dbc lossy" checks the ETC2 / EAC re-compression instead (lossy by design): per case
+ * the PSNR against WARP over the format's channels, for two data kinds - "random" (every bit random: far-apart
+ * endpoints, the worst case for any re-encoder; floor 10 dB: only catches broken layouts - random BC2 alpha is noise no 8-level EAC block fits, 12 dB at a 3x3 mip) and "soft" (endpoints close together, as in real
+ * textures; floor 30 dB) - and BC1's 1-bit alpha exactly (a texel transparent on WARP must be transparent on Mali).
  * SPDX-License-Identifier: GPL-2.0
  */
 #include <windows.h>
@@ -41,13 +45,38 @@ static UINT umax1(UINT v) { return v ? v : 1; }
 enum { PATH_INIT, PATH_UPDATE, PATH_MAP, NPATH };
 static const char *g_paths[NPATH] = { "init", "update", "map" };
 
-/* block data for a w x h mip: rows of ceil(w/4) blocks */
-static void Fill(unsigned char *d, UINT bytes, UINT seed)
+static bool g_soft;   /* G26: soft data (endpoints close together) */
+
+/* block data for a w x h mip: rows of ceil(w/4) blocks; bcn = 1..5 (the BC number of the format) */
+static void Fill(unsigned char *d, UINT bytes, UINT seed, int bcn)
 {
     UINT x = seed * 2654435761u + 12345u;
     for (UINT i = 0; i < bytes; i++) {
         x ^= x << 13; x ^= x >> 17; x ^= x << 5;
         d[i] = (unsigned char)(x >> 8);
+    }
+    if (!g_soft)
+        return;
+    /* G26 soft: the second endpoint of each block near the first. RGB565 colour endpoints (BC1 bytes 0-3, BC2 / BC3
+     * bytes 8-11): colour1 = colour0 with only low bits of R, G and B flipped (both colour orders occur, so BC1 keeps
+     * some 3-colour blocks with transparent texels); 8-bit endpoints (BC3 alpha, BC4, both halves of BC5): within 24.
+     * BC2's explicit 4-bit alpha stays random. */
+    UINT block = (bcn == 1 || bcn == 4) ? 8 : 16;
+    for (UINT b = 0; b + block <= bytes; b += block) {
+        for (UINT half = 0; half < block; half += 8) {
+            unsigned char *h = d + b + half;
+            bool colour = bcn == 1 || ((bcn == 2 || bcn == 3) && half == 8);
+            bool explicit_alpha = bcn == 2 && half == 0;
+            if (colour) {
+                unsigned c0 = h[0] | (h[1] << 8);
+                unsigned c1 = c0 ^ (h[2] & 0x0861);   /* low bit of R (11), low two of G (5, 6), low of B (0) */
+                h[2] = (unsigned char)c1;
+                h[3] = (unsigned char)(c1 >> 8);
+            } else if (!explicit_alpha) {
+                int a0 = h[0], a1 = a0 + (int)(h[1] % 49) - 24;
+                h[1] = (unsigned char)(a1 < 0 ? 0 : a1 > 255 ? 255 : a1);
+            }
+        }
     }
 }
 
@@ -104,7 +133,7 @@ static ID3D11Texture2D *Make(Dev *d, const Fmt *f, int p, UINT *w, UINT *h, UINT
         UINT mw = umax1(*w >> m), mh = umax1(*h >> m);
         pitch[m] = (mw + 3) / 4 * f->block;
         rows[m] = (mh + 3) / 4;
-        Fill(data[m], pitch[m] * rows[m], (UINT)f->f * 31 + m * 7 + (UINT)p);
+        Fill(data[m], pitch[m] * rows[m], (UINT)f->f * 31 + m * 7 + (UINT)p, f->name[2] - '0');
     }
     D3D11_TEXTURE2D_DESC td = {};
     td.Width = *w; td.Height = *h; td.MipLevels = *mips; td.ArraySize = 1; td.Format = f->f;
@@ -176,8 +205,9 @@ static bool Read(Dev *d, ID3D11Texture2D *t, UINT m, float out[16][16][4])
     return SUCCEEDED(hr);
 }
 
-int main()
+int main(int argc, char **argv)
 {
+    bool lossy = argc > 1 && !strcmp(argv[1], "lossy");   /* G26 */
     ID3DBlob *vsb = NULL, *psb = NULL, *err = NULL;
     HRESULT hr = D3DCompile(g_vs, strlen(g_vs), "vs", NULL, NULL, "main", "vs_4_0", 0, 0, &vsb, &err);
     if (SUCCEEDED(hr))
@@ -201,6 +231,10 @@ int main()
     if (!pick || !Open(&mali, false, pick, vsb, psb) || !Open(&warp, true, NULL, vsb, psb))
         return 2;
     int fails = 0, cases = 0;
+    for (int kind = 0; kind < (lossy ? 2 : 1); kind++) {
+    g_soft = kind == 1;
+    if (lossy)
+        printf("--- %s data (PSNR floor %d dB)\n", g_soft ? "soft" : "random", g_soft ? 30 : 10);
     for (int i = 0; i < NF; i++) {
         UINT caps = 0;
         mali.dev->CheckFormatSupport(g_fmts[i].f, &caps);
@@ -232,6 +266,29 @@ int main()
                             if (dlt > tol)
                                 bad++;
                         }
+                if (lossy) {
+                    /* G26: PSNR over the format's channels (BC4 R, BC5 RG, else RGBA); peak 1 (UNORM) or 2 (SNORM) */
+                    int bcn = g_fmts[i].name[2] - '0', nch = bcn == 4 ? 1 : bcn == 5 ? 2 : 4;
+                    double peak = strstr(g_fmts[i].name, "SNORM") ? 2.0 : 1.0, sse = 0, n = 0;
+                    int trans_bad = 0;
+                    for (UINT y = 0; y < mh; y++)
+                        for (UINT x = 0; x < mw; x++) {
+                            for (int c = 0; c < nch; c++) {
+                                double dd = (double)om[y][x][c] - ow[y][x][c];
+                                sse += dd * dd;
+                                n++;
+                            }
+                            if (bcn == 1 && (ow[y][x][3] < 0.5f) != (om[y][x][3] < 0.5f))
+                                trans_bad++;
+                        }
+                    double db = sse > 0 ? 10.0 * log10(peak * peak * n / sse) : 99.0;
+                    bool lbad = db < (g_soft ? 30.0 : 10.0) || trans_bad;
+                    printf("  %-15s %-6s mip %u (%ux%u): %s, PSNR %.2f dB, worst diff %.4f%s\n", g_fmts[i].name,
+                           g_paths[p], m, mw, mh, lbad ? "LOW" : "ok", db, worst,
+                           trans_bad ? ", 1-bit alpha MISMATCH" : "");
+                    fails += lbad;
+                    continue;
+                }
                 printf("  %-15s %-6s mip %u (%ux%u): %s, worst diff %.4f at (%d,%d) Mali (%.3f %.3f %.3f %.3f) WARP "
                        "(%.3f %.3f %.3f %.3f)\n", g_fmts[i].name, g_paths[p], m, mw, mh, bad ? "DIFF" : "ok", worst, wx,
                        wy, om[wy][wx][0], om[wy][wx][1], om[wy][wx][2], om[wy][wx][3], ow[wy][wx][0], ow[wy][wx][1],
@@ -241,6 +298,7 @@ int main()
             if (tm) tm->Release();
             if (tw) tw->Release();
         }
+    }
     }
     printf("%d of %d cases differ -> %s\n", fails, cases, fails ? "FAIL" : "PASS");
     return fails ? 3 : 0;

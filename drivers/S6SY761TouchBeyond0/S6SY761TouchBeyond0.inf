@@ -17,7 +17,7 @@ Signature="$WINDOWS NT$"
 Class=HIDClass
 ClassGuid={745A17A0-74D3-11D0-B6FE-00A0C90F57DA}
 Provider=%ProviderString%
-DriverVer = 10/14/2026,6.0.5058.6
+DriverVer = 10/17/2026,6.0.5058.7
 CatalogFile=S6SY761TouchBeyond0.cat
 PnpLockdown = 1
 

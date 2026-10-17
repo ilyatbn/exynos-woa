@@ -27,6 +27,51 @@ Environment:
 
 #include "Device.h"
 
+/* S10e governor touch boost (notes/clocks-dvfs.md C3, 2026-10-17): a named auto-reset event the clock governor
+ * service waits on - set from the (PASSIVE_LEVEL) ISR at most every 20 ms while touches arrive, so the governor can
+ * raise the CPU/GPU clocks before the frame that answers the touch. Created at the first prepare-hardware, closed at
+ * the last release-hardware. */
+#define S10E_TOUCH_ACTIVITY_NAME L"\\BaseNamedObjects\\S10eTouchActivity"
+static HANDLE    gTouchActivityHandle;
+static PKEVENT   gTouchActivity;
+static ULONGLONG gTouchActivityLast;
+
+static VOID TouchActivityOpen(VOID)
+{
+	UNICODE_STRING name;
+	HANDLE h = NULL;
+	PKEVENT ev;
+
+	if (gTouchActivity != NULL)
+		return;
+	/* MS Learn IoCreateSynchronizationEvent: creates or opens a named synchronization (auto-reset) event; the
+	 * pointer stays valid while the handle is open (closed with ZwClose). */
+	RtlInitUnicodeString(&name, S10E_TOUCH_ACTIVITY_NAME);
+	ev = IoCreateSynchronizationEvent(&name, &h);
+	if (ev == NULL)
+		return;
+	KeClearEvent(ev);
+	gTouchActivity = ev;
+	gTouchActivityHandle = h;
+}
+
+static VOID TouchActivityClose(VOID)
+{
+	gTouchActivity = NULL;
+	if (gTouchActivityHandle != NULL) {
+		ZwClose(gTouchActivityHandle);
+		gTouchActivityHandle = NULL;
+	}
+}
+
+static VOID TouchActivityPulse(ULONGLONG Now)
+{
+	if (gTouchActivity != NULL && Now - gTouchActivityLast >= 20ull * 10000) {   /* 100 ns units */
+		gTouchActivityLast = Now;
+		KeSetEvent(gTouchActivity, IO_NO_INCREMENT, FALSE);
+	}
+}
+
 
 NTSTATUS
 RequestGetHidXferPacket_ToReadFromDevice(
@@ -1596,6 +1641,7 @@ OnPrepareHardware(
 	ULONG resourceMask;
 
 	RecordStartValues(FxDevice, 10, STATUS_SUCCESS);
+	TouchActivityOpen();   /* governor touch boost (top of file) */
 	//
 	// Parse the peripheral's resources.
 	//
@@ -1810,6 +1856,7 @@ OnReleaseHardware(
 
 	UNREFERENCED_PARAMETER(FxResourcesTranslated);
 
+	TouchActivityClose();
 	if (pDevice->Interrupt != NULL)
 	{
 		WdfObjectDelete(pDevice->Interrupt);
@@ -3005,6 +3052,7 @@ OnInterruptIsr(
 	RtlZeroMemory(eventbuf, sizeof(eventbuf));
 	queued = FALSE;
 	eventTime = KeQueryInterruptTime();
+	TouchActivityPulse(eventTime);
 
 	// get some
 	status = SpbDeviceWriteRead(pDevice, S6SY761_READ_ONE_EVENT, eventbuf, 1, S6SY761_EVENT_SIZE);

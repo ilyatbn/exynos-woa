@@ -260,3 +260,10 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
     stack?). mfplay (frame server, no presents) runs real time. Next step: present-statistics / frame latency
     waitable behaviour of composition swap chains on the maliwddm runtime (MS Learn first).
   Phone UMD after the cleanup: maliumd 9d9ca53a (0092, no timing code).
+- drivers/MaliG76Wddm/tools/dwmrate (DwmGetCompositionTimingInfo over N s, user session): refresh rate
+  26000000/427882 = 60.8 Hz; DWM frames and refreshes ~0.2/s both idle and during Photos playback (frames displayed
+  0) -> DWM is not composing new frames while Photos presents (or these counters are not maintained on this stack).
+  Session active, not locked (no LogonUI), governor ScreenOffs 0, powercfg /requests empty.
+  shot.ps1 now returns the same all-white 8614 B image with Photos closed -> GDI capture is blank in general today,
+  not evidence about Photos. Visible playback in Photos is UNVERIFIED (needs the user's eyes): decode + VP work
+  (UMD log), presentation/composition of its swap chain on this stack is the open question.

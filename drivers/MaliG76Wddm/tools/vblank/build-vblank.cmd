@@ -16,4 +16,4 @@ if errorlevel 1 exit /b 2
 "%KIT%\bin\%KV%\x64\signtool.exe" sign /sha1 5DD5DEE1747244C5F5F66F41D94C0A59C4443E48 /fd SHA256 "%OUT%\vblank.exe" >nul
 if errorlevel 1 exit /b 3
 del "%OUT%\vblank.obj" >nul 2>&1
-echo D3DVDEC_BUILD_OK %OUT%
+echo VBLANK_BUILD_OK %OUT%

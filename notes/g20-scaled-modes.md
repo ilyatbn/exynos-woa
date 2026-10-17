@@ -93,3 +93,24 @@ User 2026-10-17: "yes to attempting to add a lower 720p resolution scale to see 
   colours right (icons same as native; the wallpaper itself changed). DWM runs UMD 8abbced3 (0103); kmdstats on the
   idle desktop: presents gpu 0.2/s, cpu copy 0.0 -> the GPU stretch path (0103 plain blit), not the KMD CPU scale.
   Not yet seen: the user's eyes, portrait 720x1520, a game at 720p, the Settings > Display resolution list.
+- 20:38 Game Dev Story fps comparison (user: "launch game dev story and check if theres a difference in fps before
+  and after"), tools/phone/g20/gamebench.sh (raw: traces/wddm2/g20game*.txt/png). 720p (1520x720, maximized window,
+  gameplay): KMD presents 26.6 / 25.0 / 23.4 per s (all GPU), renders ~420/s; KairoGames GPU 3D 26.6 %, DWM 3.3 %;
+  CPU cpu4 68.8 / cpu5 42.1 / cpu0 34.4 %.
+- 20:41 native (2280x1080) run: presents 19.2 / 20.2 / 19.6 per s, renders ~235/s, KairoGames GPU 28.5 %, DWM 2.9 %,
+  cpu4 66.3 / cpu5 63.5 %. BUT the scene differs: native dump = title screen, the 720p dump = gameplay (Continue was
+  pressed during that run) -> not comparable; re-running 720p on the title screen.
+- 20:44 720p title-screen re-run: presents 19.8 / 20.0 / 20.4 per s, renders ~240/s, KairoGames GPU 20.7 %, DWM 2.5 %,
+  cpu4 68.5 %. => title screen: native 19.2-20.2 vs 720p 19.8-20.4 = NO fps difference; GPU load 28.5 -> 20.7 %.
+  Next: gameplay at both (gamebench.sh CLICK "0.5 0.74" = Continue, click.ps1).
+- 20:56-21:00 GAMEPLAY comparison, identical scene (autosave -> fiscal-year dialog; clicks "0.5 0.74 0.51 0.52 0.51
+  0.52": Continue, select save, confirm), dumps traces/wddm2/g20playnative.png / g20play720.png:
+  | mode       | presents/s       | renders/s | game GPU 3D | cpu4 / cpu5   |
+  | 2280x1080  | 15.0 / 15.8 / 14.8 | ~273    | 29.0 %      | 72.5 / 65.3 % |
+  | 1520x720   | 19.8 / 20.0 / 20.0 | ~359    | 26.0 %      | 68.2 / 59.1 % |
+  => gameplay +30 % fps at 720p (title screen: no difference, ~20 both). ~18 render submissions per frame at both.
+- Bottleneck reading (user: "why 15 fps and 30 % GPU?"): GPU 3D engine 26-29 % busy = the GPU waits for work; the
+  busiest cores are the two A75 MID cores at 60-75 % (the x86-emulated Unity main + render threads, handing frames to
+  each other), LITTLE cores mostly idle; 2.25x fewer pixels gave only +30 % -> mostly CPU/per-frame-latency bound
+  (emulated x86 + Unity + D3D11 runtime + our UMD), with a serialized GPU part per frame (GPU time adds to the frame,
+  does not overlap). Lead to check: ~18 Render DDI submissions per frame (each a kernel round trip + Mali job chain).

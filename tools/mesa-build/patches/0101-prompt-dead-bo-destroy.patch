@@ -1,0 +1,127 @@
+From 91b45597b9edfd1bf295ab4443dc260e7d784ac4 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 18:03:12 +0300
+Subject: [PATCH] malikm: destroy closed BOs as soon as the last submission
+ completed; 32 MB dead cap; BO breakdown log (exynos-woa 0101)
+
+Closed BOs waited for 64 entries or an idle wait before their allocations were
+destroyed; a process that frees rarely (DWM) kept up to 63 dead allocations of
+its share of the 1 GB segment. They are now destroyed whenever the last
+submission's event has already fired (no wait - every submission that could
+reference them is at or before it), with an idle wait once 32 MB are dead. The
+submit log line every 500 submissions is followed by a breakdown of the
+process's BOs (own / idle / opened / shared / dead).
+---
+ include/win32-compat/malikm_drm.c | 44 ++++++++++++++++++++++++++++---
+ 1 file changed, 41 insertions(+), 3 deletions(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index baf89bf..6488e76 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -865,7 +865,9 @@ static volatile UINT64 *wpq_fence;
+  * destroyed after the next wait for idle instead. */
+ static D3DKMT_HANDLE *wdead;
+ static uint32_t wdead_n, wdead_cap;
++static uint64_t wdead_bytes;   /* exynos-woa G17 VRAM (0101): size of the closed-but-not-destroyed allocations */
+ #define WDEAD_FLUSH 64
++#define WDEAD_FLUSH_BYTES (32ull << 20)
+ 
+ static KMT_FN
+ kmt_resolve(const char *name)
+@@ -1236,6 +1238,21 @@ wdead_flush(void)
+    if (wdead_n && trace_on())
+       fprintf(stderr, "malikm-wddm: destroyed %u closed allocations after idle\n", wdead_n);
+    wdead_n = 0;
++   wdead_bytes = 0;
++}
++
++/* exynos-woa G17 VRAM (0101, notes/g17-dxva-mfc.md): closed BOs waited for 64 entries or an idle wait before being
++ * destroyed; a process that frees rarely (DWM) kept up to 63 dead allocations - hundreds of MB of the 1 GB segment
++ * (DWM 400-900 MB; a game got 0x8876017c, out of video memory). Destroy them as soon as the last submission has
++ * completed (no wait: every submission that could reference a closed BO is at or before it), and wait for idle once
++ * WDEAD_FLUSH_BYTES are dead. */
++static void
++wdead_try_flush(void)
++{
++   if (!wdead_n || !ddi.on)
++      return;
++   if (!ddi.last_unsignalled && (!ddi.last_event || WaitForSingleObject(ddi.last_event, 0) == WAIT_OBJECT_0))
++      wdead_flush();
+ }
+ 
+ /* Everything submitted so far is done (one in-order queue in the KMD). */
+@@ -1302,6 +1319,7 @@ struct binding {
+    uint64_t wseq;
+    D3DKMT_HANDLE *wdead;
+    uint32_t wdead_n, wdead_cap;
++   uint64_t wdead_bytes;
+    struct kprim_entry kprim[MAX_KPRIM];
+    uint32_t scanout_h;
+ };
+@@ -1319,7 +1337,7 @@ bind_save(struct binding *b)
+    b->walloc = walloc; b->walloc_size = walloc_size;
+    b->wpatch = wpatch; b->wpatch_size = wpatch_size;
+    b->wgpu = wgpu; b->wseq = wseq;
+-   b->wdead = wdead; b->wdead_n = wdead_n; b->wdead_cap = wdead_cap;
++   b->wdead = wdead; b->wdead_n = wdead_n; b->wdead_cap = wdead_cap; b->wdead_bytes = wdead_bytes;
+    memcpy(b->kprim, kprim, sizeof(kprim));
+    b->scanout_h = scanout_h;
+ }
+@@ -1333,7 +1351,7 @@ bind_load(const struct binding *b)
+    walloc = b->walloc; walloc_size = b->walloc_size;
+    wpatch = b->wpatch; wpatch_size = b->wpatch_size;
+    wgpu = b->wgpu; wseq = b->wseq;
+-   wdead = b->wdead; wdead_n = b->wdead_n; wdead_cap = b->wdead_cap;
++   wdead = b->wdead; wdead_n = b->wdead_n; wdead_cap = b->wdead_cap; wdead_bytes = b->wdead_bytes;
+    memcpy(kprim, b->kprim, sizeof(kprim));
+    scanout_h = b->scanout_h;
+ }
+@@ -2410,6 +2428,7 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+          return -MK_EIO;
+       }
+       wseq++;
++      wdead_try_flush();   /* exynos-woa G17 VRAM (0101): earlier closes whose work has completed */
+       {
+          /* exynos-woa G17 (notes/g17-dxva-mfc.md): CPU time in the runtime's Render per submission (VidMm walks the
+           * allocation list on every call) - mean / max over the 500 submissions before each "submit" line */
+@@ -2424,6 +2443,22 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+          if ((wseq % 500) == 0) {
+             malikm_tlog("submit %llu (%u allocations listed, %u live BOs): Render mean %.0f max %.0f us",
+                         (unsigned long long)wseq, n, n + skipped, rsum / 500, rmax);
++            /* exynos-woa G17 VRAM (0101, notes/g17-dxva-mfc.md): what this process's BOs are - own / idle (parked in
++             * Panfrost's BO cache) / opened (another process's) / runtime-owned shared - count and MB */
++            uint32_t cn[4] = {0}, big[4] = {0};
++            uint64_t cb[4] = {0};
++            for (uint32_t i = 0; i < wbo_cap; i++) {
++               if (!wbo[i].h || wbo[i].fixed || wbo[i].gone)
++                  continue;
++               int k = wbo[i].runtime_owned == WBO_OPENED ? 2 : wbo[i].runtime_owned ? 3 : wbo[i].idle ? 1 : 0;
++               cn[k]++;
++               cb[k] += wbo[i].size;
++               if (wbo[i].size >= 4u << 20)
++                  big[k]++;
++            }
++            malikm_tlog("BOs: own %u (%.1f MB, %u >= 4 MB) idle %u (%.1f MB, %u big) opened %u (%.1f MB) shared %u (%.1f MB) dead %u (%.1f MB)",
++                        cn[0], cb[0] / 1048576.0, big[0], cn[1], cb[1] / 1048576.0, big[1], cn[2], cb[2] / 1048576.0,
++                        cn[3], cb[3] / 1048576.0, wdead_n, wdead_bytes / 1048576.0);
+             rsum = rmax = 0;
+          }
+       }
+@@ -2459,9 +2494,12 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+          wdead_cap = cap;
+       }
+       wdead[wdead_n++] = bo->h;
++      wdead_bytes += bo->size;
+       memset(bo, 0, sizeof(*bo));
+-      if (wdead_n >= WDEAD_FLUSH)
++      if (wdead_n >= WDEAD_FLUSH || wdead_bytes >= WDEAD_FLUSH_BYTES)
+          wddm_idle();
++      else
++         wdead_try_flush();
+       return 0;
+    }
+    case MALIKM_NR_SYNCOBJ_CREATE: {
+-- 
+2.40.1.windows.1
+

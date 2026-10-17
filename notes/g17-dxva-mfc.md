@@ -662,3 +662,12 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   (MW_SEGMENT_SIZE; MaliG76Wddm.h:31: must stay below 4 GB - 32 MB, MK_VA_START..MK_VA_END is ONE 4 GB GPU address
   space for all processes) and DWM + Explorer alone held ~915 MB committed before the game started.
   => the game is blocked by the VRAM problem: (a) DWM's growth (500-900 MB), (b) the 1 GB segment (could be ~3.9 GB).
+- VRAM: DWM BO breakdown (shim log, UMD bc9c9b6f): fresh DWM own 66 (89 MB) idle 9 (11 MB) opened 3 (14 MB); dxgkrnl
+  DWM committed grows 248 -> 267 -> 258 -> 310 MB over 4 mpv runs while the shim's view stays ~150 MB -> the growth
+  is outside the shim's table. Cause 1: closed BOs wait in wdead until 64 entries / an idle wait (up to 63 dead
+  allocations kept). Mesa 0101 (prompt destroy when the last submission completed + 32 MB cap; UMD f036180b,
+  x86 9485c689): "dead 0" after every run. Cause 2 (open): per mpv session DWM OpenResources 3 x 1704x959 + 1 x
+  1024x832 but only 2 come back through DestroyResource ("gone") -> +19 MB per app session (192 -> 211 -> 230 ->
+  248 -> 267 MB over 4 runs after 0101). The runtime never destroys the third buffer (deferred? still bound?).
+- Game after 0101 (DWM ~270 MB): still "CB FAIL Allocate hr 0x8876017c" + "panfrost_batch_init failed" - the game
+  alone needs more than the remaining part of the 1 GB segment -> raise MW_SEGMENT_SIZE (KMD; < 4 GB - 32 MB).

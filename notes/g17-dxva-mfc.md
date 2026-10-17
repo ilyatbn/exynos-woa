@@ -242,3 +242,6 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   - GDI screenshot (shot.ps1) all white, wddm2dbg fb dump all black (stale scan-out register on the WDDM2 path?),
     PC webcam (camshot.ps1) returns empty JPEGs now -> no visual confirmation yet (needs the user or a working
     capture path).
+- Review of f29670e: photostest printed a CPU figure that is not trustworthy (identical 297 ms for 10/15/22 s
+  windows) while its header advertised it -> removed (follow-up commit); the evidence is the MFC ownership probe and
+  the UMD log.

@@ -56,3 +56,23 @@ double-precision values". (Raw / structured buffer SRVs: the "Plus_RawAndStructu
   (eax=aaaaaaaa, SPEED2+0x6562b, no driver frames; dump SPEED2.EXE.2460.dmp). Hypothesis: the scheduled-task launch
   never owns the foreground -> device lost -> NFSU2's known alt-tab crash. Desktop shortcut SPEED2.lnk made
   (tools/phone/games/gameshortcut.ps1) for a user launch.
+
+## Review of commits 0a50093 / 044d8d7 / a038369 / 23b6071 (AGENTS rule 4)
+- Checked mechanically: the exported series 0111-0119 `git am`s cleanly onto 5c8935c (0110) and the result is
+  byte-identical to the Mesa working branch (empty `git diff --stat`). 0110 (diagnosis switch) is superseded inside
+  0114 (D3D10UMD_NO_CS4X hides the cap; diagnosis only).
+- 0119 claim "blitter binds slots 0-1 only, never unbinds trailing": u_blitter.c set_sampler_views calls are (0,2,0),
+  (0,1,0) x4; restore passes trailing=count only when nothing was saved -> holds.
+- 0118: exec slab pages >= WSLAB_EXEC_PAGES pre-marked, free_pages = 2048; wsubdead frees only real pages; the
+  64-bit path is untouched (#if !_WIN64); exec BOs > 2 MB keep their own allocation. Holds.
+- 0116: GS-with-stream-output on this driver now silently loses SO (logged once per shader) - before it called NULL,
+  so no regression; real fix = G25.
+- 0117 found a real bug of 0114 by crash (uninitialised SRV::buffer / Shader::extra) - the 0114 review missed that the
+  DDI private memory is not zeroed. Lesson: every new field of a runtime-allocated object needs an init on every
+  create path.
+- Verification after the series: d3dcs 7/7 PASS x86 (d3dcs-4) and ARM64 (mali-umd-0119 in System32, old one kept as
+  maliumd.dll.old0110); d3dbc 63/63 PASS x86 + ARM64.
+- FOLLOW-UP (open): the ARM64 UMD now advertises CS 4.x to every process (DWM, browsers) - browsers (ANGLE) may take
+  compute paths at FL 10_1; check Edge/Brave GPU pages and a WebGL page with mali-umd-0119 before the next reboot
+  loads it into DWM.
+- FOLLOW-UP (open): Mali THREAD_MAX_WORKGROUP_SZ 384 < D3D's 768 per group - a CS with > 384 threads is not handled.

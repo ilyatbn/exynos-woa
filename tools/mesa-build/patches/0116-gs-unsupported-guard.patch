@@ -1,0 +1,99 @@
+From dbc20b9b1ac6f850c420897944582a5b425e3e6d Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 00:32:54 +0300
+Subject: [PATCH] d3d10umd: no geometry stage in the driver -> GS gets no
+ handle, token dump to the tlog (exynos-woa G25)
+
+Panfrost leaves create/bind/delete_gs_state NULL; dgVoodoo's D3D11 backend creates a GS and the UMD called NULL.
+---
+ src/gallium/frontends/d3d10umd/Draw.cpp   |  2 +-
+ src/gallium/frontends/d3d10umd/Shader.cpp | 39 ++++++++++++++++++++++-
+ 2 files changed, 39 insertions(+), 2 deletions(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/Draw.cpp b/src/gallium/frontends/d3d10umd/Draw.cpp
+index d135934..a6f909d 100644
+--- a/src/gallium/frontends/d3d10umd/Draw.cpp
++++ b/src/gallium/frontends/d3d10umd/Draw.cpp
+@@ -86,7 +86,7 @@ update_velems(Device *pDevice)
+ static void
+ ResolveState(Device *pDevice)
+ {
+-   if (pDevice->bound_empty_gs && pDevice->bound_vs &&
++   if (pDevice->bound_empty_gs && pDevice->bound_vs && pDevice->pipe->bind_gs_state &&   /* exynos-woa G25 */
+        pDevice->bound_vs->state.tokens) {
+       Shader *gs = pDevice->bound_empty_gs;
+       Shader *vs = pDevice->bound_vs;
+diff --git a/src/gallium/frontends/d3d10umd/Shader.cpp b/src/gallium/frontends/d3d10umd/Shader.cpp
+index 591ca33..64d0518 100644
+--- a/src/gallium/frontends/d3d10umd/Shader.cpp
++++ b/src/gallium/frontends/d3d10umd/Shader.cpp
+@@ -44,6 +44,29 @@
+ #include "util/u_sampler.h"
+ #include "util/format/u_format.h"
+ 
++extern "C" void malikm_tlog(const char *fmt, ...);   /* exynos-woa: malikm_drm.c */
++
++/* exynos-woa G25 (notes/g25-geometry-shaders.md): Panfrost has no geometry stage (create/bind/delete_gs_state are
++ * NULL) while FL 10_x requires CreateGeometryShader - dgVoodoo's D3D11 backend creates one and called NULL. Until GS
++ * is emulated, a GS gets no driver handle (the VS feeds the PS directly) and its token stream goes to the trace log
++ * (MALIKM_TGSI_DIR) for analysis: "GS <n> <dwords>: ..." lines of 8 tokens. */
++static void
++gs_unsupported(const UINT *code)
++{
++   static unsigned n;
++   if (!code || n >= 16)
++      return;
++   unsigned id = n++, len = code[1];
++   malikm_tlog("GS %u unsupported by the driver - not bound, %u dwords", id, len);
++   for (unsigned i = 0; i < len; i += 8) {
++      char line[160];
++      int o = snprintf(line, sizeof line, "GS %u @%u:", id, i);
++      for (unsigned j = i; j < len && j < i + 8 && o > 0 && o < (int)sizeof line; j++)
++         o += snprintf(line + o, sizeof line - o, " %08x", code[j]);
++      malikm_tlog("%s", line);
++   }
++}
++
+ 
+ /*
+  * ----------------------------------------------------------------------
+@@ -692,6 +715,11 @@ CreateGeometryShader(D3D10DDI_HDEVICE hDevice,                                //
+    memset(&pShader->state, 0, sizeof pShader->state);
+    pShader->state.tokens = Shader_tgsi_translate(pShaderCode, pShader->output_mapping);
+ 
++   if (!pipe->create_gs_state) {   /* exynos-woa G25 */
++      gs_unsupported(pShaderCode);
++      pShader->handle = NULL;
++      return;
++   }
+    pShader->handle = pipe->create_gs_state(pipe, &pShader->state);
+ }
+ 
+@@ -718,7 +746,10 @@ GsSetShader(D3D10DDI_HDEVICE hDevice,  // IN
+    void *state = CastPipeShader(hShader);
+    Shader *pShader = CastShader(hShader);
+ 
+-   assert(pipe->bind_gs_state);
++   if (!pipe->bind_gs_state) {   /* exynos-woa G25: no geometry stage in the driver */
++      pDevice->bound_empty_gs = NULL;
++      return;
++   }
+ 
+    if (pShader && !pShader->state.tokens) {
+       pDevice->bound_empty_gs = pShader;
+@@ -910,6 +941,12 @@ CreateGeometryShaderWithStreamOutput(
+       }
+    }
+ 
++   if (!pipe->create_gs_state) {   /* exynos-woa G25: stream output through a GS is not available either */
++      gs_unsupported(pData->pShaderCode);
++      malikm_tlog("GS with stream output (%u entries) unsupported by the driver", (unsigned)pData->NumEntries);
++      pShader->handle = NULL;
++      return;
++   }
+    pShader->handle = pipe->create_gs_state(pipe, &pShader->state);
+ }
+ 
+-- 
+2.40.1.windows.1
+

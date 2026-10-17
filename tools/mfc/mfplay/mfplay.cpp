@@ -86,10 +86,13 @@ int wmain(int argc, wchar_t **argv)
 {
     if (argc < 2)
     {
-        fprintf(stderr, "usage: mfplay <file.mp4> [-frames N] [-seconds S]\n");
+        fprintf(stderr, "usage: mfplay <file.mp4> [-frames N] [-seconds S] [-noread]\n");
         return 2;
     }
-    UINT maxFrames = 100000, seconds = 30;
+    UINT maxFrames = 100000, seconds = 30, readback = 5;
+    for (int i = 2; i < argc; i++)
+        if (wcscmp(argv[i], L"-noread") == 0)
+            readback = 1;   // only frame 0: the staging copy + map stalls the GPU and skews the frame rate
     for (int i = 2; i + 1 < argc; i++)
     {
         if (wcscmp(argv[i], L"-frames") == 0)
@@ -193,7 +196,7 @@ int wmain(int argc, wchar_t **argv)
                 printf("TransferVideoFrame 0x%08lx\n", hr);
             continue;
         }
-        if (frames < 5)
+        if (frames < readback)
         {
             D3D11_MAPPED_SUBRESOURCE m;
             ctx->CopyResource(st, rt);

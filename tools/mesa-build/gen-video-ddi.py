@@ -23,6 +23,24 @@ HAND = {
     'VideoDecoderEndFrame', 'VideoDecoderSubmitBuffers', 'CalcPrivateVideoDecoderOutputViewSize',
     'CreateVideoDecoderOutputView', 'DestroyVideoDecoderOutputView', 'GetContentProtectionCaps',
     'VideoDecoderExtension', 'VideoDecoderGetHandle', 'VideoDecoderSubmitBuffers1', 'QueryVideoCapabilities',
+    # the video processor (VideoProc.cpp, prototypes in VideoProc.h) - G17 V6c
+    'CalcPrivateVideoProcessorEnumSize', 'CreateVideoProcessorEnum', 'DestroyVideoProcessorEnum',
+    'CheckVideoProcessorFormat', 'GetVideoProcessorCaps', 'GetVideoProcessorRateConversionCaps',
+    'GetVideoProcessorCustomRate', 'GetVideoProcessorFilterRange', 'CheckVideoProcessorFormatConversion',
+    'CalcPrivateVideoProcessorSize', 'CreateVideoProcessor', 'DestroyVideoProcessor',
+    'VideoProcessorSetOutputTargetRect', 'VideoProcessorSetOutputBackgroundColor', 'VideoProcessorSetOutputColorSpace',
+    'VideoProcessorSetOutputColorSpace1', 'VideoProcessorSetOutputAlphaFillMode', 'VideoProcessorSetOutputConstriction',
+    'VideoProcessorSetOutputStereoMode', 'VideoProcessorSetOutputExtension', 'VideoProcessorGetOutputExtension',
+    'VideoProcessorSetOutputShaderUsage', 'VideoProcessorGetBehaviorHints', 'VideoProcessorSetStreamFrameFormat',
+    'VideoProcessorSetStreamColorSpace', 'VideoProcessorSetStreamColorSpace1', 'VideoProcessorSetStreamOutputRate',
+    'VideoProcessorSetStreamSourceRect', 'VideoProcessorSetStreamDestRect', 'VideoProcessorSetStreamAlpha',
+    'VideoProcessorSetStreamPalette', 'VideoProcessorSetStreamPixelAspectRatio', 'VideoProcessorSetStreamLumaKey',
+    'VideoProcessorSetStreamStereoFormat', 'VideoProcessorSetStreamAutoProcessingMode', 'VideoProcessorSetStreamFilter',
+    'VideoProcessorSetStreamExtension', 'VideoProcessorGetStreamExtension', 'VideoProcessorSetStreamRotation',
+    'VideoProcessorSetStreamMirror', 'CalcPrivateVideoProcessorInputViewSize', 'CreateVideoProcessorInputView',
+    'DestroyVideoProcessorInputView', 'VideoProcessorInputViewReadAfterWriteHazard',
+    'CalcPrivateVideoProcessorOutputViewSize', 'CreateVideoProcessorOutputView', 'DestroyVideoProcessorOutputView',
+    'VideoProcessorBlt',
 }
 
 

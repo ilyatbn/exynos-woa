@@ -155,3 +155,25 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   - with the profile the MFC decodes all pictures (~5 ms each) -> the bottleneck is the missing video processor.
   => V6c2: D3D11 video processor DDI (enum + caps + processor + input/output views + VideoProcessorBlt NV12->BGRA
   with scaling on the GPU).
+- V6c2 design: 48 VP members in D3DWDDM2_0DDI_VIDEODEVICEFUNCS (enum/caps/format checks, processor, ~25 VOID
+  setters - the stubs SetError(E_NOTIMPL) on VOIDs = device removal once MF reaches them -, input/output views, Blt,
+  WDDM2.0 additions ColorSpace1/Mirror/ShaderUsage/BehaviorHints/FormatConversion). New file VideoProc.cpp.
+  Blt = an internal draw on the app's context: the frontend binds state straight to the pipe (cso only for vertex
+  elements), so the draw must restore what it touches from Device tracking (fb, samplers, views, SO, bound_vs exist;
+  blend/dsa/raster/viewport/scissor/fs/gs/CB to be tracked) - or use its own resources only.
+- V6c2 code (maliumd 92ad5b80): VideoProc.cpp (all 48 VP members; caps: NV12 in, BGRA/RGBA/BGRX out, 1 stream,
+  1 rate-conversion entry (progressive, no refs), YCbCr matrix + range conversion; setters store src/dst/target
+  rects, background, colour spaces (CS1 too); extensions E_NOTIMPL), VideoCsc.c (NIR compute kernel: txf luma +
+  2x2-block chroma from the R8 NV12 surface, 3x4 matrix from UBO 0, image store RGBA8; workgroup 8x8), Blt =
+  kernel -> processor-owned RGBA8 picture -> pipe->blit (scale/format/dst rect) + clear_render_target background.
+  VP members NOT behind D3D10UMD_VIDEO_DEV (decode profile only) - decide after validation.
+- 2026-10-17 V6c2 on the phone (0088, maliumd d457a64f):
+  - first run: panfrost assert "s->info.first_ubo_is_default_ubo" (pan_shader.c:200) -> the kernel sets it. Fixed.
+  - mfplay c720 (sw decode and MFC decode): VP created (1280x720 -> output), Blt runs, center pixels of frames 0-4 equal
+    MF's CPU conversion exactly (0,119,155 / 21,131,189 / 108,68,0 ...); full-frame hashes differ (chroma
+    upsampling / rounding of the 2x2-block kernel vs MF's filter) - not bit-exact by design.
+  - the earlier "5 frames / 2.3 s" was mfplay reading back EVERY frame (staging copy + map) on a 1 s clip -> mfplay
+    -noread (frame 0 only).
+  - test.mp4 (1080p H.264, 17.5 s, 24 fps) -Dev -NoRead: MFC decodes, VP converts: 332 frames in 15 s, blts every
+    41.7 ms (= 24 fps, real time; the average includes start-up), Blt CPU time ~3.5 ms (first 14.5 ms incl. kernel
+    compile). Interlaced enumerators refused (MF probes them first, then progressive).

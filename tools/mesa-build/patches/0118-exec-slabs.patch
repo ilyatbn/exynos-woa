@@ -1,0 +1,105 @@
+From 74ce1a21f0f39f487233b6020b15ea3b06e91f7a Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 00:46:25 +0300
+Subject: [PATCH] malikm_drm: 32-bit processes sub-allocate executable BOs too,
+ from 8 MB exec slabs (exynos-woa G24 0118)
+
+Every exec BO (Panfrost shader pools, 4 KB) was its own allocation with a 32 MB CPU view; dgVoodoo's shaders ran
+NFSU2's WOW64 address space out (0x8876017c at CreateVertexShader). 8 MB slabs fit inside the KMD's 16 MB exec window.
+---
+ include/win32-compat/malikm_drm.c | 39 +++++++++++++++++++++----------
+ 1 file changed, 27 insertions(+), 12 deletions(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 15585d2..1ad6df9 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -891,12 +891,20 @@ static uint64_t wdead_bytes;   /* exynos-woa G17 VRAM (0101): size of the closed
+ #define WSLAB_SIZE   (32u << 20)
+ #define WSLAB_PAGES  (WSLAB_SIZE >> 12)
+ #define WSUB_MAX     (2u << 20)     /* larger BOs keep an allocation of their own */
++/* exynos-woa G24 (0118, notes/g24-compute-cs4x.md): executable BOs (Panfrost's shader pools, 4 KB each) are carved too,
++ * from slabs of their own: dgVoodoo's shaders took ~128 exec allocations x 32 MB of CPU view and the WOW64 address
++ * space ran out (0x8876017c at CreateVertexShader). An exec slab is 8 MB, not 32: the KMD keeps an executable
++ * allocation inside one 16 MB window (the 24-bit shader PC, maligpu.h MK_EXEC_WINDOW), and 8 MB fits any window that
++ * still has 8 MB free; its pages past WSLAB_EXEC_PAGES stay marked in use. */
++#define WSLAB_EXEC_SIZE  (8u << 20)
++#define WSLAB_EXEC_PAGES (WSLAB_EXEC_SIZE >> 12)
+ struct wslab {
+    D3DKMT_HANDLE h;
+    uint64_t va;
+    uint8_t *cpu;
+    uint32_t mark;                    /* the submission that last listed the slab's allocation */
+    uint32_t free_pages;
++   uint32_t exec;                    /* G24 (0118): an executable slab (WSLAB_EXEC_SIZE) */
+    uint32_t bits[WSLAB_PAGES / 32];  /* 1 = page in use (or waiting in wsubdead) */
+ };
+ struct wsubdead { uint32_t slab, page, pages; };
+@@ -2220,15 +2228,16 @@ wbo_add(D3DKMT_HANDLE hAlloc, uint64_t size, uint64_t va, uint32_t runtime_owned
+    return h;
+ }
+ 
+-/* exynos-woa G-game (0102): a small no-exec BO carved from a slab (see wslab); its handle, 0 if no slab space could be
+- * found or made (the caller then creates an allocation of its own). wddm_lock held. */
++/* exynos-woa G-game (0102): a small BO carved from a slab (see wslab) - no-exec or (G24 0118) executable, each from
++ * slabs of its kind; its handle, 0 if no slab space could be found or made (the caller then creates an allocation of
++ * its own). wddm_lock held. */
+ static uint32_t
+-wsub_alloc(uint64_t sz)
++wsub_alloc(uint64_t sz, uint32_t exec)
+ {
+    uint32_t pages = (uint32_t)((sz + 4095) >> 12), si, first = 0;
+    for (si = 0; si < wslab_n; si++) {
+       struct wslab *s = &wslab[si];
+-      if (s->free_pages < pages)
++      if (s->exec != exec || s->free_pages < pages)
+          continue;
+       uint32_t run = 0;
+       for (uint32_t p = 0; p < WSLAB_PAGES; p++) {
+@@ -2254,8 +2263,8 @@ wsub_alloc(uint64_t sz)
+    {
+       MW_ALLOCATION_INFO pi = {0};
+       pi.Version = MW_ABI_VERSION;
+-      pi.Flags = MW_ALLOC_NOEXEC;
+-      pi.Size = WSLAB_SIZE;
++      pi.Flags = exec ? 0 : MW_ALLOC_NOEXEC;
++      pi.Size = exec ? WSLAB_EXEC_SIZE : WSLAB_SIZE;
+       D3DDDI_ALLOCATIONINFO ai = {0};
+       ai.pPrivateDriverData = &pi;
+       ai.PrivateDriverDataSize = sizeof(pi);
+@@ -2275,9 +2284,15 @@ wsub_alloc(uint64_t sz)
+       wslab[si].va = where.GpuVa;
+       wslab[si].cpu = cpu;
+       wslab[si].free_pages = WSLAB_PAGES;
++      if (exec) {   /* G24 (0118): only the first WSLAB_EXEC_PAGES exist */
++         wslab[si].exec = 1;
++         wslab[si].free_pages = WSLAB_EXEC_PAGES;
++         for (uint32_t p = WSLAB_EXEC_PAGES; p < WSLAB_PAGES; p++)
++            wslab[si].bits[p >> 5] |= 1u << (p & 31);
++      }
+       first = 0;
+-      malikm_tlog("slab %u: allocation 0x%x va 0x%llx (%u MB)", si, ai.hAllocation, (unsigned long long)where.GpuVa,
+-                  WSLAB_SIZE >> 20);
++      malikm_tlog("slab %u: allocation 0x%x va 0x%llx (%u MB%s)", si, ai.hAllocation, (unsigned long long)where.GpuVa,
++                  (exec ? WSLAB_EXEC_SIZE : WSLAB_SIZE) >> 20, exec ? ", exec" : "");
+    }
+ found:
+    {
+@@ -2473,10 +2488,10 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+       if (a->flags & PANFROST_BO_HEAP)
+          sz = (sz + 0x1fffff) & ~0x1fffffull;
+ #if !defined(_WIN64)
+-      /* exynos-woa G-game (0102): 32-bit processes carve small no-exec BOs from slabs (see wslab) - one 32 MB CPU
+-       * view per slab instead of per BO. Not shader code (the 16 MB exec window), not the tiler heap. */
+-      if ((a->flags & PANFROST_BO_NOEXEC) && !(a->flags & PANFROST_BO_HEAP) && sz <= WSUB_MAX) {
+-         uint32_t h = wsub_alloc(sz);
++      /* exynos-woa G-game (0102): 32-bit processes carve small BOs from slabs (see wslab) - one 32 MB CPU view per
++       * slab instead of per BO. Shader code too since G24 (0118), from executable slabs. Not the tiler heap. */
++      if (!(a->flags & PANFROST_BO_HEAP) && sz <= WSUB_MAX) {
++         uint32_t h = wsub_alloc(sz, !(a->flags & PANFROST_BO_NOEXEC));
+          if (h) {
+             a->handle = h;
+             a->offset = wbo[h - 1].va;
+-- 
+2.40.1.windows.1
+

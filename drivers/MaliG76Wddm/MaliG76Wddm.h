@@ -27,9 +27,11 @@
 
 #define MW_TAG                  'dwlM'
 #define MW_SEGMENT_ID           1           /* the aperture segment */
-/* 1 GiB of GPU VA that VidMm commits system pages into (not a carve-out). The S10e gives Windows 5.24 GiB; the
- * VA allocator spans MK_VA_START..MK_VA_END, so this must stay below 4 GB - 32 MB (notes/gpu-m16-g10.md). */
-#define MW_SEGMENT_SIZE         (1024ULL * 1024 * 1024)
+/* GPU VA that VidMm commits system pages into (not a carve-out). The S10e gives Windows 5.24 GiB; the VA allocator
+ * spans MK_VA_START..MK_VA_END, so this must stay below 4 GB - 32 MB (notes/gpu-m16-g10.md). G-game (notes/
+ * g17-dxva-mfc.md): 1 GiB was the whole system's budget - DWM + Explorer held ~900 MB and a Unity game got
+ * D3DERR_OUTOFVIDEOMEMORY; 2.5 GiB = about half of RAM, the usual integrated-GPU share. A limit, not a reservation. */
+#define MW_SEGMENT_SIZE         (2560ULL * 1024 * 1024)
 #define MW_QUEUE_DEPTH          16          /* submissions the KMD holds */
 
 #define MW_W2(x)                L##x

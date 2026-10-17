@@ -671,3 +671,7 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   248 -> 267 MB over 4 runs after 0101). The runtime never destroys the third buffer (deferred? still bound?).
 - Game after 0101 (DWM ~270 MB): still "CB FAIL Allocate hr 0x8876017c" + "panfrost_batch_init failed" - the game
   alone needs more than the remaining part of the 1 GB segment -> raise MW_SEGMENT_SIZE (KMD; < 4 GB - 32 MB).
+- REVIEW 0101: prompt destroy only when no submission is outstanding (last_event signalled or none yet), poll mode (last_unsignalled) keeps the old thresholds; all under wddm_lock (no half-made submission). No follow-up.
+- KMD 1.0.63.1 (s10e-artifacts\mali-kmd-63, sys 4c1a9072): MW_SEGMENT_SIZE 1 GiB -> 2.5 GiB (about half of the
+  5.24 GiB RAM, the usual iGPU share; a limit, VidMm commits on use; < 4 GB - 32 MB VA limit). Deploy: TWRP +
+  tools/phone/kmd-deploy.sh (old sys kept in C:\S10eTmp\kmd-prev).

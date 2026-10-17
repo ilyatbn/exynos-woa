@@ -393,3 +393,15 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   h264_exynos.c -> GENERIC_READ; incremental llvm-mingw rebuild (build-ffmpeg.sh), avcodec-63.dll 519acdf4 deployed
   (old kept as .prev-20261017). mpvtest test.mp4 15 s: "Using hardware decoding (exynosmfc-copy)", Mali FL 10_1
   renderer, played to 00:00:14 of the window, no Dropped counter, exits at EOF. => mpv: MFC decode + Mali render.
+- 14:1x USER: mpv black screen - audio plays, Task Manager shows GPU use, nothing renders. => the runtime present of a
+  windowed flip-model swap chain is not composed by DWM on this stack (the H4c finding that made gdi_present exist);
+  0094 removed the only visible path for them. Next: flip-model buffers get BOTH the GDI draw (visible) and the
+  runtime present (DXGI buffer accounting, no hang). GDI readback ~63 ms per 1704x959 frame = interim.
+- 14:2x TEMP pixel log in gdi_present: mpv's presented frames are opaque black (0xff000000 at center/quarter/3-quarter, frames 0-3), GDI draw succeeds -> mpv RENDERS black on our UMD (D10 T4), presentation is not the (only) problem. Bisect mpv render options next.
+- 14:3x mpvbisect.ps1: fbo rgba8 / profile=fast / dither off / all of them -> still black. --background-color=#ff0000 --video-zoom=-2 -> center, quarter, 3/4 ALL red: the background clear reaches the frame, the video draw writes nothing (full-size video = all black).
+- 14:4x tools d3dvbring (new, mpv's vertex ring as repro): discard/no-overwrite at offsets 0/96/192/4096, shared RT, scissor enabled - ALL PASS on the Mali (= WARP). mpv dumb mode (--gpu-dumb-mode=yes, one direct pass) + red background + zoom -2: center still red -> the single video draw writes nothing. Next: replay mpv's own HLSL from its log.
+- 14:5x d3dvbring variants all PASS on the Mali (= WARP): shared RT, scissor enabled, z = w = 1 (mpv's VS writes
+  gl_Position = float4(pos, 1, 1)). mpv's dumb-mode shaders extracted from its log (vo/gpu/d3d11 HLSL source):
+  VS = 3 TEXCOORD float2 inputs, y flip; PS = Sample t1 (.x luma) + t2 (.xy chroma), cbuffer b0 (row_major float3x3
+  colour matrix + offsets, packoffsets c0..c13), dither texture t0 sampled at FragCoord/64, floor() quantisation.
+  Next: replay that PS (its textures/formats + cbuffer layout) in a repro.

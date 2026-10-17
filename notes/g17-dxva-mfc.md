@@ -35,3 +35,29 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   (tools/mesa-build/gen-video-ddi.py; VOID ones report E_NOTIMPL through SetError). NV12 resources: one R8 surface
   W x 1.5H (Resource::nv12_height), CheckFormatSupport(NV12) = DECODER_OUTPUT only. Test tool
   drivers/MaliG76Wddm/tools/d3dvdec (VIDEO_SUPPORT device, profiles, NV12, configs, decoder, NV12 texture, output view).
+- 2026-10-17 (0083d, maliumd 09feef63 on the phone) d3dvdec: device VIDEO_SUPPORT OK FL 10_1, ID3D11VideoDevice OK,
+  1 profile, NV12 OK, 1 config, CreateVideoDecoder -> 0x8000ffff (E_UNEXPECTED). UMD log ends after
+  "buffer info 0": no index 1 query, no CreateResource, no Vid_CreateVideoDecoder, no video stub, no SetError.
+- MS docs (rule 13): GetVideoDecoderBufferInfo remarks = runtime validates desc/Index BEFORE calling; Usage is
+  D3D11_1DDI_VIDEO_USAGE (0 = PLAYBACK_NORMAL, valid). D3D11DDIARG_CREATERESOURCE has DecoderBufferType (minor header
+  version >= 3, valid when BindFlags has D3D11_DDI_BIND_DECODER 0x200) -> decoder buffers are driver resources made
+  through CreateResource; ours is never reached. Next: D3D11 debug layer message for the E_UNEXPECTED (tracing only).
+- D3D11 debug layer: Graphics Tools (Tools.Graphics.DirectX~~~~0.0.1.0) NotPresent on the phone; Add-WindowsCapability
+  over ssh -> 0x80070005 (network logon); running it as a SYSTEM task was declined by the auto-mode classifier ->
+  needs the user (Settings > Optional features > Graphics Tools). d3dvdec got a "debug" mode (InfoQueue dump) for then.
+- 2026-10-17 tools/phone/wddm2/vdecmatrix.ps1 (UMD tracing switches D3D10UMD_VID_NBUF/USAGE/SIZE, 0083 + CalcPrivate-
+  ResourceSize log for BIND_DECODER), measured on the phone:
+  - default (Usage 0): E_UNEXPECTED right after buffer info 0, no resource created. NBUF=1 same, SIZE=65536 same.
+  - NBUF=0: CreateVideoDecoder OK -> NV12 texture (dim 3 fmt 103 bind 0x200) + output view -> d3dvdec PASS.
+  - USAGE=1: E_UNEXPECTED. USAGE=2: all 4 infos queried, the runtime creates 4 buffers (dim 1 fmt 0, Width = Size,
+    bind 0x200 DECODER, usage 2 DYNAMIC, cpu 0x1 WRITE), decoder created, PASS. USAGE=3: same with usage 3 STAGING,
+    cpu 0x3, PASS.
+  => the runtime reads D3D11_1DDI_VIDEO_DECODER_BUFFER_INFO.Usage as a D3D10_DDI_RESOURCE_USAGE (0 DEFAULT,
+  1 IMMUTABLE, 2 DYNAMIC, 3 STAGING) - the buffer resources it creates carry that usage - and rejects the two
+  non-mappable ones (GetDecoderBuffer needs a CPU map). The MS Learn page names D3D11_1DDI_VIDEO_USAGE (PLAYBACK_NORMAL
+  = 0), which is what we returned: doc and runtime disagree; measured behaviour wins. Fix: Usage = D3D10_DDI_USAGE_DYNAMIC
+  (app writes, decoder reads - the D3D11 dynamic contract), tracing switches removed.
+- 2026-10-17 V6a DONE: 0083 final (maliumd c642af77) on the phone: d3dvdec PASS (CreateVideoDecoder OK, the runtime
+  creates the 4 DYNAMIC decoder buffers, NV12 BIND_DECODER texture, output view). Regression: d3dtri cube in the user
+  session 36.5 fps, 0 present failures (DWM keeps the old DLL until the next boot). Mesa 0f47367 ->
+  tools/mesa-build/patches/0083-video-ddi.patch. Next: V6b.

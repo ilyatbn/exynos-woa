@@ -95,6 +95,7 @@ for tname, fname in (('D3DWDDM2_0DDI_VIDEODEVICEFUNCS', 'video_fill_wddm2_0.inc'
             if body.find('SetError(') >= 0:
                 dev = ps[0].split()[-1]
                 body = '   LOG_UNSUPPORTED_ENTRYPOINT();\n   SetError(%s, E_NOTIMPL);' % dev
+            body = '   malikm_tlog("video stub %s");\n' % fn + body   # which stub the runtime calls (V6a debugging)
             stubs.append('static %s APIENTRY\n%s(%s)\n{\n%s\n}\n' % (ret, fn, ', '.join(ps) or 'void', body))
             done.add(fn)
         lines.append('   f->%s = %s;' % (name, fn))

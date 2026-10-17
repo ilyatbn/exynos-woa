@@ -1,0 +1,1287 @@
+From 0f4736767251a5a452f073a1135d7240fc273eda Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 07:45:06 +0300
+Subject: [PATCH] d3d10umd: D3D11 video decoder DDI skeleton (exynos-woa 0083,
+ G17 V6a) - H.264 VLD_NOFGT profile, NV12 decoder output (one R8 surface W x
+ 1.5H), 1 config (BitstreamRaw 2), 4 buffer types with DYNAMIC usage (the
+ runtime creates the buffers with BUFFER_INFO.Usage as their resource usage,
+ measured), decoder/output-view objects, frame calls record buffers; tables
+ via RetrieveSubObject 2/3, generated stubs (gen-video-ddi.py)
+
+---
+ src/gallium/frontends/d3d10umd/D3D11.h        |   3 +
+ src/gallium/frontends/d3d10umd/Device.cpp     |  13 +
+ src/gallium/frontends/d3d10umd/Resource.cpp   |  28 +
+ src/gallium/frontends/d3d10umd/State.h        |   4 +
+ src/gallium/frontends/d3d10umd/Video.cpp      | 325 ++++++++++
+ src/gallium/frontends/d3d10umd/meson.build    |   1 +
+ .../frontends/d3d10umd/video_fill_11_1.inc    |  82 +++
+ .../frontends/d3d10umd/video_fill_wddm2_0.inc |  95 +++
+ .../frontends/d3d10umd/video_stubs.inc        | 593 ++++++++++++++++++
+ 9 files changed, 1144 insertions(+)
+ create mode 100644 src/gallium/frontends/d3d10umd/Video.cpp
+ create mode 100644 src/gallium/frontends/d3d10umd/video_fill_11_1.inc
+ create mode 100644 src/gallium/frontends/d3d10umd/video_fill_wddm2_0.inc
+ create mode 100644 src/gallium/frontends/d3d10umd/video_stubs.inc
+
+diff --git a/src/gallium/frontends/d3d10umd/D3D11.h b/src/gallium/frontends/d3d10umd/D3D11.h
+index c6a0631..6e55eeb 100644
+--- a/src/gallium/frontends/d3d10umd/D3D11.h
++++ b/src/gallium/frontends/d3d10umd/D3D11.h
+@@ -6,6 +6,9 @@
+ void D3D11FillDeviceFuncs(D3D11DDI_DEVICEFUNCS *pFuncs);
+ BOOL D3D11GetCaps(const D3D10_2DDIARG_GETCAPS *pData, HRESULT *phr);
+ HRESULT APIENTRY D3D11ResolveSharedResource(DXGI_DDI_ARG_RESOLVESHAREDRESOURCE *pArgs);
++/* exynos-woa G17 V6a: video function tables (Video.cpp) */
++HRESULT APIENTRY VideoRetrieveSubObject(D3D10DDI_HDEVICE hDevice, UINT32 SubDeviceID, SIZE_T ParamSize, void *pParams,
++                                       SIZE_T OutputParamSize, void *pOutputParamsBuffer);
+ BOOL D3D11Enabled(void);
+ /* D2/D3 (D3D11_1.cpp) */
+ void D3D11_1FillDeviceFuncs(D3D11_1DDI_DEVICEFUNCS *pFuncs);
+diff --git a/src/gallium/frontends/d3d10umd/Device.cpp b/src/gallium/frontends/d3d10umd/Device.cpp
+index 3f75108..d6128e7 100644
+--- a/src/gallium/frontends/d3d10umd/Device.cpp
++++ b/src/gallium/frontends/d3d10umd/Device.cpp
+@@ -392,6 +392,14 @@ CreateDevice(D3D10DDI_HADAPTER hAdapter,                 // IN
+    /* D3D11_1 -> DXGI 1.2, WDDM1_3 -> DXGI 1.3, WDDM2_0 -> DXGI 1.4 (exynos-woa D2/D3) */
+    if (level >= 111)
+       D3D11FillDxgi(&pCreateData->DXGIBaseDDI, level == 111 ? 12 : level == 113 ? 13 : 14);
++   /* exynos-woa G17 V6a: the video function tables through RetrieveSubObject (D3D11.1+ interfaces; MS Learn
++    * D3D10DDIARG_CREATEDEVICE ppfnRetrieveSubObject "in/out: pointer to sub-object retrieval function pointer").
++    * D3D10UMD_NO_VIDEO=1 hides them - diagnosis only. */
++   {
++      const char *nv = getenv("D3D10UMD_NO_VIDEO");
++      if (level >= 111 && pCreateData->ppfnRetrieveSubObject && !(nv && *nv && *nv != '0'))
++         *pCreateData->ppfnRetrieveSubObject = VideoRetrieveSubObject;
++   }
+ 
+    /* exynos-woa D4 (notes/gpu-umd-d3d11.md): DXGI_STATUS_NO_REDIRECTION keeps DXGI from binding a swap chain's back
+     * buffers to DWM (ETW: no BindBackBuffersToDwm / DWMRedirection events on our adapter, both on WARP); composition
+@@ -645,6 +653,11 @@ CheckFormatSupportCaps(D3D10DDI_HDEVICE hDevice, DXGI_FORMAT Format, UINT *pForm
+ 
+    *pFormatCaps = 0;
+ 
++   if (Format == DXGI_FORMAT_NV12) {
++      /* exynos-woa G17 V6a: NV12 exists for the video decoder only (Resource::nv12_height layout) */
++      *pFormatCaps = D3D11_1DDI_FORMAT_SUPPORT_DECODER_OUTPUT;
++      return;
++   }
+    enum pipe_format format = FormatTranslate(Format, false);
+    if (format == PIPE_FORMAT_NONE) {
+       *pFormatCaps = D3D10_DDI_FORMAT_SUPPORT_NOT_SUPPORTED;
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index 4a6ba05..887e751 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -43,6 +43,7 @@
+ #include "util/u_surface.h"
+ #include "frontend/winsys_handle.h"   /* G13 0034: OpenResource over external memory */
+ #include "drm-uapi/drm_fourcc.h"      /* exynos-woa H3: DRM_FORMAT_MOD_LINEAR for BO imports */
++extern "C" void malikm_tlog(const char *fmt, ...);   /* exynos-woa H4: timing/event log (malikm_drm.c) */
+ 
+ 
+ /*
+@@ -63,6 +64,13 @@ CalcPrivateResourceSize(D3D10DDI_HDEVICE hDevice,
+                         __in const D3D10DDIARG_CREATERESOURCE *pCreateResource)  // IN
+ {
+    LOG_ENTRYPOINT();
++   if (pCreateResource->BindFlags & D3D11_DDI_BIND_DECODER) {   /* exynos-woa G17 V6a: decoder buffers / outputs */
++      malikm_tlog("CalcPrivateResourceSize dim %u fmt %u %ux%u bind 0x%x usage %u cpu 0x%x misc 0x%x",
++                  (unsigned)pCreateResource->ResourceDimension, (unsigned)pCreateResource->Format,
++                  pCreateResource->pMipInfoList[0].TexelWidth, pCreateResource->pMipInfoList[0].TexelHeight,
++                  pCreateResource->BindFlags, (unsigned)pCreateResource->Usage, pCreateResource->MapFlags,
++                  pCreateResource->MiscFlags);
++   }
+    return sizeof(Resource);
+ }
+ 
+@@ -300,6 +308,16 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+    Resource *pResource = CastResource(hResource);
+ 
+    memset(pResource, 0, sizeof *pResource);
++   {
++      /* exynos-woa G17 V6a: what the runtime creates around the video decoder (first 60 resources) */
++      static unsigned n;
++      if (n++ < 60)
++         malikm_tlog("CreateResource dim %u fmt %u %ux%u mips %u array %u bind 0x%x usage %u cpu 0x%x misc 0x%x",
++                     (unsigned)pCreateResource->ResourceDimension, (unsigned)pCreateResource->Format,
++                     pCreateResource->pMipInfoList[0].TexelWidth, pCreateResource->pMipInfoList[0].TexelHeight,
++                     pCreateResource->MipLevels, pCreateResource->ArraySize, pCreateResource->BindFlags,
++                     (unsigned)pCreateResource->Usage, pCreateResource->MapFlags, pCreateResource->MiscFlags);
++   }
+ 
+ #if 0
+    if (pCreateResource->pPrimaryDesc) {
+@@ -326,6 +344,8 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+    if (pCreateResource->Format == DXGI_FORMAT_UNKNOWN) {
+       assert(pCreateResource->ResourceDimension == D3D10DDIRESOURCE_BUFFER);
+       templat.format = PIPE_FORMAT_R8_UINT;
++   } else if (pCreateResource->Format == DXGI_FORMAT_NV12) {
++      templat.format = PIPE_FORMAT_R8_UNORM;   /* exynos-woa G17 V6a: see Resource::nv12_height */
+    } else {
+       BOOL bindDepthStencil = !!(pCreateResource->BindFlags & D3D10_DDI_BIND_DEPTH_STENCIL);
+       templat.format = FormatTranslate(pCreateResource->Format, bindDepthStencil);
+@@ -333,6 +353,14 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+ 
+    templat.width0     = pCreateResource->pMipInfoList[0].TexelWidth;
+    templat.height0    = pCreateResource->pMipInfoList[0].TexelHeight;
++   if (pCreateResource->Format == DXGI_FORMAT_NV12) {
++      if (pCreateResource->MipLevels != 1 || (templat.width0 & 1) || (templat.height0 & 1)) {
++         SetError(hDevice, E_INVALIDARG);   /* NV12: one level, even dimensions (4:2:0) */
++         return;
++      }
++      pResource->nv12_height = templat.height0;
++      templat.height0 += templat.height0 / 2;
++   }
+    templat.depth0     = pCreateResource->pMipInfoList[0].TexelDepth;
+    templat.array_size = pCreateResource->ArraySize;
+    templat.last_level = pCreateResource->MipLevels - 1;
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index 9806671..0697a25 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -184,6 +184,10 @@ struct Resource
+    /* exynos-woa H5 (0059): a kernel allocation the runtime frees with this resource (created shared/present, or
+     * opened) that the shim lists as a BO; DestroyResource tells the shim it is gone. 0 if none. */
+    unsigned kmt_runtime_alloc;
++   /* exynos-woa G17 V6a: an NV12 texture (decoder output / video processor input), stored as ONE R8 surface
++    * Width x (Height + Height/2): the luma plane, then the interleaved CbCr plane (Height/2 rows of Width bytes) -
++    * the layout the MFC returns and the video processor (V6c) reads. nv12_height = the luma height, 0 if not NV12. */
++   unsigned nv12_height;
+ };
+ 
+ 
+diff --git a/src/gallium/frontends/d3d10umd/Video.cpp b/src/gallium/frontends/d3d10umd/Video.cpp
+new file mode 100644
+index 0000000..97242f2
+--- /dev/null
++++ b/src/gallium/frontends/d3d10umd/Video.cpp
+@@ -0,0 +1,325 @@
++/*
++ * exynos-woa G17 V6a (notes/g17-dxva-mfc.md): the D3D11 video decoder DDI of the Mali UMD - the H.264 subset that
++ * Microsoft's H.264 decoder (msmpeg2vdec, Media Foundation) uses through ID3D11VideoDevice/ID3D11VideoContext:
++ * one profile (D3D11_1DDI_DECODER_PROFILE_H264_VLD_NOFGT), NV12 output, one configuration with short slice control
++ * (ConfigBitstreamRaw 2 = DXVA_Slice_H264_Short, no encryption). The tables are handed to the runtime through
++ * RetrieveSubObject (MS Learn PFND3D10DDI_RETRIEVESUBOBJECT: SubDeviceID 2 = D3D11_1DDI_VIDEODEVICEFUNCS,
++ * 3 = D3DWDDM2_0DDI_VIDEODEVICEFUNCS; input D3D11_1DDI_VIDEO_INPUT / the 2.0 equivalent with the function table).
++ *
++ * V6a: queries, decoder and output-view objects, and the frame calls record what they receive (buffer types and
++ * sizes, output view) - the decode itself (DXVA H.264 -> Annex-B -> MFC IOCTLs -> NV12 copy into the output view)
++ * is V6b. EndFrame without a decoder backend fills nothing and logs once.
++ *
++ * Every member that is not in the H.264 subset comes from the generated stubs (video_stubs.inc, gen-video-ddi.py).
++ */
++
++#include "Draw.h"
++#include "Device.h"
++#include "Resource.h"
++#include "State.h"
++#include "D3D11.h"
++
++#include "Debug.h"
++
++#include <initguid.h>
++
++extern "C" void malikm_tlog(const char *fmt, ...);
++
++/* MS Learn / WDK d3d10umddi.h: D3D11_1DDI_DECODER_PROFILE_H264_VLD_NOFGT; dxva.h DXVA_NoEncrypt */
++static const GUID kH264VldNoFgt = { 0x1b81be68, 0xa0c7, 0x11d3, { 0xb9, 0x84, 0x00, 0xc0, 0x4f, 0x2e, 0x73, 0xc5 } };
++static const GUID kNoEncrypt = { 0x1b81bed0, 0xa0c7, 0x11d3, { 0xb9, 0x84, 0x00, 0xc0, 0x4f, 0x2e, 0x73, 0xc5 } };
++
++/* MFC limit validated so far (notes/d10-mfc-decode-flow.md V3: 1080p High with B-frames, bit-exact) */
++#define VID_MAX_W 1920
++#define VID_MAX_H 1088
++
++struct VideoDecoder {
++   D3D11_1DDI_VIDEO_DECODER_DESC Desc;
++   D3D11_1DDI_VIDEO_DECODER_CONFIG Config;
++   void *Output;            /* current frame's output view (VideoOutputView *) */
++   unsigned Frames;
++   unsigned BufferCounts[11];
++};
++
++struct VideoOutputView {
++   D3D10DDI_HRESOURCE Resource;
++   UINT ArraySlice;
++};
++
++static BOOL
++IsH264(const GUID *g)
++{
++   return g && IsEqualGUID(*g, kH264VldNoFgt);
++}
++
++static BOOL
++DescOk(const D3D11_1DDI_VIDEO_DECODER_DESC *d)
++{
++   return d && IsH264(&d->Guid) && d->OutputFormat == DXGI_FORMAT_NV12 && d->SampleWidth && d->SampleHeight &&
++          d->SampleWidth <= VID_MAX_W && d->SampleHeight <= VID_MAX_H;
++}
++
++static VOID APIENTRY
++Vid_GetVideoDecoderProfileCount(D3D10DDI_HDEVICE hDevice, UINT *pCount)
++{
++   (void)hDevice;
++   *pCount = 1;
++}
++
++static VOID APIENTRY
++Vid_GetVideoDecoderProfile(D3D10DDI_HDEVICE hDevice, UINT Index, GUID *pGuid)
++{
++   if (Index != 0) {
++      SetError(hDevice, E_INVALIDARG);
++      return;
++   }
++   *pGuid = kH264VldNoFgt;
++}
++
++static VOID APIENTRY
++Vid_CheckVideoDecoderFormat(D3D10DDI_HDEVICE hDevice, CONST GUID *pGuid, DXGI_FORMAT Format, BOOL *pSupported)
++{
++   (void)hDevice;
++   *pSupported = IsH264(pGuid) && Format == DXGI_FORMAT_NV12;
++}
++
++static VOID APIENTRY
++Vid_GetVideoDecoderConfigCount(D3D10DDI_HDEVICE hDevice, CONST D3D11_1DDI_VIDEO_DECODER_DESC *pDesc, UINT *pCount)
++{
++   (void)hDevice;
++   *pCount = DescOk(pDesc) ? 1 : 0;
++   malikm_tlog("video: config count %ux%u fmt %u -> %u", pDesc ? pDesc->SampleWidth : 0,
++               pDesc ? pDesc->SampleHeight : 0, pDesc ? (unsigned)pDesc->OutputFormat : 0, *pCount);
++}
++
++static VOID APIENTRY
++Vid_GetVideoDecoderConfig(D3D10DDI_HDEVICE hDevice, CONST D3D11_1DDI_VIDEO_DECODER_DESC *pDesc, UINT Index,
++                          D3D11_1DDI_VIDEO_DECODER_CONFIG *pConfig)
++{
++   if (!DescOk(pDesc) || Index != 0) {
++      SetError(hDevice, E_INVALIDARG);
++      return;
++   }
++   memset(pConfig, 0, sizeof(*pConfig));
++   pConfig->guidConfigBitstreamEncryption = kNoEncrypt;
++   pConfig->guidConfigMBcontrolEncryption = kNoEncrypt;
++   pConfig->guidConfigResidDiffEncryption = kNoEncrypt;
++   pConfig->ConfigBitstreamRaw = 2;   /* DXVA_Slice_H264_Short (start codes kept): what a stateful MFC can take */
++   pConfig->ConfigMinRenderTargetBuffCount = 0;
++   pConfig->ConfigDecoderSpecific = 0;
++}
++
++static VOID APIENTRY
++Vid_GetVideoDecoderBufferTypeCount(D3D10DDI_HDEVICE hDevice, CONST D3D11_1DDI_VIDEO_DECODER_DESC *pDesc, UINT *pCount)
++{
++   (void)hDevice;
++   /* only the profile matters here - the runtime may describe the operation without the output size/format */
++   *pCount = pDesc && IsH264(&pDesc->Guid) ? 4 : 0;
++   malikm_tlog("video: buffer type count %u (desc %ux%u fmt %u)", *pCount, pDesc ? pDesc->SampleWidth : 0,
++               pDesc ? pDesc->SampleHeight : 0, pDesc ? (unsigned)pDesc->OutputFormat : 0);
++}
++
++static VOID APIENTRY
++Vid_GetVideoDecoderBufferInfo(D3D10DDI_HDEVICE hDevice, CONST D3D11_1DDI_VIDEO_DECODER_DESC *pDesc, UINT Index,
++                              D3D11_1DDI_VIDEO_DECODER_BUFFER_INFO *pInfo)
++{
++   /* picture parameters (DXVA_PicParams_H264), inverse quantisation (DXVA_Qmatrix_H264), slice control (short
++    * entries), bitstream - sizes generous for 1080p. Usage: the runtime creates each buffer as a resource with this
++    * value as its D3D10_DDI_RESOURCE_USAGE (measured, notes/g17-dxva-mfc.md: DEFAULT and IMMUTABLE fail
++    * CreateVideoDecoder with E_UNEXPECTED, DYNAMIC gives CPU-write buffers) although MS Learn types the member as
++    * D3D11_1DDI_VIDEO_USAGE. DYNAMIC: the app writes, the decoder reads. */
++#define VID_BUF_USAGE ((D3D11_1DDI_VIDEO_USAGE)D3D10_DDI_USAGE_DYNAMIC)
++   static const D3D11_1DDI_VIDEO_DECODER_BUFFER_INFO kInfo[4] = {
++      { D3D11_1DDI_VIDEO_DECODER_BUFFER_PICTURE_PARAMETERS, 4096, VID_BUF_USAGE },
++      { D3D11_1DDI_VIDEO_DECODER_BUFFER_INVERSE_QUANTIZATION_MATRIX, 4096, VID_BUF_USAGE },
++      { D3D11_1DDI_VIDEO_DECODER_BUFFER_SLICE_CONTROL, 64 * 1024, VID_BUF_USAGE },
++      { D3D11_1DDI_VIDEO_DECODER_BUFFER_BITSTREAM, 4 * 1024 * 1024, VID_BUF_USAGE },
++   };
++   malikm_tlog("video: buffer info %u (desc %ux%u fmt %u)", Index, pDesc ? pDesc->SampleWidth : 0,
++               pDesc ? pDesc->SampleHeight : 0, pDesc ? (unsigned)pDesc->OutputFormat : 0);
++   if (!pDesc || !IsH264(&pDesc->Guid) || Index >= 4) {
++      SetError(hDevice, E_INVALIDARG);
++      return;
++   }
++   *pInfo = kInfo[Index];
++}
++
++static SIZE_T APIENTRY
++Vid_CalcPrivateVideoDecoderSize(D3D10DDI_HDEVICE hDevice, CONST D3D11_1DDIARG_CREATEVIDEODECODER *pArgs)
++{
++   (void)hDevice;
++   malikm_tlog("video: CalcPrivateVideoDecoderSize %ux%u raw %u", pArgs->Desc.SampleWidth, pArgs->Desc.SampleHeight,
++               pArgs->Config.ConfigBitstreamRaw);
++   return sizeof(VideoDecoder);
++}
++
++static HRESULT APIENTRY
++Vid_CreateVideoDecoder(D3D10DDI_HDEVICE hDevice, CONST D3D11_1DDIARG_CREATEVIDEODECODER *pArgs,
++                       D3D11_1DDI_HDECODE hDecode, D3D11_1DDI_HRTDECODE hRTDecode)
++{
++   (void)hDevice; (void)hRTDecode;
++   VideoDecoder *d = (VideoDecoder *)hDecode.pDrvPrivate;
++   memset(d, 0, sizeof(*d));
++   if (!DescOk(&pArgs->Desc) || pArgs->Config.ConfigBitstreamRaw != 2) {
++      malikm_tlog("video: CreateVideoDecoder rejected (raw %u)", pArgs->Config.ConfigBitstreamRaw);
++      return E_INVALIDARG;
++   }
++   d->Desc = pArgs->Desc;
++   d->Config = pArgs->Config;
++   malikm_tlog("video: decoder %ux%u created", d->Desc.SampleWidth, d->Desc.SampleHeight);
++   return S_OK;
++}
++
++static VOID APIENTRY
++Vid_DestroyVideoDecoder(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HDECODE hDecode)
++{
++   (void)hDevice;
++   VideoDecoder *d = (VideoDecoder *)hDecode.pDrvPrivate;
++   malikm_tlog("video: decoder destroyed after %u frames (pp %u iq %u sc %u bs %u)", d->Frames, d->BufferCounts[1],
++               d->BufferCounts[5], d->BufferCounts[6], d->BufferCounts[7]);
++}
++
++static HRESULT APIENTRY
++Vid_VideoDecoderExtension(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HDECODE hDecode,
++                          CONST D3D11_1DDIARG_VIDEODECODEREXTENSION *pArgs)
++{
++   (void)hDevice; (void)hDecode; (void)pArgs;
++   return E_NOTIMPL;
++}
++
++static HRESULT APIENTRY
++Vid_VideoDecoderBeginFrame(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HDECODE hDecode,
++                           CONST D3D11_1DDIARG_VIDEODECODERBEGINFRAME *pArgs)
++{
++   (void)hDevice;
++   VideoDecoder *d = (VideoDecoder *)hDecode.pDrvPrivate;
++   if (pArgs->pContentKey || pArgs->ContentKeySize)
++      return E_INVALIDARG;   /* no protected content */
++   d->Output = pArgs->hOutputView.pDrvPrivate;
++   return S_OK;
++}
++
++static void
++CountBuffer(VideoDecoder *d, UINT Type, UINT Size)
++{
++   if (Type < 11)
++      d->BufferCounts[Type]++;
++   if (d->Frames < 3)
++      malikm_tlog("video: frame %u buffer type %u size %u", d->Frames, Type, Size);
++}
++
++static HRESULT APIENTRY
++Vid_VideoDecoderSubmitBuffers(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HDECODE hDecode, UINT Count,
++                              CONST D3D11_1DDI_VIDEO_DECODER_BUFFER_DESC *pDesc)
++{
++   (void)hDevice;
++   VideoDecoder *d = (VideoDecoder *)hDecode.pDrvPrivate;
++   for (UINT i = 0; i < Count; i++)
++      CountBuffer(d, pDesc[i].BufferType, pDesc[i].DataSize);
++   return S_OK;
++}
++
++static HRESULT APIENTRY
++Vid_VideoDecoderSubmitBuffers1(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HDECODE hDecode, UINT Count,
++                               CONST D3DWDDM2_0DDI_VIDEO_DECODER_BUFFER_DESC1 *pDesc)
++{
++   (void)hDevice;
++   VideoDecoder *d = (VideoDecoder *)hDecode.pDrvPrivate;
++   for (UINT i = 0; i < Count; i++) {
++      if (pDesc[i].pIV || pDesc[i].SubSampleMappingCount)
++         return E_INVALIDARG;   /* no encryption */
++      CountBuffer(d, pDesc[i].BufferType, pDesc[i].DataSize);
++   }
++   return S_OK;
++}
++
++static VOID APIENTRY
++Vid_VideoDecoderEndFrame(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HDECODE hDecode)
++{
++   (void)hDevice;
++   VideoDecoder *d = (VideoDecoder *)hDecode.pDrvPrivate;
++   if (d->Frames++ == 0)
++      malikm_tlog("video: EndFrame - no decode backend yet (V6a), output left as is");
++   d->Output = NULL;
++}
++
++static SIZE_T APIENTRY
++Vid_CalcPrivateVideoDecoderOutputViewSize(D3D10DDI_HDEVICE hDevice, CONST D3D11_1DDIARG_CREATEVIDEODECODEROUTPUTVIEW *p)
++{
++   (void)hDevice; (void)p;
++   return sizeof(VideoOutputView);
++}
++
++static HRESULT APIENTRY
++Vid_CreateVideoDecoderOutputView(D3D10DDI_HDEVICE hDevice, CONST D3D11_1DDIARG_CREATEVIDEODECODEROUTPUTVIEW *p,
++                                 D3D11_1DDI_HVIDEODECODEROUTPUTVIEW hView, D3D11_1DDI_HRTVIDEODECODEROUTPUTVIEW hRT)
++{
++   (void)hDevice; (void)hRT;
++   VideoOutputView *v = (VideoOutputView *)hView.pDrvPrivate;
++   if (!IsH264(&p->DecodeProfile) || p->MipSlice != 0)
++      return E_INVALIDARG;
++   v->Resource = p->hDrvResource;
++   v->ArraySlice = p->FirstArraySlice;
++   return S_OK;
++}
++
++static VOID APIENTRY
++Vid_DestroyVideoDecoderOutputView(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HVIDEODECODEROUTPUTVIEW hView)
++{
++   (void)hDevice; (void)hView;
++}
++
++static HRESULT APIENTRY
++Vid_GetContentProtectionCaps(D3D10DDI_HDEVICE hDevice, CONST GUID *pCryptoType, CONST GUID *pDecodeProfile,
++                             D3D11_1DDI_VIDEO_CONTENT_PROTECTION_CAPS *pCaps)
++{
++   (void)hDevice; (void)pCryptoType; (void)pDecodeProfile;
++   memset(pCaps, 0, sizeof(*pCaps));   /* no content protection */
++   return S_OK;
++}
++
++static HRESULT APIENTRY
++Vid_VideoDecoderGetHandle(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HDECODE hDecode, HANDLE *pHandle)
++{
++   (void)hDevice; (void)hDecode;
++   *pHandle = NULL;
++   return E_NOTIMPL;
++}
++
++#include "video_stubs.inc"
++
++static void
++FillWddm2_0(D3DWDDM2_0DDI_VIDEODEVICEFUNCS *f)
++{
++#include "video_fill_wddm2_0.inc"
++}
++
++static void
++Fill11_1(D3D11_1DDI_VIDEODEVICEFUNCS *f)
++{
++#include "video_fill_11_1.inc"
++}
++
++/* RetrieveSubObject (MS Learn PFND3D10DDI_RETRIEVESUBOBJECT): the runtime asks for the video function table. */
++HRESULT APIENTRY
++VideoRetrieveSubObject(D3D10DDI_HDEVICE hDevice, UINT32 SubDeviceID, SIZE_T ParamSize, void *pParams,
++                       SIZE_T OutputParamSize, void *pOutputParamsBuffer)
++{
++   (void)hDevice; (void)pOutputParamsBuffer; (void)OutputParamSize;
++   malikm_tlog("video: RetrieveSubObject id %u param %zu out %zu", SubDeviceID, ParamSize, OutputParamSize);
++   if (SubDeviceID == D3DWDDM2_0DDI_VIDEO_FUNCTIONS && ParamSize >= sizeof(D3DWDDM2_0DDI_VIDEO_INPUT)) {
++      D3DWDDM2_0DDI_VIDEO_INPUT *in = (D3DWDDM2_0DDI_VIDEO_INPUT *)pParams;
++      if (!in->pWDDM2_0VideoDeviceFuncs)
++         return E_INVALIDARG;
++      FillWddm2_0(in->pWDDM2_0VideoDeviceFuncs);
++      return S_OK;
++   }
++   if (SubDeviceID == D3D11_1DDI_VIDEO_FUNCTIONS && ParamSize >= sizeof(D3D11_1DDI_VIDEO_INPUT)) {
++      D3D11_1DDI_VIDEO_INPUT *in = (D3D11_1DDI_VIDEO_INPUT *)pParams;
++      if (!in->p11VideoDeviceFuncs)
++         return E_INVALIDARG;
++      Fill11_1(in->p11VideoDeviceFuncs);
++      return S_OK;
++   }
++   return E_NOTIMPL;
++}
+diff --git a/src/gallium/frontends/d3d10umd/meson.build b/src/gallium/frontends/d3d10umd/meson.build
+index 7bf322e..5e7c1e2 100644
+--- a/src/gallium/frontends/d3d10umd/meson.build
++++ b/src/gallium/frontends/d3d10umd/meson.build
+@@ -12,6 +12,7 @@ libd3d10umd = static_library(
+     'Debug.cpp',
+     'Device.cpp',
+     'D3D11.cpp',
++    'Video.cpp',
+     'Draw.cpp',
+     'DxgiFns.cpp',
+     'Format.cpp',
+diff --git a/src/gallium/frontends/d3d10umd/video_fill_11_1.inc b/src/gallium/frontends/d3d10umd/video_fill_11_1.inc
+new file mode 100644
+index 0000000..7a3327c
+--- /dev/null
++++ b/src/gallium/frontends/d3d10umd/video_fill_11_1.inc
+@@ -0,0 +1,82 @@
++/* Generated by exynos-woa tools/mesa-build/gen-video-ddi.py - do not edit. */
++   f->pfnGetVideoDecoderProfileCount = Vid_GetVideoDecoderProfileCount;
++   f->pfnGetVideoDecoderProfile = Vid_GetVideoDecoderProfile;
++   f->pfnCheckVideoDecoderFormat = Vid_CheckVideoDecoderFormat;
++   f->pfnGetVideoDecoderConfigCount = Vid_GetVideoDecoderConfigCount;
++   f->pfnGetVideoDecoderConfig = Vid_GetVideoDecoderConfig;
++   f->pfnGetVideoDecoderBufferTypeCount = Vid_GetVideoDecoderBufferTypeCount;
++   f->pfnGetVideoDecoderBufferInfo = Vid_GetVideoDecoderBufferInfo;
++   f->pfnCalcPrivateVideoDecoderSize = Vid_CalcPrivateVideoDecoderSize;
++   f->pfnCreateVideoDecoder = Vid_CreateVideoDecoder;
++   f->pfnDestroyVideoDecoder = Vid_DestroyVideoDecoder;
++   f->pfnVideoDecoderExtension = Vid_VideoDecoderExtension;
++   f->pfnVideoDecoderBeginFrame = Vid_VideoDecoderBeginFrame;
++   f->pfnVideoDecoderEndFrame = Vid_VideoDecoderEndFrame;
++   f->pfnVideoDecoderSubmitBuffers = Vid_VideoDecoderSubmitBuffers;
++   f->pfnCalcPrivateVideoProcessorEnumSize = VidStub_CalcPrivateVideoProcessorEnumSize_3D11_1;
++   f->pfnCreateVideoProcessorEnum = VidStub_CreateVideoProcessorEnum_3D11_1;
++   f->pfnDestroyVideoProcessorEnum = VidStub_DestroyVideoProcessorEnum_3D11_1;
++   f->pfnCheckVideoProcessorFormat = VidStub_CheckVideoProcessorFormat_3D11_1;
++   f->pfnGetVideoProcessorCaps = VidStub_GetVideoProcessorCaps_3D11_1;
++   f->pfnGetVideoProcessorRateConversionCaps = VidStub_GetVideoProcessorRateConversionCaps_3D11_1;
++   f->pfnGetVideoProcessorCustomRate = VidStub_GetVideoProcessorCustomRate_3D11_1;
++   f->pfnGetVideoProcessorFilterRange = VidStub_GetVideoProcessorFilterRange_3D11_1;
++   f->pfnCalcPrivateVideoProcessorSize = VidStub_CalcPrivateVideoProcessorSize_3D11_1;
++   f->pfnCreateVideoProcessor = VidStub_CreateVideoProcessor_3D11_1;
++   f->pfnDestroyVideoProcessor = VidStub_DestroyVideoProcessor_3D11_1;
++   f->pfnVideoProcessorSetOutputTargetRect = VidStub_VideoProcessorSetOutputTargetRect_3D11_1;
++   f->pfnVideoProcessorSetOutputBackgroundColor = VidStub_VideoProcessorSetOutputBackgroundColor_3D11_1;
++   f->pfnVideoProcessorSetOutputColorSpace = VidStub_VideoProcessorSetOutputColorSpace_3D11_1;
++   f->pfnVideoProcessorSetOutputAlphaFillMode = VidStub_VideoProcessorSetOutputAlphaFillMode_3D11_1;
++   f->pfnVideoProcessorSetOutputConstriction = VidStub_VideoProcessorSetOutputConstriction_3D11_1;
++   f->pfnVideoProcessorSetOutputStereoMode = VidStub_VideoProcessorSetOutputStereoMode_3D11_1;
++   f->pfnVideoProcessorSetOutputExtension = VidStub_VideoProcessorSetOutputExtension_3D11_1;
++   f->pfnVideoProcessorGetOutputExtension = VidStub_VideoProcessorGetOutputExtension_3D11_1;
++   f->pfnVideoProcessorSetStreamFrameFormat = VidStub_VideoProcessorSetStreamFrameFormat_3D11_1;
++   f->pfnVideoProcessorSetStreamColorSpace = VidStub_VideoProcessorSetStreamColorSpace_3D11_1;
++   f->pfnVideoProcessorSetStreamOutputRate = VidStub_VideoProcessorSetStreamOutputRate_3D11_1;
++   f->pfnVideoProcessorSetStreamSourceRect = VidStub_VideoProcessorSetStreamSourceRect_3D11_1;
++   f->pfnVideoProcessorSetStreamDestRect = VidStub_VideoProcessorSetStreamDestRect_3D11_1;
++   f->pfnVideoProcessorSetStreamAlpha = VidStub_VideoProcessorSetStreamAlpha_3D11_1;
++   f->pfnVideoProcessorSetStreamPalette = VidStub_VideoProcessorSetStreamPalette_3D11_1;
++   f->pfnVideoProcessorSetStreamPixelAspectRatio = VidStub_VideoProcessorSetStreamPixelAspectRatio_3D11_1;
++   f->pfnVideoProcessorSetStreamLumaKey = VidStub_VideoProcessorSetStreamLumaKey_3D11_1;
++   f->pfnVideoProcessorSetStreamStereoFormat = VidStub_VideoProcessorSetStreamStereoFormat_3D11_1;
++   f->pfnVideoProcessorSetStreamAutoProcessingMode = VidStub_VideoProcessorSetStreamAutoProcessingMode_3D11_1;
++   f->pfnVideoProcessorSetStreamFilter = VidStub_VideoProcessorSetStreamFilter_3D11_1;
++   f->pfnVideoProcessorSetStreamExtension = VidStub_VideoProcessorSetStreamExtension_3D11_1;
++   f->pfnVideoProcessorGetStreamExtension = VidStub_VideoProcessorGetStreamExtension_3D11_1;
++   f->pfnVideoProcessorBlt = VidStub_VideoProcessorBlt_3D11_1;
++   f->pfnCalcPrivateVideoDecoderOutputViewSize = Vid_CalcPrivateVideoDecoderOutputViewSize;
++   f->pfnCreateVideoDecoderOutputView = Vid_CreateVideoDecoderOutputView;
++   f->pfnDestroyVideoDecoderOutputView = Vid_DestroyVideoDecoderOutputView;
++   f->pfnCalcPrivateVideoProcessorInputViewSize = VidStub_CalcPrivateVideoProcessorInputViewSize_3D11_1;
++   f->pfnCreateVideoProcessorInputView = VidStub_CreateVideoProcessorInputView_3D11_1;
++   f->pfnDestroyVideoProcessorInputView = VidStub_DestroyVideoProcessorInputView_3D11_1;
++   f->pfnCalcPrivateVideoProcessorOutputViewSize = VidStub_CalcPrivateVideoProcessorOutputViewSize_3D11_1;
++   f->pfnCreateVideoProcessorOutputView = VidStub_CreateVideoProcessorOutputView_3D11_1;
++   f->pfnDestroyVideoProcessorOutputView = VidStub_DestroyVideoProcessorOutputView_3D11_1;
++   f->pfnVideoProcessorInputViewReadAfterWriteHazard = VidStub_VideoProcessorInputViewReadAfterWriteHazard_3D11_1;
++   f->pfnGetContentProtectionCaps = Vid_GetContentProtectionCaps;
++   f->pfnGetCryptoKeyExchangeType = VidStub_GetCryptoKeyExchangeType_3D11_1;
++   f->pfnCalcPrivateCryptoSessionSize = VidStub_CalcPrivateCryptoSessionSize_3D11_1;
++   f->pfnCreateCryptoSession = VidStub_CreateCryptoSession_3D11_1;
++   f->pfnDestroyCryptoSession = VidStub_DestroyCryptoSession_3D11_1;
++   f->pfnGetCertificateSize = VidStub_GetCertificateSize_3D11_1;
++   f->pfnGetCertificate = VidStub_GetCertificate_3D11_1;
++   f->pfnNegotiateCryptoSessionKeyExchange = VidStub_NegotiateCryptoSessionKeyExchange_3D11_1;
++   f->pfnEncryptionBlt = VidStub_EncryptionBlt_3D11_1;
++   f->pfnDecryptionBlt = VidStub_DecryptionBlt_3D11_1;
++   f->pfnStartSessionKeyRefresh = VidStub_StartSessionKeyRefresh_3D11_1;
++   f->pfnFinishSessionKeyRefresh = VidStub_FinishSessionKeyRefresh_3D11_1;
++   f->pfnGetEncryptionBltKey = VidStub_GetEncryptionBltKey_3D11_1;
++   f->pfnCalcPrivateAuthenticatedChannelSize = VidStub_CalcPrivateAuthenticatedChannelSize_3D11_1;
++   f->pfnCreateAuthenticatedChannel = VidStub_CreateAuthenticatedChannel_3D11_1;
++   f->pfnDestroyAuthenticatedChannel = VidStub_DestroyAuthenticatedChannel_3D11_1;
++   f->pfnNegotiateAuthenticatedChannelKeyExchange = VidStub_NegotiateAuthenticatedChannelKeyExchange_3D11_1;
++   f->pfnQueryAuthenticatedChannel = VidStub_QueryAuthenticatedChannel_3D11_1;
++   f->pfnConfigureAuthenticatedChannel = VidStub_ConfigureAuthenticatedChannel_3D11_1;
++   f->pfnVideoDecoderGetHandle = Vid_VideoDecoderGetHandle;
++   f->pfnCryptoSessionGetHandle = VidStub_CryptoSessionGetHandle_3D11_1;
++   f->pfnVideoProcessorSetStreamRotation = VidStub_VideoProcessorSetStreamRotation_3D11_1;
++   f->pfnGetCaptureHandle = VidStub_GetCaptureHandle_3D11_1;
+diff --git a/src/gallium/frontends/d3d10umd/video_fill_wddm2_0.inc b/src/gallium/frontends/d3d10umd/video_fill_wddm2_0.inc
+new file mode 100644
+index 0000000..f4d27c4
+--- /dev/null
++++ b/src/gallium/frontends/d3d10umd/video_fill_wddm2_0.inc
+@@ -0,0 +1,95 @@
++/* Generated by exynos-woa tools/mesa-build/gen-video-ddi.py - do not edit. */
++   f->pfnGetVideoDecoderProfileCount = Vid_GetVideoDecoderProfileCount;
++   f->pfnGetVideoDecoderProfile = Vid_GetVideoDecoderProfile;
++   f->pfnCheckVideoDecoderFormat = Vid_CheckVideoDecoderFormat;
++   f->pfnGetVideoDecoderConfigCount = Vid_GetVideoDecoderConfigCount;
++   f->pfnGetVideoDecoderConfig = Vid_GetVideoDecoderConfig;
++   f->pfnGetVideoDecoderBufferTypeCount = Vid_GetVideoDecoderBufferTypeCount;
++   f->pfnGetVideoDecoderBufferInfo = Vid_GetVideoDecoderBufferInfo;
++   f->pfnCalcPrivateVideoDecoderSize = Vid_CalcPrivateVideoDecoderSize;
++   f->pfnCreateVideoDecoder = Vid_CreateVideoDecoder;
++   f->pfnDestroyVideoDecoder = Vid_DestroyVideoDecoder;
++   f->pfnVideoDecoderExtension = Vid_VideoDecoderExtension;
++   f->pfnVideoDecoderBeginFrame = Vid_VideoDecoderBeginFrame;
++   f->pfnVideoDecoderEndFrame = Vid_VideoDecoderEndFrame;
++   f->pfnVideoDecoderSubmitBuffers = Vid_VideoDecoderSubmitBuffers;
++   f->pfnCalcPrivateVideoProcessorEnumSize = VidStub_CalcPrivateVideoProcessorEnumSize_3D11_1;
++   f->pfnCreateVideoProcessorEnum = VidStub_CreateVideoProcessorEnum_3D11_1;
++   f->pfnDestroyVideoProcessorEnum = VidStub_DestroyVideoProcessorEnum_3D11_1;
++   f->pfnCheckVideoProcessorFormat = VidStub_CheckVideoProcessorFormat_3D11_1;
++   f->pfnGetVideoProcessorCaps = VidStub_GetVideoProcessorCaps_3D11_1;
++   f->pfnGetVideoProcessorRateConversionCaps = VidStub_GetVideoProcessorRateConversionCaps_3D11_1;
++   f->pfnGetVideoProcessorCustomRate = VidStub_GetVideoProcessorCustomRate_3D11_1;
++   f->pfnGetVideoProcessorFilterRange = VidStub_GetVideoProcessorFilterRange_3D11_1;
++   f->pfnCalcPrivateVideoProcessorSize = VidStub_CalcPrivateVideoProcessorSize_3D11_1;
++   f->pfnCreateVideoProcessor = VidStub_CreateVideoProcessor_3D11_1;
++   f->pfnDestroyVideoProcessor = VidStub_DestroyVideoProcessor_3D11_1;
++   f->pfnVideoProcessorSetOutputTargetRect = VidStub_VideoProcessorSetOutputTargetRect_3D11_1;
++   f->pfnVideoProcessorSetOutputBackgroundColor = VidStub_VideoProcessorSetOutputBackgroundColor_3D11_1;
++   f->pfnVideoProcessorSetOutputColorSpace = VidStub_VideoProcessorSetOutputColorSpace_3D11_1;
++   f->pfnVideoProcessorSetOutputAlphaFillMode = VidStub_VideoProcessorSetOutputAlphaFillMode_3D11_1;
++   f->pfnVideoProcessorSetOutputConstriction = VidStub_VideoProcessorSetOutputConstriction_3D11_1;
++   f->pfnVideoProcessorSetOutputStereoMode = VidStub_VideoProcessorSetOutputStereoMode_3D11_1;
++   f->pfnVideoProcessorSetOutputExtension = VidStub_VideoProcessorSetOutputExtension_3D11_1;
++   f->pfnVideoProcessorGetOutputExtension = VidStub_VideoProcessorGetOutputExtension_3D11_1;
++   f->pfnVideoProcessorSetStreamFrameFormat = VidStub_VideoProcessorSetStreamFrameFormat_3D11_1;
++   f->pfnVideoProcessorSetStreamColorSpace = VidStub_VideoProcessorSetStreamColorSpace_3D11_1;
++   f->pfnVideoProcessorSetStreamOutputRate = VidStub_VideoProcessorSetStreamOutputRate_3D11_1;
++   f->pfnVideoProcessorSetStreamSourceRect = VidStub_VideoProcessorSetStreamSourceRect_3D11_1;
++   f->pfnVideoProcessorSetStreamDestRect = VidStub_VideoProcessorSetStreamDestRect_3D11_1;
++   f->pfnVideoProcessorSetStreamAlpha = VidStub_VideoProcessorSetStreamAlpha_3D11_1;
++   f->pfnVideoProcessorSetStreamPalette = VidStub_VideoProcessorSetStreamPalette_3D11_1;
++   f->pfnVideoProcessorSetStreamPixelAspectRatio = VidStub_VideoProcessorSetStreamPixelAspectRatio_3D11_1;
++   f->pfnVideoProcessorSetStreamLumaKey = VidStub_VideoProcessorSetStreamLumaKey_3D11_1;
++   f->pfnVideoProcessorSetStreamStereoFormat = VidStub_VideoProcessorSetStreamStereoFormat_3D11_1;
++   f->pfnVideoProcessorSetStreamAutoProcessingMode = VidStub_VideoProcessorSetStreamAutoProcessingMode_3D11_1;
++   f->pfnVideoProcessorSetStreamFilter = VidStub_VideoProcessorSetStreamFilter_3D11_1;
++   f->pfnVideoProcessorSetStreamExtension = VidStub_VideoProcessorSetStreamExtension_3D11_1;
++   f->pfnVideoProcessorGetStreamExtension = VidStub_VideoProcessorGetStreamExtension_3D11_1;
++   f->pfnVideoProcessorBlt = VidStub_VideoProcessorBlt_3D11_1;
++   f->pfnCalcPrivateVideoDecoderOutputViewSize = Vid_CalcPrivateVideoDecoderOutputViewSize;
++   f->pfnCreateVideoDecoderOutputView = Vid_CreateVideoDecoderOutputView;
++   f->pfnDestroyVideoDecoderOutputView = Vid_DestroyVideoDecoderOutputView;
++   f->pfnCalcPrivateVideoProcessorInputViewSize = VidStub_CalcPrivateVideoProcessorInputViewSize_3D11_1;
++   f->pfnCreateVideoProcessorInputView = VidStub_CreateVideoProcessorInputView_3D11_1;
++   f->pfnDestroyVideoProcessorInputView = VidStub_DestroyVideoProcessorInputView_3D11_1;
++   f->pfnCalcPrivateVideoProcessorOutputViewSize = VidStub_CalcPrivateVideoProcessorOutputViewSize_3D11_1;
++   f->pfnCreateVideoProcessorOutputView = VidStub_CreateVideoProcessorOutputView_3D11_1;
++   f->pfnDestroyVideoProcessorOutputView = VidStub_DestroyVideoProcessorOutputView_3D11_1;
++   f->pfnVideoProcessorInputViewReadAfterWriteHazard = VidStub_VideoProcessorInputViewReadAfterWriteHazard_3D11_1;
++   f->pfnGetContentProtectionCaps = Vid_GetContentProtectionCaps;
++   f->pfnGetCryptoKeyExchangeType = VidStub_GetCryptoKeyExchangeType_3D11_1;
++   f->pfnCalcPrivateCryptoSessionSize = VidStub_CalcPrivateCryptoSessionSize_3D11_1;
++   f->pfnCreateCryptoSession = VidStub_CreateCryptoSession_3D11_1;
++   f->pfnDestroyCryptoSession = VidStub_DestroyCryptoSession_3D11_1;
++   f->pfnGetCertificateSize = VidStub_GetCertificateSize_3D11_1;
++   f->pfnGetCertificate = VidStub_GetCertificate_3D11_1;
++   f->pfnNegotiateCryptoSessionKeyExchange = VidStub_NegotiateCryptoSessionKeyExchange_3D11_1;
++   f->pfnEncryptionBlt = VidStub_EncryptionBlt_3D11_1;
++   f->pfnDecryptionBlt = VidStub_DecryptionBlt_3D11_1;
++   f->pfnStartSessionKeyRefresh = VidStub_StartSessionKeyRefresh_3D11_1;
++   f->pfnFinishSessionKeyRefresh = VidStub_FinishSessionKeyRefresh_3D11_1;
++   f->pfnGetEncryptionBltKey = VidStub_GetEncryptionBltKey_3D11_1;
++   f->pfnCalcPrivateAuthenticatedChannelSize = VidStub_CalcPrivateAuthenticatedChannelSize_3D11_1;
++   f->pfnCreateAuthenticatedChannel = VidStub_CreateAuthenticatedChannel_3D11_1;
++   f->pfnDestroyAuthenticatedChannel = VidStub_DestroyAuthenticatedChannel_3D11_1;
++   f->pfnNegotiateAuthenticatedChannelKeyExchange = VidStub_NegotiateAuthenticatedChannelKeyExchange_3D11_1;
++   f->pfnQueryAuthenticatedChannel = VidStub_QueryAuthenticatedChannel_3D11_1;
++   f->pfnConfigureAuthenticatedChannel = VidStub_ConfigureAuthenticatedChannel_3D11_1;
++   f->pfnVideoDecoderGetHandle = Vid_VideoDecoderGetHandle;
++   f->pfnCryptoSessionGetHandle = VidStub_CryptoSessionGetHandle_3D11_1;
++   f->pfnVideoProcessorSetStreamRotation = VidStub_VideoProcessorSetStreamRotation_3D11_1;
++   f->pfnGetCaptureHandle = VidStub_GetCaptureHandle_3D11_1;
++   f->pfnGetDataForNewHardwareKey = VidStub_GetDataForNewHardwareKey_3DWDDM2_0;
++   f->pfnCheckCryptoSessionStatus = VidStub_CheckCryptoSessionStatus_3DWDDM2_0;
++   f->pfnVideoDecoderSubmitBuffers1 = Vid_VideoDecoderSubmitBuffers1;
++   f->pfnQueryVideoCapabilities = VidStub_QueryVideoCapabilities_3DWDDM2_0;
++   f->pfnCheckVideoProcessorFormatConversion = VidStub_CheckVideoProcessorFormatConversion_3DWDDM2_0;
++   f->pfnVideoDecoderEnableDownsampling = VidStub_VideoDecoderEnableDownsampling_3DWDDM2_0;
++   f->pfnVideoDecoderUpdateDownsampling = VidStub_VideoDecoderUpdateDownsampling_3DWDDM2_0;
++   f->pfnVideoProcessorSetStreamMirror = VidStub_VideoProcessorSetStreamMirror_3DWDDM2_0;
++   f->pfnVideoProcessorSetOutputColorSpace1 = VidStub_VideoProcessorSetOutputColorSpace1_3DWDDM2_0;
++   f->pfnVideoProcessorSetStreamColorSpace1 = VidStub_VideoProcessorSetStreamColorSpace1_3DWDDM2_0;
++   f->pfnVideoProcessorSetOutputShaderUsage = VidStub_VideoProcessorSetOutputShaderUsage_3DWDDM2_0;
++   f->pfnVideoProcessorGetBehaviorHints = VidStub_VideoProcessorGetBehaviorHints_3DWDDM2_0;
++   f->pfnGetCryptoSessionPrivateDataSize = VidStub_GetCryptoSessionPrivateDataSize_3DWDDM2_0;
+diff --git a/src/gallium/frontends/d3d10umd/video_stubs.inc b/src/gallium/frontends/d3d10umd/video_stubs.inc
+new file mode 100644
+index 0000000..466001b
+--- /dev/null
++++ b/src/gallium/frontends/d3d10umd/video_stubs.inc
+@@ -0,0 +1,593 @@
++/* Generated by exynos-woa tools/mesa-build/gen-video-ddi.py from the WDK d3d10umddi.h - do not edit. */
++
++static SIZE_T APIENTRY
++VidStub_CalcPrivateVideoProcessorEnumSize_3D11_1(D3D10DDI_HDEVICE p0, const D3D11_1DDIARG_CREATEVIDEOPROCESSORENUM* p1)
++{
++   malikm_tlog("video stub VidStub_CalcPrivateVideoProcessorEnumSize_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return sizeof(void *);
++}
++
++static HRESULT APIENTRY
++VidStub_CreateVideoProcessorEnum_3D11_1(D3D10DDI_HDEVICE p0, const D3D11_1DDIARG_CREATEVIDEOPROCESSORENUM* p1, D3D11_1DDI_HVIDEOPROCESSORENUM p2, D3D11_1DDI_HRTVIDEOPROCESSORENUM p3)
++{
++   malikm_tlog("video stub VidStub_CreateVideoProcessorEnum_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return E_NOTIMPL;
++}
++
++static VOID APIENTRY
++VidStub_DestroyVideoProcessorEnum_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSORENUM p1)
++{
++   malikm_tlog("video stub VidStub_DestroyVideoProcessorEnum_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_CheckVideoProcessorFormat_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSORENUM p1, DXGI_FORMAT p2, UINT* p3)
++{
++   malikm_tlog("video stub VidStub_CheckVideoProcessorFormat_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_GetVideoProcessorCaps_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSORENUM p1, D3D11_1DDI_VIDEO_PROCESSOR_CAPS* p2)
++{
++   malikm_tlog("video stub VidStub_GetVideoProcessorCaps_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_GetVideoProcessorRateConversionCaps_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSORENUM p1, UINT p2, D3D11_1DDI_VIDEO_PROCESSOR_RATE_CONVERSION_CAPS* p3)
++{
++   malikm_tlog("video stub VidStub_GetVideoProcessorRateConversionCaps_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_GetVideoProcessorCustomRate_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSORENUM p1, UINT p2, UINT p3, D3D11_1DDI_VIDEO_PROCESSOR_CUSTOM_RATE* p4)
++{
++   malikm_tlog("video stub VidStub_GetVideoProcessorCustomRate_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_GetVideoProcessorFilterRange_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSORENUM p1, D3D11_1DDI_VIDEO_PROCESSOR_FILTER p2, D3D11_1DDI_VIDEO_PROCESSOR_FILTER_RANGE* p3)
++{
++   malikm_tlog("video stub VidStub_GetVideoProcessorFilterRange_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static SIZE_T APIENTRY
++VidStub_CalcPrivateVideoProcessorSize_3D11_1(D3D10DDI_HDEVICE p0, const D3D11_1DDIARG_CREATEVIDEOPROCESSOR* p1)
++{
++   malikm_tlog("video stub VidStub_CalcPrivateVideoProcessorSize_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return sizeof(void *);
++}
++
++static HRESULT APIENTRY
++VidStub_CreateVideoProcessor_3D11_1(D3D10DDI_HDEVICE p0, const D3D11_1DDIARG_CREATEVIDEOPROCESSOR* p1, D3D11_1DDI_HVIDEOPROCESSOR p2, D3D11_1DDI_HRTVIDEOPROCESSOR p3)
++{
++   malikm_tlog("video stub VidStub_CreateVideoProcessor_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return E_NOTIMPL;
++}
++
++static VOID APIENTRY
++VidStub_DestroyVideoProcessor_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1)
++{
++   malikm_tlog("video stub VidStub_DestroyVideoProcessor_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorSetOutputTargetRect_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, BOOL p2, const RECT* p3)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetOutputTargetRect_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorSetOutputBackgroundColor_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, BOOL p2, const D3D11_1DDI_VIDEO_COLOR* p3)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetOutputBackgroundColor_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorSetOutputColorSpace_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, const D3D11_1DDI_VIDEO_PROCESSOR_COLOR_SPACE* p2)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetOutputColorSpace_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorSetOutputAlphaFillMode_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, D3D11_1DDI_VIDEO_PROCESSOR_ALPHA_FILL_MODE p2, UINT p3)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetOutputAlphaFillMode_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorSetOutputConstriction_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, BOOL p2, SIZE p3)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetOutputConstriction_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorSetOutputStereoMode_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, BOOL p2)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetOutputStereoMode_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static HRESULT APIENTRY
++VidStub_VideoProcessorSetOutputExtension_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, const GUID* p2, UINT p3, void* p4)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetOutputExtension_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return E_NOTIMPL;
++}
++
++static HRESULT APIENTRY
++VidStub_VideoProcessorGetOutputExtension_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, const GUID* p2, UINT p3, void* p4)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorGetOutputExtension_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return E_NOTIMPL;
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorSetStreamFrameFormat_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, UINT p2, D3D11_1DDI_VIDEO_FRAME_FORMAT p3)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetStreamFrameFormat_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorSetStreamColorSpace_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, UINT p2, const D3D11_1DDI_VIDEO_PROCESSOR_COLOR_SPACE* p3)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetStreamColorSpace_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorSetStreamOutputRate_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, UINT p2, D3D11_1DDI_VIDEO_PROCESSOR_OUTPUT_RATE p3, BOOL p4, const DXGI_RATIONAL* p5)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetStreamOutputRate_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorSetStreamSourceRect_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, UINT p2, BOOL p3, const RECT* p4)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetStreamSourceRect_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorSetStreamDestRect_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, UINT p2, BOOL p3, const RECT* p4)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetStreamDestRect_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorSetStreamAlpha_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, UINT p2, BOOL p3, FLOAT p4)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetStreamAlpha_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorSetStreamPalette_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, UINT p2, UINT p3, const UINT* p4)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetStreamPalette_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorSetStreamPixelAspectRatio_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, UINT p2, BOOL p3, const DXGI_RATIONAL* p4, const DXGI_RATIONAL* p5)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetStreamPixelAspectRatio_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorSetStreamLumaKey_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, UINT p2, BOOL p3, FLOAT p4, FLOAT p5)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetStreamLumaKey_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorSetStreamStereoFormat_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, UINT p2, BOOL p3, D3D11_1DDI_VIDEO_PROCESSOR_STEREO_FORMAT p4, BOOL p5, BOOL p6, D3D11_1DDI_VIDEO_PROCESSOR_STEREO_FLIP_MODE p7, int p8)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetStreamStereoFormat_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorSetStreamAutoProcessingMode_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, UINT p2, BOOL p3)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetStreamAutoProcessingMode_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorSetStreamFilter_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, UINT p2, D3D11_1DDI_VIDEO_PROCESSOR_FILTER p3, BOOL p4, int p5)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetStreamFilter_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static HRESULT APIENTRY
++VidStub_VideoProcessorSetStreamExtension_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, UINT p2, const GUID* p3, UINT p4, void* p5)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetStreamExtension_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return E_NOTIMPL;
++}
++
++static HRESULT APIENTRY
++VidStub_VideoProcessorGetStreamExtension_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, UINT p2, const GUID* p3, UINT p4, void* p5)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorGetStreamExtension_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return E_NOTIMPL;
++}
++
++static HRESULT APIENTRY
++VidStub_VideoProcessorBlt_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, D3D11_1DDI_HVIDEOPROCESSOROUTPUTVIEW p2, UINT p3, UINT p4, const D3D11_1DDI_VIDEO_PROCESSOR_STREAM* p5)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorBlt_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return E_NOTIMPL;
++}
++
++static SIZE_T APIENTRY
++VidStub_CalcPrivateVideoProcessorInputViewSize_3D11_1(D3D10DDI_HDEVICE p0, const D3D11_1DDIARG_CREATEVIDEOPROCESSORINPUTVIEW* p1)
++{
++   malikm_tlog("video stub VidStub_CalcPrivateVideoProcessorInputViewSize_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return sizeof(void *);
++}
++
++static HRESULT APIENTRY
++VidStub_CreateVideoProcessorInputView_3D11_1(D3D10DDI_HDEVICE p0, const D3D11_1DDIARG_CREATEVIDEOPROCESSORINPUTVIEW* p1, D3D11_1DDI_HVIDEOPROCESSORINPUTVIEW p2, D3D11_1DDI_HRTVIDEOPROCESSORINPUTVIEW p3)
++{
++   malikm_tlog("video stub VidStub_CreateVideoProcessorInputView_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return E_NOTIMPL;
++}
++
++static VOID APIENTRY
++VidStub_DestroyVideoProcessorInputView_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSORINPUTVIEW p1)
++{
++   malikm_tlog("video stub VidStub_DestroyVideoProcessorInputView_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static SIZE_T APIENTRY
++VidStub_CalcPrivateVideoProcessorOutputViewSize_3D11_1(D3D10DDI_HDEVICE p0, const D3D11_1DDIARG_CREATEVIDEOPROCESSOROUTPUTVIEW* p1)
++{
++   malikm_tlog("video stub VidStub_CalcPrivateVideoProcessorOutputViewSize_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return sizeof(void *);
++}
++
++static HRESULT APIENTRY
++VidStub_CreateVideoProcessorOutputView_3D11_1(D3D10DDI_HDEVICE p0, const D3D11_1DDIARG_CREATEVIDEOPROCESSOROUTPUTVIEW* p1, D3D11_1DDI_HVIDEOPROCESSOROUTPUTVIEW p2, D3D11_1DDI_HRTVIDEOPROCESSOROUTPUTVIEW p3)
++{
++   malikm_tlog("video stub VidStub_CreateVideoProcessorOutputView_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return E_NOTIMPL;
++}
++
++static VOID APIENTRY
++VidStub_DestroyVideoProcessorOutputView_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOROUTPUTVIEW p1)
++{
++   malikm_tlog("video stub VidStub_DestroyVideoProcessorOutputView_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorInputViewReadAfterWriteHazard_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSORINPUTVIEW p1, D3D10DDI_HRESOURCE p2)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorInputViewReadAfterWriteHazard_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static HRESULT APIENTRY
++VidStub_GetCryptoKeyExchangeType_3D11_1(D3D10DDI_HDEVICE hDevice, const GUID* pCryptoType, const GUID* pDecodeProfile, UINT Index, GUID* pKeyExchangeType)
++{
++   malikm_tlog("video stub VidStub_GetCryptoKeyExchangeType_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return E_NOTIMPL;
++}
++
++static SIZE_T APIENTRY
++VidStub_CalcPrivateCryptoSessionSize_3D11_1(D3D10DDI_HDEVICE hDevice, const D3D11_1DDIARG_CREATECRYPTOSESSION* pCreateData)
++{
++   malikm_tlog("video stub VidStub_CalcPrivateCryptoSessionSize_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return sizeof(void *);
++}
++
++static HRESULT APIENTRY
++VidStub_CreateCryptoSession_3D11_1(D3D10DDI_HDEVICE hDevice, const D3D11_1DDIARG_CREATECRYPTOSESSION* pCreateData, D3D11_1DDI_HCRYPTOSESSION hCryptoSession, D3D11_1DDI_HRTCRYPTOSESSION hRTCryptoSession)
++{
++   malikm_tlog("video stub VidStub_CreateCryptoSession_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return E_NOTIMPL;
++}
++
++static VOID APIENTRY
++VidStub_DestroyCryptoSession_3D11_1(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HCRYPTOSESSION hCryptoSession)
++{
++   malikm_tlog("video stub VidStub_DestroyCryptoSession_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(hDevice, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_GetCertificateSize_3D11_1(D3D10DDI_HDEVICE hDevice, const D3D11_1DDI_CERTIFICATE_INFO* pCertificateInfo, UINT* pCertificateSize)
++{
++   malikm_tlog("video stub VidStub_GetCertificateSize_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(hDevice, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_GetCertificate_3D11_1(D3D10DDI_HDEVICE hDevice, const D3D11_1DDI_CERTIFICATE_INFO* pCertificateInfo, UINT CertificateSize, BYTE* pCertificate)
++{
++   malikm_tlog("video stub VidStub_GetCertificate_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(hDevice, E_NOTIMPL);
++}
++
++static HRESULT APIENTRY
++VidStub_NegotiateCryptoSessionKeyExchange_3D11_1(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HCRYPTOSESSION hCryptoSession, UINT DataSize, BYTE* pData)
++{
++   malikm_tlog("video stub VidStub_NegotiateCryptoSessionKeyExchange_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return E_NOTIMPL;
++}
++
++static VOID APIENTRY
++VidStub_EncryptionBlt_3D11_1(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HCRYPTOSESSION hCryptoSession, D3D10DDI_HRESOURCE hSrcResource, D3D10DDI_HRESOURCE hDstResource, UINT IVSize, const void* pIV)
++{
++   malikm_tlog("video stub VidStub_EncryptionBlt_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(hDevice, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_DecryptionBlt_3D11_1(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HCRYPTOSESSION hCryptoSession, D3D10DDI_HRESOURCE hSrcResource, D3D10DDI_HRESOURCE hDstResource, const D3D11_1DDI_ENCRYPTED_BLOCK_INFO* pEncryptedBlockInfo, UINT ContentKeySize, const void* pContentKey, UINT IVSize, const void* pIV)
++{
++   malikm_tlog("video stub VidStub_DecryptionBlt_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(hDevice, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_StartSessionKeyRefresh_3D11_1(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HCRYPTOSESSION hCryptoSession, UINT RandomNumberSize, void* pRandomNumber)
++{
++   malikm_tlog("video stub VidStub_StartSessionKeyRefresh_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(hDevice, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_FinishSessionKeyRefresh_3D11_1(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HCRYPTOSESSION hCryptoSession)
++{
++   malikm_tlog("video stub VidStub_FinishSessionKeyRefresh_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(hDevice, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_GetEncryptionBltKey_3D11_1(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HCRYPTOSESSION hCryptoSession, UINT KeySize, void* pReadbackKey)
++{
++   malikm_tlog("video stub VidStub_GetEncryptionBltKey_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(hDevice, E_NOTIMPL);
++}
++
++static SIZE_T APIENTRY
++VidStub_CalcPrivateAuthenticatedChannelSize_3D11_1(D3D10DDI_HDEVICE hDevice, const D3D11_1DDIARG_CREATEAUTHENTICATEDCHANNEL* pCreateData)
++{
++   malikm_tlog("video stub VidStub_CalcPrivateAuthenticatedChannelSize_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return sizeof(void *);
++}
++
++static HRESULT APIENTRY
++VidStub_CreateAuthenticatedChannel_3D11_1(D3D10DDI_HDEVICE hDevice, D3D11_1DDIARG_CREATEAUTHENTICATEDCHANNEL* pCreateData, D3D11_1DDI_HAUTHCHANNEL hAuthChannel, D3D11_1DDI_HRTAUTHCHANNEL hRTAuthChannel)
++{
++   malikm_tlog("video stub VidStub_CreateAuthenticatedChannel_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return E_NOTIMPL;
++}
++
++static VOID APIENTRY
++VidStub_DestroyAuthenticatedChannel_3D11_1(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HAUTHCHANNEL hAuthChannel)
++{
++   malikm_tlog("video stub VidStub_DestroyAuthenticatedChannel_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(hDevice, E_NOTIMPL);
++}
++
++static HRESULT APIENTRY
++VidStub_NegotiateAuthenticatedChannelKeyExchange_3D11_1(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HAUTHCHANNEL hCAuthChannel, UINT DataSize, void* pData)
++{
++   malikm_tlog("video stub VidStub_NegotiateAuthenticatedChannelKeyExchange_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return E_NOTIMPL;
++}
++
++static HRESULT APIENTRY
++VidStub_QueryAuthenticatedChannel_3D11_1(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HAUTHCHANNEL hCAuthChannel, UINT InputDataSize, const void* pInputData, UINT OutputDataSize, void* pOutputData)
++{
++   malikm_tlog("video stub VidStub_QueryAuthenticatedChannel_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return E_NOTIMPL;
++}
++
++static HRESULT APIENTRY
++VidStub_ConfigureAuthenticatedChannel_3D11_1(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HAUTHCHANNEL hCAuthChannel, UINT InputDataSize, const void* pInputData, D3D11_1DDI_AUTHENTICATED_CONFIGURE_OUTPUT* pOutputData)
++{
++   malikm_tlog("video stub VidStub_ConfigureAuthenticatedChannel_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return E_NOTIMPL;
++}
++
++static HRESULT APIENTRY
++VidStub_CryptoSessionGetHandle_3D11_1(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HCRYPTOSESSION hCryptoSession, HANDLE* pHandle)
++{
++   malikm_tlog("video stub VidStub_CryptoSessionGetHandle_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return E_NOTIMPL;
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorSetStreamRotation_3D11_1(D3D10DDI_HDEVICE p0, D3D11_1DDI_HVIDEOPROCESSOR p1, UINT p2, BOOL p3, D3D11_1DDI_VIDEO_PROCESSOR_ROTATION p4)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetStreamRotation_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(p0, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_GetCaptureHandle_3D11_1(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_GETCAPTUREHANDLEDATA* pHandleData)
++{
++   malikm_tlog("video stub VidStub_GetCaptureHandle_3D11_1");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(hDevice, E_NOTIMPL);
++}
++
++static HRESULT APIENTRY
++VidStub_GetDataForNewHardwareKey_3DWDDM2_0(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HCRYPTOSESSION hCryptoSession, UINT PrivateInputSize, const void* pPrivatInputData, UINT64* pPrivateOutputData)
++{
++   malikm_tlog("video stub VidStub_GetDataForNewHardwareKey_3DWDDM2_0");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return E_NOTIMPL;
++}
++
++static VOID APIENTRY
++VidStub_CheckCryptoSessionStatus_3DWDDM2_0(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HCRYPTOSESSION hCryptoSession, D3DWDDM2_0DDI_CRYPTO_SESSION_STATUS* pStatus)
++{
++   malikm_tlog("video stub VidStub_CheckCryptoSessionStatus_3DWDDM2_0");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(hDevice, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_QueryVideoCapabilities_3DWDDM2_0(D3D10DDI_HDEVICE hDevice, D3DWDDM2_0DDI_VIDEO_CAPABILITY_QUERY QueryType, UINT DataSize, void* pData)
++{
++   malikm_tlog("video stub VidStub_QueryVideoCapabilities_3DWDDM2_0");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(hDevice, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_CheckVideoProcessorFormatConversion_3DWDDM2_0(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HVIDEOPROCESSORENUM hProcessorEnum, D3DWDDM2_0DDI_CHECK_VIDEO_PROCESSOR_FORMAT_CONVERSION* pConversion)
++{
++   malikm_tlog("video stub VidStub_CheckVideoProcessorFormatConversion_3DWDDM2_0");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(hDevice, E_NOTIMPL);
++}
++
++static HRESULT APIENTRY
++VidStub_VideoDecoderEnableDownsampling_3DWDDM2_0(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HDECODE hDecoder, D3DDDI_COLOR_SPACE_TYPE InputColorSpace, const D3D11_1DDI_VIDEO_DECODER_DESC* pOutputDesc, D3DDDI_COLOR_SPACE_TYPE OutputColorSpace, UINT ReferenceFrameCount)
++{
++   malikm_tlog("video stub VidStub_VideoDecoderEnableDownsampling_3DWDDM2_0");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return E_NOTIMPL;
++}
++
++static HRESULT APIENTRY
++VidStub_VideoDecoderUpdateDownsampling_3DWDDM2_0(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HDECODE hDecoder, const D3D11_1DDI_VIDEO_DECODER_DESC* pOutputDesc, D3DDDI_COLOR_SPACE_TYPE OutputColorSpace)
++{
++   malikm_tlog("video stub VidStub_VideoDecoderUpdateDownsampling_3DWDDM2_0");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return E_NOTIMPL;
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorSetStreamMirror_3DWDDM2_0(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HVIDEOPROCESSOR hVideoProcessor, UINT StreamIndex, BOOL Enable, BOOL FlipHorizontal, BOOL FlipVertical)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetStreamMirror_3DWDDM2_0");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(hDevice, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorSetOutputColorSpace1_3DWDDM2_0(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HVIDEOPROCESSOR hVideoProcessor, D3DDDI_COLOR_SPACE_TYPE ColorSpace)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetOutputColorSpace1_3DWDDM2_0");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(hDevice, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorSetStreamColorSpace1_3DWDDM2_0(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HVIDEOPROCESSOR hVideoProcessor, UINT StreamIndex, D3DDDI_COLOR_SPACE_TYPE ColorSpace)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetStreamColorSpace1_3DWDDM2_0");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(hDevice, E_NOTIMPL);
++}
++
++static VOID APIENTRY
++VidStub_VideoProcessorSetOutputShaderUsage_3DWDDM2_0(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HVIDEOPROCESSOR hVideoProcessor, BOOL ShaderUsage)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorSetOutputShaderUsage_3DWDDM2_0");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(hDevice, E_NOTIMPL);
++}
++
++static HRESULT APIENTRY
++VidStub_VideoProcessorGetBehaviorHints_3DWDDM2_0(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HVIDEOPROCESSOR hVideoProcessor, UINT OutputWidth, UINT OutputHeight, DXGI_FORMAT OutputFormat, UINT StreamCount, const D3DWDDM2_0DDI_VIDEO_PROCESSOR_STREAM_BEHAVIOR_HINT *pStreams, UINT* pBehaviorHints)
++{
++   malikm_tlog("video stub VidStub_VideoProcessorGetBehaviorHints_3DWDDM2_0");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   return E_NOTIMPL;
++}
++
++static VOID APIENTRY
++VidStub_GetCryptoSessionPrivateDataSize_3DWDDM2_0(D3D10DDI_HDEVICE hDevice, const GUID* pCryptoType, const GUID* pDecoderProfile, const GUID* pKeyExchangeType, UINT* pPrivateInputSize, UINT* pPrivateOutputSize)
++{
++   malikm_tlog("video stub VidStub_GetCryptoSessionPrivateDataSize_3DWDDM2_0");
++   LOG_UNSUPPORTED_ENTRYPOINT();
++   SetError(hDevice, E_NOTIMPL);
++}
+-- 
+2.40.1.windows.1
+

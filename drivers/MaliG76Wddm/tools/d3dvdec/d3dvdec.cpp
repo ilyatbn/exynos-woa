@@ -1,7 +1,8 @@
 /*
  * d3dvdec - G17 V6a/V6b test (notes/g17-dxva-mfc.md): the D3D11 video decoder path of the Mali UMD as an app sees it.
  * D3D11CreateDevice(VIDEO_SUPPORT) on the Mali, ID3D11VideoDevice: profiles, NV12 support, configs for 1920x1080,
- * CreateVideoDecoder, an NV12 BIND_DECODER texture + decoder output view. "warp" runs the same queries on WARP.
+ * CreateVideoDecoder, an NV12 BIND_DECODER texture + decoder output view. "warp" runs the same queries on WARP,
+ * "debug" creates the device with the D3D11 debug layer (Graphics Tools) and prints its messages after each step.
  * Exit 0 = every step succeeded. Build: build-d3dvdec.cmd. SPDX-License-Identifier: GPL-2.0
  */
 #include <windows.h>
@@ -17,9 +18,28 @@ static void PrintGuid(const GUID &g)
            g.Data4[2], g.Data4[3], g.Data4[4], g.Data4[5], g.Data4[6], g.Data4[7]);
 }
 
+static ID3D11InfoQueue *g_iq;
+
+static void DumpMessages(void)
+{
+    if (!g_iq)
+        return;
+    for (UINT64 k = 0, n = g_iq->GetNumStoredMessages(); k < n; k++) {
+        SIZE_T len = 0;
+        g_iq->GetMessage(k, NULL, &len);
+        D3D11_MESSAGE *m = (D3D11_MESSAGE *)malloc(len);
+        if (m && SUCCEEDED(g_iq->GetMessage(k, m, &len)))
+            printf("  debug [%d/%d] %.*s\n", (int)m->Severity, (int)m->ID, (int)m->DescriptionByteLength,
+                   m->pDescription);
+        free(m);
+    }
+    g_iq->ClearStoredMessages();
+}
+
 int main(int argc, char **argv)
 {
     bool warp = argc > 1 && !strcmp(argv[1], "warp");
+    bool dbg = argc > 1 && !strcmp(argv[1], "debug");
     IDXGIFactory1 *fac = NULL;
     IDXGIAdapter1 *ad = NULL, *pick = NULL;
     CreateDXGIFactory1(__uuidof(IDXGIFactory1), (void **)&fac);
@@ -37,10 +57,13 @@ int main(int argc, char **argv)
     ID3D11DeviceContext *ctx = NULL;
     D3D_FEATURE_LEVEL fl[] = { D3D_FEATURE_LEVEL_10_1, D3D_FEATURE_LEVEL_10_0 }, got;
     HRESULT hr = D3D11CreateDevice(warp ? NULL : pick, warp ? D3D_DRIVER_TYPE_WARP : D3D_DRIVER_TYPE_UNKNOWN, NULL,
-                                   D3D11_CREATE_DEVICE_VIDEO_SUPPORT, fl, 2, D3D11_SDK_VERSION, &dev, &got, &ctx);
+                                   D3D11_CREATE_DEVICE_VIDEO_SUPPORT | (dbg ? D3D11_CREATE_DEVICE_DEBUG : 0), fl, 2, D3D11_SDK_VERSION, &dev, &got, &ctx);
     printf("D3D11CreateDevice(VIDEO_SUPPORT) 0x%08lx FL 0x%x\n", hr, got);
     if (FAILED(hr))
         return 1;
+    if (dbg)
+        dev->QueryInterface(__uuidof(ID3D11InfoQueue), (void **)&g_iq);
+    DumpMessages();
     ID3D11VideoDevice *vd = NULL;
     hr = dev->QueryInterface(__uuidof(ID3D11VideoDevice), (void **)&vd);
     printf("QueryInterface(ID3D11VideoDevice) 0x%08lx\n", hr);
@@ -85,6 +108,7 @@ int main(int argc, char **argv)
     ID3D11VideoDecoder *dec = NULL;
     hr = vd->CreateVideoDecoder(&desc, &cfg, &dec);
     printf("CreateVideoDecoder 0x%08lx\n", hr);
+    DumpMessages();
     if (FAILED(hr))
         return 5;
     D3D11_TEXTURE2D_DESC td = {};
@@ -96,6 +120,7 @@ int main(int argc, char **argv)
     printf("CheckFormatSupport(NV12) 0x%08x\n", sup);
     hr = dev->CreateTexture2D(&td, NULL, &tex);
     printf("CreateTexture2D(NV12, BIND_DECODER) 0x%08lx\n", hr);
+    DumpMessages();
     if (FAILED(hr))
         return 6;
     D3D11_VIDEO_DECODER_OUTPUT_VIEW_DESC od = {};
@@ -104,6 +129,7 @@ int main(int argc, char **argv)
     ID3D11VideoDecoderOutputView *ov = NULL;
     hr = vd->CreateVideoDecoderOutputView(tex, &od, &ov);
     printf("CreateVideoDecoderOutputView 0x%08lx\n", hr);
+    DumpMessages();
     if (FAILED(hr))
         return 7;
     printf("PASS\n");

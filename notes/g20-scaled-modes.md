@@ -68,3 +68,13 @@ User 2026-10-17: "yes to attempting to add a lower 720p resolution scale to see 
   - SrcW/SrcH are only logged (CommitSrcWxH), DoPresent uses the primary's own size - stated in the header comment.
 - Follow-up (review of ab0ebf2): IsSupportedVidPn rejects a scaled pinned source with an IDENTITY path for source 0.
   KMD 1.0.67.1 rebuilt (s10e-artifacts\mali-kmd-67, sys b6012665).
+- Review of d7bfd3f: loop ends on NO_MORE_ELEMENTS (!= SUCCESS -> next NULL); empty topology skips. Nothing found.
+- Mesa 0103 (511cf83, patches/0103-scaled-mode-stretch.patch): d3d10_scanout_present accepts a primary no larger than the
+  scan-out with the same aspect: plain blit dst box = whole scan-out, LINEAR when sizes differ; rotating quad LINEAR
+  when scaled. Caught while writing it: (1) a single "fits" using transposed scan-out dims for rotated modes would
+  have sent landscape to the CPU path - DWM pre-rotates into a 1080x2280 primary marked rotation 2
+  (notes/gpu-hw-path.md 19:01), the plain blit is the live landscape path; split into fitsN (plain) / fitsT
+  (transposed quad, practically unused). (2) malikm_primary_present checks the kernel primary = the presented
+  resource's own size (Resource.cpp:485 malikm_primary_create(templat.width0, templat.height0)), so the quad branch
+  now passes res dims (was so dims - equal for rot 3, and the 2/4 branch never ran).
+  Built: s10e-artifacts\mali-umd-0103 (maliumd 8abbced3), mali-umd-0103-x86 (maliumd32 3ff1b027).

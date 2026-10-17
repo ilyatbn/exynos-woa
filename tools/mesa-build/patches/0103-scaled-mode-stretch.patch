@@ -1,0 +1,90 @@
+From 511cf83426d9113de401c4659bbe0087ff3a848d Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 20:21:38 +0300
+Subject: [PATCH] d3d10umd: stretch a scaled desktop mode (smaller primary,
+ same aspect) over the scan-out, LINEAR (exynos-woa 0103)
+
+---
+ src/gallium/targets/d3d10umd/d3d10_gdi.c | 32 ++++++++++++++++++------
+ 1 file changed, 24 insertions(+), 8 deletions(-)
+
+diff --git a/src/gallium/targets/d3d10umd/d3d10_gdi.c b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+index e8ec9fc..9ae79ff 100644
+--- a/src/gallium/targets/d3d10umd/d3d10_gdi.c
++++ b/src/gallium/targets/d3d10umd/d3d10_gdi.c
+@@ -199,6 +199,10 @@ d3d10_scanout_rotate(struct pipe_screen *screen, struct pipe_context *pipe, stru
+    struct pipe_context *c = d3d10_rot_ctx;
+    struct cso_context *cso = d3d10_rot_cso;
+    unsigned W = so->width0, H = so->height0;
++   /* exynos-woa G20 (notes/g20-scaled-modes.md): a scaled desktop mode (720x1520 on the 1080x2280 panel) draws the
++    * same full-target quad from a smaller source - filtered, not nearest. */
++   bool transposed = rot == 2 || rot == 4;
++   bool scaled = res->width0 != (transposed ? H : W) || res->height0 != (transposed ? W : H);
+ 
+    struct pipe_blend_state blend;
+    memset(&blend, 0, sizeof blend);
+@@ -216,7 +220,7 @@ d3d10_scanout_rotate(struct pipe_screen *screen, struct pipe_context *pipe, stru
+    struct pipe_sampler_state ss;
+    memset(&ss, 0, sizeof ss);
+    ss.wrap_s = ss.wrap_t = ss.wrap_r = PIPE_TEX_WRAP_CLAMP_TO_EDGE;
+-   ss.min_img_filter = ss.mag_img_filter = PIPE_TEX_FILTER_NEAREST;
++   ss.min_img_filter = ss.mag_img_filter = scaled ? PIPE_TEX_FILTER_LINEAR : PIPE_TEX_FILTER_NEAREST;
+    ss.min_mip_filter = PIPE_TEX_MIPFILTER_NONE;
+    const struct pipe_sampler_state *ssp = &ss;
+    cso_set_samplers(cso, MESA_SHADER_FRAGMENT, 1, &ssp);
+@@ -321,15 +325,25 @@ d3d10_scanout_present(struct pipe_screen *screen, struct pipe_context *pipe, str
+          freeze_until = 0;
+       }
+    }
++   /* G20: the primary may be smaller than the scan-out (a scaled source mode): stretched, no larger, the same
++    * aspect (the mode list offers only 2/3 of the panel). fitsT = a transposed (un-rotated, 2280x1080-shaped) frame
++    * for the rotating quad; fitsN = the scan-out's own orientation, for the plain blit - which is what a rotated
++    * mode really uses: DWM pre-rotates into a 1080x2280 primary marked rotation 2 (notes/gpu-hw-path.md 19:01). */
++   unsigned sw = so ? so->width0 : 0, sh = so ? so->height0 : 0;
++   bool fitsN = so && res->width0 <= sw && res->height0 <= sh &&
++                (uint64_t)res->width0 * sh == (uint64_t)res->height0 * sw;
++   bool fitsT = so && res->width0 <= sh && res->height0 <= sw &&
++                (uint64_t)res->width0 * sw == (uint64_t)res->height0 * sh;
+    if (so && rot != 1 && res->nr_samples <= 1 &&
+-       util_format_is_rgba8_variant(util_format_description(res->format)) &&
+-       res->width0 == (transposed ? so->height0 : so->width0) &&
+-       res->height0 == (transposed ? so->width0 : so->height0)) {
++       util_format_is_rgba8_variant(util_format_description(res->format)) && (transposed ? fitsT : fitsN)) {
+       DWORD r0 = GetTickCount();
+       if (d3d10_scanout_rotate(screen, pipe, res, so, rot) != 0)
+          return -1;
+       DWORD r1 = GetTickCount();
+-      int r = malikm_primary_present(d3d10_present_alloc, d3d10_present_dst, NULL, so->width0, so->height0,
++      /* G20: the kernel primary was created with the presented resource's own size (Resource.cpp
++       * malikm_primary_create(templat.width0, templat.height0), checked in malikm_primary_present) - not the
++       * scan-out's, which differs for a scaled mode. */
++      int r = malikm_primary_present(d3d10_present_alloc, d3d10_present_dst, NULL, res->width0, res->height0,
+                                      context_private);
+       static unsigned rn;
+       if (rn++ < 8 || (rn % 300) == 0 || r != 0)
+@@ -337,8 +351,7 @@ d3d10_scanout_present(struct pipe_screen *screen, struct pipe_context *pipe, str
+                      res->height0, (unsigned long)(r1 - r0), r);
+       return r;
+    }
+-   if (!so || res->width0 != so->width0 || res->height0 != so->height0 || res->nr_samples > 1 ||
+-       !util_format_is_rgba8_variant(util_format_description(res->format))) {
++   if (!fitsN || res->nr_samples > 1 || !util_format_is_rgba8_variant(util_format_description(res->format))) {
+       static unsigned mn;
+       if (so && mn++ < 8)
+          malikm_tlog("scanout present: %ux%u (rotation %d) does not fit the %ux%u scan-out - CPU path", res->width0,
+@@ -358,8 +371,11 @@ d3d10_scanout_present(struct pipe_screen *screen, struct pipe_context *pipe, str
+    b.dst.resource = so;
+    b.dst.format = so->format;
+    b.dst.box = b.src.box;
++   b.dst.box.width = so->width0;          /* G20: a scaled mode is stretched over the whole scan-out */
++   b.dst.box.height = so->height0;
+    b.mask = PIPE_MASK_RGBA;
+-   b.filter = PIPE_TEX_FILTER_NEAREST;
++   b.filter = (res->width0 != so->width0 || res->height0 != so->height0) ? PIPE_TEX_FILTER_LINEAR
++                                                                         : PIPE_TEX_FILTER_NEAREST;
+    pipe->blit(pipe, &b);
+    struct pipe_fence_handle *fence = NULL;
+    pipe->flush(pipe, &fence, 0);
+-- 
+2.40.1.windows.1
+

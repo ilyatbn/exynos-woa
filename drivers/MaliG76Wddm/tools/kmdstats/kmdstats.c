@@ -101,5 +101,8 @@ int main(int argc, char **argv)
         if (s1.PagingOps[i] != s0.PagingOps[i])
             printf(" [%d] %u", i, s1.PagingOps[i] - s0.PagingOps[i]);
     printf("\n");
+    /* G-game (notes/g17-dxva-mfc.md): where the KMD's allocations land in the one 4 GB GPU address space */
+    printf("last alloc va 0x%llx, last map va 0x%llx (%u pages, status 0x%x)\n", (unsigned long long)s1.LastAllocVa,
+           (unsigned long long)s1.LastMapVa, s1.LastMapPages, s1.LastMapStatus);
     return 0;
 }

@@ -675,3 +675,12 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
 - KMD 1.0.63.1 (s10e-artifacts\mali-kmd-63, sys 4c1a9072): MW_SEGMENT_SIZE 1 GiB -> 2.5 GiB (about half of the
   5.24 GiB RAM, the usual iGPU share; a limit, VidMm commits on use; < 4 GB - 32 MB VA limit). Deploy: TWRP +
   tools/phone/kmd-deploy.sh (old sys kept in C:\S10eTmp\kmd-prev).
+- 32-bit game: create-bo FAIL even for 4 KB noexec BOs (TEMP log in the x86 UMD cb433cc9); KMD last alloc va 0x0f3a0000 (not VA-exhausted on the GPU side); system commit 2.9 of ~6.9 GB (tools/phone/memcommit.ps1). Game VirtualMemorySize 3085 -> 4031 MB within seconds while its working set stays ~250 MB = the 32-bit process's 4 GB CPU address space runs full -> allocations (CPU-visible, mapped into the process) fail with 0x8876017c. Next: which regions (tools vaprobe).
+- vaprobe (new, drivers/MaliG76Wddm/tools/vaprobe: VirtualQueryEx walk, totals by type + largest AllocationBase
+  groups) on the game at ~4 GB VM: private reserved-only 3522 MB, ~110 regions of exactly 32 MB with ~0 committed
+  (+ the 2 TB mapped region = WoW64/emulator reservation above 4 GB, irrelevant). mpv (ARM64, same UMD): ~47 x 32 MB
+  private reserved-only regions + the 4 GB CFG bitmap -> the 32 MB reservations come with OUR stack, roughly one per
+  GPU allocation (mpv ~55 BOs, game ~90-110). No MEM_RESERVE in the shim/Mesa (only the non-WDDM fake path). The
+  shim locks every BO at creation (pfnLockCb, kept mapped). Hypothesis: each lock of an aperture allocation costs a
+  32 MB CPU VA reservation in the process (done by the runtime/VidMm). Rule 11: not investigated inside Windows;
+  behavioural test next (lock vs no lock, count the 32 MB regions).

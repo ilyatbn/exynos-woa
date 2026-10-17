@@ -1,0 +1,61 @@
+From 47e887109e8c4961258c31ed1c7263410c910e71 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 07:47:08 +0300
+Subject: [PATCH] d3d10umd video: hide the H.264 profile until the decode works
+ (exynos-woa 0084, G17 V6a review F1) - advertising it made Media Foundation
+ choose DXVA and present empty frames; D3D10UMD_VIDEO_DEV=1 exposes it to test
+ tools
+
+---
+ src/gallium/frontends/d3d10umd/Video.cpp | 20 +++++++++++++++++---
+ 1 file changed, 17 insertions(+), 3 deletions(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/Video.cpp b/src/gallium/frontends/d3d10umd/Video.cpp
+index 97242f2..76a42ee 100644
+--- a/src/gallium/frontends/d3d10umd/Video.cpp
++++ b/src/gallium/frontends/d3d10umd/Video.cpp
+@@ -46,10 +46,24 @@ struct VideoOutputView {
+    UINT ArraySlice;
+ };
+ 
++/* Until V6b decodes into the output view the profile stays hidden: advertising it would make Media Foundation
++ * (msmpeg2vdec) choose DXVA over its software decoder and present empty frames. D3D10UMD_VIDEO_DEV=1 exposes it to
++ * test tools (d3dvdec) - a development gate, removed when the decode works. */
++static BOOL
++VideoEnabled(void)
++{
++   static int enabled = -1;
++   if (enabled < 0) {
++      const char *v = getenv("D3D10UMD_VIDEO_DEV");
++      enabled = v && *v && *v != '0';
++   }
++   return enabled;
++}
++
+ static BOOL
+ IsH264(const GUID *g)
+ {
+-   return g && IsEqualGUID(*g, kH264VldNoFgt);
++   return VideoEnabled() && g && IsEqualGUID(*g, kH264VldNoFgt);
+ }
+ 
+ static BOOL
+@@ -63,13 +77,13 @@ static VOID APIENTRY
+ Vid_GetVideoDecoderProfileCount(D3D10DDI_HDEVICE hDevice, UINT *pCount)
+ {
+    (void)hDevice;
+-   *pCount = 1;
++   *pCount = VideoEnabled() ? 1 : 0;
+ }
+ 
+ static VOID APIENTRY
+ Vid_GetVideoDecoderProfile(D3D10DDI_HDEVICE hDevice, UINT Index, GUID *pGuid)
+ {
+-   if (Index != 0) {
++   if (Index != 0 || !VideoEnabled()) {
+       SetError(hDevice, E_INVALIDARG);
+       return;
+    }
+-- 
+2.40.1.windows.1
+

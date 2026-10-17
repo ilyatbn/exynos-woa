@@ -61,3 +61,14 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   creates the 4 DYNAMIC decoder buffers, NV12 BIND_DECODER texture, output view). Regression: d3dtri cube in the user
   session 36.5 fps, 0 present failures (DWM keeps the old DLL until the next boot). Mesa 0f47367 ->
   tools/mesa-build/patches/0083-video-ddi.patch. Next: V6b.
+- Review of f8000ad / Mesa 0083 (rule 4):
+  - F1 SERIOUS: every D3D11.1+ device now advertises H264_VLD_NOFGT while EndFrame decodes nothing -> MF apps
+    (msmpeg2vdec in Media Player/Photos) would choose DXVA and show empty frames instead of software decode. Silent
+    regression. Fix (0084): profile count 0 unless decode works; dev gate D3D10UMD_VIDEO_DEV=1 for d3dvdec until V6b.
+  - F2: vdecmatrix.ps1 header names D3D10UMD_VID_* switches that the committed 0083 no longer has -> fix header.
+  - Checked OK: VIDEO_INPUT.Relocate ignored (MS Learn: "whether the functions can be relocated" - our table never
+    moves); only the video hook sets ppfnRetrieveSubObject (rg); unknown SubDeviceIDs -> E_NOTIMPL;
+    CalcPrivateResourceSize pMipInfoList deref only on creation args (always present); getenv switches gone from
+    Video.cpp (rg getenv: none).
+- F1 fixed (0084, maliumd 6151a3bc on the phone): vdecmatrix default -> "decoder profiles: 0" (d3dvdec exit 3, MF keeps
+  software decode); D3D10UMD_VIDEO_DEV=1 -> PASS. F2 fixed: vdecmatrix.ps1 header/cases now match the UMD.

@@ -1674,4 +1674,10 @@ HDMI with the user.
   photoslog/ordertest/mfcacl/mfcsd/appx/drvhash/totwrp (clean restart into TWRP).
 **Blocked on the user:** D3D11 debug layer (Graphics Tools optional feature) - Add-WindowsCapability over SSH is
 0x80070005 and a SYSTEM task was declined; webcam returns empty images.
-**Next:** Photos frame rate (present/composition vs MF drops; GPU governor floor 260 MHz?), then HDMI with the user.
+**Photos frame rate (09:30):** decode ~5 fps after the first 40 frames, presents ~16-20/s; ruled out GPU clock (702
+MHz same), present CPU cost (< 5 ms), display-off (same with display awake), vsync (62 Hz measured, tools vblank).
+DWM composes ~0.2 frames/s while Photos presents (tools dwmrate) -> composition of composition/XAML swap chains on
+this stack is the suspect (H5 family). Phone UMD maliumd 9d9ca53a (0092). Display: wake.ps1 before tests (it had gone
+off with timeout "never" - cause unknown).
+**Next:** user: look at Photos playing test.mp4 (is video visible/smooth?), HDMI; me: composition swap chains (DWM
+consumption of presents) as its own milestone.

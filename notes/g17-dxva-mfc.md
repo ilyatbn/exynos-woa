@@ -267,3 +267,10 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   shot.ps1 now returns the same all-white 8614 B image with Photos closed -> GDI capture is blank in general today,
   not evidence about Photos. Visible playback in Photos is UNVERIFIED (needs the user's eyes): decode + VP work
   (UMD log), presentation/composition of its swap chain on this stack is the open question.
+- 09:2x display state: the cube ran at 416 fps (presents occluded = display off) before wake.ps1 and at 33.6 / 37.0
+  fps after it (still 37 after 60 s idle); powercfg VIDEOIDLE = never on AC/DC. Some Photos runs had the display
+  off, but the last run (display awake) shows the same decode curve: frame 100 at +19.8 s, blts ~16-20/s.
+  => Not display-off, not GPU clock, not decode/VP cost, not present CPU cost. Remaining suspect: composition of
+  Photos' (XAML SwapChainPanel / composition) swap chain on this stack - DWM composes ~0.2 frames/s (dwmrate), so
+  buffers return late and MF's quality control skips decodes. Same family as HANDOFF H5 ("DWM never consumes
+  redirected present tokens on this stack"). Separate milestone (composition swap chains), needs the user's eyes.

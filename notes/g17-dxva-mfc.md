@@ -177,3 +177,16 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   - test.mp4 (1080p H.264, 17.5 s, 24 fps) -Dev -NoRead: MFC decodes, VP converts: 332 frames in 15 s, blts every
     41.7 ms (= 24 fps, real time; the average includes start-up), Blt CPU time ~3.5 ms (first 14.5 ms incl. kernel
     compile). Interlaced enumerators refused (MF probes them first, then progressive).
+- Review of fccd4d1 / 0088 (rule 4), checked in code:
+  - no app state touched: compute state + sampler view/image/CB on the compute stage only (unbound after dispatch);
+    blit/clear are driver-internal (panfrost util_blitter save/restore). D3D FL10_x never binds compute.
+  - the CB user_buffer points at a stack struct: panfrost consumes it inside launch_grid (descriptor emission), and
+    it is unbound before return -> no dangling pointer.
+  - GetVideoProcessorCustomRate / FilterRange SetError: unreachable for valid calls (CustomRateCount 0, FilterCaps 0;
+    the runtime validates indices against the caps first - MS Learn remarks of the D3D11 API methods).
+  - input views refuse non-NV12 (consistent with CheckVideoProcessorFormat: only NV12 INPUT).
+  - not bit-exact vs MF's CPU converter (chroma 2x2 block, no interpolation) - by design, center pixels equal.
+  - FOUND: VideoProc.h claimed "generated from VideoProc.cpp" but the generator lived only in the scratchpad (rule:
+    debug tools in repo) -> tools/mesa-build/gen-videoproc-h.py, header regenerated with it (0089).
+  - Unvalidated: background fill / letterboxing (dst != target), studio-RGB output, BGRX output, 601 content, real
+    apps (Media Player / Photos: AppContainer -> V6d).

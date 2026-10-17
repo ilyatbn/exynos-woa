@@ -1,0 +1,24 @@
+From 4bfc6f4a4ce63ec0c3f67eaa19c98652c9d16942 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 08:37:11 +0300
+Subject: [PATCH] d3d10umd video: VideoProc.h names its generator (exynos-woa
+ 0089, G17 V6c review)
+
+---
+ src/gallium/frontends/d3d10umd/VideoProc.h | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/VideoProc.h b/src/gallium/frontends/d3d10umd/VideoProc.h
+index b533654..de30314 100644
+--- a/src/gallium/frontends/d3d10umd/VideoProc.h
++++ b/src/gallium/frontends/d3d10umd/VideoProc.h
+@@ -1,4 +1,5 @@
+-/* exynos-woa G17 V6c: the video processor members implemented in VideoProc.cpp (generated from it). */
++/* exynos-woa G17 V6c: the video processor members implemented in VideoProc.cpp (generated from it by
++ * exynos-woa tools/mesa-build/gen-videoproc-h.py - do not edit). */
+ #pragma once
+ 
+ SIZE_T APIENTRY Vid_CalcPrivateVideoProcessorEnumSize(D3D10DDI_HDEVICE hDevice, const D3D11_1DDIARG_CREATEVIDEOPROCESSORENUM *p);
+-- 
+2.40.1.windows.1
+

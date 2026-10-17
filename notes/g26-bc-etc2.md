@@ -59,3 +59,14 @@ the fix" -> a 32-bit BC memory stress test before/after.
   base (every table has tmin + tmax = -1); PC x86 bench BC1 54.3, BC3 119.6, BC5 159.7 ms; bcetc-test identical.
 - Final x86 (mali-umd-0123-x86, Mesa commit 01b4102 = patch 0123): d3dbc lossy 0 of 126 differ -> PASS
   (traces/games/d3dbc-lossy-3.txt, no 1-bit alpha mismatch); decode backing (D3D10UMD_BC_DECODE=1) d3dbc exact 63/63.
+
+## Review of 13563c6 / Mesa 0123 (AGENTS rule 4)
+- Mechanical: patches 0111-0123 `git am` cleanly onto 5c8935c and reproduce the Mesa branch byte for byte.
+- Thread pool: the job struct lives on the caller's stack and the caller waits (WaitForThreadpoolWorkCallbacks) before
+  returning; surplus callbacks find no band and return - holds. Bands write disjoint block rows.
+- Block geometry: ETC2/EAC blocks = BC block size (8 / 16 B) and 4x4 grid, so texture_map strides and the block-aligned
+  boxes (bc_clamp_box) carry over; mips < 4 texels -> one block - holds (d3dbc 3x3 / 6x6 mips pass).
+- OPEN (pre-existing G23 limits, not regressions): (1) CopyResource between a BC texture and a 64-bit UINT texture
+  (D3D's format-reinterpreting copy) copies ETC bits, not BC bits; (2) Map(READ) of a BC texture returns the CPU shadow,
+  stale if the GPU wrote the texture by a copy. No test case / no app seen doing either.
+- OPEN: the commit message's "600 fit" is the v2 run; the v3 run (same allocation behaviour) is in progress.

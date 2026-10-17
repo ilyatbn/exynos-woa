@@ -1748,3 +1748,26 @@ Next order of work:
 2. Present wait (R1): ~10.5 ms CPU<->GPU serialisation per frame in DxgiFns present.
 3. Screen slow-wake outage (notes/g21-submissions.md) - open.
 4. Older queue (section 55): x86 UMD in the INF, slab page release, DWM leak / teardown hang, x64 apps, HDMI.
+
+## 57. Restart point (2026-10-18 ~02:45 local)
+
+**Phone state:** firmware boot-host-btmfc.img (unchanged; USB-C host works, the user's keyboard dongle enumerates).
+KMD 1.0.69.1. **UMD x86 = mali-umd-0123-x86** (SysWOW64; Mesa 0111-0123). **UMD ARM64 = mali-umd-0119** (System32;
+Mesa 0111-0119, CS 4.x advertised, loaded by DWM since the 01:23 reboot - desktop fine); previous ARM64 kept as
+System32\maliumd.dll.old0110. ARM64 0123 is built (s10e-artifacts/mali-umd-0123) but NOT deployed/tested yet.
+NFSU2: C:\Games\src, dgVoodoo.conf = windowed borderless fullscreen-size (backups .bak-exclusive / .bak-fake),
+desktop shortcut SPEED2.lnk (launch it in the foreground; the game crashes on focus loss / its own resolution change).
+
+Done this session (notes/g24-compute-cs4x.md, notes/g26-bc-etc2.md): G24 DirectCompute 4.x (0111-0115, 0117-0119),
+G25 GS guard (0116; Panfrost has no GS - emulation via src/poly open), rotated DXGI exclusive fullscreen (0120-0122,
+user-verified upright), G26 BC->ETC2/EAC transcode (0123; d3dbc lossy 126/126, d3dbcmem 600 vs ~260 textures).
+NFSU2 reached the game; the race load ran out of 32-bit address space -> G26.
+
+Next order of work:
+1. ARM64 0123: deploy (keep .old), d3dcs 7/7 + d3dbc lossy on ARM64, then browsers (Edge/Brave GPU page + WebGL) with
+   CS 4.x advertised (G24 review follow-up) before the next reboot puts it into DWM. User wants all fixes on 64-bit.
+2. User test: NFSU2 race load with UMD x86 0123 (cannot be reproduced unattended; d3dbcmem is the proxy).
+3. G26 speed: ~0.5 s (BC1) / ~0.8-1 s (BC3) per 1024x1024 upload under x86 emulation; T/H ETC2 modes for 2-colour
+   blocks (quality, follow-up).
+4. G25 geometry shaders via compute (src/poly) - dgVoodoo's 2 GS are skipped today (particles likely missing).
+5. Older queue (sections 55/56): present wait, screen slow-wake, x86 UMD in the INF, slab release, DWM leak, HDMI.

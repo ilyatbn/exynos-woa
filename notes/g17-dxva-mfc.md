@@ -111,3 +111,7 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
     CreateVideoDecoder 1280x720 raw 2, 30 frames each with PP 1040 B / IQ 224 B / slice control 110 B (11 short
     slices x 10 B) / bitstream (39040, 20352, ...), DECODER_CAPS re-asked every frame, decoder destroyed after 30.
     Hashes differ (no decode yet, expected). Next V6b3: the decode (SPS/PPS synthesis + MFC + NV12 copy).
+- Review of 749e3bf / 0085: DECODER_CAPS treats pCryptoType = NULL or DXVA_NoEncrypt as clear; a pointer to GUID_NULL
+  would read as UNSUPPORTED - not seen (MF got 0), fold into V6b3 (accept GUID_NULL). Histogram query (2.4) -> SetError
+  only reachable through 2.4 tables we do not expose. Generator: 73 stubs (was 74), wddm2_0 fill points at
+  Vid_QueryVideoCapabilities (git diff of the .inc). mfd3d.ps1 hash split checked against mftest's line format.

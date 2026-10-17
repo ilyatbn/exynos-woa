@@ -35,4 +35,12 @@ echo S10EGOVERNOR_BUILD_OK
 cl.exe /nologo /W4 /WX /O2 /MT /Fo"%OUT%\cpusets.obj" /Fe"%OUT%\cpusets.exe" "%SRC%cpusets.c" /link /MACHINE:ARM64 /SUBSYSTEM:CONSOLE /Brepro
 if errorlevel 1 exit /b 7
 del "%OUT%\cpusets.obj" >nul 2>&1
+cl.exe /nologo /W4 /WX /O2 /MT /Fo"%OUT%\cpustress.obj" /Fe"%OUT%\cpustress.exe" "%SRC%cpustress.c" /link /MACHINE:ARM64 /SUBSYSTEM:CONSOLE /Brepro
+if errorlevel 1 exit /b 9
+del "%OUT%\cpustress.obj" >nul 2>&1
+echo CPUSTRESS_BUILD_OK
+cl.exe /nologo /W4 /WX /O2 /MT /D _CRT_SECURE_NO_WARNINGS /I "%SRC%..\MaliG76Wddm\include" /Fo"%OUT%\clocks.obj" /Fe"%OUT%\clocks.exe" "%SRC%clocks.c" /link /MACHINE:ARM64 /SUBSYSTEM:CONSOLE gdi32.lib advapi32.lib /Brepro
+if errorlevel 1 exit /b 10
+del "%OUT%\clocks.obj" >nul 2>&1
+echo CLOCKS_BUILD_OK
 echo CPUSETS_BUILD_OK

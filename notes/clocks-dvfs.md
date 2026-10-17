@@ -102,3 +102,22 @@ Windows reads temperatures and can throttle; lowering is fine.
   Governor ceilings set (Parameters): MaxLittle 1950000, MaxMid 2314000, MaxG3d 702000; touch boost BoostLittle
   1742000, BoostMid 2106000, BoostG3d 433000.
 - 07:55 governor efficiency points (C5 follow-up): EffLittle 1456000 (LITTLE load tracking stops there unless a core > 90 % or boost), GpuFloor 260000 (was half the ceiling = 377 MHz at idle). Idle after deploy: LITTLE 1456 (background), MID 507, G3D 260 MHz.
+
+## 2026-10-17 evening: "overclock" request, MID 2.4 GHz, stability tools
+- User: overclock the 6 usable cores step by step + stability check. Reality: ACPM sets frequency AND voltage from
+  fixed tables (fvmap/ECT); only listed rates can be requested. Beyond-table clocks would need direct PLL + PMIC
+  programming with unverified values (hardware / data-corruption risk, rule 6) - not done; told the user.
+- In-table headroom: MID top step 2400000 (DT, notes/cpu-driver-9820.md:156; needs MIF >= 2093000, mif-perf). Added
+  to S10ePower's ladder with an interlock (granted only while this driver set MIF 2093000) and to the governor ladder.
+  LITTLE: 1950000 is already the table maximum.
+- Device: set mif 2093000 + set mid 2400000 -> ACPM echo 2400000, clocks.exe measured 2399 / 2386 MHz.
+- tools: drivers/S10ePower/cpustress.c (one pinned thread per core, deterministic int/FP/memory workload checked
+  against a per-thread reference -> silent computation errors), drivers/S10ePower/clocks.c (live measured per-core
+  MHz + GPU MHz via MW_ESCAPE_CLOCK + governor/ACPM state; copied to the user's desktop), tools/phone/templog.ps1.
+- cpustress results: baseline (governor) 60 s all cores PASS; MID 2400 pinned 2 cores 120 s PASS, 62 C; all 6 at
+  LITTLE 1950 / MID 2400 120 s PASS but the S10ePower guard tripped (>= 83 C) mid-run and capped MID to the boot
+  1794 (left there afterwards - guard caps only lower); rerun with temperature log (MID actually 1794, LITTLE 1950):
+  zones 72-74 C sustained, 82 C peak at 47 s. => 2.4 GHz is computationally stable; sustained all-core max is
+  thermally limited (~1 min to the 83 C trip) - bursts and 2-thread loads benefit. Governor MaxMid = 2400000.
+- Windows' Task Manager "base speed 1.79 GHz" = Win32_Processor MaxClockSpeed / ~MHz from boot (cpu0 1456, cpu4
+  1794), its "speed" = an estimate; it does not see ACPM rates.

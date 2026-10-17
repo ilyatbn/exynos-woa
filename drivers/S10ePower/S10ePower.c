@@ -59,7 +59,9 @@
 /* ---- DT ladders (kHz, descending) ---- */
 static const ULONG gLadderLittle[] = { 1950000, 1846000, 1742000, 1586000, 1456000, 1300000, 1157000, 1053000,
                                        949000, 806000, 650000, 546000, 442000 };          /* notes/m15-perf.md */
-static const ULONG gLadderMid[] = { 2314000, 2210000, 2106000, 2002000, 1898000, 1794000, 1690000, 1586000,
+/* 2400000: the DT domain table's top MID step (notes/cpu-driver-9820.md:156), valid only with MIF >= 2093000 (mif-perf
+ * constraint) - SetFreq grants it only while this driver has set MIF to 2093000 (user 2026-10-17: max the 6 cores) */
+static const ULONG gLadderMid[] = { 2400000, 2314000, 2210000, 2106000, 2002000, 1898000, 1794000, 1690000, 1586000,
                                     1508000, 1404000, 1222000, 1066000, 962000, 845000, 754000, 650000, 507000 };
 static const ULONG gLadderG3d[] = { 702000, 650000, 572000, 433000, 377000, 325000, 260000, 200000, 156000 };
                                     /* exynos9820-mali_common.dtsi gpu_dvfs_table (LineageOS lineage-23.2) */
@@ -325,6 +327,8 @@ static NTSTATUS SetFreq(ULONG Dom, ULONG Khz)
         return STATUS_INVALID_DEVICE_REQUEST;
     gState.ReqKhz[slot] = Khz;
     Khz = RoundDown(l, n, min(Khz, gState.CapKhz[slot]));
+    if (Dom == S10EPOWER_DOM_MID && Khz > 2314000 && gState.MifCurKhz < 2093000)
+        Khz = 2314000;   /* MID 2400000 needs MIF >= 2093000 (DT mif-perf) */
     cmd[0] = Dom; cmd[1] = Khz; cmd[2] = ACPM_FREQ_REQ; cmd[3] = 0;
     ExAcquireFastMutex(&gAcpmLock);
     st = AcpmSend(&gDvfs, cmd);

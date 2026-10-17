@@ -528,11 +528,12 @@ void MwArmPoll(MW_ADAPTER *A)
  * screen (notes/gpu-full-adapter-hang.md). A periodic timer stands in: its DPC reports the vsync at the device's
  * interrupt level through DxgkCbSynchronizeExecution and queues our DPC, as DxgkCbNotifyInterrupt requires. The
  * panel's real refresh is whatever sboot programmed (60 Hz on this phone, UNVERIFIED by a register read). The timer
- * period is 16 ms (KeSetTimerEx takes whole ms: 62.5 Hz nominal, near the 60 Hz the VidPN reports, display.c
- * FillSignal), and expiries land on the system clock tick (15.6 ms by default), so individual intervals jitter by a
- * tick. dxgkrnl only needs vsyncs to keep coming; it does not time the panel from them. */
-#define MW_VSYNC_PERIOD_MS      16
-#define MW_VSYNC_PERIOD_100NS   166667ULL       /* 1/60 s, for GetScanLine */
+ * period is 1/60 s on a high-resolution EX_TIMER (MwCommandInit), matching the 60 Hz the VidPN reports (display.c
+ * FillSignal). Fallback when ExAllocateTimer fails: a 16 ms KeSetTimerEx timer (whole ms, 62.5 Hz nominal) whose
+ * expiries land on the system clock tick (15.6 ms by default) and jitter by a tick - measured 8.9-39 ms intervals,
+ * enough to make media presenters late (notes/g17-dxva-mfc.md). */
+#define MW_VSYNC_PERIOD_MS      16              /* KeSetTimerEx fallback */
+#define MW_VSYNC_PERIOD_100NS   166667ULL       /* 1/60 s: the EX_TIMER period, and GetScanLine's frame */
 
 static BOOLEAN SyncVsync(PVOID Context)
 {
@@ -652,13 +653,16 @@ MW_ALLOCATION *MwScanoutLookup(MW_ADAPTER *A, ULONG64 PrimaryAddress)
     return hit;
 }
 
-static VOID VsDpc(PKDPC Dpc, PVOID Context, PVOID Arg1, PVOID Arg2)
+static void VsCancel(MW_ADAPTER *a)
 {
-    MW_ADAPTER *a = (MW_ADAPTER *)Context;
-    UNREFERENCED_PARAMETER(Dpc);
-    UNREFERENCED_PARAMETER(Arg1);
-    UNREFERENCED_PARAMETER(Arg2);
+    if (a->VsHrTimer != NULL)
+        ExCancelTimer(a->VsHrTimer, NULL);
+    else
+        KeCancelTimer(&a->VsTimer);
+}
 
+static void VsTick(MW_ADAPTER *a)
+{
     if (a->Stopping || !a->VsEnabled)
         return;
     if (MwFlipMmio)
@@ -667,9 +671,24 @@ static VOID VsDpc(PKDPC Dpc, PVOID Context, PVOID Arg1, PVOID Arg2)
         InterlockedIncrement(&a->VsyncTicks);
     else if (a->VsyncTicks == 0 && InterlockedExchange(&a->VsEnabled, 0) != 0) {
         /* No interrupt object to synchronize with: stop instead of retrying 60 times a second. */
-        KeCancelTimer(&a->VsTimer);
+        VsCancel(a);
         MwPramText(TRUE, "SoftVsync sync failed, stopped", NULL, 0, FALSE);
     }
+}
+
+static VOID VsDpc(PKDPC Dpc, PVOID Context, PVOID Arg1, PVOID Arg2)
+{
+    UNREFERENCED_PARAMETER(Dpc);
+    UNREFERENCED_PARAMETER(Arg1);
+    UNREFERENCED_PARAMETER(Arg2);
+    VsTick((MW_ADAPTER *)Context);
+}
+
+/* EXT_CALLBACK of the high-resolution timer (DISPATCH_LEVEL, like the DPC). */
+static VOID VsHrCallback(PEX_TIMER Timer, PVOID Context)
+{
+    UNREFERENCED_PARAMETER(Timer);
+    VsTick((MW_ADAPTER *)Context);
 }
 
 void MwCommandInit(MW_ADAPTER *A)
@@ -679,6 +698,19 @@ void MwCommandInit(MW_ADAPTER *A)
     KeInitializeDpc(&A->PollDpc, PollDpc, A);
     KeInitializeTimer(&A->VsTimer);
     KeInitializeDpc(&A->VsDpc, VsDpc, A);
+    /* G17 pacing (notes/g17-dxva-mfc.md): the default-resolution KTIMER lands on the 15.6 ms clock tick (measured vblank
+     * intervals 8.9-39 ms); MS Learn "High-Resolution Timers": an EX_TIMER_HIGH_RESOLUTION timer "never expires early"
+     * and at most ~1 ms late. Its 16.67 ms period is above the default tick, as the page asks. */
+    A->VsHrTimer = ExAllocateTimer(VsHrCallback, A, EX_TIMER_HIGH_RESOLUTION);
+}
+
+/* RemoveDevice (PASSIVE): the high-resolution timer is cancelled and its callback has returned before the adapter goes. */
+void MwCommandFree(MW_ADAPTER *A)
+{
+    if (A->VsHrTimer != NULL) {
+        ExDeleteTimer(A->VsHrTimer, TRUE, TRUE, NULL);
+        A->VsHrTimer = NULL;
+    }
 }
 
 void MwCommandStop(MW_ADAPTER *A)
@@ -687,7 +719,7 @@ void MwCommandStop(MW_ADAPTER *A)
     KeMemoryBarrier();
     KeCancelTimer(&A->PollTimer);
     InterlockedExchange(&A->VsEnabled, 0);
-    KeCancelTimer(&A->VsTimer);
+    VsCancel(A);
     KeFlushQueuedDpcs();
     InterlockedExchange(&A->PollArmed, 0);
 }
@@ -854,12 +886,17 @@ NTSTATUS APIENTRY MwControlInterrupt(IN_CONST_HANDLE hAdapter, IN_CONST_DXGK_INT
         return STATUS_SUCCESS;
     if (Enable) {
         if (InterlockedExchange(&a->VsEnabled, 1) == 0) {
-            LARGE_INTEGER due;
-            due.QuadPart = -10000LL * MW_VSYNC_PERIOD_MS;
-            KeSetTimerEx(&a->VsTimer, due, MW_VSYNC_PERIOD_MS, &a->VsDpc);
+            if (a->VsHrTimer != NULL) {
+                /* 100 ns units: relative first expiry one frame from now, then every 1/60 s */
+                ExSetTimer(a->VsHrTimer, -(LONGLONG)MW_VSYNC_PERIOD_100NS, (LONGLONG)MW_VSYNC_PERIOD_100NS, NULL);
+            } else {
+                LARGE_INTEGER due;
+                due.QuadPart = -10000LL * MW_VSYNC_PERIOD_MS;
+                KeSetTimerEx(&a->VsTimer, due, MW_VSYNC_PERIOD_MS, &a->VsDpc);
+            }
         }
     } else if (InterlockedExchange(&a->VsEnabled, 0) != 0) {
-        KeCancelTimer(&a->VsTimer);
+        VsCancel(a);
     }
     return STATUS_SUCCESS;
 }

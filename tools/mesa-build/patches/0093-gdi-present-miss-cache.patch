@@ -1,0 +1,50 @@
+From 95295a4d20b65d0e38205afd2e89756b62456637 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 12:28:18 +0300
+Subject: [PATCH] d3d10umd: gdi_present remembers window-less swap chain sizes
+ (exynos-woa 0093) - composition swap chains have no window of their size; the
+ window search ran on every present (1-4 ms per frame)
+
+---
+ src/gallium/frontends/d3d10umd/DxgiFns.cpp | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+index f7d7985..c2ec901 100644
+--- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
++++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+@@ -110,6 +110,14 @@ gdi_present(struct pipe_context *pipe, struct pipe_resource *res)
+        (unsigned)(r.right - r.left) == w && (unsigned)(r.bottom - r.top) == h)
+       hwnd = cached;
+    if (!hwnd) {
++      /* G17 pacing (notes/g17-dxva-mfc.md): composition swap chains (XAML, DirectComposition) have no window of
++       * their size, and searching every window on every present cost 1-4 ms per frame (Photos). After a miss the
++       * same size is searched again only every 120th present (4 sizes remembered: Photos alternates two chains). */
++      static struct { unsigned w, h, n; } miss[4];
++      static unsigned miss_next;
++      for (unsigned i = 0; i < 4; i++)
++         if (miss[i].w == w && miss[i].h == h && (++miss[i].n % 120) != 0)
++            return false;
+       struct gdi_find find = { GetCurrentProcessId(), (LONG)w, (LONG)h, NULL, 0 };
+       EnumWindows(gdi_find_cb, (LPARAM)&find);
+       hwnd = find.n == 1 ? find.hit : NULL;
+@@ -117,6 +125,16 @@ gdi_present(struct pipe_context *pipe, struct pipe_resource *res)
+       cached = hwnd;
+       cw = w;
+       ch = h;
++      if (!hwnd) {
++         unsigned i;
++         for (i = 0; i < 4 && !(miss[i].w == w && miss[i].h == h); i++)
++            ;
++         if (i == 4)
++            i = miss_next++ % 4;
++         miss[i].w = w;
++         miss[i].h = h;
++         miss[i].n = 0;
++      }
+    }
+    if (!hwnd)
+       return false;
+-- 
+2.40.1.windows.1
+

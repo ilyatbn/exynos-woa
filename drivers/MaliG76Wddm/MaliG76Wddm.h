@@ -286,6 +286,7 @@ struct _MW_ADAPTER {
     /* Software vsync (command.c, Parameters\SoftVsync): a 60 Hz timer while dxgkrnl has CRTC_VSYNC enabled. */
     KTIMER VsTimer;
     KDPC VsDpc;
+    PEX_TIMER VsHrTimer;                /* high-resolution 60 Hz timer (ExAllocateTimer), NULL -> VsTimer above */
     volatile LONG VsEnabled;
     PHYSICAL_ADDRESS ScanoutAddress;    /* the last SetVidPnSourceAddress PrimaryAddress, reported with each vsync */
     /* FlipMmio: the primary SetVidPnSourceAddress named, copied to the GOP fb at the next vsync (ScanLock). */
@@ -415,4 +416,5 @@ void MwScanoutRegister(MW_ADAPTER *A, MW_ALLOCATION *Alloc, BOOLEAN Mapped); /* 
 MW_ALLOCATION *MwScanoutLookup(MW_ADAPTER *A, ULONG64 PrimaryAddress);     /* display.c, any IRQL */
 void MwCommandInit(MW_ADAPTER *A);
 void MwCommandStop(MW_ADAPTER *A);
+void MwCommandFree(MW_ADAPTER *A);
 void MwArmPoll(MW_ADAPTER *A);

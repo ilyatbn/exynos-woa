@@ -319,6 +319,7 @@ static NTSTATUS APIENTRY MwRemoveDevice(IN_CONST_PVOID Context)
     MwPramDdi(TRUE, FALSE, "RemoveDevice", 0);
     HbStop(a);
     MwDisplayStop(a);
+    MwCommandFree(a);
     ExFreePoolWithTag(Context, MW_TAG);
     return STATUS_SUCCESS;
 }

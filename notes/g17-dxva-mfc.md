@@ -311,3 +311,34 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   (traces/wddm2-2026-10-16/dwm-redir-1332.txt) shows "scanout present N: blit+wait 0 ms" = GPU path. Today the KMD
   reports PresentGpu 0 / PresentBlts 6.8 per s -> DWM's presents are on the CPU path again. Needs DWM's UMD log:
   reboot with machine-wide umdtrace (after the user's Graphics Tools install finishes).
+- 12:0x USER: Graphics Tools install finished with "couldn't add" (likely no Windows Update source; tools/phone/wuoff.cmd exists) - debug layer unavailable. Proceeding with the traced reboot (DWM UMD log).
+- 12:1x after the traced reboot (DWM log machine-wide): DWM "primary 1080x2280 rotation 2", "scanout imported: yes",
+  "primary 0x40001480 is GPU-presented", "scanout present N: blit+wait 0-16 ms". kmdstats during d3dswap comp:
+  presents 58.4/s ALL GPU (cpu copy 0), d3dswap composition swap chain 300 presents = 56.1/s (was 7.9).
+  => the CPU-copy state was acquired during the long session (boot 08:51, several UMD swaps, display off/on
+  episodes), not the steady state. Trigger UNKNOWN - candidates: display off/on or a mode change recreating DWM's
+  primaries without the GPU-presented mark. Watch: kmdstats PresentBlts vs PresentGpu.
+- USER asked to run DISM /Online /Add-Capability Tools.Graphics.DirectX: Error 5 Access denied (ssh token High
+  Mandatory, Administrators). CBS.log: "Failed to download FOD from WU [E_ACCESSDENIED]"
+  (WindowsUpdateDownloadFromUUP 0x80070005). Phone still has policy SetDisableUXWUAccess=1 and UsoSvc disabled
+  (tools/phone/wuoff.cmd) -> the feature download from Windows Update is refused.
+- 12:3x Photos stall analysis (TEMP timing build maliumd 46d82894): EndFrame 12-17 ms (NV12 write 3-5 ms); gaps
+  between EndFrames 30-60 ms, runs of 100+ ms and stalls of 4.2 s and 9.4 s, then catch-up bursts. During a stall
+  Photos keeps presenting the video swap chain at ~16-20/s (gdi present lines every 47-62 ms) and the VP re-blits:
+  MF's quality control stops decoding because the presenter is late. A 24 fps clip on 60 Hz needs presents locked to
+  vsync; ours is a jittery soft timer (vblank tool: 8.9-39 ms intervals). Also: gdi_present enumerates all windows
+  on every present (1-4 ms) and never finds one for composition swap chains.
+- MS Learn "High-Resolution Timers" (kernel/high-resolution-timers): "To create a high-resolution timer, a WDM
+  driver calls the ExAllocateTimer routine and sets the EX_TIMER_HIGH_RESOLUTION flag ... the timer can expire as late
+  as about a millisecond after the specified expiration time but it never expires early." "drivers should avoid
+  setting the period of a long-running high-resolution timer to a value that is less than the default interval
+  between system clock ticks" (16.67 ms > 15.6 ms default tick: OK; the timer runs only while vsync is enabled).
+- 12:4x fixes built: KMD 1.0.62.1 (s10e-artifacts/kmd-1.0.62.1, sys 6131BCD3): soft vsync on a high-resolution
+  EX_TIMER (ExAllocateTimer EX_TIMER_HIGH_RESOLUTION, ExSetTimer period 166667 x 100 ns), KTIMER fallback,
+  ExDeleteTimer at RemoveDevice. UMD (maliumd 2be0d7c9): gdi_present remembers up to 4 window-less sizes and searches
+  them again only every 120th present; the TEMP EndFrame timing removed. Deploy: UMD live, KMD from TWRP.
+- 12:3x KMD 1.0.62.1 loaded (drvhash 6131BCD3). vblankq.ps1 (new): normal priority mean 16.94 ms, p10/p50/p90 16.66/16.77/17.54, max 22.7, 0 of 240 > 25 ms; time critical 15.58-18.50 ms. (Old KMD: 8.9-39 ms.) Mean 59.0 Hz: HR timer expires up to ~1 ms late, never early.
+- 12:4x after KMD 1.0.62.1 + UMD 0093: swaprate composition 58.9/s (slowest 36 ms), window 59.2/s (vsync-locked).
+  Photos still ~5 fps decode / ~15 blt/s (frame 100 at +20.6 s) -> DWM, vsync and decode are fine; the limit is in
+  Photos' own render loop (~66 ms per video frame). Next suspect: event queries (QueryGetData with DO_NOT_FLUSH
+  blocks in our UMD: wait = Flags & DO_NOT_FLUSH) - TEMP timing next.

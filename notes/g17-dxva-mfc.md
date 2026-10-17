@@ -503,3 +503,24 @@ bit-exact, 1080p 77 fps from user mode - notes/d10-mfc-decode-flow.md V3).
   taps/pixel), not job count. Same frame rate at GPU 702 MHz (16:1x) -> suspect memory bandwidth: MIF clock is
   untouched under Windows, rate UNKNOWN (clocks-dvfs.md:61); Samsung's G3D table pairs 702 MHz with MIF >= 2093000
   (gpu-odin-rom.md F2). Next task: read the MIF rate (verified constants only), then raise it if low.
+- 16:7x REVIEW 0096: first window = 299 gaps for 300 presents (no gap before the first) - matches the logged sums; limitation: the rotated branch (landscape) returns before the pacing block -> landscape compositions are not measured (documented, no code change).
+- 16:8x ZERO-PRESENT runs explained: the blank screensaver (scrnsave.scr, ScreenSaveTimeOut 120, active) was running
+  - DWM composes nothing under it (memory note cube-fps-screensaver). mpvrate.sh now dismisses it before each run.
+- 16:9x S10ePower MIF control (driver version 2, build in scratchpad, C:\S10eTmp\S10ePower.sys; old kept as
+  S10ePower.sys.pre-mif / s10epowerctl.exe.pre-mif): domain 0 (dvfs_mif, cal_acpm_dvfs_exynos9820.h via
+  gpu-m16-g3don.md:37), only the verified devfreq_mif ends 2093000 / 421000 (m15-perf.md:98), no thermal cap; state
+  struct appends MifCurKhz/MifReqKhz, v1 callers get the v1 prefix. Device: `s10epowerctl set mif 2093000` -> ACPM
+  reply echoes 2093000, 0 fails. memcpy (s10eperf) 9142 before / 8426 after (the earlier 4116 was another clock state)
+  - CPU memcpy does not show MIF.
+- 17:0x Diagnosis (UMD eb29deff, TEMP MALIKM_NO_LINEAR_CONVERT in pan_resource.c, mpv only): tiled instead of linear
+  video planes -> 35.0/s gaps 111/187 = no change -> texture layout ruled out (TEMP switch to be removed).
+- 17:1x kmdstats busy (new mode: samples MW_ESCAPE_STATS ~500/s, share with Running != 0, queue depth): idle 0 %;
+  mpv default 67.2 % (queued <= 2); --profile=fast 47.8 % -> the GPU is not saturated; DWM's composition waits behind
+  mpv's long scaler jobs in the single in-order queue.
+- 17:2x CLOCKS ARE THE CAUSE (governor stopped for the run, restarted after): G3D 702 MHz + MIF 2093000 -> DWM 53.0
+  presents/s, busy 54.4 %, gaps 1v 251-274 / 2v 26-47 of 300 (vs 103-120 / 160-187 at the governor's ~410 MHz).
+  G3D 702 alone (MIF as left by sboot, 16:1x) 37.9/s; MIF 2093000 alone (G3D ~410) 34.8/s -> both needed, as in
+  Samsung's G3D table (702/650 MHz <-> MIF 2093000, gpu-odin-rom.md F2). The governor drops G3D to half ceiling after
+  5 s without touch (video playback has no touch) and never sets MIF.
+  Next (native fix): S10eGovernor - G3D from GPU load (not only touch), MIF 2093000 while the screen is on and the
+  GPU is above its floor, 421000 when the screen is off / GPU at floor.

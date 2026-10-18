@@ -43,6 +43,14 @@
 // the bank0-only boot tells whether the new ranges (uH stage-2?) are the cause.
 //
 #define BEYOND0LTE_PUBLISH_BANK12      1   // W33: back on, and now actually published as RAM (resource HOBs below)
+//
+// R1 (notes/ram-6gb.md, user 2026-10-18 "see about getting the full 6gb of ram"): 1 = the CP (modem) reservations and
+// sec_rdx_bootdev are RAM for UEFI and Windows - the modem is never booted under Windows, sec_rdx_bootdev is
+// sboot's ramdump area, and the r2 probe (notes/cpu-ram-plan-20261012.md) read/wrote/read back every one of them from
+// Windows EL1 without a fault. debug_snapshot (cp_ram_logging end 0xFD900000 .. 4 GiB: Samsung's reset logs,
+// AGENTS.md 9) and secure_camera stay carved. 0 = the previous carve-outs.
+//
+#define BEYOND0LTE_PUBLISH_CP_RDX      1
 #ifndef BEYOND0LTE_MEM_GUARD
 #define BEYOND0LTE_MEM_GUARD           0   // m14 M4 test: 2 MiB reserved guards around reservations and bank edges
 #endif
@@ -125,10 +133,15 @@ STATIC CONST MONITOR_RESERVATION  mMonitorReservations[] = {
   //
   { EXYNOS_RSVD_SECLOG_BASE,  EXYNOS_RSVD_SECLOG_SIZE  },  // seclog 0xC0000000
   { EXYNOS_FB_BASE,           EXYNOS_FB_RESERVED_SIZE },  // boot framebuffer (+ room to re-stride it, H4b)
+#if BEYOND0LTE_PUBLISH_CP_RDX
+  { EXYNOS_RSVD_CP_RAM_BASE + EXYNOS_RSVD_CP_RAM_SIZE,
+      0x0000000100000000ULL - (EXYNOS_RSVD_CP_RAM_BASE + EXYNOS_RSVD_CP_RAM_SIZE) },  // debug_snapshot .. 4 GiB (R1)
+#else
   { EXYNOS_RSVD_MODEM_SPARE_BASE,
       (EXYNOS_RSVD_S5100_MSI_BASE + EXYNOS_RSVD_S5100_MSI_SIZE - EXYNOS_RSVD_MODEM_SPARE_BASE) },  // modem block
   { EXYNOS_RSVD_MODEM_IF_BASE, 0x0000000100000000ULL - EXYNOS_RSVD_MODEM_IF_BASE },  // modem_if .. 4 GiB
   { EXYNOS_RS_RDX_BOOTDEV_BASE, EXYNOS_RS_RDX_BOOTDEV_SIZE },  // sec_rdx_bootdev (m13)
+#endif
   { EXYNOS_RS_EL2_EARLY_BASE, EXYNOS_RS_EL2_EARLY_SIZE },  // el2_earlymem
 };
 

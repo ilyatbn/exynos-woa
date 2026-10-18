@@ -134,3 +134,9 @@ errors". SPEED2.EXE = 32-bit x86 (timestamp 0x420aad27).
   (hub without PD power: 94 %, BatteryStatus 1) and schtasks /create tasks default to AC-only; the stale log made the
   swap look done. Swap done directly in the admin ssh session; wddm2dbg task() now uses systask.ps1
   (AllowStartIfOnBatteries). User test pending.
+- User test with x86 0122 + exclusive fullscreen: "portrait with bars" -> NOT a 0123-0128 regression. Correction of
+  the premise: yesterday's "upper left corner now ... nice" was the d3dfs test tool (its corner rectangles), not
+  NFSU2; NFSU2 exclusive fullscreen was already sideways then (g24 notes: dgVoodoo NONPREROTATED primary, MS Learn
+  DXGI_DDI_PRIMARY_DESC: "applications will handle the output orientation" - dgVoodoo does not) -> the borderless
+  config was the answer. Restored: x86 0128 (systask path works on battery, hashes match) + borderless config. Next:
+  see what the user calls "windowed" with that config (screenshot during an icon launch).

@@ -126,3 +126,4 @@ errors". SPEED2.EXE = 32-bit x86 (timestamp 0x420aad27).
   323/38, 419/45, 509/48 ... -> positions and widths differ between dumps, spacing ~90-95 px in both. A static
   rendering defect would sit in the same columns; this leans to a capture-timing artefact (the uncached dump reading
   a buffer that is being rewritten in strips), not proven. The user's look at the panel decides.
+- 2026-10-18 ~19:1x user back: dgVoodoo.conf switched to exclusive fullscreen (FullScreenMode=true, WindowedAttributes empty; previous kept as dgVoodoo.conf.bak-borderless) - user launches from the desktop icon after the hub reboot.

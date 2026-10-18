@@ -156,3 +156,13 @@ the GPU, natively.
   streaming 34-41 s (white/blue scenes = not yet loaded), full aquarium from ~44 s: fps counter 24-27 at 500 fish,
   canvas 1024x1024. one "screensaver was running (close path 1)" line, before frame 0 (closed via the Screen-saver desktop, i.e. before the launch); not running afterwards (tasklist) -> number valid; it includes
   the recorder's own 2 fps GDI capture. The stale mpv hard-error box was gone by then.
+- screenrec -dup (DXGI Desktop Duplication, CAP=dup in recfetch.sh): duplication reports ModeDesc 1520x720 rotation 2
+  (ROTATE90) but the acquired surface is 720x1520 (un-rotated, as MS Learn says) - the first build sized its staging
+  texture from ModeDesc and CopyResource silently did nothing (all-black frames, byte sum 0); staging now follows the
+  acquired texture. dup3: desktop upright + complete (rotation mapping right). Device = our Mali (FL 10_1, ARM64 UMD).
+- dupfs: fullscreen x64 mpv (--fs, 15 s) captured 7-23 s (GDI gives black for this) -> fullscreen capture works.
+  !! HARD RESET at the end (~23.5-25 s): Kernel-Power 41, no BugCheck 1001, no dump (= reset outside Windows' bugcheck
+  path, like earlier GPU-hang resets); frames.txt logged to 0046 / 23.0 s, frame_0047 truncated, 0048/0049 present
+  but empty (lost lazy writes) -> the recorder ran to its end (50 frames). mpv's playback ends ~22 s (start ~7 s +
+  15 s) -> suspects: mpv leaving fullscreen / exiting (x64, maliumd_ec) or the duplication teardown at screenrec exit.
+  Triage next: A = mpv --fs exit without the recorder; B = duplication of a windowed app, then exit.

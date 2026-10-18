@@ -14,7 +14,7 @@ if /i "%ARCH%"=="arm64" (set VC=x64_arm64& set MACH=ARM64& set EXE=screenrec.exe
 call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvarsall.bat" %VC% >nul
 if errorlevel 1 exit /b 1
 set INCLUDE=%KIT%\Include\%KV%\um;%KIT%\Include\%KV%\shared;%KIT%\Include\%KV%\ucrt;%INCLUDE%
-cl.exe /nologo /W4 /WX /O2 /MT /GS /D _CRT_SECURE_NO_WARNINGS /D NOMINMAX /Fo"%OUT%\screenrec.obj" /Fe"%OUT%\%EXE%" "%SRC%screenrec.cpp" /link /MACHINE:%MACH% /SUBSYSTEM:WINDOWS /ENTRY:wmainCRTStartup user32.lib gdi32.lib ole32.lib oleaut32.lib shell32.lib windowscodecs.lib /Brepro
+cl.exe /nologo /W4 /WX /O2 /MT /GS /D _CRT_SECURE_NO_WARNINGS /D NOMINMAX /Fo"%OUT%\screenrec.obj" /Fe"%OUT%\%EXE%" "%SRC%screenrec.cpp" /link /MACHINE:%MACH% /SUBSYSTEM:WINDOWS /ENTRY:wmainCRTStartup user32.lib gdi32.lib ole32.lib oleaut32.lib shell32.lib windowscodecs.lib d3d11.lib dxgi.lib /Brepro
 if errorlevel 1 exit /b 2
 del "%OUT%\screenrec.obj" >nul 2>&1
 echo SCREENREC_BUILD_OK %OUT%\%EXE%

@@ -1773,3 +1773,22 @@ Next order of work:
    blocks (quality, follow-up).
 4. G25 geometry shaders via compute (src/poly) - dgVoodoo's 2 GS are skipped today (particles likely missing).
 5. Older queue (sections 55/56): present wait, screen slow-wake, x86 UMD in the INF, slab release, DWM leak, HDMI.
+
+## 58. Restart point (2026-10-18 ~12:30 local)
+
+**Phone state:** firmware boot-host-btmfc.img; KMD 1.0.69.1; **UMD x86 = mali-umd-0127-x86 (SysWOW64), UMD ARM64 =
+mali-umd-0127 (System32; DWM still runs the 0123 it loaded at boot until the next reboot)** - Mesa 0111-0127. Older
+copies: System32\maliumd.dll.old0110/.old0119/.old0123/.tmp0123, SysWOW64\maliumd32.dll.old*. Battery charged (99 %).
+The phone's clock reset after the 03:23 power-off (file times read 2026-10-17 ~20:00-21:00).
+
+Done since 57: G26 BC->ETC2 (0123) verified on both UMDs; G25 geometry shaders emulated: Mesa 0124 (Panfrost builds
+nir->xfb_info from TGSI stream output - stream output was dead for every TGSI VS), 0125 (GS -> compute + three-pass
+draw), 0126 (per-vertex capture: indexed + strips), 0127 (barrier). d3dgs 6/6 pixel-exact vs WARP on x86 + ARM64;
+d3dcs, d3dbc, Edge WebGL (cdp_webgl.py) unchanged. NFSU2: both dgVoodoo GS compile; particles need a race (user).
+
+Next order of work:
+1. User tests: NFSU2 race load (G26 memory) + particles (G25); the keyboard dongle works.
+2. x86 UMD packaged in the INF (UserModeDriverNameWow + SysWOW64 CopyFiles) - today it is copied by hand.
+3. D3D10 stream output without a GS (CreateGeometryShaderWithStreamOutput, empty GS): attach the SO to the VS now that
+   Panfrost XFB works for TGSI.
+4. Present wait (R1), screen slow-wake, G26 speed / ETC2 T-H modes, slab release, DWM leak, HDMI.

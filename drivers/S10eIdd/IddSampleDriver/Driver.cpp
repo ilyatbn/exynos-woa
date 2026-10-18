@@ -340,6 +340,132 @@ SwapChainProcessor::~SwapChainProcessor()
         // Wait for the thread to terminate
         WaitForSingleObject(m_hThread.Get(), INFINITE);
     }
+
+    // exynos-woa G18: drop the frame-sink section
+    if (m_pShare)
+    {
+        UnmapViewOfFile(m_pShare);
+    }
+    if (m_hShareMap)
+    {
+        CloseHandle(m_hShareMap);
+    }
+}
+
+// exynos-woa G18 frame sink (notes/g18-remote-monitors-research.md, PoC log). Layout of "Global\S10eIddFrame":
+// header (this struct) then Height rows of Pitch bytes BGRA. Seq is a seqlock: odd while a frame is written, even
+// when complete - the reader copies only between two equal even values.
+struct S10E_IDD_FRAME_HDR
+{
+    UINT32 Magic;           // 'S10F'
+    UINT32 Width;
+    UINT32 Height;
+    UINT32 Pitch;
+    volatile LONG Seq;
+    UINT32 Reserved[3];
+};
+static constexpr UINT32 S10E_IDD_MAX_W = 2560, S10E_IDD_MAX_H = 1440;
+static constexpr SIZE_T S10E_IDD_SHARE_SIZE = sizeof(S10E_IDD_FRAME_HDR) + SIZE_T(S10E_IDD_MAX_W) * S10E_IDD_MAX_H * 4;
+
+// Every frame is GPU-copied into the staging texture (cheap); the CPU readback + publish happens at most every 100 ms,
+// and from the idle path too (Surface == nullptr): IddCx delivers frames only when the desktop changes, so a rate
+// limit that DROPPED frames kept the last black start-up frame forever on a static desktop (first PoC run).
+void SwapChainProcessor::ShareFrame(_In_opt_ IDXGIResource* Surface)
+{
+    if (!m_hShareMap)
+    {
+        // SYSTEM / LocalService (the UMDF host) full access, Administrators + interactive users read
+        PSECURITY_DESCRIPTOR Sd = nullptr;
+        if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(L"D:(A;;GA;;;SY)(A;;GA;;;LS)(A;;GR;;;BA)(A;;GR;;;IU)",
+                                                                  SDDL_REVISION_1, &Sd, nullptr))
+        {
+            return;
+        }
+        SECURITY_ATTRIBUTES Sa = { sizeof(Sa), Sd, FALSE };
+        m_hShareMap = CreateFileMappingW(INVALID_HANDLE_VALUE, &Sa, PAGE_READWRITE, 0, DWORD(S10E_IDD_SHARE_SIZE),
+                                         L"Global\\S10eIddFrame");
+        LocalFree(Sd);
+        if (!m_hShareMap)
+        {
+            return;
+        }
+        m_pShare = static_cast<BYTE*>(MapViewOfFile(m_hShareMap, FILE_MAP_WRITE, 0, 0, 0));
+        if (!m_pShare)
+        {
+            return;
+        }
+    }
+    if (!m_pShare)
+    {
+        return;
+    }
+
+    D3D11_TEXTURE2D_DESC Desc;
+    if (Surface)
+    {
+    ComPtr<ID3D11Texture2D> Texture;
+    if (FAILED(Surface->QueryInterface(IID_PPV_ARGS(&Texture))))
+    {
+        return;
+    }
+    Texture->GetDesc(&Desc);
+    if (Desc.Width > S10E_IDD_MAX_W || Desc.Height > S10E_IDD_MAX_H ||
+        (Desc.Format != DXGI_FORMAT_B8G8R8A8_UNORM && Desc.Format != DXGI_FORMAT_B8G8R8X8_UNORM))
+    {
+        return;
+    }
+    D3D11_TEXTURE2D_DESC Have = {};
+    if (m_Staging)
+    {
+        m_Staging->GetDesc(&Have);
+    }
+    if (!m_Staging || Have.Width != Desc.Width || Have.Height != Desc.Height || Have.Format != Desc.Format)
+    {
+        D3D11_TEXTURE2D_DESC Sd = Desc;
+        Sd.MipLevels = 1;
+        Sd.ArraySize = 1;
+        Sd.SampleDesc.Count = 1;
+        Sd.SampleDesc.Quality = 0;
+        Sd.Usage = D3D11_USAGE_STAGING;
+        Sd.BindFlags = 0;
+        Sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        Sd.MiscFlags = 0;
+        m_Staging.Reset();
+        if (FAILED(m_Device->Device->CreateTexture2D(&Sd, nullptr, &m_Staging)))
+        {
+            return;
+        }
+    }
+    m_Device->DeviceContext->CopyResource(m_Staging.Get(), Texture.Get());
+    m_SharePending = true;
+    }   // Surface
+
+    ULONGLONG Now = GetTickCount64();
+    if (!m_SharePending || !m_Staging || Now - m_LastShareMs < 100)
+    {
+        return;                                             // ~10 frames/s are plenty for a viewer
+    }
+    m_LastShareMs = Now;
+    m_SharePending = false;
+    m_Staging->GetDesc(&Desc);
+    D3D11_MAPPED_SUBRESOURCE Mapped;
+    if (FAILED(m_Device->DeviceContext->Map(m_Staging.Get(), 0, D3D11_MAP_READ, 0, &Mapped)))
+    {
+        return;
+    }
+    auto Hdr = reinterpret_cast<S10E_IDD_FRAME_HDR*>(m_pShare);
+    InterlockedIncrement(&Hdr->Seq);                        // odd: writing
+    Hdr->Magic = 'S10F';
+    Hdr->Width = Desc.Width;
+    Hdr->Height = Desc.Height;
+    Hdr->Pitch = Desc.Width * 4;
+    BYTE* Dst = m_pShare + sizeof(S10E_IDD_FRAME_HDR);
+    for (UINT y = 0; y < Desc.Height; y++)
+    {
+        memcpy(Dst + SIZE_T(y) * Hdr->Pitch, static_cast<BYTE*>(Mapped.pData) + SIZE_T(y) * Mapped.RowPitch, Hdr->Pitch);
+    }
+    InterlockedIncrement(&Hdr->Seq);                        // even: complete
+    m_Device->DeviceContext->Unmap(m_Staging.Get(), 0);
 }
 
 DWORD CALLBACK SwapChainProcessor::RunThread(LPVOID Argument)
@@ -405,6 +531,7 @@ void SwapChainProcessor::RunCore()
             DWORD WaitResult = WaitForMultipleObjects(ARRAYSIZE(WaitHandles), WaitHandles, FALSE, 16);
             if (WaitResult == WAIT_OBJECT_0 || WaitResult == WAIT_TIMEOUT)
             {
+                ShareFrame(nullptr);                        // exynos-woa G18: publish a pending frame while idle
                 // We have a new buffer, so try the AcquireBuffer again
                 continue;
             }
@@ -424,6 +551,9 @@ void SwapChainProcessor::RunCore()
         {
             // We have new frame to process, the surface has a reference on it that the driver has to release
             AcquiredBuffer.Attach(Buffer.MetaData.pSurface);
+
+            // exynos-woa G18: publish the frame for the remote viewer (rate-limited, CPU copy via a staging texture)
+            ShareFrame(AcquiredBuffer.Get());
 
             // ==============================
             // TODO: Process the frame here
@@ -645,6 +775,32 @@ NTSTATUS IddSampleAdapterInitFinished(IDDCX_ADAPTER AdapterObject, const IDARG_I
     auto* pDeviceContextWrapper = WdfObjectGet_IndirectDeviceContextWrapper(AdapterObject);
     if (NT_SUCCESS(pInArgs->AdapterInitStatus))
     {
+        // exynos-woa G18 DIAGNOSIS SWITCH (AGENTS rule 12 - not a fix): HKLM\SOFTWARE\S10eIdd RenderWarp = 1 asks
+        // IddCx to render this adapter's desktop on WARP instead of the Mali (MS Learn IDARG_IN_ADAPTERSETRENDERADAPTER:
+        // "the LUID of the render adapter that the driver would like to be used"). Tells a Mali shared-surface
+        // readback problem apart from a frame-sink problem when the streamed frames come out black.
+        DWORD RenderWarp = 0, Size = sizeof(RenderWarp);
+        if (RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\S10eIdd", L"RenderWarp", RRF_RT_REG_DWORD, nullptr,
+                         &RenderWarp, &Size) == ERROR_SUCCESS && RenderWarp == 1)
+        {
+            ComPtr<IDXGIFactory1> Factory;
+            ComPtr<IDXGIAdapter1> Adapter;
+            if (SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&Factory))))
+            {
+                for (UINT a = 0; Factory->EnumAdapters1(a, &Adapter) == S_OK; a++, Adapter.Reset())
+                {
+                    DXGI_ADAPTER_DESC1 Desc;
+                    if (SUCCEEDED(Adapter->GetDesc1(&Desc)) && (Desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE))
+                    {
+                        IDARG_IN_ADAPTERSETRENDERADAPTER Arg = {};
+                        Arg.PreferredRenderAdapter = Desc.AdapterLuid;
+                        IddCxAdapterSetRenderAdapter(AdapterObject, &Arg);
+                        break;
+                    }
+                }
+            }
+        }
+
         for (DWORD i = 0; i < IDD_SAMPLE_MONITOR_COUNT; i++)
         {
             pDeviceContextWrapper->pContext->FinishInit(i);

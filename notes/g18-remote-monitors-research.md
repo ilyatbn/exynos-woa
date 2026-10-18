@@ -277,3 +277,16 @@ Mesa d3d10umd); our BCM4375 Wi-Fi (station only). Desktop Duplication suspected 
   (indirect) output on MaliG76Wddm. After 90 s the device left cleanly (one display, same dwm pid, no reset).
   => spacedesk-style and our own remote monitor are viable. Next: frame sink (driver -> file/shared memory ->
   S10eIddView HTTP MJPEG server) so another device on the LAN sees the virtual monitor in a browser.
+- Streaming PoC: drivers/S10eIdd frame sink (SwapChainProcessor::ShareFrame: GPU copy of every frame into a staging
+  texture, CPU readback + publish <= 10 Hz and from the idle path, seqlock section "Global\S10eIddFrame", SDDL
+  SY/LS full, BA/IU read) + tools/phone/rec/iddview/S10eIddView.exe (WIC JPEG, HTTP: / page, /stream MJPEG,
+  /frame.jpg; port 8090) + tools/phone/rec/iddstream.cmd (SYSTEM task: monitor + viewer, 300 s), iddswap.sh,
+  iddstate.ps1. Pitfall found: a re-created software device keeps its first driver package - iddswap.sh deletes all
+  IddSampleDriver packages before adding the new one.
+- Result: section live (2560x1440, seq advancing), HTTP 200 JPEG through an ssh tunnel - but every pixel 0 (black),
+  on the Mali AND with the RenderWarp diagnosis switch (IddCxAdapterSetRenderAdapter to WARP - whether the OS
+  honoured it is not verified). First build also dropped frames in its rate limiter (fixed in poc4) - not the only
+  cause. MS Learn IddCxSwapChainReleaseAndAcquireBuffer has no remarks on reading the surface. OPEN: why the acquired
+  surface reads back zero (next: log the render adapter LUID + a pixel probe of the acquired texture in the driver;
+  UMD trace of WUDFHost needs a reboot - machine env; IddCx docs on frame processing / dirty rects).
+  RenderWarp set back to 0. Firewall untouched (viewer tested through an ssh tunnel only).

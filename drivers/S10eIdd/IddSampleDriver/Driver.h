@@ -6,6 +6,7 @@
 #include <wudfwdm.h>
 #include <wdf.h>
 #include <iddcx.h>
+#include <sddl.h>   // exynos-woa G18: frame-sink section security descriptor
 
 #include <dxgi1_5.h>
 #include <d3d11_2.h>
@@ -80,6 +81,15 @@ namespace Microsoft
 
             void Run();
             void RunCore();
+
+            // exynos-woa G18 frame sink: ~10 frames/s copied to a staging texture and published in the shared section
+            // "Global\S10eIddFrame" (S10E_IDD_FRAME_HDR + BGRA rows) for tools/phone/rec S10eIddView (HTTP MJPEG).
+            void ShareFrame(_In_opt_ IDXGIResource* Surface);
+            bool m_SharePending = false;
+            Microsoft::WRL::ComPtr<ID3D11Texture2D> m_Staging;
+            HANDLE m_hShareMap = nullptr;
+            BYTE* m_pShare = nullptr;
+            ULONGLONG m_LastShareMs = 0;
 
             IDDCX_SWAPCHAIN m_hSwapChain;
             std::shared_ptr<Direct3DDevice> m_Device;

@@ -57,3 +57,11 @@ Limits first version: no GS samplers/SRVs, no SV_PrimitiveID / GS instancing / m
 - Checked: tracked constant buffers hold references (released at the next bind / DestroyDevice).
 - Not tested yet: instancing, GS with constant buffers > slot 0, GS output line strips / points.
 - G25.4 test first: d3dgs + idx-sprites / strip / idx-tris (x86 0125): idx-sprites DIFF 288 (8 sprites, wrong points), strip DIFF 1392, idx-tris DIFF 1377 - the review's prediction confirmed; the 3 original cases still pixel-exact.
+- G25.4 (Mesa 0126): pass 1 = non-indexed point draw over the referenced vertices ([start, start+count) of a plain
+  draw; the vertex buffers' extent of an indexed one; instanced alike); the GS prologue resolves element -> index ->
+  vertex -> A slot (topology code 0 list / 1 line strip(+adj) / 2 triangle strip / 3 fan; buffer 3 = the application's
+  index buffer, 16-bit lanes extracted; CONST[15][0..2] parameters). Bug on the way: a buffer LOAD with writemask .z
+  fills it from address + 8 (component c <- address + 4c) - the index fetch now loads .x and moves it.
+  Result (x86 mali-umd-0126-x86): d3dgs 6/6 pixel-exact vs WARP - sprites 576, cut 820, passthrough 1595, idx-sprites
+  288, strip 1995 (confirms odd triangle-strip triangles reach the GS as (i, i+2, i+1)), idx-tris 2704 lit pixels.
+  Regression: d3dcs 7/7, d3dbc lossy 126/126.

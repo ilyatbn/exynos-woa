@@ -1,0 +1,290 @@
+From 92d96b3453f038629caa8ea8f2a24ff4167c5965 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 11:52:44 +0300
+Subject: [PATCH] d3d10umd: GS emulation captures VS outputs per vertex, the
+ compute pass resolves topology + index buffer (exynos-woa G25.4 0126)
+
+Panfrost's stream output is per vertex and ignores index buffers (TODO in panfrost_launch_xfb): pass 1 is now a
+non-indexed point draw over the referenced vertices, and the GS prologue maps vertex k of primitive p through the
+topology (lists, line strips, triangle strips with odd triangles (p, p+2, p+1), fans), the application's 16/32-bit
+index buffer (bound as buffer 3, base vertex) and the instance. d3dgs 6/6 pixel-exact vs WARP (indexed sprites,
+triangle strip, indexed triangles added).
+---
+ src/gallium/frontends/d3d10umd/GsEmu.cpp    | 91 +++++++++++++++++----
+ src/gallium/frontends/d3d10umd/ShaderTGSI.c | 78 +++++++++++++++++-
+ 2 files changed, 150 insertions(+), 19 deletions(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/GsEmu.cpp b/src/gallium/frontends/d3d10umd/GsEmu.cpp
+index efb8c4c..e97751c 100644
+--- a/src/gallium/frontends/d3d10umd/GsEmu.cpp
++++ b/src/gallium/frontends/d3d10umd/GsEmu.cpp
+@@ -2,17 +2,19 @@
+  * exynos-woa G25 (notes/g25-geometry-shaders.md): geometry-shader emulation, see GsEmu.h.
+  *
+  * A draw with an emulated GS bound (n = input primitives over all instances, vpp = vertices per input primitive):
+- *  1. the application's draw with a stream-output variant of the bound VS (every output register r -> dwords
+- *     4r..4r+3 of buffer A) and rasterizer discard: A holds n * vpp vertices, primitives assembled;
+- *  2. index buffer I cleared to 0xffffffff, then the GS's compute shader: one invocation per primitive reads its
+- *     vertices from A, writes emitted vertices to B (fixed slots, maxout per primitive) and their indices / strip cuts
++ *  1. the vertices the draw references, drawn as points with a stream-output variant of the bound VS (every output
++ *     register r -> dwords 4r..4r+3 of buffer A) and rasterizer discard: A holds the VS outputs per vertex (Panfrost's
++ *     stream output is per vertex and ignores index buffers - G25.4), [start, start + count) of a plain draw, the
++ *     vertex buffers' extent of an indexed one, per instance;
++ *  2. index buffer I cleared to 0xffffffff, then the GS's compute shader: one invocation per primitive resolves its
++ *     vertices (topology, the application's index buffer bound as buffer 3, instance) and reads them from A, writes emitted vertices to B (fixed slots, maxout per primitive) and their indices / strip cuts
+  *     to I (2 * maxout per primitive); the GS's constant buffers are bound to the compute stage, CONST[15][0] = {n, VS
+  *     stride};
+  *  3. I drawn as an indexed point list / line strip / triangle strip with primitive restart through a passthrough VS
+  *     (attribute j = B register r, output = the GS output's semantic).
+  * Then the application's VS, rasterizer, compute and vertex state is put back.
+- * Limits: no GS samplers / resources, no stream output from the GS, strips with primitive restart in the
+- * application's indexed draw count as unbroken (the primitives past what stream output wrote read stale vertices).
++ * Limits: no GS samplers / resources, no stream output from the GS; strip cuts in the application's index buffer and
++ * triangle strips with adjacency are not resolved (treated as unbroken strips / lists).
+  * SPDX-License-Identifier: MIT
+  */
+ #include "GsEmu.h"
+@@ -26,6 +28,7 @@
+ #include "util/u_draw.h"
+ #include "util/u_inlines.h"
+ #include "util/u_memory.h"
++#include "util/format/u_format.h"
+ 
+ extern "C" void malikm_tlog(const char *fmt, ...);
+ 
+@@ -36,6 +39,43 @@ struct GsEmu {
+    void *rs_discard;
+ };
+ 
++/* The topology code the GS-as-compute prologue resolves (ShaderTGSI.c gs_prologue). */
++static unsigned
++topology_code(enum mesa_prim mode)
++{
++   switch (mode) {
++   case MESA_PRIM_LINE_STRIP:
++   case MESA_PRIM_LINE_STRIP_ADJACENCY: return 1;
++   case MESA_PRIM_TRIANGLE_STRIP: return 2;
++   case MESA_PRIM_TRIANGLE_FAN: return 3;
++   default: return 0;   /* lists (triangle strips with adjacency: unsupported, read as a list) */
++   }
++}
++
++/* Vertices the bound vertex buffers hold for every per-vertex element (an indexed draw may reference any of them). */
++static unsigned
++vertex_extent(Device *dev)
++{
++   unsigned vmax = ~0u;
++   if (dev->element_layout) {
++      const struct cso_velems_state *st = &dev->element_layout->state;
++      for (unsigned i = 0; i < st->count; i++) {
++         const struct pipe_vertex_element *el = &st->velems[i];
++         if (el->instance_divisor)
++            continue;
++         const struct pipe_vertex_buffer *vb = &dev->vertex_buffers[el->vertex_buffer_index];
++         unsigned stride = dev->vertex_strides[el->vertex_buffer_index];
++         if (vb->is_user_buffer || !vb->buffer.resource || !stride)
++            continue;
++         unsigned size = vb->buffer.resource->width0, off = vb->buffer_offset + el->src_offset;
++         unsigned fsz = util_format_get_blocksize((enum pipe_format)el->src_format);
++         unsigned cnt = size >= off + fsz ? (size - off - fsz) / stride + 1 : 0;
++         vmax = MIN2(vmax, cnt);
++      }
++   }
++   return vmax == ~0u ? 65536 : MIN2(vmax, 1u << 20);
++}
++
+ static unsigned
+ prims_for(enum mesa_prim mode, unsigned c)
+ {
+@@ -155,7 +195,11 @@ GsEmuDraw(Device *dev, const struct pipe_draw_info *info, const struct pipe_draw
+    struct pipe_context *pipe = dev->pipe;
+    const struct Shader_extra *ex = gs->extra;
+    unsigned inst = info->instance_count ? info->instance_count : 1;
+-   unsigned n = prims_for((enum mesa_prim)info->mode, draw->count) * inst;
++   unsigned ppi = prims_for((enum mesa_prim)info->mode, draw->count);
++   unsigned n = ppi * inst;
++   bool indexed = info->index_size != 0;
++   unsigned nv = indexed ? vertex_extent(dev) : draw->count;   /* captured vertices per instance */
++   unsigned vbase = indexed ? 0 : draw->start;                 /* the vertex of A's element 0 */
+    unsigned vpp = MAX2(ex->gs_vpp, 1), maxout = ex->gs_maxout;
+    if (!n || !maxout || !ex->gs_out_regs)
+       return true;   /* nothing a GS could emit */
+@@ -167,7 +211,7 @@ GsEmuDraw(Device *dev, const struct pipe_draw_info *info, const struct pipe_draw
+    if (!e || !e->rs_discard)
+       return true;
+    unsigned vs_stride = vs->gs_so_regs * 16, gs_stride = ex->gs_out_regs * 16;
+-   unsigned a_need = n * vpp * vs_stride, b_need = n * maxout * gs_stride, i_need = n * 2 * maxout * 4;
++   unsigned a_need = nv * inst * vs_stride, b_need = n * maxout * gs_stride, i_need = n * 2 * maxout * 4;
+    struct pipe_resource *old_a = e->a;
+    if (!ensure_buffer(pipe->screen, &e->a, &e->a_size, a_need, PIPE_BIND_STREAM_OUTPUT | PIPE_BIND_SHADER_BUFFER) ||
+        !ensure_buffer(pipe->screen, &e->b, &e->b_size, b_need, PIPE_BIND_VERTEX_BUFFER | PIPE_BIND_SHADER_BUFFER) ||
+@@ -180,12 +224,23 @@ GsEmuDraw(Device *dev, const struct pipe_draw_info *info, const struct pipe_draw
+          return true;
+    }
+ 
+-   /* 1. VS outputs -> A */
++   /* 1. VS outputs of the referenced vertices -> A (a non-indexed point draw over them, instanced like the draw) */
+    pipe->bind_vs_state(pipe, vs->gs_so_vs);
+    pipe->bind_rasterizer_state(pipe, e->rs_discard);
+    unsigned zero = 0;
+-   pipe->set_stream_output_targets(pipe, 1, &e->so, &zero, (enum mesa_prim)info->mode);
+-   pipe->draw_vbo(pipe, info, 0, NULL, draw, 1);
++   pipe->set_stream_output_targets(pipe, 1, &e->so, &zero, MESA_PRIM_POINTS);
++   {
++      struct pipe_draw_info pi;
++      util_draw_init_info(&pi);
++      pi.mode = MESA_PRIM_POINTS;
++      pi.start_instance = info->start_instance;
++      pi.instance_count = inst;
++      struct pipe_draw_start_count_bias pd;
++      memset(&pd, 0, sizeof pd);
++      pd.start = vbase;
++      pd.count = nv;
++      pipe->draw_vbo(pipe, &pi, 0, NULL, &pd, 1);
++   }
+    pipe->set_stream_output_targets(pipe, 0, NULL, NULL, MESA_PRIM_UNKNOWN);
+    pipe->bind_rasterizer_state(pipe, dev->bound_rs);
+ 
+@@ -193,15 +248,21 @@ GsEmuDraw(Device *dev, const struct pipe_draw_info *info, const struct pipe_draw
+    uint32_t restart = 0xffffffffu;
+    pipe->clear_buffer(pipe, e->i, 0, i_need, &restart, 4);
+    pipe->bind_compute_state(pipe, gs->gs_cs);
+-   struct pipe_shader_buffer sb[3];
++   struct pipe_shader_buffer sb[4];
+    memset(sb, 0, sizeof sb);
+    sb[0].buffer = e->a; sb[0].buffer_size = a_need;
+    sb[1].buffer = e->b; sb[1].buffer_size = b_need;
+    sb[2].buffer = e->i; sb[2].buffer_size = i_need;
+-   pipe->set_shader_buffers(pipe, MESA_SHADER_COMPUTE, 0, 3, sb, 0x6);
++   /* buffer 3: the application's index buffer (draw->start counts from its start), or A as a never-read stand-in */
++   struct pipe_resource *ib = indexed && info->index.resource ? info->index.resource : e->a;
++   unsigned ib_size = MAX2(ib->width0, 4u) & ~3u;
++   sb[3].buffer = ib; sb[3].buffer_size = ib_size;
++   pipe->set_shader_buffers(pipe, MESA_SHADER_COMPUTE, 0, 4, sb, 0x6);
+    for (unsigned s = 0; s < GS_EMU_TRACKED_CBS - 1; s++)
+       pipe->set_constant_buffer(pipe, MESA_SHADER_COMPUTE, s, &dev->tracked_cb[0][s]);
+-   uint32_t param[4] = { n, vs_stride, 0, 0 };
++   uint32_t param[12] = { n, vs_stride, topology_code((enum mesa_prim)info->mode), MAX2(ppi, 1u),
++                          draw->start, indexed ? info->index_size : 0u, (uint32_t)draw->index_bias, nv,
++                          vbase, ib_size, nv * inst, 0 };
+    struct pipe_constant_buffer pcb;
+    memset(&pcb, 0, sizeof pcb);
+    pcb.user_buffer = param;
+@@ -241,7 +302,7 @@ GsEmuDraw(Device *dev, const struct pipe_draw_info *info, const struct pipe_draw
+       }
+    }
+    /* the application's compute state back (its CS buffers are bound at each Dispatch) */
+-   pipe->set_shader_buffers(pipe, MESA_SHADER_COMPUTE, 0, 3, NULL, 0);
++   pipe->set_shader_buffers(pipe, MESA_SHADER_COMPUTE, 0, 4, NULL, 0);
+    for (unsigned s = 0; s < GS_EMU_TRACKED_CBS; s++)
+       pipe->set_constant_buffer(pipe, MESA_SHADER_COMPUTE, s, &dev->tracked_cb[1][s]);
+    pipe->bind_compute_state(pipe, dev->bound_cs ? dev->bound_cs->handle : NULL);
+diff --git a/src/gallium/frontends/d3d10umd/ShaderTGSI.c b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+index 09cccd0..414e2b8 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderTGSI.c
++++ b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+@@ -1053,7 +1053,7 @@ gs_prologue(struct Shader_xlate *sx)
+    ureg_DECL_buffer(u, 0, false);
+    ureg_DECL_buffer(u, 1, false);
+    ureg_DECL_buffer(u, 2, false);
+-   ureg_DECL_constant2D(u, 0, 0, 15);
++   ureg_DECL_constant2D(u, 0, 2, 15);   /* CONST[15][0..2]: the draw's parameters (GsEmu.cpp) */
+    sx->gs_param = ureg_src_dimension(ureg_src_register(TGSI_FILE_CONSTANT, 0), 15);
+ 
+    struct ureg_src tid = ureg_DECL_system_value(u, TGSI_SEMANTIC_THREAD_ID, 0);
+@@ -1074,10 +1074,75 @@ gs_prologue(struct Shader_xlate *sx)
+    for (unsigned r = 0; r < SHADER_MAX_INPUTS; r++)
+       if (sx->gs_in_declared[r])
+          sx->gs_in[r] = ureg_DECL_array_temporary(u, vpp, false);
++
++   /* G25.4: buffer 0 holds the VS outputs per VERTEX (Panfrost's stream output is per vertex and ignores index
++    * buffers), so vertex k of primitive p is resolved here: the topology gives element e, the index buffer (buffer 3)
++    * the vertex, the instance its block of buffer 0. CONST[15][0] = {primitives, VS stride, topology, primitives per
++    * instance}, [1] = {first element, index size 0/2/4, base vertex, captured vertices per instance}, [2] = {vertex of
++    * buffer 0's element 0, index buffer bytes (>= 4), captured vertices in all}. Topology: 0 list, 1 line strip /
++    * line strip adjacency, 2 triangle strip, 3 triangle fan. */
++   ureg_DECL_buffer(u, 3, false);
++   struct ureg_src p0 = sx->gs_param;
++   struct ureg_src p1 = ureg_src_dimension(ureg_src_register(TGSI_FILE_CONSTANT, 1), 15);
++   struct ureg_src p2 = ureg_src_dimension(ureg_src_register(TGSI_FILE_CONSTANT, 2), 15);
++#define SC(s, c) ureg_scalar(s, TGSI_SWIZZLE_##c)
++   struct ureg_dst g = ureg_DECL_temporary(u);   /* .x primitive in instance, .y instance, .z odd triangle-strip triangle */
++   struct ureg_dst f = ureg_DECL_temporary(u);   /* .x is list, .y is fan, .z index size 4, .w not indexed */
++   struct ureg_dst t = ureg_DECL_temporary(u);
++   ureg_UMOD(u, ureg_writemask(g, TGSI_WRITEMASK_X), SC(ureg_src(pc), X), SC(p0, W));
++   ureg_UDIV(u, ureg_writemask(g, TGSI_WRITEMASK_Y), SC(ureg_src(pc), X), SC(p0, W));
++   ureg_AND(u, ureg_writemask(t, TGSI_WRITEMASK_X), SC(ureg_src(g), X), ureg_imm1u(u, 1));
++   ureg_USEQ(u, ureg_writemask(t, TGSI_WRITEMASK_Y), SC(p0, Z), ureg_imm1u(u, 2));
++   ureg_AND(u, ureg_writemask(g, TGSI_WRITEMASK_Z), SC(ureg_src(t), X), SC(ureg_src(t), Y));
++   ureg_USEQ(u, ureg_writemask(f, TGSI_WRITEMASK_X), SC(p0, Z), ureg_imm1u(u, 0));
++   ureg_USEQ(u, ureg_writemask(f, TGSI_WRITEMASK_Y), SC(p0, Z), ureg_imm1u(u, 3));
++   ureg_USEQ(u, ureg_writemask(f, TGSI_WRITEMASK_Z), SC(p1, Y), ureg_imm1u(u, 4));
++   ureg_USEQ(u, ureg_writemask(f, TGSI_WRITEMASK_W), SC(p1, Y), ureg_imm1u(u, 0));
++   struct ureg_dst e = ureg_DECL_temporary(u);   /* .x element, .y index, .z fetched dword, .w vertex */
+    for (unsigned k = 0; k < vpp; k++) {
+-      /* byte address of vertex (primitive * vpp + k) */
+-      ureg_UMAD(u, base, ureg_scalar(ureg_src(pc), TGSI_SWIZZLE_X), ureg_imm1u(u, vpp), ureg_imm1u(u, k));
+-      ureg_UMUL(u, base, ureg_scalar(ureg_src(base), TGSI_SWIZZLE_X), ureg_scalar(sx->gs_param, TGSI_SWIZZLE_Y));
++      /* element: list p*vpp+k; strip p+k (odd triangle-strip triangles take (p, p+2, p+1): v[0] stays the leading
++       * vertex); fan (0, p+1, p+2) */
++      unsigned ksw = k == 1 ? 2 : k == 2 ? 1 : k;
++      ureg_UCMP(u, ureg_writemask(t, TGSI_WRITEMASK_X), SC(ureg_src(g), Z), ureg_imm1u(u, ksw), ureg_imm1u(u, k));
++      ureg_UADD(u, ureg_writemask(t, TGSI_WRITEMASK_Y), SC(ureg_src(g), X), SC(ureg_src(t), X));   /* strip */
++      ureg_UMAD(u, ureg_writemask(t, TGSI_WRITEMASK_Z), SC(ureg_src(g), X), ureg_imm1u(u, vpp), ureg_imm1u(u, k));
++      if (k == 0)
++         ureg_MOV(u, ureg_writemask(t, TGSI_WRITEMASK_W), ureg_imm1u(u, 0));
++      else
++         ureg_UADD(u, ureg_writemask(t, TGSI_WRITEMASK_W), SC(ureg_src(g), X), ureg_imm1u(u, k));
++      ureg_UCMP(u, ureg_writemask(e, TGSI_WRITEMASK_X), SC(ureg_src(f), Y), SC(ureg_src(t), W), SC(ureg_src(t), Y));
++      ureg_UCMP(u, ureg_writemask(e, TGSI_WRITEMASK_X), SC(ureg_src(f), X), SC(ureg_src(t), Z), SC(ureg_src(e), X));
++      /* index = first + element; fetch the dword it sits in (address clamped to the buffer) */
++      ureg_UADD(u, ureg_writemask(e, TGSI_WRITEMASK_Y), SC(p1, X), SC(ureg_src(e), X));
++      ureg_UMUL(u, ureg_writemask(t, TGSI_WRITEMASK_X), SC(ureg_src(e), Y), ureg_imm1u(u, 4));
++      ureg_UMUL(u, ureg_writemask(t, TGSI_WRITEMASK_Y), SC(ureg_src(e), Y), ureg_imm1u(u, 2));
++      ureg_AND(u, ureg_writemask(t, TGSI_WRITEMASK_Y), SC(ureg_src(t), Y), ureg_imm1u(u, ~3u));
++      ureg_UCMP(u, ureg_writemask(t, TGSI_WRITEMASK_X), SC(ureg_src(f), Z), SC(ureg_src(t), X), SC(ureg_src(t), Y));
++      ureg_UADD(u, ureg_writemask(t, TGSI_WRITEMASK_Z), SC(p2, Y), ureg_imm1i(u, -4));
++      ureg_UMIN(u, ureg_writemask(t, TGSI_WRITEMASK_X), SC(ureg_src(t), X), SC(ureg_src(t), Z));
++      {
++         /* a buffer LOAD fills the written components from consecutive dwords starting at the address (component c
++          * <- address + 4c), so the dword goes to .x and is moved */
++         struct ureg_dst ld = ureg_writemask(t, TGSI_WRITEMASK_X);
++         struct ureg_src ls[2] = { ureg_src_register(TGSI_FILE_BUFFER, 3), SC(ureg_src(t), X) };
++         ureg_memory_insn(u, TGSI_OPCODE_LOAD, &ld, 1, ls, 2, 0, TGSI_TEXTURE_BUFFER, PIPE_FORMAT_NONE);
++         ureg_MOV(u, ureg_writemask(e, TGSI_WRITEMASK_Z), SC(ureg_src(t), X));
++      }
++      /* 16-bit: (dword >> (index & 1) * 16) & 0xffff; vertex = not indexed ? index : fetched + base vertex */
++      ureg_AND(u, ureg_writemask(t, TGSI_WRITEMASK_Y), SC(ureg_src(e), Y), ureg_imm1u(u, 1));
++      ureg_UMUL(u, ureg_writemask(t, TGSI_WRITEMASK_Y), SC(ureg_src(t), Y), ureg_imm1u(u, 16));
++      ureg_USHR(u, ureg_writemask(t, TGSI_WRITEMASK_Y), SC(ureg_src(e), Z), SC(ureg_src(t), Y));
++      ureg_AND(u, ureg_writemask(t, TGSI_WRITEMASK_Y), SC(ureg_src(t), Y), ureg_imm1u(u, 0xffff));
++      ureg_UCMP(u, ureg_writemask(t, TGSI_WRITEMASK_Y), SC(ureg_src(f), Z), SC(ureg_src(e), Z), SC(ureg_src(t), Y));
++      ureg_UADD(u, ureg_writemask(t, TGSI_WRITEMASK_Y), SC(ureg_src(t), Y), SC(p1, Z));
++      ureg_UCMP(u, ureg_writemask(e, TGSI_WRITEMASK_W), SC(ureg_src(f), W), SC(ureg_src(e), Y), SC(ureg_src(t), Y));
++      /* buffer 0 element = instance * captured + (vertex - vertex of element 0), clamped; byte address */
++      ureg_INEG(u, ureg_writemask(t, TGSI_WRITEMASK_Z), SC(p2, X));
++      ureg_UADD(u, ureg_writemask(t, TGSI_WRITEMASK_Z), SC(ureg_src(e), W), SC(ureg_src(t), Z));
++      ureg_UMAD(u, base, SC(ureg_src(g), Y), SC(p1, W), SC(ureg_src(t), Z));
++      ureg_UADD(u, ureg_writemask(t, TGSI_WRITEMASK_W), SC(p2, Z), ureg_imm1i(u, -1));
++      ureg_UMIN(u, base, SC(ureg_src(base), X), SC(ureg_src(t), W));
++      ureg_UMUL(u, base, SC(ureg_src(base), X), SC(p0, Y));
+       for (unsigned r = 0; r < SHADER_MAX_INPUTS; r++) {
+          if (!sx->gs_in_declared[r])
+             continue;
+@@ -1091,8 +1156,13 @@ gs_prologue(struct Shader_xlate *sx)
+          ureg_memory_insn(u, TGSI_OPCODE_LOAD, &dst, 1, src, 2, 0, TGSI_TEXTURE_BUFFER, PIPE_FORMAT_NONE);
+       }
+    }
++#undef SC
+    ureg_release_temporary(u, base);
+    ureg_release_temporary(u, addr);
++   ureg_release_temporary(u, g);
++   ureg_release_temporary(u, f);
++   ureg_release_temporary(u, t);
++   ureg_release_temporary(u, e);
+ }
+ 
+ /* v[k][r] (or vPrim) as a source. */
+-- 
+2.40.1.windows.1
+

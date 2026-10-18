@@ -76,3 +76,10 @@ Limits first version: no GS samplers/SRVs, no SV_PrimitiveID / GS instancing / m
   ended without an error event. OpenWith watcher (tools/phone/games/openwithwatch.ps1): no OpenWith in that run - the
   user's "annoying link" popup is not reproduced; crashevents.ps1 lists the game's WER events. Particles in a race =
   user test.
+- ARM64 0127 (Mesa 0111-0127) deployed to System32 (previous: maliumd.dll.old0123 / .tmp0123): d3dgs 6/6 pixel-exact,
+  d3dcs 7/7, d3dbc lossy 126/126 on ARM64. Browser: GDI screenshots came back all white and the scan-out dump black -
+  the display was asleep (DWM presenting normally, no errors) - so the check went display-independent:
+  tools/phone/wddm2/cdp_webgl.py over DevTools (Edge with --remote-debugging-port + a separate --user-data-dir, tracing
+  only; recent Chromium refuses the debug port on the default profile): WebGL clear readback 51,102,153 (= 0.2/0.4/0.6),
+  triangle readback 255,128,0, renderer "ANGLE (... Arm Mali-G76 MP12 ... Direct3D11 vs_4_1 ps_4_1, D3D11)";
+  cdp_gpuinfo featureStatus = baseline (webgl/webgpu/gpu_compositing/video enabled, rasterization unavailable_off).

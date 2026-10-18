@@ -1831,3 +1831,19 @@ Next order of work:
 1. Bugcheck code for the fullscreen+duplication crash (S10eDiag AuxKlib BC lines missing, or KD), then fix.
 2. NFSU2 race test once the user picks the popup fix (gamedrive.ps1 key script + -dup / scan-out frames).
 3. G27 leftovers: install mwddm-1.0.71.1 (attended); x64 game.
+
+## 61. Restart point (2026-10-18 ~17:25 local)
+
+**Phone state:** firmware **s10e-artifacts/boot-host-r2.img** (9e15a5bc; = HEAD + the btmfc build overrides via the
+new firmware/tools/build-host-image.ps1; rollback boot-host-r1.img / boot-host-btmfc.img, backups in boot-backups).
+Windows sees 5912 MiB usable (was 5370) and 6 GB installed (SMBIOS). KMD 1.0.69.1, UMD ARM64X set (0129), x86 0128.
+New S10eDiag (AuxKlib/BC status marks) live. Game capture off (user's choice). Battery 100 %.
+
+Done since 60: alpha7 tagged (local, 4fdb98a). R1 RAM: CP reservations + sec_rdx_bootdev published (memfill to 98 %
+load, 0 mismatches). R2: SMBIOS 0/1/3/16/17/19. NFSU2 reached title + menu (black screens were the screensaver);
+fullscreen dumps show stripes that move between dumps (likely capture artefact - user to confirm on the panel).
+
+Next order of work:
+1. User: stripes on the panel in NFSU2 fullscreen? Install mwddm-1.0.71.1 when attended.
+2. Fullscreen + desktop-duplication bugcheck (code via the new S10eDiag marks on the next occurrence).
+3. NFSU2 race (gamedrive.ps1: click at the title, then menus), GPU backlog (notes/g27, HANDOFF 60).

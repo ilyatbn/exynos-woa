@@ -56,3 +56,10 @@ Basis: notes/cpu-ram-plan-20261012.md (Findings - RAM, plan #2 run r2, plan #3),
 - R2 source: Drivers/Beyond0LteSmbiosDxe (new) + MdeModulePkg SmbiosDxe in dsc/fdf, PcdSmbiosEntryPointProvideMethod
   0x2 (SMBIOS3 only). Builds: FVMAIN 1626624 -> 1659040 B used. Images boot-host-r2-wdt.img 7338da18... (watchdog 1)
   and boot-host-r2.img (daily). Not yet booted.
+- before R2 (smbiosinfo.ps1): GetPhysicallyInstalledSystemMemory FALSE (err 1), ComputerSystem 'EXYNOS' 'BEYOND0L' (ACPI OEM ids), no enclosure/BIOS/memory devices.
+- R2 wdt image booted (~55 s). smbiosinfo.ps1: GetPhysicallyInstalledSystemMemory TRUE 6291456 KB = 6 GiB (was FALSE);
+  TotalVisibleMemorySize 6053364 KB (-128 KB = the SMBIOS table); Win32_PhysicalMemory 6442450944 B 'LPDDR4X'/'Package 0'
+  type 30 (LPDDR4); ComputerSystem Samsung / Galaxy S10e / family Galaxy S / SKU SM-G970F; enclosure 30 (Tablet);
+  BIOS exynos-woa 'Beyond0LtePkg R2' SMBIOS 3.8. (Win32_PhysicalMemoryArray MaxCapacityEx prints the raw type-16
+  extended value 6442450944 although WMI labels it KB - SMBIOS 3.x 7.17: Extended Maximum Capacity is in BYTES, as set.)
+- 17:23 daily boot-host-r2.img (9e15a5bc) flashed + booted; GetPhysicallyInstalledSystemMemory 6 GiB, visible 6053364 KB. R2 DONE. Phone firmware = boot-host-r2.img (rollback chain: boot-host-r1.img, boot-host-btmfc.img).

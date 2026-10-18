@@ -242,3 +242,9 @@ free.
 - Fix without a flash: reboot with the hub unplugged (no boost -> mode back to charge). Proper fix (follow-up): turn
   the boost off when the sink detaches (Windows-side CC watcher in S10eBattery, needs a CNFG_00 write) or let the
   boot decide charge vs. OTG from CC each time.
+- CORRECTION 21:23 (same day): charging resumed WITHOUT a reboot (LastBootUpTime still 14:15): CNFG_00 0x15 (mode 5
+  CHG+BUCK), ChgDetails 0x31E0 (CHG_DTLS 1 = fast charge), AvgCurrent +1262 mA, PowerState 5 (online+charging), SOC
+  9.0 %. Something reset the charger mode from 0xE to 5 when the hub came off / the charger went on - nothing of ours
+  writes CNFG_00 in Windows, so most likely the MAX77705 itself (CC detach / VBUS-in). UNVERIFIED which event did it;
+  read CNFG_00 every 100 ms (usbcwatch-style) across an unplug to find out. The "stays until the next boot" claim
+  above was wrong: earlier reads were taken while the hub (or no external supply) was still attached.

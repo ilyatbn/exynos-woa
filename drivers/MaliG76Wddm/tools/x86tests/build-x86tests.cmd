@@ -16,7 +16,9 @@ cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /D _CRT_SECURE_NO_WARNINGS /EHsc /I
 if errorlevel 1 exit /b 2
 cl.exe /nologo /W4 /WX /wd4201 /O2 /MT /GS /guard:cf /D _CRT_SECURE_NO_WARNINGS /I "%T%\..\include" /Fo"%OUT%\\" /Fe"%OUT%\d3dvbring32.exe" "%T%\d3dvbring\d3dvbring.cpp" /link /MACHINE:X86 /SUBSYSTEM:CONSOLE d3d11.lib d3dcompiler.lib /Brepro
 if errorlevel 1 exit /b 3
-"%KIT%\bin\%KV%\x64\signtool.exe" sign /sha1 5DD5DEE1747244C5F5F66F41D94C0A59C4443E48 /fd SHA256 "%OUT%\d3dtri32.exe" "%OUT%\d3dvbring32.exe" >nul
+cl.exe /nologo /W4 /WX /wd4201 /O2 /MT /GS /guard:cf /D _CRT_SECURE_NO_WARNINGS /I "%T%\..\include" /Fo"%OUT%\\" /Fe"%OUT%\d3dcbdyn32.exe" "%T%\d3dcbdyn\d3dcbdyn.c" /link /MACHINE:X86 /SUBSYSTEM:CONSOLE d3d11.lib d3dcompiler.lib /Brepro
+if errorlevel 1 exit /b 5
+"%KIT%\bin\%KV%\x64\signtool.exe" sign /sha1 5DD5DEE1747244C5F5F66F41D94C0A59C4443E48 /fd SHA256 "%OUT%\d3dtri32.exe" "%OUT%\d3dvbring32.exe" "%OUT%\d3dcbdyn32.exe" >nul
 if errorlevel 1 exit /b 4
 del "%OUT%\*.obj" >nul 2>&1
 echo X86TESTS_BUILD_OK %OUT%

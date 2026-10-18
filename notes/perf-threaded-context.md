@@ -192,3 +192,16 @@ thread is still emulated x86 in 32-bit games); also helps every D3D app (DWM, br
 - T6 plan: rename DYNAMIC constant buffers into pipe->const_uploader at WRITE_DISCARD (u_upload_alloc_ref, rebind
   every slot it is bound to with buffer+offset, u_upload_unmap at Unmap); materialize (copy back) before copies,
   UpdateSubresource or other maps. Works with and without TC.
+- T6 (Mesa e4b97d1, tools/mesa-build/tc/t6_cbrename.py + fixes): Resource::cb_rename (Usage DYNAMIC && BindFlags ==
+  CONSTANT_BUFFER), cb_buf/cb_offset/cb_mapped; Device::bound_cb/_off/_size [VS,PS,GS,CS][16]; CbBind (all CB binds:
+  SetConstantBuffers, CsSetConstantBuffers AND the D3D11.1 SetConstantBuffers11 path with FirstConstant/NumConstants
+  - the first T6 build missed that one: renamed slices never got bound, the shader read the old zero storage);
+  ResourceMap WRITE_DISCARD -> u_upload_alloc_ref(pipe->const_uploader, width0, 256) + CbRebindAll; Unmap ->
+  u_upload_unmap; CbMaterialize (resource_copy_region back) before ResourceCopy/CopyRegion (src+dst),
+  UpdateSubResourceUP and any other map; DestroyResource drops cb_buf and clears bound_cb.
+- New regression test drivers/MaliG76Wddm/tools/d3dcbdyn (DYNAMIC CB, Map DISCARD between draws, bound once / rebound;
+  4 strips read back): first T6 build FAIL (all 0x00000000, also with MALIUMD_NO_TC=1), WARP PASS; fixed build PASS
+  with and without TC; d3dtri32 tri + d3dvbring32 PASS.
+- nfs-tc9 (x86 tc6f = T6, e1fae195): full race, frame 28.6-34.0 ms (~30 fps; was 84 ms before TC = 2.8x), inside the
+  UMD 10.5-14.4 ms/frame; scan-out traces/wddm2/nfs-tc9.png renders correctly (car, HUD 4th/4 lap 1/3, minimap,
+  Gemini neon). Intermediate T6 run nfs-tc8 (D3D11.1 path missed): 38 ms but black.

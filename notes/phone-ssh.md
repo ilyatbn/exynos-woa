@@ -47,3 +47,4 @@ User asked why the phone cannot be controlled remotely, then: "ssh server is per
   sc qc; no stop - servicing was running); 9 UpdateOrchestrator/WaaSMedic tasks disabled (Reboot_AC/Battery do not
   exist on this build). RebootPending / RebootRequired keys absent afterwards.
 - To re-enable: delete the policy keys, set the four services back (wuauserv 3, UsoSvc 2, WaaSMedicSvc 3, DoSvc 2).
+- 2026-10-19 Store install of the GL compat pack: winget 0x80004002; Store app not installed; UsoSvc/DoSvc/WaaSMedicSvc DISABLED (wuoff.cmd), wuauserv manual. User: 're-enable windows update for a sec, install it, then disable it again' -> UsoSvc + DoSvc Start=3 + start for the install, then back to 4 (policies NoAutoUpdate etc. untouched).

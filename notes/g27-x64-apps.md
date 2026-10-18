@@ -93,3 +93,10 @@ the GPU, natively.
   TextInputHost all "maliumd.dll, maliumd_arm64.DLL" - DWM runs on the forwarder. GDI screenshot: normal desktop.
   No new Application Error events attributable to this boot (the phone clock resets at boot - event times overlap
   older boots; none name maliumd_arm64/maliumd_ec/dwm). d3dcs x64 + ARM64 again 0/7 differ.
+- User 2026-10-18: "Screenshot did not show explorer" - the post-reboot GDI shot (1013x480) had no taskbar. Checked
+  (tools/phone/wddm2/shellstate.ps1, taskbarstate.ps1, new): explorer/StartMenuExperienceHost running + responding;
+  Shell_TrayWnd visible, rect 0,612-1520,720 on a 1520x720 screen, StuckRects3 byte8 0x7a (no auto-hide). Cause: shot.ps1
+  was not DPI-aware - at 150 % VirtualScreen reports the virtualised 1013x480 and CopyFromScreen copied only the
+  top-left 1013x480 physical pixels (2/3 of the screen). Fixed (SetProcessDPIAware first): shot 1520x720 shows the
+  full desktop incl. taskbar (Start, Explorer, Brave, tray, clock). All earlier shot.ps1 images since the 150 % mode
+  (e.g. traces/games/browser-*-0123.png) are crops of the top-left 2/3 - keep that in mind when reading them.

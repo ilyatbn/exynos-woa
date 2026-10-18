@@ -155,3 +155,4 @@ errors". SPEED2.EXE = 32-bit x86 (timestamp 0x420aad27).
 - The x86 UMD (maliumd32) runs EMULATED inside the x86 process (no ARM64EC/CHPE path for x86 processes), as do the
   game and dgVoodoo. Lever: per-draw CPU cost in DrawIndexed (d3d10umd state resolve incl. the 0125-0128 GS/SO
   per-draw checks, vs panfrost job/descriptor emission). Next: finer timers inside DrawIndexed.
+- In-race section timers (x86 0130p, pid 4448): DrawIndexed 117k calls 5526 ms of which DrawIndexed:draw_vbo 5378 ms (97 %) = Panfrost; ResolveState not in the top 8. Panfrost has no threaded_context in this tree; d3d10umd creates a plain context (Device.cpp:178). All UMD builds are debugoptimized with b_ndebug=if-release = asserts ON (MESA_DEBUG 0). Test: x86 0130n = 0130p + -Db_ndebug=true (9eca4967) in SysWOW64. User question 'will DX12 solve this' -> no: the cost is Panfrost per-draw CPU work in an emulated x86 process; a D3D12 UMD does not exist for this GPU.

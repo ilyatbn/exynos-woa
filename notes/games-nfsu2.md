@@ -102,3 +102,6 @@ errors". SPEED2.EXE = 32-bit x86 (timestamp 0x420aad27).
   fullscreen), the popup was just the usual cause. Settings restored exactly (gamedvrrestore.ps1: GameDVR_Enabled 1,
   AppCaptureEnabled removed). Open: user's choice of native fix; race test needs the game kept in the foreground
   (popup off, no screensaver) + a way to see fullscreen frames (scan-out dumps or a DXGI desktop-duplication capture).
+- 2026-10-18 user: "Okay to switch it off permanently" -> Settings > Gaming capture off (GameDVR_Enabled 0 +
+  AppCaptureEnabled 0, gamedvr.ps1) applied for good - the chosen native fix (a normal user setting, no flag on the
+  game). Reboot next (also loads the new S10eDiag), then the race test.

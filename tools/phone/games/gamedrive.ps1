@@ -32,6 +32,14 @@ foreach ($line in $keys) {
   $f = ($line -split '#')[0].Trim() -split '\s+'
   if ($f.Count -lt 2) { continue }
   Start-Sleep -Milliseconds ([int]$f[0])
+  if ($f[1] -eq 'PLAY') {    # "0 PLAY C:\S10eTmp\gamekeys.rec": replay a keyrec recording (keyplay.exe), timed from now
+    $rec = if ($f.Count -ge 3) { $f[2] } else { 'C:\S10eTmp\gamekeys.rec' }
+    "t+{0:N1} s PLAY {1}" -f ((Get-Date) - $t0).TotalSeconds, $rec | Add-Content $out
+    Start-Process -Wait -FilePath C:\S10eTmp\keyplay.exe -ArgumentList $rec
+    $st = if ($p.HasExited) { 'EXITED 0x{0:X8}' -f $p.ExitCode } else { "alive ws $([int]((Get-Process -Id $p.Id).WorkingSet64 / 1MB)) MB" }
+    "t+{0:N1} s PLAY done -> {1}" -f ((Get-Date) - $t0).TotalSeconds, $st | Add-Content $out
+    continue
+  }
   if ($f[1] -eq 'CLICK') {   # left click at the screen centre - activates the game window the way a user would
     [W.K]::mouse_event(0x8001, 32768, 32768, 0, [UIntPtr]::Zero)
     [W.K]::mouse_event(0x2, 0, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 80; [W.K]::mouse_event(0x4, 0, 0, 0, [UIntPtr]::Zero)

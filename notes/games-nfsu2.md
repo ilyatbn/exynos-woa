@@ -160,3 +160,13 @@ errors". SPEED2.EXE = 32-bit x86 (timestamp 0x420aad27).
 - x86 0130s (32ca4991) = asserts off + Panfrost per-draw section timers (pan:prepare_draw, update_state_3d, shader_state_vs/fs, varyings, launch_draw via umd_section_ns) + report top 14 + malikm_tlog line 256 -> 1200 B (the 'app umd top' lines were truncated at 255 chars). In SysWOW64; user race next.
 - Panfrost sections (x86 0130s, pid 4384, ~1240 draws/frame, frame 105-122 ms): per draw draw_vbo 46.6 us = shader_state_fs 10.9, prepare_draw 10.8, launch_draw 9.1, varyings 5.2, shader_state_vs 5.2, update_state_3d 2.0 (sum 43.2). Spread, no single hotspot. Threaded context would overlap ~35 ms game vs ~70 ms driver (still emulated x86) -> ~1.4x at best. Next: redundant work in prepare_draw / shader_state_fs (dgVoodoo ~1600 maps/frame may dirty FS state every draw).
 - x86 0130t (cce81f26) = 0130s + sub-sections with call counts (pan:sub:get_batch, viewport, textures, samplers, const_buf, frag_rsd), report top 20, tlog line 1800 B. Deployed; user race next.
+- Automation (user: "lets automate the process ... record what i do and do the same"): tools/phone/games/keyrec/
+  keyrec.exe (WH_KEYBOARD_LL, only while started, keyboard only, times relative to SPEED2.EXE start, F12 stops) +
+  keyplay.exe (SendInput scan codes on the same timing; brings the game window to the foreground before every event -
+  the first replay crashed at the first Enter, +0x6562b, game not foreground) + gamedrive.ps1 "0 PLAY <file>". User's
+  recording: 606 events (Enter x10 from 13 s, arrows from 44 s). 2nd replay reached a race (user: "it got the job done").
+- Sub-section profile (x86 0130t, pid 5052, frame ~97 ms, ~1030 draws/frame): per draw get_batch 9.4 us (1x),
+  textures 9.2 us (2 calls/draw = VS+FS re-emitted EVERY draw), const_buf 4.0 us (2/draw), frag_rsd 2.7, samplers 0.7
+  (2/draw), viewport 0.7, ResolveState 0.6. => ~25 of ~49 us/draw look redundant: (1) panfrost_get_batch_for_fbo per
+  draw (cache while the fb is unchanged), (2) texture/const-buffer descriptors dirty on every draw (identical rebinds
+  from dgVoodoo or the frontend forwarding every bind) -> filter identical binds in d3d10umd. Next.

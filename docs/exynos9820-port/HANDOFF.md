@@ -1792,3 +1792,23 @@ Next order of work:
 3. D3D10 stream output without a GS (CreateGeometryShaderWithStreamOutput, empty GS): attach the SO to the VS now that
    Panfrost XFB works for TGSI.
 4. Present wait (R1), screen slow-wake, G26 speed / ETC2 T-H modes, slab release, DWM leak, HDMI.
+
+## 59. Restart point (2026-10-18 ~13:30 local)
+
+**Phone state:** firmware boot-host-btmfc.img; KMD 1.0.69.1; **UMD x86 = mali-umd-0128-x86 (SysWOW64). System32 =
+the G27 ARM64X set from s10e-artifacts\mali-umd-0129-x: maliumd.dll (pure forwarder) -> maliumd_arm64.dll (ARM64,
+Mesa 0001-0129) / maliumd_ec.dll (ARM64EC, same source)**, copied live with `wddm2dbg.sh umdxswap`; DWM, explorer and
+the shell load maliumd.dll + maliumd_arm64.DLL since the 13:12 reboot (desktop + taskbar OK). Rollback:
+System32\maliumd.dll.pre-g27 (= 0127s plain ARM64) via umdswap. Battery 100 % on the charger. Phone clock reset again
+(reads 2026-10-17 ~20:xx).
+
+Done since 58: G25.6 SO without a GS (0128); G27 x64 apps: G27.1 baseline (x64 d3dcs got DXGI_ERROR_UNSUPPORTED),
+G27.2 ARM64EC Mesa build (build-mesa-g76 -Stage ec, Mesa 0129, venv-ec with meson's arm64ec machine mapping),
+G27.3 forwarder (tools/mesa-build/make-arm64x.ps1): x64 d3dcs gets Mali FL 10_1, 7/7 PASS; ARM64 d3dcs 7/7, Edge WebGL
+exact; G27.4 INF 1.0.71.1 + package s10e-artifacts\mwddm-1.0.71.1 (InfVerif valid, NOT installed - attended).
+shot.ps1 is DPI-aware now (older shots at 150 % were top-left 2/3 crops - no taskbar).
+
+Next order of work:
+1. G27.5: real x64 apps on the GPU (an x64 D3D11 game / x64 browser build), x64 builds of d3dgs / d3dso / d3dbc.
+2. User tests: NFSU2 race load (G26) + particles (G25); install mwddm-1.0.71.1 when attended.
+3. Present wait (R1), screen slow-wake, G26 speed / ETC2 T-H modes, slab release, DWM leak, HDMI.

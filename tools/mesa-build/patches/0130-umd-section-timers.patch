@@ -1,0 +1,328 @@
+From 6c651be54e4293768d82f9a4f6ad157f1a2f7d5a Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 20:46:15 +0300
+Subject: [PATCH] d3d10umd/panfrost: per-draw section timers (DrawIndexed:*,
+ pan:*, pan:sub:*), call-count report, tlog line 1800 B (exynos-woa NFSU2 perf
+ 0130)
+
+---
+ include/win32-compat/malikm_drm.c            |  2 +-
+ src/gallium/drivers/panfrost/pan_cmdstream.c | 43 +++++++++++++-
+ src/gallium/frontends/d3d10umd/Debug.cpp     | 60 ++++++++++++++++++++
+ src/gallium/frontends/d3d10umd/Debug.h       | 13 +++++
+ src/gallium/frontends/d3d10umd/Draw.cpp      | 12 +++-
+ src/gallium/frontends/d3d10umd/DxgiFns.cpp   |  5 +-
+ 6 files changed, 128 insertions(+), 7 deletions(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 35e2dd8..8bd4744 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -187,7 +187,7 @@ malikm_tlog(const char *fmt, ...)
+    FILE *f = tlog_file();
+    if (!f)
+       return;
+-   char line[256];
++   char line[1800];   /* exynos-woa: the "app umd top" report lines were cut at 255 chars */
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(line, sizeof(line), fmt, ap);
+diff --git a/src/gallium/drivers/panfrost/pan_cmdstream.c b/src/gallium/drivers/panfrost/pan_cmdstream.c
+index 9daf189..7689999 100644
+--- a/src/gallium/drivers/panfrost/pan_cmdstream.c
++++ b/src/gallium/drivers/panfrost/pan_cmdstream.c
+@@ -3160,6 +3160,13 @@ panfrost_val_emit_varying_descriptors(struct panfrost_batch *batch)
+ }
+ #endif
+ 
++#ifndef PAN_SEC_BEGIN
++#include "util/os_time.h"
++void umd_section_ns(const char *name, long long ns);
++#define PAN_SEC_BEGIN(v) int64_t v = os_time_get_nano()
++#define PAN_SEC_END(v, name) umd_section_ns(name, os_time_get_nano() - (v))
++#endif
++
+ static inline void
+ panfrost_update_shader_state(struct panfrost_batch *batch,
+                              mesa_shader_stage st)
+@@ -3175,11 +3182,15 @@ panfrost_update_shader_state(struct panfrost_batch *batch,
+       batch->need_job_req_cycle_count = true;
+ 
+    if (dirty & (PAN_DIRTY_STAGE_TEXTURE | PAN_DIRTY_STAGE_SHADER)) {
++      PAN_SEC_BEGIN(t_tex);
+       batch->textures[st] = panfrost_emit_texture_descriptors(batch, st);
++      PAN_SEC_END(t_tex, "pan:sub:textures");
+    }
+ 
+    if (dirty & PAN_DIRTY_STAGE_SAMPLER) {
++      PAN_SEC_BEGIN(t_smp);
+       batch->samplers[st] = panfrost_emit_sampler_descriptors(batch, st);
++      PAN_SEC_END(t_smp, "pan:sub:samplers");
+    }
+ 
+    /* On Bifrost and older, the fragment shader descriptor is fused
+@@ -3205,9 +3216,11 @@ panfrost_update_shader_state(struct panfrost_batch *batch,
+ #endif
+ 
+    if ((dirty & ss->dirty_shader) || (dirty_3d & ss->dirty_3d)) {
++      PAN_SEC_BEGIN(t_cb);
+       batch->uniform_buffers[st] = panfrost_emit_const_buf(
+          batch, st, &batch->nr_uniform_buffers[st], &batch->push_uniforms[st],
+          &batch->nr_push_uniforms[st]);
++      PAN_SEC_END(t_cb, "pan:sub:const_buf");
+    }
+ 
+ #if PAN_ARCH <= 7
+@@ -3218,7 +3231,9 @@ panfrost_update_shader_state(struct panfrost_batch *batch,
+    if (frag && ((dirty & PAN_DIRTY_STAGE_SHADER) ||
+                 (dirty_3d & FRAGMENT_RSD_DIRTY_MASK))) {
+ 
++      PAN_SEC_BEGIN(t_rsd);
+       batch->rsd[st] = panfrost_emit_frag_shader_meta(batch);
++      PAN_SEC_END(t_rsd, "pan:sub:frag_rsd");
+    }
+ 
+ #if PAN_ARCH >= 6
+@@ -3422,6 +3437,15 @@ panfrost_draw_get_vertex_count(struct panfrost_batch *batch,
+    return vertex_count;
+ }
+ 
++/* exynos-woa (notes/games-nfsu2.md, in-race performance): per-draw section timing into the d3d10umd report
++ * ("pan:*" lines of the app umd top log), defined in d3d10umd Debug.cpp. */
++#ifndef PAN_SEC_BEGIN
++#include "util/os_time.h"
++void umd_section_ns(const char *name, long long ns);
++#define PAN_SEC_BEGIN(v) int64_t v = os_time_get_nano()
++#define PAN_SEC_END(v, name) umd_section_ns(name, os_time_get_nano() - (v))
++#endif
++
+ static void
+ panfrost_single_draw_direct(struct panfrost_batch *batch,
+                             const struct pipe_draw_info *info,
+@@ -3453,9 +3477,15 @@ panfrost_single_draw_direct(struct panfrost_batch *batch,
+ 
+    panfrost_statistics_record(ctx, info, draw);
+ 
++   PAN_SEC_BEGIN(t_state);
+    panfrost_update_state_3d(batch);
++   PAN_SEC_END(t_state, "pan:update_state_3d");
++   PAN_SEC_BEGIN(t_vs);
+    panfrost_update_shader_state(batch, MESA_SHADER_VERTEX);
++   PAN_SEC_END(t_vs, "pan:shader_state_vs");
++   PAN_SEC_BEGIN(t_fs);
+    panfrost_update_shader_state(batch, MESA_SHADER_FRAGMENT);
++   PAN_SEC_END(t_fs, "pan:shader_state_fs");
+    panfrost_clean_state_3d(ctx);
+ 
+    if (ctx->uncompiled[MESA_SHADER_VERTEX]->xfb) {
+@@ -3473,9 +3503,11 @@ panfrost_single_draw_direct(struct panfrost_batch *batch,
+ 
+ #if PAN_ARCH <= 7
+    /* Emit all sort of descriptors. */
++   PAN_SEC_BEGIN(t_var);
+    panfrost_bi_emit_varying_descriptor(batch,
+                                     ctx->padded_count * ctx->instance_count,
+                                     info->mode == MESA_PRIM_POINTS);
++   PAN_SEC_END(t_var, "pan:varyings");
+ #endif
+ 
+ #if PAN_ARCH >= 10
+@@ -3484,8 +3516,10 @@ panfrost_single_draw_direct(struct panfrost_batch *batch,
+                                &(struct panfrost_trace_cs_info){ .batch = batch });
+ #endif
+ 
++   PAN_SEC_BEGIN(t_launch);
+    if (vertex_count > 0)
+       JOBX(launch_draw)(batch, info, drawid_offset, draw, vertex_count);
++   PAN_SEC_END(t_launch, "pan:launch_draw");
+    batch->draw_count++;
+ }
+ 
+@@ -3523,7 +3557,9 @@ prepare_draw(struct pipe_context *pipe, const struct pipe_draw_info *info)
+    struct panfrost_device *dev = pan_device(pipe->screen);
+ 
+    /* Do some common setup */
++   PAN_SEC_BEGIN(t_getb);
+    struct panfrost_batch *batch = panfrost_get_batch_for_fbo(ctx);
++   PAN_SEC_END(t_getb, "pan:sub:get_batch");
+    if (!batch)
+       return NULL;
+ 
+@@ -3554,8 +3590,11 @@ prepare_draw(struct pipe_context *pipe, const struct pipe_draw_info *info)
+     * batch->scissor_culls_everything, which is set by
+     * panfrost_emit_viewport, so call that first.
+     */
+-   if (ctx->dirty & (PAN_DIRTY_VIEWPORT | PAN_DIRTY_SCISSOR))
++   if (ctx->dirty & (PAN_DIRTY_VIEWPORT | PAN_DIRTY_SCISSOR)) {
++      PAN_SEC_BEGIN(t_vp);
+       batch->viewport = panfrost_emit_viewport(batch);
++      PAN_SEC_END(t_vp, "pan:sub:viewport");
++   }
+ 
+    /* Mark everything dirty when debugging */
+    if (unlikely(dev->debug & PAN_DBG_DIRTY))
+@@ -3638,7 +3677,9 @@ panfrost_multi_draw_direct(struct pipe_context *pipe,
+                            unsigned num_draws)
+ {
+    struct panfrost_context *ctx = pan_context(pipe);
++   PAN_SEC_BEGIN(t_prep);
+    struct panfrost_batch *batch = prepare_draw(pipe, info);
++   PAN_SEC_END(t_prep, "pan:prepare_draw");
+    if (!batch) {
+       mesa_loge("prepare_draw failed");
+       return;
+diff --git a/src/gallium/frontends/d3d10umd/Debug.cpp b/src/gallium/frontends/d3d10umd/Debug.cpp
+index 5092e64..e533722 100644
+--- a/src/gallium/frontends/d3d10umd/Debug.cpp
++++ b/src/gallium/frontends/d3d10umd/Debug.cpp
+@@ -66,6 +66,43 @@ UmdEntryTimer::~UmdEntryTimer()
+    }
+ }
+ 
++UmdSectionTimer::UmdSectionTimer(const char *n) : name(n)
++{
++   LARGE_INTEGER q;
++   QueryPerformanceCounter(&q);
++   t0 = q.QuadPart;
++}
++
++UmdSectionTimer::~UmdSectionTimer()
++{
++   LARGE_INTEGER q;
++   QueryPerformanceCounter(&q);
++   UmdEntryStat *e = umd_entry_stat(name);
++   if (e) {
++      InterlockedAdd64((volatile LONG64 *)&e->ticks, q.QuadPart - t0);
++      InterlockedIncrement(&e->calls);
++   }
++}
++
++/* exynos-woa (notes/games-nfsu2.md): C entry for driver-side sections (panfrost pan_cmdstream.c "pan:*"), in ns. */
++extern "C" void
++umd_section_ns(const char *name, long long ns)
++{
++   static long long freq;
++   if (!freq) {
++      LARGE_INTEGER f;
++      QueryPerformanceFrequency(&f);
++      freq = f.QuadPart;
++   }
++   UmdEntryStat *e = umd_entry_stat(name);
++   if (e) {
++      InterlockedAdd64((volatile LONG64 *)&e->ticks, (LONG64)(ns * (double)freq / 1e9));
++      InterlockedIncrement(&e->calls);
++   }
++}
++
++char umd_entry_calls_line[1500];   /* filled by umd_entry_report: the same interval, top by call count */
++
+ void
+ umd_entry_report(char *buf, size_t size, int n)
+ {
+@@ -77,6 +114,29 @@ umd_entry_report(char *buf, size_t size, int n)
+       t[i] = InterlockedExchange64((volatile LONG64 *)&umd_entry_stats[i].ticks, 0);
+       c[i] = InterlockedExchange(&umd_entry_stats[i].calls, 0);
+    }
++   /* exynos-woa (notes/games-nfsu2.md): the same interval ranked by CALL COUNT - cheap state setters (PSSetShader-
++    * Resources, ...) never reach the by-time list, but how often they run is what dirties Panfrost's state. */
++   {
++      long long cc[256];
++      for (int i = 0; i < 256; i++)
++         cc[i] = c[i];
++      size_t cl = 0;
++      umd_entry_calls_line[0] = 0;
++      for (int k = 0; k < 24; k++) {
++         int best = -1;
++         for (int i = 0; i < 256; i++)
++            if (umd_entry_stats[i].func && cc[i] > 0 && (best < 0 || cc[i] > cc[best]))
++               best = i;
++         if (best < 0 || cl + 1 >= sizeof umd_entry_calls_line)
++            break;
++         int w = snprintf(umd_entry_calls_line + cl, sizeof umd_entry_calls_line - cl, "%s%s %lld", k ? ", " : "",
++                          umd_entry_stats[best].func, cc[best]);
++         if (w < 0)
++            break;
++         cl += (size_t)w < sizeof umd_entry_calls_line - cl ? (size_t)w : sizeof umd_entry_calls_line - cl - 1;
++         cc[best] = 0;
++      }
++   }
+    size_t len = 0;
+    buf[0] = 0;
+    for (int k = 0; k < n; k++) {
+diff --git a/src/gallium/frontends/d3d10umd/Debug.h b/src/gallium/frontends/d3d10umd/Debug.h
+index 499d0ec..f975db0 100644
+--- a/src/gallium/frontends/d3d10umd/Debug.h
++++ b/src/gallium/frontends/d3d10umd/Debug.h
+@@ -74,9 +74,22 @@ struct UmdEntryTimer {
+ extern volatile long long umd_entry_ticks;   /* QPC ticks inside DDI entry points, all threads */
+ /* The top N entry points by time since the last call ("Draw 812 calls 9.1 ms, ..."), then reset. */
+ void umd_entry_report(char *buf, size_t size, int n);
++extern char umd_entry_calls_line[1500];   /* after umd_entry_report: top entry points by call count */
+ #define LOG_ENTRYPOINT() UmdEntryTimer umd_entry_timer(__func__)
++/* exynos-woa (notes/games-nfsu2.md, in-race performance): a named section inside an entry point, always timed
++ * (nested too) into the same report table - e.g. "DrawIndexed:ResolveState" vs "DrawIndexed:draw_vbo". */
++struct UmdSectionTimer {
++   UmdSectionTimer(const char *name);
++   ~UmdSectionTimer();
++   const char *name;
++   long long t0;
++};
++#define UMD_SECTION_CAT2(a, b) a##b
++#define UMD_SECTION_CAT(a, b) UMD_SECTION_CAT2(a, b)
++#define UMD_SECTION(name) UmdSectionTimer UMD_SECTION_CAT(umd_section_, __LINE__)(name)
+ #else
+ #define LOG_ENTRYPOINT() (void)0
++#define UMD_SECTION(name) (void)0
+ #endif
+ 
+ #define LOG_UNSUPPORTED_ENTRYPOINT() DebugPrintf("%s XXX\n", __func__)
+diff --git a/src/gallium/frontends/d3d10umd/Draw.cpp b/src/gallium/frontends/d3d10umd/Draw.cpp
+index 3ad2c4e..8313041 100644
+--- a/src/gallium/frontends/d3d10umd/Draw.cpp
++++ b/src/gallium/frontends/d3d10umd/Draw.cpp
+@@ -248,7 +248,10 @@ DrawIndexed(D3D10DDI_HDEVICE hDevice,  // IN
+                                   &restart_index, &index_size, &ib_offset);
+    }
+ 
+-   ResolveState(pDevice);
++   {
++      UMD_SECTION("DrawIndexed:ResolveState");
++      ResolveState(pDevice);
++   }
+ 
+    util_draw_init_info(&info);
+    info.index_size = index_size;
+@@ -260,8 +263,11 @@ DrawIndexed(D3D10DDI_HDEVICE hDevice,  // IN
+    info.primitive_restart = true;
+    info.restart_index = restart_index;
+ 
+-   if (!(pDevice->bound_gs_emu && GsEmuDraw(pDevice, &info, &draw)))   /* exynos-woa G25 */
+-      pDevice->pipe->draw_vbo(pDevice->pipe, &info, 0, NULL, &draw, 1);
++   {
++      UMD_SECTION("DrawIndexed:draw_vbo");
++      if (!(pDevice->bound_gs_emu && GsEmuDraw(pDevice, &info, &draw)))   /* exynos-woa G25 */
++         pDevice->pipe->draw_vbo(pDevice->pipe, &info, 0, NULL, &draw, 1);
++   }
+ 
+    if (null_ib) {
+       pipe_resource_reference(&null_ib, NULL);
+diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+index 59f8ad4..0f71b3d 100644
+--- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
++++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+@@ -275,9 +275,10 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
+             double ums = (double)(umd_entry_ticks - umd0) * 1e3 / f.QuadPart / 119;
+             malikm_tlog("app frames %u: frame %.1f ms, inside the UMD %.1f ms/frame (%.0f %%)", n, fms, ums,
+                         fms > 0 ? ums * 100 / fms : 0);
+-            char top[512];
+-            umd_entry_report(top, sizeof top, 8);   /* G21: where those ms go, over the same 120 presents */
++            char top[1600];
++            umd_entry_report(top, sizeof top, 20);   /* G21: where those ms go, over the same 120 presents */
+             malikm_tlog("app umd top %u: %s", n, top);
++            malikm_tlog("app umd calls %u: %s", n, umd_entry_calls_line);
+             malikm_ioctl_report(top, sizeof top, 8);
+             malikm_tlog("app ioctl top %u: %s", n, top);
+             malikm_tlog("app pacing %u: wait mean %.0f max %.0f us, present mean %.0f max %.0f us, gaps <=25ms %u "
+-- 
+2.40.1.windows.1
+

@@ -170,3 +170,18 @@ errors". SPEED2.EXE = 32-bit x86 (timestamp 0x420aad27).
   (2/draw), viewport 0.7, ResolveState 0.6. => ~25 of ~49 us/draw look redundant: (1) panfrost_get_batch_for_fbo per
   draw (cache while the fb is unchanged), (2) texture/const-buffer descriptors dirty on every draw (identical rebinds
   from dgVoodoo or the frontend forwarding every bind) -> filter identical binds in d3d10umd. Next.
+- ROOT CAUSE of the per-draw re-emits: panfrost pan_resource.c ptr_map - every DISCARD map that gets a new BO (or
+  shadow copy) called panfrost_dirty_state_all(ctx) -> every texture/sampler/uniform/RSD/viewport descriptor of every
+  stage re-emitted on the next draw; dgVoodoo DISCARD-maps its dynamic VB/CB ~1.6x per draw. Mesa 0131
+  (panfrost_dirty_state_for_rsrc): plain buffers bound as VB / IB / CB / sampler view dirty only PAN_DIRTY_VERTEX /
+  (nothing: IB address read per draw, panfrost_get_index_buffer -> rsrc->plane.base) / STAGE_CONST / STAGE_TEXTURE of
+  the stages that bind them; anything else (non-buffer, render target, image, SSBO, stream output bind flags) keeps
+  dirty_state_all.
+- Automated race (tools/phone/games/nfsrace.sh: gamedrive PLAY of the user's recording + scan-out dump + profile),
+  x86 0130d (d85c589e = 0130 timers + 0131): per 120 frames textures 247k -> 24.6k calls, frag_rsd 123k -> 6k,
+  samplers 247k -> 1.9k, viewport 123k -> 960; draw_vbo 49.4 -> 34.7 us/draw (-30 %); frame 97 -> 84 ms, UMD 68 -> 53
+  ms/frame. Scan-out traces/wddm2/nfs-dirty1.png: race renders correctly (city, car, HUD 4th/4 lap 1/3, minimap). No
+  crash. Call counts: IaSetVertexBuffers/IaSetIndexBuffer 44640 (~0.4/draw), PsSetShaderResources 22560.
+- Remaining per draw: get_batch 10.1 us (every draw), launch_draw 8.8, varyings 5.1, VS const 2.5, FS 2.4,
+  update_state_3d 1.9; ResourceMap 6.3 us x 1.6/draw. Next: get_batch (panfrost_get_batch_for_fbo per draw).
+- Mesa commits 6c651be (0130 timers) + f9c04f7 (0131); asserts-off reverted in build-x86 (b_ndebug=if-release).

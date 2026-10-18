@@ -1,0 +1,70 @@
+From f9c04f7889831e0585db6d022566a62bb1292c1a Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 20:46:16 +0300
+Subject: [PATCH] panfrost: a DISCARD-mapped buffer only invalidates the
+ descriptors that reference it, not all state (exynos-woa NFSU2 perf 0131)
+
+---
+ src/gallium/drivers/panfrost/pan_resource.c | 39 ++++++++++++++++++++-
+ 1 file changed, 38 insertions(+), 1 deletion(-)
+
+diff --git a/src/gallium/drivers/panfrost/pan_resource.c b/src/gallium/drivers/panfrost/pan_resource.c
+index 9c55427..2ff47fa 100644
+--- a/src/gallium/drivers/panfrost/pan_resource.c
++++ b/src/gallium/drivers/panfrost/pan_resource.c
+@@ -1570,6 +1570,43 @@ panfrost_can_discard(struct pipe_resource *resource, const struct pipe_box *box,
+            !(rsrc->bo->flags & PAN_BO_SHARED));
+ }
+ 
++/* exynos-woa (notes/games-nfsu2.md, in-race performance): a resource that gets new storage (DISCARD map / shadow
++ * copy) only invalidates the descriptors that reference it. panfrost_dirty_state_all() here re-emitted every texture,
++ * sampler, uniform, renderer-state and viewport descriptor of every stage on the next draw - with dgVoodoo's ~1.5
++ * dynamic-buffer DISCARD maps per draw that was ~25 of ~49 us per draw (NFSU2 race profile). Plain buffers bound as
++ * vertex / index / constant buffers or sampler views are tracked exactly; anything else (render targets, images,
++ * SSBOs, stream output, textures) keeps the conservative dirty-everything path. The index buffer address is read at
++ * every draw (panfrost_get_index_buffer), so it needs no flag. */
++static void
++panfrost_dirty_state_for_rsrc(struct panfrost_context *ctx, struct pipe_resource *res)
++{
++   const unsigned tracked = PIPE_BIND_VERTEX_BUFFER | PIPE_BIND_INDEX_BUFFER | PIPE_BIND_CONSTANT_BUFFER |
++                            PIPE_BIND_SAMPLER_VIEW;
++
++   if (res->target != PIPE_BUFFER || (res->bind & ~tracked)) {
++      panfrost_dirty_state_all(ctx);
++      return;
++   }
++
++   u_foreach_bit(i, ctx->vb_mask) {
++      if (ctx->vertex_buffers[i].buffer.resource == res)
++         ctx->dirty |= PAN_DIRTY_VERTEX;
++   }
++
++   for (unsigned st = 0; st < MESA_SHADER_STAGES; ++st) {
++      u_foreach_bit(i, ctx->constant_buffer[st].enabled_mask) {
++         if (ctx->constant_buffer[st].cb[i].buffer == res)
++            ctx->dirty_shader[st] |= PAN_DIRTY_STAGE_CONST;
++      }
++      for (unsigned i = 0; i < ctx->sampler_view_count[st]; ++i) {
++         /* struct panfrost_sampler_view starts with its pipe_sampler_view */
++         struct pipe_sampler_view *view = (struct pipe_sampler_view *)ctx->sampler_views[st][i];
++         if (view && view->texture == res)
++            ctx->dirty_shader[st] |= PAN_DIRTY_STAGE_TEXTURE;
++      }
++   }
++}
++
+ static void *
+ panfrost_ptr_map(struct pipe_context *pctx, struct pipe_resource *resource,
+                  unsigned level,
+@@ -1699,7 +1736,7 @@ panfrost_ptr_map(struct pipe_context *pctx, struct pipe_resource *resource,
+        (!(resource->flags & PIPE_RESOURCE_FLAG_MAP_PERSISTENT) ||
+         !already_mapped)) {
+       /* Make sure we re-emit any descriptors using this resource */
+-      panfrost_dirty_state_all(ctx);
++      panfrost_dirty_state_for_rsrc(ctx, resource);
+ 
+       /* If the BO is used by one of the pending batches or if it's
+        * not ready yet (still accessed by one of the already flushed
+-- 
+2.40.1.windows.1
+

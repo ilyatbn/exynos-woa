@@ -88,3 +88,13 @@ thread is still emulated x86 in 32-bit games); also helps every D3D app (DWM, br
   still allocate under the context; plus audit every TC-direct function (create_*_state, create_sampler_view,
   sampler_view_destroy, stream_output_target_destroy, create_query, get_query_result(flushed), unsync buffer map)
   for context state use.
+- T2b (Mesa 1c31f87, tools/mesa-build/tc/t2b_direct.py + link_shader guard): ctx->tc_pipe (NULL until T4) +
+  panfrost_tc_sync() (threaded_context_unwrap_sync). Audit of the TC-direct functions (u_threaded_context.h list +
+  tc_link_shader): rasterizer / DSA / blend / sampler state / vertex elements create = no context use (OK);
+  create_sampler_view: own ralloc root, tc sync before legalize + descriptor from ctx->descs (rare); stream output
+  target: own root; create_shader_state: xfb variant -> sync, default-variant precompile skipped under TC (bind ->
+  panfrost_update_shader_variant compiles on the driver thread, pan_shader.c:411/449); create_compute_state -> sync;
+  link_shader -> skipped under TC; get_query_result with tc.flushed -> no flush_writer / flush_all_batches (the TC
+  flush was synchronous, batches submitted; BO wait is screen-level). x86 build OK.
+- T2b review: sampler_view_destroy (direct) = BO unreference (atomic + device locks) + ralloc_free of its own root
+  now - OK. Remaining TC-direct: resource_create/destroy (screen, device locks only), unsynchronized buffer_map -> T3.

@@ -100,3 +100,8 @@ the GPU, natively.
   top-left 1013x480 physical pixels (2/3 of the screen). Fixed (SetProcessDPIAware first): shot 1520x720 shows the
   full desktop incl. taskbar (Start, Explorer, Brave, tray, clock). All earlier shot.ps1 images since the 150 % mode
   (e.g. traces/games/browser-*-0123.png) are crops of the top-left 2/3 - keep that in mind when reading them.
+- G27.5 x64 test builds (build-d3dgs/d3dso/d3dbc.cmd x64 -> *64x.exe) run emulated on maliumd_ec.dll via
+  tools/phone/games/d3drun.sh (new generic runner; exit status via && / || - `%errorlevel%` in the cmd /c line is
+  expanded before the run): d3dgs64x 0 of 6 differ (pixel-exact, GS emulation incl. compute + XFB), d3dso64x 0 of 2,
+  d3dbc64x lossy 0 of 126 (ETC2/EAC transcode, thread pool). d3dbc64x plain 63/63 DIFF = expected since G26 (plain mode
+  is the bit-exact BC-decode check; the default path re-compresses to ETC2).

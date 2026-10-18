@@ -98,3 +98,13 @@ thread is still emulated x86 in 32-bit games); also helps every D3D app (DWM, br
   flush was synchronous, batches submitted; BO wait is screen-level). x86 build OK.
 - T2b review: sampler_view_destroy (direct) = BO unreference (atomic + device locks) + ralloc_free of its own root
   now - OK. Remaining TC-direct: resource_create/destroy (screen, device locks only), unsynchronized buffer_map -> T3.
+- T3 (Mesa a1837b9, tools/mesa-build/tc/t3_maps.py): ptr_map - TC_TRANSFER_MAP_NO_INFER_UNSYNCHRONIZED skips the
+  "uninitialized range -> UNSYNCHRONIZED" upgrade; TC_TRANSFER_MAP_NO_INVALIDATE forces create_new_bo/copy_resource
+  off (joins the separate-stencil bail -> synchronized writes flush + wait); TC_TRANSFER_MAP_THREADED_UNSYNC (app
+  thread) skips the index min/max cache invalidate (unmap, driver thread, invalidates the same box:
+  pan_resource.c ~2512 verified). With TC flags the unsync path touches no ctx state (any_batch_reads / flush only
+  under !UNSYNCHRONIZED). panfrost_replace_buffer_storage: BO swap as the DISCARD path (batches hold BO refs:
+  panfrost_batch_add_bo_old -> panfrost_bo_reference), plane.base, dst index cache emptied,
+  panfrost_dirty_state_for_rsrc (0131). Not yet registered (T4). x86 build OK (only pre-existing warnings).
+- T3 review: TC_* bits are 1<<28..31, never set by d3d10umd itself (grep) - no change without TC. Open: delete_buffer_id
+  ignored (only meaningful with is_resource_busy, not implemented -> every DISCARD of a busy buffer = new storage).

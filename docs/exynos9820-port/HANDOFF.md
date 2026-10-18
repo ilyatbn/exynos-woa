@@ -1847,3 +1847,24 @@ Next order of work:
 1. User: stripes on the panel in NFSU2 fullscreen? Install mwddm-1.0.71.1 when attended.
 2. Fullscreen + desktop-duplication bugcheck (code via the new S10eDiag marks on the next occurrence).
 3. NFSU2 race (gamedrive.ps1: click at the title, then menus), GPU backlog (notes/g27, HANDOFF 60).
+
+## 62. Restart point (2026-10-18 ~18:55 local)
+
+**Phone state:** as 61 (boot-host-r2.img, 5912 MiB / 6 GB installed) + S10eBattery 1.0.0.6 (read-only USB-C IOCTL;
+1.0.0.7 H2 write source is in the tree, NOT built - the auto-mode classifier refused the build, user decides) +
+IddSampleDriver package (drivers/S10eIdd poc4) in the driver store, device only while iddstream.cmd runs.
+
+G18 external/remote display (user: "Can you do something about type-c to hdmi and remote monitors while im away?"):
+- Research: notes/g18-h2-altmode-research.md (max77705 DP alt-mode entry: AP enables alt mode 0x55/0x03, FW
+  discovers, AP sends Enter Mode + DP Configure, HPD in DP Status VDOs; Android's shutdown resets the block, so under
+  Windows nothing happens on plug until 0x55 is sent), notes/g18-remote-monitors-research.md (RDP works today; spacedesk
+  ARM64; own IddCx driver; Miracast blocked by HW H.264 + Wi-Fi Direct; avoid Sunshine/desktop duplication).
+- H1b: usbcwatch.exe logger ready for the user's hub plug test (tools/phone/usbc/README.md).
+- Remote monitor PoC: IddCx virtual monitor 2560x1440 appears and DWM composes it on the Mali (proved by a GDI shot);
+  frame sink + S10eIddView HTTP MJPEG pipeline runs end to end, but frames read back black - open.
+
+Next order of work:
+1. User: run usbcwatch with the hub + HDMI monitor plugged; decide on building the H2 write IOCTL (S10eBattery 1.0.0.7);
+   try RDP / the virtual monitor; NFSU2 stripes check; install mwddm-1.0.71.1.
+2. IddCx black frames: log render adapter + pixel probe in ShareFrame; IddCx frame-processing docs.
+3. Fullscreen + duplication bugcheck (code via S10eDiag marks on the next occurrence).

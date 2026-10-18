@@ -74,3 +74,4 @@ thread is still emulated x86 in 32-bit games); also helps every D3D app (DWM, br
   but without mk_direct() -> queued destroy/unlock could run after them (order). Also known limits: tc_fence_wait's
   1 ms timed wait may round up to the timer tick (15.6 ms) when a callback is pending during a sync - measure
   (malikm_marshal_report counts).
+- T1b (Mesa 4416b63): mk_direct() after wddm_lock_acquire in malikm_primary_create, shared_create, set_display_mode, open_shared, close_shared, shared_bo_create (the six direct ddi.cb users, all on DDI threads: d3d10umd CreateResource/Present/OpenResource; Panfrost resource_create runs on the app thread under TC). x86 build OK. Review: diff = 6 identical inserted lines, each after the function's own lock acquisition (python asserted inside the function body).

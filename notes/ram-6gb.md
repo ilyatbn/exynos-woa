@@ -44,3 +44,4 @@ Basis: notes/cpu-ram-plan-20261012.md (Findings - RAM, plan #2 run r2, plan #3),
   fault/reset (no new Kernel-Power 41). d3dcs ARM64 + x64 0/7 differ afterwards. -> R1 verified. Swapping to the daily
   image (watchdog 0).
 - 17:10 daily boot-host-r1.img (5e9a894c) flashed + booted (~55 s): TotalVisibleMemorySize 6053492 KB again. R1 DONE. Phone firmware = boot-host-r1.img (rollback: boot-host-btmfc.img).
+- Review of 482dcad/18823ee: mMonitorReservations still ascending (fb 0xCA000000 < debug_snapshot 0xFD900000 < el2_earlymem 0x97E000000); gain = computed +542 MiB exactly. Finding: Beyond0LtePkg.dsc:368 comment implied the modem range must never be RAM - note added (follow-up commit). Exynos9820.h:76 describes the vendor DT reservation (still true for Android) - unchanged.

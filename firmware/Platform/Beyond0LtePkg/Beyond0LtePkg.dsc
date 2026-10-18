@@ -369,6 +369,9 @@
   #     contiguous 729 MB, 0xD0000000..0xFD900000, for the modem/CP stack
   #     (Exynos9820.h:96-107, notes/dock-desktop.md §17); publishing all of bank0
   #     would hand that to Windows as conventional RAM.
+  #     (Since R1 2026-10-18 the modem/CP part IS published on purpose - the CP never
+  #     runs under Windows; only cp_ram_logging end 0xFD900000 .. 4 GiB (debug_snapshot)
+  #     stays carved: PlatformMemoryMapLib.c BEYOND0LTE_PUBLISH_CP_RDX, notes/ram-6gb.md.)
   #
   #     The 9810's window (0x90000000..0xBC800000) and its whole ext72/ext99
   #     experiment log are NOT carried over: they are 9810 observations about the

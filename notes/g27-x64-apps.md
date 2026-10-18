@@ -136,3 +136,17 @@ the GPU, natively.
 - screenrec.exe (C++, /W4 /WX clean, Windows subsystem so no console window lands in the frames) runs - Defender
   did not object. Smoke run `recfetch.sh smoke 10 2`: 21 frames 760x360 (screen 1520x720 x0.5), screensaver-was 1 ->
   restored to 1; GIF 68 KB, contact sheet shows the full desktop + taskbar. Delivery to the user: SendUserFile.
+- First real x64 D3D app: mpv x86_64 (shinchiro/mpv-winbuild-cmake 20261018, mpv-x86_64 - not -v3, which needs AVX2)
+  in C:\S10eTmp\mpv64, `--vo=gpu --gpu-api=d3d11 --no-audio av://lavfi:testsrc2` (no media file, no sound).
+  - Attempt 1 (recorded): Windows "System Error: vulkan-1.dll was not found" - this mpv imports the Vulkan loader.
+    Fix: Khronos loader x64 from LunarG vulkan-runtime-components.zip (1.4.363.0, Authenticode valid "LunarG, Inc."),
+    app-local next to mpv.exe (no Vulkan ICD exists -> mpv uses D3D11 as asked).
+  - mpv log: "Using Direct3D 11 feature level 10_1", "Device Name: Arm Mali-G76 MP12 (Galaxy S10e, G10/G11)", flip
+    model, R8G8B8A8; `tasklist /m`: mpv.exe "maliumd.dll, maliumd_ec.DLL". 0 [e] lines, no dropped frames (only the
+    EOF pin disconnect). Recording traces/rec/mpv64run (80 s, 161 frames): colour bars + moving lines + counter
+    render correctly from t=3.5 s to the 45 s length, then mpv idles ("No file", black).
+  - Recorder fixes on the way: every BitBlt failed while scrnsave.scr ran (it starts right after a run restores
+    SPI_SETSCREENSAVEACTIVE, the input idle having passed) -> screenrec closes a running screensaver before each frame
+    (SPI_GETSCREENSAVERRUNNING; WM_CLOSE to the "Screen-saver" desktop windows or the foreground window if it is a
+    *.scr process). The stale hard-error box from attempt 1 cannot be found/closed from the user session
+    (tools/phone/rec/dismiss.ps1: FindWindow finds nothing; csrss-owned + UIPI) - needs one OK tap by the user.

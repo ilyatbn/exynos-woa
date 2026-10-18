@@ -14,6 +14,45 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/* A screensaver that is already running (or starts later: restoring SPI_SETSCREENSAVEACTIVE at the end of the previous
+ * run lets it start at once, the input-idle time having long passed) makes every BitBlt of the screen fail. Close it
+ * when SPI_GETSCREENSAVERRUNNING says one runs: WM_CLOSE to the windows of the "Screen-saver" desktop, or to the
+ * foreground window - but only if that window belongs to a *.scr process. */
+static BOOL CALLBACK CloseScrWindow(HWND h, LPARAM)
+{
+    PostMessageW(h, WM_CLOSE, 0, 0);
+    return TRUE;
+}
+
+static int CloseScreensaver(void)
+{
+    BOOL running = FALSE;
+    if (!SystemParametersInfoW(SPI_GETSCREENSAVERRUNNING, 0, &running, 0) || !running)
+        return 0;
+    HDESK d = OpenDesktopW(L"Screen-saver", 0, FALSE, DESKTOP_READOBJECTS | DESKTOP_WRITEOBJECTS);
+    if (d) {
+        EnumDesktopWindows(d, CloseScrWindow, 0);
+        CloseDesktop(d);
+        return 1;
+    }
+    HWND fg = GetForegroundWindow();
+    DWORD pid = 0;
+    GetWindowThreadProcessId(fg, &pid);
+    HANDLE p = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    wchar_t img[MAX_PATH] = L"";
+    DWORD n = MAX_PATH;
+    if (p) {
+        QueryFullProcessImageNameW(p, 0, img, &n);
+        CloseHandle(p);
+    }
+    size_t len = wcslen(img);
+    if (len > 4 && !_wcsicmp(img + len - 4, L".scr")) {
+        PostMessageW(fg, WM_CLOSE, 0, 0);
+        return 2;
+    }
+    return 3;   /* running, but no screensaver window found to close */
+}
+
 static bool SaveJpeg(IWICImagingFactory *wic, HBITMAP bmp, const wchar_t *path)
 {
     IWICBitmap *src = NULL;
@@ -100,6 +139,11 @@ int wmain(int argc, wchar_t **argv)
             Sleep((DWORD)(due - ms));
             QueryPerformanceCounter(&t);
             ms = (t.QuadPart - t0.QuadPart) * 1000.0 / f.QuadPart;
+        }
+        int ss = CloseScreensaver();
+        if (ss) {
+            fwprintf(log, L"screensaver was running (close path %d)\n", ss);
+            Sleep(300);
         }
         BOOL got = StretchBlt(mem, 0, 0, sw, sh, scr, x, y, w, h, SRCCOPY | CAPTUREBLT);
         SelectObject(mem, old);

@@ -11,5 +11,5 @@ $filter = if ($ProcId) { "malikm-$Exe*-$ProcId*" } else { "malikm-$Exe*" }
 $f = Get-ChildItem $d -Filter $filter -ErrorAction SilentlyContinue | Where-Object { ($_.Name -like '*-stderr.txt') -eq [bool]$Stderr } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if (-not $f) { "no malikm-$Exe* log"; return }
 "$($f.FullName) $($f.Length) B $($f.LastWriteTime)"
-if ($Match) { Get-Content $f.FullName | Where-Object { $_ -match $Match } | Select-Object -Last $Tail | ForEach-Object { $_.Substring(0, [Math]::Min(900, $_.Length)) } }
+if ($Match) { Get-Content $f.FullName | Where-Object { $_ -match $Match } | Select-Object -Last $Tail | ForEach-Object { $_.Substring(0, [Math]::Min(1800, $_.Length)) } }
 else { Get-Content $f.FullName -Tail $Tail }

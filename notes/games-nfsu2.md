@@ -143,3 +143,15 @@ errors". SPEED2.EXE = 32-bit x86 (timestamp 0x420aad27).
 - User: in a race (loads now = G26 memory fix validated in game), extremely slow; lowering the in-game overall quality reset the device and dgVoodoo went exclusive fullscreen (portrait + bands; scan-out traces/wddm2/nfsuser1.png - the bands are REAL). Cause per dgVoodoo docs (VOGONS t.1413822): forced windowed needs FullScreenMode=false AND AppControlledScreenMode=false; ours had AppControlledScreenMode=true -> set false (backup dgVoodoo.conf.bak-appctl). Open: the bands in the exclusive-fullscreen present path (our bug), in-race speed (profile).
 - AppControlledScreenMode=false -> user: black screen, game exited; WER 14:36:44 (phone clock) SPEED2+0x6562b = the known game use-after-free when dgVoodoo recreates its present buffers at an unexpected size (g24 notes). Reverted to AppControlledScreenMode=true (dgVoodoo.conf.bak-appctl). The quality setting the user lowered is saved by the game, so the launch should not need another device reset.
 - Correction: the user's NEXT launch (pid 1160, started before the revert, so with AppControlledScreenMode=false) worked, and a quality change kept it windowed - the black-screen exit was likely the relaunch colliding with the still-running fullscreen instance. AppControlledScreenMode=false re-applied. User tests in a race next.
+
+## In-race performance (2026-10-18, user: "cpu/gpu dont peak but the framerate is pretty horrible")
+- threadtop: SPEED2 main thread 98 % of one core (cpu4 = A75 MID 96 % in coretop), everything else idle -> single
+  thread CPU-bound; the GPU waits. DWM 18 %.
+- UMD frame profile (Mesa 0104, MALIKM_TGSI_DIR on; previous instance pid 1160 = the user's race; umdlog.ps1 now has
+  -ProcId / -Match because the newest-by-time pick chose a log from an earlier boot):
+  frame 85-111 ms (~9-12 fps), inside the UMD 56-77 ms/frame (66-69 %); per 120 frames: DrawIndexed ~110k calls
+  ~5000 ms (~920 draws/frame, ~44 us each = ~40 ms/frame), ResourceMap ~180k calls ~930 ms (~8 ms/frame), _Present
+  ~350 ms, Flush ~240 ms; ioctls: 0x40 (submit) 1680 calls ~580 ms.
+- The x86 UMD (maliumd32) runs EMULATED inside the x86 process (no ARM64EC/CHPE path for x86 processes), as do the
+  game and dgVoodoo. Lever: per-draw CPU cost in DrawIndexed (d3d10umd state resolve incl. the 0125-0128 GS/SO
+  per-draw checks, vs panfrost job/descriptor emission). Next: finer timers inside DrawIndexed.

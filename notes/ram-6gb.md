@@ -36,3 +36,11 @@ Basis: notes/cpu-ram-plan-20261012.md (Findings - RAM, plan #2 run r2, plan #3),
   remote, and with 0 the firmware stops the 82 s timer at ExitBootServices, so a Windows hang from a bad page would
   need the key combo). Both 18255872 B (= boot-host-btmfc.img). Fixes on the way: PS 5.1 NativeCommandError from
   build stderr under Stop (separate processes + Continue around the native calls); sources restored byte-exact each run.
+- 17:02 totwrp for the R1 flash
+- 17:04 flashed boot-host-r1-wdt.img (433e4f87, readback OK; backup boot-before-20261018-170353.img = boot-host-btmfc.img). Booting.
+- 17:06 R1 wdt image BOOTED (Windows up ~55 s). TotalVisibleMemorySize 6053492 KB = 5911.6 MiB (before 5498480 KB = 5369.6 MiB: +542.0 MiB, exactly the published amount), TotalPhysicalMemory 6198775808 B. Next: fill/verify stress.
+- Stress (tools/phone/ram/memfill.c, new): `memfill 3600 2` -> load 38 % -> 98 % (81 MB of 5911 MB available = Windows
+  on essentially every physical page incl. the new ranges), 3584 MB written, 2 read-back passes 0 mismatches, no
+  fault/reset (no new Kernel-Power 41). d3dcs ARM64 + x64 0/7 differ afterwards. -> R1 verified. Swapping to the daily
+  image (watchdog 0).
+- 17:10 daily boot-host-r1.img (5e9a894c) flashed + booted (~55 s): TotalVisibleMemorySize 6053492 KB again. R1 DONE. Phone firmware = boot-host-r1.img (rollback: boot-host-btmfc.img).

@@ -168,3 +168,17 @@ thread is still emulated x86 in 32-bit games); also helps every D3D app (DWM, br
   Windows waits forever. T5c (Mesa 8615924): futex_wait returns -1 with errno ETIMEDOUT (EINVAL otherwise), deadline in
   the past -> 0 ms. Only timed caller: u_queue.c (others pass NULL). Clocks: both os_time_get_nano and futex use
   timespec_get(TIME_MONOTONIC).
+- nfs-tc4 (x86 tc5 = T5c, 1f6c416c): SPEED2 c0000005 +0x6562b at the first replayed Enter (present 8) = the known not-foreground crash of the automation (also without TC); retry.
+- nfs-tc5 (x86 tc5 = T5c, 1f6c416c): FIRST FULL RACE ON THE THREADED CONTEXT - game alive after the 119 s replay, no
+  deadlock, no crash, no "tc:" waits. Race frames 80-83 ms (before TC 84 ms) = no gain yet. Per 120 frames
+  (frame 3480): app thread "inside the UMD" 50 ms/frame of which ResourceMap 194726 calls 4275 ms = 35.6 ms/frame
+  (22 us/map, was 6.3 us before TC); driver-thread sections pan:prepare_draw 1394 + launch_draw 1129 + varyings 652
+  + shader_state_vs/fs 632 + ... ~42 ms/frame; pan:sub:get_batch_slow 841 calls 1245 ms = 1.5 ms per new batch,
+  ~7/frame = 10 ms/frame; tc callbacks: render ~960 / 120 frames (8 submissions/frame marshalled from the driver
+  thread, the only marshalled op). bytes_mapped_limit / bytes_replaced_limit are 0 (no TC-forced flushes).
+- Why maps got slower: without is_resource_busy, TC treats every buffer as busy and implements each DISCARD map as
+  "new pipe_resource (screen->resource_create) + queued replace_buffer_storage" on the application thread;
+  Panfrost's own DISCARD path only swapped in a cached BO. dgVoodoo DISCARD-maps ~1.6x per draw (dynamic CBs).
+- Next (ordered): (1) cheap DISCARD under TC - d3d10umd upload ring for dynamic buffers (Map DISCARD -> CPU
+  shadow / u_upload suballocation, rebind buffer+offset) or a fast buffer resource_create path; (2) the batch init
+  cost on the driver thread (1.5 ms per new batch, 7/frame); (3) launch_draw / varyings.

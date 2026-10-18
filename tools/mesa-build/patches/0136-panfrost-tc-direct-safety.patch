@@ -1,0 +1,175 @@
+From 1c31f877910fb69d02ceabe9c17ddde641dc9582 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 22:14:52 +0300
+Subject: [PATCH] panfrost: functions the threaded context calls from the
+ application thread no longer touch context pools/batches/ralloc unsynced
+ (exynos-woa TC T2b, no-op until ctx->tc_pipe is set)
+
+---
+ src/gallium/drivers/panfrost/pan_cmdstream.c |  6 +++++-
+ src/gallium/drivers/panfrost/pan_context.c   | 14 +++++++++-----
+ src/gallium/drivers/panfrost/pan_context.h   | 14 ++++++++++++++
+ src/gallium/drivers/panfrost/pan_shader.c    |  9 ++++++++-
+ 4 files changed, 36 insertions(+), 7 deletions(-)
+
+diff --git a/src/gallium/drivers/panfrost/pan_cmdstream.c b/src/gallium/drivers/panfrost/pan_cmdstream.c
+index cf9553e..d6a8e84 100644
+--- a/src/gallium/drivers/panfrost/pan_cmdstream.c
++++ b/src/gallium/drivers/panfrost/pan_cmdstream.c
+@@ -4338,10 +4338,14 @@ panfrost_create_sampler_view(struct pipe_context *pctx,
+                              const struct pipe_sampler_view *template)
+ {
+    struct panfrost_context *ctx = pan_context(pctx);
++   /* exynos-woa TC T2b: own ralloc root - sampler_view_destroy runs on the application thread under TC */
+    struct panfrost_sampler_view *so =
+-      rzalloc(pctx, struct panfrost_sampler_view);
++      rzalloc(NULL, struct panfrost_sampler_view);
+    struct panfrost_resource *ptexture = pan_resource(texture);
+ 
++   /* exynos-woa TC T2b: legalizing may convert the resource and the descriptor comes from ctx->descs - both
++    * need the driver thread idle (view creation is rare) */
++   panfrost_tc_sync(ctx);
+    pan_legalize_format(ctx, ptexture, template->format, false, false);
+    pipe_reference(NULL, &texture->reference);
+ 
+diff --git a/src/gallium/drivers/panfrost/pan_context.c b/src/gallium/drivers/panfrost/pan_context.c
+index f282eab..bd88a5f 100644
+--- a/src/gallium/drivers/panfrost/pan_context.c
++++ b/src/gallium/drivers/panfrost/pan_context.c
+@@ -850,13 +850,16 @@ panfrost_get_query_result(struct pipe_context *pipe, struct pipe_query *q,
+    struct panfrost_query *query = (struct panfrost_query *)q;
+    struct panfrost_context *ctx = pan_context(pipe);
+    struct panfrost_device *dev = pan_device(ctx->base.screen);
++   /* exynos-woa TC T2b: a query the threaded context marked flushed is read from the application thread
++    * without a sync; its batches were submitted by that flush - nothing to flush, and ctx must not be touched */
++   const bool tc_flushed = ctx->tc_pipe && ((struct panfrost_query *)q)->tc.flushed;
+    struct panfrost_resource *rsrc = pan_resource(query->rsrc);
+ 
+    switch (query->type) {
+    case PIPE_QUERY_OCCLUSION_COUNTER:
+    case PIPE_QUERY_OCCLUSION_PREDICATE:
+    case PIPE_QUERY_OCCLUSION_PREDICATE_CONSERVATIVE:
+-      panfrost_flush_writer(ctx, rsrc, "Occlusion query");
++      /* exynos-woa TC T2b */ if (!tc_flushed) panfrost_flush_writer(ctx, rsrc, "Occlusion query");
+       panfrost_bo_wait(rsrc->bo, INT64_MAX, false);
+ 
+       /* Read back the query results */
+@@ -878,7 +881,7 @@ panfrost_get_query_result(struct pipe_context *pipe, struct pipe_query *q,
+       break;
+ 
+    case PIPE_QUERY_TIMESTAMP: {
+-      panfrost_flush_writer(ctx, rsrc, "Timestamp query");
++      /* exynos-woa TC T2b */ if (!tc_flushed) panfrost_flush_writer(ctx, rsrc, "Timestamp query");
+       panfrost_bo_wait(rsrc->bo, INT64_MAX, false);
+       uint64_t *timestamp = (uint64_t *)rsrc->bo->ptr.cpu;
+ 
+@@ -894,7 +897,7 @@ panfrost_get_query_result(struct pipe_context *pipe, struct pipe_query *q,
+    }
+ 
+    case PIPE_QUERY_TIME_ELAPSED: {
+-      panfrost_flush_writer(ctx, rsrc, "Time elapsed query");
++      /* exynos-woa TC T2b */ if (!tc_flushed) panfrost_flush_writer(ctx, rsrc, "Time elapsed query");
+       panfrost_bo_wait(rsrc->bo, INT64_MAX, false);
+       uint64_t *timestamp = (uint64_t *)rsrc->bo->ptr.cpu;
+ 
+@@ -904,7 +907,7 @@ panfrost_get_query_result(struct pipe_context *pipe, struct pipe_query *q,
+ 
+    case PIPE_QUERY_PRIMITIVES_GENERATED:
+    case PIPE_QUERY_PRIMITIVES_EMITTED:
+-      panfrost_flush_all_batches(ctx, "Primitive count query");
++      /* exynos-woa TC T2b */ if (!tc_flushed) panfrost_flush_all_batches(ctx, "Primitive count query");
+       vresult->u64 = query->end - query->start;
+       break;
+ 
+@@ -953,7 +956,8 @@ panfrost_create_stream_output_target(struct pipe_context *pctx,
+ {
+    struct pipe_stream_output_target *target;
+ 
+-   target = &rzalloc(pctx, struct panfrost_streamout_target)->base;
++   /* exynos-woa TC T2b: own ralloc root - created/destroyed on the application thread under TC */
++   target = &rzalloc(NULL, struct panfrost_streamout_target)->base;
+ 
+    if (!target)
+       return NULL;
+diff --git a/src/gallium/drivers/panfrost/pan_context.h b/src/gallium/drivers/panfrost/pan_context.h
+index 7fd8eac..27ba7f1 100644
+--- a/src/gallium/drivers/panfrost/pan_context.h
++++ b/src/gallium/drivers/panfrost/pan_context.h
+@@ -26,6 +26,7 @@
+ #include "util/hash_table.h"
+ #include "util/simple_mtx.h"
+ #include "util/u_blitter.h"
++#include "util/u_threaded_context.h"
+ #include "util/u_printf.h"
+ 
+ #include "util/perf/u_trace.h"
+@@ -120,6 +121,9 @@ struct panfrost_context {
+    /* Gallium context */
+    struct pipe_context base;
+ 
++   /* exynos-woa TC: the threaded context wrapping this one (NULL = not threaded) */
++   struct pipe_context *tc_pipe;
++
+    /* Context flags */
+    unsigned flags;
+ 
+@@ -595,4 +599,14 @@ void panfrost_track_image_access(struct panfrost_batch *batch,
+ 
+ void panfrost_context_reinit(struct panfrost_context *ctx);
+ 
++/* exynos-woa TC T2b: the threaded context calls create_sampler_view, create_*_state, get_query_result (flushed) ...
++ * directly from the application thread (u_threaded_context.h "Thread-safety requirements"); a function that needs
++ * the context's pools or batches there drains the driver thread first. No-op without a threaded context. */
++static inline void
++panfrost_tc_sync(struct panfrost_context *ctx)
++{
++   if (ctx->tc_pipe)
++      threaded_context_unwrap_sync(ctx->tc_pipe);
++}
++
+ #endif
+diff --git a/src/gallium/drivers/panfrost/pan_shader.c b/src/gallium/drivers/panfrost/pan_shader.c
+index b769e56..74fdbe4 100644
+--- a/src/gallium/drivers/panfrost/pan_shader.c
++++ b/src/gallium/drivers/panfrost/pan_shader.c
+@@ -705,6 +705,7 @@ panfrost_create_shader_state(struct pipe_context *pctx,
+    struct panfrost_context *ctx = pan_context(pctx);
+ 
+    if (so->nir->xfb_info) {
++      panfrost_tc_sync(ctx);   /* exynos-woa TC T2b: ctx->shaders / ctx->descs pools */
+       so->xfb = calloc(1, sizeof(struct panfrost_compiled_shader));
+       so->xfb->key.vs.is_xfb = true;
+ 
+@@ -735,8 +736,11 @@ panfrost_create_shader_state(struct pipe_context *pctx,
+    /* Creating a CSO is single-threaded, so it's ok to use the
+     * locked function without explicitly taking the lock. Creating a
+     * default variant acts as a precompile.
++    * exynos-woa TC T2b: not under the threaded context - this runs on the application thread and the
++    * variant comes from the context's pools; the driver thread compiles it at first use instead.
+     */
+-   panfrost_new_variant_locked(ctx, so, &key);
++   if (!ctx->tc_pipe)
++      panfrost_new_variant_locked(ctx, so, &key);
+ 
+    return so;
+ }
+@@ -769,6 +773,8 @@ static void
+ panfrost_link_shader(struct pipe_context *pctx, void** handles)
+ {
+    struct panfrost_context *ctx = pan_context(pctx);
++   if (ctx->tc_pipe)
++      return;   /* exynos-woa TC T2b: application thread, context pools - precompile skipped */
+    struct panfrost_uncompiled_shader *vs = handles[MESA_SHADER_VERTEX];
+    struct panfrost_uncompiled_shader *fs = handles[MESA_SHADER_FRAGMENT];
+ 
+@@ -813,6 +819,7 @@ panfrost_create_compute_state(struct pipe_context *pctx,
+ 
+    assert(cso->ir_type == PIPE_SHADER_IR_NIR && "TGSI kernels unsupported");
+ 
++   panfrost_tc_sync(ctx);   /* exynos-woa TC T2b: ctx->shaders / ctx->descs pools */
+    panfrost_shader_get(pctx->screen, &ctx->shaders, &ctx->descs, so,
+                        &ctx->base.debug, v, cso->static_shared_mem);
+ 
+-- 
+2.40.1.windows.1
+

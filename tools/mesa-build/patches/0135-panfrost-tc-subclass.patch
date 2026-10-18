@@ -1,0 +1,143 @@
+From d3e410ed4b5fe9b96b6c4a0e8bd979bdb90674b9 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 22:11:01 +0300
+Subject: [PATCH] panfrost: subclass threaded_resource/transfer/query;
+ transfers and queries own ralloc roots; create_query zeroes through the BO
+ (exynos-woa TC T2, no behaviour change without TC)
+
+---
+ src/gallium/drivers/panfrost/pan_context.c  | 17 ++++++++++++-----
+ src/gallium/drivers/panfrost/pan_context.h  |  3 +++
+ src/gallium/drivers/panfrost/pan_resource.c |  7 ++++++-
+ src/gallium/drivers/panfrost/pan_resource.h | 13 +++++++++++--
+ 4 files changed, 32 insertions(+), 8 deletions(-)
+
+diff --git a/src/gallium/drivers/panfrost/pan_context.c b/src/gallium/drivers/panfrost/pan_context.c
+index f8425d4..f282eab 100644
+--- a/src/gallium/drivers/panfrost/pan_context.c
++++ b/src/gallium/drivers/panfrost/pan_context.c
+@@ -675,7 +675,9 @@ panfrost_create_query(struct pipe_context *pipe, unsigned type, unsigned index)
+ {
+    struct panfrost_context *ctx = pan_context(pipe);
+    struct panfrost_device *dev = pan_device(ctx->base.screen);
+-   struct panfrost_query *q = rzalloc(pipe, struct panfrost_query);
++   /* exynos-woa TC T2: create_query runs on the application thread under the threaded context - no child of
++    * the context (ralloc is not thread-safe) */
++   struct panfrost_query *q = rzalloc(NULL, struct panfrost_query);
+ 
+    q->type = type;
+    q->index = index;
+@@ -708,10 +710,15 @@ panfrost_create_query(struct pipe_context *pipe, unsigned type, unsigned index)
+          return NULL;
+       }
+ 
+-      /* Default to 0 if nothing at all drawn. */
+-      uint8_t *zeroes = alloca(size);
+-      memset(zeroes, 0, size);
+-      pipe_buffer_write(pipe, q->rsrc, 0, size, zeroes);
++      /* Default to 0 if nothing at all drawn. exynos-woa TC T2: through the fresh (idle, unshared) BO, not
++       * pipe_buffer_write on the context - this may run on the application thread beside the driver thread. */
++      struct panfrost_resource *qr = pan_resource(q->rsrc);
++      if (panfrost_bo_mmap(qr->bo)) {
++         pipe_resource_reference(&q->rsrc, NULL);
++         ralloc_free(q);
++         return NULL;
++      }
++      memset(qr->bo->ptr.cpu, 0, size);
+    }
+ 
+    return (struct pipe_query *)q;
+diff --git a/src/gallium/drivers/panfrost/pan_context.h b/src/gallium/drivers/panfrost/pan_context.h
+index 6b91f98..7fd8eac 100644
+--- a/src/gallium/drivers/panfrost/pan_context.h
++++ b/src/gallium/drivers/panfrost/pan_context.h
+@@ -86,6 +86,9 @@ struct panfrost_constant_buffer {
+ };
+ 
+ struct panfrost_query {
++   /* exynos-woa TC T2: the threaded context keeps its own state at the start of every query */
++   struct threaded_query tc;
++
+    /* Passthrough from Gallium */
+    unsigned type;
+    unsigned index;
+diff --git a/src/gallium/drivers/panfrost/pan_resource.c b/src/gallium/drivers/panfrost/pan_resource.c
+index 2ff47fa..7059f00 100644
+--- a/src/gallium/drivers/panfrost/pan_resource.c
++++ b/src/gallium/drivers/panfrost/pan_resource.c
+@@ -276,6 +276,7 @@ panfrost_resource_destroy(struct pipe_screen *screen, struct pipe_resource *pt)
+    free(rsrc->damage.tile_map.data);
+ 
+    util_range_destroy(&rsrc->valid_buffer_range);
++   threaded_resource_deinit(&rsrc->base);   /* exynos-woa TC T2 */
+    free(rsrc);
+ }
+ 
+@@ -380,6 +381,7 @@ panfrost_resource_from_handle(struct pipe_screen *pscreen,
+ 
+    pipe_reference_init(&prsc->reference, 1);
+    util_range_init(&rsc->valid_buffer_range);
++   threaded_resource_init(prsc, false);   /* exynos-woa TC T2 */
+    prsc->screen = pscreen;
+ 
+    uint64_t mod = whandle->modifier == DRM_FORMAT_MOD_INVALID
+@@ -1093,6 +1095,7 @@ panfrost_resource_create_with_modifier(struct pipe_screen *screen,
+    pipe_reference_init(&so->base.reference, 1);
+ 
+    util_range_init(&so->valid_buffer_range);
++   threaded_resource_init(&so->base, false);   /* exynos-woa TC T2 */
+ 
+    if (template->bind & PAN_BIND_SHARED_MASK) {
+       /* For compatibility with older consumers that may not be
+@@ -1628,7 +1631,9 @@ panfrost_ptr_map(struct pipe_context *pctx, struct pipe_resource *resource,
+        rsrc->modifier != DRM_FORMAT_MOD_LINEAR)
+       return NULL;
+ 
+-   struct panfrost_transfer *transfer = rzalloc(pctx, struct panfrost_transfer);
++   /* exynos-woa TC T2: not a child of the context - the threaded context maps unsynchronized buffers from the
++    * application thread while the driver thread allocates from the context */
++   struct panfrost_transfer *transfer = rzalloc(NULL, struct panfrost_transfer);
+    transfer->base.level = level;
+    transfer->base.usage = usage;
+    transfer->base.box = *box;
+diff --git a/src/gallium/drivers/panfrost/pan_resource.h b/src/gallium/drivers/panfrost/pan_resource.h
+index bfd3343..13496fb 100644
+--- a/src/gallium/drivers/panfrost/pan_resource.h
++++ b/src/gallium/drivers/panfrost/pan_resource.h
+@@ -8,6 +8,7 @@
+ 
+ #include "drm-uapi/drm.h"
+ #include "util/u_range.h"
++#include "util/u_threaded_context.h"
+ #include "pan_minmax_cache.h"
+ #include "pan_screen.h"
+ 
+@@ -44,7 +45,11 @@ struct pan_afbcp {
+ };
+ 
+ struct panfrost_resource {
+-   struct pipe_resource base;
++   /* exynos-woa TC T2: threaded_resource starts with the pipe_resource (tc.b aliases base) */
++   union {
++      struct pipe_resource base;
++      struct threaded_resource tc;
++   };
+    struct {
+       struct pipe_scissor_state extent;
+       struct {
+@@ -124,7 +129,11 @@ pan_resource_plane_index(const struct panfrost_resource *rsc)
+ }
+ 
+ struct panfrost_transfer {
+-   struct pipe_transfer base;
++   /* exynos-woa TC T2: threaded_transfer starts with the pipe_transfer (tc.b aliases base) */
++   union {
++      struct pipe_transfer base;
++      struct threaded_transfer tc;
++   };
+    void *map;
+    struct {
+       struct pipe_resource *rsrc;
+-- 
+2.40.1.windows.1
+

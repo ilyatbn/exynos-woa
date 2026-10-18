@@ -1,0 +1,28 @@
+From 7501a0eb18694270fad3e8d031c53bb43f84264b Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 22:57:16 +0300
+Subject: [PATCH] panfrost: replace_buffer_storage asserts the new BO covers
+ width0, not that it is as large as the old BO (exynos-woa TC T5b)
+
+---
+ src/gallium/drivers/panfrost/pan_resource.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/gallium/drivers/panfrost/pan_resource.c b/src/gallium/drivers/panfrost/pan_resource.c
+index 27372ef..b40a748 100644
+--- a/src/gallium/drivers/panfrost/pan_resource.c
++++ b/src/gallium/drivers/panfrost/pan_resource.c
+@@ -1624,7 +1624,9 @@ panfrost_replace_buffer_storage(struct pipe_context *pctx, struct pipe_resource
+    struct panfrost_resource *src = pan_resource(psrc);
+ 
+    assert(pdst->target == PIPE_BUFFER && psrc->target == PIPE_BUFFER);
+-   assert(panfrost_bo_size(src->bo) >= panfrost_bo_size(dst->bo));
++   /* exynos-woa TC T5b: the new storage must cover the buffer; BO sizes themselves differ (page rounding, BO cache
++    * reuse can hand out a larger BO) - comparing them asserted in NFSU2 (nfs-tc2) */
++   assert(panfrost_bo_size(src->bo) >= pdst->width0);
+ 
+    panfrost_bo_reference(src->bo);
+    panfrost_bo_unreference(dst->bo);
+-- 
+2.40.1.windows.1
+

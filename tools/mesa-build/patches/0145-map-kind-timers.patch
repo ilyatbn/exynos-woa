@@ -1,0 +1,38 @@
+From 1fb850aad68576dbeda4c1060a5bdff40f39fc51 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 23:22:09 +0300
+Subject: [PATCH] d3d10umd: ResourceMap timed per kind
+ (Map:cb/vb/ib:discard/nooverwrite/other, Map:texture) in the app umd report
+ (exynos-woa TC T5 diagnosis)
+
+---
+ src/gallium/frontends/d3d10umd/Resource.cpp | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index f58f482..1156ae5 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -971,6 +971,19 @@ ResourceMap(D3D10DDI_HDEVICE hDevice,                                // IN
+       return;
+    }
+ 
++   /* exynos-woa TC T5 diagnosis (notes/perf-threaded-context.md): which maps cost what under the threaded context -
++    * timed per kind into the app umd report */
++   const unsigned map_bind = resource->bind;
++   const bool map_disc = usage & (PIPE_MAP_DISCARD_WHOLE_RESOURCE | PIPE_MAP_DISCARD_RANGE);
++   const bool map_unsync = usage & PIPE_MAP_UNSYNCHRONIZED;
++   const char *map_kind =
++      resource->target != PIPE_BUFFER ? "Map:texture" :
++      (map_bind & PIPE_BIND_CONSTANT_BUFFER) ? (map_disc ? "Map:cb:discard" : map_unsync ? "Map:cb:nooverwrite" : "Map:cb:other") :
++      (map_bind & PIPE_BIND_VERTEX_BUFFER) ? (map_disc ? "Map:vb:discard" : map_unsync ? "Map:vb:nooverwrite" : "Map:vb:other") :
++      (map_bind & PIPE_BIND_INDEX_BUFFER) ? (map_disc ? "Map:ib:discard" : map_unsync ? "Map:ib:nooverwrite" : "Map:ib:other") :
++      "Map:buffer:other";
++   UmdSectionTimer map_kind_timer(map_kind);
++
+    assert(SubResource < pResource->NumSubResources);
+ 
+    unsigned level;
+-- 
+2.40.1.windows.1
+

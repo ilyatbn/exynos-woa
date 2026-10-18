@@ -1,0 +1,39 @@
+From 8615924a7bc38761de65264c9df20e38c384d6ac Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 23:02:54 +0300
+Subject: [PATCH] util/futex (Windows): timed waits return -1/ETIMEDOUT like
+ Linux and clamp past deadlines - timed util_queue_fence waits never timed out
+ (exynos-woa TC T5c)
+
+---
+ src/util/futex.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/src/util/futex.c b/src/util/futex.c
+index df3e949..a980c9e 100644
+--- a/src/util/futex.c
++++ b/src/util/futex.c
+@@ -142,13 +142,18 @@ int futex_wait(uint32_t *addr, int32_t value, const struct timespec *timeout)
+       struct timespec tsnow;
+       timespec_get(&tsnow, TIME_MONOTONIC);
+ 
+-      timeout_ms = (timeout->tv_sec - tsnow.tv_sec) * 1000 +
++      /* exynos-woa (notes/perf-threaded-context.md T5c): a deadline in the past wrapped the DWORD to ~49 days */
++      int64_t ms = (int64_t)(timeout->tv_sec - tsnow.tv_sec) * 1000 +
+                    (timeout->tv_nsec - tsnow.tv_nsec) / 1000000;
++      timeout_ms = ms <= 0 ? 0 : ms >= INFINITE ? INFINITE - 1 : (DWORD)ms;
+    }
+ 
+    if (WaitOnAddress(addr, &value, sizeof(value), timeout_ms))
+       return 0;
+-   return GetLastError() == ERROR_TIMEOUT ? ETIMEDOUT : -1;
++   /* exynos-woa T5c: the Linux convention the callers check (do_futex_fence_wait: r < 0 && errno == ETIMEDOUT) -
++    * returning ETIMEDOUT itself made every timed fence wait on Windows wait forever */
++   errno = GetLastError() == ERROR_TIMEOUT ? ETIMEDOUT : EINVAL;
++   return -1;
+ }
+ 
+ #else
+-- 
+2.40.1.windows.1
+

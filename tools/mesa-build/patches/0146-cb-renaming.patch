@@ -1,0 +1,314 @@
+From e4b97d13bac1831462dba058f5a65b7be3a37a96 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 23:39:57 +0300
+Subject: [PATCH] d3d10umd: rename DYNAMIC constant buffers into the constant
+ uploader at WRITE_DISCARD (rebind buffer+offset incl. D3D11.1 ranges; copy
+ back before copies/updates/other maps) (exynos-woa TC T6)
+
+---
+ src/gallium/frontends/d3d10umd/Compute.cpp    |  10 +-
+ src/gallium/frontends/d3d10umd/D3D11Tiers.inc |  24 +---
+ src/gallium/frontends/d3d10umd/Resource.cpp   | 112 ++++++++++++++++++
+ src/gallium/frontends/d3d10umd/Shader.cpp     |  15 +--
+ src/gallium/frontends/d3d10umd/State.h        |  17 +++
+ 5 files changed, 139 insertions(+), 39 deletions(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/Compute.cpp b/src/gallium/frontends/d3d10umd/Compute.cpp
+index 551b72b..8d9101d 100644
+--- a/src/gallium/frontends/d3d10umd/Compute.cpp
++++ b/src/gallium/frontends/d3d10umd/Compute.cpp
+@@ -126,14 +126,8 @@ CsSetConstantBuffers(D3D10DDI_HDEVICE hDevice, UINT StartSlot, UINT NumBuffers,
+    LOG_ENTRYPOINT();
+    Device *pDevice = CastDevice(hDevice);
+ 
+-   for (UINT i = 0; i < NumBuffers; i++) {
+-      struct pipe_constant_buffer cb;
+-      memset(&cb, 0, sizeof cb);
+-      cb.buffer = CastPipeResource(phBuffers[i]);
+-      cb.buffer_size = cb.buffer ? cb.buffer->width0 : 0;
+-      pDevice->pipe->set_constant_buffer(pDevice->pipe, MESA_SHADER_COMPUTE, StartSlot + i, &cb);
+-      DeviceTrackConstantBuffer(pDevice, MESA_SHADER_COMPUTE, StartSlot + i, &cb);   /* exynos-woa G25 */
+-   }
++   for (UINT i = 0; i < NumBuffers; i++)
++      CbBind(pDevice, MESA_SHADER_COMPUTE, StartSlot + i, CastResource(phBuffers[i]));   /* exynos-woa T6 (+G25) */
+ }
+ 
+ 
+diff --git a/src/gallium/frontends/d3d10umd/D3D11Tiers.inc b/src/gallium/frontends/d3d10umd/D3D11Tiers.inc
+index 02fe1c6..a947383 100644
+--- a/src/gallium/frontends/d3d10umd/D3D11Tiers.inc
++++ b/src/gallium/frontends/d3d10umd/D3D11Tiers.inc
+@@ -26,25 +26,11 @@ static void
+ SetConstantBuffers11(mesa_shader_stage stage, D3D10DDI_HDEVICE hDevice, UINT Start, UINT Num,
+                      const D3D10DDI_HRESOURCE *ph, const UINT *pFirst, const UINT *pNum)
+ {
+-   struct pipe_context *pipe = CastPipeContext(hDevice);
+-   for (UINT i = 0; i < Num; i++) {
+-      struct pipe_constant_buffer cb;
+-      memset(&cb, 0, sizeof cb);
+-      cb.buffer = CastPipeResource(ph[i]);
+-      if (cb.buffer) {
+-         unsigned w = cb.buffer->width0;
+-         unsigned off = pFirst ? pFirst[i] * 16u : 0;
+-         unsigned size = pNum ? pNum[i] * 16u : w;
+-         if (off > w)
+-            off = w;
+-         if (size > w - off)
+-            size = w - off;
+-         cb.buffer_offset = off;
+-         cb.buffer_size = size;
+-      }
+-      pipe->set_constant_buffer(pipe, stage, Start + i, &cb);
+-      DeviceTrackConstantBuffer(CastDevice(hDevice), stage, Start + i, &cb);   /* exynos-woa G25 */
+-   }
++   /* exynos-woa T6: through CbBind (renamed DYNAMIC constant buffers bind their current slice; it clamps the
++    * sub-range as before and keeps the G25 tracking) */
++   for (UINT i = 0; i < Num; i++)
++      CbBind(CastDevice(hDevice), stage, Start + i, CastResource(ph[i]), pFirst ? pFirst[i] * 16u : 0,
++             pNum ? pNum[i] * 16u : 0);
+ }
+ 
+ #define D111_SETCB(Name, Stage)                                                                                   \
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index 1156ae5..9e1def8 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -45,6 +45,73 @@
+ #include "drm-uapi/drm_fourcc.h"      /* exynos-woa H3: DRM_FORMAT_MOD_LINEAR for BO imports */
+ #include "util/format/u_format.h"
+ #include "BcEtc.h"   /* exynos-woa G26 */
++#include "util/u_upload_mgr.h"   /* exynos-woa T6 */
++#include "util/box.h"
++
++
++/* ---- exynos-woa T6 (notes/perf-threaded-context.md): DYNAMIC constant buffer renaming ---- */
++static int
++CbStage(mesa_shader_stage stage)
++{
++   switch (stage) {
++   case MESA_SHADER_VERTEX:   return 0;
++   case MESA_SHADER_FRAGMENT: return 1;
++   case MESA_SHADER_GEOMETRY: return 2;
++   case MESA_SHADER_COMPUTE:  return 3;
++   default:                   return -1;
++   }
++}
++
++void
++CbBind(Device *dev, mesa_shader_stage stage, unsigned slot, Resource *res, unsigned off, unsigned size)
++{
++   struct pipe_constant_buffer cb;
++   memset(&cb, 0, sizeof cb);
++   if (res && res->resource) {
++      /* off/size: the D3D11.1 sub-range (FirstConstant/NumConstants), clamped as SetConstantBuffers11 did */
++      unsigned w = res->resource->width0;
++      if (off > w)
++         off = w;
++      if (!size || size > w - off)
++         size = w - off;
++      cb.buffer = res->cb_buf ? res->cb_buf : res->resource;
++      cb.buffer_offset = (res->cb_buf ? res->cb_offset : 0) + off;
++      cb.buffer_size = size;
++   }
++   dev->pipe->set_constant_buffer(dev->pipe, stage, slot, &cb);
++   DeviceTrackConstantBuffer(dev, stage, slot, &cb);   /* exynos-woa G25 */
++   int st = CbStage(stage);
++   if (st >= 0 && slot < PIPE_MAX_CONSTANT_BUFFERS) {
++      dev->bound_cb[st][slot] = res;
++      dev->bound_cb_off[st][slot] = off;
++      dev->bound_cb_size[st][slot] = size;
++   }
++}
++
++void
++CbRebindAll(Device *dev, Resource *res)
++{
++   static const mesa_shader_stage stages[4] = { MESA_SHADER_VERTEX, MESA_SHADER_FRAGMENT, MESA_SHADER_GEOMETRY,
++                                                MESA_SHADER_COMPUTE };
++   for (unsigned st = 0; st < 4; st++)
++      for (unsigned slot = 0; slot < PIPE_MAX_CONSTANT_BUFFERS; slot++)
++         if (dev->bound_cb[st][slot] == res)
++            CbBind(dev, stages[st], slot, res, dev->bound_cb_off[st][slot], dev->bound_cb_size[st][slot]);
++}
++
++void
++CbMaterialize(Device *dev, Resource *res)
++{
++   if (!res || !res->cb_buf)
++      return;
++   struct pipe_box box;
++   u_box_1d(res->cb_offset, res->resource->width0, &box);
++   dev->pipe->resource_copy_region(dev->pipe, res->resource, 0, 0, 0, 0, res->cb_buf, 0, &box);
++   pipe_resource_reference(&res->cb_buf, NULL);
++   res->cb_offset = 0;
++   CbRebindAll(dev, res);
++}
++
+ 
+ 
+ /* exynos-woa G23 (notes/g23-bc-emulation.md): BCn emulation helpers. bc_unpack_rect decodes the top-left w x h texels
+@@ -494,6 +561,9 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+    templat.nr_storage_samples = pCreateResource->SampleDesc.Count;
+    templat.bind       = translate_resource_flags(pCreateResource->BindFlags);
+    templat.usage      = translate_resource_usage(pCreateResource->Usage);
++   /* exynos-woa T6: renamed at every WRITE_DISCARD (only a constant buffer, nothing else bound) */
++   pResource->cb_rename = pCreateResource->Usage == D3D10_DDI_USAGE_DYNAMIC &&
++                          pCreateResource->BindFlags == D3D10_DDI_BIND_CONSTANT_BUFFER;
+ 
+    if (templat.target != PIPE_BUFFER) {
+       if (!screen->is_format_supported(screen,
+@@ -880,6 +950,15 @@ DestroyResource(D3D10DDI_HDEVICE hDevice,       // IN
+       pipe_so_target_reference(&pResource->so_target, NULL);
+    }
+ 
++   {  /* exynos-woa T6 */
++      Device *dev = CastDevice(hDevice);
++      pipe_resource_reference(&pResource->cb_buf, NULL);
++      for (unsigned st = 0; st < 4; st++)
++         for (unsigned slot = 0; slot < PIPE_MAX_CONSTANT_BUFFERS; slot++)
++            if (dev->bound_cb[st][slot] == pResource)
++               dev->bound_cb[st][slot] = NULL;
++   }
++
+    for (UINT SubResource = 0; SubResource < pResource->NumSubResources; ++SubResource) {
+       if (pResource->transfers[SubResource]) {
+          if (pResource->buffer) {
+@@ -984,6 +1063,28 @@ ResourceMap(D3D10DDI_HDEVICE hDevice,                                // IN
+       "Map:buffer:other";
+    UmdSectionTimer map_kind_timer(map_kind);
+ 
++   /* exynos-woa T6: DYNAMIC constant buffer + WRITE_DISCARD -> a fresh slice of the constant uploader */
++   if (pResource->cb_rename && DDIMap == D3D10_DDI_MAP_WRITE_DISCARD && SubResource == 0) {
++      struct pipe_resource *buf = NULL;
++      unsigned off = 0;
++      void *ptr = NULL;
++      u_upload_alloc_ref(pipe->const_uploader, 0, resource->width0, 256, &off, &buf, &ptr);
++      if (buf && ptr) {
++         pipe_resource_reference(&pResource->cb_buf, NULL);
++         pResource->cb_buf = buf;   /* the reference u_upload_alloc_ref took */
++         pResource->cb_offset = off;
++         pResource->cb_mapped = true;
++         CbRebindAll(CastDevice(hDevice), pResource);
++         pMappedSubResource->pData = ptr;
++         pMappedSubResource->RowPitch = resource->width0;
++         pMappedSubResource->DepthPitch = resource->width0;
++         return;
++      }
++      pipe_resource_reference(&buf, NULL);   /* allocation failed: the ordinary path below */
++   }
++   if (pResource->cb_buf)
++      CbMaterialize(CastDevice(hDevice), pResource);   /* any other map sees the current contents */
++
+    assert(SubResource < pResource->NumSubResources);
+ 
+    unsigned level;
+@@ -1068,6 +1169,12 @@ ResourceUnmap(D3D10DDI_HDEVICE hDevice,      // IN
+ 
+    assert(SubResource < pResource->NumSubResources);
+ 
++   if (pResource->cb_mapped) {   /* exynos-woa T6: written into the uploader - flush it */
++      pResource->cb_mapped = false;
++      u_upload_unmap(pipe->const_uploader);
++      return;
++   }
++
+    if (pResource->bc_map_usage && pResource->bc_map_usage[SubResource]) {
+       /* exynos-woa G23: decode what the application wrote into the shadow (see ResourceMap) */
+       unsigned usage = pResource->bc_map_usage[SubResource];
+@@ -1184,6 +1291,8 @@ ResourceCopy(D3D10DDI_HDEVICE hDevice,          // IN
+    struct pipe_context *pipe = pDevice->pipe;
+    Resource *pDstResource = CastResource(hDstResource);
+    Resource *pSrcResource = CastResource(hSrcResource);
++   CbMaterialize(pDevice, pDstResource);   /* exynos-woa T6 */
++   CbMaterialize(pDevice, pSrcResource);
+    struct pipe_resource *dst_resource = pDstResource->resource;
+    struct pipe_resource *src_resource = pSrcResource->resource;
+    bool compatible;
+@@ -1258,6 +1367,8 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
+    struct pipe_context *pipe = pDevice->pipe;
+    Resource *pDstResource = CastResource(hDstResource);
+    Resource *pSrcResource = CastResource(hSrcResource);
++   CbMaterialize(pDevice, pDstResource);   /* exynos-woa T6 */
++   CbMaterialize(pDevice, pSrcResource);
+    struct pipe_resource *dst_resource = pDstResource->resource;
+    struct pipe_resource *src_resource = pSrcResource->resource;
+ 
+@@ -1445,6 +1556,7 @@ ResourceUpdateSubResourceUP(D3D10DDI_HDEVICE hDevice,                // IN
+ 
+    struct pipe_context *pipe = pDevice->pipe;
+    Resource *pDstResource = CastResource(hDstResource);
++   CbMaterialize(pDevice, pDstResource);   /* exynos-woa T6 */
+    struct pipe_resource *dst_resource = pDstResource->resource;
+ 
+    unsigned level;
+diff --git a/src/gallium/frontends/d3d10umd/Shader.cpp b/src/gallium/frontends/d3d10umd/Shader.cpp
+index e9cba69..bb57d68 100644
+--- a/src/gallium/frontends/d3d10umd/Shader.cpp
++++ b/src/gallium/frontends/d3d10umd/Shader.cpp
+@@ -190,18 +190,9 @@ SetConstantBuffers(mesa_shader_stage shader_type,    // IN
+    Device *pDevice = CastDevice(hDevice);
+    struct pipe_context *pipe = pDevice->pipe;
+ 
+-   for (UINT i = 0; i < NumBuffers; i++) {
+-      struct pipe_constant_buffer cb;
+-      memset(&cb, 0, sizeof cb);
+-      cb.buffer = CastPipeResource(phBuffers[i]);
+-      cb.buffer_offset = 0;
+-      cb.buffer_size = cb.buffer ? cb.buffer->width0 : 0;
+-      pipe->set_constant_buffer(pipe,
+-                                shader_type,
+-                                StartBuffer + i,
+-                                &cb);
+-      DeviceTrackConstantBuffer(pDevice, shader_type, StartBuffer + i, &cb);   /* exynos-woa G25 */
+-   }
++   (void)pipe;
++   for (UINT i = 0; i < NumBuffers; i++)
++      CbBind(pDevice, shader_type, StartBuffer + i, CastResource(phBuffers[i]));   /* exynos-woa T6 (+G25 tracking) */
+ }
+ 
+ 
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index 57551d4..3be2d4a 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -138,6 +138,10 @@ struct Device
+    struct GsEmu *gs_emu;
+    void *bound_rs;
+    struct pipe_constant_buffer tracked_cb[2][GS_EMU_TRACKED_CBS];
++   /* exynos-woa T6: the constant buffers bound per stage (VS, PS, GS, CS) - renamed ones are rebound at Map */
++   struct Resource *bound_cb[4][PIPE_MAX_CONSTANT_BUFFERS];
++   unsigned bound_cb_off[4][PIPE_MAX_CONSTANT_BUFFERS];    /* D3D11.1 FirstConstant * 16 */
++   unsigned bound_cb_size[4][PIPE_MAX_CONSTANT_BUFFERS];   /* NumConstants * 16, 0 = the whole buffer */
+    /* exynos-woa G24 (Compute.cpp): compute state - the bound CS, the CS SRV objects (raw / structured buffers are
+     * bound at Dispatch) and the CS UAVs */
+    Shader *bound_cs;
+@@ -266,6 +270,13 @@ struct Resource
+    unsigned *bc_map_usage;
+    /* exynos-woa G24: D3D11 structure byte stride (D3D11DDIARG_CREATERESOURCE::ByteStride), for structured views */
+    unsigned byte_stride;
++   /* exynos-woa T6 (notes/perf-threaded-context.md): a DYNAMIC constant buffer is renamed into pipe->const_uploader
++    * at every WRITE_DISCARD map. cb_buf/cb_offset = where its contents live now (NULL = in `resource`);
++    * cb_mapped = a renamed map is open (Unmap flushes the uploader). */
++   bool cb_rename;
++   bool cb_mapped;
++   struct pipe_resource *cb_buf;
++   unsigned cb_offset;
+ };
+ 
+ 
+@@ -283,6 +294,12 @@ CastResource(DXGI_DDI_HRESOURCE hResource)
+ }
+ 
+ 
++/* exynos-woa T6 (Resource.cpp): bind a constant buffer (its current storage), rebind every slot of a renamed one,
++ * copy a renamed one back into its resource */
++void CbBind(Device *dev, mesa_shader_stage stage, unsigned slot, Resource *res, unsigned off = 0, unsigned size = 0);
++void CbRebindAll(Device *dev, Resource *res);
++void CbMaterialize(Device *dev, Resource *res);
++
+ static inline struct pipe_resource *
+ CastPipeResource(D3D10DDI_HRESOURCE hResource)
+ {
+-- 
+2.40.1.windows.1
+

@@ -1,0 +1,33 @@
+From dc6997cbe721e1276db92655a1db91a49b155cdb Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 22:06:19 +0300
+Subject: [PATCH] panfrost: diagnostic get_batch fast/slow split + timer
+ baseline section (exynos-woa 0130e)
+
+---
+ src/gallium/drivers/panfrost/pan_cmdstream.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/src/gallium/drivers/panfrost/pan_cmdstream.c b/src/gallium/drivers/panfrost/pan_cmdstream.c
+index 7689999..cf9553e 100644
+--- a/src/gallium/drivers/panfrost/pan_cmdstream.c
++++ b/src/gallium/drivers/panfrost/pan_cmdstream.c
+@@ -3557,9 +3557,14 @@ prepare_draw(struct pipe_context *pipe, const struct pipe_draw_info *info)
+    struct panfrost_device *dev = pan_device(pipe->screen);
+ 
+    /* Do some common setup */
++   {
++      PAN_SEC_BEGIN(t_empty);
++      PAN_SEC_END(t_empty, "pan:sub:timer_empty");
++   }
++   bool getb_fast = ctx->batch != NULL;
+    PAN_SEC_BEGIN(t_getb);
+    struct panfrost_batch *batch = panfrost_get_batch_for_fbo(ctx);
+-   PAN_SEC_END(t_getb, "pan:sub:get_batch");
++   PAN_SEC_END(t_getb, getb_fast ? "pan:sub:get_batch_fast" : "pan:sub:get_batch_slow");
+    if (!batch)
+       return NULL;
+ 
+-- 
+2.40.1.windows.1
+

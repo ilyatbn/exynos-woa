@@ -1,0 +1,181 @@
+From dc4b908c676bfcefc597b90d497c13564c50f58d Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 22:42:42 +0300
+Subject: [PATCH] panfrost: prefer_real_buffer_in_constbuf0; d3d10umd: no user
+ buffers (zero dummy VB, uploaded GsEmu/VideoProc constants) - threaded
+ context requirements (exynos-woa TC T4b)
+
+---
+ src/gallium/drivers/panfrost/pan_screen.c        |  3 +++
+ src/gallium/frontends/d3d10umd/Device.cpp        | 13 +++++++++++++
+ src/gallium/frontends/d3d10umd/GsEmu.cpp         |  6 +++++-
+ src/gallium/frontends/d3d10umd/InputAssembly.cpp | 16 +++++++---------
+ src/gallium/frontends/d3d10umd/State.h           |  3 +++
+ src/gallium/frontends/d3d10umd/VideoProc.cpp     |  7 ++++++-
+ 6 files changed, 37 insertions(+), 11 deletions(-)
+
+diff --git a/src/gallium/drivers/panfrost/pan_screen.c b/src/gallium/drivers/panfrost/pan_screen.c
+index dfa84c6..c02b7ba 100644
+--- a/src/gallium/drivers/panfrost/pan_screen.c
++++ b/src/gallium/drivers/panfrost/pan_screen.c
+@@ -901,6 +901,9 @@ panfrost_init_screen_caps(struct panfrost_screen *screen)
+       dev->kmod.dev->props.allowed_group_priorities_mask);
+ 
+    caps->astc_decode_mode = dev->arch >= 9 && (dev->compressed_formats & (1 << 30));
++   /* exynos-woa TC T4b: required by threaded_context_create ("drivers must set this"); only a hint for
++    * frontends (d3d10umd does not read it). The threaded context takes no user buffers at all - d3d10umd uploads its own */
++   caps->prefer_real_buffer_in_constbuf0 = true;
+ 
+    caps->min_line_width =
+    caps->min_line_width_aa =
+diff --git a/src/gallium/frontends/d3d10umd/Device.cpp b/src/gallium/frontends/d3d10umd/Device.cpp
+index c490890..7f14431 100644
+--- a/src/gallium/frontends/d3d10umd/Device.cpp
++++ b/src/gallium/frontends/d3d10umd/Device.cpp
+@@ -201,6 +201,18 @@ CreateDevice(D3D10DDI_HADAPTER hAdapter,                 // IN
+    pDevice->cso = cso_create_context(pipe, CSO_NO_VBUF);
+    pDevice->velems_changed = TRUE;   /* exynos-woa H5 (0058): the first draw binds a (possibly empty) layout */
+ 
++   /* exynos-woa TC T4b: unbound vertex-buffer slots read this (was a static user array) */
++   {
++      static const float zeros[4] = {0.0f, 0.0f, 0.0f, 0.0f};
++      pDevice->dummy_vb = pipe_buffer_create(screen, PIPE_BIND_VERTEX_BUFFER, PIPE_USAGE_IMMUTABLE, sizeof zeros);
++      if (pDevice->dummy_vb)
++         pipe_buffer_write(pipe, pDevice->dummy_vb, 0, sizeof zeros, zeros);
++      for (unsigned v = 0; v < PIPE_MAX_ATTRIBS; ++v) {
++         pDevice->vertex_buffers[v].is_user_buffer = false;
++         pDevice->vertex_buffers[v].buffer_offset = 0;
++         pipe_resource_reference(&pDevice->vertex_buffers[v].buffer.resource, pDevice->dummy_vb);
++      }
++   }
+    pDevice->empty_vs = CreateEmptyShader(pDevice, MESA_SHADER_VERTEX);
+    pDevice->empty_fs = CreateEmptyShader(pDevice, MESA_SHADER_FRAGMENT);
+ 
+@@ -487,6 +499,7 @@ DestroyDevice(D3D10DDI_HDEVICE hDevice)   // IN
+          pipe_resource_reference(&pDevice->vertex_buffers[i].buffer.resource, NULL);
+       }
+    }
++   pipe_resource_reference(&pDevice->dummy_vb, NULL);   /* exynos-woa TC T4b */
+ 
+    pipe_resource_reference(&pDevice->index_buffer, NULL);
+ 
+diff --git a/src/gallium/frontends/d3d10umd/GsEmu.cpp b/src/gallium/frontends/d3d10umd/GsEmu.cpp
+index 577a11d..dab1dbf 100644
+--- a/src/gallium/frontends/d3d10umd/GsEmu.cpp
++++ b/src/gallium/frontends/d3d10umd/GsEmu.cpp
+@@ -27,6 +27,7 @@
+ #include "tgsi/tgsi_ureg.h"
+ #include "util/u_draw.h"
+ #include "util/u_inlines.h"
++#include "util/u_upload_mgr.h"
+ #include "util/u_memory.h"
+ #include "util/format/u_format.h"
+ 
+@@ -269,9 +270,12 @@ GsEmuDraw(Device *dev, const struct pipe_draw_info *info, const struct pipe_draw
+                           vbase, ib_size, nv * inst, 0 };
+    struct pipe_constant_buffer pcb;
+    memset(&pcb, 0, sizeof pcb);
+-   pcb.user_buffer = param;
++   /* exynos-woa TC T4b: uploaded - the threaded context takes no user constant buffers */
++   u_upload_data_ref(pipe->const_uploader, 0, sizeof param, 256, param, &pcb.buffer_offset, &pcb.buffer);
++   u_upload_unmap(pipe->const_uploader);
+    pcb.buffer_size = sizeof param;
+    pipe->set_constant_buffer(pipe, MESA_SHADER_COMPUTE, GS_EMU_TRACKED_CBS - 1, &pcb);
++   pipe_resource_reference(&pcb.buffer, NULL);
+    struct pipe_grid_info grid;
+    memset(&grid, 0, sizeof grid);
+    grid.block[0] = ex->block[0] ? ex->block[0] : 64;
+diff --git a/src/gallium/frontends/d3d10umd/InputAssembly.cpp b/src/gallium/frontends/d3d10umd/InputAssembly.cpp
+index d36a070..7a30701 100644
+--- a/src/gallium/frontends/d3d10umd/InputAssembly.cpp
++++ b/src/gallium/frontends/d3d10umd/InputAssembly.cpp
+@@ -121,8 +121,6 @@ IaSetVertexBuffers(D3D10DDI_HDEVICE hDevice,
+                    __in_ecount (NumBuffers) const UINT *pStrides,                // IN
+                    __in_ecount (NumBuffers) const UINT *pOffsets)                // IN
+ {
+-   static const float dummy[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+-
+    LOG_ENTRYPOINT();
+ 
+    Device *pDevice = CastDevice(hDevice);
+@@ -153,25 +151,25 @@ IaSetVertexBuffers(D3D10DDI_HDEVICE hDevice,
+          pipe_resource_reference(&vb->buffer.resource, resource);
+       }
+       else {
++         /* exynos-woa TC T4b: unbound -> the device's zero buffer (no user buffers under the threaded context) */
+          pDevice->vertex_strides[StartBuffer + i] = 0;
+          vb->buffer_offset = 0;
+-         if (!vb->is_user_buffer) {
+-            pipe_resource_reference(&vb->buffer.resource, NULL);
+-            vb->is_user_buffer = true;
++         if (vb->is_user_buffer) {
++            vb->buffer.resource = NULL;
++            vb->is_user_buffer = false;
+          }
+-         vb->buffer.user = dummy;
++         pipe_resource_reference(&vb->buffer.resource, pDevice->dummy_vb);
+       }
+    }
+ 
+    for (i = 0; i < PIPE_MAX_ATTRIBS; ++i) {
+       struct pipe_vertex_buffer *vb = &pDevice->vertex_buffers[i];
+ 
+-      /* XXX this is odd... */
++      /* XXX this is odd... (exynos-woa TC T4b: the zero buffer instead of a user array) */
+       if (!vb->is_user_buffer && !vb->buffer.resource) {
+          pDevice->vertex_strides[i] = 0;
+          vb->buffer_offset = 0;
+-         vb->is_user_buffer = true;
+-         vb->buffer.user = dummy;
++         pipe_resource_reference(&vb->buffer.resource, pDevice->dummy_vb);
+       }
+    }
+ 
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index ea6e1bc..57551d4 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -111,6 +111,9 @@ struct Device
+    struct cso_context *cso;
+    struct pipe_framebuffer_state fb;
+    struct pipe_vertex_buffer vertex_buffers[PIPE_MAX_ATTRIBS];
++   /* exynos-woa TC T4b: 16 zero bytes bound to every unbound vertex-buffer slot (stride 0) - the threaded
++    * context takes no user vertex buffers */
++   struct pipe_resource *dummy_vb;
+    unsigned vertex_strides[PIPE_MAX_ATTRIBS];
+    struct pipe_resource *index_buffer;
+    unsigned restart_index;
+diff --git a/src/gallium/frontends/d3d10umd/VideoProc.cpp b/src/gallium/frontends/d3d10umd/VideoProc.cpp
+index 41ae142..e85b0f9 100644
+--- a/src/gallium/frontends/d3d10umd/VideoProc.cpp
++++ b/src/gallium/frontends/d3d10umd/VideoProc.cpp
+@@ -22,6 +22,7 @@
+ #include "VideoProc.h"
+ 
+ #include "util/u_inlines.h"
++#include "util/u_upload_mgr.h"
+ #include "util/u_sampler.h"
+ 
+ extern "C" void malikm_tlog(const char *fmt, ...);
+@@ -617,13 +618,17 @@ Vid_VideoProcessorBlt(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HVIDEOPROCESSOR hVP,
+    k.layer = 0;   /* the view starts at the input's array slice */
+    vcsc_matrix(&k, vp->Stream.Bt709, vp->Stream.YCbCrFull, vp->RgbStudio);
+    struct pipe_constant_buffer cb = {};
+-   cb.user_buffer = &k;
++   /* exynos-woa TC T4b: uploaded - the threaded context takes no user constant buffers (cb.buffer is dropped
++    * after set_constant_buffer below) */
++   u_upload_data_ref(pipe->const_uploader, 0, sizeof(k), 256, &k, &cb.buffer_offset, &cb.buffer);
++   u_upload_unmap(pipe->const_uploader);
+    cb.buffer_size = sizeof(k);
+ 
+    pipe->bind_compute_state(pipe, vp->Csc);
+    pipe->set_sampler_views(pipe, MESA_SHADER_COMPUTE, 0, 1, 0, &view);
+    pipe->set_shader_images(pipe, MESA_SHADER_COMPUTE, 0, 1, 0, &img);
+    pipe->set_constant_buffer(pipe, MESA_SHADER_COMPUTE, 0, &cb);
++   pipe_resource_reference(&cb.buffer, NULL);   /* exynos-woa TC T4b */
+    struct pipe_grid_info grid = {};
+    grid.work_dim = 2;
+    grid.block[0] = VCSC_BLOCK; grid.block[1] = VCSC_BLOCK; grid.block[2] = 1;
+-- 
+2.40.1.windows.1
+

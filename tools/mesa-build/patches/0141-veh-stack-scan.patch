@@ -1,0 +1,48 @@
+From 70608e4425f3864670baad193f3328a7fbb91009 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 22:46:04 +0300
+Subject: [PATCH] malikm: x86 VEH stack scan - return-address candidates in the
+ faulting module for llvm-symbolizer (exynos-woa TC T5 diagnosis aid)
+
+---
+ include/win32-compat/malikm_drm.c | 24 ++++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 86aa022..f49e58b 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -217,6 +217,30 @@ malikm_veh(EXCEPTION_POINTERS *e)
+                   (unsigned long long)((uintptr_t)pc - (uintptr_t)m),
+                   e->ExceptionRecord->ExceptionInformation[0] ? "write" : "read",
+                   (unsigned long long)e->ExceptionRecord->ExceptionInformation[1], GetCurrentThreadId());
++#if defined(_M_IX86)
++      /* exynos-woa TC T5 diagnosis: x86 Mesa has no frame pointers - scan the stack for values inside the faulting
++       * module (return-address candidates, newest first) for llvm-symbolizer */
++      if (m) {
++         const IMAGE_DOS_HEADER *dos = (const IMAGE_DOS_HEADER *)m;
++         const IMAGE_NT_HEADERS *nt = (const IMAGE_NT_HEADERS *)((const char *)m + dos->e_lfanew);
++         const uintptr_t lo = (uintptr_t)m, hi = lo + nt->OptionalHeader.SizeOfImage;
++         const uintptr_t *sp = (const uintptr_t *)(uintptr_t)e->ContextRecord->Esp;
++         MEMORY_BASIC_INFORMATION mb;
++         uintptr_t top = (uintptr_t)sp;
++         if (VirtualQuery(sp, &mb, sizeof mb))
++            top = (uintptr_t)mb.BaseAddress + mb.RegionSize;
++         char line[600];
++         int o = 0, found = 0;
++         line[0] = 0;
++         for (const uintptr_t *q = sp; (uintptr_t)(q + 1) <= top && found < 40 && o < (int)sizeof line - 16; q++) {
++            if (*q > lo && *q < hi) {
++               o += snprintf(line + o, sizeof line - o, " %llx", (unsigned long long)(*q - lo));
++               found++;
++            }
++         }
++         malikm_tlog("  stack scan:%s", line);
++      }
++#endif
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+ }
+-- 
+2.40.1.windows.1
+

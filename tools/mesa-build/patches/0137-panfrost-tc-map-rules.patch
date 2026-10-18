@@ -1,0 +1,111 @@
+From a1837b96bb1ee108e70a420a308fa3fcd217324e Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 22:17:18 +0300
+Subject: [PATCH] panfrost: buffer maps follow the threaded-context rules
+ (NO_INFER_UNSYNCHRONIZED, NO_INVALIDATE, THREADED_UNSYNC) +
+ replace_buffer_storage (exynos-woa TC T3)
+
+---
+ src/gallium/drivers/panfrost/pan_resource.c | 47 ++++++++++++++++++---
+ src/gallium/drivers/panfrost/pan_resource.h |  5 +++
+ 2 files changed, 46 insertions(+), 6 deletions(-)
+
+diff --git a/src/gallium/drivers/panfrost/pan_resource.c b/src/gallium/drivers/panfrost/pan_resource.c
+index 7059f00..27372ef 100644
+--- a/src/gallium/drivers/panfrost/pan_resource.c
++++ b/src/gallium/drivers/panfrost/pan_resource.c
+@@ -1610,6 +1610,33 @@ panfrost_dirty_state_for_rsrc(struct panfrost_context *ctx, struct pipe_resource
+    }
+ }
+ 
++/* exynos-woa TC T3: threaded-context buffer invalidation - dst takes src's storage (always queued, driver
++ * thread). Same swap as the DISCARD path of panfrost_ptr_map: batches hold their own BO references
++ * (panfrost_batch_add_bo_old), so dropping dst's old BO is safe. Descriptors that reference dst are dirtied
++ * (0131 panfrost_dirty_state_for_rsrc) and dst's index min/max cache describes the old contents - emptied. */
++void
++panfrost_replace_buffer_storage(struct pipe_context *pctx, struct pipe_resource *pdst,
++                                struct pipe_resource *psrc, unsigned minimum_num_rebinds,
++                                uint32_t rebind_mask, uint32_t delete_buffer_id)
++{
++   struct panfrost_context *ctx = pan_context(pctx);
++   struct panfrost_resource *dst = pan_resource(pdst);
++   struct panfrost_resource *src = pan_resource(psrc);
++
++   assert(pdst->target == PIPE_BUFFER && psrc->target == PIPE_BUFFER);
++   assert(panfrost_bo_size(src->bo) >= panfrost_bo_size(dst->bo));
++
++   panfrost_bo_reference(src->bo);
++   panfrost_bo_unreference(dst->bo);
++   dst->bo = src->bo;
++   dst->plane.base = src->bo->ptr.gpu;
++   if (dst->index_cache) {
++      dst->index_cache->size = 0;
++      dst->index_cache->index = 0;
++   }
++   panfrost_dirty_state_for_rsrc(ctx, pdst);
++}
++
+ static void *
+ panfrost_ptr_map(struct pipe_context *pctx, struct pipe_resource *resource,
+                  unsigned level,
+@@ -1696,8 +1723,10 @@ panfrost_ptr_map(struct pipe_context *pctx, struct pipe_resource *resource,
+                             panfrost_bo_size(bo), NULL);
+    }
+ 
+-   /* Upgrade writes to uninitialized ranges to UNSYNCHRONIZED */
+-   if ((usage & PIPE_MAP_WRITE) && resource->target == PIPE_BUFFER &&
++   /* Upgrade writes to uninitialized ranges to UNSYNCHRONIZED (exynos-woa TC T3: not when the threaded context
++    * forbids it - TC_TRANSFER_MAP_NO_INFER_UNSYNCHRONIZED, it tracks the valid range itself) */
++   if (!(usage & TC_TRANSFER_MAP_NO_INFER_UNSYNCHRONIZED) &&
++       (usage & PIPE_MAP_WRITE) && resource->target == PIPE_BUFFER &&
+        !util_ranges_intersect(&rsrc->valid_buffer_range, box->x,
+                               box->x + box->width)) {
+ 
+@@ -1731,8 +1760,11 @@ panfrost_ptr_map(struct pipe_context *pctx, struct pipe_resource *resource,
+ 
+    /* Shadowing with separate stencil may require additional accounting.
+     * Bail in these exotic cases.
++    * exynos-woa TC T3: the threaded context forbids the driver's own buffer invalidation
++    * (TC_TRANSFER_MAP_NO_INVALIDATE) - a synchronized map then flushes and waits below.
+     */
+-   if (rsrc->separate_stencil || rsrc->shadow_image) {
++   if (rsrc->separate_stencil || rsrc->shadow_image ||
++       (usage & TC_TRANSFER_MAP_NO_INVALIDATE)) {
+       create_new_bo = false;
+       copy_resource = false;
+    }
+@@ -1846,9 +1878,12 @@ panfrost_ptr_map(struct pipe_context *pctx, struct pipe_resource *resource,
+ 
+       if (usage & PIPE_MAP_WRITE) {
+          BITSET_SET(rsrc->valid.data, level);
+-         pan_minmax_cache_invalidate(
+-            rsrc->index_cache, util_format_get_blocksize(rsrc->base.format),
+-            transfer->base.box.x, transfer->base.box.width);
++         /* exynos-woa TC T3: not from the application thread (TC_TRANSFER_MAP_THREADED_UNSYNC) - the driver
++          * thread may be reading the cache; panfrost_ptr_unmap (driver thread) invalidates the same range */
++         if (!(usage & TC_TRANSFER_MAP_THREADED_UNSYNC))
++            pan_minmax_cache_invalidate(
++               rsrc->index_cache, util_format_get_blocksize(rsrc->base.format),
++               transfer->base.box.x, transfer->base.box.width);
+       }
+ 
+       return bo->ptr.cpu + rsrc->plane.layout.slices[level].offset_B +
+diff --git a/src/gallium/drivers/panfrost/pan_resource.h b/src/gallium/drivers/panfrost/pan_resource.h
+index 13496fb..77cb83e 100644
+--- a/src/gallium/drivers/panfrost/pan_resource.h
++++ b/src/gallium/drivers/panfrost/pan_resource.h
+@@ -128,6 +128,11 @@ pan_resource_plane_index(const struct panfrost_resource *rsc)
+    return 0;
+ }
+ 
++/* exynos-woa TC T3 (pan_resource.c) */
++void panfrost_replace_buffer_storage(struct pipe_context *pctx, struct pipe_resource *pdst,
++                                     struct pipe_resource *psrc, unsigned minimum_num_rebinds,
++                                     uint32_t rebind_mask, uint32_t delete_buffer_id);
++
+ struct panfrost_transfer {
+    /* exynos-woa TC T2: threaded_transfer starts with the pipe_transfer (tc.b aliases base) */
+    union {
+-- 
+2.40.1.windows.1
+

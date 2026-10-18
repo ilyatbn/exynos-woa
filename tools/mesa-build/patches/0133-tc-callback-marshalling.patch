@@ -1,0 +1,615 @@
+From f4f3b33b1d80e4815b6442401d03f6445c8f42b0 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 22:07:39 +0300
+Subject: [PATCH] malikm/tc: runtime callbacks only on the DDI thread -
+ driver-thread w_* calls marshalled (result) or queued (destroy/unlock),
+ pumped at wddm_lock waits and threaded-context waits (exynos-woa TC T1, inert
+ until enabled)
+
+---
+ include/win32-compat/malikm_drm.c             | 312 ++++++++++++++++--
+ .../auxiliary/util/u_threaded_context.c       |  41 ++-
+ 2 files changed, 322 insertions(+), 31 deletions(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 8bd4744..a2afde5 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -527,6 +527,55 @@ drmPrimeHandleToFD(int fd, uint32_t handle, uint32_t flags, int *prime_fd)
+ static struct wbo *wddm_bo(uint32_t h);
+ static uint32_t wbo_add(D3DKMT_HANDLE hAlloc, uint64_t size, uint64_t va, uint32_t runtime_owned);
+ static SRWLOCK wddm_lock;
++
++/* ---- exynos-woa threaded context (notes/perf-threaded-context.md T1): runtime callbacks only on the DDI thread ----
++ * MS Learn pfnSetAsyncCallbacksCb: the D3D10+ runtimes set it to NULL, and "Drivers can call the runtime's callback
++ * functions only from a worker thread if the runtime previously set the pfnSetAsyncCallbacksCb member of
++ * D3DDDI_DEVICECALLBACKS to non-NULL". Under Gallium's threaded context Panfrost runs on a worker thread, so a w_*
++ * call made there (when a runtime device exists) is handed to the thread inside the DDI: calls with a result post a
++ * request and wait, destroy/unlock (no result) are queued in order. The DDI thread runs them (malikm_ddi_pump) at
++ * every DDI entry, while it waits for wddm_lock and inside the threaded context's waits; it drains the queue before
++ * any callback of its own, so the runtime sees the calls in program order, one thread at a time.
++ * Inert until malikm_marshal_enable(): without a worker every call is direct, as before. */
++enum mk_op { MK_ESCAPE, MK_CREATE, MK_RESIDENT, MK_LOCK, MK_RENDER, MK_DESTROY, MK_UNLOCK, MK_NOPS };
++struct mk_req {
++   enum mk_op op;
++   void *p;
++   UINT u1, u2;
++   D3DKMT_HANDLE h;
++   NTSTATUS st;
++   void *ret;
++   volatile LONG done;
++};
++static __declspec(thread) int mk_worker;       /* this thread is a threaded-context driver thread */
++static volatile LONG mk_on;
++static struct mk_req *volatile mk_box;         /* the one pending request with a result */
++static HANDLE mk_done_ev;
++static SRWLOCK mk_call_lock = SRWLOCK_INIT;    /* one posting driver thread at a time */
++static SRWLOCK mk_defer_lock = SRWLOCK_INIT;
++static struct mk_req *mk_defer;
++static volatile LONG mk_defer_n;
++static LONG mk_defer_cap;
++static volatile LONG mk_stats[MK_NOPS];
++void malikm_ddi_pump(void);
++
++static void
++wddm_lock_acquire(void)
++{
++   if (!mk_on || mk_worker) {
++      AcquireSRWLockExclusive(&wddm_lock);
++      return;
++   }
++   /* the driver thread may hold the lock while it waits for this thread to run its callback */
++   for (unsigned n = 0; !TryAcquireSRWLockExclusive(&wddm_lock); n++) {
++      malikm_ddi_pump();
++      if (n < 64)
++         YieldProcessor();
++      else
++         SwitchToThread();
++   }
++}
++/* ---- end of the T1 head; every wddm_lock acquisition below uses wddm_lock_acquire ---- */
+ static int bind_for_fd(int fd);
+ static void bind_switch(int i);
+ static int cur_bind;
+@@ -535,7 +584,7 @@ int
+ drmPrimeFDToHandle(int fd, int prime_fd, uint32_t *handle)
+ {
+    int ret = -ENOSYS;
+-   AcquireSRWLockExclusive(&wddm_lock);
++   wddm_lock_acquire();
+    bind_switch(bind_for_fd(fd));
+    if ((prime_fd & MALIKM_PRIME_FD_BASE) && PRIME_FD_B(prime_fd) == cur_bind && wddm_bo(PRIME_FD_H(prime_fd))) {
+       *handle = PRIME_FD_H(prime_fd);
+@@ -1037,7 +1086,7 @@ wddm_init(void)
+ /* ---- the kernel calls, by D3DKMT or by the runtime's callbacks ---- */
+ 
+ static NTSTATUS
+-w_escape(void *data, UINT size)
++w_escape_raw(void *data, UINT size)
+ {
+    if (ddi.on) {
+       D3DDDICB_ESCAPE e = {0};
+@@ -1052,7 +1101,7 @@ w_escape(void *data, UINT size)
+ static void w_resident(D3DKMT_HANDLE h);   /* exynos-woa 0069, below */
+ 
+ static NTSTATUS
+-w_create(D3DDDI_ALLOCATIONINFO *ai)
++w_create_raw(D3DDDI_ALLOCATIONINFO *ai)
+ {
+    if (ddi.on) {
+       D3DDDICB_ALLOCATE a = {0};
+@@ -1074,7 +1123,7 @@ w_create(D3DDDI_ALLOCATIONINFO *ai)
+ }
+ 
+ static void
+-w_destroy(D3DKMT_HANDLE h)
++w_destroy_raw(D3DKMT_HANDLE h)
+ {
+    if (ddi.on) {
+       D3DDDICB_DEALLOCATE d = {0};
+@@ -1098,7 +1147,7 @@ w_destroy(D3DKMT_HANDLE h)
+  * submitting (MS Learn D3DDDI_MAKERESIDENT). The first call creates the queue; if that fails the adapter is WDDM 1.x
+  * and residency stays the KMD's business (no call again). Never fails the caller: a refusal is logged. */
+ static void
+-w_resident(D3DKMT_HANDLE h)
++w_resident_raw(D3DKMT_HANDLE h)
+ {
+    int *resid = ddi.on ? &ddi.resid : &wresid;
+    D3DKMT_HANDLE *pq = ddi.on ? &ddi.pq : &wpq;
+@@ -1160,7 +1209,7 @@ w_resident(D3DKMT_HANDLE h)
+ }
+ 
+ static void *
+-w_lock(D3DKMT_HANDLE h)
++w_lock_raw(D3DKMT_HANDLE h)
+ {
+    if (ddi.on) {
+       D3DDDICB_LOCK l = {0};
+@@ -1176,7 +1225,7 @@ w_lock(D3DKMT_HANDLE h)
+ }
+ 
+ static void
+-w_unlock(D3DKMT_HANDLE h)
++w_unlock_raw(D3DKMT_HANDLE h)
+ {
+    if (ddi.on) {
+       D3DDDICB_UNLOCK u = {0};
+@@ -1195,7 +1244,7 @@ w_unlock(D3DKMT_HANDLE h)
+ /* Render what is in the command buffer and allocation list; on return the
+  * buffers are the new ones the runtime handed back. */
+ static NTSTATUS
+-w_render(UINT commandLength, UINT allocations)
++w_render_raw(UINT commandLength, UINT allocations)
+ {
+    if (ddi.on) {
+       D3DDDICB_RENDER r = {0};
+@@ -1262,6 +1311,215 @@ w_render(UINT commandLength, UINT allocations)
+    return 0;
+ }
+ 
++/* ---- exynos-woa T1: the marshalling wrappers (see wddm_lock_acquire) ---- */
++static void
++mk_exec(struct mk_req *r)
++{
++   switch (r->op) {
++   case MK_ESCAPE:   r->st = w_escape_raw(r->p, r->u1); break;
++   case MK_CREATE:   r->st = w_create_raw(r->p); break;
++   case MK_RESIDENT: w_resident_raw(r->h); break;
++   case MK_LOCK:     r->ret = w_lock_raw(r->h); break;
++   case MK_RENDER:   r->st = w_render_raw(r->u1, r->u2); break;
++   case MK_DESTROY:  w_destroy_raw(r->h); break;
++   case MK_UNLOCK:   w_unlock_raw(r->h); break;
++   default: break;
++   }
++}
++
++static void
++mk_drain(void)
++{
++   if (!mk_defer_n)
++      return;
++   AcquireSRWLockExclusive(&mk_defer_lock);
++   for (LONG i = 0; i < mk_defer_n; i++)
++      mk_exec(&mk_defer[i]);
++   mk_defer_n = 0;
++   ReleaseSRWLockExclusive(&mk_defer_lock);
++}
++
++void
++malikm_ddi_pump(void)
++{
++   if (mk_worker || (!mk_box && !mk_defer_n))
++      return;
++   mk_drain();
++   struct mk_req *r = InterlockedExchangePointer((PVOID volatile *)&mk_box, NULL);
++   if (r) {
++      mk_exec(r);
++      InterlockedExchange(&r->done, 1);
++      SetEvent(mk_done_ev);
++   }
++}
++
++/* on a driver thread with a runtime device: hand the call over */
++static int
++mk_marshal(void)
++{
++   return mk_worker && mk_on && ddi.on;
++}
++
++/* a direct call on a DDI thread: the driver thread's queued destroy/unlock go first */
++static void
++mk_direct(void)
++{
++   if (mk_on && !mk_worker)
++      mk_drain();
++}
++
++static void
++mk_defer_op(enum mk_op op, D3DKMT_HANDLE h)
++{
++   AcquireSRWLockExclusive(&mk_defer_lock);
++   if (mk_defer_n == mk_defer_cap) {
++      LONG cap = mk_defer_cap ? mk_defer_cap * 2 : 256;
++      struct mk_req *n = realloc(mk_defer, cap * sizeof(*n));
++      if (!n) {
++         ReleaseSRWLockExclusive(&mk_defer_lock);
++         malikm_tlog("tc: deferred callback queue full (%ld) - op %d handle 0x%x dropped", (long)mk_defer_n, op, h);
++         return;
++      }
++      mk_defer = n;
++      mk_defer_cap = cap;
++   }
++   memset(&mk_defer[mk_defer_n], 0, sizeof(mk_defer[0]));
++   mk_defer[mk_defer_n].op = op;
++   mk_defer[mk_defer_n].h = h;
++   mk_defer_n++;
++   ReleaseSRWLockExclusive(&mk_defer_lock);
++   InterlockedIncrement(&mk_stats[op]);
++}
++
++static void
++mk_call(struct mk_req *r)
++{
++   AcquireSRWLockExclusive(&mk_call_lock);
++   r->done = 0;
++   InterlockedIncrement(&mk_stats[r->op]);
++   InterlockedExchangePointer((PVOID volatile *)&mk_box, r);
++   DWORD t0 = GetTickCount();
++   int logged = 0;
++   while (!r->done) {
++      WaitForSingleObject(mk_done_ev, 500);
++      if (!r->done && !logged && GetTickCount() - t0 > 2000) {
++         malikm_tlog("tc: driver thread waits > 2 s for the DDI thread to run callback op %d", r->op);
++         logged = 1;
++      }
++   }
++   ReleaseSRWLockExclusive(&mk_call_lock);
++}
++
++static NTSTATUS
++w_escape(void *data, UINT size)
++{
++   if (mk_marshal()) {
++      struct mk_req r = { MK_ESCAPE, data, size };
++      mk_call(&r);
++      return r.st;
++   }
++   mk_direct();
++   return w_escape_raw(data, size);
++}
++
++static NTSTATUS
++w_create(D3DDDI_ALLOCATIONINFO *ai)
++{
++   if (mk_marshal()) {
++      struct mk_req r = { MK_CREATE, ai };
++      mk_call(&r);
++      return r.st;
++   }
++   mk_direct();
++   return w_create_raw(ai);
++}
++
++static void
++w_resident(D3DKMT_HANDLE h)
++{
++   if (mk_marshal()) {
++      struct mk_req r = { MK_RESIDENT };
++      r.h = h;
++      mk_call(&r);
++      return;
++   }
++   mk_direct();
++   w_resident_raw(h);
++}
++
++static void *
++w_lock(D3DKMT_HANDLE h)
++{
++   if (mk_marshal()) {
++      struct mk_req r = { MK_LOCK };
++      r.h = h;
++      mk_call(&r);
++      return r.ret;
++   }
++   mk_direct();
++   return w_lock_raw(h);
++}
++
++static NTSTATUS
++w_render(UINT commandLength, UINT allocations)
++{
++   if (mk_marshal()) {
++      struct mk_req r = { MK_RENDER, NULL, commandLength, allocations };
++      mk_call(&r);
++      return r.st;
++   }
++   mk_direct();
++   return w_render_raw(commandLength, allocations);
++}
++
++static void
++w_destroy(D3DKMT_HANDLE h)
++{
++   if (mk_marshal()) {
++      mk_defer_op(MK_DESTROY, h);
++      return;
++   }
++   mk_direct();
++   w_destroy_raw(h);
++}
++
++static void
++w_unlock(D3DKMT_HANDLE h)
++{
++   if (mk_marshal()) {
++      mk_defer_op(MK_UNLOCK, h);
++      return;
++   }
++   mk_direct();
++   w_unlock_raw(h);
++}
++
++/* exported for d3d10umd: enable once the threaded context exists (before its driver thread runs) */
++void
++malikm_marshal_enable(void)
++{
++   if (!mk_done_ev)
++      mk_done_ev = CreateEventW(NULL, FALSE, FALSE, NULL);
++   if (mk_done_ev)
++      InterlockedExchange(&mk_on, 1);
++}
++
++void
++malikm_mark_worker_thread(void)
++{
++   mk_worker = 1;
++}
++
++/* "tc callbacks: escape N create N ..." since the last call (counts reset) */
++void
++malikm_marshal_report(char *buf, size_t size)
++{
++   static const char *names[MK_NOPS] = { "escape", "create", "resident", "lock", "render", "destroy", "unlock" };
++   int o = snprintf(buf, size, "tc callbacks:");
++   for (int i = 0; i < MK_NOPS && o > 0 && (size_t)o < size; i++)
++      o += snprintf(buf + o, size - o, " %s %ld", names[i], (long)InterlockedExchange(&mk_stats[i], 0));
++}
++
+ /* Everything the KMD was given has completed: its fences agree and nothing
+  * is queued or running. For when there is no event to wait on. */
+ static int
+@@ -1501,7 +1759,7 @@ bind_for_device(HANDLE device)
+ void
+ malikm_select_device(void *hRTDevice)
+ {
+-   AcquireSRWLockExclusive(&wddm_lock);
++   wddm_lock_acquire();
+    tls_selected = bind_for_device(hRTDevice);
+    ReleaseSRWLockExclusive(&wddm_lock);
+ }
+@@ -1511,7 +1769,7 @@ malikm_select_device(void *hRTDevice)
+ void
+ malikm_unbind_device(void *hRTDevice)
+ {
+-   AcquireSRWLockExclusive(&wddm_lock);
++   wddm_lock_acquire();
+    int i = bind_for_device(hRTDevice);
+    if (i >= 0) {
+       bind_switch(i);
+@@ -1539,7 +1797,7 @@ malikm_primary_create(void *hRTResource, unsigned vidpn, unsigned w, unsigned h,
+ {
+    int ret = -1;
+ 
+-   AcquireSRWLockExclusive(&wddm_lock);
++   wddm_lock_acquire();
+    bind_switch(tls_selected);
+    if (!ddi.on || !ddi.cb.pfnAllocateCb)
+       goto out;
+@@ -1595,7 +1853,7 @@ out:
+ void
+ malikm_primary_destroy(unsigned hAlloc)
+ {
+-   AcquireSRWLockExclusive(&wddm_lock);
++   wddm_lock_acquire();
+    bind_switch(tls_selected);
+    for (int i = 0; i < MAX_KPRIM; i++) {
+       if (kprim[i].h != hAlloc)
+@@ -1631,7 +1889,7 @@ malikm_shared_create(void *hRTResource, unsigned w, unsigned h, unsigned cpp, un
+    *pitch = w * cpp;
+    if (w == 0 || h == 0 || cpp == 0 || hRTResource == NULL)
+       return -1;
+-   AcquireSRWLockExclusive(&wddm_lock);
++   wddm_lock_acquire();
+    bind_switch(tls_selected);
+    if (!ddi.on || !ddi.cb.pfnAllocateCb)
+       goto out;
+@@ -1678,7 +1936,7 @@ malikm_set_display_mode(unsigned hAlloc)
+ {
+    long hr = 1;
+ 
+-   AcquireSRWLockExclusive(&wddm_lock);
++   wddm_lock_acquire();
+    bind_switch(tls_selected);
+    if (ddi.on && ddi.cb.pfnSetDisplayModeCb && hAlloc) {
+       D3DDDICB_SETDISPLAYMODE m = {0};
+@@ -1712,7 +1970,7 @@ malikm_open_shared(const void *priv, unsigned size, unsigned hAlloc, unsigned *w
+    *h = pi->Height;
+    *pitch = pi->Pitch ? pi->Pitch : pi->Width * 4;
+    *d3dfmt = pi->Format;
+-   AcquireSRWLockExclusive(&wddm_lock);
++   wddm_lock_acquire();
+    bind_switch(tls_selected);
+    if (ddi.on)
+       w_resident(hAlloc);   /* exynos-woa 0069: an opened allocation is on the opener's residency list only if it asks */
+@@ -1737,7 +1995,7 @@ void
+ malikm_close_shared(unsigned hAlloc)
+ {
+    D3DKMT_HANDLE hk = hAlloc;
+-   AcquireSRWLockExclusive(&wddm_lock);
++   wddm_lock_acquire();
+    bind_switch(tls_selected);
+    if (ddi.on && ddi.cb.pfnUnlockCb) {
+       D3DDDICB_UNLOCK u = {0};
+@@ -1753,7 +2011,7 @@ malikm_primary_present(unsigned hAlloc, unsigned hDst, const void *bgrx, unsigne
+ {
+    int ret = -1;
+ 
+-   AcquireSRWLockExclusive(&wddm_lock);
++   wddm_lock_acquire();
+    bind_switch(tls_selected);
+    if (!ddi.on || !ddi.dxgi || !ddi.dxgi->pfnPresentCb)
+       goto out;
+@@ -1813,7 +2071,7 @@ malikm_scanout_bo(int *prime_fd, unsigned *w, unsigned *h, unsigned *pitch, unsi
+    static int tried;
+    static MW_ESCAPE_SCANOUT_DATA so;
+ 
+-   AcquireSRWLockExclusive(&wddm_lock);
++   wddm_lock_acquire();
+    bind_switch(tls_selected);
+    if (!ddi.on || wddm != 1)
+       goto out;
+@@ -1907,7 +2165,7 @@ malikm_present_d3dddi(const void *bgrx, unsigned w, unsigned h, void *dxgi_conte
+ {
+    int ret = -1;
+ 
+-   AcquireSRWLockExclusive(&wddm_lock);
++   wddm_lock_acquire();
+    bind_switch(tls_selected);
+    if (!ddi.on || !ddi.dxgi || !ddi.dxgi->pfnPresentCb)
+       goto out;
+@@ -2126,7 +2384,7 @@ malikm_bind_d3dddi(HANDLE hRTAdapter, HANDLE hRTDevice, const void *pKTCallbacks
+ 
+    if (!cb || !cb->pfnEscapeCb || !cb->pfnAllocateCb || !cb->pfnRenderCb || !cb->pfnCreateContextCb)
+       return -1;
+-   AcquireSRWLockExclusive(&wddm_lock);
++   wddm_lock_acquire();
+    /* exynos-woa H5 (0060): a fresh binding (state) for this runtime device; the screen created next is its own */
+    int bi = bind_for_device(hRTDevice);
+    if (bi < 0)
+@@ -2346,7 +2604,7 @@ int
+ malikm_bo_from_allocation(unsigned hAlloc, int *prime_fd)
+ {
+    int ret = -1;
+-   AcquireSRWLockExclusive(&wddm_lock);
++   wddm_lock_acquire();
+    bind_switch(tls_selected);
+    if (ddi.on && wddm == 1)
+       ret = wbo_from_allocation_locked(hAlloc, prime_fd, WBO_OPENED);
+@@ -2370,7 +2628,7 @@ malikm_shared_bo_create(void *hRTResource, unsigned w, unsigned h, unsigned cpp,
+    *pitch = (w * cpp + 63u) & ~63u;
+    if (w == 0 || h == 0 || cpp == 0 || hRTResource == NULL)
+       return -1;
+-   AcquireSRWLockExclusive(&wddm_lock);
++   wddm_lock_acquire();
+    bind_switch(tls_selected);
+    if (ddi.on && wddm == 1 && ddi.cb.pfnAllocateCb) {
+       pi.Version = MW_ABI_VERSION;
+@@ -2402,7 +2660,7 @@ void
+ malikm_allocation_gone(unsigned hAlloc)
+ {
+    unsigned n = 0;
+-   AcquireSRWLockExclusive(&wddm_lock);
++   wddm_lock_acquire();
+    bind_switch(tls_selected);
+    for (uint32_t i = 0; i < wbo_cap; i++)
+       if (wbo[i].h == hAlloc && wbo[i].runtime_owned && !wbo[i].gone) {
+@@ -2423,7 +2681,7 @@ unsigned
+ malikm_prime_fd_allocation(int prime_fd)
+ {
+    unsigned h = 0;
+-   AcquireSRWLockExclusive(&wddm_lock);
++   wddm_lock_acquire();
+    bind_switch(tls_selected);
+    if (prime_fd & MALIKM_PRIME_FD_BASE) {
+       bind_switch(PRIME_FD_B(prime_fd));
+@@ -2442,7 +2700,7 @@ malikm_allocation_present(unsigned hAlloc, unsigned hDst, void *dxgi_context)
+ {
+    int ret = -1;
+    static unsigned n;
+-   AcquireSRWLockExclusive(&wddm_lock);
++   wddm_lock_acquire();
+    bind_switch(tls_selected);
+    if (ddi.on && ddi.dxgi && ddi.dxgi->pfnPresentCb && hAlloc) {
+       DXGIDDICB_PRESENT p = {0};
+@@ -2464,7 +2722,7 @@ uint64_t
+ malikm_prime_fd_size(int prime_fd)
+ {
+    uint64_t size = 0;
+-   AcquireSRWLockExclusive(&wddm_lock);
++   wddm_lock_acquire();
+    bind_switch(tls_selected);
+    if (prime_fd & MALIKM_PRIME_FD_BASE) {
+       bind_switch(PRIME_FD_B(prime_fd));
+@@ -2776,7 +3034,7 @@ wddm_ioctl(int fd, DWORD code, void *buf, DWORD len)
+    LARGE_INTEGER iq0, iq1;   /* exynos-woa G21: per-ioctl calls / time (malikm_ioctl_report) */
+    QueryPerformanceCounter(&iq0);
+ 
+-   AcquireSRWLockExclusive(&wddm_lock);
++   wddm_lock_acquire();
+    bind_switch(bind_for_fd(fd));   /* exynos-woa H5 (0060): this screen's runtime device */
+    switch (code) {
+    case IOCTL_MALIKM_VERSION: {
+diff --git a/src/gallium/auxiliary/util/u_threaded_context.c b/src/gallium/auxiliary/util/u_threaded_context.c
+index c2beee2..56b17af 100644
+--- a/src/gallium/auxiliary/util/u_threaded_context.c
++++ b/src/gallium/auxiliary/util/u_threaded_context.c
+@@ -89,6 +89,35 @@ struct tc_buffer_unmap {
+ static void
+ tc_batch_execute(void *job, UNUSED void *gdata, int thread_index);
+ 
++/* exynos-woa (notes/perf-threaded-context.md T1): the Windows UMD may not call D3D runtime callbacks from the
++ * driver thread; its winsys hands them to the application thread, which has to service them while it waits for
++ * the driver thread. tc_driver_thread_hook marks the queue thread, tc_wait_hook services pending callbacks; both
++ * NULL = upstream behaviour. */
++void (*tc_driver_thread_hook)(void);
++void (*tc_wait_hook)(void);
++
++static void
++tc_fence_wait(struct util_queue_fence *fence)
++{
++   if (!tc_wait_hook) {
++      util_queue_fence_wait(fence);
++      return;
++   }
++   for (;;) {
++      tc_wait_hook();
++      if (util_queue_fence_wait_timeout(fence, os_time_get_absolute_timeout(1000000)))
++         return;
++   }
++}
++
++static void
++tc_batch_execute_queued(void *job, void *gdata, int thread_index)
++{
++   if (tc_driver_thread_hook)
++      tc_driver_thread_hook();
++   tc_batch_execute(job, gdata, thread_index);
++}
++
+ static void
+ tc_buffer_subdata(struct pipe_context *_pipe,
+                   struct pipe_resource *resource,
+@@ -269,7 +298,7 @@ tc_batch_increment_renderpass_info(struct threaded_context *tc, unsigned batch_i
+          util_queue_fence_signal(&info->ready);
+       }
+       /* always wait on the batch to finish since this will otherwise overwrite thread data */
+-      util_queue_fence_wait(&batch->fence);
++      tc_fence_wait(&batch->fence);
+    }
+    /* increment rp info and initialize it */
+    batch->renderpass_info_idx++;
+@@ -585,7 +614,11 @@ tc_batch_flush(struct threaded_context *tc, bool full_copy)
+    }
+ 
+    tc_update_batch_generation(tc, next);
+-   util_queue_add_job(&tc->queue, next, &next->fence, tc_batch_execute,
++   /* exynos-woa T1: util_queue_add_job blocks (without servicing callbacks) once TC_MAX_BATCHES - 2 jobs are
++    * queued; the oldest one that can still be queued is two slots ahead - wait for it here instead. */
++   if (tc_wait_hook)
++      tc_fence_wait(&tc->batch_slots[(tc->next + 2) % TC_MAX_BATCHES].fence);
++   util_queue_add_job(&tc->queue, next, &next->fence, tc_batch_execute_queued,
+                       NULL, 0);
+    tc->last = tc->next;
+    tc->next = next_id;
+@@ -739,7 +772,7 @@ _tc_sync(struct threaded_context *tc, UNUSED const char *info, UNUSED const char
+ 
+    /* Only wait for queued calls... */
+    if (!util_queue_fence_is_signalled(&last->fence)) {
+-      util_queue_fence_wait(&last->fence);
++      tc_fence_wait(&last->fence);
+       synced = true;
+    }
+ 
+@@ -5798,7 +5831,7 @@ threaded_context_get_renderpass_info(struct threaded_context *tc)
+    assert(tc->renderpass_info && tc->options.parse_renderpass_info);
+    struct tc_batch_rp_info *info = tc_batch_rp_info(tc->renderpass_info);
+    while (1) {
+-      util_queue_fence_wait(&info->ready);
++      tc_fence_wait(&info->ready);
+       if (!info->next)
+          return &info->info;
+       info = info->next;
+-- 
+2.40.1.windows.1
+

@@ -1,0 +1,82 @@
+From 5c4ba9bc3c3e5d151eb06d82cf3a52c5035c5c1c Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 22:46:04 +0300
+Subject: [PATCH] tc/panfrost: threaded_context_executing(); panfrost_tc_sync
+ skips the sync inside threaded-context execution (u_blitter
+ create_sampler_view re-executed the running batch) (exynos-woa TC T5a)
+
+---
+ src/gallium/auxiliary/util/u_threaded_context.c | 12 ++++++++++++
+ src/gallium/auxiliary/util/u_threaded_context.h |  2 ++
+ src/gallium/drivers/panfrost/pan_context.h      |  5 ++++-
+ 3 files changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/src/gallium/auxiliary/util/u_threaded_context.c b/src/gallium/auxiliary/util/u_threaded_context.c
+index 56b17af..19bc9ac 100644
+--- a/src/gallium/auxiliary/util/u_threaded_context.c
++++ b/src/gallium/auxiliary/util/u_threaded_context.c
+@@ -96,6 +96,16 @@ tc_batch_execute(void *job, UNUSED void *gdata, int thread_index);
+ void (*tc_driver_thread_hook)(void);
+ void (*tc_wait_hook)(void);
+ 
++/* exynos-woa TC T5a: > 0 while this thread executes threaded-context calls (driver thread, or the application
++ * thread executing unflushed calls in _tc_sync) - the driver must not sync the threaded context from there */
++static _Thread_local int tc_executing_depth;
++
++bool
++threaded_context_executing(void)
++{
++   return tc_executing_depth > 0;
++}
++
+ static void
+ tc_fence_wait(struct util_queue_fence *fence)
+ {
+@@ -5435,6 +5445,7 @@ tc_batch_execute(void *job, UNUSED void *gdata, int thread_index)
+    /* setup renderpass info */
+    batch->tc->renderpass_info = batch->renderpass_infos.data;
+ 
++   tc_executing_depth++;   /* exynos-woa TC T5a */
+    if (batch->tc->options.parse_renderpass_info) {
+       batch_execute(batch, pipe, true);
+ 
+@@ -5447,6 +5458,7 @@ tc_batch_execute(void *job, UNUSED void *gdata, int thread_index)
+    } else {
+       batch_execute(batch, pipe, false);
+    }
++   tc_executing_depth--;   /* exynos-woa TC T5a */
+ 
+    /* Add the fence to the list of fences for the driver to signal at the next
+     * flush, which we use for tracking which buffers are referenced by
+diff --git a/src/gallium/auxiliary/util/u_threaded_context.h b/src/gallium/auxiliary/util/u_threaded_context.h
+index 658b8e9..5b60269 100644
+--- a/src/gallium/auxiliary/util/u_threaded_context.h
++++ b/src/gallium/auxiliary/util/u_threaded_context.h
+@@ -706,6 +706,8 @@ struct threaded_context {
+ void threaded_resource_init(struct pipe_resource *res, bool allow_cpu_storage);
+ void threaded_resource_deinit(struct pipe_resource *res);
+ struct pipe_context *threaded_context_unwrap_sync(struct pipe_context *pipe);
++/* exynos-woa TC T5a: true while the calling thread executes threaded-context calls */
++bool threaded_context_executing(void);
+ void tc_driver_internal_flush_notify(struct threaded_context *tc);
+ 
+ /** function for getting the current renderpass info:
+diff --git a/src/gallium/drivers/panfrost/pan_context.h b/src/gallium/drivers/panfrost/pan_context.h
+index 27ba7f1..99e3153 100644
+--- a/src/gallium/drivers/panfrost/pan_context.h
++++ b/src/gallium/drivers/panfrost/pan_context.h
+@@ -605,7 +605,10 @@ void panfrost_context_reinit(struct panfrost_context *ctx);
+ static inline void
+ panfrost_tc_sync(struct panfrost_context *ctx)
+ {
+-   if (ctx->tc_pipe)
++   /* exynos-woa TC T5a: not from inside the threaded context's own execution (u_blitter calls
++    * create_sampler_view on the driver context during a blit) - re-entering _tc_sync re-executed the running
++    * batch; the driver thread would deadlock */
++   if (ctx->tc_pipe && !threaded_context_executing())
+       threaded_context_unwrap_sync(ctx->tc_pipe);
+ }
+ 
+-- 
+2.40.1.windows.1
+

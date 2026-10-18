@@ -1,0 +1,66 @@
+From 4416b631b98dff74a0f405e3feda4a1918ece394 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 22:08:32 +0300
+Subject: [PATCH] malikm: direct runtime-callback paths (primary/shared create,
+ open/close shared, set display mode) drain the driver-thread queue first
+ (exynos-woa TC T1b)
+
+---
+ include/win32-compat/malikm_drm.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index a2afde5..86aa022 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -1798,6 +1798,7 @@ malikm_primary_create(void *hRTResource, unsigned vidpn, unsigned w, unsigned h,
+    int ret = -1;
+ 
+    wddm_lock_acquire();
++   mk_direct();   /* exynos-woa T1b: queued driver-thread destroy/unlock first (program order) */
+    bind_switch(tls_selected);
+    if (!ddi.on || !ddi.cb.pfnAllocateCb)
+       goto out;
+@@ -1890,6 +1891,7 @@ malikm_shared_create(void *hRTResource, unsigned w, unsigned h, unsigned cpp, un
+    if (w == 0 || h == 0 || cpp == 0 || hRTResource == NULL)
+       return -1;
+    wddm_lock_acquire();
++   mk_direct();   /* exynos-woa T1b: queued driver-thread destroy/unlock first (program order) */
+    bind_switch(tls_selected);
+    if (!ddi.on || !ddi.cb.pfnAllocateCb)
+       goto out;
+@@ -1937,6 +1939,7 @@ malikm_set_display_mode(unsigned hAlloc)
+    long hr = 1;
+ 
+    wddm_lock_acquire();
++   mk_direct();   /* exynos-woa T1b: queued driver-thread destroy/unlock first (program order) */
+    bind_switch(tls_selected);
+    if (ddi.on && ddi.cb.pfnSetDisplayModeCb && hAlloc) {
+       D3DDDICB_SETDISPLAYMODE m = {0};
+@@ -1971,6 +1974,7 @@ malikm_open_shared(const void *priv, unsigned size, unsigned hAlloc, unsigned *w
+    *pitch = pi->Pitch ? pi->Pitch : pi->Width * 4;
+    *d3dfmt = pi->Format;
+    wddm_lock_acquire();
++   mk_direct();   /* exynos-woa T1b: queued driver-thread destroy/unlock first (program order) */
+    bind_switch(tls_selected);
+    if (ddi.on)
+       w_resident(hAlloc);   /* exynos-woa 0069: an opened allocation is on the opener's residency list only if it asks */
+@@ -1996,6 +2000,7 @@ malikm_close_shared(unsigned hAlloc)
+ {
+    D3DKMT_HANDLE hk = hAlloc;
+    wddm_lock_acquire();
++   mk_direct();   /* exynos-woa T1b: queued driver-thread destroy/unlock first (program order) */
+    bind_switch(tls_selected);
+    if (ddi.on && ddi.cb.pfnUnlockCb) {
+       D3DDDICB_UNLOCK u = {0};
+@@ -2629,6 +2634,7 @@ malikm_shared_bo_create(void *hRTResource, unsigned w, unsigned h, unsigned cpp,
+    if (w == 0 || h == 0 || cpp == 0 || hRTResource == NULL)
+       return -1;
+    wddm_lock_acquire();
++   mk_direct();   /* exynos-woa T1b: queued driver-thread destroy/unlock first (program order) */
+    bind_switch(tls_selected);
+    if (ddi.on && wddm == 1 && ddi.cb.pfnAllocateCb) {
+       pi.Version = MW_ABI_VERSION;
+-- 
+2.40.1.windows.1
+

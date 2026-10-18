@@ -205,3 +205,13 @@ thread is still emulated x86 in 32-bit games); also helps every D3D app (DWM, br
 - nfs-tc9 (x86 tc6f = T6, e1fae195): full race, frame 28.6-34.0 ms (~30 fps; was 84 ms before TC = 2.8x), inside the
   UMD 10.5-14.4 ms/frame; scan-out traces/wddm2/nfs-tc9.png renders correctly (car, HUD 4th/4 lap 1/3, minimap,
   Gemini neon). Intermediate T6 run nfs-tc8 (D3D11.1 path missed): 38 ms but black.
+- x64/ARM64 port (2026-10-18 ~23:55, user: "apply everything relevant to the x64 driver too and commit. tag alpha8"):
+  same Mesa tree (HEAD e4b97d1 = 0001-0146), build-mesa-g76 -Stage cross,collect (ARM64) + -Stage ec (ARM64EC, in a
+  FRESH powershell process - a second build-mesa-g76 call in the same process captures the first one's VS environment
+  as its "clean" one and vcvarsamd64_arm64 exits 255; also never run vcvars-based builds in parallel), make-arm64x ->
+  s10e-artifacts\mali-umd-0146-x (forwarder 19d7076b, maliumd_arm64 8a8c7a72, maliumd_ec fb100f0b), deployed with
+  wddm2dbg umdxswap (no reboot: DWM/explorer keep the boot-time driver).
+  Tests on the new set: d3dcbdyn (ARM64) PASS, d3dcbdyn64x (x64 emulated, EC) PASS, d3dtri tri PASS, d3dvbring PASS,
+  d3dcs 0/7 differ (ARM64) + d3dcs64x 0/7 differ; Edge (new GPU process) WebGL clear 51,102,153,255 draw
+  255,128,0,255, renderer ANGLE Mali-G76 D3D11. DWM on the threaded driver = after the next reboot (pending).
+- Mesa commits exported as tools/mesa-build/patches/0132-0146.

@@ -119,3 +119,21 @@ thread is still emulated x86 in 32-bit games); also helps every D3D app (DWM, br
   process-global (set once, idempotent). DEVIATION recorded: MS Learn "Supporting Multiple Processors" says a driver
   doing its own MP optimizations "should disable" them for windowed apps / single-core machines (fair sharing; text
   for the D3D9 runtime policy) - kept on for all apps on this 8-core phone; revisit if DWM/desktop power suffers.
+- T5 run 1 (x86 tc1 = T4, f27d3848): every D3D11 process aborted in threaded_context_create:
+  "Assertion failed: pipe->screen->caps.prefer_real_buffer_in_constbuf0". Upstream TC also takes NO user buffers:
+  tc_set_constant_buffer "frontend must handle this" (UNREACHABLE), tc_set_vertex_buffers asserts !is_user_buffer.
+  d3d10umd used a static float[4] user VB in unbound slots and user constant buffers in GsEmu.cpp (params) and
+  VideoProc.cpp (CSC constants).
+- T4b (Mesa dc4b908, tools/mesa-build/tc/t4b_userbufs.py): panfrost caps->prefer_real_buffer_in_constbuf0 = true (every
+  TC driver sets it; d3d10umd does not read it); Device::dummy_vb (16 zero bytes, PIPE_USAGE_IMMUTABLE) in every
+  unbound VB slot (stride 0 -> same zeros); GsEmu/VideoProc constants via u_upload_data_ref(pipe->const_uploader) +
+  u_upload_unmap, reference dropped after set_constant_buffer. Review: GsEmu.cpp:69 skips stride-0 VBs (dummy) as
+  before; no other user buffers in d3d10umd (grep has_user_indices/user_buffer/.user =).
+- T5 run 2 (x86 tc2 = T4b, cbc607da): d3dvbring32 + d3dtri32 tri crash, AV maliumd32+0x61696a =
+  u_transfer_helper_transfer_unmap/handle_transfer (llvm-symbolizer on libgallium_d3d10.pdb), read of a float-looking
+  address. Diagnosis builds (tc2d/e/f): VEH x86 stack scan (return-address candidates -> tc batch_execute), then
+  map/unmap tracing: transfer 0726D008 (the dummy-VB upload at device creation) unmapped ONCE by the app, but its
+  queued unmap EXECUTED TWICE, all on the application thread. Cause: T2b panfrost_tc_sync is also reached from
+  inside batch execution - u_blitter (the ResourceCopy blit) calls create_sampler_view on the driver context ->
+  threaded_context_unwrap_sync -> _tc_sync re-executes the batch that is running (on the driver thread it would
+  deadlock). Note: pipe_transfer.usage is a 24-bit field, the TC_* bits do not survive in transfer->usage.

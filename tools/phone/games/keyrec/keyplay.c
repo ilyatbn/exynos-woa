@@ -36,23 +36,39 @@ static DWORD FindPid(const char *name)
     CloseHandle(s);
     return pid;
 }
-static void EnsureForeground(const char *proc, int *fixes)
+static int IsGameForeground(void)
 {
-    if (!g_pid) g_pid = FindPid(proc);
-    if (!g_pid) return;
     DWORD fg = 0;
     GetWindowThreadProcessId(GetForegroundWindow(), &fg);
-    if (fg == g_pid) return;
-    g_wnd = NULL;
-    EnumWindows(FindWnd, 0);
-    if (!g_wnd) return;
-    INPUT alt[2] = { 0 };
-    alt[0].type = alt[1].type = INPUT_KEYBOARD;
-    alt[0].ki.wVk = alt[1].ki.wVk = VK_MENU;
-    alt[1].ki.dwFlags = KEYEVENTF_KEYUP;
-    SendInput(2, alt, sizeof(INPUT));
-    SetForegroundWindow(g_wnd);
-    (*fixes)++;
+    return g_pid && fg == g_pid;
+}
+/* 2026-10-18 (notes/perf-threaded-context.md): one Alt + SetForegroundWindow try was not always enough - 2 of 3
+ * runs still died at the first Enter (+0x6562b). Retry for up to 3 s until the game really owns the foreground
+ * before the event is sent; failures go to C:\S10eTmp\keyplay.log. */
+static void EnsureForeground(const char *proc, int *fixes, int *fails, FILE *log, long long ms)
+{
+    if (!g_pid) g_pid = FindPid(proc);
+    if (!g_pid || IsGameForeground()) return;
+    for (int tries = 0; tries < 30; tries++) {
+        g_wnd = NULL;
+        EnumWindows(FindWnd, 0);
+        if (g_wnd) {
+            INPUT alt[2] = { 0 };
+            alt[0].type = alt[1].type = INPUT_KEYBOARD;
+            alt[0].ki.wVk = alt[1].ki.wVk = VK_MENU;
+            alt[1].ki.dwFlags = KEYEVENTF_KEYUP;
+            SendInput(2, alt, sizeof(INPUT));
+            SetForegroundWindow(g_wnd);
+        }
+        Sleep(100);
+        if (IsGameForeground()) {
+            (*fixes)++;
+            if (log) fprintf(log, "%lld ms: foreground fixed after %d tries\n", ms, tries + 1);
+            return;
+        }
+    }
+    (*fails)++;
+    if (log) fprintf(log, "%lld ms: game NOT foreground after 3 s (window %p)\n", ms, (void *)g_wnd);
 }
 
 int main(int argc, char **argv)
@@ -60,9 +76,10 @@ int main(int argc, char **argv)
     const char *file = argc > 1 ? argv[1] : "C:\\S10eTmp\\gamekeys.rec";
     int pct = argc > 2 ? atoi(argv[2]) : 100;
     const char *proc = argc > 3 ? argv[3] : "SPEED2.EXE";
-    int fixes = 0;
+    int fixes = 0, fails = 0;
     FILE *f = fopen(file, "r");
     if (!f) { printf("no %s\n", file); return 2; }
+    FILE *log = fopen("C:\\S10eTmp\\keyplay.log", "w");
     ULONGLONG t0 = GetTickCount64();
     char line[128];
     int sent = 0;
@@ -73,7 +90,7 @@ int main(int argc, char **argv)
         ULONGLONG due = t0 + (ULONGLONG)(ms * 100 / (pct > 0 ? pct : 100));
         ULONGLONG now = GetTickCount64();
         if (due > now) Sleep((DWORD)(due - now));
-        EnsureForeground(proc, &fixes);
+        EnsureForeground(proc, &fixes, &fails, log, ms);
         INPUT in = { 0 };
         in.type = INPUT_KEYBOARD;
         in.ki.wScan = (WORD)scan;
@@ -82,6 +99,7 @@ int main(int argc, char **argv)
         sent++;
     }
     fclose(f);
+    if (log) { fprintf(log, "keyplay: %d events, foreground fixed %d, failed %d\n", sent, fixes, fails); fclose(log); }
     printf("keyplay: %d events\n", sent);
     return 0;
 }

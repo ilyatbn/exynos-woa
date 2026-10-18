@@ -182,3 +182,13 @@ thread is still emulated x86 in 32-bit games); also helps every D3D app (DWM, br
 - Next (ordered): (1) cheap DISCARD under TC - d3d10umd upload ring for dynamic buffers (Map DISCARD -> CPU
   shadow / u_upload suballocation, rebind buffer+offset) or a fast buffer resource_create path; (2) the batch init
   cost on the driver thread (1.5 ms per new batch, 7/frame); (3) launch_draw / varyings.
+- Mesa 1fb850a: ResourceMap per-kind section timers. nfs-tc6 died at the first Enter again (+0x6562b, 2 of 3 runs) ->
+  keyplay.c: EnsureForeground retries Alt + SetForegroundWindow every 100 ms for up to 3 s until the game owns the
+  foreground, before the event; C:\S10eTmp\keyplay.log ("foreground fixed N, failed N").
+- nfs-tc7 (x86 tc5m, dd97d26b; new keyplay: "606 events, foreground fixed 0, failed 0"): race reached, frame 76.6 ms.
+  Per 120 frames: ResourceMap 175360 calls 4096 ms, of which Map:cb:discard 124308 calls 3974 ms (1036/frame, 32 us
+  each = 33 ms/frame) and Map:vb:nooverwrite 25548 calls 38 ms (1.5 us). => the dynamic-constant-buffer DISCARD is
+  the whole map cost under TC (each = new pipe_resource + replace_buffer_storage).
+- T6 plan: rename DYNAMIC constant buffers into pipe->const_uploader at WRITE_DISCARD (u_upload_alloc_ref, rebind
+  every slot it is bound to with buffer+offset, u_upload_unmap at Unmap); materialize (copy back) before copies,
+  UpdateSubresource or other maps. Works with and without TC.

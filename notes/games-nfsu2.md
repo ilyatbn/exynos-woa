@@ -76,3 +76,29 @@ errors". SPEED2.EXE = 32-bit x86 (timestamp 0x420aad27).
   BT_UART_PROBE 1, MFC_PROBE/POWER/FWBOOT 1, USB_KD_DEVICE 0 (host). Boot OK: ACPI\PNP0D10\0 xHCI + USB 3.0 root hub
   OK; Bluetooth radio + paired devices, Exynos9820 MFC Video Codec, BCM4375 BT transport, Wi-Fi, Mali, audio, touch
   OK (tools/phone/devcheck.ps1); only problem devices = CPU 6/7 (parked M4s, as before). Keyboard test = user.
+
+## 2026-10-18 recorded runs (tools/phone/rec screen recorder + tools/phone/games/gamedrive.ps1 key script)
+- nfs1 (traces/rec/nfs1, x86 UMD 0128): game fullscreen ~23 s (black frame), then Windows' "Get an app to open this
+  'ms-gamingoverlay' link" popup (~27 s) takes the foreground, the game minimises (taskbar icon 39-58 s) and crashes
+  at SPEED2+0x6562b (21:42:01, pid 0x10D8 = our 4312) - the known fault when its fullscreen swapchain loses the
+  foreground. = the user's "annoying link popup ... minimize the game". Esc presses at 31/34/36 s did not clear it.
+- tools/phone/games/gamebarstate.ps1: GameConfigStore GameDVR_Enabled 1 (Windows default), no Xbox / GamingOverlay
+  package, no ms-gamingoverlay protocol handler -> Windows tries to open Game Bar for a detected game and this image
+  has no Game Bar app. Not our driver. Native fixes for the user to choose: install Xbox Game Bar (stock state) or
+  turn Game Bar / captures off in Settings > Gaming. For the race test only (diagnosis switch, AGENTS 12):
+  GameDVR_Enabled = 0 for the run, restored to 1 afterwards.
+- nfs2 (GameDVR_Enabled 0 as a diagnosis switch): popup still there (even at 11.5 s), game gone again -> that value is
+  not the trigger; restored to 1 at once. Research: MS Q&A https://learn.microsoft.com/en-us/answers/a/1429604 - the
+  popup appears "when opening a game after removing Xbox Game Bar"; fix = reinstall Xbox Game Bar
+  (`winget install 9NZKPSTSNW4P`) = back to stock Windows (AGENTS 12 native). Third-party pages (windowsdigitals.com,
+  macmyths.com): Game Bar triggers fire on game launch / Win+G / controller; the handler is missing after removal.
+- winget install 9NZKPSTSNW4P (tools/phone/games/gamebarinstall.ps1, user session): "Failed to install or upgrade
+  Microsoft Store package. Error code: 0x80004002" (E_NOINTERFACE) - this image's Store install path does not work.
+- nfs3: the popup of nfs2 was still up (OpenWith.exe, no close button, persists) -> no information. OpenWith killed.
+- nfs4 (GameDVR_Enabled 0 + AppCaptureEnabled 0 = the Settings > Gaming capture toggle, diagnosis switch): NO popup;
+  game ran fullscreen 10-75 s (GDI frames black - GDI cannot capture a fullscreen D3D game; scan-out dump needed).
+  It crashed at 21:54:52 (+0x6562b, pid 6684) ~1 min after the recording ended: the recorder restored the screensaver,
+  which then started (idle long passed) and took the foreground -> any foreground loss kills the game (dgVoodoo
+  fullscreen), the popup was just the usual cause. Settings restored exactly (gamedvrrestore.ps1: GameDVR_Enabled 1,
+  AppCaptureEnabled removed). Open: user's choice of native fix; race test needs the game kept in the foreground
+  (popup off, no screensaver) + a way to see fullscreen frames (scan-out dumps or a DXGI desktop-duplication capture).

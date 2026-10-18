@@ -135,3 +135,4 @@ notes/m14-smp.md predate the rule and are NOT continued), 6 (constants), 7 (devi
 - Ruled out on the bare-metal M4 so far this session: ACTLR, interrupts/WFI/SGI (physical + virtual timer), PMU,
   LSE + LL/SC atomics cross-cluster (on running cores), DVM broadcasts. Found an unrelated bring-up wedge (pending
   SGI to a powered-off M4 before CPU_ON - not on the Windows path, since nothing sends SGIs before CPU_ON there).
+- REVIEW 5d6021a: BUG - mParkAtomicPage was declared inside #if BEYOND0LTE_PARK_SLEEP_UNOFFERED but used by the unconditional ATOMIC log -> every default build (incl. the daily image) failed to compile. Fixed (declaration moved out); default host build and the 8-core build both compile.

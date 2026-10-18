@@ -163,6 +163,7 @@ STATIC_ASSERT (EXYNOS_GICD_BASE == 0x10101000ULL, "Beyond0LteParkStub.S hardcode
 
 extern UINT8  Beyond0LteParkStub[];
 extern UINT8  Beyond0LteParkStubEnd[];
+STATIC EFI_PHYSICAL_ADDRESS  mParkAtomicPage;   // m14 flag-7 option bit 1, shared by every flag-7 core (0 = none)
 
 STATIC
 UINT32
@@ -187,7 +188,6 @@ ParkRd64 (
 #if BEYOND0LTE_PARK_SLEEP_UNOFFERED
 extern UINT8  Beyond0LteParkFault[];
 extern UINT8  Beyond0LteParkIrq[];
-STATIC EFI_PHYSICAL_ADDRESS  mParkAtomicPage;   // m14 flag-7 option bit 1, shared by every flag-7 core
 
 //
 // m14 PC sampler: external debug blocks in MADT GICC order (Exynos9820.h, from the stock DT /coresight node).

@@ -58,3 +58,19 @@ thread is still emulated x86 in 32-bit games); also helps every D3D app (DWM, br
 - T5 device tests (x86 apps, NFSU2 race), then ARM64/EC + DWM.
 
 ## Progress log
+- T1 (Mesa f4f3b33): tools/mesa-build/tc/t1_marshal.py applied. malikm_drm.c: w_escape/create/resident/lock/
+  render/destroy/unlock -> *_raw + wrappers; on a driver thread (TLS mk_worker, set via tc_driver_thread_hook) with
+  ddi.on: result calls posted to a one-slot mailbox (mk_call, waits on an auto-reset event, logs if > 2 s),
+  destroy/unlock queued (mk_defer_op); malikm_ddi_pump runs them on a DDI thread; DDI-thread direct calls drain the
+  queue first (program order). 20 wddm_lock acquisitions -> wddm_lock_acquire (TryAcquire + pump + yield on DDI
+  threads). u_threaded_context.c: tc_driver_thread_hook / tc_wait_hook (NULL = upstream), tc_fence_wait (pump + 1 ms
+  timed waits) in _tc_sync, renderpass waits, and before util_queue_add_job (slot next+2 = oldest queueable job, so
+  the ring-full block also pumps). Exports: malikm_marshal_enable, malikm_mark_worker_thread, malikm_ddi_pump,
+  malikm_marshal_report. x86 build OK.
+- T1 review: grep - only the helper acquires wddm_lock directly; no *_raw caller outside mk_exec/wrappers; lock audit
+  (above) - blocking marshals happen under wddm_lock + submit_lock / per-shader locks only, frees under
+  bo_map_lock / bo_cache.lock / handle_to_bo.lock are deferred (never block). FINDING -> T1b: malikm_primary_create,
+  shared_create, set_display_mode, open_shared, close_shared, shared_bo_create call ddi.cb directly (app thread: OK)
+  but without mk_direct() -> queued destroy/unlock could run after them (order). Also known limits: tc_fence_wait's
+  1 ms timed wait may round up to the timer tick (15.6 ms) when a callback is pending during a sync - measure
+  (malikm_marshal_report counts).

@@ -16,10 +16,13 @@
 //   +0x000 UINT32 ProcessorId   OS writes (firmware initialises 0xFFFFFFFF)
 //   +0x008 UINT64 JumpAddress   OS writes the entry PA; 0 = not yet
 //   +0x800        this stub
+//   +0xF50 UINT64 ACTLR_EL1   m14: this core's ACTLR_EL1 as EL3/uH hand it over (Windows writes the boot CPU's value)
+//   +0xF58 UINT64 SCTLR_EL1   m14: same, SCTLR_EL1 at entry
 //   +0xF60..0xFA8 UINT64 x10    m14: MIDR, CTR, DCZID, ISAR0, ISAR1, MMFR0, MMFR1, MMFR2, PFR0, CLIDR of this core
 //   +0xFB0 UINT32 GIC if mask  m14: GICD_ITARGETSR0 byte 0 as read by this core (its real CPU interface)
 //   +0xFB8 UINT32 sleep        m14: firmware sets 1 -> after the alive mark the core sleeps in WFI forever
-//                              (2 CPU_OFF, 3 coherency echo, 4 EL2 trap timing, 5 PC sampler - see below)
+//                              (2 CPU_OFF, 3 coherency echo, 4 removed (EL2 trap timing, done), 5 PC sampler, 6 cached stress,
+//                              7 cached stress + timer IRQ + SGIs + WFI with IRQs unmasked - see below)
 //   +0xFC0 UINT64 polls        m14 self-report: poll iterations so far (alive while it rises)
 //   +0xFC8 UINT64 loop ticks    m14: CNTVCT ticks for the last 0x2000-iteration delay loop (core clock)
 //   +0xFD8 UINT32 stage        m14 DVM test: 1 before IC IALLUIS, 2 before TLBI VMALLE1IS, 3 after both
@@ -42,6 +45,8 @@
 //
 
 #include <AsmMacroLib.h>
+
+  .arch_extension lse               // flag-7 option bit 1 (LDADDAL / SWPAL / CASAL); every core here has ISAR0.Atomic 2
 
 #define PARK_MARK_OFF   0xFE0
 #define PARK_EL_OFF     0xFE8
@@ -123,6 +128,10 @@ ASM_FUNC(Beyond0LteParkStub)
   str   x2, [x1, #0xFA0]
   mrs   x2, clidr_el1
   str   x2, [x1, #0xFA8]
+  mrs   x2, actlr_el1               // m14: IMPLEMENTATION DEFINED; Windows restores the boot CPU's value on every core
+  str   x2, [x1, #0xF50]
+  mrs   x2, sctlr_el1
+  str   x2, [x1, #0xF58]
   movz  w2, #0xBEEF
   movk  w2, #0x5A5A, lsl #16
   str   w2, [x1, #PARK_MARK_OFF]
@@ -133,12 +142,12 @@ ASM_FUNC(Beyond0LteParkStub)
   msr   daifset, #0xf
   cmp   w3, #3
   b.eq  5f
-  cmp   w3, #4
-  b.eq  7f
   cmp   w3, #5
   b.eq  8f
   cmp   w3, #6
   b.eq  5f                          // flag 6: cached stress - same MMU set-up as flag 3, then 10:
+  cmp   w3, #7
+  b.eq  5f                          // flag 7: flag 6 + interrupts - same MMU set-up (table moved), then 20:
   cmp   w3, #2
   b.ne  3f
   //
@@ -166,9 +175,16 @@ ASM_FUNC(Beyond0LteParkStub)
   // only hardware coherency can make the two cores see each other.
   //
 5:
-  mov   w12, w3                     // 3 = echo test, 6 = stress (checked after the MMU is on)
+  mov   w12, w3                     // 3 = echo test, 6 = stress, 7 = stress + IRQs (checked after the MMU is on)
   add   x5, x1, #0x200              // table PA (64-byte aligned inside the mailbox page)
-  str   xzr, [x5, #0x00]            // [0] 0x00000000 - invalid
+  mov   x6, #0                      // [0] 0x00000000 - invalid
+  cmp   w12, #7
+  b.ne  51f
+  add   x5, x1, #0x740              // flag 7: VBAR_EL1 = this page, +0x200 is the EL1h Sync vector -> table at +0x740
+  movz  x6, #0x0060, lsl #48        // [0] 0x00000000: Device-nGnRnE (AttrIndx 1, MAIR attr1 0x00), UXN|PXN,
+  movk  x6, #0x0405                 //     AF, block - the GIC (0x10101000 / 0x10102000) with the MMU on
+51:
+  str   x6, [x5, #0x00]
   str   xzr, [x5, #0x08]            // [1] 0x40000000 - invalid
   movz  x6, #0x8000, lsl #16
   movk  x6, #0x0701                 // block | SH inner (3 << 8) | AF (1 << 10), AttrIndx 0
@@ -194,6 +210,8 @@ ASM_FUNC(Beyond0LteParkStub)
   isb
   cmp   w12, #6
   b.eq  10f
+  cmp   w12, #7
+  b.eq  20f
   movz  w3, #0x0003
   movk  w3, #0xC0C0, lsl #16
   str   w3, [x1, #PARK_SLEEP_OFF]   // 0xC0C00003: running cached, echo loop entered
@@ -245,85 +263,154 @@ ASM_FUNC(Beyond0LteParkStub)
   b     11b
 
   //
-  // sleep flag 4 (m14 trap timing): write each EL1 register back with its own value 1000 times and store the
-  // CNTVCT ticks at +0x300 (baseline nop loop), +0x308 TTBR0, +0x310 TCR, +0x318 SCTLR, +0x320 MAIR,
-  // +0x328 CONTEXTIDR. A write trapped to EL2 (uH) costs microseconds, an untrapped one a few ns. Then WFI.
+  // sleep flag 7 (m14, notes/m4-cores.md): flag 6 plus what a Windows core does that flag 6 never did - its own GIC
+  // CPU interface enabled, the EL1 physical timer (PPI 30, GSIV verified from the stock DT) firing every +0x518
+  // ticks, an SGI 1 to the peer M4 (target list +0x510, 0 = none) from every timer IRQ, and WFI with IRQs UNMASKED
+  // after every pass. VBAR_EL1 = this mailbox page: the firmware put a branch to Beyond0LteParkIrq in the two IRQ
+  // slots (+0x080, +0x280) and to Beyond0LteParkFault in the other current-EL slots. Counters (one cache line,
+  // cleaned to DRAM by the handler): +0x340 passes, +0x350 timer IRQs, +0x358 SGIs, +0x360 other INTIDs,
+  // +0x368 last IAR, +0x370 spurious.
+  // GIC-400 (Exynos9820.h, VERIFIED): GICD 0x10101000 (IPRIORITYR +0x400, ISENABLER0 +0x100, SGIR +0xF00),
+  // GICC 0x10102000 (CTLR +0, PMR +4, IAR +0xC, EOIR +0x10). SGI/PPI enables and priorities are banked per CPU.
   //
-7:
-  mov   x9, #1000
-  mrs   x4, cntvct_el0
-71:
-  nop
-  subs  x9, x9, #1
-  b.ne  71b
-  mrs   x5, cntvct_el0
-  sub   x5, x5, x4
-  str   x5, [x1, #0x300]
-
-  mrs   x6, ttbr0_el1
-  mov   x9, #1000
-  mrs   x4, cntvct_el0
-72:
-  msr   ttbr0_el1, x6
-  subs  x9, x9, #1
-  b.ne  72b
+20:
+  msr   vbar_el1, x1
   isb
-  mrs   x5, cntvct_el0
-  sub   x5, x5, x4
-  str   x5, [x1, #0x308]
-
-  mrs   x6, tcr_el1
-  mov   x9, #1000
-  mrs   x4, cntvct_el0
-73:
-  msr   tcr_el1, x6
-  subs  x9, x9, #1
-  b.ne  73b
-  isb
-  mrs   x5, cntvct_el0
-  sub   x5, x5, x4
-  str   x5, [x1, #0x310]
-
-  mrs   x6, sctlr_el1
-  mov   x9, #1000
-  mrs   x4, cntvct_el0
-74:
-  msr   sctlr_el1, x6
-  subs  x9, x9, #1
-  b.ne  74b
-  isb
-  mrs   x5, cntvct_el0
-  sub   x5, x5, x4
-  str   x5, [x1, #0x318]
-
-  mrs   x6, mair_el1
-  mov   x9, #1000
-  mrs   x4, cntvct_el0
-75:
-  msr   mair_el1, x6
-  subs  x9, x9, #1
-  b.ne  75b
-  isb
-  mrs   x5, cntvct_el0
-  sub   x5, x5, x4
-  str   x5, [x1, #0x320]
-
-  mrs   x6, contextidr_el1
-  mov   x9, #1000
-  mrs   x4, cntvct_el0
-76:
-  msr   contextidr_el1, x6
-  subs  x9, x9, #1
-  b.ne  76b
-  isb
-  mrs   x5, cntvct_el0
-  sub   x5, x5, x4
-  str   x5, [x1, #0x328]
-  movz  w3, #0x0004
-  movk  w3, #0xC0C0, lsl #16
-  str   w3, [x1, #PARK_SLEEP_OFF]   // 0xC0C00004: trap timing done
+  movz  x9, #0x1010, lsl #16
+  movk  x9, #0x2000                 // GICC
+  movz  x10, #0x1010, lsl #16
+  movk  x10, #0x1000                // GICD
+  mov   w4, #0xA0
+  strb  w4, [x10, #0x401]           // SGI 1 priority (this core's bank)
+  strb  w4, [x10, #0x41E]           // PPI 30 priority
+  movz  w4, #0x4000, lsl #16
+  orr   w4, w4, #2
+  str   w4, [x10, #0x100]           // ISENABLER0: PPI 30 | SGI 1
+  mov   w4, #0xF0
+  str   w4, [x9, #4]                // GICC_PMR
+  mov   w4, #1
+  str   w4, [x9]                    // GICC_CTLR EnableGrp1 (non-secure view)
+  ldr   w4, [x1, #0x520]            // options: bit 0 = PMU probe (below) + cycle-counter read every pass
+  tbz   w4, #0, 29f
+  //
+  // PMU probe (m14 lead: Windows' processor power management reads performance counters on every core; is the
+  // M4's PMU usable from EL1, or does EL3/EL2 trap it?). Stage word +0x3C0 before each step (+0x380 is the SError vector slot) (a hang leaves it);
+  // +0x3C8 PMCR_EL0, +0x3D0 PMCEID0_EL0, +0x3D8 CNTVCT ticks for 1000 PMCCNTR_EL0 reads, +0x3E0 PMCCNTR after,
+  // +0x3E8 PMEVCNTR0 (event 0x08 INST_RETIRED) after the timing loop, +0x3F0 PMCCNTR at the last pass.
+  //
+  mov   w5, #1
+  str   w5, [x1, #0x3C0]
   dsb   sy
-  b     3b
+  mrs   x5, pmcr_el0
+  str   x5, [x1, #0x3C8]
+  mov   w5, #2
+  str   w5, [x1, #0x3C0]
+  dsb   sy
+  mrs   x5, pmceid0_el0
+  str   x5, [x1, #0x3D0]
+  mov   w5, #3
+  str   w5, [x1, #0x3C0]
+  dsb   sy
+  mov   x5, #0x8
+  msr   pmevtyper0_el0, x5          // event 0x08 INST_RETIRED, count at EL1 (filter bits 0)
+  mrs   x5, pmcr_el0
+  orr   x5, x5, #1                  // E
+  msr   pmcr_el0, x5
+  movz  w5, #0x8000, lsl #16
+  orr   w5, w5, #1                  // PMCCNTR (bit 31) + event counter 0
+  msr   pmcntenset_el0, x5
+  isb
+  mov   w5, #4
+  str   w5, [x1, #0x3C0]
+  dsb   sy
+  mov   x6, #1000
+  mrs   x7, cntvct_el0
+28:
+  mrs   x5, pmccntr_el0
+  subs  x6, x6, #1
+  b.ne  28b
+  mrs   x6, cntvct_el0
+  sub   x6, x6, x7
+  str   x6, [x1, #0x3D8]
+  str   x5, [x1, #0x3E0]
+  mrs   x5, pmevcntr0_el0
+  str   x5, [x1, #0x3E8]
+  mov   w5, #5
+  str   w5, [x1, #0x3C0]
+  add   x5, x1, #0x3C0
+  dc    civac, x5
+  dsb   sy
+29:
+  ldr   x4, [x1, #0x518]
+  msr   cntp_tval_el0, x4
+  mov   x4, #1
+  msr   cntp_ctl_el0, x4            // ENABLE, IMASK 0
+  isb
+  movz  w3, #0x0007
+  movk  w3, #0xC0C0, lsl #16
+  str   w3, [x1, #PARK_SLEEP_OFF]   // 0xC0C00007: stress + IRQs running
+  ldr   x20, [x1, #0x500]
+  ldr   x21, [x1, #0x508]
+  mov   x23, #0
+  msr   daifclr, #2                 // IRQs on from here
+21:
+  mov   x24, x20
+  add   x25, x20, x21
+  mov   x26, x21
+22:
+  ldp   x4, x5, [x24], #16
+  ldp   x6, x7, [x24], #16
+  stp   x4, x5, [x25], #16
+  stp   x6, x7, [x25], #16
+  subs  x26, x26, #32
+  b.ne  22b
+  dc    civac, x20
+  ic    ialluis
+  tlbi  vmalle1is
+  dsb   ish
+  isb
+  add   x23, x23, #1
+  str   x23, [x1, #0x340]
+  add   x4, x1, #0x340
+  dc    civac, x4
+  dsb   sy
+  ldr   w4, [x1, #0x520]
+  tbz   w4, #1, 24f
+  //
+  // Option bit 1: LSE atomics on ONE cacheable page shared by every flag-7 core (+0x528 PA, same for all; the
+  // cores can be in different clusters) - what Windows does on its lock words. 1024 rounds of LDADDAL, SWPAL,
+  // CASAL per pass; +0x348 = rounds done by this core.
+  //
+  ldr   x22, [x1, #0x528]
+  add   x13, x22, #0x40             // three words, one cache line each
+  add   x14, x22, #0x80
+  mov   x6, #1
+  mov   w7, #1024
+25:
+  ldaddal x6, x5, [x22]
+  swpal   x6, x5, [x13]
+  ldr   x8, [x14]
+  add   x9, x8, #1
+  casal x8, x9, [x14]
+  subs  w7, w7, #1
+  b.ne  25b
+  ldr   x4, [x1, #0x348]
+  add   x4, x4, #1024
+  str   x4, [x1, #0x348]
+  add   x4, x1, #0x340
+  dc    civac, x4
+  dsb   sy
+  ldr   w4, [x1, #0x520]
+24:
+  tbz   w4, #0, 23f
+  mrs   x4, pmccntr_el0             // PMU option: the cycle counter stays in use
+  str   x4, [x1, #0x3F0]
+  add   x4, x1, #0x3C0
+  dc    civac, x4
+  dsb   sy
+23:
+  wfi                               // next timer IRQ (<= +0x518 ticks) or a peer SGI wakes it
+  b     21b
 
   //
   // sleep flag 5 (m14 PC sampler, notes/m14-smp.md "PC sampler"): every period, read each core's external-debug
@@ -471,6 +558,57 @@ ASM_PFX(Beyond0LteParkFault):
 91:
   wfi
   b     91b
+
+  //
+  // m14 flag-7 IRQ handler (the two IRQ vector slots of the mailbox branch here). x1 = mailbox base (never changed
+  // by the flag-7 loop); uses only x27-x29. NZCV and the return address come back with ERET (SPSR/ELR).
+  //
+  .global ASM_PFX(Beyond0LteParkIrq)
+ASM_PFX(Beyond0LteParkIrq):
+  movz  x28, #0x1010, lsl #16
+  movk  x28, #0x2000                // GICC
+  ldr   w27, [x28, #0xC]            // IAR
+  and   w29, w27, #0x3FF
+  cmp   w29, #1020
+  b.hs  96f
+  cmp   w29, #30
+  b.ne  93f
+  ldr   x29, [x1, #0x518]
+  msr   cntp_tval_el0, x29          // re-arm
+  ldr   x29, [x1, #0x350]
+  add   x29, x29, #1
+  str   x29, [x1, #0x350]
+  ldr   w29, [x1, #0x510]           // peer target list
+  cbz   w29, 95f
+  lsl   w29, w29, #16
+  orr   w29, w29, #1                // SGI 1
+  sub   x28, x28, #0x1000           // GICD
+  str   w29, [x28, #0xF00]          // GICD_SGIR
+  add   x28, x28, #0x1000
+  b     95f
+93:
+  cmp   w29, #16
+  b.hs  94f
+  ldr   x29, [x1, #0x358]
+  add   x29, x29, #1
+  str   x29, [x1, #0x358]
+  b     95f
+94:
+  ldr   x29, [x1, #0x360]
+  add   x29, x29, #1
+  str   x29, [x1, #0x360]
+95:
+  str   w27, [x28, #0x10]           // EOIR
+  str   w27, [x1, #0x368]
+  add   x29, x1, #0x340
+  dc    civac, x29
+  dsb   sy
+  eret
+96:
+  ldr   x29, [x1, #0x370]
+  add   x29, x29, #1
+  str   x29, [x1, #0x370]
+  eret
 
   .global ASM_PFX(Beyond0LteParkStubEnd)
 ASM_PFX(Beyond0LteParkStubEnd):

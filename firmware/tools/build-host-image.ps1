@@ -16,12 +16,16 @@
 .PARAMETER Ref     Reference boot image sboot accepts (default s10e-artifacts\ref-recovery.img).
 .PARAMETER Watchdog 1 = the 82 s watchdog stays armed into Windows (a hang returns the phone to TWRP) - for the first,
                    unattended boot of a risky change; 0 (default) = the daily image.
+.PARAMETER Set     Extra build-only overrides for test images, each "File|NAME|VALUE" with File relative to
+                   Platform\Beyond0LtePkg (e.g. "AcpiTables\Beyond0LteAcpiHeader.h|BEYOND0LTE_SMP_PARK_MASK|0xFE").
+                   Restored with the others; record the exact list next to the image hash in the notes.
 #>
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)] [string]$Output,
   [string]$Ref = "C:\Users\ilya\code\s10e-artifacts\ref-recovery.img",
-  [ValidateSet(0, 1)] [int]$Watchdog = 0
+  [ValidateSet(0, 1)] [int]$Watchdog = 0,
+  [string[]]$Set = @()
 )
 $ErrorActionPreference = "Stop"
 $fw = Split-Path -Parent $PSScriptRoot
@@ -35,10 +39,16 @@ $overrides = @(
   @{ File = "Beyond0LteMfcDxe\Beyond0LteMfcDxe.c"; Name = "BEYOND0LTE_MFC_FWBOOT"; Value = "1" },
   @{ File = "Beyond0LteUsbHostDxe\Beyond0LteUsbHostDxe.c"; Name = "BEYOND0LTE_USB_KD_DEVICE"; Value = "0" }
 )
+$pkg = Join-Path $fw "Platform\Beyond0LtePkg"
+foreach ($e in (($Set -join ",").Split(",") | Where-Object { $_ })) {   # -File passes an array as one comma-joined string
+  $f = $e.Split('|')
+  if ($f.Count -ne 3) { throw "-Set entry '$e' is not File|NAME|VALUE" }
+  $overrides += @{ File = (Join-Path $pkg $f[0]); Name = $f[1]; Value = $f[2]; Abs = $true }
+}
 $saved = @{}
 try {
   foreach ($o in $overrides) {
-    $path = Join-Path $drv $o.File
+    $path = if ($o.Abs) { $o.File } else { Join-Path $drv $o.File }
     if (-not $saved.ContainsKey($path)) { $saved[$path] = [IO.File]::ReadAllBytes($path) }
     $text = [IO.File]::ReadAllText($path)
     $rx = "(?m)^(#define\s+$($o.Name)\s+)\S+"

@@ -91,9 +91,6 @@ ParkBootCntFrq (
 #ifndef BEYOND0LTE_PARK_COHERENCY_MASK
 #define BEYOND0LTE_PARK_COHERENCY_MASK  0u   // m14: parked, not-offered cores that run the cached ping-pong test
 #endif
-#ifndef BEYOND0LTE_PARK_TRAPTIME_MASK
-#define BEYOND0LTE_PARK_TRAPTIME_MASK   0u   // m14: parked, not-offered cores that time EL1 sysreg writes (EL2 traps?)
-#endif
 #ifndef BEYOND0LTE_PARK_PCSAMPLE_MASK
 #define BEYOND0LTE_PARK_PCSAMPLE_MASK   0u   // m14: the parked, not-offered core that samples every core's EDPCSR (stub flag 5)
 #endif
@@ -113,8 +110,20 @@ ParkBootCntFrq (
 #define PARK_STRESS_HALF_OFF 0x508u  // half the scratch size (copy lower half -> upper half)
 #define PARK_STRESS_BEAT_OFF 0x340u  // passes done, written by the core
 #define PARK_STRESS_PAGES   2048u    // 8 MiB per stress core
-#define PARK_TRAP_DONE      0xC0C00004u
-#define PARK_TRAP_OFF       0x300u   // 6 x UINT64: nop, TTBR0, TCR, SCTLR, MAIR, CONTEXTIDR (1000 each, CNTVCT ticks)
+#ifndef BEYOND0LTE_PARK_IRQ_MASK
+#define BEYOND0LTE_PARK_IRQ_MASK        0u   // m14: parked, not-offered cores that run stress + timer IRQ + SGIs + WFI (stub flag 7)
+#endif
+#define PARK_IRQ_PEER_OFF   0x510u   // GIC target list for the SGI sent from every timer IRQ (the other flag-7 cores)
+#define PARK_IRQ_PERIOD_OFF 0x518u   // CNTP_TVAL reload, 26 MHz ticks
+#define PARK_IRQ_PERIOD     26000u   // 1 ms
+#define PARK_IRQ_CNT_OFF    0x350u   // timer IRQs, SGIs, other, last IAR, spurious (UINT64 each, written by the core)
+#define PARK_IRQ_OPTS_OFF   0x520u   // flag-7 options (bit 0 = PMU probe)
+#ifndef BEYOND0LTE_PARK_IRQ_OPTS
+#define BEYOND0LTE_PARK_IRQ_OPTS        0u   // m14 flag 7: bit 0 = PMU probe + cycle counter read every pass, bit 1 = shared LSE atomics
+#endif
+#define PARK_ATOMIC_PA_OFF  0x528u   // option bit 1: PA of the page every flag-7 core runs LSE atomics on
+#define PARK_ATOMIC_CNT_OFF 0x348u   // option bit 1: atomic rounds done by this core
+#define PARK_PMU_OFF        0x3C0u   // stage, PMCR, PMCEID0, ticks/1000 PMCCNTR reads, PMCCNTR, PMEVCNTR0, last PMCCNTR
 #define PARK_COH_PING_OFF   0x100u   // boot CPU writes the token here (own cache line)
 #define PARK_COH_ECHO_OFF   0x140u   // the test core copies it here (own cache line)
 #define PARK_COH_READY      0xC0C00003u
@@ -122,6 +131,7 @@ ParkBootCntFrq (
 #define PARK_COH_SPIN       2000000u // per round, plain loads (~ms) before counting a miss
 
 #define PARK_IDS_OFF   0xF60u   // m14: 10 UINT64 ID registers written by the stub (order as ParkReadIds)
+#define PARK_CTL_OFF   0xF50u   // m14: ACTLR_EL1, SCTLR_EL1 as the core got them (lowest stub-written field)
 #define PARK_ID_COUNT  10u
 
 //
@@ -173,6 +183,8 @@ ParkRd64 (
 
 #if BEYOND0LTE_PARK_SLEEP_UNOFFERED
 extern UINT8  Beyond0LteParkFault[];
+extern UINT8  Beyond0LteParkIrq[];
+STATIC EFI_PHYSICAL_ADDRESS  mParkAtomicPage;   // m14 flag-7 option bit 1, shared by every flag-7 core
 
 //
 // m14 PC sampler: external debug blocks in MADT GICC order (Exynos9820.h, from the stock DT /coresight node).
@@ -282,7 +294,7 @@ Beyond0LteParkSecondaries (
   BootMpidr = GET_MPIDR_AFFINITY_BITS (ArmReadMpidr ());
   DEBUG ((DEBUG_ERROR, "PARK: mask=%x boot-mpidr=%lx stub=%u B\n",
           (UINT32)BEYOND0LTE_SMP_PARK_MASK, BootMpidr, (UINT32)StubSize));
-  if ((StubSize == 0) || (PARK_STUB_OFF + StubSize > PARK_IDS_OFF)) {
+  if ((StubSize == 0) || (PARK_STUB_OFF + StubSize > PARK_CTL_OFF)) {
     DEBUG ((DEBUG_ERROR, "PARK: stub size %u does not fit - nothing parked\n", (UINT32)StubSize));
     return;
   }
@@ -373,7 +385,7 @@ Beyond0LteParkSecondaries (
 #if BEYOND0LTE_PARK_SLEEP_UNOFFERED
     if (((BEYOND0LTE_PARK_PCSAMPLE_MASK >> Index) & 1u) != 0) {
       ParkPcSampleSetup (Page[Index]);   // m14 PC sampler core (never offered)
-    } else if (((BEYOND0LTE_PARK_STRESS_MASK >> Index) & 1u) != 0) {
+    } else if ((((BEYOND0LTE_PARK_STRESS_MASK | BEYOND0LTE_PARK_IRQ_MASK) >> Index) & 1u) != 0) {
       EFI_PHYSICAL_ADDRESS  Scratch;
 
       Scratch = EXYNOS_DRAM_BASE + EXYNOS_DRAM_BANK0_SIZE - 1;
@@ -381,12 +393,50 @@ Beyond0LteParkSecondaries (
         *(UINT64 *)(UINTN)(Page[Index] + PARK_STRESS_BUF_OFF)  = Scratch;   // m14 cached stress core (never offered)
         *(UINT64 *)(UINTN)(Page[Index] + PARK_STRESS_HALF_OFF) = EFI_PAGES_TO_SIZE (PARK_STRESS_PAGES) / 2;
         *(UINT32 *)(UINTN)(Page[Index] + PARK_SLEEP_OFF)       = 6;
+        if (((BEYOND0LTE_PARK_IRQ_MASK >> Index) & 1u) != 0) {
+          UINT64  Target;
+          UINTN   VSlot;
+          INT64   Delta;
+
+          //
+          // m14 flag 7: VBAR_EL1 = the page; current-EL IRQ slots (+0x080 SP0, +0x280 SPx) -> Beyond0LteParkIrq,
+          // the other current-EL slots -> Beyond0LteParkFault. Lower-EL slots are not filled (+0x500.. holds the
+          // parameters; the core never runs below EL1). GIC CPU interface number = GICC index (m4gic1, VERIFIED).
+          //
+          for (VSlot = 0; VSlot < 8; VSlot++) {
+            Target = Page[Index] + PARK_STUB_OFF + (UINT64)(((VSlot == 1) || (VSlot == 5) ? Beyond0LteParkIrq : Beyond0LteParkFault) -
+                                                            Beyond0LteParkStub);
+            Delta  = (INT64)(Target - (Page[Index] + VSlot * 0x80)) / 4;
+            *(UINT32 *)(UINTN)(Page[Index] + VSlot * 0x80) = 0x14000000u | ((UINT32)Delta & 0x03FFFFFFu);
+          }
+
+          *(UINT32 *)(UINTN)(Page[Index] + PARK_IRQ_PEER_OFF)   = BEYOND0LTE_PARK_IRQ_MASK & ~(1u << Index) & 0xFFu;
+          *(UINT64 *)(UINTN)(Page[Index] + PARK_IRQ_PERIOD_OFF) = PARK_IRQ_PERIOD;
+          *(UINT32 *)(UINTN)(Page[Index] + PARK_IRQ_OPTS_OFF)   = BEYOND0LTE_PARK_IRQ_OPTS;
+          if ((BEYOND0LTE_PARK_IRQ_OPTS & 2u) != 0) {
+            if (mParkAtomicPage == 0) {
+              mParkAtomicPage = EXYNOS_DRAM_BASE + EXYNOS_DRAM_BANK0_SIZE - 1;   // the stub maps only < 4 GiB
+              if (EFI_ERROR (gBS->AllocatePages (AllocateMaxAddress, EfiReservedMemoryType, 1, &mParkAtomicPage))) {
+                mParkAtomicPage = 0;
+              } else {
+                ZeroMem ((VOID *)(UINTN)mParkAtomicPage, EFI_PAGE_SIZE);
+                WriteBackInvalidateDataCacheRange ((VOID *)(UINTN)mParkAtomicPage, EFI_PAGE_SIZE);
+                DEBUG ((DEBUG_ERROR, "PARK: ATOMIC shared page %lx\n", mParkAtomicPage));
+              }
+            }
+
+            if (mParkAtomicPage == 0) {
+              *(UINT32 *)(UINTN)(Page[Index] + PARK_IRQ_OPTS_OFF) = BEYOND0LTE_PARK_IRQ_OPTS & ~2u;   // no page: no atomics
+            }
+
+            *(UINT64 *)(UINTN)(Page[Index] + PARK_ATOMIC_PA_OFF) = mParkAtomicPage;
+          }
+          *(UINT32 *)(UINTN)(Page[Index] + PARK_SLEEP_OFF)      = 7;
+        }
         WriteBackInvalidateDataCacheRange ((VOID *)(UINTN)Scratch, EFI_PAGES_TO_SIZE (PARK_STRESS_PAGES));
         DEBUG ((DEBUG_ERROR, "PARK: STRESS gicc%u scratch %lx + %x\n", (UINT32)Index, Scratch,
                 (UINT32)EFI_PAGES_TO_SIZE (PARK_STRESS_PAGES)));
       }
-    } else if (((BEYOND0LTE_PARK_TRAPTIME_MASK >> Index) & 1u) != 0) {
-      *(UINT32 *)(UINTN)(Page[Index] + PARK_SLEEP_OFF) = 4;   // m14 EL2 trap timing core (never offered)
     } else if (((BEYOND0LTE_PARK_COHERENCY_MASK >> Index) & 1u) != 0) {
       *(UINT32 *)(UINTN)(Page[Index] + PARK_SLEEP_OFF) = 3;   // m14 coherency test core (never offered)
     } else if (((BEYOND0LTE_SMP_OFFER_MASK >> Index) & 1u) == 0) {
@@ -509,6 +559,13 @@ Beyond0LteParkSecondaries (
     UINT64  Id[PARK_ID_COUNT];
 
     ParkReadIds (Id);
+    {
+      UINT64  Ctl[2];
+
+      __asm__ __volatile__ ("mrs %0, actlr_el1" : "=r" (Ctl[0]));
+      __asm__ __volatile__ ("mrs %0, sctlr_el1" : "=r" (Ctl[1]));
+      DEBUG ((DEBUG_ERROR, "PARK: boot  ACTLR_EL1 %lx SCTLR_EL1 %lx (UEFI's, not entry)\n", Ctl[0], Ctl[1]));
+    }
     DEBUG ((DEBUG_ERROR, "PARK: boot  ids MIDR %lx CTR %lx DCZID %lx ISAR0 %lx ISAR1 %lx MMFR0 %lx MMFR1 %lx MMFR2 %lx PFR0 %lx CLIDR %lx\n",
             Id[0], Id[1], Id[2], Id[3], Id[4], Id[5], Id[6], Id[7], Id[8], Id[9]));
     for (Index = 0; Index < GiccCount; Index++) {
@@ -523,6 +580,8 @@ Beyond0LteParkSecondaries (
               ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x20), ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x28),
               ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x30), ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x38),
               ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x40), ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x48)));
+      DEBUG ((DEBUG_ERROR, "PARK: gicc%u entry ACTLR_EL1 %lx SCTLR_EL1 %lx\n", (UINT32)Index,
+              ParkRd64 (Page[Index] + PARK_CTL_OFF), ParkRd64 (Page[Index] + PARK_CTL_OFF + 8)));
     }
   }
 
@@ -568,35 +627,28 @@ Beyond0LteParkSecondaries (
   for (Index = 0; Index < GiccCount; Index++) {
     UINT64  Beat0;
 
-    if ((((BEYOND0LTE_PARK_STRESS_MASK >> Index) & 1u) == 0) || (Page[Index] == 0)) {
+    if (((((BEYOND0LTE_PARK_STRESS_MASK | BEYOND0LTE_PARK_IRQ_MASK) >> Index) & 1u) == 0) || (Page[Index] == 0)) {
       continue;
     }
 
     Beat0 = ParkRd64 (Page[Index] + PARK_STRESS_BEAT_OFF);
     MicroSecondDelay (200000);
-    DEBUG ((DEBUG_ERROR, "PARK: STRESS gicc%u flag %x passes %lu -> %lu in 200 ms\n", (UINT32)Index,
-            ParkRd32 (Page[Index] + PARK_SLEEP_OFF), Beat0, ParkRd64 (Page[Index] + PARK_STRESS_BEAT_OFF)));
-  }
-
-  //
-  // m14 EL2 trap timing (stub sleep flag 4): 1000 writes of each register with its own value, CNTVCT ticks at 26 MHz.
-  //
-  for (Index = 0; Index < GiccCount; Index++) {
-    UINT32  Wait;
-
-    if ((((BEYOND0LTE_PARK_TRAPTIME_MASK >> Index) & 1u) == 0) || (Page[Index] == 0)) {
-      continue;
+    DEBUG ((DEBUG_ERROR, "PARK: STRESS gicc%u flag %x passes %lu -> %lu in 200 ms; irq timer %lu sgi %lu other %lu lastiar %x spurious %lu\n",
+            (UINT32)Index, ParkRd32 (Page[Index] + PARK_SLEEP_OFF), Beat0, ParkRd64 (Page[Index] + PARK_STRESS_BEAT_OFF),
+            ParkRd64 (Page[Index] + PARK_IRQ_CNT_OFF), ParkRd64 (Page[Index] + PARK_IRQ_CNT_OFF + 8),
+            ParkRd64 (Page[Index] + PARK_IRQ_CNT_OFF + 0x10), ParkRd32 (Page[Index] + PARK_IRQ_CNT_OFF + 0x18),
+            ParkRd64 (Page[Index] + PARK_IRQ_CNT_OFF + 0x20)));
+    if (((BEYOND0LTE_PARK_IRQ_MASK >> Index) & 1u) != 0) {
+      DEBUG ((DEBUG_ERROR, "PARK: ATOMIC gicc%u opts %x rounds %lu (shared page %lx)\n", (UINT32)Index,
+              ParkRd32 (Page[Index] + PARK_IRQ_OPTS_OFF), ParkRd64 (Page[Index] + PARK_ATOMIC_CNT_OFF), mParkAtomicPage));
     }
-
-    for (Wait = 0; (Wait < 500) && (ParkRd32 (Page[Index] + PARK_SLEEP_OFF) != PARK_TRAP_DONE); Wait++) {
-      MicroSecondDelay (1000);
+    if ((BEYOND0LTE_PARK_IRQ_OPTS & 1u) != 0) {
+      DEBUG ((DEBUG_ERROR, "PARK: PMU gicc%u stage %u PMCR %lx PMCEID0 %lx ticks/1000 PMCCNTR reads %lu PMCCNTR %lu INST_RETIRED %lu last PMCCNTR %lu\n",
+              (UINT32)Index, ParkRd32 (Page[Index] + PARK_PMU_OFF), ParkRd64 (Page[Index] + PARK_PMU_OFF + 0x08),
+              ParkRd64 (Page[Index] + PARK_PMU_OFF + 0x10), ParkRd64 (Page[Index] + PARK_PMU_OFF + 0x18),
+              ParkRd64 (Page[Index] + PARK_PMU_OFF + 0x20), ParkRd64 (Page[Index] + PARK_PMU_OFF + 0x28),
+              ParkRd64 (Page[Index] + PARK_PMU_OFF + 0x30)));
     }
-
-    DEBUG ((DEBUG_ERROR, "PARK: TRAP gicc%u (flag %x) ticks/1000: nop %lu TTBR0 %lu TCR %lu SCTLR %lu MAIR %lu CONTEXTIDR %lu\n",
-            (UINT32)Index, ParkRd32 (Page[Index] + PARK_SLEEP_OFF),
-            ParkRd64 (Page[Index] + PARK_TRAP_OFF + 0x00), ParkRd64 (Page[Index] + PARK_TRAP_OFF + 0x08),
-            ParkRd64 (Page[Index] + PARK_TRAP_OFF + 0x10), ParkRd64 (Page[Index] + PARK_TRAP_OFF + 0x18),
-            ParkRd64 (Page[Index] + PARK_TRAP_OFF + 0x20), ParkRd64 (Page[Index] + PARK_TRAP_OFF + 0x28)));
   }
 
   //

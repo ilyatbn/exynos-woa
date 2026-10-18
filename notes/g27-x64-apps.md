@@ -82,3 +82,4 @@ the GPU, natively.
   maliumd_arm64/_ec land would get a forwarder without targets -> order now targets first, forwarder last.
   F2 run-as-user.ps1 passes no arguments, so `edgecdp.ps1 -Stop` cannot be run that way (my "stop" call restarted the
   debug Edge instead) -> edgecdpstop.ps1.
+  F2 done: tools/phone/wddm2/edgecdpstop.ps1 (run-as-user) -> wmic: no msedge with edgeprof left; tasklist /m maliumd_arm64.dll: none.

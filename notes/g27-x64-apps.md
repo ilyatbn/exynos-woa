@@ -185,3 +185,9 @@ the GPU, natively.
   TWRP bounce and the code is unknown. OPEN (own task): get the bugcheck code - S10eDiag's callback logged
   "BUGCHECK callback" but no "BC" lines (AuxKlibGetBugCheckData path - it worked in d8: "BC ...D1"), or KD attached;
   then repeat dupfs. Until then: don't record fullscreen apps with -dup for long runs.
+- THIRD reset ~15:31-15:32 local (Windows boot 20:10:08 phone clock, straight back to Windows this time - no TWRP, so
+  no WINPRAM): ~1 min after `taskkill /f /im mpv.exe` of the fullscreen-idle x64 mpv left from bisect C/D, no capture
+  running. -> duplication is not required; the common factor is a fullscreen x64 mpv (maliumd_ec) being run/torn
+  down, possibly delayed. Revises the bisect summary: suspect = fullscreen flip on the EC UMD (teardown / mode
+  restore), not desktop duplication. Next: same with an ARM64 fullscreen D3D app (does EC matter?) once the bugcheck
+  code is capturable.

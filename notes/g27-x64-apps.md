@@ -105,3 +105,11 @@ the GPU, natively.
   expanded before the run): d3dgs64x 0 of 6 differ (pixel-exact, GS emulation incl. compute + XFB), d3dso64x 0 of 2,
   d3dbc64x lossy 0 of 126 (ETC2/EAC transcode, thread pool). d3dbc64x plain 63/63 DIFF = expected since G26 (plain mode
   is the bit-exact BC-decode check; the default path re-compresses to ETC2).
+- Review of eae5cb0: the .cmd edits left LF endings, but the working copies were LF before (build-d3dcs.cmd untouched is LF too), the repo stores LF, all three built after the edit -> no change needed. d3drun.sh assumes the repo root as cwd, like d3dcsrun.sh.
+- Real x64 apps on the phone (tools/phone/pearch.ps1, new - PE machine per file): Program Files is ARM64 (Brave
+  ARM64 too) except foobar2000 (x64). tools/phone/games/x64app.ps1 (new) started foobar2000 x64: runs, but
+  `tasklist /m maliumd*` lists no UMD for it - its UI is GDI, it never opens a D3D device. Not a UMD test; killed (/f).
+- Its shot (and one after g20/wake.ps1) came back all white; `wddm2dbg.sh fb` scan-out (base 0xCA000000) all zero
+  (extrema 0) = panel off: the known G20/G21 display-asleep signature + the open "screen slow-wake" item (the input
+  wake did not bring it back this time). dwm pid 1328 unchanged and responding, no LogonUI, no new error events ->
+  not a forwarder symptom. A real x64 D3D app (game) = next, with the display awake (user, or after slow-wake).

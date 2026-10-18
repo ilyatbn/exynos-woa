@@ -199,3 +199,11 @@ errors". SPEED2.EXE = 32-bit x86 (timestamp 0x420aad27).
   the phone (downloading) at the same time, so keyplay could not hold the foreground. No reboot (LastBootUpTime 14:15).
   New tools/phone/games/appcrash.ps1. Rule: no automated races while the user is using the phone; rerun nfs-getb1 later.
 - User: 'youre still running the key automation' -> stopped: keyplay killed (pid 2164), nfsrace + watcher tasks stopped on the PC, stopauto.ps1 found nothing left; autostate.ps1 shows only s10egov/S10eAgent/s10egovernor (ours, permanent). New tools/phone/games/stopauto.ps1 + autostate.ps1.
+- 2026-10-18 ~23:5x user: "make the game cover the whole screen properly" / "maybe its because of our fake resolution".
+  Scan-out nfs-tc9 measured in desktop coordinates (desktop mode 1520x720, scaled 1.5x to the 2280x1080 panel): the
+  dgVoodoo window is screen-sized (1520x720, WindowedAttributes borderless, fullscreensize) but at (100,100) - its
+  right/bottom 100 px off-screen - and inside it the 4:3 image is pillarboxed by ScalingMode stretched_ar (960x720
+  at x 280). dgVoodoo ReadmeGeneral (http://dege.fw.hu/dgVoodoo2/ReadmeGeneral/): "you can more or less emulate fake
+  fullscreen with defining Borderless and FullscreenSize together along with enabling centered window" ->
+  CenterAppWindow=true (backup dgVoodoo.conf.bak-nocenter).
+- CenterAppWindow=true test race nfs-center1 stopped on request (user: 'yeah good enough. stop. kill the game.'); game + automation killed (stopauto.ps1, nothing left). Config stays CenterAppWindow=true.

@@ -77,3 +77,9 @@ the fix" -> a 32-bit BC memory stress test before/after.
   run-as-user.ps1 (AllowStartIfOnBatteries; repo drivers/S10eDiag/esp + phone copy). Testing stopped at the 15% battery
   floor; TWRP parking would not charge without the PC cable -> user notified. ARM64 0123 is in System32: the next reboot
   loads it into DWM without the browser check (rollback: maliumd.dll.old0119 / .old0110).
+- 03:23 battery 0% (discharging since the dongle took the port) -> clean 'shutdown /s' over SSH so the battery death does not leave NTFS dirty (known: dirty NTFS -> TWRP read-only).
+- 11:06 adb reboot from TWRP bounced back to TWRP: the firmware's WINRUN.FLG rule (flag left by the previous Windows boot -> save WINPRAM.BIN, delete flag, TWRP). 2nd adb reboot -> Windows.
+- Browser check (ARM64 0123 in DWM after the reboot, battery 99%): browsercheck.ps1 - get.webgl.org "Your browser supports
+  WebGL" with the cube, Edge GPU process alive (no restart), edge://gpu: Canvas + Compositing hardware accelerated, OpenGL
+  enabled, Rasterization unavailable (= the earlier baseline, notes/gpu-umd-d3d11.md) -> CS 4.x advertising +
+  BC->ETC2 cause no browser regression (traces/games/browser-*-0123.png). G24 review follow-up closed.

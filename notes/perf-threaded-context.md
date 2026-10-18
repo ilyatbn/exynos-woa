@@ -108,3 +108,14 @@ thread is still emulated x86 in 32-bit games); also helps every D3D app (DWM, br
   panfrost_dirty_state_for_rsrc (0131). Not yet registered (T4). x86 build OK (only pre-existing warnings).
 - T3 review: TC_* bits are 1<<28..31, never set by d3d10umd itself (grep) - no change without TC. Open: delete_buffer_id
   ignored (only meaningful with is_resource_busy, not implemented -> every DISCARD of a busy buffer = new storage).
+- T4 (Mesa c9615c7, tools/mesa-build/tc/t4_enable.py): panfrost_screen.transfer_pool (slab parent, panfrost_transfer
+  size) created/destroyed with the screen; panfrost_create_context wraps with threaded_context_create(gallium,
+  &transfer_pool, panfrost_replace_buffer_storage, NULL options, NULL) when PIPE_CONTEXT_PREFER_THREADED and sets
+  ctx->tc_pipe. d3d10umd Device.cpp: hooks (tc_driver_thread_hook = malikm_mark_worker_thread, tc_wait_hook =
+  malikm_ddi_pump), malikm_marshal_enable, flag; tlog "device: context %p threaded %d". Debug.cpp: malikm_ddi_pump at
+  every outermost DDI entry. DxgiFns.cpp: "app tc callbacks: ..." line after "app ioctl top" (per 120 presents).
+  MALIUMD_NO_TC=1 = diagnosis switch only. x86 build OK; DLL contains the new strings.
+- T4 review: threaded_context_create accepts NULL options/out (checked); destroy goes tc -> driver; hooks are
+  process-global (set once, idempotent). DEVIATION recorded: MS Learn "Supporting Multiple Processors" says a driver
+  doing its own MP optimizations "should disable" them for windowed apps / single-core machines (fair sharing; text
+  for the D3D9 runtime policy) - kept on for all apps on this 8-core phone; revisit if DWM/desktop power suffers.

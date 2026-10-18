@@ -49,3 +49,11 @@ panel is portrait-first).
   hub on CC2 but its alt-mode engine is off and no PD traffic happened - matches g18-h2-altmode-research.md (Android's
   shutdown resets the block, alt mode needs OPCODE 0x55 data 0x03 from the AP). The hub's HDMI (DP alt) function can
   only be discovered after H2's writes (S10eBattery 1.0.0.7, build pending the user's decision).
+
+## H3 (planned, 2026-10-18): charge while on the hub
+- User expected "charge even in hub mode, separately". Today: unpowered hub -> firmware VBUS boost (CNFG_00 mode 0xE,
+  charger off) until the next boot (notes/battery-driver.md 2026-10-18). A PD hub with a charger on its PD input would
+  be the VBUS source -> phone = power sink; staying USB host then needs a PD DR_SWAP (data-role swap) through the
+  max77705 CC/PD mailbox - the same write path as H2 (S10eBattery 1.0.0.7, not built, awaiting the user). Android does
+  this (DeX hubs). Not implemented: our firmware only has "sink without VBUS -> boost" or "VBUS in -> device/charge".
+  Also needed independently: boost off on sink detach (follow-up in battery-driver.md).

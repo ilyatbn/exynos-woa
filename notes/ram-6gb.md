@@ -30,3 +30,9 @@ Basis: notes/cpu-ram-plan-20261012.md (Findings - RAM, plan #2 run r2, plan #3),
   MFC_PROBE/POWER/FWBOOT 1, USB_KD_DEVICE 0 (HANDOFF 56); no firmware commits since 5c445be. New
   firmware/tools/build-host-image.ps1 applies exactly those overrides to a build, packs (-Ref ref-recovery.img), and
   restores the sources.
+- before R1: TotalVisibleMemorySize KB: 5498480  TotalPhysicalMemory B: 5630443520
+- firmware/tools/build-host-image.ps1 (new; -Watchdog 0|1): s10e-artifacts\boot-host-r1.img 5e9a894c... (daily,
+  watchdog 0) and boot-host-r1-wdt.img 433e4f87... (WINDOWS_WATCHDOG 1: the first unattended boot - the user is
+  remote, and with 0 the firmware stops the 82 s timer at ExitBootServices, so a Windows hang from a bad page would
+  need the key combo). Both 18255872 B (= boot-host-btmfc.img). Fixes on the way: PS 5.1 NativeCommandError from
+  build stderr under Stop (separate processes + Continue around the native calls); sources restored byte-exact each run.

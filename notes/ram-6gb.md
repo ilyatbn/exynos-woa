@@ -63,3 +63,4 @@ Basis: notes/cpu-ram-plan-20261012.md (Findings - RAM, plan #2 run r2, plan #3),
   BIOS exynos-woa 'Beyond0LtePkg R2' SMBIOS 3.8. (Win32_PhysicalMemoryArray MaxCapacityEx prints the raw type-16
   extended value 6442450944 although WMI labels it KB - SMBIOS 3.x 7.17: Extended Maximum Capacity is in BYTES, as set.)
 - 17:23 daily boot-host-r2.img (9e15a5bc) flashed + booted; GetPhysicallyInstalledSystemMemory 6 GiB, visible 6053364 KB. R2 DONE. Phone firmware = boot-host-r2.img (rollback chain: boot-host-r1.img, boot-host-btmfc.img).
+- Review of d208544 (R2): AddRecord string block = strings + final NUL (double NUL), string-less = 2 NULs (SMBIOS 6.1.3); type 3 length = OFFSET_OF(ContainedElements) (count + record length bytes included, 0; trailing SKU byte omitted - Windows parsed ChassisTypes 30); BiosSize 0x3F = 4 MiB = FVMAIN; type 17 LPDDR4 code (no LPDDR4X code in SMBIOS); type 19 banks 3+4 contiguous (0x880000000 + 2x 2 GiB). Nothing to fix.

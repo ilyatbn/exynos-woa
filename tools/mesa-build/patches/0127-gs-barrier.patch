@@ -1,0 +1,34 @@
+From fd1314029eaff8c5ae7970b35fb357b63cf27d4f Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 11:54:16 +0300
+Subject: [PATCH] d3d10umd: GS emulation - barrier between stream output and
+ the compute pass; keep the rasterizer if none was bound (exynos-woa G25.5
+ 0127)
+
+The gallium contract wants a memory barrier before shader reads of stream-output data (d3dgs passed without it:
+Panfrost orders the jobs of one batch). The runtime binds a default rasterizer right after CreateDevice (d3dfs DDI
+trace), so bound_rs is set before any draw; the guard is a backstop. d3dgs 6/6.
+---
+ src/gallium/frontends/d3d10umd/GsEmu.cpp | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/src/gallium/frontends/d3d10umd/GsEmu.cpp b/src/gallium/frontends/d3d10umd/GsEmu.cpp
+index e97751c..1225f12 100644
+--- a/src/gallium/frontends/d3d10umd/GsEmu.cpp
++++ b/src/gallium/frontends/d3d10umd/GsEmu.cpp
+@@ -242,7 +242,11 @@ GsEmuDraw(Device *dev, const struct pipe_draw_info *info, const struct pipe_draw
+       pipe->draw_vbo(pipe, &pi, 0, NULL, &pd, 1);
+    }
+    pipe->set_stream_output_targets(pipe, 0, NULL, NULL, MESA_PRIM_UNKNOWN);
+-   pipe->bind_rasterizer_state(pipe, dev->bound_rs);
++   /* G25.5: the application's rasterizer back - the runtime binds a default one at device creation, but never leave
++    * the discard state behind if none was seen; and stream-output writes must land before the compute pass reads A */
++   if (dev->bound_rs)
++      pipe->bind_rasterizer_state(pipe, dev->bound_rs);
++   pipe->memory_barrier(pipe, PIPE_BARRIER_STREAMOUT_BUFFER | PIPE_BARRIER_SHADER_BUFFER);
+ 
+    /* 2. the GS as compute: A -> B, I */
+    uint32_t restart = 0xffffffffu;
+-- 
+2.40.1.windows.1
+

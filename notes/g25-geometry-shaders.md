@@ -65,3 +65,9 @@ Limits first version: no GS samplers/SRVs, no SV_PrimitiveID / GS instancing / m
   Result (x86 mali-umd-0126-x86): d3dgs 6/6 pixel-exact vs WARP - sprites 576, cut 820, passthrough 1595, idx-sprites
   288, strip 1995 (confirms odd triangle-strip triangles reach the GS as (i, i+2, i+1)), idx-tris 2704 lit pixels.
   Regression: d3dcs 7/7, d3dbc lossy 126/126.
+- Review of ca0b848 / Mesa 0126: checked - the index buffer is bound from offset 0 and Draw.cpp folds ib_offset into
+  draw.start, so element addressing is right (idx-tris with base vertex 1 passes); out-of-range fetches are clamped
+  (index address to the buffer, A element to the captured count). Costs / limits noted: an indexed GS draw transforms
+  the whole vertex-buffer extent in pass 1 (up to 1M vertices) - fine for sprites, a perf risk for large shared VBs;
+  strip cuts in the application's index buffer are still not split. Open: G25.5 (barrier, null rasterizer guard).
+- G25.5 (Mesa 0127): memory_barrier(STREAMOUT | SHADER_BUFFER) after pass 1; bound_rs guard (verified the runtime binds a default rasterizer right after CreateDevice: d3dfs DDI trace CreateRasterizerState -> SetRasterizerState before any draw). d3dgs 6/6 still.

@@ -141,3 +141,4 @@ double-precision values". (Raw / structured buffer SRVs: the "Plus_RawAndStructu
   stays. Dependency noted: the UMD imports VCRUNTIME140.dll (UCRT is OS) - follow-up: static CRT so a clean system needs
   no VC redistributable. NOT installed on the phone (a display-driver reinstall unattended risks the working display;
   even pnputil /add-driver could let PnP pick 1.0.70.1 at the next enumeration) - install when the user is around.
+- Review ce91932: catalog covers maliumd.dll + maliumd32.dll (signtool verify /c: 'File is signed in catalog', WDK test cert; 'not verified' on the PC = untrusted test root, as for the .sys); MaliG76Wddm.sys carries no version resource (unchanged practice), DriverVer 1.0.70.1. The previous INF passes /w, the new one fails /w only for the two documented UMD copies.

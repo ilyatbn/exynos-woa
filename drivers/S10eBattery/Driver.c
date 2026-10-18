@@ -398,6 +398,147 @@ static NTSTATUS S10eUsbcReadIoctl(_Inout_ PS10E_BATT_FDO Fdo, _Inout_ PIRP Irp)
     return Status;
 }
 
+/* G18 H2: is this opcode + payload one of the researched alt-mode-entry messages? (notes/g18-h2-altmode-research.md
+   section H; payload bytes checked there with a bit packer). Everything else - VBUS, role swap, CC mode, charging
+   power - is refused. */
+static BOOLEAN S10eUsbcOpcodeAllowed(_In_ const S10E_USBC_OPCODE_IN *In)
+{
+    static const UCHAR Identity[5] = { 0x09, 0x01, 0x80, 0x00, 0xFF };
+    static const UCHAR Enter[5]    = { 0x09, 0x04, 0x81, 0x01, 0xFF };
+    static const UCHAR Config[6]   = { 0x0A, 0x11, 0x81, 0x01, 0xFF, 0x06 };
+    UCHAR Pin;
+
+    switch (In->Opcode) {
+    case 0x55:      /* SET_ALTERNATEMODE: 0x03 enable (src VDM), 0x01 stop, 0x00 off */
+        return In->DataLen == 1 && (In->Data[0] == 0x00 || In->Data[0] == 0x01 || In->Data[0] == 0x03);
+    case 0x4B:      /* GET_VDM_RESP: step id */
+        return In->DataLen == 1;
+    case 0x48:      /* SEND_VDM */
+        if (In->DataLen == 5 && (RtlEqualMemory(In->Data, Identity, 5) || RtlEqualMemory(In->Data, Enter, 5))) {
+            return TRUE;
+        }
+        if (In->DataLen == 9 && RtlEqualMemory(In->Data, Config, 6) && In->Data[7] == 0 && In->Data[8] == 0) {
+            Pin = In->Data[6];
+            return Pin != 0 && Pin <= 0x20 && (Pin & (Pin - 1)) == 0;   /* one-hot pin A..F */
+        }
+        return FALSE;
+    default:
+        return FALSE;
+    }
+}
+
+/* Write [Reg, Data...] in FIFO-sized pieces (1 pointer byte + up to 15 data bytes per transfer). Caller holds BusLock. */
+static NTSTATUS S10eUsbcWriteBlock(_Inout_ PS10E_BATT_FDO Fdo, _In_ UCHAR Reg, _In_reads_(Length) const UCHAR *Data,
+                                   _In_ ULONG Length)
+{
+    UCHAR    Buf[HSI2C_FIFO_DEPTH];
+    ULONG    Done;
+    ULONG    Chunk;
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    for (Done = 0; NT_SUCCESS(Status) && Done < Length; Done += Chunk) {
+        Chunk  = min(Length - Done, HSI2C_FIFO_DEPTH - 1);
+        Buf[0] = (UCHAR)(Reg + Done);
+        RtlCopyMemory(&Buf[1], &Data[Done], Chunk);
+        Status = S10eHsi2cXfer(Fdo, MAX77705_USBC_ADDR, FALSE, Buf, Chunk + 1, TRUE);
+    }
+    return Status;
+}
+
+/* G18 H2: IOCTL_S10E_USBC_OPCODE - one allowlisted opcode, its reply (ReadLen + 1 bytes from 0x51). */
+static NTSTATUS S10eUsbcOpcodeIoctl(_Inout_ PS10E_BATT_FDO Fdo, _Inout_ PIRP Irp)
+{
+    PIO_STACK_LOCATION  Sp = IoGetCurrentIrpStackLocation(Irp);
+    S10E_USBC_OPCODE_IN In;
+    UCHAR               Cmd[33];
+    UCHAR               Reply[33];
+    UCHAR               Int;
+    UCHAR               Zero = 0;
+    ULONG               Waited;
+    ULONG               Done;
+    ULONG               Chunk;
+    LARGE_INTEGER       Delay;
+    NTSTATUS            Status;
+
+    PAGED_CODE();
+    Irp->IoStatus.Information = 0;
+    if (Sp->Parameters.DeviceIoControl.InputBufferLength < sizeof(In) || Irp->AssociatedIrp.SystemBuffer == NULL) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    In = *(S10E_USBC_OPCODE_IN *)Irp->AssociatedIrp.SystemBuffer;
+    if (In.DataLen > 32 || In.ReadLen > 32 || Sp->Parameters.DeviceIoControl.OutputBufferLength < (ULONG)In.ReadLen + 1) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    if (!S10eUsbcOpcodeAllowed(&In)) {
+        S10eBattPrint(DPFLTR_ERROR_LEVEL, "USB-C opcode %02x len %u refused (allowlist)\n", In.Opcode, In.DataLen);
+        return STATUS_ACCESS_DENIED;
+    }
+    Cmd[0] = In.Opcode;
+    RtlCopyMemory(&Cmd[1], In.Data, In.DataLen);
+    Delay.QuadPart = -50000;    /* 5 ms */
+
+    WdfWaitLockAcquire(Fdo->BusLock, NULL);
+    Status = Fdo->BusReady ? STATUS_SUCCESS : STATUS_DEVICE_NOT_READY;
+    if (NT_SUCCESS(Status)) {   /* drop a stale reply-ready latch (UIC_INT is clear-on-read) */
+        Status = S10eMax77705ReadN(Fdo, MAX77705_USBC_ADDR, 0x02, &Int, 1);
+    }
+    if (NT_SUCCESS(Status)) {
+        Status = S10eUsbcWriteBlock(Fdo, 0x21, Cmd, (ULONG)In.DataLen + 1);
+    }
+    if (NT_SUCCESS(Status) && In.DataLen < 32) {
+        Status = S10eUsbcWriteBlock(Fdo, 0x41, &Zero, 1);    /* OPCODE_WRITE_END commits */
+    }
+    for (Waited = 0; NT_SUCCESS(Status); Waited += 5) {
+        Status = S10eMax77705ReadN(Fdo, MAX77705_USBC_ADDR, 0x02, &Int, 1);
+        if (NT_SUCCESS(Status) && (Int & 0x80)) {
+            break;                                          /* APCmdResI: reply ready */
+        }
+        if (Waited >= 3000) {
+            Status = STATUS_IO_TIMEOUT;
+            break;
+        }
+        WdfWaitLockRelease(Fdo->BusLock);
+        KeDelayExecutionThread(KernelMode, FALSE, &Delay);
+        WdfWaitLockAcquire(Fdo->BusLock, NULL);
+        if (!Fdo->BusReady) {
+            Status = STATUS_DEVICE_NOT_READY;
+        }
+    }
+    for (Done = 0; NT_SUCCESS(Status) && Done < (ULONG)In.ReadLen + 1; Done += Chunk) {
+        Chunk  = min((ULONG)In.ReadLen + 1 - Done, HSI2C_FIFO_DEPTH);
+        Status = S10eMax77705ReadN(Fdo, MAX77705_USBC_ADDR, (UCHAR)(0x51 + Done), &Reply[Done], Chunk);
+    }
+    WdfWaitLockRelease(Fdo->BusLock);
+    if (NT_SUCCESS(Status)) {
+        RtlCopyMemory(Irp->AssociatedIrp.SystemBuffer, Reply, (ULONG)In.ReadLen + 1);
+        Irp->IoStatus.Information = (ULONG)In.ReadLen + 1;
+    }
+    S10eBattPrint(DPFLTR_INFO_LEVEL, "USB-C opcode %02x -> %08x\n", In.Opcode, Status);
+    return Status;
+}
+
+/* G18 H2: IOCTL_S10E_USBC_WRITE_REG - the interrupt mask registers 0x0E..0x11 only. */
+static NTSTATUS S10eUsbcWriteRegIoctl(_Inout_ PS10E_BATT_FDO Fdo, _Inout_ PIRP Irp)
+{
+    PIO_STACK_LOCATION Sp = IoGetCurrentIrpStackLocation(Irp);
+    S10E_USBC_WRITE_IN In;
+    NTSTATUS           Status;
+
+    PAGED_CODE();
+    Irp->IoStatus.Information = 0;
+    if (Sp->Parameters.DeviceIoControl.InputBufferLength < sizeof(In) || Irp->AssociatedIrp.SystemBuffer == NULL) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    In = *(S10E_USBC_WRITE_IN *)Irp->AssociatedIrp.SystemBuffer;
+    if (In.Reg < 0x0E || In.Reg > 0x11) {
+        return STATUS_ACCESS_DENIED;
+    }
+    WdfWaitLockAcquire(Fdo->BusLock, NULL);
+    Status = Fdo->BusReady ? S10eUsbcWriteBlock(Fdo, In.Reg, &In.Value, 1) : STATUS_DEVICE_NOT_READY;
+    WdfWaitLockRelease(Fdo->BusLock);
+    return Status;
+}
+
 _Use_decl_annotations_
 NTSTATUS S10eBattIrpDeviceControl(WDFDEVICE Device, PIRP Irp)
 {
@@ -406,8 +547,13 @@ NTSTATUS S10eBattIrpDeviceControl(WDFDEVICE Device, PIRP Irp)
 
     PAGED_CODE();
 
-    if (IoGetCurrentIrpStackLocation(Irp)->Parameters.DeviceIoControl.IoControlCode == IOCTL_S10E_USBC_READ) {
-        Status = S10eUsbcReadIoctl(Fdo, Irp);
+    switch (IoGetCurrentIrpStackLocation(Irp)->Parameters.DeviceIoControl.IoControlCode) {
+    case IOCTL_S10E_USBC_READ:      Status = S10eUsbcReadIoctl(Fdo, Irp);     break;
+    case IOCTL_S10E_USBC_OPCODE:    Status = S10eUsbcOpcodeIoctl(Fdo, Irp);   break;
+    case IOCTL_S10E_USBC_WRITE_REG: Status = S10eUsbcWriteRegIoctl(Fdo, Irp); break;
+    default:                        Status = STATUS_PENDING;                  break;
+    }
+    if (Status != STATUS_PENDING) {
         Irp->IoStatus.Status = Status;
         IoCompleteRequest(Irp, IO_NO_INCREMENT);
         return Status;

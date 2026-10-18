@@ -125,6 +125,16 @@
 #define IOCTL_S10E_USBC_READ      CTL_CODE(FILE_DEVICE_UNKNOWN, 0x8A0, METHOD_BUFFERED, FILE_READ_ACCESS)
 typedef struct _S10E_USBC_READ_IN { UCHAR Reg; UCHAR Length; } S10E_USBC_READ_IN;
 #define S10E_USBC_READ_MAX        128
+
+/* G18 H2 (notes/g18-h2-altmode-research.md): the max77705 opcode interface, ALLOWLISTED to the DP alt-mode entry
+   (no VBUS / role / charging writes - research section G): 0x55 SET_ALTERNATEMODE data 0x00/0x01/0x03, 0x48 SEND_VDM
+   with exactly the Discover Identity / Enter Mode / DP Configure payloads, 0x4B GET_VDM_RESP. The driver writes
+   [opcode, data] from reg 0x21, commits with 0x00 at 0x41 (when shorter than 32), polls UIC_INT 0x02 b7 (3 s) and
+   reads ReadLen + 1 reply bytes from 0x51 (byte 0 = the opcode). WRITE_REG: only the INT mask regs 0x0E..0x11. */
+#define IOCTL_S10E_USBC_OPCODE    CTL_CODE(FILE_DEVICE_UNKNOWN, 0x8A1, METHOD_BUFFERED, FILE_WRITE_ACCESS)
+#define IOCTL_S10E_USBC_WRITE_REG CTL_CODE(FILE_DEVICE_UNKNOWN, 0x8A2, METHOD_BUFFERED, FILE_WRITE_ACCESS)
+typedef struct _S10E_USBC_OPCODE_IN { UCHAR Opcode; UCHAR DataLen; UCHAR ReadLen; UCHAR Data[32]; } S10E_USBC_OPCODE_IN;
+typedef struct _S10E_USBC_WRITE_IN { UCHAR Reg; UCHAR Value; } S10E_USBC_WRITE_IN;
 /* Charger watchdog (kernel max77705_charger.c set_wdtmr_kick / get_wdtmr_status, max77705_charger.h:124-245):
    CNFG_00 bit4 WDTEN; kick = CNFG_06 bits 1:0 <- 01 (WDTCLR); CHG_DTLS 0x0B = watchdog expired -> charging off.
    Linux kicks it on every health poll; under Windows nobody did, so the phone stopped charging (run batt1). */

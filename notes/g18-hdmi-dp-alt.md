@@ -35,3 +35,9 @@ panel is portrait-first).
   sent by sboot/Android before Windows), 0x51.. opcode read buffer (51=1C 52=65). Battery still reports (class OK).
   USER TEST (H1 second read): `C:\S10eTmp\usbcwatch.exe 120 100 > C:\S10eTmp\usbc-hub.txt`, then plug the hub + HDMI
   monitor within the 2 minutes (see tools/phone/usbc/README.md).
+- 2026-10-18 H2 SOURCE ONLY (S10eBattery 1.0.0.7 in the tree, NOT built, NOT deployed): IOCTL_S10E_USBC_OPCODE
+  (allowlist: 0x55 data 00/01/03, 0x48 only the Identity / Enter Mode / DP Configure payloads from
+  notes/g18-h2-altmode-research.md section H, 0x4B any step; write from 0x21 in FIFO chunks, commit 0x00 at 0x41,
+  poll UIC_INT b7 3 s, reply from 0x51) + IOCTL_S10E_USBC_WRITE_REG (INT masks 0x0E-0x11 only). The package build
+  was refused by the session's auto-mode safety classifier (writes to the USB-C power-delivery controller) - left
+  for the user to decide; nothing was sent to the max77705. The phone still runs the read-only 1.0.0.6.

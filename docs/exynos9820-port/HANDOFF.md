@@ -1812,3 +1812,22 @@ Next order of work:
 1. G27.5: real x64 apps on the GPU (an x64 D3D11 game / x64 browser build), x64 builds of d3dgs / d3dso / d3dbc.
 2. User tests: NFSU2 race load (G26) + particles (G25); install mwddm-1.0.71.1 when attended.
 3. Present wait (R1), screen slow-wake, G26 speed / ETC2 T-H modes, slab release, DWM leak, HDMI.
+
+## 60. Restart point (2026-10-18 ~15:35 local)
+
+**Phone state:** as 59 (ARM64X UMD set live, x86 0128, KMD 1.0.69.1), Windows up after two bugcheck resets (phone clock
+reset again). Game DVR settings restored to default. Battery 100 %.
+
+Done since 59: on-phone screen recording for the remote user (tools/phone/rec: screenrec.exe GDI or -dup DXGI desktop
+duplication, recfetch.sh -> GIF + contact sheet, SendUserFile); the "display asleep" readings were the blank
+screensaver. x64 apps verified with recordings: mpv x86_64 D3D11 FL 10_1, ungoogled-chromium x64 WebGL Aquarium
+24-27 fps. NFSU2: dies (+0x6562b) whenever it loses the foreground - the "ms-gamingoverlay" popup (no Xbox Game Bar on
+this image; winget Store install fails 0x80004002) and the screensaver; Settings > Gaming capture off avoids the popup
+(tested as a diagnosis switch, restored) - USER DECIDES the native fix.
+NEW BUG: fullscreen x64 mpv + -dup capture across its whole run bugchecks the system 2/2 (S10eDiag ring "BUGCHECK
+callback", no code; Kernel-Power 41 code 0); subsets 0/4 (notes/g27-x64-apps.md).
+
+Next order of work:
+1. Bugcheck code for the fullscreen+duplication crash (S10eDiag AuxKlib BC lines missing, or KD), then fix.
+2. NFSU2 race test once the user picks the popup fix (gamedrive.ps1 key script + -dup / scan-out frames).
+3. G27 leftovers: install mwddm-1.0.71.1 (attended); x64 game.

@@ -159,3 +159,12 @@ thread is still emulated x86 in 32-bit games); also helps every D3D app (DWM, br
   "Assertion failed: panfrost_bo_size(src->bo) >= panfrost_bo_size(dst->bo)" (my T3 assert - a guess: BO sizes are
   page-rounded and the BO cache can return a larger BO for the old storage). T5b (Mesa 7501a0e): assert src BO >=
   dst->width0 instead. Mesa 9c8ca93: the DDI-thread snapshot diagnostic (kept: only runs after a > 2 s wait).
+- nfs-tc3 (x86 tc4 = T5b, f3a12340): through 720 title frames, then the same deadlock; snapshot of DDI thread 5756:
+  maliumd32 frames (llvm-symbolizer) futex_wait <- do_futex_fence_wait (u_queue.c:132) <-
+  util_queue_fence_wait_timeout <- tc_flush (my tc_fence_wait, inlined) <- d3d10umd Flush <- D3D11 runtime. The
+  pumping wait never woke up: Mesa's Windows futex_wait (src/util/futex.c) returned ETIMEDOUT as a positive value,
+  while do_futex_fence_wait treats only "r < 0 && errno == ETIMEDOUT" as a timeout (Linux convention) -> it loops,
+  the recomputed timeout goes negative and the DWORD wraps to ~49 days = every timed util_queue_fence wait on
+  Windows waits forever. T5c (Mesa 8615924): futex_wait returns -1 with errno ETIMEDOUT (EINVAL otherwise), deadline in
+  the past -> 0 ms. Only timed caller: u_queue.c (others pass NULL). Clocks: both os_time_get_nano and futex use
+  timespec_get(TIME_MONOTONIC).

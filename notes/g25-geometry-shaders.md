@@ -90,3 +90,4 @@ Limits first version: no GS samplers/SRVs, no SV_PrimitiveID / GS instancing / m
   when no such GS is bound). x86 0128: d3dso 2/2 float-exact vs WARP (all: 72 floats, subset/reordered: 36);
   regression d3dcs 7/7, d3dbc lossy 126/126, d3dgs 6/6. Still unsupported: stream output FROM an emulated GS (a GS with
   code + declaration).
+- Review 67c55ea / Mesa 0128: VS switch with the variant active -> next ResolveState builds/binds the new VS's variant or rebinds the plain VS (so_vs_active may be stale-true, only causing a redundant bind); a destroyed bound VS clears so_vs_active, a destroyed bound SO-GS clears bound_so_gs (GsEmuDestroyShader); so_id is read only from GSes made by CreateGeometryShaderWithStreamOutput (bound_so_gs requires no tokens). OK.

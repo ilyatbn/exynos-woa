@@ -1868,3 +1868,21 @@ Next order of work:
    try RDP / the virtual monitor; NFSU2 stripes check; install mwddm-1.0.71.1.
 2. IddCx black frames: log render adapter + pixel probe in ShareFrame; IddCx frame-processing docs.
 3. Fullscreen + duplication bugcheck (code via S10eDiag marks on the next occurrence).
+
+## 63. Restart point (2026-10-18 ~23:45 local)
+
+**Phone state:** firmware boot-host-r2.img (unchanged since 17:15). SysWOW64\maliumd32.dll = x86 **threaded context +
+constant-buffer renaming** build x86-tc6f (e1fae195; s10e-artifacts/x86-tc6f with PDB) - Mesa TC T1-T6
+(notes/perf-threaded-context.md). The ARM64 / ARM64EC UMDs (DWM, browsers, x64 apps) are NOT changed (still pre-TC).
+Rollback for 32-bit apps: `bash tools/phone/wddm2/wddm2dbg.sh umd32swap /c/Users/ilya/code/s10e-artifacts/x86-0130e`
+(no reboot). Diagnosis switch only: MALIUMD_NO_TC=1.
+
+**Done this session (G29, notes/perf-threaded-context.md):** MS Learn: no runtime callbacks from a driver worker on
+D3D10+ -> winsys marshals them to the DDI thread (T1); Panfrost TC subclassing + TC-direct thread safety (T2/T2b);
+TC map rules + replace_buffer_storage (T3); TC enabled (T4) + no user buffers (T4b); re-entry fix (T5a), assert fix
+(T5b), Mesa Windows futex timed-wait bug (T5c, the deadlock); DYNAMIC CB renaming (T6). NFSU2 race 84 -> ~30 ms.
+keyplay retries the foreground (automation no longer dies at the first Enter). New tests: d3dcbdyn, x86tests build.
+
+**Next, in order:** (1) user play test of NFSU2 on the TC build; (2) build ARM64 + ARM64EC UMDs with TC + T6, run the
+ARM64 tests + DWM/browser checks (AGENTS port-x86-fixes-to-64bit); (3) driver-thread costs: new-batch init 1.5 ms
+x7/frame (get_batch_slow), launch_draw, varyings; (4) export Mesa patches 0132+ to tools/mesa-build/patches.

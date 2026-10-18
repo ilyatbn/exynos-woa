@@ -362,7 +362,9 @@ struct S10E_IDD_FRAME_HDR
     UINT32 Height;
     UINT32 Pitch;
     volatile LONG Seq;
-    UINT32 Reserved[3];
+    UINT32 Format;          // diagnosis: DXGI format of the acquired surface
+    UINT32 RenderLuidLow;   // diagnosis: render adapter LUID (LowPart) IddCx assigned
+    UINT32 NonZero;         // diagnosis: non-zero bytes in rows 0, H/2, H-1 of the readback
 };
 static constexpr UINT32 S10E_IDD_MAX_W = 2560, S10E_IDD_MAX_H = 1440;
 static constexpr SIZE_T S10E_IDD_SHARE_SIZE = sizeof(S10E_IDD_FRAME_HDR) + SIZE_T(S10E_IDD_MAX_W) * S10E_IDD_MAX_H * 4;
@@ -464,6 +466,15 @@ void SwapChainProcessor::ShareFrame(_In_opt_ IDXGIResource* Surface)
     {
         memcpy(Dst + SIZE_T(y) * Hdr->Pitch, static_cast<BYTE*>(Mapped.pData) + SIZE_T(y) * Mapped.RowPitch, Hdr->Pitch);
     }
+    Hdr->Format = Desc.Format;
+    Hdr->RenderLuidLow = m_Device->AdapterLuid.LowPart;
+    UINT32 NonZero = 0;
+    for (UINT Row : { 0u, Desc.Height / 2, Desc.Height - 1 })
+    {
+        const BYTE* P = Dst + SIZE_T(Row) * Hdr->Pitch;
+        for (UINT i = 0; i < Hdr->Pitch; i++) NonZero += P[i] != 0;
+    }
+    Hdr->NonZero = NonZero;
     InterlockedIncrement(&Hdr->Seq);                        // even: complete
     m_Device->DeviceContext->Unmap(m_Staging.Get(), 0);
 }

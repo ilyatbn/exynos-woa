@@ -290,3 +290,14 @@ Mesa d3d10umd); our BCM4375 Wi-Fi (station only). Desktop Duplication suspected 
   surface reads back zero (next: log the render adapter LUID + a pixel probe of the acquired texture in the driver;
   UMD trace of WUDFHost needs a reboot - machine env; IddCx docs on frame processing / dirty rects).
   RenderWarp set back to 0. Firewall untouched (viewer tested through an ssh tunnel only).
+- BLACK FRAMES SOLVED: diagnosis header fields (poc5: Format, RenderLuidLow, NonZero) showed format 87 (B8G8R8A8),
+  NonZero 7680 of 30720 sampled bytes = only the alpha bytes = opaque black, on the Mali (LUID low 0xADE0) and on WARP
+  (0xAF9F - the RenderWarp preference IS honoured). Cause: scrnsave.scr (the blank screensaver) was running and
+  blanked every monitor - the same trap as the "display asleep" readings. taskkill -> next frames real (NonZero
+  29749), /frame.jpg 2560x1440 103 KB shows the virtual monitor's wallpaper + taskbar + clock, on WARP and on the
+  Mali (traces/rec/iddframe5.jpg, iddframe6.jpg). END TO END WORKS NATIVELY ON THE MALI.
+- Rate: IddCx delivers frames only when the composed desktop changes: static desktop -> /stream 4 frames in 6 s;
+  SetCursorPos circles over the virtual monitor (tools/phone/rec/mousewiggle.ps1) published 0 frames (cursor not in
+  the frame / no change). Throughput with moving content not measured yet (user test: a video on the virtual monitor).
+- Known PoC limits: view only (no input back); the blank screensaver blanks the stream too; 2560x1440 sample mode
+  (JPEG of a 14.7 MB frame per update, software WIC); viewer reachable only through ssh -L or after a firewall rule.

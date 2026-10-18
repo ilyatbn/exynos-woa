@@ -18,7 +18,7 @@
 #include <string>
 #include <vector>
 
-struct FrameHdr { UINT32 Magic, Width, Height, Pitch; volatile LONG Seq; UINT32 Reserved[3]; };
+struct FrameHdr { UINT32 Magic, Width, Height, Pitch; volatile LONG Seq; UINT32 Format, RenderLuidLow, NonZero; };
 static const UINT32 kMagic = 'S10F';
 static float g_Quality = 0.75f;
 

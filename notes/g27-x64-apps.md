@@ -54,3 +54,25 @@ the GPU, natively.
   /exports of the ARM64 DLL, must equal the EC DLL's), tools/phone/wddm2/umdxswap.cmd + `wddm2dbg.sh umdxswap DIR`
   (live swap of the 3 files, rollback copy System32\maliumd.dll.pre-g27). ARM64 half rebuilt from the same tree
   (cross,collect -> mali-umd-0129) so both halves are one source.
+- Review of 0cac259 (G27.2): rg for direct `__x86_64__|__x86_64|_M_X64|_M_AMD64|__amd64(__)` tests in util, gallium
+  aux/d3d10umd/panfrost/winsys, panfrost, compiler, c11 (outside detect_arch/xxhash): only blake3_dispatch.c:130 (inside
+  `#if IS_X86`, and upstream blake3_impl.h already excludes _M_ARM64EC from IS_X86 -> dead on EC) and hash_table.c:726
+  (`_WIN64 || __x86_64__` = 64-bit, right for EC). Patch 0129 guards are `&& !defined(_M_ARM64EC)` only -> ARM64 / x86
+  builds unchanged in behaviour. venv-ec pins meson==1.12.1, the version whose anchor line the patch needs (the
+  script throws if the anchor is gone). Nothing to fix.
+- G27.3 forwarder built (make-arm64x.ps1 -> s10e-artifacts\mali-umd-0129-x): maliumd.dll 679dfd16 "AA64 machine
+  (ARM64) (ARM64X)", 49 exports "forwarded to maliumd_arm64.*"; maliumd_arm64.dll 8efadef8 (= mali-umd-0129 ARM64,
+  Mesa 0001-0129); maliumd_ec.dll c64534df (mali-umd-0129-ec). Script fixes on the way: `link /lib` must be the first
+  argument (with /nologo first: LNK4044 "unrecognized option '/lib'" + LNK1104); a 0-byte .lib left by that failure
+  gave LNK1136 -> the script clears its arm64x-obj directory.
+- Deployed live 2026-10-18 ~13:15 (wddm2dbg.sh umdxswap, hashes verified; rollback System32\maliumd.dll.pre-g27 = 0127s;
+  DWM keeps its boot-time UMD until the next reboot). Battery 100 % charging.
+  - ARM64 d3dcs.exe (through the forwarder): 0 of 7 differ -> PASS.
+  - x64 d3dcs64x.exe (emulated): "Mali: D3D11CreateDevice 0x00000000 FL 0xa100" (G27.1 baseline: 0x887a0004),
+    0 of 7 differ -> PASS. tools/phone/games/d3dcsrun.sh got an arch argument (x86|arm64|x64).
+  - ARM64 Edge (native) on the forwarder: tools/phone/wddm2/edgecdp.ps1 (new; user session, --remote-debugging-port
+    + separate profile, tracing only) + cdp_webgl.py: clear 51,102,153,255 draw 255,128,0,255, renderer "ANGLE (...
+    Arm Mali-G76 MP12 ... Direct3D11 vs_4_1 ps_4_1, D3D11)". `tasklist /m maliumd*`: the new Edge GPU process (7436)
+    has "maliumd.dll, maliumd_arm64.DLL" loaded - the forwarder path, as MS Learn describes. dwm/explorer still hold
+    the boot-time maliumd.dll. (umdwhich.ps1 now also matches maliumd_arm64/_ec; from the ssh session it lists nothing
+    for other users' processes - use tasklist /m.)

@@ -142,3 +142,8 @@ double-precision values". (Raw / structured buffer SRVs: the "Plus_RawAndStructu
   no VC redistributable. NOT installed on the phone (a display-driver reinstall unattended risks the working display;
   even pnputil /add-driver could let PnP pick 1.0.70.1 at the next enumeration) - install when the user is around.
 - Review ce91932: catalog covers maliumd.dll + maliumd32.dll (signtool verify /c: 'File is signed in catalog', WDK test cert; 'not verified' on the PC = untrusted test root, as for the .sys); MaliG76Wddm.sys carries no version resource (unchanged practice), DriverVer 1.0.70.1. The previous INF passes /w, the new one fails /w only for the two documented UMD copies.
+- Static CRT (follow-up of the 1.0.70.1 review): build-mesa-g76.ps1 runs `meson configure -Db_vscrt=mt` on the cross and
+  x86 build dirs. Both UMDs now import only api-ms-win-core-synch, KERNEL32, USER32, GDI32, CFGMGR32 (no VCRUNTIME140, no
+  UCRT forwarders) - no VC redistributable needed. Verified (mali-umd-0127s / -0127s-x86 deployed): x86 d3dcs 7/7,
+  d3dbc lossy 126/126, d3dgs 6/6; ARM64 the same + Edge WebGL readback (cdp_webgl) unchanged. Lesson: an SSH -L tunnel
+  started from Git Bash survives `pkill -f` - stop ssh.exe by command line (Win32_Process) instead.

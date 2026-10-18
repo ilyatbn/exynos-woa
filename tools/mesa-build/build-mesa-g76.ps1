@@ -163,6 +163,9 @@ endian = 'little'
     meson setup $CrossBuild $Mesa --backend=ninja --cross-file $cross -Dbuildtype=debugoptimized -Dprecomp-compiler=system @MesonOpts
     Check 'cross meson setup'
   }
+  # G24 packaging: the UMD links the CRT statically (b_vscrt=mt) - its only non-OS import was VCRUNTIME140.dll, which a
+  # clean system does not have (a driver must not need the VC redistributable). Applied to existing build dirs too.
+  meson configure $CrossBuild -Db_vscrt=mt; Check 'cross meson configure b_vscrt'
   ninja -C $CrossBuild -k 0 2>&1 | Tee-Object (Join-Path $Work 'build-arm64.log')
   Check 'cross build'
 }
@@ -222,6 +225,7 @@ endian = 'little'
     meson setup $X86Build $Mesa --backend=ninja --cross-file $x86cross -Dbuildtype=debugoptimized -Dprecomp-compiler=enabled @MesonOpts
     Check 'x86 meson setup'
   }
+  meson configure $X86Build -Db_vscrt=mt; Check 'x86 meson configure b_vscrt'   # static CRT, as the ARM64 UMD
   ninja -C $X86Build -k 0 2>&1 | Tee-Object (Join-Path $Work 'build-x86.log')
   Check 'x86 build'
   $umd = Join-Path $X86Build 'src\gallium\targets\d3d10umd\libgallium_d3d10.dll'

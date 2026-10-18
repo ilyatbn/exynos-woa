@@ -84,3 +84,9 @@ Limits first version: no GS samplers/SRVs, no SV_PrimitiveID / GS instancing / m
   triangle readback 255,128,0, renderer "ANGLE (... Arm Mali-G76 MP12 ... Direct3D11 vs_4_1 ps_4_1, D3D11)";
   cdp_gpuinfo featureStatus = baseline (webgl/webgpu/gpu_compositing/video enabled, rasterization unavailable_off).
 - G25.6 test first: d3dso (drivers/MaliG76Wddm/tools/d3dso: CreateGeometryShaderWithStreamOutput from the VS bytecode, FL 10_1 needs rasterized stream 0; a two-buffer case was refused by WARP too and dropped): x86 0127s baseline all DIFF 67 floats, subset DIFF 34 - Mali writes nothing (no GS stage, no SO on the VS).
+- G25.6 (Mesa 0128): an empty GS with a stream-output declaration (CreateGeometryShaderWithStreamOutput from VS
+  bytecode) -> Device::bound_so_gs; ResolveState binds a VS variant with the declaration (register_index remapped
+  through ShaderFindOutputMapping like the original remap; cached per VS keyed by the GS's so_id; the plain VS returns
+  when no such GS is bound). x86 0128: d3dso 2/2 float-exact vs WARP (all: 72 floats, subset/reordered: 36);
+  regression d3dcs 7/7, d3dbc lossy 126/126, d3dgs 6/6. Still unsupported: stream output FROM an emulated GS (a GS with
+  code + declaration).

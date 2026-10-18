@@ -1,0 +1,140 @@
+From c5b78d5b1d13fda3f3ef5d2a6f334f0ccb21cd2a Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 12:41:00 +0300
+Subject: [PATCH] d3d10umd: D3D10 stream output without a GS on a driver
+ without a geometry stage - the VS takes the declaration (exynos-woa G25.6
+ 0128)
+
+CreateGeometryShaderWithStreamOutput with the VS's bytecode is an empty GS that only declares stream output; without
+a geometry stage nothing was captured. ResolveState binds a VS variant carrying the declaration (registers remapped to
+the VS outputs; cached per VS, keyed by the GS's so_id) - Panfrost streams out TGSI VS outputs since 0124. d3dso 2/2
+float-exact vs WARP.
+---
+ src/gallium/frontends/d3d10umd/Draw.cpp   | 29 +++++++++++++++++++++++
+ src/gallium/frontends/d3d10umd/GsEmu.cpp  |  8 +++++++
+ src/gallium/frontends/d3d10umd/Shader.cpp |  9 +++++++
+ src/gallium/frontends/d3d10umd/State.h    |  8 +++++++
+ 4 files changed, 54 insertions(+)
+
+diff --git a/src/gallium/frontends/d3d10umd/Draw.cpp b/src/gallium/frontends/d3d10umd/Draw.cpp
+index 972b99b..3ad2c4e 100644
+--- a/src/gallium/frontends/d3d10umd/Draw.cpp
++++ b/src/gallium/frontends/d3d10umd/Draw.cpp
+@@ -110,6 +110,35 @@ ResolveState(Device *pDevice)
+       }
+       pipe->bind_gs_state(pipe, gs->handle);
+    }
++   /* exynos-woa G25.6 (notes/g25-geometry-shaders.md): D3D10 stream output without a GS on a driver without a geometry
++    * stage - the VS takes the empty GS's stream-output declaration (registers remapped to the VS's outputs, as above);
++    * Panfrost streams out TGSI VS outputs since Mesa 0124. The plain VS comes back when no such GS is bound. */
++   if (!pDevice->pipe->bind_gs_state && pDevice->bound_vs && pDevice->bound_vs->state.tokens) {
++      Shader *vs = pDevice->bound_vs, *sog = pDevice->bound_so_gs;
++      struct pipe_context *pipe = pDevice->pipe;
++      if (sog && !pDevice->bound_gs_emu) {
++         if (!vs->so_vs || vs->so_vs_gs_id != sog->so_id) {
++            if (vs->so_vs) {
++               pipe->delete_vs_state(pipe, vs->so_vs);
++               vs->so_vs = NULL;
++            }
++            struct pipe_shader_state st = vs->state;
++            st.stream_output = sog->state.stream_output;
++            for (unsigned i = 0; i < st.stream_output.num_outputs; ++i)
++               st.stream_output.output[i].register_index =
++                  ShaderFindOutputMapping(vs, sog->state.stream_output.output[i].register_index);
++            vs->so_vs = pipe->create_vs_state(pipe, &st);
++            vs->so_vs_gs_id = sog->so_id;
++         }
++         if (vs->so_vs) {
++            pipe->bind_vs_state(pipe, vs->so_vs);
++            pDevice->so_vs_active = true;
++         }
++      } else if (pDevice->so_vs_active) {
++         pipe->bind_vs_state(pipe, vs->handle);
++         pDevice->so_vs_active = false;
++      }
++   }
+    update_velems(pDevice);
+ 
+    if (pDevice->vbuffers_changed) {
+diff --git a/src/gallium/frontends/d3d10umd/GsEmu.cpp b/src/gallium/frontends/d3d10umd/GsEmu.cpp
+index 1225f12..577a11d 100644
+--- a/src/gallium/frontends/d3d10umd/GsEmu.cpp
++++ b/src/gallium/frontends/d3d10umd/GsEmu.cpp
+@@ -380,6 +380,14 @@ GsEmuDestroyShader(Device *dev, Shader *shader)
+       pipe->delete_vs_state(pipe, shader->gs_so_vs);
+       shader->gs_so_vs = NULL;
+    }
++   if (shader->type == MESA_SHADER_VERTEX && shader->so_vs) {   /* G25.6 */
++      if (dev->so_vs_active && dev->bound_vs == shader)
++         dev->so_vs_active = false;
++      pipe->delete_vs_state(pipe, shader->so_vs);
++      shader->so_vs = NULL;
++   }
++   if (shader->type == MESA_SHADER_GEOMETRY && dev->bound_so_gs == shader)
++      dev->bound_so_gs = NULL;
+    if (shader->type == MESA_SHADER_GEOMETRY) {
+       if (shader->gs_pt_vs)
+          pipe->delete_vs_state(pipe, shader->gs_pt_vs);
+diff --git a/src/gallium/frontends/d3d10umd/Shader.cpp b/src/gallium/frontends/d3d10umd/Shader.cpp
+index 92a4e8e..e9cba69 100644
+--- a/src/gallium/frontends/d3d10umd/Shader.cpp
++++ b/src/gallium/frontends/d3d10umd/Shader.cpp
+@@ -591,6 +591,8 @@ CreateVertexShader(D3D10DDI_HDEVICE hDevice,                                  //
+    pShader->output_resolved = true;
+    pShader->gs_so_vs = NULL;   /* exynos-woa G25: the private memory is not zeroed */
+    pShader->gs_so_regs = 0;
++   pShader->so_vs = NULL;      /* G25.6 */
++   pShader->so_vs_gs_id = 0;
+ 
+    memset(&pShader->state, 0, sizeof pShader->state);
+    pShader->state.tokens = Shader_tgsi_translate(pCode, pShader->output_mapping);
+@@ -785,6 +787,9 @@ GsSetShader(D3D10DDI_HDEVICE hDevice,  // IN
+    if (!pipe->bind_gs_state) {   /* exynos-woa G25: no geometry stage in the driver - the draw emulates it */
+       pDevice->bound_empty_gs = NULL;
+       pDevice->bound_gs_emu = (pShader && pShader->gs_cs) ? pShader : NULL;
++      /* G25.6: an empty GS that only declares stream output - ResolveState puts the declaration on the VS */
++      pDevice->bound_so_gs = (pShader && !pShader->state.tokens && pShader->state.stream_output.num_outputs)
++                                ? pShader : NULL;
+       return;
+    }
+ 
+@@ -923,6 +928,10 @@ CreateGeometryShaderWithStreamOutput(
+    pShader->gs_cs = NULL;
+    pShader->gs_pt_vs = NULL;
+    pShader->gs_pt_tokens = NULL;
++   {
++      static unsigned so_ids;   /* G25.6: identifies this declaration for the VS variants built from it */
++      pShader->so_id = ++so_ids ? so_ids : ++so_ids;
++   }
+ 
+    memset(&pShader->state, 0, sizeof pShader->state);
+    if (pData->pShaderCode) {
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index 0b49ff3..ea6e1bc 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -75,6 +75,12 @@ struct Shader
+    const struct tgsi_token *gs_pt_tokens;
+    void *gs_so_vs;                            /* VS: its stream-output variant (every output register to A) */
+    unsigned gs_so_regs;                       /* VS: output registers = A's vertex stride in vec4s */
++   /* exynos-woa G25.6 (Draw.cpp ResolveState): D3D10 stream output without a GS on a driver without a geometry
++    * stage - an empty GS with a stream-output declaration gets so_id; the VS caches a variant carrying that
++    * declaration (so_vs, built for the GS with so_vs_gs_id) */
++   unsigned so_id;
++   void *so_vs;
++   unsigned so_vs_gs_id;
+ };
+ 
+ /* exynos-woa G24 (Compute.cpp): a raw / structured / typed buffer UAV - the byte range bound as an SSBO */
+@@ -124,6 +130,8 @@ struct Device
+    /* exynos-woa G25 (GsEmu.cpp): the bound geometry shader when it is emulated (Shader::gs_cs), else NULL; the
+     * emulation's buffers; the bound rasterizer CSO and the GS [0] / CS [1] constant buffers, to restore after a draw */
+    Shader *bound_gs_emu;
++   Shader *bound_so_gs;      /* G25.6: the bound empty GS with a stream-output declaration (no geometry stage) */
++   bool so_vs_active;        /* G25.6: the pipe has the VS's stream-output variant bound */
+    struct GsEmu *gs_emu;
+    void *bound_rs;
+    struct pipe_constant_buffer tracked_cb[2][GS_EMU_TRACKED_CBS];
+-- 
+2.40.1.windows.1
+

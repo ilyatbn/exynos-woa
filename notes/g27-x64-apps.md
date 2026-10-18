@@ -154,5 +154,5 @@ the GPU, natively.
   --no-first-run, no GPU flags) on https://webglsamples.org/aquarium/aquarium.html, recorded 60 s
   (traces/rec/chr64aq): the GPU process loads "maliumd.dll, maliumd_ec.DLL"; window at ~21 s, page at ~31 s, textures
   streaming 34-41 s (white/blue scenes = not yet loaded), full aquarium from ~44 s: fps counter 24-27 at 500 fish,
-  canvas 1024x1024. scrnsave.scr not running (tasklist after, 0 "screensaver was" lines) -> number valid; it includes
+  canvas 1024x1024. one "screensaver was running (close path 1)" line, before frame 0 (closed via the Screen-saver desktop, i.e. before the launch); not running afterwards (tasklist) -> number valid; it includes
   the recorder's own 2 fps GDI capture. The stale mpv hard-error box was gone by then.

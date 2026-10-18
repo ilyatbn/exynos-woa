@@ -105,3 +105,19 @@ errors". SPEED2.EXE = 32-bit x86 (timestamp 0x420aad27).
 - 2026-10-18 user: "Okay to switch it off permanently" -> Settings > Gaming capture off (GameDVR_Enabled 0 +
   AppCaptureEnabled 0, gamedvr.ps1) applied for good - the chosen native fix (a normal user setting, no flag on the
   game). Reboot next (also loads the new S10eDiag), then the race test.
+- 15:40 after reboot: ring shows 'AuxKlib init 0000000000000000' (new S10eDiag loaded, init OK). nfs5: -dup capture, no keys, capture off for good.
+- 15:53:48 nfs6: gamedrive (screensaver held off) via runapp, Esc x3 at 25-31 s, scan-out dumps
+- 15:57:34 nfs6 (0128 x86): game alive ~260 MB but the WHOLE panel black (scan-out extrema 0 x3 incl. after Enter; GDI black). Bisect: x86 0123 into SysWOW64 (new wddm2dbg umd32swap), relaunch (nfs7).
+- nfs6/nfs7 black screens: NOT the UMD (0123 x86 the same) - TWO scrnsave.scr were running (one from my scrnsave /s
+  test, one already running when gamedrive started - SPI_SETSCREENSAVEACTIVE 0 does not stop a running one); with the
+  screensaver up GetForegroundWindow = 0, GDI black, scan-out black. taskkill -> scan-out shows the NFSU2 title screen
+  ("Press Enter Key", 4:3 window, rendered on Mali) (traces/wddm2/nfs7c/d).
+- Input: every sendkeys.ps1 run (a new process in the session) takes the foreground for a moment and the game
+  minimises (not a crash, exit-free) -> all input now from the one gamedrive process (CLICK added, closes a running
+  screensaver at start). A CLICK during the intro (t+18 s) made the game exit cleanly (code 0).
+- nfs9 (0123 x86, gamedrive: CLICK at 60 s, ENTER x2): intro video at ~53 s and, after Enter, a menu screen (grey panel,
+  yellow labels, "MAIN" at the right) - game now fullscreen 16:9 - BOTH dumps with regular vertical black stripes
+  (~30 px) over the image (traces/wddm2/nfs9a/b). The windowed 4:3 title dumps had none. Unknown whether the panel
+  shows stripes (real rendering bug in the fullscreen path) or the dump misreads the fullscreen scan-out buffer -
+  needs the user's eyes or a second capture method. x86 UMD back to 0128 afterwards (umd32swap).
+- Still open: the race itself (menu path Quick Race -> track -> car -> race not yet driven).

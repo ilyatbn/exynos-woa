@@ -12,6 +12,7 @@
 #   winpram [NAME]       copy S:\WINPRAM.BIN (firmware dump after an unclean reset): KMD trace + S10eDiag ring
 #   kmdswap SYS          swap a built MaliG76Wddm.sys into the DriverStore (SYSTEM task), print the new hash
 #   umdswap DIR          stage maliumd.dll + libgallium_d3d10.dll from DIR into System32 (old ones kept as .prev)
+#   umd32swap DIR        stage DIR/maliumd32.dll (x86 UMD) into SysWOW64 (old one renamed *.old)
 #   diagswap SYS         stage a new S10eDiag.sys into System32\drivers (old one kept as .prev)
 #   umdxswap DIR         G27: stage the ARM64X set (maliumd.dll forwarder, maliumd_arm64.dll, maliumd_ec.dll) from DIR
 #   probe ARGS           probe.ps1 ARGS (volatile Parameters\Probe + pnputil /restart-device), e.g. probe -Wddm2 3
@@ -103,6 +104,10 @@ umdswap) d=${1:?umdswap DIR}; r 'mkdir C:\S10eTmp\umd 2>nul' >/dev/null
     got=$(r 'type C:\S10eTmp\umdswap.log' | tr -d '\r' | grep -E '^[0-9a-f]{64}$' | sort -u)
     if [ "$got" = "$want" ]; then echo "umdswap OK $want"
     else echo "umdswap FAILED: want $want, System32 has: $got"; r 'type C:\S10eTmp\umdswap.log'; exit 1; fi;;
+umd32swap) d=${1:?umd32swap DIR}; r 'mkdir C:\S10eTmp\umd32 2>nul' >/dev/null
+    scp -q -O "$d/maliumd32.dll" s10e:C:/S10eTmp/umd32/ < /dev/null || exit 1
+    sed 's/\r*$/\r/' "$H/umd32swap.cmd" > "$OUT/umd32swap.cmd"; scp -q -O "$OUT/umd32swap.cmd" s10e:C:/S10eTmp/ < /dev/null
+    task umd32swap umd32swap.cmd 6; r 'type C:\S10eTmp\umd32swap.log' | tr -d '\r' | grep -E '^[0-9a-f]{64}$'; sha256sum "$d/maliumd32.dll" | cut -c1-64;;
 diagswap) sys=${1:?diagswap S10eDiag.sys}
     scp -q -O "$sys" s10e:C:/S10eTmp/S10eDiag-new.sys < /dev/null || exit 1
     sed 's/\r*$/\r/' "$H/diagswap.cmd" > "$OUT/diagswap.cmd"; scp -q -O "$OUT/diagswap.cmd" s10e:C:/S10eTmp/ < /dev/null

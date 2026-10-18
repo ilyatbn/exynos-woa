@@ -9,8 +9,10 @@
 ;   GpuEnable 0, FullAdapter 0  display-only (KMDOD), no GPU access - the default
 ;   FullAdapter 1               full WDDM 1.3 adapter, GPU half off (needs maliumd.dll in System32)
 ;   GpuEnable 1                 full WDDM 1.3 adapter with the GPU half (G11)
-; UserModeDriverName = maliumd.dll x4 as in maliwddm.inf (the G12 Mesa d3d10umd + panfrost build, installed to
-; System32 by the ESP script). The display-only mode is a KMDOD and is not expected to load a UMD (UNVERIFIED that
+; UserModeDriverName = maliumd.dll x4 as in maliwddm.inf (the Mesa d3d10umd + panfrost build); UserModeDriverNameWow =
+; maliumd32.dll x4, its 32-bit build for WOW64 processes (G24, notes/g24-compute-cs4x.md). Since 1.0.70.1 both are in
+; the package - maliumd.dll to System32, maliumd32.dll to SysWOW64 (MS Learn "General x64 INF Information": a DispWow
+; section at "10, SysWow64", COPYFLG_IN_USE_TRY_RENAME) - instead of being copied by the ESP script / by hand. The display-only mode is a KMDOD and is not expected to load a UMD (UNVERIFIED that
 ; dxgkrnl ignores the value for a KMDOD - the first display-only boot answers it). The system-wide
 ; EnablePreemption 0 the original INF set is written by the ESP script only for the full-adapter modes.
 ; Switches (same key, DWORD, read at driver load; absent = default), notes/gpu-full-adapter-hang.md:
@@ -34,18 +36,22 @@ Signature   = "$WINDOWS NT$"
 Class       = Display
 ClassGuid   = {4D36E968-E325-11CE-BFC1-08002BE10318}
 Provider    = %ProviderName%
-DriverVer   = 10/17/2026,1.0.69.1
+DriverVer   = 10/18/2026,1.0.70.1
 CatalogFile = MaliG76Wddm.cat
 PnpLockdown = 1
 
 [DestinationDirs]
 DefaultDestDir = 13
+MW_UmdFiles    = 11              ; System32: the 64-bit (ARM64) user-mode driver
+MW_UmdWow      = 10, SysWow64    ; SysWOW64: the 32-bit (x86) user-mode driver for WOW64 processes
 
 [SourceDisksNames]
 1 = %DiskName%,,,""
 
 [SourceDisksFiles]
 MaliG76Wddm.sys = 1
+maliumd.dll     = 1
+maliumd32.dll   = 1
 
 [Manufacturer]
 %ProviderName% = Standard,NTARM64.10.0...16299
@@ -55,14 +61,21 @@ MaliG76Wddm.sys = 1
 
 [MW_Inst]
 FeatureScore = F9
-CopyFiles = MW_CopyFiles
+CopyFiles = MW_CopyFiles, MW_UmdFiles, MW_UmdWow
 AddReg = MW_Settings
 
 [MW_Settings]
 HKR,,UserModeDriverName,%REG_MULTI_SZ%,maliumd.dll,maliumd.dll,maliumd.dll,maliumd.dll
+HKR,,UserModeDriverNameWow,%REG_MULTI_SZ%,maliumd32.dll,maliumd32.dll,maliumd32.dll,maliumd32.dll
 
 [MW_CopyFiles]
 MaliG76Wddm.sys
+
+[MW_UmdFiles]
+maliumd.dll,,,0x00004000     ; COPYFLG_IN_USE_TRY_RENAME (DWM holds it)
+
+[MW_UmdWow]
+maliumd32.dll,,,0x00004000   ; COPYFLG_IN_USE_TRY_RENAME
 
 [MW_Inst.Services]
 AddService = MaliG76Wddm,0x00000002,MW_Service

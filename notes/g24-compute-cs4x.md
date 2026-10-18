@@ -131,3 +131,13 @@ double-precision values". (Raw / structured buffer SRVs: the "Plus_RawAndStructu
   Mesa src/poly (Asahi: gallium/drivers/asahi/agx_state.c drives poly_nir_lower_gs -> count / copy / pre-GS compute
   shaders + CL kernels poly/cl/geometry.cl) is the general GS-via-compute path; our Panfrost build already has the CL
   precompile toolchain (libpan). Multi-day port - G25 stays open.
+- x86 UMD packaging (HANDOFF 58 #2): MaliG76Wddm.inf 1.0.70.1 now carries maliumd.dll (DIRID 11, System32) and
+  maliumd32.dll ("10, SysWow64") with COPYFLG_IN_USE_TRY_RENAME + UserModeDriverNameWow x4 - MS Learn "General x64 INF
+  Information" (DispWow = 10, SysWow64; r2umd32.dll,,,0x00004000) and "Loading a User-Mode Display Driver" (UMD to
+  %systemroot%\system32). build-package.ps1 takes -Umd / -Umd32 and signs both DLLs; package
+  s10e-artifacts/mwddm-1.0.70.1 (UMD 0127 both arches, KMD code unchanged since 1.0.69.1). InfVerif: /v VALID, /u
+  VALID; /w (Windows Driver isolation: files only under DIRID 13) reports ERROR 1322 for both UMDs - the documented
+  display UMD layout is System32/SysWOW64 and no display-UMD driver-store loading is documented, so the documented layout
+  stays. Dependency noted: the UMD imports VCRUNTIME140.dll (UCRT is OS) - follow-up: static CRT so a clean system needs
+  no VC redistributable. NOT installed on the phone (a display-driver reinstall unattended risks the working display;
+  even pnputil /add-driver could let PnP pick 1.0.70.1 at the next enumeration) - install when the user is around.

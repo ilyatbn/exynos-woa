@@ -45,3 +45,14 @@ Basis: notes/cpu-ram-plan-20261012.md (Findings - RAM, plan #2 run r2, plan #3),
   image (watchdog 0).
 - 17:10 daily boot-host-r1.img (5e9a894c) flashed + booted (~55 s): TotalVisibleMemorySize 6053492 KB again. R1 DONE. Phone firmware = boot-host-r1.img (rollback: boot-host-btmfc.img).
 - Review of 482dcad/18823ee: mMonitorReservations still ascending (fb 0xCA000000 < debug_snapshot 0xFD900000 < el2_earlymem 0x97E000000); gain = computed +542 MiB exactly. Finding: Beyond0LtePkg.dsc:368 comment implied the modem range must never be RAM - note added (follow-up commit). Exynos9820.h:76 describes the vendor DT reservation (still true for Android) - unchanged.
+- R2 docs: MS Learn GetPhysicallyInstalledSystemMemory: "retrieves the amount of physically installed RAM from the
+  computer's SMBIOS firmware tables" ... "must be equal to or greater than the amount reported by GlobalMemoryStatusEx;
+  if it is less, the SMBIOS data is malformed and the function fails with ERROR_INVALID_DATA". MS Learn bringup/smbios:
+  "Recommended settings when moving to SMBIOS 3.0" - Type 0 (BIOS vendor/version/release), Type 1 (Manufacturer,
+  Family, Product Name, SKU, Serial, UUID), Type 2, Type 3 Enclosure "Tablet 1Eh".
+  Design: edk2 MdeModulePkg SmbiosDxe (3.x, 64-bit entry point) + new Beyond0LteSmbiosDxe: types 0/1/3/16/17/19 -
+  17 = one 6144 MB LPDDR4X device; 19 = 0x80000000..0x100000000 (2 GiB) + 0x880000000..0x980000000 (4 GiB) - the
+  Exynos9820.h bank ranges (holes inside the first are still DRAM address space). No serial / device ids (memory rule).
+- R2 source: Drivers/Beyond0LteSmbiosDxe (new) + MdeModulePkg SmbiosDxe in dsc/fdf, PcdSmbiosEntryPointProvideMethod
+  0x2 (SMBIOS3 only). Builds: FVMAIN 1626624 -> 1659040 B used. Images boot-host-r2-wdt.img 7338da18... (watchdog 1)
+  and boot-host-r2.img (daily). Not yet booted.

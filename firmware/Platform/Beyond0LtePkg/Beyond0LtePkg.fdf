@@ -246,6 +246,8 @@
   INF Platform/Beyond0LtePkg/Drivers/Beyond0LteAudioProbeDxe/Beyond0LteAudioProbeDxe.inf
   # D4c: BT UART role latch + R1 loopback / R2 HCI version into UEFILOG (off unless BEYOND0LTE_BT_UART_PROBE)
   INF Platform/Beyond0LtePkg/Drivers/Beyond0LteBtUartDxe/Beyond0LteBtUartDxe.inf
+  INF MdeModulePkg/Universal/SmbiosDxe/SmbiosDxe.inf
+  INF Platform/Beyond0LtePkg/Drivers/Beyond0LteSmbiosDxe/Beyond0LteSmbiosDxe.inf
   # D10: MFC probe - pd-mfc status, CMU_MFC + MFC version only while powered (off unless BEYOND0LTE_MFC_PROBE)
   INF Platform/Beyond0LtePkg/Drivers/Beyond0LteMfcDxe/Beyond0LteMfcDxe.inf
 !if $(MFC_FW_EMBED) == TRUE

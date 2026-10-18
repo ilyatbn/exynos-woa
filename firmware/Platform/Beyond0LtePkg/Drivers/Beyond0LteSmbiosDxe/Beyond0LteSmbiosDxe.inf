@@ -1,0 +1,35 @@
+## @file
+#  R2 (notes/ram-6gb.md): SMBIOS types 0/1/3/16/17/19 for Windows (installed RAM = 6 GB) via the edk2 SmbiosDxe.
+#
+#  FILE_GUID is this module's build identity, not a hardware read.
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = Beyond0LteSmbiosDxe
+  FILE_GUID                      = fa8ac85a-242f-40e4-a0fa-3cfe229691ce
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 0.1
+  ENTRY_POINT                    = Beyond0LteSmbiosEntry
+
+[Sources]
+  Beyond0LteSmbiosDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  Silicon/Exynos9820Pkg/Exynos9820Pkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  MemoryAllocationLib
+  UefiBootServicesTableLib
+
+[Protocols]
+  gEfiSmbiosProtocolGuid             ## CONSUMES
+
+[Depex]
+  gEfiSmbiosProtocolGuid

@@ -331,6 +331,8 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdHiiOsRuntimeSupport|FALSE
 
 [PcdsFixedAtBuild.common]
+  # R2: SMBIOS 3.x with the 64-bit (SMBIOS3) entry point only - what ARM64 Windows reads
+  gEfiMdeModulePkgTokenSpaceGuid.PcdSmbiosEntryPointProvideMethod|0x2
   # --- Debug mask (errors+warnings+info+load). Trim for RELEASE. ---
   # ERROR|WARN only (was 0x8000004F = +INFO|LOAD): the on-panel log (B54) is read from photos, and
   # the hundreds of Loading driver / InstallProtocolInterface lines buried the UFS errors (B73).
@@ -596,6 +598,9 @@
   Platform/Beyond0LtePkg/Drivers/Beyond0LteAudioProbeDxe/Beyond0LteAudioProbeDxe.inf
   # D4c: BT UART role latch + R1 loopback / R2 HCI version into UEFILOG (off unless BEYOND0LTE_BT_UART_PROBE)
   Platform/Beyond0LtePkg/Drivers/Beyond0LteBtUartDxe/Beyond0LteBtUartDxe.inf
+  # R2 (notes/ram-6gb.md): SMBIOS for Windows - the edk2 core table driver + our records (types 0/1/3/16/17/19)
+  MdeModulePkg/Universal/SmbiosDxe/SmbiosDxe.inf
+  Platform/Beyond0LtePkg/Drivers/Beyond0LteSmbiosDxe/Beyond0LteSmbiosDxe.inf
   # D10: MFC probe - pd-mfc status, CMU_MFC + MFC version only while powered (off unless BEYOND0LTE_MFC_PROBE)
   Platform/Beyond0LtePkg/Drivers/Beyond0LteMfcDxe/Beyond0LteMfcDxe.inf
   # M16 G3: read-only Mali-G76 probe (PMU G3D status first, GPU_ID only if on) into UEFILOG (notes/gpu-m16-g2g3.md)

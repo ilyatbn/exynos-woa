@@ -4,6 +4,9 @@
  *   sprites      16 points -> 4-vertex quads (triangle strip, size from a constant buffer) - dgVoodoo's point sprites
  *   cut          1 point -> two triangles in one strip separated by RestartStrip
  *   passthrough  2 triangles (triangle list in) -> the same triangles with inverted colour
+ *   idx-sprites  the sprites, 8 of the 16 points through a 16-bit index buffer (reversed, gaps)
+ *   strip        a 5-vertex triangle strip -> the passthrough GS (strip triangle vertex order, odd triangles)
+ *   idx-tris     an indexed triangle list (16-bit, base vertex 1, shared vertices) -> the passthrough GS
  * A pixel differs when a channel is off by more than 2/255; a case passes with <= 1 % differing pixels (edge rounding).
  * Exit 0 = all pass. Build: build-d3dgs.cmd (x86 / arm64). SPDX-License-Identifier: GPL-2.0
  */
@@ -105,8 +108,10 @@ static bool Open(Dev *d, bool warp, IDXGIAdapter *ad, ID3DBlob *vsb, ID3DBlob *p
     return SUCCEEDED(hr);
 }
 
-/* Draw verts with topology through gs (compiled blob), read the 64x64 target into px. */
-static bool Run(Dev *d, ID3DBlob *gsb, const V *verts, UINT n, D3D11_PRIMITIVE_TOPOLOGY topo, unsigned *px)
+/* Draw verts with topology through gs (compiled blob) - indexed with 16-bit idx (nidx, base vertex) when idx is set -
+ * read the 64x64 target into px. */
+static bool Run(Dev *d, ID3DBlob *gsb, const V *verts, UINT n, D3D11_PRIMITIVE_TOPOLOGY topo, unsigned *px,
+                const unsigned short *idx = NULL, UINT nidx = 0, INT base = 0)
 {
     ID3D11GeometryShader *gs = NULL;
     HRESULT hr = d->dev->CreateGeometryShader(gsb->GetBufferPointer(), gsb->GetBufferSize(), NULL, &gs);
@@ -135,7 +140,18 @@ static bool Run(Dev *d, ID3DBlob *gsb, const V *verts, UINT n, D3D11_PRIMITIVE_T
     d->ctx->GSSetShader(gs, NULL, 0);
     d->ctx->GSSetConstantBuffers(0, 1, &d->cb);
     d->ctx->PSSetShader(d->ps, NULL, 0);
-    d->ctx->Draw(n, 0);
+    ID3D11Buffer *ib = NULL;
+    if (idx) {
+        D3D11_BUFFER_DESC ibd = { nidx * 2, D3D11_USAGE_DEFAULT, D3D11_BIND_INDEX_BUFFER, 0, 0, 0 };
+        D3D11_SUBRESOURCE_DATA iinit = { idx, 0, 0 };
+        if (SUCCEEDED(d->dev->CreateBuffer(&ibd, &iinit, &ib))) {
+            d->ctx->IASetIndexBuffer(ib, DXGI_FORMAT_R16_UINT, 0);
+            d->ctx->DrawIndexed(nidx, 0, base);
+            ib->Release();
+        }
+    } else {
+        d->ctx->Draw(n, 0);
+    }
     d->ctx->GSSetShader(NULL, NULL, 0);
     d->ctx->CopyResource(d->st, d->rt);
     D3D11_MAPPED_SUBRESOURCE map;
@@ -191,16 +207,29 @@ int main()
     V t[6] = { { -0.9f, -0.9f, 1, 0, 0, 1 }, { -0.9f, 0.9f, 0, 1, 0, 1 }, { 0.0f, -0.9f, 0, 0, 1, 1 },
                { 0.1f, 0.9f, 1, 1, 0, 1 }, { 0.9f, 0.9f, 0, 1, 1, 1 }, { 0.9f, -0.9f, 1, 0, 1, 1 } };
     memcpy(tris, t, sizeof t);
-    struct Case { const char *name; const V *v; UINT n; D3D11_PRIMITIVE_TOPOLOGY topo; } cases[3] = {
-        { "sprites", pts, 16, D3D11_PRIMITIVE_TOPOLOGY_POINTLIST },
-        { "cut", &one, 1, D3D11_PRIMITIVE_TOPOLOGY_POINTLIST },
-        { "passthrough", tris, 6, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST },
+    /* G25.4: indexed draws and strips (Panfrost's stream output is per vertex and ignores index buffers) */
+    static const unsigned short every_other[8] = { 15, 13, 11, 9, 6, 4, 2, 0 };
+    V strip[5] = { { -0.9f, -0.8f, 1, 0, 0, 1 }, { -0.6f, 0.8f, 0, 1, 0, 1 }, { -0.2f, -0.8f, 0, 0, 1, 1 },
+                   { 0.2f, 0.8f, 1, 1, 0, 1 }, { 0.7f, -0.8f, 0, 1, 1, 1 } };
+    V quad[5] = { { 0, 0, 0, 0, 0, 1 }, { -0.8f, -0.8f, 1, 0, 0, 1 }, { -0.8f, 0.8f, 0, 1, 0, 1 },
+                  { 0.8f, 0.8f, 0, 0, 1, 1 }, { 0.8f, -0.8f, 1, 1, 1, 1 } };
+    static const unsigned short quad_idx[6] = { 0, 1, 2, 0, 2, 3 };
+    struct Case { const char *name; const V *v; UINT n; D3D11_PRIMITIVE_TOPOLOGY topo; int gs;
+                  const unsigned short *idx; UINT nidx; INT base; } cases[6] = {
+        { "sprites", pts, 16, D3D11_PRIMITIVE_TOPOLOGY_POINTLIST, 0, NULL, 0, 0 },
+        { "cut", &one, 1, D3D11_PRIMITIVE_TOPOLOGY_POINTLIST, 1, NULL, 0, 0 },
+        { "passthrough", tris, 6, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, 2, NULL, 0, 0 },
+        { "idx-sprites", pts, 16, D3D11_PRIMITIVE_TOPOLOGY_POINTLIST, 0, every_other, 8, 0 },
+        { "strip", strip, 5, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP, 2, NULL, 0, 0 },
+        { "idx-tris", quad, 5, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, 2, quad_idx, 6, 1 },
     };
     int fails = 0;
     static unsigned pm[64 * 64], pw[64 * 64];
-    for (int c = 0; c < 3; c++) {
-        bool okm = Run(&mali, gsb[c], cases[c].v, cases[c].n, cases[c].topo, pm);
-        bool okw = Run(&warp, gsb[c], cases[c].v, cases[c].n, cases[c].topo, pw);
+    for (int c = 0; c < 6; c++) {
+        bool okm = Run(&mali, gsb[cases[c].gs], cases[c].v, cases[c].n, cases[c].topo, pm, cases[c].idx, cases[c].nidx,
+                       cases[c].base);
+        bool okw = Run(&warp, gsb[cases[c].gs], cases[c].v, cases[c].n, cases[c].topo, pw, cases[c].idx, cases[c].nidx,
+                       cases[c].base);
         if (!okm || !okw) {
             printf("%-12s FAILED to run\n", cases[c].name);
             fails++;
@@ -217,6 +246,6 @@ int main()
                lit_m, lit_w);
         fails += !ok;
     }
-    printf("%d of 3 cases differ -> %s\n", fails, fails ? "FAIL" : "PASS");
+    printf("%d of 6 cases differ -> %s\n", fails, fails ? "FAIL" : "PASS");
     return fails ? 3 : 0;
 }

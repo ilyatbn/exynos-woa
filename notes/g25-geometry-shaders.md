@@ -56,3 +56,4 @@ Limits first version: no GS samplers/SRVs, no SV_PrimitiveID / GS instancing / m
   guards it.
 - Checked: tracked constant buffers hold references (released at the next bind / DestroyDevice).
 - Not tested yet: instancing, GS with constant buffers > slot 0, GS output line strips / points.
+- G25.4 test first: d3dgs + idx-sprites / strip / idx-tris (x86 0125): idx-sprites DIFF 288 (8 sprites, wrong points), strip DIFF 1392, idx-tris DIFF 1377 - the review's prediction confirmed; the 3 original cases still pixel-exact.

@@ -185,3 +185,17 @@ errors". SPEED2.EXE = 32-bit x86 (timestamp 0x420aad27).
 - Remaining per draw: get_batch 10.1 us (every draw), launch_draw 8.8, varyings 5.1, VS const 2.5, FS 2.4,
   update_state_3d 1.9; ResourceMap 6.3 us x 1.6/draw. Next: get_batch (panfrost_get_batch_for_fbo per draw).
 - Mesa commits 6c651be (0130 timers) + f9c04f7 (0131); asserts-off reverted in build-x86 (b_ndebug=if-release).
+- get_batch analysis (2026-10-18): panfrost_get_batch_for_fbo fast path = `if (ctx->batch) { assert(fb equal); return }`.
+  ctx->batch is reset only by set_framebuffer_state (pan_context.c:454; d3d10umd SetRenderTargets OutputMerger.cpp:803
+  forwards every call unfiltered) and batch submit/cleanup (pan_job.c:109). A slow-path hit also calls
+  panfrost_dirty_state_all, but textures are re-emitted only 0.2x/draw after 0131 -> slow path is NOT taken every draw,
+  yet get_batch costs 10 us x 1/draw. Suspects: the timer itself (os_time_get_nano + umd_section_ns under x86
+  emulation) or the assert (builds are debugoptimized + b_ndebug=if-release = asserts ON). Diagnostic build 0130e:
+  split pan:sub:get_batch into fast/slow by ctx->batch at entry + an empty section "pan:sub:timer_empty" (timer
+  baseline).
+- x86 0130e (05985b92) in SysWOW64; automated race nfs-getb1 (user downloading: no reboots).
+- nfs-getb1 (x86 0130e): SPEED2 crashed 18 s after start, c0000005 at SPEED2+0x6562b (event 1000, 15:58:04) = the
+  known "swapchain reset without foreground" crash at the first replayed Enter, not the UMD change. The user was using
+  the phone (downloading) at the same time, so keyplay could not hold the foreground. No reboot (LastBootUpTime 14:15).
+  New tools/phone/games/appcrash.ps1. Rule: no automated races while the user is using the phone; rerun nfs-getb1 later.
+- User: 'youre still running the key automation' -> stopped: keyplay killed (pid 2164), nfsrace + watcher tasks stopped on the PC, stopauto.ps1 found nothing left; autostate.ps1 shows only s10egov/S10eAgent/s10egovernor (ours, permanent). New tools/phone/games/stopauto.ps1 + autostate.ps1.

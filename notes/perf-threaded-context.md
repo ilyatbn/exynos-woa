@@ -147,3 +147,15 @@ thread is still emulated x86 in 32-bit games); also helps every D3D app (DWM, br
 - T5a review: depth is per thread, so a worker-thread blit and an app-thread TC-direct create cannot confuse each
   other; TC-direct calls made by the app OUTSIDE batch execution still sync (create_sampler_view etc.). Tracing
   removed (diff = T5a only, two stray blank lines removed).
+- x86 tc3 (T5a, no tracing) in SysWOW64; automated race nfs-tc1 (user idle 517 s).
+- nfs-tc1 (x86 tc3, a481e966): game alive 119 s but stuck on the title screen (scan-out traces/wddm2/nfs-tc1.png:
+  title art, correct). tlog: "device: context threaded 1"; frames 120-480 at 9-36 ms (title: ~14 draws/frame),
+  "app tc callbacks: ... render 58" in the first 120 frames (worker submissions marshalled), then the log stops
+  after frame 480 and "tc: driver thread waits > 2 s for the DDI thread to run callback op 4" (render) - the game
+  thread stopped entering the DDI while the driver thread waited for it = deadlock (likely at the first replayed
+  Enter = title -> menu, dgVoodoo swap-chain/device change). Diagnosis build: on that wait the winsys suspends the
+  last DDI thread and logs eip + a module-tagged stack scan (module names/offsets only, AGENTS rule 11).
+- nfs-tc2 (x86 tc3s = + DDI-thread snapshot, 66a813b7): SPEED2 exited 0x3 (abort) during loading; stderr log:
+  "Assertion failed: panfrost_bo_size(src->bo) >= panfrost_bo_size(dst->bo)" (my T3 assert - a guess: BO sizes are
+  page-rounded and the BO cache can return a larger BO for the old storage). T5b (Mesa 7501a0e): assert src BO >=
+  dst->width0 instead. Mesa 9c8ca93: the DDI-thread snapshot diagnostic (kept: only runs after a > 2 s wait).

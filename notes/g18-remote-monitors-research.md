@@ -262,3 +262,18 @@ Mesa d3d10umd); our BCM4375 Wi-Fi (station only). Desktop Duplication suspected 
 5. Miracast: drop for now (needs Wi-Fi Direct WDI + HW H.264 encoder).
 
 - Progress: research complete 2026-10-18.
+- 18:15 IddCx PoC test: wdt image first (first DWM second output on our stack)
+
+## PoC log (main session)
+- 2026-10-18 IddCx sample vendored as drivers/S10eIdd (MS-PL, LICENSE-MS-PL.txt; changes marked "exynos-woa": 1
+  monitor instead of 3, IddSampleApp SECONDS keep-alive mode). Build: VS 18 + WDK 26100 header warnings (C6553
+  wdfmemory.h, C28193 iddcx.h) under the sample's /WX + /analyze -> build-package.ps1 sets _CL_=/WX- /analyze-
+  (appended after the project options; CL= comes before them and loses). Package s10e-artifacts\s10eidd-poc
+  (dll 7EC9CE5E, test-signed, Inf2Cat 10_NI/GE_ARM64).
+- Device test (watchdog-1 image boot-host-r2-wdt.img for safety): pnputil /add-driver, IddSampleApp 90 as a SYSTEM
+  task (tools/phone/rec/iddrun.cmd): user session sees \.\DISPLAY2 2560x1440 at X=1520 (extended), adapter
+  "IddSampleDriver Device" OK, monitor "Generic Monitor (S2719DGF)" (sample EDID); GDI shot of the 4080x1440 virtual
+  desktop (traces/rec/idd-virtual.png): wallpaper + taskbar composed on the virtual monitor -> DWM drives a second
+  (indirect) output on MaliG76Wddm. After 90 s the device left cleanly (one display, same dwm pid, no reset).
+  => spacedesk-style and our own remote monitor are viable. Next: frame sink (driver -> file/shared memory ->
+  S10eIddView HTTP MJPEG server) so another device on the LAN sees the virtual monitor in a browser.

@@ -1,0 +1,114 @@
+From 83f01bb6f274fe3c445b196a9428d46bc1ed898a Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Mon, 19 Oct 2026 00:02:11 +0300
+Subject: [PATCH] malikm: queued driver-thread destroy/unlock remember their
+ device binding and run under it (LogonUI heap corruption with two devices)
+ (exynos-woa TC T1c)
+
+---
+ include/win32-compat/malikm_drm.c | 43 ++++++++++++++++++++++++++-----
+ 1 file changed, 37 insertions(+), 6 deletions(-)
+
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 5a217c0..088bfba 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -570,6 +570,7 @@ struct mk_req {
+    NTSTATUS st;
+    void *ret;
+    volatile LONG done;
++   int bind;   /* T1c: the device binding (cur_bind) a queued destroy/unlock belongs to */
+ };
+ static __declspec(thread) int mk_worker;       /* this thread is a threaded-context driver thread */
+ static volatile LONG mk_on;
+@@ -1351,15 +1352,37 @@ mk_exec(struct mk_req *r)
+    }
+ }
+ 
++/* exynos-woa T1c: a queued destroy/unlock runs under the device binding it was queued for (LogonUI, two devices:
++ * heap corruption 0xc0000374 in ntdll after the first threaded-context boot - a destroy/unlock drained under the other
++ * device's binding called the runtime with the wrong device). may_switch: this thread owns wddm_lock and may switch
++ * bindings (restored afterwards); otherwise (the posting driver thread holds the lock and waits) only the ops of the
++ * current binding run, the rest stay queued in order. An op whose binding is gone is dropped. */
+ static void
+-mk_drain(void)
++mk_drain(int may_switch)
+ {
+    if (!mk_defer_n)
+       return;
+    AcquireSRWLockExclusive(&mk_defer_lock);
+-   for (LONG i = 0; i < mk_defer_n; i++)
+-      mk_exec(&mk_defer[i]);
+-   mk_defer_n = 0;
++   const int saved = cur_bind;
++   LONG keep = 0;
++   for (LONG i = 0; i < mk_defer_n; i++) {
++      struct mk_req *r = &mk_defer[i];
++      if (r->bind != cur_bind) {
++         if (!may_switch) {
++            mk_defer[keep++] = *r;
++            continue;
++         }
++         bind_switch(r->bind);
++         if (cur_bind != r->bind) {
++            malikm_tlog("tc: queued op %d handle 0x%x for binding %d dropped (binding gone)", r->op, r->h, r->bind);
++            continue;
++         }
++      }
++      mk_exec(r);
++   }
++   if (may_switch && saved >= 0)
++      bind_switch(saved);
++   mk_defer_n = keep;
+    ReleaseSRWLockExclusive(&mk_defer_lock);
+ }
+ 
+@@ -1431,13 +1454,18 @@ malikm_ddi_pump(void)
+       mk_ddi_tid = GetCurrentThreadId();
+    if (mk_worker || (!mk_box && !mk_defer_n))
+       return;
+-   mk_drain();
+    struct mk_req *r = InterlockedExchangePointer((PVOID volatile *)&mk_box, NULL);
+    if (r) {
++      /* the posting driver thread holds wddm_lock and waits: cur_bind is its device and stable */
++      mk_drain(0);
+       mk_exec(r);
+       InterlockedExchange(&r->done, 1);
+       SetEvent(mk_done_ev);
+    }
++   if (mk_defer_n && TryAcquireSRWLockExclusive(&wddm_lock)) {   /* T1c: switching bindings needs the lock */
++      mk_drain(1);
++      ReleaseSRWLockExclusive(&wddm_lock);
++   }
+ }
+ 
+ /* on a driver thread with a runtime device: hand the call over */
+@@ -1452,7 +1480,7 @@ static void
+ mk_direct(void)
+ {
+    if (mk_on && !mk_worker)
+-      mk_drain();
++      mk_drain(1);   /* T1c: callers hold wddm_lock */
+ }
+ 
+ static void
+@@ -1473,6 +1501,7 @@ mk_defer_op(enum mk_op op, D3DKMT_HANDLE h)
+    memset(&mk_defer[mk_defer_n], 0, sizeof(mk_defer[0]));
+    mk_defer[mk_defer_n].op = op;
+    mk_defer[mk_defer_n].h = h;
++   mk_defer[mk_defer_n].bind = cur_bind;   /* T1c: callers hold wddm_lock (wddm_drm / wdead_flush paths) */
+    mk_defer_n++;
+    ReleaseSRWLockExclusive(&mk_defer_lock);
+    InterlockedIncrement(&mk_stats[op]);
+@@ -1858,6 +1887,8 @@ void
+ malikm_unbind_device(void *hRTDevice)
+ {
+    wddm_lock_acquire();
++   if (mk_on && !mk_worker)
++      mk_drain(1);   /* T1c: the device's queued destroy/unlock before its binding goes */
+    int i = bind_for_device(hRTDevice);
+    if (i >= 0) {
+       bind_switch(i);
+-- 
+2.40.1.windows.1
+

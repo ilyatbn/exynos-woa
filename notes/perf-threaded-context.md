@@ -227,3 +227,26 @@ thread is still emulated x86 in 32-bit games); also helps every D3D app (DWM, br
   binding (bind_switch, restored), an op of a vanished binding is dropped + logged; while the posting driver thread
   holds the lock (pump with a request) only ops of the current binding run, the rest stay queued in order.
   alpha8 tag waits for: tests + reboot + LogonUI clean.
+- diag: MALIUMD_NO_TC=1 machine-wide (setx /M) for one reboot to see whether the LogonUI c0000374 needs the threaded context (diagnosis only, AGENTS 12; removed afterwards).
+- T1c boot (mali-umd-0147-x + x86-0147, all 9 tests PASS on x86/ARM64/x64): LogonUI crashed again (pid 1192, same
+  ntdll+0x12b118 c0000374) -> T1c was not the cause (kept: still correct). Isolation boot with MALIUMD_NO_TC=1
+  machine-wide: LogonUI pid 1208 "threaded 0", NO crash (tools/phone/wddm2/tlogfind.ps1, crashhist.ps1); the two
+  threaded boots both crashed -> needs the threaded context. Switch removed again (reg delete).
+- Next: page heap for LogonUI.exe only (MS Learn GFlags/PageHeap: IFEO GlobalFlag FLG_HEAP_PAGE_ALLOCS 0x02000000 +
+  PageHeapFlags) for one boot, so the corrupting write faults at once; VEH stack scan extended to ARM64/x64 so the
+  fault comes with return-address candidates.
+- page heap ON for LogonUI.exe (IFEO GlobalFlag 0x02000000 = gflags /i LogonUI.exe +hpa, MS Learn GFlags and PageHeap) + ARM64 UMD mali-umd-0147d-x (VEH stack scan on ARM64/x64) for one boot.
+- page-heap boot: LogonUI pid 1228 stopped in verifier.dll c0000421 (verifier stop = invalid heap operation, no AV). Next boot: WER LocalDumps for LogonUI.exe (DumpType 1 -> C:\S10eTmp\dumps, MS Learn 'Collecting User-Mode Dumps') for the stack, cdb on the PC.
+- Page-heap boot 2 + WER LocalDumps: LogonUI.exe.1264.dmp, cdb (PC, MS symbol server + our PDB) stack:
+  d3d11 FlushDeletionPool -> maliumd_arm64!DestroyResource (Resource.cpp:986) -> panfrost_resource_destroy(A)
+  (pan_resource.c:280 threaded_resource_deinit) -> pipe_resource_reference(tres->latest) -> panfrost_resource_destroy(B)
+  (pan_resource.c:270 free(rsrc_label)) -> verifier stop "corrupted block" on free. Cause (T3): after
+  replace_buffer_storage dst (A) uses src's (B) BO but kept owns_label; A's destroy swapped B's label string off the
+  shared BO and freed it, then B's destroy got the static "Destroyed resource" back and freed THAT.
+- T3b (Mesa d9d391a, patch 0148): replace_buffer_storage frees dst's own label off its old BO and clears
+  dst->owns_label (src keeps owning the new BO's label). Mesa 4abe08b (0149): VEH stack scan also on ARM64/x64.
+  Known edge (not hit by d3d10umd): set_resource_label on a replaced dst would make dst own a label on src's BO.
+- Validation boot (mali-umd-0148-x + x86-0148, page heap still on for LogonUI): LogonUI pid 2408 "threaded 1" exited
+  cleanly - no event, no dump (tools/phone/wddm2/tlogrecent.ps1 for this boot's logs). Page heap + LocalDumps removed
+  again (reg delete). All 9 tests PASS on 0148 (d3dcbdyn x86/ARM64/x64, d3dtri x86/ARM64, d3dvbring x86/ARM64, d3dcs
+  ARM64/x64), Edge WebGL clear/draw correct. DWM/explorer/TabTip/TextInputHost/taskmgr run "threaded 1".

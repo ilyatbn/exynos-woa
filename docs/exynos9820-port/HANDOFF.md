@@ -1886,3 +1886,15 @@ keyplay retries the foreground (automation no longer dies at the first Enter). N
 **Next, in order:** (1) user play test of NFSU2 on the TC build; (2) build ARM64 + ARM64EC UMDs with TC + T6, run the
 ARM64 tests + DWM/browser checks (AGENTS port-x86-fixes-to-64bit); (3) driver-thread costs: new-batch init 1.5 ms
 x7/frame (get_batch_slow), launch_draw, varyings; (4) export Mesa patches 0132+ to tools/mesa-build/patches.
+
+## 64. Restart point (2026-10-19 ~00:35 local) - alpha8
+
+**Phone state:** firmware boot-host-r2.img. UMDs: System32 ARM64X set **mali-umd-0148-x** (forwarder e7fce848 ->
+maliumd_arm64 / maliumd_ec, Mesa 0001-0149) and SysWOW64 **x86-0148** (2f738e24) - threaded context + DYNAMIC
+constant-buffer renaming in all three. DWM and the desktop run on it (rebooted). No page heap / LocalDumps left set.
+dgVoodoo NFSU2: CenterAppWindow=true (screen-sized borderless window at 0,0). Rollback: umdxswap
+s10e-artifacts/mali-umd-0129-x (pre-TC 64-bit set), umd32swap s10e-artifacts/x86-0130e. Diagnosis switch only:
+MALIUMD_NO_TC=1.
+
+**Next:** user NFSU2 play test; driver-thread batch init cost (get_batch_slow 1.5 ms x7/frame); remove the per-draw
+diagnostic timers from release builds once perf work settles.

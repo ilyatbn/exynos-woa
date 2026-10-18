@@ -1,0 +1,33 @@
+From d9d391a0b65a6db9cd7b7ba8da06a69c1bac4df1 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Mon, 19 Oct 2026 00:34:22 +0300
+Subject: [PATCH] panfrost: replace_buffer_storage hands BO label ownership
+ correctly (dst no longer frees src's label off the shared BO; LogonUI heap
+ corruption) (exynos-woa TC T3b)
+
+---
+ src/gallium/drivers/panfrost/pan_resource.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/src/gallium/drivers/panfrost/pan_resource.c b/src/gallium/drivers/panfrost/pan_resource.c
+index b40a748..41e4c32 100644
+--- a/src/gallium/drivers/panfrost/pan_resource.c
++++ b/src/gallium/drivers/panfrost/pan_resource.c
+@@ -1628,6 +1628,14 @@ panfrost_replace_buffer_storage(struct pipe_context *pctx, struct pipe_resource
+     * reuse can hand out a larger BO) - comparing them asserted in NFSU2 (nfs-tc2) */
+    assert(panfrost_bo_size(src->bo) >= pdst->width0);
+ 
++   /* exynos-woa TC T3b: BO labels belong to the resource that set them. dst stops owning one: its own label goes
++    * with its old BO (freed here), the new BO keeps src's. Before, dst kept owns_label and at its destroy freed
++    * src's label string off the shared BO, then src freed the static "Destroyed resource" (LogonUI heap
++    * corruption, verifier stop in panfrost_resource_destroy - notes/perf-threaded-context.md) */
++   if (dst->owns_label) {
++      free((char *)panfrost_bo_replace_label(dst->bo, "Replaced resource", false));
++      dst->owns_label = false;
++   }
+    panfrost_bo_reference(src->bo);
+    panfrost_bo_unreference(dst->bo);
+    dst->bo = src->bo;
+-- 
+2.40.1.windows.1
+

@@ -75,3 +75,16 @@ thread is still emulated x86 in 32-bit games); also helps every D3D app (DWM, br
   1 ms timed wait may round up to the timer tick (15.6 ms) when a callback is pending during a sync - measure
   (malikm_marshal_report counts).
 - T1b (Mesa 4416b63): mk_direct() after wddm_lock_acquire in malikm_primary_create, shared_create, set_display_mode, open_shared, close_shared, shared_bo_create (the six direct ddi.cb users, all on DDI threads: d3d10umd CreateResource/Present/OpenResource; Panfrost resource_create runs on the app thread under TC). x86 build OK. Review: diff = 6 identical inserted lines, each after the function's own lock acquisition (python asserted inside the function body).
+- T2 (Mesa d3e410e, tools/mesa-build/tc/t2_subclass.py): panfrost_resource/panfrost_transfer = anonymous union
+  { base; threaded_resource/threaded_transfer tc } (tc.b aliases base, no renames); threaded_resource_init in
+  resource_from_handle + create_with_modifier (the only two CALLOC_STRUCT(panfrost_resource)), deinit in destroy;
+  panfrost_query starts with struct threaded_query (rzalloc zeroes it); transfers + queries rzalloc(NULL) instead of
+  children of the context; create_query zeroes its result buffer via panfrost_bo_mmap + memset (this Panfrost does
+  no CPU cache maintenance anywhere, same as the old pipe_buffer_write path) instead of pipe_buffer_write on the
+  driver context. x86 build OK.
+- T2 review: grep - no other panfrost_resource allocations, no whole-struct copies of resources (only image.planes
+  memcpy). FINDING -> T2b: create_sampler_view (pan_cmdstream.c rzalloc(pctx, panfrost_sampler_view)) and
+  create_stream_output_target (pan_context.c rzalloc(pctx, ...)) are directly-executed under TC (app thread) and
+  still allocate under the context; plus audit every TC-direct function (create_*_state, create_sampler_view,
+  sampler_view_destroy, stream_output_target_destroy, create_query, get_query_result(flushed), unsync buffer map)
+  for context state use.

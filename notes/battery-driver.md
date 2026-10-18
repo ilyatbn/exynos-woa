@@ -229,3 +229,16 @@ free.
   port). (2) CHGIN_ILIM stays 500 mA whatever the cable: Linux sets it per detected cable type (BC1.2 DCP/SDP + AFC
   9 V via MUIC) -> wall-charger fast charge works only in Linux. Next: Windows idle power (services, device idle);
   cable-type detection + ILIM/CC from the vendor dtsi charging tables (not guessed).
+
+### 2026-10-18 user report: "the hub driver disables charging completely"
+- chgstate.ps1 (new, tools/phone/power): SOC 16.6 %, AvgCurrent -1.2..-1.8 A, ChgDetails 0x48E0/0x38E0
+  (CHGIN_DTLS 3, CHG_DTLS 8 = charger off), **CHG_CNFG_00 0x1E = mode 0xE BUCK+BOOST+OTG: the phone sources 5 V, charger
+  OFF** (notes/d1b-usb-vbus-hcd.md bit table), WdtKicked 1. S10eBattery 1.0.0.6 never writes CNFG_00 (only CNFG_06
+  WDTCLR) and nothing in Windows does.
+- Cause: firmware Beyond0LteUsbHostDxe step 4 turns the VBUS boost on at power-on when a sink (the hub) is on CC (or
+  the CC-termination-without-VBUS fallback) and nothing turns it off after the hub is unplugged - so after a boot
+  with the hub attached the charger stays in OTG mode until the next boot. Code unchanged since 10-12 (git log), not
+  part of the G18 hub work; no driver or firmware was flashed for the hub (S10eBattery 1.0.0.7 writes never built).
+- Fix without a flash: reboot with the hub unplugged (no boost -> mode back to charge). Proper fix (follow-up): turn
+  the boost off when the sink detaches (Windows-side CC watcher in S10eBattery, needs a CNFG_00 write) or let the
+  boot decide charge vs. OTG from CC each time.

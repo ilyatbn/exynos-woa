@@ -71,3 +71,8 @@ Limits first version: no GS samplers/SRVs, no SV_PrimitiveID / GS instancing / m
   the whole vertex-buffer extent in pass 1 (up to 1M vertices) - fine for sprites, a perf risk for large shared VBs;
   strip cuts in the application's index buffer are still not split. Open: G25.5 (barrier, null rasterizer guard).
 - G25.5 (Mesa 0127): memory_barrier(STREAMOUT | SHADER_BUFFER) after pass 1; bound_rs guard (verified the runtime binds a default rasterizer right after CreateDevice: d3dfs DDI trace CreateRasterizerState -> SetRasterizerState before any draw). d3dgs 6/6 still.
+- NFSU2 with x86 0127 (gamefg launches): both dgVoodoo GS compile to compute (13 / 16 output registers); no GS draw in
+  the menus (no particles there); BO memory ~75 MB. Run pid 4160 hit the game's own fault +0x6562b (known), pid 5808
+  ended without an error event. OpenWith watcher (tools/phone/games/openwithwatch.ps1): no OpenWith in that run - the
+  user's "annoying link" popup is not reproduced; crashevents.ps1 lists the game's WER events. Particles in a race =
+  user test.

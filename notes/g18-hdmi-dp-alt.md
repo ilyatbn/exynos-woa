@@ -27,3 +27,11 @@ panel is portrait-first).
   0x81 = VBUS present, ChgTyp 1 (SDP); CC_STATUS0 0x51 = SINK on CC1; CC_STATUS1 0x08 (ConnStat 0, Altmode 0);
   PD_STATUS0 0x19, PD_STATUS1 0x47 = UFP, PSRDY 0. Opcode interface for H2: OPCODE_WRITE 0x21, OPCODE_READ 0x51,
   32 data bytes ([K] max77705.h). Next: same read with the hub + HDMI monitor plugged (user).
+- 2026-10-18 H1b: S10eBattery 1.0.0.6 (sys 97DAA0E5, s10e-artifacts\s10ebattery-1.0.0.6, pnputil live install -> oem102.inf)
+  adds IOCTL_S10E_USBC_READ (private IOCTL on the battery device, handled before BatteryClassIoctl; up to 128 bytes of
+  the USB-C block in 16-byte FIFO chunks under BusLock; read-only). tools/phone/usbc/usbcwatch (new): polls 0x00-0x7F
+  every 100 ms and logs each register change. Smoke run (PC cable only): 50 reads / 5 s, 0 failed. Map seen:
+  0x00-0x0D status (1A 1A 00 00 00 00 27 31 81 10 51 08 19 47), 0x21.. opcode write buffer (21=1C 22=1F - last opcode
+  sent by sboot/Android before Windows), 0x51.. opcode read buffer (51=1C 52=65). Battery still reports (class OK).
+  USER TEST (H1 second read): `C:\S10eTmp\usbcwatch.exe 120 100 > C:\S10eTmp\usbc-hub.txt`, then plug the hub + HDMI
+  monitor within the 2 minutes (see tools/phone/usbc/README.md).

@@ -118,6 +118,13 @@
 #define MAX77705_USBC_ADDR        0x25    /* [K] 0x4A >> 1 */
 #define MAX77705_USBC_HW_REV      0x00
 #define MAX77705_USBC_STATUS1     0x06    /* 0x06..0x0D read as one 8-byte block */
+
+/* G18 H1b (notes/g18-hdmi-dp-alt.md): read-only window on the USB-C block for tools/phone/usbc/usbcwatch - a private
+   IOCTL on the battery device (preprocessed before BatteryClassIoctl): input S10E_USBC_READ_IN, output Length bytes
+   from Reg. Reading 0x02..0x05 clears those interrupt latches (nothing else consumes them under Windows). */
+#define IOCTL_S10E_USBC_READ      CTL_CODE(FILE_DEVICE_UNKNOWN, 0x8A0, METHOD_BUFFERED, FILE_READ_ACCESS)
+typedef struct _S10E_USBC_READ_IN { UCHAR Reg; UCHAR Length; } S10E_USBC_READ_IN;
+#define S10E_USBC_READ_MAX        128
 /* Charger watchdog (kernel max77705_charger.c set_wdtmr_kick / get_wdtmr_status, max77705_charger.h:124-245):
    CNFG_00 bit4 WDTEN; kick = CNFG_06 bits 1:0 <- 01 (WDTCLR); CHG_DTLS 0x0B = watchdog expired -> charging off.
    Linux kicks it on every health poll; under Windows nobody did, so the phone stopped charging (run batt1). */

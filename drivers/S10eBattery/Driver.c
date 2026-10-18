@@ -361,6 +361,43 @@ NTSTATUS S10eBattQueryStop(WDFDEVICE Device)
 
 /* simbatt: hand the IRP to the battery class first; whatever it does not own goes back to WDF (no queue here,
    so WDF completes it with STATUS_INVALID_DEVICE_REQUEST). */
+/* G18 H1b: IOCTL_S10E_USBC_READ - Length (1..128) bytes of the max77705 USB-C block from Reg, in FIFO-sized chunks,
+   under BusLock; STATUS_DEVICE_NOT_READY outside D0 (bus released). */
+static NTSTATUS S10eUsbcReadIoctl(_Inout_ PS10E_BATT_FDO Fdo, _Inout_ PIRP Irp)
+{
+    PIO_STACK_LOCATION Sp = IoGetCurrentIrpStackLocation(Irp);
+    S10E_USBC_READ_IN  In;
+    UCHAR              Data[S10E_USBC_READ_MAX];
+    ULONG              Done;
+    ULONG              Chunk;
+    NTSTATUS           Status = STATUS_SUCCESS;
+
+    PAGED_CODE();
+    Irp->IoStatus.Information = 0;
+    if (Sp->Parameters.DeviceIoControl.InputBufferLength < sizeof(In) || Irp->AssociatedIrp.SystemBuffer == NULL) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    In = *(S10E_USBC_READ_IN *)Irp->AssociatedIrp.SystemBuffer;
+    if (In.Length == 0 || In.Length > S10E_USBC_READ_MAX || (ULONG)In.Reg + In.Length > 0x100 ||
+        Sp->Parameters.DeviceIoControl.OutputBufferLength < In.Length) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    WdfWaitLockAcquire(Fdo->BusLock, NULL);
+    if (!Fdo->BusReady) {
+        Status = STATUS_DEVICE_NOT_READY;
+    }
+    for (Done = 0; NT_SUCCESS(Status) && Done < In.Length; Done += Chunk) {
+        Chunk  = min(In.Length - Done, HSI2C_FIFO_DEPTH);
+        Status = S10eMax77705ReadN(Fdo, MAX77705_USBC_ADDR, (UCHAR)(In.Reg + Done), &Data[Done], Chunk);
+    }
+    WdfWaitLockRelease(Fdo->BusLock);
+    if (NT_SUCCESS(Status)) {
+        RtlCopyMemory(Irp->AssociatedIrp.SystemBuffer, Data, In.Length);
+        Irp->IoStatus.Information = In.Length;
+    }
+    return Status;
+}
+
 _Use_decl_annotations_
 NTSTATUS S10eBattIrpDeviceControl(WDFDEVICE Device, PIRP Irp)
 {
@@ -368,6 +405,13 @@ NTSTATUS S10eBattIrpDeviceControl(WDFDEVICE Device, PIRP Irp)
     NTSTATUS       Status = STATUS_NOT_SUPPORTED;
 
     PAGED_CODE();
+
+    if (IoGetCurrentIrpStackLocation(Irp)->Parameters.DeviceIoControl.IoControlCode == IOCTL_S10E_USBC_READ) {
+        Status = S10eUsbcReadIoctl(Fdo, Irp);
+        Irp->IoStatus.Status = Status;
+        IoCompleteRequest(Irp, IO_NO_INCREMENT);
+        return Status;
+    }
 
     #pragma warning(suppress: 28118)
     WdfWaitLockAcquire(Fdo->ClassInitLock, NULL);

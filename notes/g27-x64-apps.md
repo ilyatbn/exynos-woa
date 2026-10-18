@@ -166,3 +166,22 @@ the GPU, natively.
   but empty (lost lazy writes) -> the recorder ran to its end (50 frames). mpv's playback ends ~22 s (start ~7 s +
   15 s) -> suspects: mpv leaving fullscreen / exiting (x64, maliumd_ec) or the duplication teardown at screenrec exit.
   Triage next: A = mpv --fs exit without the recorder; B = duplication of a windowed app, then exit.
+- 15:13 triage A: mpv x64 --fs --length=15, no recorder (tools/phone/rec/runapp.sh)
+- 15:17 triage A result: mpv --fs played to EOF (22.2 s) and idled fullscreen, no reset (boot time unchanged). Triage B: 4 s -dup capture ending while mpv is fullscreen-idle.
+- 15:18 triage B: no reset. mpv killed (/f) - no reset. Repeat of dupfs (dupfs2).
+- dupfs2 (exact repeat of dupfs): RESET AGAIN -> reproducible. This time the boot went to TWRP (firmware WINRUN.FLG
+  rule). debug_history: "SOFT, INFORM3(12345670) > NORMAL" (= our firmware ResetSystem normal) then REBOOTMODE4 >
+  RECOVERY. tools/phone/wddm2/pramget.sh (new): WINPRAM.BIN S10eDiag ring "0000688214 BUGCHECK callback" (~11.5 min
+  after the 20:10 boot = this crash) -> it IS a bugcheck (dump not written -> no 1001 event); no "BC" code lines
+  (AuxKlibGetBugCheckData gave nothing). KMD DDI trace right before: normal SubmitCommand/Patch pairs (seq 01503d), no
+  hung call. Triage so far: A (fullscreen mpv to EOF + idle, no recorder) no reset; B (4 s duplication ending during
+  fullscreen idle) no reset; full run (duplication active across the fullscreen entry + playback + EOF) resets 2/2.
+  Next: bugcheck code from the Kernel-Power 41 event data after booting Windows.
+- kp41.ps1 (new): Kernel-Power 41 BugcheckCode 0 / params 0 for both resets - no dump -> code not recorded. Bisect C: -dup 15 s across the fullscreen entry + playback, mpv --length=60 (no EOF during capture).
+- bisect C: no reset. Bisect D: -dup 40 s started while that mpv plays fullscreen, spanning its EOF (~65 s after start).
+- bisect D: no reset (frames all identical - mpv was probably already idle, EOF likely missed). Summary: full run
+  (-dup 25 s from before launch, fullscreen mpv entry + 15 s playback + EOF inside the capture) resets 2/2; A, B, C, D
+  (each a subset) 0/4 -> cumulative or timing-dependent, not one event. Stopped bisecting blind: each reset costs a
+  TWRP bounce and the code is unknown. OPEN (own task): get the bugcheck code - S10eDiag's callback logged
+  "BUGCHECK callback" but no "BC" lines (AuxKlibGetBugCheckData path - it worked in d8: "BC ...D1"), or KD attached;
+  then repeat dupfs. Until then: don't record fullscreen apps with -dup for long runs.

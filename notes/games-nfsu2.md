@@ -121,3 +121,8 @@ errors". SPEED2.EXE = 32-bit x86 (timestamp 0x420aad27).
   shows stripes (real rendering bug in the fullscreen path) or the dump misreads the fullscreen scan-out buffer -
   needs the user's eyes or a second capture method. x86 UMD back to 0128 afterwards (umd32swap).
 - Still open: the race itself (menu path Quick Race -> track -> car -> race not yet driven).
+- Stripe check (column analysis, middle band of the upright 2280x1080 image, columns fully black < 8): nfs9a 794 black
+  columns, nfs9b 1238, only 410 shared; runs a: 229/12, 319/31, 382/51, 607/21, 699/30, 790/29 ...; b: 146/49, 232/39,
+  323/38, 419/45, 509/48 ... -> positions and widths differ between dumps, spacing ~90-95 px in both. A static
+  rendering defect would sit in the same columns; this leans to a capture-timing artefact (the uncached dump reading
+  a buffer that is being rewritten in strips), not proven. The user's look at the panel decides.

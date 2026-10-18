@@ -1,0 +1,46 @@
+From 0fbc03722a0ad7e3c3494dfd9bcb51b0d8584306 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 13:01:31 +0300
+Subject: [PATCH] util: ARM64EC is AArch64 - detect_arch and xxhash ignore the
+ x64 macros clang predefines for arm64ec (exynos-woa G27 0129)
+
+---
+ src/util/detect_arch.h | 8 +++++---
+ src/util/xxhash.h      | 2 +-
+ 2 files changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/src/util/detect_arch.h b/src/util/detect_arch.h
+index e32de8d..51df025 100644
+--- a/src/util/detect_arch.h
++++ b/src/util/detect_arch.h
+@@ -58,9 +58,11 @@
+ #define DETECT_ARCH_X86 1
+ #endif
+ 
+-#if defined(__x86_64__) /* gcc */ || \
+-    ((defined(_M_X64) || defined(_M_AMD64)) && !defined(_M_ARM64EC)) /* msvc */ || \
+-    defined(__x86_64) /* Sun cc */
++/* exynos-woa G27: clang's arm64ec target defines __x86_64__ and __x86_64 too (the EC ABI is x64's) - ARM64EC is
++ * AArch64 here */
++#if ((defined(__x86_64__) /* gcc */ || \
++      (defined(_M_X64) || defined(_M_AMD64)) /* msvc */ || \
++      defined(__x86_64) /* Sun cc */) && !defined(_M_ARM64EC))
+ #define DETECT_ARCH_X86_64 1
+ #endif
+ 
+diff --git a/src/util/xxhash.h b/src/util/xxhash.h
+index 78fc2e8..cd89e00 100644
+--- a/src/util/xxhash.h
++++ b/src/util/xxhash.h
+@@ -4340,7 +4340,7 @@ do { \
+ #else
+ #  if XXH_SIZE_OPT >= 1
+ #    define XXH_PREFETCH(ptr) (void)(ptr)
+-#  elif defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))  /* _mm_prefetch() not defined outside of x86/x64 */
++#  elif defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)) && !defined(_M_ARM64EC)  /* _mm_prefetch() not defined outside of x86/x64; exynos-woa G27: nor on arm64ec */
+ #    include <mmintrin.h>   /* https://msdn.microsoft.com/fr-fr/library/84szxsww(v=vs.90).aspx */
+ #    define XXH_PREFETCH(ptr)  _mm_prefetch((const char*)(ptr), _MM_HINT_T0)
+ #  elif defined(__GNUC__) && ( (__GNUC__ >= 4) || ( (__GNUC__ == 3) && (__GNUC_MINOR__ >= 1) ) )
+-- 
+2.40.1.windows.1
+

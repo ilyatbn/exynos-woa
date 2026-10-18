@@ -25,3 +25,32 @@ the GPU, natively.
 
 ## Progress log
 - G27.1 baseline: d3dcs built for x64 (build-d3dcs.cmd x64 -> d3dcs64x.exe), emulated on the phone: "Mali: D3D11CreateDevice 0x887a0004 FL 0x0" = DXGI_ERROR_UNSUPPORTED - an x64 process gets no device on the Mali adapter (the ARM64 UMD cannot load into it).
+- G27.2 ec build, attempt 1 (triple `--target=arm64ec-pc-windows-msvc` in the cross file): ~400 compile failures.
+  clang's arm64ec target predefines `__x86_64__`/`__x86_64`/`_M_X64` (the EC ABI is x64's) -> Mesa util/detect_arch.h
+  set DETECT_ARCH_X86_64 and SSE paths. Patched: `&& !defined(_M_ARM64EC)` on the X86_64 test.
+- attempt 2: 69 failures. All 171 `mmintrin.h` errors ("invalid conversion between vector type '__v2di'") come via
+  util/xxhash.h:4343 - the XXH_PREFETCH path for `_MSC_VER && (_M_X64 || _M_IX86)`. (XXH_VECTOR already picks NEON:
+  `_M_ARM64EC` is in its NEON list.) Patched: `&& !defined(_M_ARM64EC)` there.
+- zlib z-1.dll: `LNK1423: ARM32 is no longer a supported target` - build.ninja has `/MACHINE:arm` on every link and
+  llvm-lib rule. Cause (meson 1.12.1 = latest, venv/Lib/site-packages/mesonbuild/compilers/mixins/visualstudio.py
+  ~l.110): target canonicalisation `elif 'aarch64' in target ... elif 'arm' in target: self.machine = 'arm'` - clang-cl's
+  "Target: arm64ec-pc-windows-msvc" -> 'arm64ec' -> 'arm'. The static linker inherits the same machine.
+- Toolchain tests (scratchpad ectest, t.c one export):
+  - `clang-cl --target=aarch64-pc-windows-msvc /arm64EC`: "/arm64EC has been overridden by specified target; ignored".
+  - `clang-cl /arm64EC` (no triple): Target arm64ec; `link /MACHINE:x64 ... /machine:arm64ec` links fine, dumpbin
+    "8664 machine (x64) (ARM64X)" = an ARM64EC image. softintrin.lib not needed for this test (MS Learn
+    arm64ec-build: "Use the /arm64EC switch for cl and /MACHINE:ARM64EC for link"; softintrin.lib is implicit for MSVC
+    EC objects - llvm/llvm-project PR 89171 - add it only if _mm_* unresolved appear).
+  - archives: llvm-lib /MACHINE:x64 on an EC obj: "file machine type arm64ec conflicts with library machine type
+    x64"; MSVC lib /MACHINE:x64 or arm64: LNK1392 "Did you mean /machine:arm64x or /machine:arm64ec?". The archive
+    machine must be arm64ec -> meson's canonicalisation has to produce it.
+  - Decision: the ec stage uses its own venv ($Mali\venv-ec) whose visualstudio.py gets one idempotent line
+    (`elif 'arm64ec' in target: self.machine = 'arm64ec'` before the aarch64 test); the shared venv stays stock.
+    (Build-tool fix, not a runtime switch - AGENTS 12 n/a.)
+- ec build with the venv-ec meson: build.ninja now `/MACHINE:arm64ec` on all 4 rules; full build 0 FAILED.
+  s10e-artifacts\mali-umd-0129-ec\maliumd_ec.dll: "8664 machine (x64) (ARM64X)" (= ARM64EC image), sections include
+  .a64xrm / .hexpthk, imports only api-ms-win-core-synch, KERNEL32, USER32, GDI32, CFGMGR32 (static CRT, as ARM64).
+- G27.3 tools written: tools/mesa-build/make-arm64x.ps1 (MS Learn pure-forwarder steps; export list from dumpbin
+  /exports of the ARM64 DLL, must equal the EC DLL's), tools/phone/wddm2/umdxswap.cmd + `wddm2dbg.sh umdxswap DIR`
+  (live swap of the 3 files, rollback copy System32\maliumd.dll.pre-g27). ARM64 half rebuilt from the same tree
+  (cross,collect -> mali-umd-0129) so both halves are one source.

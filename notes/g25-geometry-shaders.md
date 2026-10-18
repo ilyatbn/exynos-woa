@@ -83,3 +83,4 @@ Limits first version: no GS samplers/SRVs, no SV_PrimitiveID / GS instancing / m
   only; recent Chromium refuses the debug port on the default profile): WebGL clear readback 51,102,153 (= 0.2/0.4/0.6),
   triangle readback 255,128,0, renderer "ANGLE (... Arm Mali-G76 MP12 ... Direct3D11 vs_4_1 ps_4_1, D3D11)";
   cdp_gpuinfo featureStatus = baseline (webgl/webgpu/gpu_compositing/video enabled, rasterization unavailable_off).
+- G25.6 test first: d3dso (drivers/MaliG76Wddm/tools/d3dso: CreateGeometryShaderWithStreamOutput from the VS bytecode, FL 10_1 needs rasterized stream 0; a two-buffer case was refused by WARP too and dropped): x86 0127s baseline all DIFF 67 floats, subset DIFF 34 - Mali writes nothing (no GS stage, no SO on the VS).

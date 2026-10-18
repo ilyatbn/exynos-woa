@@ -137,6 +137,7 @@ static VOID
 S10eBugcheckCallback(PVOID Buffer, ULONG Length)
 {
     KBUGCHECK_DATA Data = { 0 };
+    NTSTATUS Status;
 
     UNREFERENCED_PARAMETER(Buffer);
     UNREFERENCED_PARAMETER(Length);
@@ -144,7 +145,14 @@ S10eBugcheckCallback(PVOID Buffer, ULONG Length)
     // No lock - the system is already stopped.
     S10eMarkRaw("BUGCHECK callback", 17);
     Data.BugCheckDataSize = sizeof(Data);
-    if (gAuxKlibReady && NT_SUCCESS(AuxKlibGetBugCheckData(&Data))) {
+    //
+    // g27 (notes/g27-x64-apps.md): a bugcheck left only "BUGCHECK callback" (no BC lines) - record why: the init status
+    // at load ("AuxKlib init") and the status of this call. MS Learn: AuxKlibGetBugCheckData "can be called only from a
+    // BugCheckCallback routine", after AuxKlibInitialize.
+    //
+    Status = gAuxKlibReady ? AuxKlibGetBugCheckData(&Data) : STATUS_NOT_SUPPORTED;
+    S10eMarkHex("BC status", (ULONGLONG)(ULONG)Status);
+    if (NT_SUCCESS(Status)) {
         S10eMarkHex("BC", Data.BugCheckCode);
         S10eMarkHex("BC P1", (ULONGLONG)Data.Parameter1);
         S10eMarkHex("BC P2", (ULONGLONG)Data.Parameter2);
@@ -439,7 +447,11 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
         S10eMark("S10eDiag loaded", 15);
         S10eMarkHex("INFORM3", (gPmu != NULL) ? READ_REGISTER_ULONG((volatile ULONG *)(gPmu + S10E_PMU_INFORM3)) : 0);
     }
-    gAuxKlibReady = NT_SUCCESS(AuxKlibInitialize());
+    Status = AuxKlibInitialize();
+    gAuxKlibReady = NT_SUCCESS(Status);
+    if (gMarks != NULL) {
+        S10eMarkHex("AuxKlib init", (ULONGLONG)(ULONG)Status);
+    }
     KeInitializeCallbackRecord(&gBugcheckRecord);
     gBugcheckRegistered = KeRegisterBugCheckCallback(&gBugcheckRecord, S10eBugcheckCallback, NULL, 0,
                                                      (PUCHAR)"S10eDiag");

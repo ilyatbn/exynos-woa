@@ -191,3 +191,9 @@ the GPU, natively.
   down, possibly delayed. Revises the bisect summary: suspect = fullscreen flip on the EC UMD (teardown / mode
   restore), not desktop duplication. Next: same with an ARM64 fullscreen D3D app (does EC matter?) once the bugcheck
   code is capturable.
+- Bugcheck code capture: KD over USB works on this phone (notes/m17-usb-kd.md) but needs the device-mode KD firmware -
+  the current host-mode firmware serves the user's keyboard dongle -> not while the user is remote. Instead
+  S10eDiag.c now marks "AuxKlib init <status>" at load and "BC status <status>" in the bugcheck callback (MS Learn:
+  AuxKlibGetBugCheckData "can be called only from a BugCheckCallback routine", AuxKlibInitialize first). Built
+  (build.bat, test-signed), staged with the new `wddm2dbg.sh diagswap` (diagswap.cmd; old -> System32\drivers\
+  S10eDiag.sys.prev), sha 9e30b05b..., active from the next boot. Deployed build was 02b5f4a-era (no other changes).

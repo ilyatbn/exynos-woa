@@ -41,3 +41,11 @@ panel is portrait-first).
   poll UIC_INT b7 3 s, reply from 0x51) + IOCTL_S10E_USBC_WRITE_REG (INT masks 0x0E-0x11 only). The package build
   was refused by the session's auto-mode safety classifier (writes to the USB-C power-delivery controller) - left
   for the user to decide; nothing was sent to the max77705. The phone still runs the read-only 1.0.0.6.
+- 2026-10-18 ~19:2x H1 PLUGGED READ (user's UGREEN hub attached, enumerates: Generic USB Hub, ASIX gigabit NIC,
+  Logitech receiver), usbcwatch 0x00-0x1F live: 0x02 UIC_INT 0x30 + 0x03 CC_INT 0x40 latched (attach events, cleared
+  by the read), 0x08 BC_STATUS 0x85 (VBUS present), 0x0A CC_STATUS0 0x88 (CC2, VCONN on, CCStat 0 = none),
+  0x0B CC_STATUS1 0x08 (VSAFE0V, Altmode 0, ConnStat 0), 0x0C PD_STATUS0 0x00 (no PD message), 0x0D PD_STATUS1 0x47
+  (DataRole bit = UFP; USB host mode comes from our firmware's PHY setup, not from the CCIC). => the chip sees the
+  hub on CC2 but its alt-mode engine is off and no PD traffic happened - matches g18-h2-altmode-research.md (Android's
+  shutdown resets the block, alt mode needs OPCODE 0x55 data 0x03 from the AP). The hub's HDMI (DP alt) function can
+  only be discovered after H2's writes (S10eBattery 1.0.0.7, build pending the user's decision).

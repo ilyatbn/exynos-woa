@@ -215,3 +215,15 @@ thread is still emulated x86 in 32-bit games); also helps every D3D app (DWM, br
   d3dcs 0/7 differ (ARM64) + d3dcs64x 0/7 differ; Edge (new GPU process) WebGL clear 51,102,153,255 draw
   255,128,0,255, renderer ANGLE Mali-G76 D3D11. DWM on the threaded driver = after the next reboot (pending).
 - Mesa commits exported as tools/mesa-build/patches/0132-0146.
+- alpha8 DWM check (reboot 2026-10-18 23:55): dwm/explorer/SearchHost load maliumd_arm64 0146 ("device: context ...
+  threaded 1" in the dwm tlog), desktop renders (scan-out traces/wddm2/alpha8-desktop.png). BUT LogonUI.exe (pid
+  1344) crashed at its exit after login: 0xc0000374 (heap corruption) in ntdll+0x12b118 - never before in the
+  LogonUI history (tools/phone/wddm2/crashhist.ps1: older ones are Windows.UI.Xaml c000027b). LogonUI has two D3D
+  devices (presents 1536x736 and 1024x576 in its tlog). Cause found in T1: a queued (deferred) w_destroy/w_unlock
+  did not record its device binding and was drained under whatever binding was current (also from the pump while
+  the driver thread held wddm_lock) -> pfnDeallocateCb/pfnUnlockCb on the wrong runtime device.
+- T1c: mk_req.bind = cur_bind at queue time (callers hold wddm_lock); mk_drain(may_switch): with the lock owned
+  (mk_direct, pump after TryAcquire, malikm_unbind_device before the binding goes) every op runs under its own
+  binding (bind_switch, restored), an op of a vanished binding is dropped + logged; while the posting driver thread
+  holds the lock (pump with a request) only ops of the current binding run, the rest stay queued in order.
+  alpha8 tag waits for: tests + reboot + LogonUI clean.

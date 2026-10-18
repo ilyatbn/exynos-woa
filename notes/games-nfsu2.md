@@ -140,3 +140,4 @@ errors". SPEED2.EXE = 32-bit x86 (timestamp 0x420aad27).
   DXGI_DDI_PRIMARY_DESC: "applications will handle the output orientation" - dgVoodoo does not) -> the borderless
   config was the answer. Restored: x86 0128 (systask path works on battery, hashes match) + borderless config. Next:
   see what the user calls "windowed" with that config (screenshot during an icon launch).
+- User: in a race (loads now = G26 memory fix validated in game), extremely slow; lowering the in-game overall quality reset the device and dgVoodoo went exclusive fullscreen (portrait + bands; scan-out traces/wddm2/nfsuser1.png - the bands are REAL). Cause per dgVoodoo docs (VOGONS t.1413822): forced windowed needs FullScreenMode=false AND AppControlledScreenMode=false; ours had AppControlledScreenMode=true -> set false (backup dgVoodoo.conf.bak-appctl). Open: the bands in the exclusive-fullscreen present path (our bug), in-race speed (profile).

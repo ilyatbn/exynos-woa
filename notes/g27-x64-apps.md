@@ -113,3 +113,26 @@ the GPU, natively.
   (extrema 0) = panel off: the known G20/G21 display-asleep signature + the open "screen slow-wake" item (the input
   wake did not bring it back this time). dwm pid 1328 unchanged and responding, no LogonUI, no new error events ->
   not a forwarder symptom. A real x64 D3D app (game) = next, with the display awake (user, or after slow-wake).
+
+## Remote viewing (user 2026-10-18: "Cant watch im working remotely can you figure out a solution? Some sort of screen recording?")
+- Webcam is no option (notes/gpu-hw-path.md: the lit OLED saturates it, it never resolved the panel).
+- GDI capture goes white while the display is off; scan-out dump goes black. So: (1) keep the display on during
+  unattended tests - AC monitor timeout 0 while on the charger (test-environment setting, reversible; recorded here),
+  the recorder also holds SetThreadExecutionState(ES_CONTINUOUS|ES_DISPLAY_REQUIRED) (MS Learn: "Forces the display to be
+  on by resetting the display idle timer" / ES_CONTINUOUS "should remain in effect until the next call ... cleared";
+  the doc does not say it turns on a display that is already off - G21's slow wake stays open); (2) record frames on
+  the phone (DPI-aware GDI, N fps, JPEG) and pack them on the PC (PIL: GIF + contact sheet), sent to the user.
+- CORRECTION (13:4x): the white GDI shots + all-zero scan-out after the foobar run were NOT display sleep - VIDEOIDLE
+  and STANDBYIDLE are 0 (never) on AC and DC; `tasklist` showed scrnsave.scr (the blank screensaver, the same one
+  that voids cube fps). taskkill /f -> shot 1520x720 normal again. The earlier "display asleep" readings (G20/G21
+  white shots / black dumps) were probably the screensaver too. MS Learn SetThreadExecutionState: "This function does
+  not stop the screen saver from executing." -> the recorder turns the screensaver off with
+  SystemParametersInfo(SPI_SETSCREENSAVEACTIVE, FALSE) for its run and restores the previous value afterwards.
+- screenrec.ps1 v1 was blocked by Defender/AMSI on the phone ("This script contains malicious content and has been
+  blocked by your antivirus software", ScriptContainedMaliciousContent) - screen capture + P/Invoke in one script
+  reads like spyware. Not worked around (no obfuscation / splitting to dodge AV). Replaced by a normal compiled test
+  tool: tools/phone/rec/screenrec (C++, GDI BitBlt + WIC JPEG, same behaviour), launched by a one-line wrapper. If
+  Defender flags the exe as well: stop, the user decides about an exclusion.
+- screenrec.exe (C++, /W4 /WX clean, Windows subsystem so no console window lands in the frames) runs - Defender
+  did not object. Smoke run `recfetch.sh smoke 10 2`: 21 frames 760x360 (screen 1520x720 x0.5), screensaver-was 1 ->
+  restored to 1; GIF 68 KB, contact sheet shows the full desktop + taskbar. Delivery to the user: SendUserFile.

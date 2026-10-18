@@ -137,3 +137,13 @@ thread is still emulated x86 in 32-bit games); also helps every D3D app (DWM, br
   inside batch execution - u_blitter (the ResourceCopy blit) calls create_sampler_view on the driver context ->
   threaded_context_unwrap_sync -> _tc_sync re-executes the batch that is running (on the driver thread it would
   deadlock). Note: pipe_transfer.usage is a 24-bit field, the TC_* bits do not survive in transfer->usage.
+- T5a (Mesa 5c4ba9b, tools/mesa-build/tc/t5_reentry.py): u_threaded_context.c thread-local tc_executing_depth around
+  batch_execute in tc_batch_execute (driver thread + direct execution in _tc_sync), threaded_context_executing();
+  panfrost_tc_sync syncs only when it is false. Mesa 70608e4: VEH x86 stack scan kept (tlog "  stack scan: ..." after an
+  access violation; symbolize with llvm-symbolizer --obj=maliumd32.dll --pdb=libgallium_d3d10.pdb --relative-address).
+- T5 run 3 (x86 tc3d = T5a + tracing): d3dtri32 tri PASS, d3dvbring32 PASS (all 9 patterns incl. discard), tlog
+  "device: context ... threaded 1". These tests sync at every readback, so their queued calls run on the
+  application thread (direct execution) - the driver thread proper is exercised by the game run next.
+- T5a review: depth is per thread, so a worker-thread blit and an app-thread TC-direct create cannot confuse each
+  other; TC-direct calls made by the app OUTSIDE batch execution still sync (create_sampler_view etc.). Tracing
+  removed (diff = T5a only, two stray blank lines removed).

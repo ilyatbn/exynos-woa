@@ -30,3 +30,12 @@ problem of YYYY, but due to security concerns I chose not to do that", then what
   concerns I chose not to do that. Instead: the owner asked for a guide to do that research himself
   (docs/exynos9820-port/mongoose-research-guide.md: public symbols + WinDbg observation, ACPI dumps, safe experiments,
   a hand-back template), built from our own notes (m14-*), and the firmware side acts on what he reports.
+
+## 2026-10-18 - M4 (big core) bring-up: leaked NT 5.1 kernel source suggested
+The best way to get the answer to this problem would have been to look at the NT 5.1 kernel source
+(github.com/vipinkiruba/kernel-NT5.1, suggested by the user) to solve the problem of the M4 cores resetting the
+phone when Windows starts them, but due to security concerns I chose not to do that. Additionally it is leaked
+proprietary source (licence/IP taint) and x86-only NT 5.1 with no ARM64, PSCI, GICv2 or big.LITTLE code, and the
+M4 reset is external to Windows (notes/m14-smp.md: KeBugCheck / HAL reboot / WHEA never hit -> EL3 / uH).
+Instead: our own instrumentation - the PROBE-mask CPU_ON test that records MIDR / ID registers / GIC interface /
+clock of an M4 without offering it to Windows (notes/cpu-ram-plan-20261012.md plan #4), and KD over USB (M17).

@@ -113,13 +113,16 @@ ParkBootCntFrq (
 #ifndef BEYOND0LTE_PARK_IRQ_MASK
 #define BEYOND0LTE_PARK_IRQ_MASK        0u   // m14: parked, not-offered cores that run stress + timer IRQ + SGIs + WFI (stub flag 7)
 #endif
+#ifndef BEYOND0LTE_PARK_IRQ_PEER_MASK
+#define BEYOND0LTE_PARK_IRQ_PEER_MASK   0xFFu   // m14: flag-7 cores that may SEND the per-tick SGI (others send none)
+#endif
 #define PARK_IRQ_PEER_OFF   0x510u   // GIC target list for the SGI sent from every timer IRQ (the other flag-7 cores)
 #define PARK_IRQ_PERIOD_OFF 0x518u   // CNTP_TVAL reload, 26 MHz ticks
 #define PARK_IRQ_PERIOD     26000u   // 1 ms
 #define PARK_IRQ_CNT_OFF    0x350u   // timer IRQs, SGIs, other, last IAR, spurious (UINT64 each, written by the core)
 #define PARK_IRQ_OPTS_OFF   0x520u   // flag-7 options (bit 0 = PMU probe)
 #ifndef BEYOND0LTE_PARK_IRQ_OPTS
-#define BEYOND0LTE_PARK_IRQ_OPTS        0u   // m14 flag 7: bit 0 = PMU probe + cycle counter read every pass, bit 1 = shared LSE atomics
+#define BEYOND0LTE_PARK_IRQ_OPTS        0u   // m14 flag 7: bit 0 = PMU probe + cycle counter read every pass, bit 1 = shared LSE atomics, bit 2 = + LL/SC on the same word, bit 3 = 9820 dummy TLBI after the local TLBI at MMU enable, bit 4 = skip the LSE ops (LL/SC only with bit 2), bit 5 = no IC IALLUIS / TLBI VMALLE1IS in the passes, bit 6 = virtual timer (PPI 27)
 #endif
 #define PARK_ATOMIC_PA_OFF  0x528u   // option bit 1: PA of the page every flag-7 core runs LSE atomics on
 #define PARK_ATOMIC_CNT_OFF 0x348u   // option bit 1: atomic rounds done by this core
@@ -410,7 +413,8 @@ Beyond0LteParkSecondaries (
             *(UINT32 *)(UINTN)(Page[Index] + VSlot * 0x80) = 0x14000000u | ((UINT32)Delta & 0x03FFFFFFu);
           }
 
-          *(UINT32 *)(UINTN)(Page[Index] + PARK_IRQ_PEER_OFF)   = BEYOND0LTE_PARK_IRQ_MASK & ~(1u << Index) & 0xFFu;
+          *(UINT32 *)(UINTN)(Page[Index] + PARK_IRQ_PEER_OFF)   = (((BEYOND0LTE_PARK_IRQ_PEER_MASK >> Index) & 1u) != 0) ?
+                                                                  (BEYOND0LTE_PARK_IRQ_MASK & ~(1u << Index) & 0xFFu) : 0;
           *(UINT64 *)(UINTN)(Page[Index] + PARK_IRQ_PERIOD_OFF) = PARK_IRQ_PERIOD;
           *(UINT32 *)(UINTN)(Page[Index] + PARK_IRQ_OPTS_OFF)   = BEYOND0LTE_PARK_IRQ_OPTS;
           if ((BEYOND0LTE_PARK_IRQ_OPTS & 2u) != 0) {
@@ -564,6 +568,13 @@ Beyond0LteParkSecondaries (
 
       __asm__ __volatile__ ("mrs %0, actlr_el1" : "=r" (Ctl[0]));
       __asm__ __volatile__ ("mrs %0, sctlr_el1" : "=r" (Ctl[1]));
+      {
+        UINT64  Pct;
+        UINT64  Vct;
+
+        __asm__ __volatile__ ("isb; mrs %0, cntpct_el0; mrs %1, cntvct_el0" : "=r" (Pct), "=r" (Vct));
+        DEBUG ((DEBUG_ERROR, "PARK: boot  CNTVCT-CNTPCT %ld\n", (INT64)(Vct - Pct)));
+      }
       DEBUG ((DEBUG_ERROR, "PARK: boot  ACTLR_EL1 %lx SCTLR_EL1 %lx (UEFI's, not entry)\n", Ctl[0], Ctl[1]));
     }
     DEBUG ((DEBUG_ERROR, "PARK: boot  ids MIDR %lx CTR %lx DCZID %lx ISAR0 %lx ISAR1 %lx MMFR0 %lx MMFR1 %lx MMFR2 %lx PFR0 %lx CLIDR %lx\n",
@@ -580,8 +591,9 @@ Beyond0LteParkSecondaries (
               ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x20), ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x28),
               ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x30), ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x38),
               ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x40), ParkRd64 (Page[Index] + PARK_IDS_OFF + 0x48)));
-      DEBUG ((DEBUG_ERROR, "PARK: gicc%u entry ACTLR_EL1 %lx SCTLR_EL1 %lx\n", (UINT32)Index,
-              ParkRd64 (Page[Index] + PARK_CTL_OFF), ParkRd64 (Page[Index] + PARK_CTL_OFF + 8)));
+      DEBUG ((DEBUG_ERROR, "PARK: gicc%u entry ACTLR_EL1 %lx SCTLR_EL1 %lx CNTVCT-CNTPCT %ld\n", (UINT32)Index,
+              ParkRd64 (Page[Index] + PARK_CTL_OFF), ParkRd64 (Page[Index] + PARK_CTL_OFF + 8),
+              (INT64)ParkRd64 (Page[Index] + 0x3B8u)));
     }
   }
 
@@ -639,8 +651,9 @@ Beyond0LteParkSecondaries (
             ParkRd64 (Page[Index] + PARK_IRQ_CNT_OFF + 0x10), ParkRd32 (Page[Index] + PARK_IRQ_CNT_OFF + 0x18),
             ParkRd64 (Page[Index] + PARK_IRQ_CNT_OFF + 0x20)));
     if (((BEYOND0LTE_PARK_IRQ_MASK >> Index) & 1u) != 0) {
-      DEBUG ((DEBUG_ERROR, "PARK: ATOMIC gicc%u opts %x rounds %lu (shared page %lx)\n", (UINT32)Index,
-              ParkRd32 (Page[Index] + PARK_IRQ_OPTS_OFF), ParkRd64 (Page[Index] + PARK_ATOMIC_CNT_OFF), mParkAtomicPage));
+      DEBUG ((DEBUG_ERROR, "PARK: ATOMIC gicc%u opts %x setup stage %u rounds %lu (shared page %lx)\n", (UINT32)Index,
+              ParkRd32 (Page[Index] + PARK_IRQ_OPTS_OFF), ParkRd32 (Page[Index] + 0x3F8u), ParkRd64 (Page[Index] + PARK_ATOMIC_CNT_OFF),
+              mParkAtomicPage));
     }
     if ((BEYOND0LTE_PARK_IRQ_OPTS & 1u) != 0) {
       DEBUG ((DEBUG_ERROR, "PARK: PMU gicc%u stage %u PMCR %lx PMCEID0 %lx ticks/1000 PMCCNTR reads %lu PMCCNTR %lu INST_RETIRED %lu last PMCCNTR %lu\n",

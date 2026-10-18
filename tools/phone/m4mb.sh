@@ -19,7 +19,7 @@ q = lambda o: struct.unpack_from('<Q', d, o)[0]
 w = lambda o: struct.unpack_from('<I', d, o)[0]
 print("gicc%s flag %x passes %d atomics %d timer %d sgi %d other %d lastiar %x spurious %d faults %d esr %x pmu stage %d pmccntr %d" % (
     sys.argv[2], w(0xFB8), q(0x340), q(0x348), q(0x350), q(0x358), q(0x360), q(0x368), q(0x370), q(0x618), q(0x608),
-    w(0x3C0), q(0x3F0)))
+    w(0x3C0), q(0x3F0)), "setup stage", w(0x3F8))
 PY
 done
 rm -rf "$d"

@@ -72,3 +72,66 @@ notes/m14-smp.md predate the rule and are NOT continued), 6 (constants), 7 (devi
   every flag-7 core; rounds at +0x348. LSE takes no immediate offset (first build failed) - separate address regs.
   Plan: IRQ_MASK 0xC8 (A55 gicc3 + both M4) = cross-cluster atomic contention, Windows on 0x36 (5 cores).
 - tools/phone/m4mb.sh [GICC...] decodes passes/atomics/irq/pmu fields of any mailbox.
+- Commit 4e3081d REVIEW: stub guard (0x800 + 0x694 < 0xF50) holds; no TRAP leftovers (script asserted, -Werror build
+  passes); vector branches are +-128 MiB B; flag-7 IRQ handler EOIs before the counter store, spurious path skips
+  EOI (correct for 1020-1023); "Windows' broadcast IPIs" rests on IAR source CPU 0 (only Windows runs there) - stated
+  as such. The PMU/atomics options were committed untested (default off) - their validation is the next two runs.
+- **m4pmu2 RESULT (01:52, UEFILOG)**: M4 PMU fully usable from EL1: PMCR_EL0 0x53033000 (IMP 0x53 Samsung, IDCODE 3,
+  N = 6 counters), PMCEID0 0xFFFFFFFF, 1000 PMCCNTR reads = 416 ticks (~16 ns each -> no EL2/EL3 trap), PMCCNTR and
+  event 0x08 (INST_RETIRED 3004) count. PMU lead OUT.
+- Research agent (notes/m4-linux-research-20261019.md, LineageOS exynos9820 a412cfaf): CONFIG_SEC_ARM64_LSE_ATOMICS
+  makes every kernel atomic LSE with no LL/SC fallback; SEC_ARM64_LSE_SPINLOCK forces LSE spinlocks with the comment
+  "Please try to use LSE Atomics unless you are sure LL/SC is safe" (spinlock.h:30). Windows and user mode still use
+  LL/SC (LDAXR/STLXR). Other leads: HIU/GCU of CL2 (0x1E4C0000), SYSREG_CPUCL2 0x1D100104 bus clock gating written
+  on cluster up, CPU_INFORM per core, SICD never on cpus 6-7, watchdog_cl2 (30 s), PMUPCSR 0x1E430200 (already
+  closed: DBGAUTHSTATUS 0xAA), M4 memory-error syndrome regs S3_1_C15_C2_0..7 (IMPDEF; read candidate).
+- Option bit 2 added: LL/SC (LDAXR/ADD/STLXR loop) on the LDADDAL word inside each atomic round.
+  Image boot-m4atom1.img 04268b77 = host + Watchdog 1, PARK 0xFE, OFFER 0x36 (Windows: A55 x2 + A75 x2 + boot),
+  IRQ_MASK 0xC8 (A55 gicc3 + both M4 run flag 7), IRQ_OPTS 6 (LSE + LL/SC on one shared page).
+- **m4atom1 RESULT (01:58)**: gicc3 (A55) + gicc6 (M4#0) ran: LSE+LL/SC rounds 31.6 M / 63.7 M, timers/SGIs fine,
+  Windows (5 procs) up. **gicc7 (M4#1) wedged**: flag stayed 7 (never reached 0xC0C00007), passes/timer/atomics 0,
+  no fault record. Mailbox dump: its identity table at +0x740 WAS written (MMU-off stores), so it stopped between
+  the table writes and the flag-7 running store: MAIR/TCR/TTBR0, `tlbi vmalle1` (LOCAL) + `dsb nsh`, SCTLR.M/C/I,
+  VBAR, GIC, timer. In m4irq1 the same path worked on both M4s. Difference: gicc3/gicc6 were already running
+  (heavier traffic, broadcasts every pass, contended atomics) when gicc7 did its local TLBI.
+  HYPOTHESIS (strong, testable): the Samsung 9820 erratum behind the "dummy TLBI" - a LOCAL TLBI (+ DSB NSH) on an
+  M4 can hang while other cores generate DVM traffic; Samsung puts `tlbi vaale1is, xzr` before the DSB. Linux runs
+  local TLBIs only at boot/idmap (6 sites + local_flush_tlb_all, all patched); Windows on the M4 would hit it at a
+  random moment -> the M4 never answers the next IPI -> silent all-CPU hang.
+- Stage marks added (+0x3F8: 1 before local TLBI, 2 after DSB NSH, 3 MMU on, 4 GIC done) and option bit 3 = the
+  dummy TLBI. Images: boot-m4atom2.img de4298e8 (= m4atom1 config, opts 6, stages) to locate the stall;
+  boot-m4atom3.img 4742a9ac (opts 14 = + dummy TLBI).
+- PITFALL (02:06): `s10ediagx peek 0x1D100104` (SYSREG_CPUCL2 DRCG_EN, research lead 4) from Windows on an A55 FROZE
+  the SoC (watchdog reset ~82 s, stay.flg brought Windows back). Do not read CPUCL2 SYSREG from outside the cluster.
+- **m4atom2 (stages)**: gicc7 setup stage 2 = it passed the LOCAL TLBI + DSB NSH and stopped before stage 3, i.e. in
+  the SCTLR M/C/I enable or its first cached fetch/walk/store. Dummy-TLBI erratum NOT the cause (atom3 not run).
+- **m4atom4 (LSE only, opts 2)**: same - gicc7 stage 2. **m4atom6 (no atomics, opts 0, same 3 cores)**: same - gicc7
+  stage 2. => atomics are NOT the trigger. Reproducible 4/4 with IRQ_MASK 0xC8; 0/2 with 0xC0 (m4irq1, m4pmu2).
+  Difference: with 0xC8 an A55 in the OTHER cluster (gicc3) is already running the cached stress (copy + IC IALLUIS +
+  TLBI VMALLE1IS every pass) when gicc7 turns its MMU/caches on; with 0xC0 only the M4 sibling was.
+  Hypothesis: an M4 enabling MMU/caches while DVM broadcasts arrive from the DSU cluster deadlocks.
+  tools/phone/m4run.sh IMAGE [GICC...] = one test cycle (TWRP, flash, reboot, UEFILOG lines, mailboxes).
+- Option bit 5 = no IC IALLUIS / TLBI VMALLE1IS in the passes. boot-m4atom7.img 1c32212c (0xC8, opts 0x20).
+- **m4atom7 (no broadcasts, opts 0x20)**: gicc7 stage 2 again -> DVM broadcasts NOT the trigger.
+- **m4atom8 274eb58c (IRQ_MASK 0xC0 + STRESS_MASK 0x08: gicc3 copy stress WITHOUT interrupts/SGIs)**: BOTH M4s came
+  up (setup stage 4, timers/SGIs fine). => gicc3's flag-7 interrupt activity is the trigger, most likely its SGI 1
+  to gicc6/gicc7 every ms, which starts while the whole M4 cluster is still powered OFF (gicc3 is CPU_ON'd first).
+  (In m4irq1 gicc6 also sent SGIs to a not-yet-started gicc7, but the M4 cluster was already on.)
+  Hypothesis: a pending interrupt aimed at a powered-off M4 (cluster) makes the PMU/EL3 wake it outside PSCI CPU_ON
+  (GIC wake-request -> PMU), which collides with our CPU_ON and wedges that core.
+- BEYOND0LTE_PARK_IRQ_PEER_MASK (flag-7 cores allowed to send the SGI). boot-m4atom10.img bb459c85 = atom6 config
+  (0xC8, opts 0) + PEER_MASK 0xC0 (gicc3 sends no SGIs).
+- **m4atom10 RESULT (02:43)**: gicc3 in flag 7 but sending NO SGIs -> both M4s up (setup stage 4), all counters
+  running. **CONFIRMED: the gicc7 wedge needs SGIs aimed at the M4s while the M4 cluster is still powered off**
+  (a pending interrupt to a powered-off M4 vs. our PSCI CPU_ON). Steady-state SGIs from the A55 to a RUNNING M4 are
+  fine (gicc6 received gicc3's SGIs throughout atom6/7).
+- PMU CPU_INFORM0..7 (0x15860860..0x1586087C, research lead 4): all 0 (read from Windows, VERIFIED).
+- PITFALL 2 (02:44): `peek` of PMU 0x15861300/0x1380/0x1500/0x1580/0x1600/0x1200 (0x50 each) from Windows froze the
+  SoC again (one of those windows; not bisected). Rule from now: no exploratory SFR reads from Windows - only
+  registers already proven safe.
+- **m4vt1 2f926042 (02:52; IRQ_MASK 0xC0, opts 0x40 = EL1 virtual timer PPI 27)**: both M4s take the virtual timer
+  (lastiar 0x1B) at 1 kHz plus SGIs; Windows (6 procs) healthy. CNTVCT - CNTPCT (virtual offset from EL2) = 0..1 tick
+  on every core incl. the M4s (boot CPU 0) - read latency only. Virtual-timer and counter-offset leads OUT.
+- Ruled out on the bare-metal M4 so far this session: ACTLR, interrupts/WFI/SGI (physical + virtual timer), PMU,
+  LSE + LL/SC atomics cross-cluster (on running cores), DVM broadcasts. Found an unrelated bring-up wedge (pending
+  SGI to a powered-off M4 before CPU_ON - not on the Windows path, since nothing sends SGIs before CPU_ON there).

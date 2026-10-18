@@ -132,6 +132,12 @@ ASM_FUNC(Beyond0LteParkStub)
   str   x2, [x1, #0xF50]
   mrs   x2, sctlr_el1
   str   x2, [x1, #0xF58]
+  isb
+  mrs   x2, cntpct_el0              // m14: CNTVCT - CNTPCT = this core's virtual offset (CNTVOFF_EL2, set by EL2)
+  mrs   x3, cntvct_el0
+  str   x2, [x1, #0x3B0]
+  sub   x3, x3, x2
+  str   x3, [x1, #0x3B8]
   movz  w2, #0xBEEF
   movk  w2, #0x5A5A, lsl #16
   str   w2, [x1, #PARK_MARK_OFF]
@@ -200,14 +206,34 @@ ASM_FUNC(Beyond0LteParkStub)
   msr   tcr_el1, x6
   msr   ttbr0_el1, x5
   isb
+  //
+  // m14 setup stages at +0x3F8 (MMU still off here: the stores go straight to DRAM): 1 before the local TLBI,
+  // 2 after its DSB NSH, 3 with the MMU on (cleaned). Flag-7 option bit 3 = Samsung's 9820 dummy broadcast TLBI
+  // between the local TLBI and the DSB (LineageOS exynos9820 arch/arm64/mm/proc.S __cpu_setup, CONFIG_SOC_EXYNOS9820).
+  //
+  mov   w6, #1
+  str   w6, [x1, #0x3F8]
+  dsb   sy
+  ldr   w7, [x1, #0x520]            // flag-7 options (0 for flags 3/6)
   tlbi  vmalle1
+  tbz   w7, #3, 52f
+  tlbi  vaale1is, xzr               // 9820 dummy TLBI
+52:
   dsb   nsh
   isb
+  mov   w6, #2
+  str   w6, [x1, #0x3F8]
+  dsb   sy
   mrs   x6, sctlr_el1
   movz  x7, #0x1005                 // I (bit 12) | C (bit 2) | M (bit 0)
   orr   x6, x6, x7
   msr   sctlr_el1, x6
   isb
+  mov   w6, #3
+  str   w6, [x1, #0x3F8]
+  add   x6, x1, #0x3C0
+  dc    civac, x6
+  dsb   sy
   cmp   w12, #6
   b.eq  10f
   cmp   w12, #7
@@ -274,6 +300,7 @@ ASM_FUNC(Beyond0LteParkStub)
   // GICC 0x10102000 (CTLR +0, PMR +4, IAR +0xC, EOIR +0x10). SGI/PPI enables and priorities are banked per CPU.
   //
 20:
+  ldr   w15, [x1, #0x520]           // options, kept in w15 (bit 5 = no broadcast maintenance, bit 6 = virtual timer)
   msr   vbar_el1, x1
   isb
   movz  x9, #0x1010, lsl #16
@@ -283,13 +310,19 @@ ASM_FUNC(Beyond0LteParkStub)
   mov   w4, #0xA0
   strb  w4, [x10, #0x401]           // SGI 1 priority (this core's bank)
   strb  w4, [x10, #0x41E]           // PPI 30 priority
-  movz  w4, #0x4000, lsl #16
+  strb  w4, [x10, #0x41B]           // PPI 27 (virtual timer) priority
+  movz  w4, #0x4800, lsl #16
   orr   w4, w4, #2
-  str   w4, [x10, #0x100]           // ISENABLER0: PPI 30 | SGI 1
+  str   w4, [x10, #0x100]           // ISENABLER0: PPI 30 | PPI 27 | SGI 1
   mov   w4, #0xF0
   str   w4, [x9, #4]                // GICC_PMR
   mov   w4, #1
   str   w4, [x9]                    // GICC_CTLR EnableGrp1 (non-secure view)
+  mov   w5, #4                      // setup stage 4: GIC programmed
+  str   w5, [x1, #0x3F8]
+  add   x5, x1, #0x3C0
+  dc    civac, x5
+  dsb   sy
   ldr   w4, [x1, #0x520]            // options: bit 0 = PMU probe (below) + cycle-counter read every pass
   tbz   w4, #0, 29f
   //
@@ -342,9 +375,15 @@ ASM_FUNC(Beyond0LteParkStub)
   dsb   sy
 29:
   ldr   x4, [x1, #0x518]
+  mov   x5, #1
+  tbnz  w15, #6, 31f                // option bit 6: EL1 VIRTUAL timer (PPI 27) instead of the physical one
   msr   cntp_tval_el0, x4
-  mov   x4, #1
-  msr   cntp_ctl_el0, x4            // ENABLE, IMASK 0
+  msr   cntp_ctl_el0, x5            // ENABLE, IMASK 0
+  b     32f
+31:
+  msr   cntv_tval_el0, x4
+  msr   cntv_ctl_el0, x5
+32:
   isb
   movz  w3, #0x0007
   movk  w3, #0xC0C0, lsl #16
@@ -365,8 +404,10 @@ ASM_FUNC(Beyond0LteParkStub)
   subs  x26, x26, #32
   b.ne  22b
   dc    civac, x20
+  tbnz  w15, #5, 30f                // option bit 5: skip the DVM broadcasts
   ic    ialluis
   tlbi  vmalle1is
+30:
   dsb   ish
   isb
   add   x23, x23, #1
@@ -387,11 +428,19 @@ ASM_FUNC(Beyond0LteParkStub)
   mov   x6, #1
   mov   w7, #1024
 25:
+  tbnz  w4, #4, 26f                 // option bit 4: LL/SC only (no LSE ops)
   ldaddal x6, x5, [x22]
   swpal   x6, x5, [x13]
   ldr   x8, [x14]
   add   x9, x8, #1
   casal x8, x9, [x14]
+  tbz   w4, #2, 27f                 // option bit 2: also LL/SC on the LDADDAL word (Samsung's 9820 kernel forces
+26:                                 // LSE spinlocks: "use LSE Atomics unless you are sure LL/SC is safe")
+  ldaxr x8, [x22]
+  add   x8, x8, #1
+  stlxr w9, x8, [x22]
+  cbnz  w9, 26b
+27:
   subs  w7, w7, #1
   b.ne  25b
   ldr   x4, [x1, #0x348]
@@ -571,10 +620,17 @@ ASM_PFX(Beyond0LteParkIrq):
   and   w29, w27, #0x3FF
   cmp   w29, #1020
   b.hs  96f
+  cmp   w29, #27
+  b.eq  97f
   cmp   w29, #30
   b.ne  93f
   ldr   x29, [x1, #0x518]
   msr   cntp_tval_el0, x29          // re-arm
+  b     98f
+97:
+  ldr   x29, [x1, #0x518]
+  msr   cntv_tval_el0, x29          // re-arm (virtual timer, option bit 6)
+98:
   ldr   x29, [x1, #0x350]
   add   x29, x29, #1
   str   x29, [x1, #0x350]

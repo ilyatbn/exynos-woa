@@ -150,3 +150,9 @@ the GPU, natively.
     (SPI_GETSCREENSAVERRUNNING; WM_CLOSE to the "Screen-saver" desktop windows or the foreground window if it is a
     *.scr process). The stale hard-error box from attempt 1 cannot be found/closed from the user session
     (tools/phone/rec/dismiss.ps1: FindWindow finds nothing; csrss-owned + UIPI) - needs one OK tap by the user.
+- x64 browser: ungoogled-chromium 155.0.8059.79 windows_x64 (portable zip, C:\S10eTmp\chr64; only flag
+  --no-first-run, no GPU flags) on https://webglsamples.org/aquarium/aquarium.html, recorded 60 s
+  (traces/rec/chr64aq): the GPU process loads "maliumd.dll, maliumd_ec.DLL"; window at ~21 s, page at ~31 s, textures
+  streaming 34-41 s (white/blue scenes = not yet loaded), full aquarium from ~44 s: fps counter 24-27 at 500 fish,
+  canvas 1024x1024. scrnsave.scr not running (tasklist after, 0 "screensaver was" lines) -> number valid; it includes
+  the recorder's own 2 fps GDI capture. The stale mpv hard-error box was gone by then.

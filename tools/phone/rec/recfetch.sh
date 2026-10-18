@@ -3,6 +3,7 @@
 # in the user session through run-as-user.ps1 and a generated one-line launcher), fetch the frames to traces/rec/NAME
 # and pack them (recpack.py: NAME.gif + NAME-sheet.jpg) for a remote viewer. Run from the repo root.
 # CAP=dup in the environment: DXGI desktop duplication (fullscreen D3D games) instead of GDI.
+# !! CAP=dup is suspected of system resets on our driver (4 resets, notes/g27-x64-apps.md) - do not use until fixed.
 # notes/g27-x64-apps.md "Remote viewing".
 set -u
 NAME=${1:?usage: recfetch.sh NAME SECONDS [FPS] [LAUNCH [ARGS]]}; SEC=${2:?seconds}; FPS=${3:-2}; LAUNCH=${4:-}; LARGS=${5:-}

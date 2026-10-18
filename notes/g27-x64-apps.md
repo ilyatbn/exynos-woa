@@ -197,3 +197,22 @@ the GPU, natively.
   AuxKlibGetBugCheckData "can be called only from a BugCheckCallback routine", AuxKlibInitialize first). Built
   (build.bat, test-signed), staged with the new `wddm2dbg.sh diagswap` (diagswap.cmd; old -> System32\drivers\
   S10eDiag.sys.prev), sha 9e30b05b..., active from the next boot. Deployed build was 02b5f4a-era (no other changes).
+- 4th reset (15:42, NFSU2 x86 fullscreen + -dup 70 s): recording complete (138 frames, the last black) -> again AFTER
+  the recorder exited; came back straight to Windows (no TWRP), and the new boot re-initialised the mark ring - lines
+  lost (the ring only survives via the TWRP/WINPRAM path). HYPOTHESIS: screenrec restores SPI_SETSCREENSAVEACTIVE at
+  exit -> the blank screensaver starts at once (input idle long passed) over a fullscreen D3D app -> system dies.
+  Fits dupfs (reset seconds after the end), the post-taskkill reset, nfs5. Direct test: mpv --fs, then scrnsave.scr /s.
+- 15:47:10 mpv fullscreen ~35 s in; starting scrnsave.scr /s
+- Correction: nfs5 frame_0139 (the 140th = last frame of the 70 s run) exists but is empty, dupfs 0048/0049 likewise ->
+  both resets hit at the recorder's last frame / its teardown, BEFORE the screensaver restore. Screensaver test
+  (mpv --fs + scrnsave.scr /s): no reset in 60 s (screensaver gone when checked - inconclusive). New hypothesis: D3D
+  device teardown (screenrec's duplication device; mpv killed in reset 3) while a fullscreen app runs. Test: d3dcs
+  (create + destroy a device) with mpv fullscreen.
+- 15:50:47 d3dcs ARM64 with mpv fullscreen-idle: PASS, no reset. Now taskkill /f of that mpv (repeat of reset 3).
+- 2026-10-18 ~15:5x boot without any -dup run: screensaver over fullscreen mpv, d3dcs with mpv fullscreen, taskkill /f of the
+  fullscreen mpv - no reset. All 4 resets came in boots where screenrec -dup had run (dupfs; B + dupfs2; C + D + kill;
+  nfs5), 2 of them at the recorder's last frame/teardown with a fullscreen app presenting. Conclusion so far: DXGI
+  desktop duplication on our driver (DWM's duplication path / its teardown with a fullscreen flip app) is the prime
+  suspect - not reproducible on demand. Rule until fixed: no -dup capture; fullscreen frames via scan-out dumps.
+  OPEN (own task): repro with the new S10eDiag (BC status) + TWRP path to get the code; KMD side of duplication
+  (cross-process shared surfaces / present path) review.

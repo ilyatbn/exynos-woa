@@ -39,3 +39,20 @@ Limits first version: no GS samplers/SRVs, no SV_PrimitiveID / GS instancing / m
   pan_xfb_info_from_tgsi (output o -> the output variable with driver_location == register_index).
 - With 0124 + 0125 (x86 mali-umd-0124-x86): d3dgs sprites 0/4096 differ (lit 576/576), cut 0 (820/820), passthrough 0
   (1595/1595) -> PASS pixel-exact vs WARP. Regression: d3dcs 7/7, d3dbc lossy 126/126.
+
+## Review of d15fbca / Mesa 0124 + 0125 (AGENTS rule 4)
+- Mechanical: patches 0111-0125 `git am` cleanly onto 5c8935c and reproduce the Mesa branch byte for byte.
+- FOUND (real limit): Panfrost's XFB (pan_cmdstream.c panfrost_launch_xfb) has "TODO: XFB with index buffers" and writes
+  outputs per VERTEX of the draw, not per assembled primitive. Pass 1 therefore matches the compute pass's layout
+  (A = primitives * vpp in primitive order) only for NON-INDEXED LIST topologies (points / lines / triangles / *_adj
+  lists). Indexed draws and strips/fans with a GS bound draw wrong geometry. -> follow-up G25.4: capture per vertex
+  (non-indexed point draw over the referenced vertex range) and let the compute pass resolve primitive vertex k of
+  primitive p through the topology and the application's index buffer.
+- FOUND (ordering): pass 1 (XFB writes A) -> pass 2 (compute reads A) has no explicit barrier; it works in d3dgs
+  (Panfrost orders the jobs in one batch) but the gallium contract wants pipe->memory_barrier between them ->
+  follow-up G25.5.
+- Checked: Device::bound_rs starts NULL (memset) and is restored after pass 1; the D3D runtime binds a default
+  rasterizer at device creation, so NULL is not expected - if it ever is, pass 1's discard state stays bound: G25.5
+  guards it.
+- Checked: tracked constant buffers hold references (released at the next bind / DestroyDevice).
+- Not tested yet: instancing, GS with constant buffers > slot 0, GS output line strips / points.

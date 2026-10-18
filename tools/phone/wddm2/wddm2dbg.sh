@@ -33,7 +33,9 @@ REPO=$(cd "$H/../../.." && pwd)
 PS='powershell -NoProfile -ExecutionPolicy Bypass -File'
 r() { timeout "${T:-120}" ssh s10e "$@" < /dev/null; }
 task() {  # task NAME CMDFILE - run a C:\S10eTmp cmd file once as SYSTEM
-  r "schtasks /create /tn $1 /tr C:\\S10eTmp\\$2 /sc once /st 23:59 /ru SYSTEM /f >nul & schtasks /run /tn $1 >nul & ping -n ${3:-8} 127.0.0.1 >nul"
+  # systask.ps1 allows battery power: schtasks /create tasks stay Queued on battery (phone on a hub without PD power)
+  scp -q -O "$H/systask.ps1" s10e:C:/S10eTmp/ < /dev/null
+  r "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\S10eTmp\\systask.ps1 $1 $2 ${3:-8}" >/dev/null
 }
 cmd=${1:-help}; shift || true
 case $cmd in

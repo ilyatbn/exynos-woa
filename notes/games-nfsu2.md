@@ -128,3 +128,9 @@ errors". SPEED2.EXE = 32-bit x86 (timestamp 0x420aad27).
   a buffer that is being rewritten in strips), not proven. The user's look at the panel decides.
 - 2026-10-18 ~19:1x user back: dgVoodoo.conf switched to exclusive fullscreen (FullScreenMode=true, WindowedAttributes empty; previous kept as dgVoodoo.conf.bak-borderless) - user launches from the desktop icon after the hub reboot.
 - ~19:3x user: exclusive fullscreen is portrait + bars again (the documented dgVoodoo NONPREROTATED case, g24 notes l.107) and 'you fixed it yesterday already' -> dgVoodoo.conf restored to the borderless, fullscreensize config (the working state); MS Learn DXGI_DDI_PRIMARY_DESC: NONPREROTATED = 'applications will handle the output orientation by rotating, for example, the viewport and projection matrix' (dgVoodoo does not). Next: screenshot of the user's icon launch to see what 'windowed' means.
+- ~19:4x user: "it worked fine before in full screen" (yesterday's "upper left corner now ... nice" = exclusive
+  fullscreen with x86 0120-0122) -> regression suspect 0123-0128. Bisect: exclusive fullscreen config again + x86
+  0122 in SysWOW64 (20e38827). Pitfall: wddm2dbg umd32swap's SYSTEM task stayed "Queued" - the phone is on battery
+  (hub without PD power: 94 %, BatteryStatus 1) and schtasks /create tasks default to AC-only; the stale log made the
+  swap look done. Swap done directly in the admin ssh session; wddm2dbg task() now uses systask.ps1
+  (AllowStartIfOnBatteries). User test pending.

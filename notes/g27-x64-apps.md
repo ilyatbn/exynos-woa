@@ -76,3 +76,9 @@ the GPU, natively.
     has "maliumd.dll, maliumd_arm64.DLL" loaded - the forwarder path, as MS Learn describes. dwm/explorer still hold
     the boot-time maliumd.dll. (umdwhich.ps1 now also matches maliumd_arm64/_ec; from the ssh session it lists nothing
     for other users' processes - use tasklist /m.)
+- Review of 3eab80e (G27.3): export counts checked mechanically (dumpbin: 49 functions / 49 names in maliumd.dll ARM64,
+  maliumd_ec.dll, forwarder); wddm2dbg.sh committed as LF (+9 lines; the CRLF warning is the working copy only).
+  Findings -> follow-ups: F1 umdxswap.cmd swapped the forwarder FIRST - a 64-bit process starting before
+  maliumd_arm64/_ec land would get a forwarder without targets -> order now targets first, forwarder last.
+  F2 run-as-user.ps1 passes no arguments, so `edgecdp.ps1 -Stop` cannot be run that way (my "stop" call restarted the
+  debug Edge instead) -> edgecdpstop.ps1.

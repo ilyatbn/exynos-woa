@@ -5,7 +5,8 @@ rem maliumd.dll in place before the first swap is also kept as maliumd.dll.pre-g
 set L=C:\S10eTmp\umdxswap.log
 echo umdxswap > %L%
 if not exist C:\Windows\System32\maliumd.dll.pre-g27 copy /y C:\Windows\System32\maliumd.dll C:\Windows\System32\maliumd.dll.pre-g27 >> %L% 2>&1
-for %%F in (maliumd.dll maliumd_arm64.dll maliumd_ec.dll) do (
+rem targets first, the forwarder last: a process starting mid-swap never finds a forwarder without its targets
+for %%F in (maliumd_arm64.dll maliumd_ec.dll maliumd.dll) do (
   del /f /q C:\Windows\System32\%%F.*.old >nul 2>&1
   if exist C:\Windows\System32\%%F move /y C:\Windows\System32\%%F C:\Windows\System32\%%F.%RANDOM%%RANDOM%.old >> %L% 2>&1
   copy /y C:\S10eTmp\umdx\%%F C:\Windows\System32\%%F >> %L% 2>&1

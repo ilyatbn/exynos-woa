@@ -1,0 +1,1150 @@
+From 65ea19cac00cef8a942e8566c5e88b8e632045f2 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 11:42:40 +0300
+Subject: [PATCH] d3d10umd: emulate the geometry stage - GS as a compute
+ shader, three-pass draw (exynos-woa G25 0125)
+
+Panfrost has no geometry stage. CreateGeometryShader translates the DXBC GS into a compute shader (ShaderTGSI.c
+gs_as_cs: inputs preloaded from the VS outputs, EMIT/CUT -> stores of fixed vertex slots + a restart index buffer).
+A draw with it bound (GsEmu.cpp): VS stream-output variant + rasterizer discard -> A; GS compute -> B, I; I drawn as
+an indexed strip with primitive restart through a passthrough VS; application state restored (GS/CS constant buffers
+and the rasterizer are tracked now). D3D10UMD_GS_DUMP=1 logs A/B/I: diagnosis only. d3dgs 3/3 pixel-exact vs WARP.
+---
+ src/gallium/frontends/d3d10umd/Compute.cpp    |   1 +
+ src/gallium/frontends/d3d10umd/D3D11Tiers.inc |   1 +
+ src/gallium/frontends/d3d10umd/Device.cpp     |   2 +
+ src/gallium/frontends/d3d10umd/Draw.cpp       |  31 +-
+ src/gallium/frontends/d3d10umd/GsEmu.cpp      | 326 ++++++++++++++++++
+ src/gallium/frontends/d3d10umd/GsEmu.h        |  27 ++
+ src/gallium/frontends/d3d10umd/Rasterizer.cpp |   1 +
+ src/gallium/frontends/d3d10umd/Shader.cpp     |  45 ++-
+ src/gallium/frontends/d3d10umd/ShaderParse.c  |  10 +
+ src/gallium/frontends/d3d10umd/ShaderParse.h  |  12 +
+ src/gallium/frontends/d3d10umd/ShaderTGSI.c   | 272 ++++++++++++++-
+ src/gallium/frontends/d3d10umd/State.h        |  32 ++
+ src/gallium/frontends/d3d10umd/meson.build    |   1 +
+ 13 files changed, 755 insertions(+), 6 deletions(-)
+ create mode 100644 src/gallium/frontends/d3d10umd/GsEmu.cpp
+ create mode 100644 src/gallium/frontends/d3d10umd/GsEmu.h
+
+diff --git a/src/gallium/frontends/d3d10umd/Compute.cpp b/src/gallium/frontends/d3d10umd/Compute.cpp
+index 0da1cec..551b72b 100644
+--- a/src/gallium/frontends/d3d10umd/Compute.cpp
++++ b/src/gallium/frontends/d3d10umd/Compute.cpp
+@@ -132,6 +132,7 @@ CsSetConstantBuffers(D3D10DDI_HDEVICE hDevice, UINT StartSlot, UINT NumBuffers,
+       cb.buffer = CastPipeResource(phBuffers[i]);
+       cb.buffer_size = cb.buffer ? cb.buffer->width0 : 0;
+       pDevice->pipe->set_constant_buffer(pDevice->pipe, MESA_SHADER_COMPUTE, StartSlot + i, &cb);
++      DeviceTrackConstantBuffer(pDevice, MESA_SHADER_COMPUTE, StartSlot + i, &cb);   /* exynos-woa G25 */
+    }
+ }
+ 
+diff --git a/src/gallium/frontends/d3d10umd/D3D11Tiers.inc b/src/gallium/frontends/d3d10umd/D3D11Tiers.inc
+index 78ed12c..02fe1c6 100644
+--- a/src/gallium/frontends/d3d10umd/D3D11Tiers.inc
++++ b/src/gallium/frontends/d3d10umd/D3D11Tiers.inc
+@@ -43,6 +43,7 @@ SetConstantBuffers11(mesa_shader_stage stage, D3D10DDI_HDEVICE hDevice, UINT Sta
+          cb.buffer_size = size;
+       }
+       pipe->set_constant_buffer(pipe, stage, Start + i, &cb);
++      DeviceTrackConstantBuffer(CastDevice(hDevice), stage, Start + i, &cb);   /* exynos-woa G25 */
+    }
+ }
+ 
+diff --git a/src/gallium/frontends/d3d10umd/Device.cpp b/src/gallium/frontends/d3d10umd/Device.cpp
+index 2e4f8ac..e64804d 100644
+--- a/src/gallium/frontends/d3d10umd/Device.cpp
++++ b/src/gallium/frontends/d3d10umd/Device.cpp
+@@ -49,6 +49,7 @@ extern "C" void malikm_tlog(const char *fmt, ...);   /* exynos-woa: malikm_drm.c
+ 
+ #include "util/u_sampler.h"
+ #include "util/u_framebuffer.h"
++#include "GsEmu.h"   /* exynos-woa G25 */
+ 
+ 
+ EXTERN_C struct pipe_screen *
+@@ -452,6 +453,7 @@ DestroyDevice(D3D10DDI_HDEVICE hDevice)   // IN
+       pipe_so_target_reference(&pDevice->draw_so_target, NULL);
+    }
+ 
++   GsEmuDestroyDevice(pDevice);   /* exynos-woa G25 */
+    pipe->bind_fs_state(pipe, NULL);
+    pipe->bind_vs_state(pipe, NULL);
+    cso_unbind_context(pDevice->cso);
+diff --git a/src/gallium/frontends/d3d10umd/Draw.cpp b/src/gallium/frontends/d3d10umd/Draw.cpp
+index a6f909d..972b99b 100644
+--- a/src/gallium/frontends/d3d10umd/Draw.cpp
++++ b/src/gallium/frontends/d3d10umd/Draw.cpp
+@@ -39,6 +39,7 @@
+ 
+ #include "util/u_draw.h"
+ #include "util/u_memory.h"
++#include "GsEmu.h"   /* exynos-woa G25 */
+ 
+ static unsigned
+ ClampedUAdd(unsigned a,
+@@ -164,6 +165,17 @@ Draw(D3D10DDI_HDEVICE hDevice,   // IN
+    ResolveState(pDevice);
+ 
+    assert(pDevice->primitive < MESA_PRIM_COUNT);
++   if (pDevice->bound_gs_emu) {   /* exynos-woa G25: through the emulated geometry shader */
++      struct pipe_draw_info info;
++      struct pipe_draw_start_count_bias d;
++      util_draw_init_info(&info);
++      info.mode = pDevice->primitive;
++      memset(&d, 0, sizeof d);
++      d.start = StartVertexLocation;
++      d.count = VertexCount;
++      if (GsEmuDraw(pDevice, &info, &d))
++         return;
++   }
+    util_draw_arrays(pDevice->pipe,
+                     pDevice->primitive,
+                     StartVertexLocation,
+@@ -219,7 +231,8 @@ DrawIndexed(D3D10DDI_HDEVICE hDevice,  // IN
+    info.primitive_restart = true;
+    info.restart_index = restart_index;
+ 
+-   pDevice->pipe->draw_vbo(pDevice->pipe, &info, 0, NULL, &draw, 1);
++   if (!(pDevice->bound_gs_emu && GsEmuDraw(pDevice, &info, &draw)))   /* exynos-woa G25 */
++      pDevice->pipe->draw_vbo(pDevice->pipe, &info, 0, NULL, &draw, 1);
+ 
+    if (null_ib) {
+       pipe_resource_reference(&null_ib, NULL);
+@@ -256,6 +269,19 @@ DrawInstanced(D3D10DDI_HDEVICE hDevice,      // IN
+    ResolveState(pDevice);
+ 
+    assert(pDevice->primitive < MESA_PRIM_COUNT);
++   if (pDevice->bound_gs_emu) {   /* exynos-woa G25 */
++      struct pipe_draw_info info;
++      struct pipe_draw_start_count_bias d;
++      util_draw_init_info(&info);
++      info.mode = pDevice->primitive;
++      info.start_instance = StartInstanceLocation;
++      info.instance_count = InstanceCount;
++      memset(&d, 0, sizeof d);
++      d.start = StartVertexLocation;
++      d.count = VertexCountPerInstance;
++      if (GsEmuDraw(pDevice, &info, &d))
++         return;
++   }
+    util_draw_arrays_instanced(pDevice->pipe,
+                               pDevice->primitive,
+                               StartVertexLocation,
+@@ -322,7 +348,8 @@ DrawIndexedInstanced(D3D10DDI_HDEVICE hDevice,   // IN
+    info.primitive_restart = true;
+    info.restart_index = restart_index;
+ 
+-   pDevice->pipe->draw_vbo(pDevice->pipe, &info, 0, NULL, &draw, 1);
++   if (!(pDevice->bound_gs_emu && GsEmuDraw(pDevice, &info, &draw)))   /* exynos-woa G25 */
++      pDevice->pipe->draw_vbo(pDevice->pipe, &info, 0, NULL, &draw, 1);
+ 
+    if (null_ib) {
+       pipe_resource_reference(&null_ib, NULL);
+diff --git a/src/gallium/frontends/d3d10umd/GsEmu.cpp b/src/gallium/frontends/d3d10umd/GsEmu.cpp
+new file mode 100644
+index 0000000..efb8c4c
+--- /dev/null
++++ b/src/gallium/frontends/d3d10umd/GsEmu.cpp
+@@ -0,0 +1,326 @@
++/*
++ * exynos-woa G25 (notes/g25-geometry-shaders.md): geometry-shader emulation, see GsEmu.h.
++ *
++ * A draw with an emulated GS bound (n = input primitives over all instances, vpp = vertices per input primitive):
++ *  1. the application's draw with a stream-output variant of the bound VS (every output register r -> dwords
++ *     4r..4r+3 of buffer A) and rasterizer discard: A holds n * vpp vertices, primitives assembled;
++ *  2. index buffer I cleared to 0xffffffff, then the GS's compute shader: one invocation per primitive reads its
++ *     vertices from A, writes emitted vertices to B (fixed slots, maxout per primitive) and their indices / strip cuts
++ *     to I (2 * maxout per primitive); the GS's constant buffers are bound to the compute stage, CONST[15][0] = {n, VS
++ *     stride};
++ *  3. I drawn as an indexed point list / line strip / triangle strip with primitive restart through a passthrough VS
++ *     (attribute j = B register r, output = the GS output's semantic).
++ * Then the application's VS, rasterizer, compute and vertex state is put back.
++ * Limits: no GS samplers / resources, no stream output from the GS, strips with primitive restart in the
++ * application's indexed draw count as unbroken (the primitives past what stream output wrote read stale vertices).
++ * SPDX-License-Identifier: MIT
++ */
++#include "GsEmu.h"
++#include "State.h"
++#include "Shader.h"
++#include "ShaderParse.h"
++
++#include "cso_cache/cso_context.h"
++#include "tgsi/tgsi_scan.h"
++#include "tgsi/tgsi_ureg.h"
++#include "util/u_draw.h"
++#include "util/u_inlines.h"
++#include "util/u_memory.h"
++
++extern "C" void malikm_tlog(const char *fmt, ...);
++
++struct GsEmu {
++   struct pipe_resource *a, *b, *i;
++   unsigned a_size, b_size, i_size;
++   struct pipe_stream_output_target *so;   /* on a */
++   void *rs_discard;
++};
++
++static unsigned
++prims_for(enum mesa_prim mode, unsigned c)
++{
++   switch (mode) {
++   case MESA_PRIM_POINTS: return c;
++   case MESA_PRIM_LINES: return c / 2;
++   case MESA_PRIM_LINE_STRIP: return c >= 2 ? c - 1 : 0;
++   case MESA_PRIM_TRIANGLES: return c / 3;
++   case MESA_PRIM_TRIANGLE_STRIP:
++   case MESA_PRIM_TRIANGLE_FAN: return c >= 3 ? c - 2 : 0;
++   case MESA_PRIM_LINES_ADJACENCY: return c / 4;
++   case MESA_PRIM_LINE_STRIP_ADJACENCY: return c >= 4 ? c - 3 : 0;
++   case MESA_PRIM_TRIANGLES_ADJACENCY: return c / 6;
++   case MESA_PRIM_TRIANGLE_STRIP_ADJACENCY: return c >= 6 ? (c - 4) / 2 : 0;
++   default: return 0;
++   }
++}
++
++/* Grow *res to at least size bytes (powers of two). */
++static bool
++ensure_buffer(struct pipe_screen *screen, struct pipe_resource **res, unsigned *cur, unsigned size, unsigned bind)
++{
++   if (*res && *cur >= size)
++      return true;
++   unsigned s = 4096;
++   while (s < size)
++      s *= 2;
++   pipe_resource_reference(res, NULL);
++   *res = pipe_buffer_create(screen, bind, PIPE_USAGE_DEFAULT, s);
++   *cur = *res ? s : 0;
++   return *res != NULL;
++}
++
++static struct GsEmu *
++gsemu_get(Device *dev)
++{
++   if (!dev->gs_emu) {
++      dev->gs_emu = CALLOC_STRUCT(GsEmu);
++      if (dev->gs_emu) {
++         struct pipe_rasterizer_state rs;
++         memset(&rs, 0, sizeof rs);
++         rs.rasterizer_discard = 1;
++         rs.half_pixel_center = 1;
++         rs.depth_clip_near = rs.depth_clip_far = 1;
++         dev->gs_emu->rs_discard = dev->pipe->create_rasterizer_state(dev->pipe, &rs);
++      }
++   }
++   return dev->gs_emu;
++}
++
++/* The VS with stream output of every output register r to dwords 4r..4r+3 (cached in the VS). */
++static bool
++make_so_vs(struct pipe_context *pipe, Shader *vs)
++{
++   struct tgsi_shader_info info;
++   tgsi_scan_shader(vs->state.tokens, &info);
++   if (!info.num_outputs || info.num_outputs > PIPE_MAX_SO_OUTPUTS)
++      return false;
++   struct pipe_shader_state st;
++   memset(&st, 0, sizeof st);
++   st.type = PIPE_SHADER_IR_TGSI;
++   st.tokens = vs->state.tokens;
++   unsigned regs = 0;
++   for (unsigned o = 0; o < info.num_outputs; o++) {
++      unsigned r = vs->output_mapping[o];
++      st.stream_output.output[o].register_index = o;
++      st.stream_output.output[o].start_component = 0;
++      st.stream_output.output[o].num_components = 4;
++      st.stream_output.output[o].output_buffer = 0;
++      st.stream_output.output[o].dst_offset = r * 4;
++      st.stream_output.output[o].stream = 0;
++      regs = MAX2(regs, r + 1);
++   }
++   st.stream_output.num_outputs = info.num_outputs;
++   st.stream_output.stride[0] = regs * 4;
++   vs->gs_so_vs = pipe->create_vs_state(pipe, &st);
++   vs->gs_so_regs = regs;
++   malikm_tlog("GS emulation: VS %p stream-output variant %p, %u outputs, %u registers", vs, vs->gs_so_vs,
++               info.num_outputs, regs);
++   return vs->gs_so_vs != NULL;
++}
++
++/* in j = B register r (the j-th used one) -> out with the GS output's semantic (cached in the GS). */
++static bool
++make_pt_vs(struct pipe_context *pipe, Shader *gs)
++{
++   const struct Shader_extra *ex = gs->extra;
++   struct ureg_program *u = ureg_create(MESA_SHADER_VERTEX);
++   if (!u)
++      return false;
++   unsigned j = 0;
++   for (unsigned r = 0; r < ex->gs_out_regs; r++) {
++      if (!ex->gs_out[r].used)
++         continue;
++      ureg_MOV(u, ureg_DECL_output(u, (enum tgsi_semantic)ex->gs_out[r].name, ex->gs_out[r].index),
++               ureg_DECL_vs_input(u, j++));
++   }
++   ureg_END(u);
++   gs->gs_pt_tokens = ureg_get_tokens(u, NULL);
++   ureg_destroy(u);
++   if (!gs->gs_pt_tokens)
++      return false;
++   struct pipe_shader_state st;
++   memset(&st, 0, sizeof st);
++   st.type = PIPE_SHADER_IR_TGSI;
++   st.tokens = gs->gs_pt_tokens;
++   gs->gs_pt_vs = pipe->create_vs_state(pipe, &st);
++   return gs->gs_pt_vs != NULL;
++}
++
++bool
++GsEmuDraw(Device *dev, const struct pipe_draw_info *info, const struct pipe_draw_start_count_bias *draw)
++{
++   Shader *gs = dev->bound_gs_emu, *vs = dev->bound_vs;
++   if (!gs || !gs->gs_cs || !gs->extra || !vs || !vs->handle || !vs->state.tokens)
++      return false;
++   struct pipe_context *pipe = dev->pipe;
++   const struct Shader_extra *ex = gs->extra;
++   unsigned inst = info->instance_count ? info->instance_count : 1;
++   unsigned n = prims_for((enum mesa_prim)info->mode, draw->count) * inst;
++   unsigned vpp = MAX2(ex->gs_vpp, 1), maxout = ex->gs_maxout;
++   if (!n || !maxout || !ex->gs_out_regs)
++      return true;   /* nothing a GS could emit */
++   if (!vs->gs_so_vs && !make_so_vs(pipe, vs))
++      return true;
++   if (!gs->gs_pt_vs && !make_pt_vs(pipe, gs))
++      return true;
++   struct GsEmu *e = gsemu_get(dev);
++   if (!e || !e->rs_discard)
++      return true;
++   unsigned vs_stride = vs->gs_so_regs * 16, gs_stride = ex->gs_out_regs * 16;
++   unsigned a_need = n * vpp * vs_stride, b_need = n * maxout * gs_stride, i_need = n * 2 * maxout * 4;
++   struct pipe_resource *old_a = e->a;
++   if (!ensure_buffer(pipe->screen, &e->a, &e->a_size, a_need, PIPE_BIND_STREAM_OUTPUT | PIPE_BIND_SHADER_BUFFER) ||
++       !ensure_buffer(pipe->screen, &e->b, &e->b_size, b_need, PIPE_BIND_VERTEX_BUFFER | PIPE_BIND_SHADER_BUFFER) ||
++       !ensure_buffer(pipe->screen, &e->i, &e->i_size, i_need, PIPE_BIND_INDEX_BUFFER | PIPE_BIND_SHADER_BUFFER))
++      return true;
++   if (!e->so || e->a != old_a) {
++      pipe_so_target_reference(&e->so, NULL);
++      e->so = pipe->create_stream_output_target(pipe, e->a, 0, e->a_size);
++      if (!e->so)
++         return true;
++   }
++
++   /* 1. VS outputs -> A */
++   pipe->bind_vs_state(pipe, vs->gs_so_vs);
++   pipe->bind_rasterizer_state(pipe, e->rs_discard);
++   unsigned zero = 0;
++   pipe->set_stream_output_targets(pipe, 1, &e->so, &zero, (enum mesa_prim)info->mode);
++   pipe->draw_vbo(pipe, info, 0, NULL, draw, 1);
++   pipe->set_stream_output_targets(pipe, 0, NULL, NULL, MESA_PRIM_UNKNOWN);
++   pipe->bind_rasterizer_state(pipe, dev->bound_rs);
++
++   /* 2. the GS as compute: A -> B, I */
++   uint32_t restart = 0xffffffffu;
++   pipe->clear_buffer(pipe, e->i, 0, i_need, &restart, 4);
++   pipe->bind_compute_state(pipe, gs->gs_cs);
++   struct pipe_shader_buffer sb[3];
++   memset(sb, 0, sizeof sb);
++   sb[0].buffer = e->a; sb[0].buffer_size = a_need;
++   sb[1].buffer = e->b; sb[1].buffer_size = b_need;
++   sb[2].buffer = e->i; sb[2].buffer_size = i_need;
++   pipe->set_shader_buffers(pipe, MESA_SHADER_COMPUTE, 0, 3, sb, 0x6);
++   for (unsigned s = 0; s < GS_EMU_TRACKED_CBS - 1; s++)
++      pipe->set_constant_buffer(pipe, MESA_SHADER_COMPUTE, s, &dev->tracked_cb[0][s]);
++   uint32_t param[4] = { n, vs_stride, 0, 0 };
++   struct pipe_constant_buffer pcb;
++   memset(&pcb, 0, sizeof pcb);
++   pcb.user_buffer = param;
++   pcb.buffer_size = sizeof param;
++   pipe->set_constant_buffer(pipe, MESA_SHADER_COMPUTE, GS_EMU_TRACKED_CBS - 1, &pcb);
++   struct pipe_grid_info grid;
++   memset(&grid, 0, sizeof grid);
++   grid.block[0] = ex->block[0] ? ex->block[0] : 64;
++   grid.block[1] = grid.block[2] = 1;
++   grid.grid[0] = (n + grid.block[0] - 1) / grid.block[0];
++   grid.grid[1] = grid.grid[2] = 1;
++   pipe->launch_grid(pipe, &grid);
++   pipe->memory_barrier(pipe, PIPE_BARRIER_VERTEX_BUFFER | PIPE_BARRIER_INDEX_BUFFER | PIPE_BARRIER_SHADER_BUFFER);
++   {
++      /* D3D10UMD_GS_DUMP=1: diagnosis only (AGENTS.md rule 12) - the first dwords of A, B and I after the GS pass */
++      static int dump = -1;
++      if (dump < 0) {
++         const char *v = getenv("D3D10UMD_GS_DUMP");
++         dump = v && *v == '1' ? 4 : 0;
++      }
++      if (dump > 0) {
++         dump--;
++         struct pipe_resource *bufs[3] = { e->a, e->b, e->i };
++         const char *nm[3] = { "A", "B", "I" };
++         for (int k = 0; k < 3; k++) {
++            struct pipe_transfer *t = NULL;
++            const uint32_t *m = (const uint32_t *)pipe_buffer_map_range(pipe, bufs[k], 0, 64, PIPE_MAP_READ, &t);
++            if (!m) {
++               malikm_tlog("GS dump %s: map failed", nm[k]);
++               continue;
++            }
++            malikm_tlog("GS dump %s: %08x %08x %08x %08x %08x %08x %08x %08x  %08x %08x %08x %08x %08x %08x %08x %08x",
++                        nm[k], m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10], m[11], m[12], m[13],
++                        m[14], m[15]);
++            pipe_buffer_unmap(pipe, t);
++         }
++      }
++   }
++   /* the application's compute state back (its CS buffers are bound at each Dispatch) */
++   pipe->set_shader_buffers(pipe, MESA_SHADER_COMPUTE, 0, 3, NULL, 0);
++   for (unsigned s = 0; s < GS_EMU_TRACKED_CBS; s++)
++      pipe->set_constant_buffer(pipe, MESA_SHADER_COMPUTE, s, &dev->tracked_cb[1][s]);
++   pipe->bind_compute_state(pipe, dev->bound_cs ? dev->bound_cs->handle : NULL);
++
++   /* 3. B through the passthrough VS, strips from I */
++   pipe->bind_vs_state(pipe, gs->gs_pt_vs);
++   struct cso_velems_state ve;
++   memset(&ve, 0, sizeof ve);
++   for (unsigned r = 0; r < ex->gs_out_regs; r++) {
++      if (!ex->gs_out[r].used)
++         continue;
++      struct pipe_vertex_element *el = &ve.velems[ve.count++];
++      el->src_offset = r * 16;
++      el->src_stride = gs_stride;
++      el->vertex_buffer_index = 0;
++      el->src_format = PIPE_FORMAT_R32G32B32A32_FLOAT;
++   }
++   cso_set_vertex_elements(dev->cso, &ve);
++   struct pipe_vertex_buffer vb;
++   memset(&vb, 0, sizeof vb);
++   vb.buffer.resource = e->b;
++   cso_set_vertex_buffers(dev->cso, 1, &vb);
++   struct pipe_draw_info di;
++   util_draw_init_info(&di);
++   di.mode = ex->gs_out_prim;
++   di.index_size = 4;
++   di.index.resource = e->i;
++   di.primitive_restart = true;
++   di.restart_index = 0xffffffffu;
++   struct pipe_draw_start_count_bias dd;
++   memset(&dd, 0, sizeof dd);
++   dd.count = n * 2 * maxout;
++   pipe->draw_vbo(pipe, &di, 0, NULL, &dd, 1);
++
++   /* the application's VS and vertex state back (ResolveState rebinds them at the next draw) */
++   pipe->bind_vs_state(pipe, vs->handle);
++   dev->velems_changed = TRUE;
++   dev->vbuffers_changed = TRUE;
++
++   static unsigned logged;
++   if (logged++ < 8)
++      malikm_tlog("GS emulation draw: mode %u count %u x%u -> %u primitives, maxout %u, out prim %u, VS stride %u, "
++                  "GS stride %u", (unsigned)info->mode, draw->count, inst, n, maxout, ex->gs_out_prim, vs_stride, gs_stride);
++   return true;
++}
++
++void
++GsEmuDestroyDevice(Device *dev)
++{
++   struct GsEmu *e = dev->gs_emu;
++   for (unsigned st = 0; st < 2; st++)
++      for (unsigned s = 0; s < GS_EMU_TRACKED_CBS; s++)
++         pipe_resource_reference(&dev->tracked_cb[st][s].buffer, NULL);
++   if (!e)
++      return;
++   pipe_so_target_reference(&e->so, NULL);
++   pipe_resource_reference(&e->a, NULL);
++   pipe_resource_reference(&e->b, NULL);
++   pipe_resource_reference(&e->i, NULL);
++   if (e->rs_discard)
++      dev->pipe->delete_rasterizer_state(dev->pipe, e->rs_discard);
++   FREE(e);
++   dev->gs_emu = NULL;
++}
++
++void
++GsEmuDestroyShader(Device *dev, Shader *shader)
++{
++   struct pipe_context *pipe = dev->pipe;
++   if (shader->type == MESA_SHADER_VERTEX && shader->gs_so_vs) {
++      pipe->delete_vs_state(pipe, shader->gs_so_vs);
++      shader->gs_so_vs = NULL;
++   }
++   if (shader->type == MESA_SHADER_GEOMETRY) {
++      if (shader->gs_pt_vs)
++         pipe->delete_vs_state(pipe, shader->gs_pt_vs);
++      shader->gs_pt_vs = NULL;
++      if (shader->gs_pt_tokens)
++         ureg_free_tokens(shader->gs_pt_tokens);
++      shader->gs_pt_tokens = NULL;
++   }
++}
+diff --git a/src/gallium/frontends/d3d10umd/GsEmu.h b/src/gallium/frontends/d3d10umd/GsEmu.h
+new file mode 100644
+index 0000000..1bf66e5
+--- /dev/null
++++ b/src/gallium/frontends/d3d10umd/GsEmu.h
+@@ -0,0 +1,27 @@
++/*
++ * exynos-woa G25 (notes/g25-geometry-shaders.md): geometry shaders on a driver without a geometry stage (Panfrost).
++ * The GS is translated into a compute shader at creation (ShaderTGSI.c, Shader_extra::gs_as_cs); a draw with it bound
++ * runs three passes - the VS with stream output, the GS as compute, the emitted strips through a passthrough VS.
++ * SPDX-License-Identifier: MIT
++ */
++#ifndef GS_EMU_H
++#define GS_EMU_H
++
++#include "DriverIncludes.h"
++
++struct Device;
++struct Shader;
++struct pipe_draw_info;
++struct pipe_draw_start_count_bias;
++
++/* Draws info/draw through the emulated GS bound on dev (Device::bound_gs_emu); true when the draw was handled (also
++ * when there was nothing to draw), false when no emulated GS applies and the caller draws normally. */
++bool GsEmuDraw(struct Device *dev, const struct pipe_draw_info *info, const struct pipe_draw_start_count_bias *draw);
++
++/* Releases dev's emulation buffers (DestroyDevice). */
++void GsEmuDestroyDevice(struct Device *dev);
++
++/* Releases the per-shader objects (the VS stream-output variant, the GS passthrough VS) - DestroyShader. */
++void GsEmuDestroyShader(struct Device *dev, struct Shader *shader);
++
++#endif
+diff --git a/src/gallium/frontends/d3d10umd/Rasterizer.cpp b/src/gallium/frontends/d3d10umd/Rasterizer.cpp
+index 0dad6a9..7a0c9a8 100644
+--- a/src/gallium/frontends/d3d10umd/Rasterizer.cpp
++++ b/src/gallium/frontends/d3d10umd/Rasterizer.cpp
+@@ -290,4 +290,5 @@ SetRasterizerState(D3D10DDI_HDEVICE hDevice,                   // IN
+    void *state = CastPipeRasterizerState(hRasterizerState);
+ 
+    pipe->bind_rasterizer_state(pipe, state);
++   CastDevice(hDevice)->bound_rs = state;   /* exynos-woa G25: restored after an emulated-GS draw */
+ }
+diff --git a/src/gallium/frontends/d3d10umd/Shader.cpp b/src/gallium/frontends/d3d10umd/Shader.cpp
+index 204f64f..92a4e8e 100644
+--- a/src/gallium/frontends/d3d10umd/Shader.cpp
++++ b/src/gallium/frontends/d3d10umd/Shader.cpp
+@@ -40,6 +40,8 @@
+ #include "Format.h"
+ 
+ #include "tgsi/tgsi_ureg.h"
++#include "nir/tgsi_to_nir.h"   /* exynos-woa G25: the emulated GS as a compute CSO */
++#include "GsEmu.h"
+ #include "util/u_gen_mipmap.h"
+ #include "util/u_sampler.h"
+ #include "util/format/u_format.h"
+@@ -198,6 +200,7 @@ SetConstantBuffers(mesa_shader_stage shader_type,    // IN
+                                 shader_type,
+                                 StartBuffer + i,
+                                 &cb);
++      DeviceTrackConstantBuffer(pDevice, shader_type, StartBuffer + i, &cb);   /* exynos-woa G25 */
+    }
+ }
+ 
+@@ -344,7 +347,16 @@ DestroyShader(D3D10DDI_HDEVICE hDevice,   // IN
+    if (pShader->state.tokens) {
+       ureg_free_tokens(pShader->state.tokens);
+    }
+-   if (pShader->type == MESA_SHADER_COMPUTE) {   /* exynos-woa G24: only CreateComputeShader zeroes the object */
++   GsEmuDestroyShader(CastDevice(hDevice), pShader);   /* exynos-woa G25 */
++   if (pShader->type == MESA_SHADER_COMPUTE || pShader->type == MESA_SHADER_GEOMETRY) {
++      /* exynos-woa G24 / G25: only these creates set extra (CreateComputeShader zeroes the object, the GS creates set
++       * extra and gs_cs) */
++      if (pShader->type == MESA_SHADER_GEOMETRY && pShader->gs_cs) {
++         if (CastDevice(hDevice)->bound_gs_emu == pShader)
++            CastDevice(hDevice)->bound_gs_emu = NULL;
++         pipe->delete_compute_state(pipe, pShader->gs_cs);
++         pShader->gs_cs = NULL;
++      }
+       FREE(pShader->extra);
+       pShader->extra = NULL;
+    }
+@@ -577,6 +589,8 @@ CreateVertexShader(D3D10DDI_HDEVICE hDevice,                                  //
+ 
+    pShader->type = MESA_SHADER_VERTEX;
+    pShader->output_resolved = true;
++   pShader->gs_so_vs = NULL;   /* exynos-woa G25: the private memory is not zeroed */
++   pShader->gs_so_regs = 0;
+ 
+    memset(&pShader->state, 0, sizeof pShader->state);
+    pShader->state.tokens = Shader_tgsi_translate(pCode, pShader->output_mapping);
+@@ -716,10 +730,30 @@ CreateGeometryShader(D3D10DDI_HDEVICE hDevice,                                //
+ 
+    memset(&pShader->state, 0, sizeof pShader->state);
+    pShader->state.tokens = Shader_tgsi_translate(pShaderCode, pShader->output_mapping);
++   pShader->extra = NULL;   /* exynos-woa G25: the private memory is not zeroed */
++   pShader->gs_cs = NULL;
++   pShader->gs_pt_vs = NULL;
++   pShader->gs_pt_tokens = NULL;
+ 
+-   if (!pipe->create_gs_state) {   /* exynos-woa G25 */
++   if (!pipe->create_gs_state) {   /* exynos-woa G25: emulated - the GS as a compute shader (GsEmu.cpp) */
+       gs_unsupported(pShaderCode);
+       pShader->handle = NULL;
++      pShader->extra = (struct Shader_extra *)CALLOC_STRUCT(Shader_extra);
++      if (pShader->extra) {
++         pShader->extra->gs_as_cs = true;
++         const struct tgsi_token *tokens = Shader_tgsi_translate_ex(pShaderCode, NULL, pShader->extra);
++         if (tokens) {
++            struct pipe_compute_state cs;
++            memset(&cs, 0, sizeof cs);
++            cs.ir_type = PIPE_SHADER_IR_NIR;
++            cs.prog = tgsi_to_nir(tokens, pipe->screen, false);
++            ureg_free_tokens(tokens);
++            pShader->gs_cs = pipe->create_compute_state(pipe, &cs);
++         }
++         malikm_tlog("GS emulated as compute %p: %u vertices in, maxout %u, out prim %u, %u output registers",
++                     pShader->gs_cs, pShader->extra->gs_vpp, pShader->extra->gs_maxout, pShader->extra->gs_out_prim,
++                     pShader->extra->gs_out_regs);
++      }
+       return;
+    }
+    pShader->handle = pipe->create_gs_state(pipe, &pShader->state);
+@@ -748,8 +782,9 @@ GsSetShader(D3D10DDI_HDEVICE hDevice,  // IN
+    void *state = CastPipeShader(hShader);
+    Shader *pShader = CastShader(hShader);
+ 
+-   if (!pipe->bind_gs_state) {   /* exynos-woa G25: no geometry stage in the driver */
++   if (!pipe->bind_gs_state) {   /* exynos-woa G25: no geometry stage in the driver - the draw emulates it */
+       pDevice->bound_empty_gs = NULL;
++      pDevice->bound_gs_emu = (pShader && pShader->gs_cs) ? pShader : NULL;
+       return;
+    }
+ 
+@@ -884,6 +919,10 @@ CreateGeometryShaderWithStreamOutput(
+    bool all_slot_zero = true;
+ 
+    pShader->type = MESA_SHADER_GEOMETRY;
++   pShader->extra = NULL;   /* exynos-woa G25: the private memory is not zeroed */
++   pShader->gs_cs = NULL;
++   pShader->gs_pt_vs = NULL;
++   pShader->gs_pt_tokens = NULL;
+ 
+    memset(&pShader->state, 0, sizeof pShader->state);
+    if (pData->pShaderCode) {
+diff --git a/src/gallium/frontends/d3d10umd/ShaderParse.c b/src/gallium/frontends/d3d10umd/ShaderParse.c
+index 9f0a6c9..50de669 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderParse.c
++++ b/src/gallium/frontends/d3d10umd/ShaderParse.c
+@@ -662,3 +662,13 @@ Shader_opcode_free(struct Shader_opcode *opcode)
+       }
+    }
+ }
++
++/* exynos-woa G25: a declaration (or the immediate constant buffer, which sits among them) - the GS-as-compute
++ * translation emits its prologue at the first token that is neither. */
++bool
++Shader_opcode_is_declaration(unsigned type)
++{
++   if (type == D3D10_SB_OPCODE_CUSTOMDATA)
++      return true;
++   return type < D3D10_SB_NUM_OPCODES && (opcode_info[type].flags & OP_DCL);
++}
+diff --git a/src/gallium/frontends/d3d10umd/ShaderParse.h b/src/gallium/frontends/d3d10umd/ShaderParse.h
+index 08716c7..1825f08 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderParse.h
++++ b/src/gallium/frontends/d3d10umd/ShaderParse.h
+@@ -190,8 +190,20 @@ struct Shader_extra {
+    struct Shader_buffer_binding buffers[SHADER_MAX_BUFFERS];
+    unsigned shared_size;
+    unsigned block[3];
++   /* exynos-woa G25 (notes/g25-geometry-shaders.md): a geometry shader translated into a compute shader (the caller
++    * sets gs_as_cs). Buffers: 0 = the VS outputs (input), 1 = the emitted vertices, 2 = the strip index buffer;
++    * CONST[15][0] = {input primitives, VS output stride in bytes, -, -}. Filled by the translation: */
++   bool gs_as_cs;
++   unsigned gs_vpp;        /* vertices per input primitive */
++   unsigned gs_maxout;     /* dcl_maxout */
++   unsigned gs_out_prim;   /* MESA_PRIM_POINTS / LINE_STRIP / TRIANGLE_STRIP */
++   unsigned gs_out_regs;   /* highest output register + 1: the emitted vertex stride in vec4s */
++   struct { unsigned char used, name, index; } gs_out[32];   /* TGSI semantic per register (32 = ShaderTGSI.c SHADER_MAX_OUTPUTS) */
+ };
+ 
++bool
++Shader_opcode_is_declaration(unsigned type);   /* exynos-woa G25 */
++
+ const struct tgsi_token *
+ Shader_tgsi_translate_ex(const unsigned *code,
+                          unsigned *output_mapping,
+diff --git a/src/gallium/frontends/d3d10umd/ShaderTGSI.c b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+index eb3806b..09cccd0 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderTGSI.c
++++ b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+@@ -278,6 +278,16 @@ struct Shader_xlate {
+    bool memory_declared;
+    struct ureg_src cs_tid, cs_gid;
+    bool cs_sv_declared;
++
++   /* exynos-woa G25 (notes/g25-geometry-shaders.md): a geometry shader translated into a compute shader */
++   bool gs_cs, gs_prologue_done;
++   bool gs_in_declared[SHADER_MAX_INPUTS];
++   unsigned gs_in_siv[SHADER_MAX_INPUTS];
++   struct ureg_dst gs_in[SHADER_MAX_INPUTS];    /* per input register an array temporary, one element per vertex */
++   struct ureg_dst gs_out[SHADER_MAX_OUTPUTS];  /* the output registers, as temporaries */
++   struct ureg_dst gs_state;                    /* .x primitive, .y active (prim < count), .z emitted, .w indices */
++   struct ureg_dst gs_primc;                    /* .x the primitive clamped to count - 1 (input loads) */
++   struct ureg_src gs_param;                    /* CONST[15][0]: .x primitives, .y VS output stride in bytes */
+ };
+ 
+ /* exynos-woa G24: a raw / structured access target - the TGSI BUFFER or MEMORY register, structure stride, byte base */
+@@ -490,6 +500,25 @@ dcl_base_output(struct Shader_xlate *sx,
+    }
+ }
+ 
++/* exynos-woa G25: a GS-as-compute output register - one temporary per register (packed declarations share it); the
++ * TGSI semantic it would have had is recorded for the draw's passthrough vertex shader. */
++static void
++gs_dcl_output(struct Shader_xlate *sx, const struct Shader_dst_operand *operand, unsigned name, unsigned index)
++{
++   unsigned r = operand->base.index[0].imm;
++   if (r >= SHADER_MAX_OUTPUTS)
++      return;
++   if (!sx->extra->gs_out[r].used) {
++      sx->gs_out[r] = ureg_DECL_temporary(sx->ureg);
++      ureg_MOV(sx->ureg, sx->gs_out[r], ureg_imm4f(sx->ureg, 0.0f, 0.0f, 0.0f, 0.0f));
++      sx->extra->gs_out[r].used = 1;
++      sx->extra->gs_out[r].name = (unsigned char)name;
++      sx->extra->gs_out[r].index = (unsigned char)index;
++      sx->extra->gs_out_regs = MAX2(sx->extra->gs_out_regs, r + 1);
++   }
++   dcl_base_output(sx, sx->ureg, sx->gs_out[r], operand);
++}
++
+ static void
+ dcl_base_input(struct Shader_xlate *sx,
+                struct ureg_program *ureg,
+@@ -1004,6 +1033,158 @@ buffer_address(struct Shader_xlate *sx, const struct buf_ref *r, const struct Sh
+    return ureg_scalar(ureg_src(a), TGSI_SWIZZLE_X);
+ }
+ 
++/* ---- exynos-woa G25: geometry shader as a compute shader (notes/g25-geometry-shaders.md) ----
++ * One invocation per input primitive (64 per group). Prologue: primitive = group * 64 + thread, active = primitive <
++ * count, then every declared input register of every vertex is loaded from buffer 0 (the VS outputs the draw captured
++ * with stream output: vertex (primitive * vpp + k), register r at r * 16, VS stride CONST[15][0].y). Output registers
++ * are temporaries; EMIT stores them to buffer 1 (vertex slot primitive * maxout + emitted) and appends that slot to the
++ * index buffer 2 (primitive * 2 maxout + indices), CUT appends 0xffffffff (primitive restart). Emits past maxout and
++ * past the index space are dropped; inactive invocations (the group's tail) store nothing. */
++#define GS_BLOCK 64
++
++static void
++gs_prologue(struct Shader_xlate *sx)
++{
++   struct ureg_program *u = sx->ureg;
++   struct Shader_extra *ex = sx->extra;
++   unsigned vpp = MAX2(ex->gs_vpp, 1);
++   sx->gs_prologue_done = true;
++
++   ureg_DECL_buffer(u, 0, false);
++   ureg_DECL_buffer(u, 1, false);
++   ureg_DECL_buffer(u, 2, false);
++   ureg_DECL_constant2D(u, 0, 0, 15);
++   sx->gs_param = ureg_src_dimension(ureg_src_register(TGSI_FILE_CONSTANT, 0), 15);
++
++   struct ureg_src tid = ureg_DECL_system_value(u, TGSI_SEMANTIC_THREAD_ID, 0);
++   struct ureg_src bid = ureg_DECL_system_value(u, TGSI_SEMANTIC_BLOCK_ID, 0);
++   struct ureg_dst st = sx->gs_state = ureg_DECL_temporary(u);
++   struct ureg_dst pc = sx->gs_primc = ureg_DECL_temporary(u);
++   ureg_UMAD(u, ureg_writemask(st, TGSI_WRITEMASK_X), ureg_scalar(bid, TGSI_SWIZZLE_X), ureg_imm1u(u, GS_BLOCK),
++             ureg_scalar(tid, TGSI_SWIZZLE_X));
++   ureg_USLT(u, ureg_writemask(st, TGSI_WRITEMASK_Y), ureg_scalar(ureg_src(st), TGSI_SWIZZLE_X),
++             ureg_scalar(sx->gs_param, TGSI_SWIZZLE_X));
++   ureg_MOV(u, ureg_writemask(st, TGSI_WRITEMASK_ZW), ureg_imm1u(u, 0));
++   ureg_UADD(u, ureg_writemask(pc, TGSI_WRITEMASK_X), ureg_scalar(sx->gs_param, TGSI_SWIZZLE_X), ureg_imm1i(u, -1));
++   ureg_UMIN(u, ureg_writemask(pc, TGSI_WRITEMASK_X), ureg_scalar(ureg_src(st), TGSI_SWIZZLE_X),
++             ureg_scalar(ureg_src(pc), TGSI_SWIZZLE_X));
++
++   struct ureg_dst base = ureg_writemask(ureg_DECL_temporary(u), TGSI_WRITEMASK_X);
++   struct ureg_dst addr = ureg_writemask(ureg_DECL_temporary(u), TGSI_WRITEMASK_X);
++   for (unsigned r = 0; r < SHADER_MAX_INPUTS; r++)
++      if (sx->gs_in_declared[r])
++         sx->gs_in[r] = ureg_DECL_array_temporary(u, vpp, false);
++   for (unsigned k = 0; k < vpp; k++) {
++      /* byte address of vertex (primitive * vpp + k) */
++      ureg_UMAD(u, base, ureg_scalar(ureg_src(pc), TGSI_SWIZZLE_X), ureg_imm1u(u, vpp), ureg_imm1u(u, k));
++      ureg_UMUL(u, base, ureg_scalar(ureg_src(base), TGSI_SWIZZLE_X), ureg_scalar(sx->gs_param, TGSI_SWIZZLE_Y));
++      for (unsigned r = 0; r < SHADER_MAX_INPUTS; r++) {
++         if (!sx->gs_in_declared[r])
++            continue;
++         struct ureg_dst dst = ureg_dst_array_offset(sx->gs_in[r], (int)k);
++         if (sx->gs_in_siv[r] == D3D10_SB_NAME_PRIMITIVE_ID) {
++            ureg_MOV(u, dst, ureg_scalar(ureg_src(st), TGSI_SWIZZLE_X));
++            continue;
++         }
++         ureg_UADD(u, addr, ureg_scalar(ureg_src(base), TGSI_SWIZZLE_X), ureg_imm1u(u, r * 16));
++         struct ureg_src src[2] = { ureg_src_register(TGSI_FILE_BUFFER, 0), ureg_scalar(ureg_src(addr), TGSI_SWIZZLE_X) };
++         ureg_memory_insn(u, TGSI_OPCODE_LOAD, &dst, 1, src, 2, 0, TGSI_TEXTURE_BUFFER, PIPE_FORMAT_NONE);
++      }
++   }
++   ureg_release_temporary(u, base);
++   ureg_release_temporary(u, addr);
++}
++
++/* v[k][r] (or vPrim) as a source. */
++static struct ureg_src
++gs_input_src(struct Shader_xlate *sx, const struct Shader_operand *op)
++{
++   unsigned r = op->index_dim == 2 ? op->index[1].imm : op->index[0].imm;
++   if (r >= SHADER_MAX_INPUTS || !sx->gs_in_declared[r]) {
++      LOG_UNSUPPORTED(true);
++      return ureg_imm1f(sx->ureg, 0.0f);
++   }
++   if (op->index_dim == 2 && op->index[0].index_rep != D3D10_SB_OPERAND_INDEX_IMMEDIATE32) {
++      /* a relative vertex index: through the register's array */
++      struct ureg_src rel = translate_relative_operand(sx, &op->index[0].rel);
++      int off = op->index[0].index_rep == D3D10_SB_OPERAND_INDEX_IMMEDIATE32_PLUS_RELATIVE ? (int)op->index[0].imm : 0;
++      return ureg_src_indirect(ureg_src(ureg_dst_array_offset(sx->gs_in[r], off)), rel);
++   }
++   unsigned k = op->index_dim == 2 ? op->index[0].imm : 0;
++   return ureg_src(ureg_dst_array_offset(sx->gs_in[r], (int)k));
++}
++
++/* EMIT: store the output registers as vertex (primitive * maxout + emitted), append its index. */
++static void
++gs_emit(struct Shader_xlate *sx)
++{
++   struct ureg_program *u = sx->ureg;
++   struct Shader_extra *ex = sx->extra;
++   unsigned maxout = MAX2(ex->gs_maxout, 1), stride = MAX2(ex->gs_out_regs, 1) * 16;
++   struct ureg_src st = ureg_src(sx->gs_state);
++   struct ureg_dst c = ureg_DECL_temporary(u);
++   /* c.x = active && emitted < maxout && indices < 2 maxout */
++   ureg_USLT(u, ureg_writemask(c, TGSI_WRITEMASK_Y), ureg_scalar(st, TGSI_SWIZZLE_Z), ureg_imm1u(u, maxout));
++   ureg_USLT(u, ureg_writemask(c, TGSI_WRITEMASK_Z), ureg_scalar(st, TGSI_SWIZZLE_W), ureg_imm1u(u, 2 * maxout));
++   ureg_AND(u, ureg_writemask(c, TGSI_WRITEMASK_X), ureg_scalar(st, TGSI_SWIZZLE_Y), ureg_scalar(ureg_src(c), TGSI_SWIZZLE_Y));
++   ureg_AND(u, ureg_writemask(c, TGSI_WRITEMASK_X), ureg_scalar(ureg_src(c), TGSI_SWIZZLE_X),
++            ureg_scalar(ureg_src(c), TGSI_SWIZZLE_Z));
++   unsigned label = 0;
++   ureg_UIF(u, ureg_scalar(ureg_src(c), TGSI_SWIZZLE_X), &label);
++   {
++      /* c.y = vertex slot, c.z = its byte address, c.w = index byte address */
++      ureg_UMAD(u, ureg_writemask(c, TGSI_WRITEMASK_Y), ureg_scalar(st, TGSI_SWIZZLE_X), ureg_imm1u(u, maxout),
++                ureg_scalar(st, TGSI_SWIZZLE_Z));
++      ureg_UMUL(u, ureg_writemask(c, TGSI_WRITEMASK_Z), ureg_scalar(ureg_src(c), TGSI_SWIZZLE_Y), ureg_imm1u(u, stride));
++      for (unsigned r = 0; r < SHADER_MAX_OUTPUTS; r++) {
++         if (!ex->gs_out[r].used)
++            continue;
++         struct ureg_dst a = ureg_writemask(c, TGSI_WRITEMASK_W);
++         ureg_UADD(u, a, ureg_scalar(ureg_src(c), TGSI_SWIZZLE_Z), ureg_imm1u(u, r * 16));
++         struct ureg_dst bst = ureg_dst(ureg_src_register(TGSI_FILE_BUFFER, 1));
++         struct ureg_src ss[2] = { ureg_scalar(ureg_src(c), TGSI_SWIZZLE_W), ureg_src(sx->gs_out[r]) };
++         ureg_memory_insn(u, TGSI_OPCODE_STORE, &bst, 1, ss, 2, 0, TGSI_TEXTURE_BUFFER, PIPE_FORMAT_NONE);
++      }
++      ureg_UMAD(u, ureg_writemask(c, TGSI_WRITEMASK_W), ureg_scalar(st, TGSI_SWIZZLE_X), ureg_imm1u(u, 2 * maxout),
++                ureg_scalar(st, TGSI_SWIZZLE_W));
++      ureg_UMUL(u, ureg_writemask(c, TGSI_WRITEMASK_W), ureg_scalar(ureg_src(c), TGSI_SWIZZLE_W), ureg_imm1u(u, 4));
++      struct ureg_dst ist = ureg_writemask(ureg_dst(ureg_src_register(TGSI_FILE_BUFFER, 2)), TGSI_WRITEMASK_X);
++      struct ureg_src is[2] = { ureg_scalar(ureg_src(c), TGSI_SWIZZLE_W), ureg_scalar(ureg_src(c), TGSI_SWIZZLE_Y) };
++      ureg_memory_insn(u, TGSI_OPCODE_STORE, &ist, 1, is, 2, 0, TGSI_TEXTURE_BUFFER, PIPE_FORMAT_NONE);
++      ureg_UADD(u, ureg_writemask(sx->gs_state, TGSI_WRITEMASK_ZW), ureg_swizzle(st, TGSI_SWIZZLE_X, TGSI_SWIZZLE_Y,
++                TGSI_SWIZZLE_Z, TGSI_SWIZZLE_W), ureg_imm4u(u, 0, 0, 1, 1));
++   }
++   ureg_fixup_label(u, label, ureg_get_instruction_number(u));
++   ureg_ENDIF(u);
++   ureg_release_temporary(u, c);
++}
++
++/* CUT: append a primitive restart. */
++static void
++gs_cut(struct Shader_xlate *sx)
++{
++   struct ureg_program *u = sx->ureg;
++   unsigned maxout = MAX2(sx->extra->gs_maxout, 1);
++   struct ureg_src st = ureg_src(sx->gs_state);
++   struct ureg_dst c = ureg_DECL_temporary(u);
++   ureg_USLT(u, ureg_writemask(c, TGSI_WRITEMASK_Y), ureg_scalar(st, TGSI_SWIZZLE_W), ureg_imm1u(u, 2 * maxout));
++   ureg_AND(u, ureg_writemask(c, TGSI_WRITEMASK_X), ureg_scalar(st, TGSI_SWIZZLE_Y), ureg_scalar(ureg_src(c), TGSI_SWIZZLE_Y));
++   unsigned label = 0;
++   ureg_UIF(u, ureg_scalar(ureg_src(c), TGSI_SWIZZLE_X), &label);
++   {
++      ureg_UMAD(u, ureg_writemask(c, TGSI_WRITEMASK_W), ureg_scalar(st, TGSI_SWIZZLE_X), ureg_imm1u(u, 2 * maxout),
++                ureg_scalar(st, TGSI_SWIZZLE_W));
++      ureg_UMUL(u, ureg_writemask(c, TGSI_WRITEMASK_W), ureg_scalar(ureg_src(c), TGSI_SWIZZLE_W), ureg_imm1u(u, 4));
++      struct ureg_dst ist = ureg_writemask(ureg_dst(ureg_src_register(TGSI_FILE_BUFFER, 2)), TGSI_WRITEMASK_X);
++      struct ureg_src is[2] = { ureg_scalar(ureg_src(c), TGSI_SWIZZLE_W), ureg_imm1u(u, 0xffffffffu) };
++      ureg_memory_insn(u, TGSI_OPCODE_STORE, &ist, 1, is, 2, 0, TGSI_TEXTURE_BUFFER, PIPE_FORMAT_NONE);
++      ureg_UADD(u, ureg_writemask(sx->gs_state, TGSI_WRITEMASK_W), ureg_scalar(st, TGSI_SWIZZLE_W), ureg_imm1u(u, 1));
++   }
++   ureg_fixup_label(u, label, ureg_get_instruction_number(u));
++   ureg_ENDIF(u);
++   ureg_release_temporary(u, c);
++}
++
+ static struct ureg_src
+ translate_src_operand(struct Shader_xlate *sx,
+                       const struct Shader_src_operand *operand,
+@@ -1013,6 +1194,10 @@ translate_src_operand(struct Shader_xlate *sx,
+ 
+    switch (operand->base.type) {
+    case D3D10_SB_OPERAND_TYPE_INPUT:
++      if (sx->gs_cs) {   /* exynos-woa G25: v[k][r] from the prologue's loads */
++         reg = gs_input_src(sx, &operand->base);
++         break;
++      }
+       if (operand->base.index_dim == 1) {
+          switch (operand->base.index[0].index_rep) {
+          case D3D10_SB_OPERAND_INDEX_IMMEDIATE32:
+@@ -1195,6 +1380,10 @@ translate_src_operand(struct Shader_xlate *sx,
+       break;
+ 
+    case D3D10_SB_OPERAND_TYPE_INPUT_PRIMITIVEID:
++      if (sx->gs_cs) {   /* exynos-woa G25: the invocation's primitive */
++         reg = ureg_scalar(ureg_src(sx->gs_state), TGSI_SWIZZLE_X);
++         break;
++      }
+       reg = sx->prim_id;
+       break;
+ 
+@@ -1422,7 +1611,11 @@ Shader_tgsi_translate_ex(const unsigned *code,
+ 
+    memset(&sx, 0, sizeof sx);
+    sx.extra = extra ? extra : &sx.local_extra;   /* exynos-woa G24 */
+-   memset(sx.extra, 0, sizeof *sx.extra);
++   {
++      bool gs_as_cs = extra && extra->gs_as_cs;   /* G25: the caller's request survives the reset */
++      memset(sx.extra, 0, sizeof *sx.extra);
++      sx.extra->gs_as_cs = gs_as_cs;
++   }
+ 
+    Shader_parse_init(&parser, code);
+ 
+@@ -1452,6 +1645,16 @@ Shader_tgsi_translate_ex(const unsigned *code,
+       ureg = ureg_create(MESA_SHADER_VERTEX);
+       break;
+    case D3D10_SB_GEOMETRY_SHADER:
++      if (sx.extra->gs_as_cs) {   /* exynos-woa G25: the GS as a compute shader, GS_BLOCK primitives per group */
++         ureg = ureg_create(MESA_SHADER_COMPUTE);
++         sx.gs_cs = true;
++         ureg_property(ureg, TGSI_PROPERTY_CS_FIXED_BLOCK_WIDTH, GS_BLOCK);
++         ureg_property(ureg, TGSI_PROPERTY_CS_FIXED_BLOCK_HEIGHT, 1);
++         ureg_property(ureg, TGSI_PROPERTY_CS_FIXED_BLOCK_DEPTH, 1);
++         sx.extra->block[0] = GS_BLOCK;
++         sx.extra->block[1] = sx.extra->block[2] = 1;
++         break;
++      }
+       ureg = ureg_create(MESA_SHADER_GEOMETRY);
+       break;
+    case D3D11_SB_COMPUTE_SHADER:   /* exynos-woa G24: cs_4_0 / cs_4_1 */
+@@ -1470,6 +1673,10 @@ Shader_tgsi_translate_ex(const unsigned *code,
+       assert(opcode.type < D3D10_SB_NUM_OPCODES);
+       ox = &opcode_xlate[opcode.type];
+ 
++      /* exynos-woa G25: the GS-as-compute prologue goes before the first instruction (all inputs are declared) */
++      if (sx.gs_cs && !sx.gs_prologue_done && !Shader_opcode_is_declaration(opcode.type))
++         gs_prologue(&sx);
++
+       switch (opcode.type) {
+       case D3D10_SB_OPCODE_EXP:
+          expand_unary_to_scalarf(ureg, ureg_EX2, &sx, &opcode);
+@@ -2125,6 +2332,14 @@ Shader_tgsi_translate_ex(const unsigned *code,
+ 
+       case D3D10_SB_OPCODE_DCL_GS_OUTPUT_PRIMITIVE_TOPOLOGY:
+          assert(parser.header.type == D3D10_SB_GEOMETRY_SHADER);
++         if (sx.gs_cs) {   /* exynos-woa G25: recorded for the draw instead of a GS property */
++            switch (opcode.specific.dcl_gs_output_primitive_topology) {
++            case D3D10_SB_PRIMITIVE_TOPOLOGY_POINTLIST: sx.extra->gs_out_prim = MESA_PRIM_POINTS; break;
++            case D3D10_SB_PRIMITIVE_TOPOLOGY_LINESTRIP: sx.extra->gs_out_prim = MESA_PRIM_LINE_STRIP; break;
++            default: sx.extra->gs_out_prim = MESA_PRIM_TRIANGLE_STRIP; break;
++            }
++            break;
++         }
+ 
+          switch (opcode.specific.dcl_gs_output_primitive_topology) {
+          case D3D10_SB_PRIMITIVE_TOPOLOGY_POINTLIST:
+@@ -2152,6 +2367,16 @@ Shader_tgsi_translate_ex(const unsigned *code,
+ 
+       case D3D10_SB_OPCODE_DCL_GS_INPUT_PRIMITIVE:
+          assert(parser.header.type == D3D10_SB_GEOMETRY_SHADER);
++         if (sx.gs_cs) {   /* exynos-woa G25 */
++            switch (opcode.specific.dcl_gs_input_primitive) {
++            case D3D10_SB_PRIMITIVE_POINT: sx.extra->gs_vpp = 1; break;
++            case D3D10_SB_PRIMITIVE_LINE: sx.extra->gs_vpp = 2; break;
++            case D3D10_SB_PRIMITIVE_TRIANGLE: sx.extra->gs_vpp = 3; break;
++            case D3D10_SB_PRIMITIVE_LINE_ADJ: sx.extra->gs_vpp = 4; break;
++            default: sx.extra->gs_vpp = 6; break;
++            }
++            break;
++         }
+ 
+          /* Figure out the second dimension of GS inputs.
+           */
+@@ -2198,6 +2423,10 @@ Shader_tgsi_translate_ex(const unsigned *code,
+ 
+       case D3D10_SB_OPCODE_DCL_MAX_OUTPUT_VERTEX_COUNT:
+          assert(parser.header.type == D3D10_SB_GEOMETRY_SHADER);
++         if (sx.gs_cs) {   /* exynos-woa G25 */
++            sx.extra->gs_maxout = opcode.specific.dcl_max_output_vertex_count;
++            break;
++         }
+ 
+          ureg_property(sx.ureg,
+                        TGSI_PROPERTY_GS_MAX_OUTPUT_VERTICES,
+@@ -2209,6 +2438,12 @@ Shader_tgsi_translate_ex(const unsigned *code,
+             dcl_vs_input(&sx, ureg, &opcode.dst[0]);
+          } else if (parser.header.type == D3D11_SB_COMPUTE_SHADER) {
+             /* exynos-woa G24: vThreadID & co. are system values, declared where first used (cs_system_value) */
++         } else if (sx.gs_cs) {   /* exynos-woa G25: loaded from the VS outputs in the prologue */
++            unsigned r = opcode.dst[0].base.index_dim == 2 ? opcode.dst[0].base.index[1].imm
++                                                           : opcode.dst[0].base.index[0].imm;
++            /* vPrim (its own operand type, no register) is the primitive itself: see translate_src_operand */
++            if (opcode.dst[0].base.type == D3D10_SB_OPERAND_TYPE_INPUT && r < SHADER_MAX_INPUTS)
++               sx.gs_in_declared[r] = true;
+          } else {
+             assert(parser.header.type == D3D10_SB_GEOMETRY_SHADER);
+             dcl_gs_input(&sx, ureg, &opcode.dst[0]);
+@@ -2222,6 +2457,15 @@ Shader_tgsi_translate_ex(const unsigned *code,
+ 
+       case D3D10_SB_OPCODE_DCL_INPUT_SIV:
+          assert(parser.header.type == D3D10_SB_GEOMETRY_SHADER);
++         if (sx.gs_cs) {   /* exynos-woa G25: position etc. from the VS outputs, vPrim = the primitive */
++            unsigned r = opcode.dst[0].base.index_dim == 2 ? opcode.dst[0].base.index[1].imm
++                                                           : opcode.dst[0].base.index[0].imm;
++            if (r < SHADER_MAX_INPUTS) {
++               sx.gs_in_declared[r] = true;
++               sx.gs_in_siv[r] = opcode.dcl_siv_name;
++            }
++            break;
++         }
+          dcl_siv_input(&sx, ureg, &opcode.dst[0], opcode.dcl_siv_name);
+          break;
+ 
+@@ -2264,6 +2508,8 @@ Shader_tgsi_translate_ex(const unsigned *code,
+                                                 opcode.dst[0].base.index[0].imm),
+                                &opcode.dst[0]);
+             }
++         } else if (sx.gs_cs) {   /* exynos-woa G25 */
++            gs_dcl_output(&sx, &opcode.dst[0], TGSI_SEMANTIC_GENERIC, opcode.dst[0].base.index[0].imm);
+          } else {
+             assert(opcode.dst[0].base.index_dim == 1);
+             assert(opcode.dst[0].base.index[0].imm < SHADER_MAX_OUTPUTS);
+@@ -2284,6 +2530,13 @@ Shader_tgsi_translate_ex(const unsigned *code,
+       case D3D10_SB_OPCODE_DCL_OUTPUT_SIV:
+          assert(opcode.dst[0].base.index_dim == 1);
+          assert(opcode.dst[0].base.index[0].imm < SHADER_MAX_OUTPUTS);
++         if (sx.gs_cs) {   /* exynos-woa G25: position etc.; clip/cull distances are not emulated */
++            LOG_UNSUPPORTED(opcode.dcl_siv_name == D3D10_SB_NAME_CLIP_DISTANCE ||
++                            opcode.dcl_siv_name == D3D10_SB_NAME_CULL_DISTANCE);
++            gs_dcl_output(&sx, &opcode.dst[0], translate_system_name(opcode.dcl_siv_name),
++                          translate_semantic_index(&sx, opcode.dcl_siv_name, &opcode.dst[0]));
++            break;
++         }
+ 
+          if (output_mapping) {
+             unsigned nr_outputs = ureg_get_nr_outputs(ureg);
+@@ -2338,6 +2591,10 @@ Shader_tgsi_translate_ex(const unsigned *code,
+       case D3D10_SB_OPCODE_DCL_OUTPUT_SGV:
+          assert(opcode.dst[0].base.index_dim == 1);
+          assert(opcode.dst[0].base.index[0].imm < SHADER_MAX_OUTPUTS);
++         if (sx.gs_cs) {   /* exynos-woa G25 */
++            gs_dcl_output(&sx, &opcode.dst[0], translate_system_name(opcode.dcl_siv_name), 0);
++            break;
++         }
+ 
+          if (output_mapping) {
+             unsigned nr_outputs = ureg_get_nr_outputs(ureg);
+@@ -2503,12 +2760,25 @@ Shader_tgsi_translate_ex(const unsigned *code,
+       }
+          break;
+       case D3D10_SB_OPCODE_EMIT:
++         if (sx.gs_cs) {   /* exynos-woa G25 */
++            gs_emit(&sx);
++            break;
++         }
+          ureg_EMIT(ureg, ureg_imm1u(ureg, 0));
+          break;
+       case D3D10_SB_OPCODE_CUT:
++         if (sx.gs_cs) {
++            gs_cut(&sx);
++            break;
++         }
+          ureg_ENDPRIM(ureg, ureg_imm1u(ureg, 0));
+          break;
+       case D3D10_SB_OPCODE_EMITTHENCUT:
++         if (sx.gs_cs) {
++            gs_emit(&sx);
++            gs_cut(&sx);
++            break;
++         }
+          ureg_EMIT(ureg, ureg_imm1u(ureg, 0));
+          ureg_ENDPRIM(ureg, ureg_imm1u(ureg, 0));
+          break;
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index 9d912e6..0b49ff3 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -34,6 +34,7 @@
+ #include "DriverIncludes.h"
+ #include "util/u_hash_table.h"
+ #include "cso_cache/cso_context.h"
++#include "util/u_inlines.h"   /* exynos-woa G25: DeviceTrackConstantBuffer */
+ 
+ #define SUPPORT_MSAA 1   /* exynos-woa F1 (FL 10_1): panfrost does 4x */
+ #define SUPPORT_D3D10_1 0
+@@ -67,6 +68,13 @@ struct Shader
+    bool output_resolved;
+    /* exynos-woa G24 (Compute.cpp): compute shaders - SSBO slot map, groupshared size, thread group size */
+    struct Shader_extra *extra;
++   /* exynos-woa G25 (GsEmu.cpp): a geometry shader run as this compute CSO (the driver has no geometry stage); extra
++    * then holds its layout (gs_vpp, gs_maxout, gs_out_prim, gs_out_regs, gs_out[]) */
++   void *gs_cs;
++   void *gs_pt_vs;                            /* GS: the passthrough VS of its emitted vertices */
++   const struct tgsi_token *gs_pt_tokens;
++   void *gs_so_vs;                            /* VS: its stream-output variant (every output register to A) */
++   unsigned gs_so_regs;                       /* VS: output registers = A's vertex stride in vec4s */
+ };
+ 
+ /* exynos-woa G24 (Compute.cpp): a raw / structured / typed buffer UAV - the byte range bound as an SSBO */
+@@ -82,6 +90,9 @@ struct ElementLayout;
+ struct RenderTargetView;
+ struct ShaderResourceView;
+ 
++struct GsEmu;
++#define GS_EMU_TRACKED_CBS 16   /* exynos-woa G25: D3D's 14 + spare; slot 15 carries the emulation's parameters */
++
+ struct Device
+ {
+    struct pipe_screen *screen;
+@@ -110,6 +121,12 @@ struct Device
+    struct pipe_stream_output_target *so_targets[PIPE_MAX_SO_BUFFERS];
+    struct pipe_stream_output_target *draw_so_target;
+    Shader *bound_empty_gs;
++   /* exynos-woa G25 (GsEmu.cpp): the bound geometry shader when it is emulated (Shader::gs_cs), else NULL; the
++    * emulation's buffers; the bound rasterizer CSO and the GS [0] / CS [1] constant buffers, to restore after a draw */
++   Shader *bound_gs_emu;
++   struct GsEmu *gs_emu;
++   void *bound_rs;
++   struct pipe_constant_buffer tracked_cb[2][GS_EMU_TRACKED_CBS];
+    /* exynos-woa G24 (Compute.cpp): compute state - the bound CS, the CS SRV objects (raw / structured buffers are
+     * bound at Dispatch) and the CS UAVs */
+    Shader *bound_cs;
+@@ -151,6 +168,21 @@ CastDevice(D3D10DDI_HDEVICE hDevice)
+    return static_cast<Device *>(hDevice.pDrvPrivate);
+ }
+ 
++/* exynos-woa G25: remember the GS / CS constant buffer bindings (GsEmu.cpp binds the GS's to the compute stage and
++ * puts the CS's back). Holds a reference. */
++static inline void
++DeviceTrackConstantBuffer(Device *dev, mesa_shader_stage stage, unsigned slot, const struct pipe_constant_buffer *cb)
++{
++   int st = stage == MESA_SHADER_GEOMETRY ? 0 : stage == MESA_SHADER_COMPUTE ? 1 : -1;
++   if (st < 0 || slot >= GS_EMU_TRACKED_CBS)
++      return;
++   struct pipe_constant_buffer *t = &dev->tracked_cb[st][slot];
++   pipe_resource_reference(&t->buffer, cb ? cb->buffer : NULL);
++   t->buffer_offset = cb ? cb->buffer_offset : 0;
++   t->buffer_size = cb ? cb->buffer_size : 0;
++   t->user_buffer = NULL;
++}
++
+ 
+ static inline struct pipe_context *
+ CastPipeContext(D3D10DDI_HDEVICE hDevice)
+diff --git a/src/gallium/frontends/d3d10umd/meson.build b/src/gallium/frontends/d3d10umd/meson.build
+index 38c4e25..4d3cdb4 100644
+--- a/src/gallium/frontends/d3d10umd/meson.build
++++ b/src/gallium/frontends/d3d10umd/meson.build
+@@ -14,6 +14,7 @@ libd3d10umd = static_library(
+     'D3D11.cpp',
+     'Compute.cpp',
+     'BcEtc.c',
++    'GsEmu.cpp',
+     'Video.cpp',
+     'VideoH264.c',
+     'VideoProc.cpp',
+-- 
+2.40.1.windows.1
+

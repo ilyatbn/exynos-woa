@@ -28,3 +28,14 @@ Limits first version: no GS samplers/SRVs, no SV_PrimitiveID / GS instancing / m
 - G25.1 d3dgs (drivers/MaliG76Wddm/tools/d3dgs) baseline, x86 UMD 0123 (GS skipped since 0116): sprites DIFF 560/4096
   (Mali lights 16 pixels = 1-pixel points, WARP 576), cut DIFF 821 (Mali 1 pixel, WARP 820), passthrough DIFF 1595
   (same triangles, colour not inverted: the GS never runs). = NFSU2's symptom, reproduced.
+- G25.2 + G25.3 merged into one commit (the translator alone cannot be verified without the draw): Mesa 0125 -
+  ShaderTGSI.c gs_as_cs (compute ureg, GS_BLOCK 64; prologue = primitive / active / clamped index + loads of every
+  declared input of every vertex from buffer 0; outputs as temporaries with their TGSI semantic recorded; EMIT/CUT =
+  guarded stores to buffer 1 / index buffer 2); Shader.cpp creates the compute CSO when the driver has no
+  create_gs_state; GsEmu.cpp three-pass draw; GS/CS constant buffers + rasterizer now tracked (Device).
+- First device run: no crash, I and B correct (GS_DUMP), but A all zeros -> stream output wrote nothing. Cause found in
+  Panfrost: its XFB variant is built from nir->xfb_info, which tgsi_to_nir never fills from
+  pipe_shader_state.stream_output -> stream output was dead for every TGSI VS (also plain D3D10 SO). Fix = Mesa 0124
+  pan_xfb_info_from_tgsi (output o -> the output variable with driver_location == register_index).
+- With 0124 + 0125 (x86 mali-umd-0124-x86): d3dgs sprites 0/4096 differ (lit 576/576), cut 0 (820/820), passthrough 0
+  (1595/1595) -> PASS pixel-exact vs WARP. Regression: d3dcs 7/7, d3dbc lossy 126/126.

@@ -1,0 +1,83 @@
+From 8fc2c6f9b33dafaaee7bfcc2a4579e239181e258 Mon Sep 17 00:00:00 2001
+From: ilyatbn <ilyatbn@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 11:42:40 +0300
+Subject: [PATCH] panfrost: build nir->xfb_info from a TGSI shader's stream
+ output (exynos-woa G25 0124)
+
+The transform feedback variant is created from nir->xfb_info, which tgsi_to_nir never sets: stream output did nothing
+for TGSI vertex shaders (D3D10 SO; d3d10umd's geometry-stage emulation read zeros). Output o = TGSI output
+register_index, mapped to the output variable with that driver_location. d3dgs: VS outputs now land in the buffer.
+---
+ src/gallium/drivers/panfrost/pan_shader.c | 42 +++++++++++++++++++++++
+ 1 file changed, 42 insertions(+)
+
+diff --git a/src/gallium/drivers/panfrost/pan_shader.c b/src/gallium/drivers/panfrost/pan_shader.c
+index d26b95f..b769e56 100644
+--- a/src/gallium/drivers/panfrost/pan_shader.c
++++ b/src/gallium/drivers/panfrost/pan_shader.c
+@@ -13,6 +13,7 @@
+ #include "util/u_prim.h"
+ #include "nir_builder.h"
+ #include "nir_serialize.h"
++#include "nir_xfb_info.h"   /* exynos-woa G25 */
+ #include "pan_bo.h"
+ #include "pan_context.h"
+ #include "pan_compiler.h"
+@@ -550,6 +551,44 @@ pan_untype_tgsi_vs_inputs(nir_builder *b, nir_intrinsic_instr *intr, void *data)
+    return true;
+ }
+ 
++/* exynos-woa G25 (notes/g25-geometry-shaders.md): a TGSI shader carries its stream output in pipe_shader_state, but
++ * the transform feedback variant below is built from nir->xfb_info, which tgsi_to_nir never sets - stream output did
++ * nothing at all for TGSI vertex shaders (D3D10 stream output, the d3d10umd geometry-stage emulation). Build it:
++ * stream output o names TGSI output register_index, the output variable tgsi_to_nir gave that driver_location. */
++static void
++pan_xfb_info_from_tgsi(nir_shader *nir, const struct pipe_stream_output_info *so)
++{
++   if (!so->num_outputs)
++      return;
++   nir_xfb_info *x = (nir_xfb_info *)rzalloc_size(nir, nir_xfb_info_size(so->num_outputs));
++   for (unsigned i = 0; i < so->num_outputs; i++) {
++      const struct pipe_stream_output *o = &so->output[i];
++      nir_variable *var = NULL;
++      nir_foreach_shader_out_variable(v, nir) {
++         if (v->data.driver_location == o->register_index) {
++            var = v;
++            break;
++         }
++      }
++      if (!var || o->output_buffer >= NIR_MAX_XFB_BUFFERS)
++         continue;
++      nir_xfb_output_info *out = &x->outputs[x->output_count++];
++      out->buffer = o->output_buffer;
++      out->offset = o->dst_offset * 4;
++      out->location = var->data.location;
++      out->component_offset = o->start_component;
++      out->component_mask = BITFIELD_RANGE(o->start_component, o->num_components);
++      x->buffers_written |= 1u << o->output_buffer;
++      x->buffers[o->output_buffer].varying_count++;
++      x->streams_written |= 1u << o->stream;
++      x->buffer_to_stream[o->output_buffer] = o->stream;
++   }
++   for (unsigned b = 0; b < NIR_MAX_XFB_BUFFERS && b < PIPE_MAX_SO_BUFFERS; b++)
++      x->buffers[b].stride = so->stride[b] * 4;
++   nir->xfb_info = x;
++   nir->info.has_transform_feedback_varyings = x->output_count > 0;
++}
++
+ static void *
+ panfrost_create_shader_state(struct pipe_context *pctx,
+                              const struct pipe_shader_state *cso)
+@@ -563,6 +602,9 @@ panfrost_create_shader_state(struct pipe_context *pctx,
+    if (cso->type == PIPE_SHADER_IR_TGSI && BITSET_IS_EMPTY(nir->info.texture_buffers))
+       pan_gather_texture_buffers(nir);
+ 
++   if (cso->type == PIPE_SHADER_IR_TGSI && nir->info.stage == MESA_SHADER_VERTEX)   /* exynos-woa G25 */
++      pan_xfb_info_from_tgsi(nir, &cso->stream_output);
++
+    struct panfrost_uncompiled_shader *so = panfrost_alloc_shader(nir);
+ 
+    /* The driver gets ownership of the nir_shader for graphics. The NIR is
+-- 
+2.40.1.windows.1
+

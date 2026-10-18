@@ -12,7 +12,9 @@
 ; UserModeDriverName = maliumd.dll x4 as in maliwddm.inf (the Mesa d3d10umd + panfrost build); UserModeDriverNameWow =
 ; maliumd32.dll x4, its 32-bit build for WOW64 processes (G24, notes/g24-compute-cs4x.md). Since 1.0.70.1 both are in
 ; the package - maliumd.dll to System32, maliumd32.dll to SysWOW64 (MS Learn "General x64 INF Information": a DispWow
-; section at "10, SysWow64", COPYFLG_IN_USE_TRY_RENAME) - instead of being copied by the ESP script / by hand. The display-only mode is a KMDOD and is not expected to load a UMD (UNVERIFIED that
+; section at "10, SysWow64", COPYFLG_IN_USE_TRY_RENAME) - instead of being copied by the ESP script / by hand. Since 1.0.71.1 (G27, notes/g27-x64-apps.md)
+; maliumd.dll is an ARM64X pure forwarder (MS Learn "Build Arm64X Files") to maliumd_arm64.dll (ARM64 processes)
+; and maliumd_ec.dll (ARM64EC, x64 emulated processes), all three in System32. The display-only mode is a KMDOD and is not expected to load a UMD (UNVERIFIED that
 ; dxgkrnl ignores the value for a KMDOD - the first display-only boot answers it). The system-wide
 ; EnablePreemption 0 the original INF set is written by the ESP script only for the full-adapter modes.
 ; Switches (same key, DWORD, read at driver load; absent = default), notes/gpu-full-adapter-hang.md:
@@ -36,7 +38,7 @@ Signature   = "$WINDOWS NT$"
 Class       = Display
 ClassGuid   = {4D36E968-E325-11CE-BFC1-08002BE10318}
 Provider    = %ProviderName%
-DriverVer   = 10/18/2026,1.0.70.1
+DriverVer   = 10/18/2026,1.0.71.1
 CatalogFile = MaliG76Wddm.cat
 PnpLockdown = 1
 
@@ -52,6 +54,8 @@ MW_UmdWow      = 10, SysWow64    ; SysWOW64: the 32-bit (x86) user-mode driver f
 MaliG76Wddm.sys = 1
 maliumd.dll     = 1
 maliumd32.dll   = 1
+maliumd_arm64.dll = 1
+maliumd_ec.dll  = 1
 
 [Manufacturer]
 %ProviderName% = Standard,NTARM64.10.0...16299
@@ -73,6 +77,8 @@ MaliG76Wddm.sys
 
 [MW_UmdFiles]
 maliumd.dll,,,0x00004000     ; COPYFLG_IN_USE_TRY_RENAME (DWM holds it)
+maliumd_arm64.dll,,,0x00004000
+maliumd_ec.dll,,,0x00004000
 
 [MW_UmdWow]
 maliumd32.dll,,,0x00004000   ; COPYFLG_IN_USE_TRY_RENAME

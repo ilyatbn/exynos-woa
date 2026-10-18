@@ -83,3 +83,13 @@ the GPU, natively.
   F2 run-as-user.ps1 passes no arguments, so `edgecdp.ps1 -Stop` cannot be run that way (my "stop" call restarted the
   debug Edge instead) -> edgecdpstop.ps1.
   F2 done: tools/phone/wddm2/edgecdpstop.ps1 (run-as-user) -> wmic: no msedge with edgeprof left; tasklist /m maliumd_arm64.dll: none.
+- 13:11 Windows reboot (shutdown /r) to put DWM on the forwarder; rollback = umdswap with System32\maliumd.dll.pre-g27.
+- G27.4 INF 1.0.71.1: SourceDisksFiles + MW_UmdFiles (System32, COPYFLG_IN_USE_TRY_RENAME) carry maliumd.dll
+  (forwarder), maliumd_arm64.dll, maliumd_ec.dll; UserModeDriverName unchanged (maliumd.dll x4 - the forwarder).
+  build-package.ps1: -Umd = make-arm64x output, all three signed. Package s10e-artifacts\mwddm-1.0.71.1 (Umd 0129-x,
+  Umd32 0128-x86): Inf2Cat OK (10_RS3/NI/GE ARM64), InfVerif /v "INF is VALID", /u rc 0. NOT installed (display
+  driver reinstall waits for an attended session; the live System32 copies are the same builds, unsigned).
+- Reboot result (ssh back after ~84 s): `tasklist /m maliumd*`: dwm, explorer, SearchHost, StartMenuExperienceHost,
+  TextInputHost all "maliumd.dll, maliumd_arm64.DLL" - DWM runs on the forwarder. GDI screenshot: normal desktop.
+  No new Application Error events attributable to this boot (the phone clock resets at boot - event times overlap
+  older boots; none name maliumd_arm64/maliumd_ec/dwm). d3dcs x64 + ARM64 again 0/7 differ.

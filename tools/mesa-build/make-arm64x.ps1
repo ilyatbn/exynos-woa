@@ -5,8 +5,11 @@
 #   -Arm64 <dir>  build-mesa-g76 collect output (maliumd.dll, ARM64)
 #   -Ec <dir>     build-mesa-g76 -Stage ec output (maliumd_ec.dll, ARM64EC)
 #   -Out <dir>    gets maliumd.dll (forwarder), maliumd_arm64.dll, maliumd_ec.dll
+#   -Name <base>  GL4 (notes/gl-icd.md): maligl for the OpenGL ICD (-Arm64 has maligl.dll, -Ec has maligl_ec.dll);
+#                 default maliumd
 # The export list is read from the ARM64 DLL (dumpbin /exports) and must be identical in the EC DLL.
-param([Parameter(Mandatory)][string]$Arm64, [Parameter(Mandatory)][string]$Ec, [Parameter(Mandatory)][string]$Out)
+param([Parameter(Mandatory)][string]$Arm64, [Parameter(Mandatory)][string]$Ec, [Parameter(Mandatory)][string]$Out,
+      [string]$Name = 'maliumd')
 $ErrorActionPreference = 'Stop'
 function Check($what) { if ($LASTEXITCODE) { throw "$what failed ($LASTEXITCODE)" } }
 
@@ -24,8 +27,8 @@ function Exports($dll) {
   @($names | Sort-Object)
 }
 
-$a64 = Join-Path $Arm64 'maliumd.dll'
-$ec = Join-Path $Ec 'maliumd_ec.dll'
+$a64 = Join-Path $Arm64 "$Name.dll"
+$ec = Join-Path $Ec "${Name}_ec.dll"
 $ea = Exports $a64
 $ee = Exports $ec
 if ($ea.Count -lt 2) { throw "no exports read from $a64" }
@@ -41,21 +44,21 @@ try {
   Set-Content -Encoding ascii empty.cpp ''
   cl /nologo /c /Foempty_arm64.obj empty.cpp; Check 'cl arm64'
   cl /nologo /c /arm64EC /Foempty_x64.obj empty.cpp; Check 'cl arm64ec'
-  (@('EXPORTS') + ($ea | ForEach-Object { "    $_ = maliumd_ec.$_" })) | Set-Content -Encoding ascii maliumd_x64.def
-  (@('EXPORTS') + ($ea | ForEach-Object { "    $_ = maliumd_arm64.$_" })) | Set-Content -Encoding ascii maliumd_arm64.def
-  link /lib /nologo /machine:x64 /def:maliumd_x64.def /out:maliumd_x64.lib; Check 'link /lib x64'
-  link /lib /nologo /machine:arm64 /def:maliumd_arm64.def /out:maliumd_arm64.lib; Check 'link /lib arm64'
-  link /nologo /dll /noentry /machine:arm64x /defArm64Native:maliumd_arm64.def /def:maliumd_x64.def `
-    empty_arm64.obj empty_x64.obj /out:maliumd.dll maliumd_arm64.lib maliumd_x64.lib; Check 'link arm64x'
+  (@('EXPORTS') + ($ea | ForEach-Object { "    $_ = ${Name}_ec.$_" })) | Set-Content -Encoding ascii "${Name}_x64.def"
+  (@('EXPORTS') + ($ea | ForEach-Object { "    $_ = ${Name}_arm64.$_" })) | Set-Content -Encoding ascii "${Name}_arm64.def"
+  link /lib /nologo /machine:x64 "/def:${Name}_x64.def" "/out:${Name}_x64.lib"; Check 'link /lib x64'
+  link /lib /nologo /machine:arm64 "/def:${Name}_arm64.def" "/out:${Name}_arm64.lib"; Check 'link /lib arm64'
+  link /nologo /dll /noentry /machine:arm64x "/defArm64Native:${Name}_arm64.def" "/def:${Name}_x64.def" `
+    empty_arm64.obj empty_x64.obj "/out:$Name.dll" "${Name}_arm64.lib" "${Name}_x64.lib"; Check 'link arm64x'
 } finally { Pop-Location }
 
-Copy-Item (Join-Path $tmp 'maliumd.dll') $Out -Force
-Copy-Item $a64 (Join-Path $Out 'maliumd_arm64.dll') -Force
-Copy-Item $ec (Join-Path $Out 'maliumd_ec.dll') -Force
+Copy-Item (Join-Path $tmp "$Name.dll") $Out -Force
+Copy-Item $a64 (Join-Path $Out "${Name}_arm64.dll") -Force
+Copy-Item $ec (Join-Path $Out "${Name}_ec.dll") -Force
 Push-Location $Out
-Get-ChildItem -File maliumd*.dll | Get-FileHash -Algorithm SHA256 |
+Get-ChildItem -File "$Name*.dll" | Get-FileHash -Algorithm SHA256 |
   ForEach-Object { '{0}  {1}' -f $_.Hash.ToLower(), (Split-Path -Leaf $_.Path) } | Set-Content -Encoding ascii SHA256SUMS
-& { foreach ($f in 'maliumd.dll', 'maliumd_arm64.dll', 'maliumd_ec.dll') {
+& { foreach ($f in "$Name.dll", "${Name}_arm64.dll", "${Name}_ec.dll") {
       "== $f"; dumpbin /nologo /headers $f | Select-String 'machine \('; dumpbin /nologo /exports $f | Select-String 'forwarded' | Select-Object -First 3 } } |
   Set-Content -Encoding ascii dumpbin-arm64x.txt
 Pop-Location

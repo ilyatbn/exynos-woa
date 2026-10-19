@@ -72,3 +72,14 @@ there is no D3D12 GPU here -> WARP (CPU).
   07121c48 (0150-0153): pixel format 99 (ICD, depth 24 stencil 8), "Mesa / Mali-G76 MC12 (Panfrost) / 3.1 Mesa
   26.2.4", GLSL 1.40, ARB_ + EXT_framebuffer_object yes, **GLTEST 5/5 PASS** (default, tri, fbo, glsl, core 3.1),
   swap loop 64.4 fps at 256x256 (GDI present). The shim's D3DKMT (non-runtime) path works as-is.
+- 19:50 GL4 start. Baseline x64: gltest64.exe (build-gltest.cmd ... x64) with only the ARM64 maligl.dll registered:
+  UMOPENGLINFO names maligl.dll in the x64 process too, but the pixel format is GENERIC / GDI Generic 1.1 (an x64
+  process cannot load the pure ARM64 DLL; opengl32 falls back silently) - Stardew's case.
+- Build: stage `glec` (build-arm64ec-gl, the ec stage's cross file + env, now a function Use-EcEnv shared by ec and
+  glec) -> maligl_ec.dll; make-arm64x.ps1 -Name maligl makes maligl.dll an ARM64X pure forwarder to maligl_arm64.dll
+  / maligl_ec.dll (the G27.3 maliumd scheme).
+- 20:05 glec build OK: maligl_ec.dll "8664 machine (x64) (ARM64X)" (ARM64EC), OS imports only, sha256 76381e30...;
+  make-arm64x.ps1 -Name maligl -> s10e-artifacts\mali-gl-x: maligl.dll forwarder 1e7743f3... (ARM64X, exports
+  forwarded to maligl_arm64.*), maligl_arm64.dll = the gl stage's 07121c48..., maligl_ec.dll. All three in System32
+  (OpenGLDriverName stays maligl.dll). gltest64.exe (x64, emulated): ICD pixel format 99, "Mali-G76 MC12 (Panfrost)"
+  GL 3.1, **GLTEST 5/5 PASS**, 63.5 fps swaps; gltest.exe (ARM64) through the forwarder: 5/5 PASS, 64.3 fps.

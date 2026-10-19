@@ -39,7 +39,7 @@ $ErrorActionPreference = 'Continue'
 
 $Stage = @($Stage | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 foreach ($s in $Stage) {
-  if ($s -notin 'all', 'source', 'libpan', 'host', 'cross', 'collect', 'x86', 'ec', 'gl') { throw "unknown stage '$s'" }
+  if ($s -notin 'all', 'source', 'libpan', 'host', 'cross', 'collect', 'x86', 'ec', 'gl', 'glec') { throw "unknown stage '$s'" }
 }
 
 $MesaOrig = Join-Path $Mali 'mesa-26.2'          # never modified
@@ -53,9 +53,10 @@ $CrossBuild = Join-Path $Work 'build-arm64'
 $X86Build = Join-Path $Work 'build-x86'
 $EcBuild = Join-Path $Work 'build-arm64ec'
 $GlBuild = Join-Path $Work 'build-arm64-gl'
+$GlEcBuild = Join-Path $Work 'build-arm64ec-gl'
 $Flex = Join-Path $Work 'winflexbison'
 $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
-function Want($s) { ($Stage -contains 'all' -and $s -notin 'x86', 'ec', 'gl') -or $Stage -contains $s }   # x86 / ec / gl only on request
+function Want($s) { ($Stage -contains 'all' -and $s -notin 'x86', 'ec', 'gl', 'glec') -or $Stage -contains $s }   # x86 / ec / gl / glec only on request
 function Check($what) { if ($LASTEXITCODE) { throw "$what failed ($LASTEXITCODE)" } }
 function ToWsl($p) { '/mnt/' + $p.Substring(0, 1).ToLower() + ($p.Substring(2) -replace '\\', '/') }
 
@@ -201,6 +202,36 @@ if (Want 'collect') {
   Select-String -Path (Join-Path $Out 'dumpbin-headers.txt') -Pattern 'machine \(|subsystem|DLL characteristics' | ForEach-Object Line
 }
 
+# The ARM64EC build environment (G27): the 'ec' and 'glec' stages.
+function Use-EcEnv {
+  Use-VcVars 'vcvarsamd64_arm64.bat'   # the Arm64 developer environment (MS Learn: Arm64EC is built from it)
+  Common-Tools
+  # meson (1.12.1) canonicalises clang-cl's target 'arm64ec' to machine 'arm' (compilers/mixins/visualstudio.py:
+  # `elif 'arm' in target`), so every link / lib rule got /MACHINE:arm (LNK1423), and lib/llvm-lib accept EC objects
+  # only with /machine:arm64ec. Own venv with that one mapping added; the shared venv stays stock.
+  $VenvEc = Join-Path $Mali 'venv-ec'
+  if (-not (Test-Path "$VenvEc\Scripts\meson.exe")) {
+    & python -m venv $VenvEc; Check 'venv-ec'
+    & "$VenvEc\Scripts\python.exe" -m pip install -q meson==1.12.1 ninja mako pyyaml packaging; Check 'pip ec'
+  }
+  $vsmix = Join-Path $VenvEc 'Lib\site-packages\mesonbuild\compilers\mixins\visualstudio.py'
+  $src = [IO.File]::ReadAllText($vsmix)
+  if ($src -notmatch "'arm64ec' in target") {
+    $anchor = "        elif 'aarch64' in target:"
+    if (-not $src.Contains($anchor)) { throw "meson visualstudio.py: no aarch64 anchor ($vsmix)" }
+    $src = $src.Replace($anchor, "        elif 'arm64ec' in target:  # exynos-woa G27`n            self.machine = 'arm64ec'`n$anchor")
+    [IO.File]::WriteAllText($vsmix, $src)
+  }
+  $env:PATH = "$VenvEc\Scripts;$env:PATH"
+  Remove-Item env:CC, env:CXX -ErrorAction SilentlyContinue
+  $env:PATH = "$HostBuild\src\panfrost\clc;$env:PATH"   # panfrost_compile.exe (x64 ABI = the ARM64EC ABI)
+  # the MSVC arm64ec CRT / runtime libraries first (vcvarsamd64_arm64 lists lib\arm64)
+  $ecLib = ($env:LIB -split ';' | Where-Object { $_ -match '\\VC\\Tools\\MSVC\\[^\\]+\\lib\\arm64$' } |
+            Select-Object -First 1) -replace '\\arm64$', '\arm64ec'
+  if (-not $ecLib -or -not (Test-Path $ecLib)) { throw "no MSVC arm64ec library directory ($ecLib)" }
+  $env:LIB = "$ecLib;$env:LIB"
+}
+
 if (Want 'gl') {
   # GL1 (notes/gl-icd.md): the Mali OpenGL ICD = Mesa's WGL target (libgallium_wgl.dll, exports the Drv* ICD entry
   # points) with Panfrost (Mesa patch 0150). Own build dir, ARM64 cross file of the 'cross' stage, the D3D10 UMD
@@ -245,6 +276,38 @@ if (Want 'gl') {
     Set-Content -Encoding ascii dumpbin-gl.txt
   Pop-Location
   Get-Content (Join-Path $ogl 'SHA256SUMS')
+}
+
+if (Want 'glec') {
+  # GL4 (notes/gl-icd.md): the ARM64EC OpenGL ICD for x64 (emulated) processes (Stardew Valley is x64 .NET), behind an
+  # ARM64X forwarder like maliumd (make-arm64x.ps1 -Name maligl). The 'gl' stage's options, the 'ec' stage's cross file.
+  Use-EcEnv
+  $eccross = Join-Path $Work 'arm64ec-windows.cross'   # written by the 'ec' stage
+  if (-not (Test-Path $eccross)) { throw "$eccross missing - run the ec stage once" }
+  $glOpts = $MesonOpts | ForEach-Object {
+    if ($_ -eq '-Dopengl=false') { '-Dopengl=true' } elseif ($_ -eq '-Dgallium-d3d10umd=true') { '-Dgallium-d3d10umd=false' } else { $_ }
+  }
+  if (-not (Test-Path (Join-Path $GlEcBuild 'build.ninja'))) {
+    meson setup $GlEcBuild $Mesa --backend=ninja --cross-file $eccross -Dbuildtype=debugoptimized -Dprecomp-compiler=system @glOpts
+    Check 'glec meson setup'
+  }
+  meson configure $GlEcBuild -Db_vscrt=mt -Dzlib:default_library=static; Check 'glec meson configure'
+  ninja -C $GlEcBuild -k 0 2>&1 | Tee-Object (Join-Path $Work 'build-arm64ec-gl.log')
+  Check 'glec build'
+  $icd = Join-Path $GlEcBuild 'src\gallium\targets\wgl\libgallium_wgl.dll'
+  if (-not (Test-Path $icd)) { throw 'arm64ec libgallium_wgl.dll was not built' }
+  $ogl = "$Out-gl-ec"
+  New-Item -ItemType Directory -Force $ogl | Out-Null
+  Copy-Item $icd, ($icd -replace '\.dll$', '.pdb') $ogl -Force
+  Copy-Item $icd (Join-Path $ogl 'maligl_ec.dll') -Force
+  Push-Location $ogl
+  Get-ChildItem -Path * -File -Include *.dll, *.pdb | Get-FileHash -Algorithm SHA256 |
+    ForEach-Object { '{0}  {1}' -f $_.Hash.ToLower(), (Split-Path -Leaf $_.Path) } | Set-Content -Encoding ascii SHA256SUMS
+  & { dumpbin /nologo /headers maligl_ec.dll | Select-String 'machine \(' ; dumpbin /nologo /dependents maligl_ec.dll } |
+    Set-Content -Encoding ascii dumpbin-gl-ec.txt
+  Pop-Location
+  Get-Content (Join-Path $ogl 'SHA256SUMS')
+  Get-Content (Join-Path $ogl 'dumpbin-gl-ec.txt')
 }
 
 if (Want 'x86') {
@@ -298,32 +361,7 @@ endian = 'little'
 }
 
 if (Want 'ec') {
-  Use-VcVars 'vcvarsamd64_arm64.bat'   # the Arm64 developer environment (MS Learn: Arm64EC is built from it)
-  Common-Tools
-  # meson (1.12.1) canonicalises clang-cl's target 'arm64ec' to machine 'arm' (compilers/mixins/visualstudio.py:
-  # `elif 'arm' in target`), so every link / lib rule got /MACHINE:arm (LNK1423), and lib/llvm-lib accept EC objects
-  # only with /machine:arm64ec. Own venv with that one mapping added; the shared venv stays stock.
-  $VenvEc = Join-Path $Mali 'venv-ec'
-  if (-not (Test-Path "$VenvEc\Scripts\meson.exe")) {
-    & python -m venv $VenvEc; Check 'venv-ec'
-    & "$VenvEc\Scripts\python.exe" -m pip install -q meson==1.12.1 ninja mako pyyaml packaging; Check 'pip ec'
-  }
-  $vsmix = Join-Path $VenvEc 'Lib\site-packages\mesonbuild\compilers\mixins\visualstudio.py'
-  $src = [IO.File]::ReadAllText($vsmix)
-  if ($src -notmatch "'arm64ec' in target") {
-    $anchor = "        elif 'aarch64' in target:"
-    if (-not $src.Contains($anchor)) { throw "meson visualstudio.py: no aarch64 anchor ($vsmix)" }
-    $src = $src.Replace($anchor, "        elif 'arm64ec' in target:  # exynos-woa G27`n            self.machine = 'arm64ec'`n$anchor")
-    [IO.File]::WriteAllText($vsmix, $src)
-  }
-  $env:PATH = "$VenvEc\Scripts;$env:PATH"
-  Remove-Item env:CC, env:CXX -ErrorAction SilentlyContinue
-  $env:PATH = "$HostBuild\src\panfrost\clc;$env:PATH"   # panfrost_compile.exe (x64 ABI = the ARM64EC ABI)
-  # the MSVC arm64ec CRT / runtime libraries first (vcvarsamd64_arm64 lists lib\arm64)
-  $ecLib = ($env:LIB -split ';' | Where-Object { $_ -match '\\VC\\Tools\\MSVC\\[^\\]+\\lib\\arm64$' } |
-            Select-Object -First 1) -replace '\\arm64$', '\arm64ec'
-  if (-not $ecLib -or -not (Test-Path $ecLib)) { throw "no MSVC arm64ec library directory ($ecLib)" }
-  $env:LIB = "$ecLib;$env:LIB"
+  Use-EcEnv
   $cl = (Join-Path $Llvm 'clang-cl.exe') -replace '\\', '/'
   $lib = (Join-Path $Llvm 'llvm-lib.exe') -replace '\\', '/'
   $rc = (Join-Path $Llvm 'llvm-rc.exe') -replace '\\', '/'

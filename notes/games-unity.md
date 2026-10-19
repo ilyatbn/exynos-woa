@@ -88,3 +88,6 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   stall: responding True, no appcrash, no TDR; afterwards heartbeat ~34 presents/s (whole screen), umd top per 120
   frames normal (Present 1.6-1.9 s, ~30k draws). INFERENCE: settings change = Unity recreating render targets /
   compiling shader variants under emulation, not a driver hang. User is collecting which scenes render wrong.
+- 21:25 user: leaving a dive back to shore shows a white, then grey screen for up to ~10 s before the loading screen.
+  Not yet attributed (INFERENCE: synchronous scene load under emulation, no presents); to sample threadtop + GPU
+  engine during the next transition.

@@ -383,3 +383,10 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
 - Mesa 0175 (diagnosis): mk_snapshot_ddi_thread for x64 / ARM64EC (Rip/Rsp, module+offset stack scan - our process,
   module names only), and the > 2 s line now says when the DDI thread last entered a DDI (mk_ddi_tick) and the queue
   length. EC 71966a35 live; d3dmrt64x 7/7, d3dbc64x lossy 0/126. Next: rerun to catch the hang with the stack.
+- bot6 (EC 0175 = queue + poll fix + snapshot): completed, no hang (traces/games/bench-bot6-0175.*): 2429 frames /
+  103.0 s, mean 23.6 fps, median 40.4 ms, p95 57.1, p99 82.0, max 528.8, 1 % low 8.0, 0.1 % 2.7, 13 > 100 ms; first
+  60 s 25.0 fps / median 38.6 ms; swim not-in-water 4 at the end. tlog pid 2100: 9.3-9.8 chains per Render, the UMD
+  10.8-14 ms per frame (bot3 18-21.6) - ~6 ms less on Unity's render thread, but the frame stays ~40 ms (median 40.4
+  vs 41.6): the render thread is no longer the limit. Next: per-thread CPU (threadcpu.ps1, new) + GPU engine load
+  (tools/phone/gpuengine.ps1) during the swim to see whether the game's own thread or the GPU bounds the frame.
+  The hang of bot4/bot5 did not recur in 1 run (0174 fixed polls; unverified that it is gone).

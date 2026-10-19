@@ -229,3 +229,8 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   p99 69.1 ms, 1 % low 10.3 fps. Indicative only (route interrupted, low battery).
   Crash watch afterwards: APPCRASH maliumd_ec.DLL c0000409 offset 0x7920dc + TDR 1 around the stop (12:25-12:27) -
   open lead: was it the forced kill or a real fail-fast? (check the dump / WER report next session).
+  Spike analysis of that run (PC only, phone paused): most frames 30-50 ms (2095 of 2728); 45 frames > 80 ms. During
+  the dive (0-60 s) the slow frames are isolated 190 ms spikes about every 13-16 s (34.4, 47.4, 63.3 s), which looks
+  like a periodic stall (GC / streaming / a driver flush?), not steady load. After 78 s (surface menu, battery popup)
+  they come in clusters of 80-180 ms frames. Next: catch one of those 190 ms spikes with the frame capture or a timed
+  driver-thread profile.

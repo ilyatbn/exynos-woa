@@ -15,3 +15,13 @@
   tools/phone/games/recentcrash.ps1.
 - Stardew launch test after the install: not run to the end - the user was playing NFSU2 at the time (scan-out
   traces/wddm2/stardew1.png = NFSU2 pause menu); user to try.
+
+## Desktop shortcuts without the Steam client (2026-10-19)
+- User: Steam's RAM use is too high (steamwebhelper CEF ~1.5 GB of ~1.7 GB total) -> desktop shortcuts that start the
+  games directly: tools/phone/games/gameshortcut.ps1 -> C:\Users\S10e\Desktop\DaveTheDiver.lnk, Stardew Valley.lnk.
+- First Dave launch still brought Steam up: tools/phone/games/steamprocs.ps1 showed steam.exe started with
+  "steam://run/1868140//" and DaveTheDiver.exe as its child = Steamworks SteamAPI_RestartAppIfNecessary relaunching
+  through the client (no steam_appid.txt then). steam_appid.txt now sits next to both exes (1868140 Dave the Diver,
+  413150 Stardew Valley), which makes RestartAppIfNecessary return false. UNVERIFIED whether each game then runs
+  with no Steam client at all (SteamAPI_Init fails; Stardew ran without Steam before, Dave not yet tried).
+- Dave the Diver: Unity IL2CPP (GameAssembly.dll), ships a D3D12 folder (Agility SDK); appmanifest 1868140, 6.0 GB.

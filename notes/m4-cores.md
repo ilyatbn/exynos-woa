@@ -183,3 +183,15 @@ Pitfalls: never `peek` CPUCL2 SYSREG (0x1D100104) or PMU 0x15861200-0x1650 from 
 - **m4a55 41e8602d (11:18; PARK 0xCE = A55 x4 + M4 x2, A75s not started)**: no SSH; after 15+ min neither Windows nor
   TWRP (no watchdog reset seen yet) - phone possibly hung dark; waiting, may need a force restart (Vol Down + Power).
 - m4a55: phone hung dark (no watchdog reset) until the user forced TWRP; daily image restored 12:01, Windows back on 6 procs. A55 + M4 without the A75s also fails.
+- Side observation (m4pmu2 data, no new run): the PMU probe counted PMCCNTR 22102 cycles over its 1000-read loop of
+  416 CNTVCT ticks (16.0 us) -> the M4 ran at ~1.38 GHz at CPU_ON time (before TouchPower's ReadyToBoot BIG
+  FREQ_REQ of 520 MHz). UNVERIFIED whether the 520 MHz request then takes effect, and with which voltage; an M4 V/F
+  mismatch would produce exactly "random kernel memory corruption under real load, light stub tests pass". Worth one
+  stub measurement after ReadyToBoot (PMCCNTR vs CNTVCT over a busy loop without WFI) in a future session.
+
+## State at end of 2026-10-19 (M4)
+Not working. Ruled out on the bare-metal M4: ACTLR, interrupts/WFI/SGI, physical + virtual timer, CNTVOFF, PMU,
+DVM broadcasts, coherency, cross-cluster atomics incl. lost-update accounting. Windows fails with any M4 offered:
+8 cores (heap-corruption bugchecks), one M4, M4s in the A75 efficiency class, A55 + M4 without A75s. Open leads:
+M4 voltage/frequency state under Windows (above); what Windows does per secondary core (mongoose-research-guide.md,
+needs someone allowed to inspect Windows internals).

@@ -339,3 +339,18 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
 - Shader-compile hitches (spike class a): the build has -Dshader-cache=disabled, and upstream meson.build refuses it on
   Windows ("Shader Cache does not currently work on Windows"). A disk cache would remove the first-use compiles on every
   later run; it needs a port of util/disk_cache_os.c's file cache to Windows - recorded as a later item, not started.
+- bot3 (EC 0172, auto route; traces/games/bench-bot3-0172.*): 2369 frames / 103.0 s, mean 23.0 fps, median 41.2 ms,
+  p95 56.1, p99 76.6, max 1422.9, 1 % low 6.0, 0.1 % 1.3, 14 > 100 ms; swim not-in-water 2 ticks at the end (route
+  not clean). 0172 works as meant - tlog pid 6908: MAP (0x100) 3-19 calls per 120 frames (was 7964), MMAP_BO 3-19 -
+  but the frame time did not move (median 41.2 vs 41.6): the maps were not on the critical path. A MAP of a NEW BO
+  now costs 15-20 ms each (19 calls 294 ms) = the w_lock of a fresh allocation.
+  Per frame (tlog app frames): 43-49 ms, inside the UMD 18-21.6 ms (42-44 %); top: Flush 1 call/frame 8.8 ms (the app
+  thread waits for the driver thread: no TC create_fence, and runtime callbacks - pfnRenderCb - run on the app thread
+  via the ddi pump, notes/perf-threaded-context.md), shader_state_fs 8 ms (tex:read_rsrc 1270 calls/frame), prepare_draw
+  4.7, get_batch_slow 4.4 (49 calls = the batch submits), SUBMIT ioctl 49/frame ~7.8 ms.
+  The rest of the frame (~25 ms) is the game itself (x64 Unity under emulation) - not ours.
+- Plan 0173 (shim submit queue): SUBMIT / malikm_submit_pair append to a pending queue (copied submit + BO list,
+  queued mark on the BOs); every other shim entry (wddm_lock_acquire) flushes it first unless the call is whitelisted
+  (SUBMIT, MADVISE, GET_PARAM, CREATE_BO, MMAP_BO, GET_BO_OFFSET, MAP; WAIT_BO only when its BO is not queued); queue
+  cap; Panfrost's panfrost_flush drains it at its end. One Render per flush instead of per batch. Estimate from the
+  0167 numbers (a merged chain saves ~2/3 of a Render): ~3-4 ms/frame of the app thread.

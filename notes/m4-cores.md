@@ -174,3 +174,7 @@ Pitfalls: never `peek` CPUCL2 SYSREG (0x1D100104) or PMU 0x15861200-0x1650 from 
   Windows-level trial helper. Daily image restored afterwards.
 - 2026-10-19 morning: the verified shared-counter test (NEXT above) was not written - two attempts were stopped by a
   safety classifier mid-response; work moved to the UFS driver (user request) with the M4 goal still open.
+- **m4atom11 dcf849af (11:09; gicc3 A55 + both M4 run flag 7 opts 6, gicc3 sends no SGIs, Windows on 5 cores)**:
+  UEFILOG "PARK: SHARED word ..." 5 samples 100 ms apart: word 1829249 .. 2959360, every sample inside the expected
+  window 2 x (sum of round counters) -> consistent. Shared-word updates from the A55 and both M4s (LSE + LL/SC on one
+  word, ~1.1 M updates in 0.5 s) are not lost. Windows (5 procs) up normally.

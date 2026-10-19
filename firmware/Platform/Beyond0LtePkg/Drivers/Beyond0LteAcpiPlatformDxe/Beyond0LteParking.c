@@ -665,6 +665,41 @@ Beyond0LteParkSecondaries (
   }
 
   //
+  // m14 shared-word accounting (flag-7 options bits 1+2): every round adds 1 to the shared word +0x00 with LDADDAL
+  // and 1 with LDAXR/STLXR, so the word must lie between 2 x (sum of the cores' round counters) read just before
+  // and just after it (the cores keep running; the counters advance in steps of 1024 after each round block).
+  //
+  if (((BEYOND0LTE_PARK_IRQ_OPTS & 6u) == 6u) && (mParkAtomicPage != 0)) {
+    UINTN   Pass;
+
+    for (Pass = 0; Pass < 5; Pass++) {
+      UINT64  Before;
+      UINT64  After;
+      UINT64  Word;
+
+      Before = 0;
+      After  = 0;
+      for (Index = 0; Index < GiccCount; Index++) {
+        if ((((BEYOND0LTE_PARK_IRQ_MASK >> Index) & 1u) != 0) && (Page[Index] != 0)) {
+          Before += ParkRd64 (Page[Index] + PARK_ATOMIC_CNT_OFF);
+        }
+      }
+
+      Word = ParkRd64 (mParkAtomicPage);
+      for (Index = 0; Index < GiccCount; Index++) {
+        if ((((BEYOND0LTE_PARK_IRQ_MASK >> Index) & 1u) != 0) && (Page[Index] != 0)) {
+          After += ParkRd64 (Page[Index] + PARK_ATOMIC_CNT_OFF);
+        }
+      }
+
+      DEBUG ((DEBUG_ERROR, "PARK: SHARED word %lu, expected %lu..%lu (+1024 per core in flight) -> %a\n",
+              Word, 2 * Before, 2 * After + 2048 * 8,
+              ((Word >= 2 * Before) && (Word <= 2 * After + 2048 * 8)) ? "consistent" : "MISMATCH"));
+      MicroSecondDelay (100000);
+    }
+  }
+
+  //
   // m14 coherency test: the test core runs cached (stub sleep flag 3) and echoes +0x100 into +0x140. Plain
   // volatile accesses here, NO cache maintenance (ParkRd32 would clean/invalidate and hide the bug).
   //

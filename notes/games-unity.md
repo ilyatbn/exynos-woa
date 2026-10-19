@@ -277,3 +277,8 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   120-present "app umd top" lines and in 0170's spike lines. EC build s10e-artifacts\mali-umd-0171-ec e2eee16d (section string present in
   the DLL); not deployed yet (phone in TWRP). Review of 72fd677: the patch adds the timers only in the PAN_ARCH >= 6
   path (G76 = v7, so that is the one used); the later PAN_SEC macro block is #ifndef-guarded, no redefinition.
+- ARM64 port of 0160-0171 (pending task "port to ARM64"): build-mesa-g76 -Stage cross,collect ->
+  s10e-artifacts\mali-umd-0171-arm64 maliumd.dll 976cc0c0 (0170/0171 strings present); make-arm64x.ps1 with the 0171 EC
+  -> s10e-artifacts\mali-umd-0171-x (forwarder maliumd.dll + maliumd_arm64.dll + maliumd_ec.dll e2eee16d). Built only:
+  the ARM64 UMD is loaded by every ARM64 process (dwm), so it is swapped from TWRP + reboot, then the regression set
+  (d3dmrt / d3dbc lossy ARM64 + x64, cube) before anything else.

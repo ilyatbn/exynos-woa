@@ -174,3 +174,18 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   chains in order (command.c Kick: next chain after the previous is reaped). EC maliumd_ec ed5e4ed3
   (s10e-artifacts\mali-umd-0167-ec) live; d3dmrt / d3dbc lossy below.
   0167 regression: d3dmrt64x 7/7 match, d3dbc64x lossy 0/126 differ PASS.
+- 23:15 0167 measured in the dive: frame 46.5 ms (~21.5 fps; was 52.5), submissions 5880/120 frames (was 11754 = one
+  per batch now), SUBMIT 851 ms (was 1264), Flush wait 1192 (was 1561), GPU 66 %, Present GPU wait 1494 ms
+  (~12.5 ms/frame) = the next target (KMD: present copy after the earlier jobs).
+- Benchmark automation (user: "lets do another key recording where you do this yourself"; "look at the lows"):
+  keyrec/keyplay v2 = + mouse buttons (WH_MOUSE_LL, "<ms> M LD|LU|RD|RU <x> <y>" physical pixels, both DPI-aware;
+  keyplay's injected clicks tagged dwExtraInfo KEYPLAY_EXTRA "KEYP" and skipped by keyrec); touch taps arrive as mouse
+  events (verified: the user's two menu taps recorded at 141.0 / 144.3 s). keyrec-start.ps1 = detached start.
+  Recording traces/games/davekeys.rec (790 events, F12): taps 140-144 s, keys 209-214 s (boat -> dive), 286-369 s
+  (diving: Shift held, D, Space, Ctrl, S, A, W). Player.log markers (traces/games/dave-rec.log): title
+  "DR.Title.<Start>", boat "BGM/BGM_Lobby", dive "ondestroy called singleton LobbyMainCanvas".
+  Mesa 0168: FrameCap.cpp FrameTimesPresent - while C:\S10eTmp\frametimes.on exists every present appends its
+  interval (us) to frametimes.txt. tools/phone/games/davebench.ps1 (user session: launch, per segment wait marker +
+  6 s log silence, keyplay, frame times during seg3, close) + davebench.sh (split the recording at > 30 s gaps,
+  push, run detached, stats: mean fps, median / p95 / p99 / max ms, 1 % / 0.1 % low fps -> traces/games/bench-TAG.*).
+  EC build 9b75aceb (s10e-artifacts\mali-umd-0168-ec) live. First run "0168-run1" started.

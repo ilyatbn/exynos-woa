@@ -2,7 +2,8 @@
  * keyplay - replay a keyrec recording (tools/phone/games/keyrec/keyrec.c) with the same timing: each "<ms> D|U <scan>
  * <ext>" line becomes a SendInput scan-code event (DirectInput games read scan codes) at <ms> after keyplay started
  * (start it together with the game - gamedrive.ps1 does). Lines with negative times (keys before the game started)
- * are skipped. NFSU2 race automation, notes/games-nfsu2.md.
+ * are skipped. NFSU2 race automation, notes/games-nfsu2.md. v2 (notes/games-unity.md): "<ms> M LD|LU|RD|RU <x> <y>" lines
+ * become absolute mouse moves + button events at those physical pixels, tagged KEYPLAY_EXTRA for keyrec.
  * usage: keyplay [FILE=C:\S10eTmp\gamekeys.rec] [SPEED_PERCENT=100] [PROCESS=SPEED2.EXE]
  * SPDX-License-Identifier: GPL-2.0
  */
@@ -16,6 +17,7 @@
  * fullscreen swapchain is reset without focus - the first replayed Enter crashed it (2026-10-18). Before every event:
  * if the game's window is not the foreground window, earn foreground rights the documented way (this process sends
  * the last input event: an Alt tap) and SetForegroundWindow() the game's main window. */
+#define KEYPLAY_EXTRA 0x4B455950u
 static DWORD g_pid;
 static HWND g_wnd;
 static BOOL CALLBACK FindWnd(HWND h, LPARAM lp)
@@ -80,17 +82,43 @@ int main(int argc, char **argv)
     FILE *f = fopen(file, "r");
     if (!f) { printf("no %s\n", file); return 2; }
     FILE *log = fopen("C:\\S10eTmp\\keyplay.log", "w");
+    SetProcessDPIAware();   /* v2: recorded mouse positions are physical pixels */
     ULONGLONG t0 = GetTickCount64();
     char line[128];
     int sent = 0;
     while (fgets(line, sizeof(line), f)) {
-        long long ms; char du; unsigned long scan; int ext;
-        if (line[0] == '#' || sscanf(line, "%lld %c %lx %d", &ms, &du, &scan, &ext) != 4 || ms < 0)
+        long long ms; char du = 0; unsigned long scan = 0; int ext = 0;
+        char btn[4] = ""; long mx = 0, my = 0;
+        if (line[0] == '#')
             continue;
+        if (sscanf(line, "%lld M %3s %ld %ld", &ms, btn, &mx, &my) == 4) {
+            if (ms < 0)
+                continue;
+            du = 'M';
+        } else if (sscanf(line, "%lld %c %lx %d", &ms, &du, &scan, &ext) != 4 || ms < 0) {
+            continue;
+        }
         ULONGLONG due = t0 + (ULONGLONG)(ms * 100 / (pct > 0 ? pct : 100));
         ULONGLONG now = GetTickCount64();
         if (due > now) Sleep((DWORD)(due - now));
         EnsureForeground(proc, &fixes, &fails, log, ms);
+        if (du == 'M') {
+            int w = GetSystemMetrics(SM_CXSCREEN), h = GetSystemMetrics(SM_CYSCREEN);
+            INPUT mi[2] = { 0 };
+            mi[0].type = mi[1].type = INPUT_MOUSE;
+            mi[0].mi.dx = w > 1 ? (LONG)(mx * 65535 / (w - 1)) : 0;
+            mi[0].mi.dy = h > 1 ? (LONG)(my * 65535 / (h - 1)) : 0;
+            mi[0].mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
+            mi[1].mi.dx = mi[0].mi.dx;
+            mi[1].mi.dy = mi[0].mi.dy;
+            mi[1].mi.dwFlags = MOUSEEVENTF_ABSOLUTE |
+                               (btn[0] == 'L' ? (btn[1] == 'D' ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP)
+                                              : (btn[1] == 'D' ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP));
+            mi[0].mi.dwExtraInfo = mi[1].mi.dwExtraInfo = KEYPLAY_EXTRA;
+            SendInput(2, mi, sizeof(INPUT));
+            sent++;
+            continue;
+        }
         INPUT in = { 0 };
         in.type = INPUT_KEYBOARD;
         in.ki.wScan = (WORD)scan;

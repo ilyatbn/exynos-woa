@@ -1,0 +1,46 @@
+diff --git a/src/gallium/frontends/d3d10umd/FrameCap.cpp b/src/gallium/frontends/d3d10umd/FrameCap.cpp
+index 8732e74..6b8ca96 100644
+--- a/src/gallium/frontends/d3d10umd/FrameCap.cpp
++++ b/src/gallium/frontends/d3d10umd/FrameCap.cpp
+@@ -167,9 +167,41 @@ fc_open_pass(Device *dev)
+       snprintf(p->rts, sizeof(p->rts), "(no targets)");
+ }
+ 
++/* exynos-woa G32 (0168, notes/games-unity.md): per-frame present intervals for benchmarks. While
++ * C:\S10eTmp\frametimes.on exists (checked every 30 presents), every present appends the microseconds since the
++ * previous one to C:\S10eTmp\frametimes.txt (one number per line) - averages hide the drops, the file gives the lows.
++ * Diagnosis / benchmark only: costs one GetFileAttributes per 30 presents while off. */
++static void
++FrameTimesPresent(void)
++{
++   static unsigned n;
++   static int on;
++   static FILE *f;
++   static LARGE_INTEGER freq, last;
++   LARGE_INTEGER now;
++   QueryPerformanceCounter(&now);
++   if (!freq.QuadPart)
++      QueryPerformanceFrequency(&freq);
++   if (++n % 30 == 0) {
++      int want = GetFileAttributesA("C:\\S10eTmp\\frametimes.on") != INVALID_FILE_ATTRIBUTES;
++      if (want && !on) {
++         f = fopen("C:\\S10eTmp\\frametimes.txt", "a");
++         last.QuadPart = 0;
++      } else if (!want && on && f) {
++         fclose(f);
++         f = NULL;
++      }
++      on = want && f;
++   }
++   if (on && f && last.QuadPart)
++      fprintf(f, "%lld\n", (long long)((now.QuadPart - last.QuadPart) * 1000000 / freq.QuadPart));
++   last = now;
++}
++
+ void
+ FrameCapPresent(Device *dev)
+ {
++   FrameTimesPresent();   /* 0168 */
+    if (fc.armed == 2) {
+       fc_close_pass();
+       malikm_tlog("fc end: %u passes, %u copies", fc.passes, fc.copies);

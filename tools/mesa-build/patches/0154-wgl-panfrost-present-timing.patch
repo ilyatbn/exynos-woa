@@ -1,0 +1,76 @@
+diff --git a/src/gallium/targets/wgl/wgl.c b/src/gallium/targets/wgl/wgl.c
+index fc837a1..f818c56 100644
+--- a/src/gallium/targets/wgl/wgl.c
++++ b/src/gallium/targets/wgl/wgl.c
+@@ -125,8 +125,15 @@ wgl_panfrost_create_screen(void)
+ 
+ /* Present, stage 1: map the back buffer for reading (Panfrost resolves its tiled / AFBC layout) and draw it into the
+  * window with GDI, as the software drivers do. One CPU copy per frame; DWM composes the window as any GDI window. */
++/* exynos-woa GL5 (notes/gl-icd.md): present timing in the malikm tlog (MALIKM_TGSI_DIR) - frames/s, the map (GPU
++ * wait + resolve) and the whole present, means over WGL_PAN_STAT_FRAMES presents. */
++void malikm_tlog(const char *fmt, ...);
++#define WGL_PAN_STAT_FRAMES 120
++static LONGLONG wgl_pan_map_ticks;
++static int wgl_pan_direct;
++
+ static void
+-wgl_panfrost_present(struct pipe_context *ctx, struct pipe_resource *res, HDC hDC)
++wgl_panfrost_present_copy(struct pipe_context *ctx, struct pipe_resource *res, HDC hDC)
+ {
+    const struct util_format_description *desc = util_format_description(res->format);
+    unsigned w = res->width0, h = res->height0;
+@@ -134,7 +141,11 @@ wgl_panfrost_present(struct pipe_context *ctx, struct pipe_resource *res, HDC hD
+ 
+    if (!ctx || !desc || desc->block.bits != 32)
+       return;
++   LARGE_INTEGER m0, m1;
++   QueryPerformanceCounter(&m0);
+    const uint8_t *map = pipe_texture_map(ctx, res, 0, 0, PIPE_MAP_READ, 0, 0, w, h, &xfer);
++   QueryPerformanceCounter(&m1);
++   wgl_pan_map_ticks += m1.QuadPart - m0.QuadPart;
+    if (!map)
+       return;
+ 
+@@ -148,6 +159,7 @@ wgl_panfrost_present(struct pipe_context *ctx, struct pipe_resource *res, HDC hD
+ 
+    /* GDI wants B, G, R, X in memory: a BGRA/BGRX back buffer with a pitch of w * 4 goes straight from the map. */
+    bool bgra = desc->swizzle[0] == PIPE_SWIZZLE_Z && desc->swizzle[2] == PIPE_SWIZZLE_X;
++   wgl_pan_direct = bgra && xfer->stride == w * 4;
+    if (bgra && xfer->stride == w * 4) {
+       StretchDIBits(hDC, 0, 0, (int)w, (int)h, 0, 0, (int)w, (int)h, map, &bmi, DIB_RGB_COLORS, SRCCOPY);
+       pipe_texture_unmap(ctx, xfer);
+@@ -174,6 +186,34 @@ wgl_panfrost_present(struct pipe_context *ctx, struct pipe_resource *res, HDC hD
+    StretchDIBits(hDC, 0, 0, (int)w, (int)h, 0, 0, (int)w, (int)h, bits, &bmi, DIB_RGB_COLORS, SRCCOPY);
+    free(bits);
+ }
++
++static void
++wgl_panfrost_present(struct pipe_context *ctx, struct pipe_resource *res, HDC hDC)
++{
++   static LARGE_INTEGER freq, start;
++   static LONGLONG present_ticks;
++   static unsigned frames;
++   LARGE_INTEGER t0, t1;
++   if (!freq.QuadPart)
++      QueryPerformanceFrequency(&freq);
++   QueryPerformanceCounter(&t0);
++   if (!frames)
++      start = t0;
++   wgl_panfrost_present_copy(ctx, res, hDC);
++   QueryPerformanceCounter(&t1);
++   present_ticks += t1.QuadPart - t0.QuadPart;
++   if (++frames == WGL_PAN_STAT_FRAMES) {
++      double ms = 1000.0 / (double)freq.QuadPart;
++      double el = (double)(t1.QuadPart - start.QuadPart) * ms;
++      malikm_tlog("gl present %ux%u %s: %.1f fps, map mean %.2f ms, present mean %.2f ms (%u frames)",
++                  res->width0, res->height0, wgl_pan_direct ? "direct" : "converted",
++                  el > 0 ? frames * 1000.0 / el : 0.0, wgl_pan_map_ticks * ms / frames, present_ticks * ms / frames,
++                  frames);
++      frames = 0;
++      present_ticks = 0;
++      wgl_pan_map_ticks = 0;
++   }
++}
+ #endif
+ 
+ #ifdef GALLIUM_LLVMPIPE

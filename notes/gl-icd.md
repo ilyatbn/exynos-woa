@@ -97,3 +97,13 @@ there is no D3D12 GPU here -> WARP (CPU).
   running (CopyFromScreen "The handle is invalid", scan-out all zero) - taskkill /f /im scrnsave.scr first (as the
   cube-fps rule in notes/brightness-research.md says). The cmd.exe window in the shots is the screenshot task's own
   console. tools/phone/gl/glfront.ps1 minimises console windows + raises the game window.
+- 20:40 GL5 measurements. Mesa 0154 = present timing in the malikm tlog ("gl present WxH ...: fps, map mean, present
+  mean" per 120 presents). gltest 256x256: 64 fps (vsync, WGL swap interval 1), present 1.5-2.2 ms. **Stardew
+  1520x720 fullscreen: 22-24 fps, map 0.03 ms, present 37.5-38 ms per frame** = the present is the whole frame.
+  Cause: the allocation's CPU view is write-combined (KMD memory.c: segment CacheCoherent FALSE) and StretchDIBits
+  read the 4.4 MB frame straight from the map (uncached narrow reads, ~115 MB/s). KMD presents are CPU blts too
+  (command.c DoPresent from the MDL's kernel view), so D3DKMTPresent would only move the copy.
+- Mesa 0155: rows memcpy'd out of the map into one cached buffer (wide loads), RGBA swizzle done there, then
+  StretchDIBits; buffer under an SRWLOCK (windows of different threads). The log adds "copy mean". gldeploy.sh =
+  repo deploy script (stops our GL test processes, copies the three DLLs, checks sha256). Build 0155:
+  maligl 24d5c801 / maligl_arm64 ddab3525 / maligl_ec 6ce3c6ce.

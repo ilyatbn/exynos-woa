@@ -282,3 +282,8 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   -> s10e-artifacts\mali-umd-0171-x (forwarder maliumd.dll + maliumd_arm64.dll + maliumd_ec.dll e2eee16d). Built only:
   the ARM64 UMD is loaded by every ARM64 process (dwm), so it is swapped from TWRP + reboot, then the regression set
   (d3dmrt / d3dbc lossy ARM64 + x64, cube) before anything else.
+- 2026-10-20 resume (user: "continue ... you are unattended"): Windows up, battery 60 % charging, Steam running.
+  EC 0171 e2eee16d live (ecswap, prev 4e837eb3 = .pre-0171-0); d3dmrt64x 7/7, d3dbc64x lossy 0/126 PASS. ARM64 0171
+  set not deployed yet (TWRP swap later). Full bench started (davebench.sh davekeys2.rec 0171, SPLIT 120:140,190:230,250:).
+  User: the first launch after a reboot is slower (Steam start etc.) - davebench waits on Player.log markers with a
+  600 s timeout per segment (title + 10 s quiet), so no fixed delay depends on it.

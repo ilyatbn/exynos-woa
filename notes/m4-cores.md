@@ -178,3 +178,7 @@ Pitfalls: never `peek` CPUCL2 SYSREG (0x1D100104) or PMU 0x15861200-0x1650 from 
   UEFILOG "PARK: SHARED word ..." 5 samples 100 ms apart: word 1829249 .. 2959360, every sample inside the expected
   window 2 x (sum of round counters) -> consistent. Shared-word updates from the A55 and both M4s (LSE + LL/SC on one
   word, ~1.1 M updates in 0.5 s) are not lost. Windows (5 procs) up normally.
+- **m4eff2 7c90d94e (11:16; 8 cores, EFF_BIG = 1 = M4s in the A75 class, 2 classes)**: died twice, safeguard to TWRP
+  after 107 s. Efficiency-class (3-class hetero policy) lead OUT.
+- **m4a55 41e8602d (11:18; PARK 0xCE = A55 x4 + M4 x2, A75s not started)**: no SSH; after 15+ min neither Windows nor
+  TWRP (no watchdog reset seen yet) - phone possibly hung dark; waiting, may need a force restart (Vol Down + Power).

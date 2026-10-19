@@ -363,3 +363,8 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   pan_context.c panfrost_flush calls malikm_submit_flush at its end. MALIKM_SUBMIT_QUEUE=0 = old behaviour
   (diagnosis only). tlog "submit queue: flush N, M chains (X per Render)". EC 503c9931 live (prev 071cf1e3 =
   .pre-0173-0); d3dmrt64x 7/7, d3dbc64x lossy 0/126 PASS. bot4 started.
+  Review of 3dfe0ec (0173): lock acquisitions outside wddm_lock_acquire - only malikm_ddi_pump's T1c
+  TryAcquire + mk_drain(1) (deferred destroy/unlock of the driver thread): those come from GEM_CLOSE / unlock calls
+  that went through wddm_ioctl, which flushed the queue first, so a destroy always follows the Render that names the
+  BO. Known semantic change: a Render failure of a queued chain is only logged ("submit queue: N chains failed"),
+  Panfrost already saw success. wq_n read without the lock in malikm_submit_flush: same thread as the submits.

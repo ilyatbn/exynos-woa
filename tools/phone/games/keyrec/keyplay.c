@@ -46,6 +46,27 @@ static int IsGameForeground(void)
     GetWindowThreadProcessId(GetForegroundWindow(), &fg);
     return g_pid && fg == g_pid;
 }
+/* 2026-10-20 (notes/games-unity.md): after a reboot every foreground fix and every InjectTouchInput failed with error 5
+ * (access denied). Who holds the foreground: window class / title, owner pid + exe, and whether that process can be
+ * opened for query (an elevated / protected owner blocks injected input, UIPI). */
+static void LogForeground(FILE *log)
+{
+    HWND fg = GetForegroundWindow();
+    DWORD pid = 0;
+    char cls[128] = "", title[128] = "", exe[MAX_PATH] = "?";
+    DWORD n = sizeof(exe);
+    GetWindowThreadProcessId(fg, &pid);
+    GetClassNameA(fg, cls, sizeof(cls));
+    GetWindowTextA(fg, title, sizeof(title));
+    HANDLE p = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (p) {
+        QueryFullProcessImageNameA(p, 0, exe, &n);
+        CloseHandle(p);
+    }
+    fprintf(log, "  foreground %p class '%s' title '%s' pid %lu %s%s\n", (void *)fg, cls, title, pid, exe,
+            p ? "" : " (cannot open: elevated/protected?)");
+}
+
 /* 2026-10-18 (notes/perf-threaded-context.md): one Alt + SetForegroundWindow try was not always enough - 2 of 3
  * runs still died at the first Enter (+0x6562b). Retry for up to 3 s until the game really owns the foreground
  * before the event is sent; failures go to C:\S10eTmp\keyplay.log. */
@@ -72,7 +93,10 @@ static void EnsureForeground(const char *proc, int *fixes, int *fails, FILE *log
         }
     }
     (*fails)++;
-    if (log) fprintf(log, "%lld ms: game NOT foreground after 3 s (window %p)\n", ms, (void *)g_wnd);
+    if (log) {
+        fprintf(log, "%lld ms: game NOT foreground after 3 s (window %p)\n", ms, (void *)g_wnd);
+        LogForeground(log);
+    }
 }
 
 int main(int argc, char **argv)
@@ -81,9 +105,14 @@ int main(int argc, char **argv)
     int pct = argc > 2 ? atoi(argv[2]) : 100;
     const char *proc = argc > 3 ? argv[3] : "SPEED2.EXE";
     int fixes = 0, fails = 0;
-    FILE *f = fopen(file, "r");
-    if (!f) { printf("no %s\n", file); return 2; }
+    FILE *f = _stricmp(file, "probe") ? fopen(file, "r") : NULL;
+    if (!f && _stricmp(file, "probe")) { printf("no %s\n", file); return 2; }
     FILE *log = fopen("C:\\S10eTmp\\keyplay.log", "w");
+    if (_stricmp(file, "probe") == 0) {   /* keyplay probe: only log who holds the foreground, send nothing */
+        if (log) { LogForeground(log); fclose(log); }
+        if (f) fclose(f);
+        return 0;
+    }
     SetProcessDPIAware();   /* v2: recorded mouse positions are physical pixels */
     /* left taps as touch (default; KEYPLAY_MOUSE=1 sends mouse clicks as before) */
     {

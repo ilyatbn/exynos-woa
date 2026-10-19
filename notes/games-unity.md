@@ -287,3 +287,16 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   set not deployed yet (TWRP swap later). Full bench started (davebench.sh davekeys2.rec 0171, SPLIT 120:140,190:230,250:).
   User: the first launch after a reboot is slower (Steam start etc.) - davebench waits on Player.log markers with a
   600 s timeout per segment (title + 10 s quiet), so no fixed delay depends on it.
+- Bench 0171 run 1 (12:00): seg1 marker reached, keyplay "game NOT foreground" x4 + InjectTouchInput down/up failed
+  error 5 -> stuck at the main menu (user: "stuck on the main menu"). Cause: scrnsave.scr was running (user: "the screen
+  is dark (screensaver)") - it started during the ~2.5 min load after the reboot (davebench.sh kills it only before
+  the launch). keyplay probe (new: "keyplay probe" logs the foreground owner; failures now log it too) saw foreground
+  NULL = the screensaver's own desktop. (My first check with fgwin.ps1 via userrun reported cmd.exe - that was
+  userrun's own cmd /c console, a self-inflicted reading; tools/phone/games/fgwin.ps1 kept, but run keyplay probe
+  hidden instead.) MS Learn SetForegroundWindow / InjectTouchInput read (no UIPI text on InjectTouchInput; "The injected
+  input is sent to the desktop of the session where the injection process is running").
+  Fix in davebench.ps1: SPI_SETSCREENSAVEACTIVE FALSE with fWinIni 0 for the run (SystemParametersInfo page: "zero if
+  you do not want to update the user profile"), back to TRUE at the end; scrnsave killed at the start and before each
+  segment. SetThreadExecutionState page: "This function does not stop the screen saver from executing". Caveat: a run
+  killed by davebench-stop.ps1 leaves screen saving off until the next logon (not persisted).
+  tools/phone/games/proctree.ps1 (new): process tree by name/pid.

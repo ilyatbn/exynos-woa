@@ -10,6 +10,15 @@
 $log = 'C:\S10eTmp\davebench.log'
 function L($m) { "{0} {1}" -f (Get-Date -Format 'HH:mm:ss'), $m | Add-Content $log }
 Set-Content $log "start"
+# 2026-10-20: the screensaver started during the ~2.5 min load after a reboot; it runs on its own desktop, so there was
+# no foreground window and keyplay's SendInput / InjectTouchInput failed with error 5. Screen saving off for this run
+# only: SystemParametersInfo(SPI_SETSCREENSAVEACTIVE 0x11, FALSE) with fWinIni 0 = not written to the user profile (MS
+# Learn: "zero if you do not want to update the user profile"); switched back on at the end. SetThreadExecutionState is
+# no help ("This function does not stop the screen saver from executing").
+Add-Type -Namespace W -Name Spi -MemberDefinition '[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool SystemParametersInfo(uint a, uint u, System.IntPtr p, uint f);'
+function NoSaver { Get-Process scrnsave -ErrorAction SilentlyContinue | Stop-Process -Force }
+[void][W.Spi]::SystemParametersInfo(0x11, 0, [IntPtr]::Zero, 0)
+NoSaver
 Remove-Item C:\S10eTmp\frametimes.on, C:\S10eTmp\frametimes.txt -ErrorAction SilentlyContinue
 $o = Get-CimInstance Win32_Process -Filter "name='explorer.exe'" | Select-Object -First 1 | Invoke-CimMethod -MethodName GetOwner
 $pl = "C:\Users\$($o.User)\AppData\LocalLow\nexon\DAVE THE DIVER\Player.log"
@@ -53,6 +62,7 @@ foreach ($s in $segs) {
   $q = if ($s.Quiet) { $s.Quiet } else { 6 }
   if (-not (WaitMarker $s.Marker $q $s.Timeout)) { L "seg$i marker '$($s.Marker)' not reached - abort"; break }
   L "seg$i marker reached"
+  NoSaver
   if ($i -eq 3) { New-Item -ItemType File C:\S10eTmp\frametimes.on -Force | Out-Null }
   Start-Process -Wait -FilePath C:\S10eTmp\keyplay.exe -ArgumentList $s.File, 100, 'DaveTheDiver.exe'
   L "seg$i replayed: $(Get-Content C:\S10eTmp\keyplay.log -Tail 1)"
@@ -62,4 +72,5 @@ foreach ($s in $segs) {
   }
 }
 Get-Process DaveTheDiver -ErrorAction SilentlyContinue | Stop-Process -Force
+[void][W.Spi]::SystemParametersInfo(0x11, 1, [IntPtr]::Zero, 0)   # screen saving back on
 L "done"

@@ -107,3 +107,7 @@ there is no D3D12 GPU here -> WARP (CPU).
   StretchDIBits; buffer under an SRWLOCK (windows of different threads). The log adds "copy mean". gldeploy.sh =
   repo deploy script (stops our GL test processes, copies the three DLLs, checks sha256). Build 0155:
   maligl 24d5c801 / maligl_arm64 ddab3525 / maligl_ec 6ce3c6ce.
+- 20:55 0155 measured, Stardew 1520x720: 23.0-23.8 fps, **copy mean 36.1-36.9 ms**, present 36.9-37.7 ms -> no gain:
+  memcpy reads the map at ~121 MB/s too. StretchDIBits itself from cached memory = ~0.7 ms. => the uncached read is
+  latency-bound per core. Kept (0156 builds on the cached buffer). Next: 0156 = the copy split over 4 parts (thread
+  pool), to test memory-level parallelism; the real fix is a present that never reads the frame with the CPU.

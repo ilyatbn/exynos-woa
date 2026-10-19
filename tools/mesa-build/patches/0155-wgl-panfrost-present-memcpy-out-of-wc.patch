@@ -1,0 +1,101 @@
+diff --git a/src/gallium/targets/wgl/wgl.c b/src/gallium/targets/wgl/wgl.c
+index f818c56..47c82f6 100644
+--- a/src/gallium/targets/wgl/wgl.c
++++ b/src/gallium/targets/wgl/wgl.c
+@@ -129,8 +129,13 @@ wgl_panfrost_create_screen(void)
+  * wait + resolve) and the whole present, means over WGL_PAN_STAT_FRAMES presents. */
+ void malikm_tlog(const char *fmt, ...);
+ #define WGL_PAN_STAT_FRAMES 120
+-static LONGLONG wgl_pan_map_ticks;
+-static int wgl_pan_direct;
++static LONGLONG wgl_pan_map_ticks, wgl_pan_copy_ticks;
++/* The frame in cached memory for GDI. GL5 run 1: StretchDIBits straight from the map took 38 ms per 1520x720 frame
++ * (Stardew 23 fps) - the CPU view of an allocation is write-combined (the segment is not CacheCoherent, KMD
++ * memory.c), so GDI's narrow reads are uncached; memcpy's wide loads stream it into this buffer first. */
++static uint32_t *wgl_pan_bits;
++static size_t wgl_pan_bits_size;
++static SRWLOCK wgl_pan_bits_lock = SRWLOCK_INIT;   /* windows of other threads present concurrently */
+ 
+ static void
+ wgl_panfrost_present_copy(struct pipe_context *ctx, struct pipe_resource *res, HDC hDC)
+@@ -157,34 +162,39 @@ wgl_panfrost_present_copy(struct pipe_context *ctx, struct pipe_resource *res, H
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+ 
+-   /* GDI wants B, G, R, X in memory: a BGRA/BGRX back buffer with a pitch of w * 4 goes straight from the map. */
++   /* GDI wants B, G, R, X in memory. Rows are copied out of the write-combined map with memcpy first; an RGBA
++    * back buffer is then swizzled in cached memory. */
+    bool bgra = desc->swizzle[0] == PIPE_SWIZZLE_Z && desc->swizzle[2] == PIPE_SWIZZLE_X;
+-   wgl_pan_direct = bgra && xfer->stride == w * 4;
+-   if (bgra && xfer->stride == w * 4) {
+-      StretchDIBits(hDC, 0, 0, (int)w, (int)h, 0, 0, (int)w, (int)h, map, &bmi, DIB_RGB_COLORS, SRCCOPY);
++   size_t need = (size_t)w * h * 4;
++   AcquireSRWLockExclusive(&wgl_pan_bits_lock);
++   if (wgl_pan_bits_size < need) {
++      free(wgl_pan_bits);
++      wgl_pan_bits = malloc(need);
++      wgl_pan_bits_size = wgl_pan_bits ? need : 0;
++   }
++   if (!wgl_pan_bits) {
++      ReleaseSRWLockExclusive(&wgl_pan_bits_lock);
+       pipe_texture_unmap(ctx, xfer);
+       return;
+    }
+-   uint32_t *bits = malloc((size_t)w * h * 4);
+-   if (bits) {
+-      for (unsigned y = 0; y < h; y++) {
+-         const uint32_t *src = (const uint32_t *)(map + (size_t)y * xfer->stride);
+-         uint32_t *dst = bits + (size_t)y * w;
+-         if (bgra) {
+-            memcpy(dst, src, (size_t)w * 4);
+-            continue;
+-         }
+-         for (unsigned x = 0; x < w; x++) {
+-            uint32_t p = src[x];
+-            dst[x] = (p & 0xff00ff00u) | ((p & 0xffu) << 16) | ((p >> 16) & 0xffu);
+-         }
+-      }
++   QueryPerformanceCounter(&m0);
++   if (xfer->stride == w * 4) {
++      memcpy(wgl_pan_bits, map, need);
++   } else {
++      for (unsigned y = 0; y < h; y++)
++         memcpy(wgl_pan_bits + (size_t)y * w, map + (size_t)y * xfer->stride, (size_t)w * 4);
+    }
+    pipe_texture_unmap(ctx, xfer);
+-   if (!bits)
+-      return;
+-   StretchDIBits(hDC, 0, 0, (int)w, (int)h, 0, 0, (int)w, (int)h, bits, &bmi, DIB_RGB_COLORS, SRCCOPY);
+-   free(bits);
++   if (!bgra) {
++      for (size_t i = 0; i < (size_t)w * h; i++) {
++         uint32_t p = wgl_pan_bits[i];
++         wgl_pan_bits[i] = (p & 0xff00ff00u) | ((p & 0xffu) << 16) | ((p >> 16) & 0xffu);
++      }
++   }
++   QueryPerformanceCounter(&m1);
++   wgl_pan_copy_ticks += m1.QuadPart - m0.QuadPart;
++   StretchDIBits(hDC, 0, 0, (int)w, (int)h, 0, 0, (int)w, (int)h, wgl_pan_bits, &bmi, DIB_RGB_COLORS, SRCCOPY);
++   ReleaseSRWLockExclusive(&wgl_pan_bits_lock);
+ }
+ 
+ static void
+@@ -205,13 +215,14 @@ wgl_panfrost_present(struct pipe_context *ctx, struct pipe_resource *res, HDC hD
+    if (++frames == WGL_PAN_STAT_FRAMES) {
+       double ms = 1000.0 / (double)freq.QuadPart;
+       double el = (double)(t1.QuadPart - start.QuadPart) * ms;
+-      malikm_tlog("gl present %ux%u %s: %.1f fps, map mean %.2f ms, present mean %.2f ms (%u frames)",
+-                  res->width0, res->height0, wgl_pan_direct ? "direct" : "converted",
+-                  el > 0 ? frames * 1000.0 / el : 0.0, wgl_pan_map_ticks * ms / frames, present_ticks * ms / frames,
+-                  frames);
++      malikm_tlog("gl present %ux%u %s: %.1f fps, map mean %.2f ms, copy mean %.2f ms, present mean %.2f ms "
++                  "(%u frames)", res->width0, res->height0, util_format_short_name(res->format),
++                  el > 0 ? frames * 1000.0 / el : 0.0, wgl_pan_map_ticks * ms / frames,
++                  wgl_pan_copy_ticks * ms / frames, present_ticks * ms / frames, frames);
+       frames = 0;
+       present_ticks = 0;
+       wgl_pan_map_ticks = 0;
++      wgl_pan_copy_ticks = 0;
+    }
+ }
+ #endif

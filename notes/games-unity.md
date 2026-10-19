@@ -264,3 +264,9 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   EC build s10e-artifacts\mali-umd-0170-ec 4e837eb3 (build-mesa-g76 -Stage ec), live via ecswap.sh (prev 35ea28a6 =
   maliumd_ec.dll.pre-0170-0). Regression: d3dmrt64x 7/7 match, d3dbc64x lossy 0/126 differ PASS (the no-argument mode
   says 63/63 differ = the exact-compare mode, not the baseline used before).
+  Review of 9220116: the "63/63 differ = exact-compare mode" claim checked: d3dbc.cpp header (no argument = BCn decode
+  compared within one 8-bit step; "lossy" = the ETC2/EAC transcode PSNR check) and notes/g27-x64-apps.md:106 "d3dbc64x
+  plain 63/63 DIFF = expected since G26" -> correct, the plain mode is not a baseline since the ETC2 transcode. Patch
+  checked: first frame after the flag appears has us 0 (no diff against a stale snapshot); a reset between snapshots is
+  flagged and handled (delta = post-reset value; cur < prev also falls back); '# spike' string present in the built DLL.
+  Nothing to fix.

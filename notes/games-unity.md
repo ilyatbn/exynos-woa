@@ -83,3 +83,8 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
 - User: background missing at another place in-game = the FL 11_0 shaders (above).
 - OPEN: 0160-0162 are only in the EC UMD (x64 apps). Port to the ARM64 UMD (DWM, native apps) and x86 after the play
   session - an ARM64 UMD swap needs a reboot (DWM holds it).
+- 21:20 user play notes: the area that was dark rendered after returning to the boat (day -> night scene change);
+  changing the in-game brightness froze the game for a while, then it recovered ("its back working"). During the
+  stall: responding True, no appcrash, no TDR; afterwards heartbeat ~34 presents/s (whole screen), umd top per 120
+  frames normal (Present 1.6-1.9 s, ~30k draws). INFERENCE: settings change = Unity recreating render targets /
+  compiling shader variants under emulation, not a driver hang. User is collecting which scenes render wrong.

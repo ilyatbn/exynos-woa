@@ -198,3 +198,13 @@ before stage 4. Interrupt completion frees the CPU but does not lower QD1 latenc
   w42b 430; Linux 617), 256 KiB 285-388 MiB/s, rand 4 KiB p50 152 us / 6299 IOPS. StorPort splits a 1 MiB request into
   4 x 256 KiB SRBs which now run in parallel slots. (parhash wall 217 s vs w45 199 s: that test is dominated by
   small polled reads that drain - not a throughput test.)
+- **w47 1a06a038**: NEXUS write+readback skipped while unchanged (cache reset by containment and warm-handoff
+  restore), completion poll in 1 us steps for the first ~300 us (both under UFS_IO_FAST_ZERO, so safe mode reverts
+  them). On boot-irq1-wdt: hashcheck = w38, wt8 verifies, wt9 written + verified. rand 4 KiB p50 147-152 us
+  (w46 152) - ~3 us; 1 MiB aligned 503 MiB/s (in the w46 range). The remaining ~40 us per small read is the Windows
+  I/O stack on the small cores; device ~110 us.
+- App results with w46/w47 + r4 (vs w38 at the start of the day): Brave first start after boot window 2.35 s / idle
+  10.7 s (6.6 / 17.1), Steam warm idle 29.6-32.0 s (49.8). Steam is bound by its ~130 k strictly serial 4 KiB reads
+  (~150 us each, near the device's QD1 latency) plus its own CPU (x86 emulation).
+- STATE: UFS read path near the hardware limits - QD1 4 KiB ~150 us (device ~110 us), sequential ~500-560 MiB/s
+  (Linux 617 MB/s). Further disk-side gains would need the device itself to be faster at QD1, or Windows' stack.

@@ -1806,6 +1806,7 @@ typedef struct _UFS_ADAPTER_EXTENSION {
     volatile LONG IsrLatchedStatus;   /* w43: IS bits the ISR acknowledged, merged by UfsAcknowledgeInterruptStatus */
     volatile LONG IsrTransferCompletions;   /* w43: ISR invocations that saw UTRCS */
     ULONG ArmedInterruptEnable;       /* w43: IE value the command path expects (0 = gated, as before) */
+    ULONG LastNexus;                  /* w47: NEXUS value last written + read back (0 = rewrite) */
     STOR_DPC CompletionDpc;           /* w44: async completion DPC (passive init) */
     PVOID AsyncTimer;                 /* w44: extended backstop timer (passive init) */
     volatile BOOLEAN AsyncReady;      /* w44: DPC + timer initialised */

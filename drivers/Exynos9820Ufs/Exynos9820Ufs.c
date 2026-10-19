@@ -4505,6 +4505,7 @@ UfsContainController(
     }
     Adapter->InterruptsGated = TRUE;
     Adapter->ArmedInterruptEnable = 0;   /* w43: containment gated IE */
+    Adapter->LastNexus = 0;              /* w47: NEXUS must be rewritten after re-arm */
     Adapter->OwnsTransferList = FALSE;
     Adapter->ContainedCommands++;
     if (Adapter->FatalError) {
@@ -5638,6 +5639,7 @@ UfsRestoreWarmHandoff(
 
     Adapter->OwnsTransferList = FALSE;
     Adapter->InterruptsGated = FALSE;
+    Adapter->LastNexus = 0;   /* w47: firmware NEXUS restored */
     Restored = TRUE;
 
 Exit:
@@ -6543,9 +6545,10 @@ UfsPollForCompletion(
     )
 {
     ULONG Elapsed;
+    ULONG Step = ((UfsIoMode & UFS_IO_FAST_ZERO) != 0) ? 1UL : UFS_TRANSFER_POLL_US;   // w47: 1 us steps first
 
     for (Elapsed = 0; Elapsed < UFS_TRANSFER_TIMEOUT_US;
-         Elapsed += UFS_TRANSFER_POLL_US) {
+         Elapsed += Step, Step = (Elapsed >= 300UL) ? UFS_TRANSFER_POLL_US : Step) {
         if ((UfsReadRegister(Adapter, UFS_REG_UTRL_DOORBELL) &
              (1UL << Adapter->CurrentSlot)) == 0) {
             KeMemoryBarrier();
@@ -6586,7 +6589,7 @@ UfsPollForCompletion(
 #if UFS_PERF_INSTRUMENTATION
         Adapter->PerfPollIterations++;
 #endif
-        StorPortStallExecution(UFS_TRANSFER_POLL_US);
+        StorPortStallExecution(Step);
     }
 
     UfsEarlyMark("=POLLTMO db=", UfsReadRegister(Adapter, UFS_REG_UTRL_DOORBELL));
@@ -8431,19 +8434,22 @@ UfsExecuteScsi(
     }
 
     Nexus = Adapter->InitialNexusType | UFS_ALL_SLOTS_MASK;
-    UfsWriteRegister(
-        Adapter,
-        UFS_VENDOR_NEXUS_TYPE,
-        Nexus
-        );
-    KeMemoryBarrier();
-    if (UfsReadRegister(Adapter, UFS_VENDOR_NEXUS_TYPE) != Nexus) {
-        Adapter->FailedCommands++;
-        UfsContainController(
+    if (((UfsIoMode & UFS_IO_FAST_ZERO) == 0) || (Adapter->LastNexus != Nexus)) {   // w47: skip when unchanged
+        UfsWriteRegister(
             Adapter,
-            UFS_DIAG_FAILURE_NEXUS_READBACK
+            UFS_VENDOR_NEXUS_TYPE,
+            Nexus
             );
-        return SRB_STATUS_ERROR;
+        KeMemoryBarrier();
+        if (UfsReadRegister(Adapter, UFS_VENDOR_NEXUS_TYPE) != Nexus) {
+            Adapter->FailedCommands++;
+            UfsContainController(
+                Adapter,
+                UFS_DIAG_FAILURE_NEXUS_READBACK
+                );
+            return SRB_STATUS_ERROR;
+        }
+        Adapter->LastNexus = Nexus;
     }
 
     if (Direction == UfsCommandDataOut) {

@@ -1907,3 +1907,15 @@ diagnostic timers from release builds once perf work settles.
   next: verify atomicity/ordering between an M4 and an A55/A75 in the stub (counters checked, not just counted).
 - Phone: boot-host-r2.img (6 cores) restored; BCD debug turned off again (03:35, verified).
 - Never peek CPUCL2 SYSREG 0x1D100104 or PMU 0x15861200-0x1650 from Windows (SoC freeze).
+
+
+## 66. 2026-10-19 - UFS speed-up (app load times)
+
+- notes/app-launch-slowness.md + notes/ufs-async-plan.md (full log, every build with hash + test results).
+- Phone: firmware boot-host-r4.img (IO coherency BIT22|23 + real UFS interrupt GSIV 281, both now source defaults)
+  + Exynos9820Ufs.sys w47 (DriverStore). PAIRING RULES: IOCOH firmware needs driver >= w40; GSIV 281 needs >= w43.
+- Driver features (UfsIoMode, auto-off after a failed boot via progress word [12]): fast per-command zeroing,
+  full-duplex StartIo, coherent RAM bounce, 256 KiB commands, interrupt observe, hybrid async (> 64 KiB reads),
+  4 slots for async reads, NEXUS cache / fine poll.
+- Results: 1 MiB reads 50-120 -> ~500-560 MiB/s, 4 KiB 300 -> ~150 us, Brave first start 6.6 -> 2.35 s, Steam warm
+  49.8 -> ~30 s. Integrity checks: tools/phone/perf/hashcheck.ps1, parhash.ps1, writetest.ps1 (baseline hash-w38).

@@ -182,3 +182,4 @@ Pitfalls: never `peek` CPUCL2 SYSREG (0x1D100104) or PMU 0x15861200-0x1650 from 
   after 107 s. Efficiency-class (3-class hetero policy) lead OUT.
 - **m4a55 41e8602d (11:18; PARK 0xCE = A55 x4 + M4 x2, A75s not started)**: no SSH; after 15+ min neither Windows nor
   TWRP (no watchdog reset seen yet) - phone possibly hung dark; waiting, may need a force restart (Vol Down + Power).
+- m4a55: phone hung dark (no watchdog reset) until the user forced TWRP; daily image restored 12:01, Windows back on 6 procs. A55 + M4 without the A75s also fails.

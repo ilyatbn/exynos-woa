@@ -112,3 +112,14 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   not found", SushiBarInteriorRenderTexture load. Shim stderr empty, no driver warnings. => a shader / format our
   driver renders wrongly (black) rather than refuses. Next: user toggles graphics options (post-processing, quality,
   HDR/lighting) to localise the pass.
+- 21:55 Mesa 0163 = d3d10umd FrameCap.cpp: one-frame pass log armed by C:\S10eTmp\framecap.flg (checked every 30
+  presents), lines "fc pass N: rt.. zs..; clears; draws; ps {ptr/TGSI hash}; blend; tex {PS slots 0-3}" + "fc copy";
+  tools/phone/games/framecap.sh NAME. EC build 702dbe44 (s10e-artifacts\mali-umd-0163-ec), live (pre-0163-0 = 0162).
+- Capture day-black (traces/games/framecap-day-black.txt, 59 passes, 4 copies): scene into 643399390
+  r11g11b10_float 1280x720 + z32_float_s8x24 (passes 7, 9, 11: 33 + 1 + 43 draws), r32_float depth copies (8, 42, 47,
+  52), SSAO-like r16_unorm / rgba16f 640x360 chain (17-21), bloom r11g11b10_float 640x360 down to 20x11 and up (22-37),
+  pass 38 = uber post: 64339A7D0 + bloom 34446E220 + LUT 343B9B600 (r8g8b8a8 1024x32) -> 643399390, pass 43 draws 34
+  more into it, pass 54 final blit into the 1520x720 r8g8b8a8_srgb back buffer + UI, pass 56 a full-screen copy.
+  Pass 6 builds the colour-grading LUT 343B9B600 1024x32 from four r16_float 128x1 textures (curves).
+  HYPOTHESIS: the LUT comes out black (r16_float curve textures wrong) -> pass 38 grades the whole scene to black;
+  the UI is drawn after -> visible. Next: a capture of a scene that renders (dive / restaurant) for comparison.

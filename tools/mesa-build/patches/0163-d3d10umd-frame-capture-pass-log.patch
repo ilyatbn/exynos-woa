@@ -1,0 +1,363 @@
+diff --git a/src/gallium/frontends/d3d10umd/Draw.cpp b/src/gallium/frontends/d3d10umd/Draw.cpp
+index 8313041..88b19ad 100644
+--- a/src/gallium/frontends/d3d10umd/Draw.cpp
++++ b/src/gallium/frontends/d3d10umd/Draw.cpp
+@@ -190,6 +190,7 @@ Draw(D3D10DDI_HDEVICE hDevice,   // IN
+    LOG_ENTRYPOINT();
+ 
+    Device *pDevice = CastDevice(hDevice);
++   FrameCapDraw(pDevice, false);   /* exynos-woa G32 (0163) */
+ 
+    ResolveState(pDevice);
+ 
+@@ -231,6 +232,7 @@ DrawIndexed(D3D10DDI_HDEVICE hDevice,  // IN
+    LOG_ENTRYPOINT();
+ 
+    Device *pDevice = CastDevice(hDevice);
++   FrameCapDraw(pDevice, false);   /* exynos-woa G32 (0163) */
+    struct pipe_draw_info info;
+    struct pipe_draw_start_count_bias draw;
+    struct pipe_resource *null_ib = NULL;
+@@ -296,6 +298,7 @@ DrawInstanced(D3D10DDI_HDEVICE hDevice,      // IN
+    LOG_ENTRYPOINT();
+ 
+    Device *pDevice = CastDevice(hDevice);
++   FrameCapDraw(pDevice, true);   /* exynos-woa G32 (0163) */
+ 
+    if (!InstanceCount) {
+       return;
+@@ -348,6 +351,7 @@ DrawIndexedInstanced(D3D10DDI_HDEVICE hDevice,   // IN
+    LOG_ENTRYPOINT();
+ 
+    Device *pDevice = CastDevice(hDevice);
++   FrameCapDraw(pDevice, true);   /* exynos-woa G32 (0163) */
+    struct pipe_draw_info info;
+    struct pipe_draw_start_count_bias draw;
+    struct pipe_resource *null_ib = NULL;
+@@ -413,6 +417,7 @@ DrawAuto(D3D10DDI_HDEVICE hDevice)  // IN
+    LOG_ENTRYPOINT();
+ 
+    Device *pDevice = CastDevice(hDevice);
++   FrameCapDraw(pDevice, false);   /* exynos-woa G32 (0163) */
+    struct pipe_draw_info info;
+    struct pipe_draw_indirect_info indirect;
+ 
+diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+index 974de61..c379d42 100644
+--- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
++++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+@@ -209,6 +209,7 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
+ 
+    struct Device *device = CastDevice(pPresentData->hDevice);
+    Resource *pSrcResource = CastResource(pPresentData->hSurfaceToPresent);
++   FrameCapPresent(device);   /* exynos-woa G32 (0163) */
+ 
+    device->pipe->flush(device->pipe, NULL, 0);
+    {
+diff --git a/src/gallium/frontends/d3d10umd/FrameCap.cpp b/src/gallium/frontends/d3d10umd/FrameCap.cpp
+new file mode 100644
+index 0000000..e13f2dd
+--- /dev/null
++++ b/src/gallium/frontends/d3d10umd/FrameCap.cpp
+@@ -0,0 +1,208 @@
++/*
++ * Copyright 2026 exynos-woa
++ * SPDX-License-Identifier: MIT
++ *
++ * exynos-woa G32 (0163, notes/games-unity.md): one-frame pass log for rendering bugs. Dave the Diver's day scene
++ * renders black while its UI draws; the driver reports no error. A capture is armed by the file
++ * C:\S10eTmp\framecap.flg (checked every 30 presents; deleted when seen): the NEXT frame is written to the malikm tlog
++ * as one line per render pass (render targets: format, size, resource; depth; clears with colour; draws; the pixel
++ * shaders used (pointer + TGSI hash) and the blend states; the PS textures sampled (resource, format, size)) plus one
++ * line per copy. Diagnosis only: costs nothing while not armed.
++ */
++
++#include <windows.h>
++#include <stdio.h>
++#include <string.h>
++
++#include "Draw.h"
++#include "State.h"
++
++#include "util/format/u_format.h"
++#include "tgsi/tgsi_parse.h"
++
++extern "C" void malikm_tlog(const char *fmt, ...);
++
++#define FC_MAX_IDS 6
++
++struct fc_pass {
++   bool open;
++   unsigned index;
++   char rts[300];
++   unsigned clears, draws, instanced;
++   float clear_color[4];
++   void *ps[FC_MAX_IDS];
++   unsigned ps_n;
++   void *blend[FC_MAX_IDS];
++   unsigned blend_n;
++   struct pipe_resource *tex[FC_MAX_IDS];
++   unsigned tex_n;
++};
++
++static struct {
++   int armed;             /* 0 idle, 1 = capture from the next Present, 2 = capturing */
++   unsigned presents;
++   unsigned passes, copies;
++   struct fc_pass pass;
++   void *cur_ps;
++   void *cur_blend;
++} fc;
++
++static unsigned
++fc_hash(const struct pipe_shader_state *state)
++{
++   if (!state || !state->tokens)
++      return 0;
++   unsigned n = tgsi_num_tokens(state->tokens);
++   const uint32_t *t = (const uint32_t *)state->tokens;
++   uint32_t h = 2166136261u;
++   for (unsigned i = 0; i < n; i++) {
++      h ^= t[i];
++      h *= 16777619u;
++   }
++   return h;
++}
++
++static void
++fc_add(void **set, unsigned *n, void *p)
++{
++   for (unsigned i = 0; i < *n; i++)
++      if (set[i] == p)
++         return;
++   if (*n < FC_MAX_IDS)
++      set[(*n)++] = p;
++}
++
++static void
++fc_close_pass(void)
++{
++   struct fc_pass *p = &fc.pass;
++   if (!p->open)
++      return;
++   char ps[200] = "", tex[400] = "", bl[120] = "";
++   int o = 0;
++   for (unsigned i = 0; i < p->ps_n; i++) {
++      Shader *s = (Shader *)p->ps[i];
++      o += snprintf(ps + o, sizeof(ps) - o, "%s%p/%08x", i ? "," : "", p->ps[i], s ? fc_hash(&s->state) : 0);
++   }
++   o = 0;
++   for (unsigned i = 0; i < p->tex_n; i++) {
++      struct pipe_resource *r = p->tex[i];
++      o += snprintf(tex + o, sizeof(tex) - o, "%s%p %s %ux%u", i ? ", " : "", (void *)r,
++                    r ? util_format_short_name(r->format) : "-", r ? r->width0 : 0, r ? r->height0 : 0);
++   }
++   o = 0;
++   for (unsigned i = 0; i < p->blend_n; i++)
++      o += snprintf(bl + o, sizeof(bl) - o, "%s%p", i ? "," : "", p->blend[i]);
++   malikm_tlog("fc pass %u: %s; clears %u (last %.2f %.2f %.2f %.2f) draws %u (instanced %u) ps {%s} blend {%s} "
++               "tex {%s}", p->index, p->rts, p->clears, p->clear_color[0], p->clear_color[1], p->clear_color[2],
++               p->clear_color[3], p->draws, p->instanced, ps, bl, tex);
++   p->open = false;
++}
++
++static void
++fc_open_pass(Device *dev)
++{
++   struct fc_pass *p = &fc.pass;
++   memset(p, 0, sizeof(*p));
++   p->open = true;
++   p->index = fc.passes++;
++   int o = 0;
++   for (unsigned i = 0; i < dev->fb.nr_cbufs; i++) {
++      struct pipe_resource *r = dev->fb.cbufs[i].texture;
++      if (r)
++         o += snprintf(p->rts + o, sizeof(p->rts) - o, "rt%u %p %s %ux%u%s ", i, (void *)r,
++                       util_format_short_name(dev->fb.cbufs[i].format), r->width0, r->height0,
++                       r->nr_samples > 1 ? " ms" : "");
++   }
++   struct pipe_resource *z = dev->fb.zsbuf.texture;
++   if (z)
++      snprintf(p->rts + o, sizeof(p->rts) - o, "zs %p %s %ux%u", (void *)z, util_format_short_name(z->format),
++               z->width0, z->height0);
++   else if (!o)
++      snprintf(p->rts, sizeof(p->rts), "(no targets)");
++}
++
++void
++FrameCapPresent(Device *dev)
++{
++   if (fc.armed == 2) {
++      fc_close_pass();
++      malikm_tlog("fc end: %u passes, %u copies", fc.passes, fc.copies);
++      fc.armed = 0;
++      return;
++   }
++   if (fc.armed == 1) {
++      fc.armed = 2;
++      fc.passes = fc.copies = 0;
++      malikm_tlog("fc begin: fb %ux%u", dev->fb.width, dev->fb.height);
++      fc_open_pass(dev);
++      return;
++   }
++   if (++fc.presents % 30 == 0 && GetFileAttributesA("C:\\S10eTmp\\framecap.flg") != INVALID_FILE_ATTRIBUTES) {
++      DeleteFileA("C:\\S10eTmp\\framecap.flg");
++      fc.armed = 1;
++   }
++}
++
++void
++FrameCapRenderTargets(Device *dev)
++{
++   if (fc.armed != 2)
++      return;
++   fc_close_pass();
++   fc_open_pass(dev);
++}
++
++void
++FrameCapClear(Device *dev, const float color[4])
++{
++   if (fc.armed != 2)
++      return;
++   if (!fc.pass.open)
++      fc_open_pass(dev);
++   fc.pass.clears++;
++   memcpy(fc.pass.clear_color, color, sizeof(fc.pass.clear_color));
++}
++
++void
++FrameCapShaderPs(void *shader)
++{
++   fc.cur_ps = shader;
++}
++
++void
++FrameCapBlend(void *blend)
++{
++   fc.cur_blend = blend;
++}
++
++void
++FrameCapDraw(Device *dev, bool instanced)
++{
++   if (fc.armed != 2)
++      return;
++   if (!fc.pass.open)
++      fc_open_pass(dev);
++   fc.pass.draws++;
++   if (instanced)
++      fc.pass.instanced++;
++   fc_add(fc.pass.ps, &fc.pass.ps_n, fc.cur_ps);
++   fc_add(fc.pass.blend, &fc.pass.blend_n, fc.cur_blend);
++   for (unsigned s = 0; s < 4; s++) {
++      struct pipe_sampler_view *v = dev->sampler_views[MESA_SHADER_FRAGMENT][s];
++      if (v && v->texture)
++         fc_add((void **)fc.pass.tex, &fc.pass.tex_n, v->texture);
++   }
++}
++
++void
++FrameCapCopy(Resource *dst, Resource *src, const char *what)
++{
++   if (fc.armed != 2)
++      return;
++   fc.copies++;
++   struct pipe_resource *d = dst ? dst->resource : NULL, *s = src ? src->resource : NULL;
++   malikm_tlog("fc %s: dst %p %s %ux%u <- src %p %s %ux%u (in pass %u)", what, (void *)d,
++               d ? util_format_short_name(d->format) : "-", d ? d->width0 : 0, d ? d->height0 : 0, (void *)s,
++               s ? util_format_short_name(s->format) : "-", s ? s->width0 : 0, s ? s->height0 : 0, fc.pass.index);
++}
+diff --git a/src/gallium/frontends/d3d10umd/OutputMerger.cpp b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+index 10b9095..f293853 100644
+--- a/src/gallium/frontends/d3d10umd/OutputMerger.cpp
++++ b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+@@ -181,6 +181,7 @@ ClearRenderTargetView(D3D10DDI_HDEVICE hDevice,                      // IN
+    struct pipe_context *pipe = CastPipeContext(hDevice);
+    struct pipe_surface *surface = CastPipeRenderTargetView(hRenderTargetView);
+    union pipe_color_union clear_color;
++   FrameCapClear(CastDevice(hDevice), pColorRGBA);   /* exynos-woa G32 (0163) */
+ 
+    /*
+     * DX10 always uses float clear color but gallium does not.
+@@ -713,6 +714,7 @@ SetBlendState(D3D10DDI_HDEVICE hDevice,      // IN
+    struct pipe_context *pipe = CastPipeContext(hDevice);
+    void *state = CastPipeBlendState(hState);
+ 
++   FrameCapBlend(state);   /* exynos-woa G32 (0163) */
+    pipe->bind_blend_state(pipe, state);
+ 
+    struct pipe_blend_color color;
+@@ -797,6 +799,7 @@ SetRenderTargets(D3D10DDI_HDEVICE hDevice,                              // IN
+     */
+    unsigned width, height;
+    util_framebuffer_min_size(&pDevice->fb, &width, &height);
++   FrameCapRenderTargets(pDevice);   /* exynos-woa G32 (0163); size fields below are only for the log's begin line */
+    pDevice->fb.width = width;
+    pDevice->fb.height = height;
+ 
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index fe0fcd4..638e840 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -1293,6 +1293,7 @@ ResourceCopy(D3D10DDI_HDEVICE hDevice,          // IN
+    Resource *pSrcResource = CastResource(hSrcResource);
+    CbMaterialize(pDevice, pDstResource);   /* exynos-woa T6 */
+    CbMaterialize(pDevice, pSrcResource);
++   FrameCapCopy(pDstResource, pSrcResource, "copy");   /* exynos-woa G32 (0163) */
+    struct pipe_resource *dst_resource = pDstResource->resource;
+    struct pipe_resource *src_resource = pSrcResource->resource;
+    bool compatible;
+@@ -1369,6 +1370,7 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
+    Resource *pSrcResource = CastResource(hSrcResource);
+    CbMaterialize(pDevice, pDstResource);   /* exynos-woa T6 */
+    CbMaterialize(pDevice, pSrcResource);
++   FrameCapCopy(pDstResource, pSrcResource, "copy");   /* exynos-woa G32 (0163) */
+    struct pipe_resource *dst_resource = pDstResource->resource;
+    struct pipe_resource *src_resource = pSrcResource->resource;
+ 
+diff --git a/src/gallium/frontends/d3d10umd/Shader.cpp b/src/gallium/frontends/d3d10umd/Shader.cpp
+index 434a021..95b7b51 100644
+--- a/src/gallium/frontends/d3d10umd/Shader.cpp
++++ b/src/gallium/frontends/d3d10umd/Shader.cpp
+@@ -1113,6 +1113,7 @@ PsSetShader(D3D10DDI_HDEVICE hDevice,  // IN
+    struct pipe_context *pipe = pDevice->pipe;
+    void *state = CastPipeShader(hShader);
+ 
++   FrameCapShaderPs(CastShader(hShader));   /* exynos-woa G32 (0163) */
+    if (!state) {
+       state = pDevice->empty_fs;
+    }
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index 14b97df..500c6ec 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -183,6 +183,16 @@ CastDevice(D3D10DDI_HDEVICE hDevice)
+    return static_cast<Device *>(hDevice.pDrvPrivate);
+ }
+ 
++/* exynos-woa G32 (0163, FrameCap.cpp): one-frame pass log, armed by C:\S10eTmp\framecap.flg (diagnosis only) */
++struct Resource;
++void FrameCapPresent(Device *dev);
++void FrameCapRenderTargets(Device *dev);
++void FrameCapClear(Device *dev, const float color[4]);
++void FrameCapShaderPs(void *shader);
++void FrameCapBlend(void *blend);
++void FrameCapDraw(Device *dev, bool instanced);
++void FrameCapCopy(struct Resource *dst, struct Resource *src, const char *what);
++
+ /* exynos-woa G32 (0161, notes/games-unity.md): drop the frontend's reference through the context. Under Gallium's
+  * threaded context a plain pipe_resource_reference(&r, NULL) frees a resource at once while queued calls still name it
+  * (set_constant_buffer keeps the bare pointer, Mesa 26): Dave the Diver aborted in panfrost_set_constant_buffer on the
+diff --git a/src/gallium/frontends/d3d10umd/meson.build b/src/gallium/frontends/d3d10umd/meson.build
+index 4d3cdb4..1184a5a 100644
+--- a/src/gallium/frontends/d3d10umd/meson.build
++++ b/src/gallium/frontends/d3d10umd/meson.build
+@@ -20,6 +20,7 @@ libd3d10umd = static_library(
+     'VideoProc.cpp',
+     'VideoCsc.c',
+     'Draw.cpp',
++    'FrameCap.cpp',
+     'DxgiFns.cpp',
+     'Format.cpp',
+     'InputAssembly.cpp',

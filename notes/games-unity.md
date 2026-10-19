@@ -270,3 +270,8 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   checked: first frame after the flag appears has us 0 (no diff against a stale snapshot); a reset between snapshots is
   flagged and handled (delta = post-reset value; cur < prev also falls back); '# spike' string present in the built DLL.
   Nothing to fix.
+- User: "reboot to twrp to speed up the charging" -> totwrp.cmd (clean restart, ESP flag) -> TOTWRP_OK, Windows went
+  down; adb sees nothing (phone on a wall charger, not on the PC's USB), so TWRP is not confirmed from here.
+- Mesa 0171 (diagnosis): "pan:sub:textures" split into pan:sub:tex:update_view (panfrost_update_sampler_view) and
+  pan:sub:tex:read_rsrc (panfrost_batch_read_rsrc: submits the batch still writing a sampled texture). Shows in the
+  120-present "app umd top" lines and in 0170's spike lines. EC build s10e-artifacts\mali-umd-0171-ec (in progress).

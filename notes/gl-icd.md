@@ -160,3 +160,12 @@ DWM), so the ICD presents through one:
   - tools: gltlog.ps1 -Exited / -Pattern; glshot.sh (kills scrnsave.scr right before the GDI shot). runuser2.ps1 uses
     one task name - two userrun calls at once collide (the shot came back blank): start the test detached
     (gamelaunch.ps1 with a .cmd wrapper) and shoot while it runs.
+- Review of 2595c2f (GL7): checked mechanically - (1) stw swaps textures[FRONT]/[BACK] after a present only when both
+  exist, otherwise re-asks get_resource (stw_st.c:591-594); either way GL's next back buffer = buf[cur] after our
+  toggle - consistent. (2) Ordering: GL fence wait before the D3D11 copy; the D3D11 event query of the next GL target
+  waited before present returns. (3) resize: GetBuffer reference released each frame, ClearState + Flush before
+  ResizeBuffers. FINDING: WGL allows SwapBuffers with no current context -> pan_fb_finish_current returned without
+  any wait, the D3D11 copy could read an unfinished frame. Fixed in Mesa 0159 (own commit): malikm_wait_idle()
+  (D3DKMTWaitForIdle on the GL device) when no context is current.
+- 22:45 0159 validated: maligl f9b764f4 / maligl_arm64 1dbea0c8 / maligl_ec dd66afb7. gltest64 + gltest 5/5 PASS on
+  the DXGI present (57-58 fps vsync); Stardew 1520x720 58.0-58.6 fps, gl wait 0.13 ms, hr 0.

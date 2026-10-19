@@ -1,0 +1,55 @@
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 914a6fe..00e1da8 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -1736,6 +1736,17 @@ wddm_idle(void)
+    return ret;
+ }
+ 
++/* exynos-woa GL7 review (0159, notes/gl-icd.md): everything this process's device submitted is done - the ICD's
++ * DXGI present when SwapBuffers runs without a current GL context (no context to take a fence from). 0 = idle. */
++int
++malikm_wait_idle(void)
++{
++   wddm_lock_acquire();
++   int ret = wddm == 1 ? wddm_idle() : -1;
++   ReleaseSRWLockExclusive(&wddm_lock);
++   return ret;
++}
++
+ /* exynos-woa G21 (notes/g21-submissions.md): WAIT_BO for a BO last used by submission Seq. Poll (timeout 0) = a busy
+  * check: 0 if done, -EBUSY if not (Linux panfrost_ioctl_wait_bo's answer for a zero timeout). Otherwise wait (<= 10 s,
+  * as wddm_idle) for that submission only. Run 3548/6504: answering every WAIT_BO with wddm_idle() (all submitted work)
+diff --git a/src/gallium/targets/wgl/wgl_panfrost_fb.c b/src/gallium/targets/wgl/wgl_panfrost_fb.c
+index eee79d8..363c626 100644
+--- a/src/gallium/targets/wgl/wgl_panfrost_fb.c
++++ b/src/gallium/targets/wgl/wgl_panfrost_fb.c
+@@ -39,6 +39,7 @@ int malikm_kmt_open_shared(unsigned hGlobalShare, unsigned *w, unsigned *h, unsi
+                            int *prime_fd, unsigned *hResource, unsigned *hAlloc);
+ void malikm_kmt_close_shared(unsigned hResource, unsigned hAlloc);
+ void malikm_tlog(const char *fmt, ...);
++int malikm_wait_idle(void);
+ /* state_tracker/st_context.h, declared here: that header pulls in Mesa core headers that refuse <windows.h> */
+ struct st_context;
+ void st_context_flush(struct st_context *st, unsigned flags, struct pipe_fence_handle **fence,
+@@ -91,14 +92,18 @@ pan_fb_gl_finish(struct pipe_context *pipe)
+    }
+ }
+ 
+-/* Flush the current GL context (the frame rendered into the shared texture) and wait for it. */
++/* Flush the current GL context (the frame rendered into the shared texture) and wait for it. WGL allows SwapBuffers
++ * with no current context: then whatever was flushed before (wglMakeCurrent(NULL) flushes) is waited for by
++ * waiting for the GL device to go idle. */
+ static void
+ pan_fb_finish_current(struct pan_fb *fb)
+ {
+    struct stw_context *c = stw_current_context();
+    struct pipe_fence_handle *fence = NULL;
+-   if (!c || !c->st)
++   if (!c || !c->st) {
++      malikm_wait_idle();
+       return;
++   }
+    st_context_flush(c->st, 0, &fence, NULL, NULL);
+    if (fence) {
+       fb->screen->fence_finish(fb->screen, NULL, fence, OS_TIMEOUT_INFINITE);

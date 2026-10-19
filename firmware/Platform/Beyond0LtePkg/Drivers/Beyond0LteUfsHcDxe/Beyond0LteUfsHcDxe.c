@@ -167,8 +167,11 @@ STATIC VOID Beyond0LteCrumb (IN CONST CHAR8 *Tag);
 // 1 = the 9820 DT ufs-io-coherency mask/bits 0x00C00000 (BIT22|BIT23; live DT exynos9820.dts:1069-1078,
 // notes/m15-ufs-research-clocks.md suspect 1) and bits 8/9 left at sboot's value. m15 A/B switch, not validated.
 //
+// 2026-10-19: ON by default (boot-host-r3.img, validated with the Windows UFS driver w41: hashcheck + writetest +
+// reboot, notes/ufs-async-plan.md). PAIRING RULE: needs Exynos9820Ufs.sys >= w40 (coherent bounce); an older driver
+// stages writes through an uncached alias while clean cached lines exist -> possible stale data on writes.
 #ifndef BEYOND0LTE_UFS_IOCOH_9820
-#define BEYOND0LTE_UFS_IOCOH_9820  0
+#define BEYOND0LTE_UFS_IOCOH_9820  1
 #endif
 #if BEYOND0LTE_UFS_IOCOH_9820
 #define BEYOND0LTE_UFS_IOCOH_MASK  0x00C00000u

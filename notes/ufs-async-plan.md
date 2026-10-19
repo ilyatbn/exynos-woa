@@ -129,3 +129,8 @@ before stage 4. Interrupt completion frees the CPU but does not lower QD1 latenc
   (279 / 241 / 252 MiB/s, was 50-113); 1 MiB 3.2 / 5.5 / 3.4 ms (310 / 181 / 298 MiB/s, was 50-138).
   PAIRING RULE: the iocoh firmware (BEYOND0LTE_UFS_IOCOH_9820 1) requires driver >= w40 (w41 recommended); rolling
   the driver back below w40 requires the non-iocoh firmware first.
+- After a reboot: wt2/wt3 (written in coherent mode) verify. launchtime: Brave first start after boot window 2.7 s
+  (w38 6.6 s), Steam warm idle 30.3 / 32.1 s (w38 49.8, w39 33.5) - Steam is bound by ~135 k QD1 4 KiB reads now
+  (~145 us each) -> needs queue depth > 1 (stage 3/4).
+- Daily firmware boot-host-r3.img d4d33853 = host + BEYOND0LTE_UFS_IOCOH_9820 1 (now the source default, with the
+  pairing rule in the comment). Phone: r3 + w41, 0x13C10700 = 0x00C00311, BOUNCE_PA in RAM, wt3 verifies.

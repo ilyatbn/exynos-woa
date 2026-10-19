@@ -46,3 +46,5 @@
   New-path gate: (Progress[12] >> 16) == 0x4445 -> previous boot died -> use the proven path this boot.
 - UFS w39 (notes/ufs-async-plan.md): 4 KiB reads 300 -> 195 us, Steam warm start idle 49.8 -> 33.5 s, data
   integrity verified (hashcheck). Large reads unchanged so far.
+- 2026-10-19 afternoon: UFS w41 + IO-coherency firmware (r3): 64 KiB reads 240-280 MiB/s, 1 MiB up to ~300 MiB/s
+  (was 50-120), Brave first start 6.6 -> 2.7 s, Steam warm 49.8 -> ~31 s. Next lever: queue depth > 1.

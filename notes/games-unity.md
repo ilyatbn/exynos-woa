@@ -420,3 +420,12 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   blocking WAIT_BO, SYNCOBJ_WAIT, EXPORT_SEQ, panfrost_flush end, query not ready, other entries (present etc.).
   EC 54b378d8 live; d3dmrt64x 7/7, d3dbc64x lossy 0/126 PASS. Also found: C:\S10eTmp\dumps has the LocalDumps of the
   12:08 / 12:23 / 12:28 crashes (exit aborts) - to read later.
+- bot9 (EC 0177; traces/games/bench-bot9-0177.*): completed, clean route (stuck 0, not-in-water 0): 2429 frames /
+  102.3 s, mean 23.7 fps, median 39.3 ms, p95 53.7, p99 75.7, max 3328.5, 1 % low 3.9, 0.1 % 0.5, 12 > 100 ms. No
+  hang. The 3.3 s frame = pan:sub:get_batch_slow 3229.6 ms (Panfrost out of batch slots -> submits the oldest -> the
+  shim's Render waits for the DDI thread, which did not enter a DDI for ~3 s) - same marshalling stall class as the
+  1-2.6 s frames of bot1 (before the queue), not new. tlog pid 4032: no "Discard" anywhere - Unity does not call
+  DiscardView here, 0176 is inert for Dave (kept: correct for apps that do).
+  Summary of the automatic-route runs (median / mean): bot2 0171 41.6 ms / 23.5 fps; bot3 0172 41.2 / 23.0;
+  bot6 0175 40.4 / 23.6; bot7 0175 38.7 / 24.8; bot9 0177 39.3 / 23.7 - run-to-run spread ~2 ms, so 0172-0177 gave
+  ~1-2 ms (render-thread UMD time -6 ms/frame, but the GPU is at 92 % and the game's main thread at 88 %).

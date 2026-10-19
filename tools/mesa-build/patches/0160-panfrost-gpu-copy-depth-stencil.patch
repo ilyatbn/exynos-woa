@@ -1,0 +1,48 @@
+diff --git a/src/gallium/drivers/panfrost/pan_resource.c b/src/gallium/drivers/panfrost/pan_resource.c
+index 41e4c32..2cf83d6 100644
+--- a/src/gallium/drivers/panfrost/pan_resource.c
++++ b/src/gallium/drivers/panfrost/pan_resource.c
+@@ -2703,12 +2703,42 @@ panfrost_resource_screen_destroy(struct pipe_screen *pscreen)
+  * RotateResourceIdentities (every DWM present: the swap chain's buffers copied round) through it, so DWM spent most
+  * of each frame in memcpy out of uncached GPU memory (run h3i, dwm stack samples). Same-format, same-sample-count
+  * colour textures are copied by the GPU (panfrost_blit, which saves and restores state through the blitter);
+- * buffers, depth/stencil and anything mismatched keep the CPU path. */
++ * buffers, depth/stencil and anything mismatched keep the CPU path.
++ * exynos-woa G32 (0160, notes/games-unity.md): same-format, same-sample-count depth/stencil textures are copied by the
++ * GPU too (blit with the format's Z/S mask). Dave the Diver (Unity 6 URP) copies its 1520x720 depth buffer with
++ * CopySubresourceRegion; the CPU path crashed reading past the staging map in panfrost_ptr_unmap's linear
++ * conversion (maliumd_ec memcpy AV, traces/games/dave-crash.dmp) and would cost ~36 ms per copy from uncached memory. */
+ static void
+ panfrost_resource_copy_region(struct pipe_context *pctx, struct pipe_resource *dst, unsigned dst_level,
+                               unsigned dstx, unsigned dsty, unsigned dstz, struct pipe_resource *src,
+                               unsigned src_level, const struct pipe_box *src_box)
+ {
++   if (dst->target != PIPE_BUFFER && src->target != PIPE_BUFFER && dst->format == src->format &&
++       dst->nr_samples == src->nr_samples && util_format_is_depth_or_stencil(dst->format) &&
++       pctx->screen->is_format_supported(pctx->screen, dst->format, dst->target, dst->nr_samples,
++                                         dst->nr_storage_samples, PIPE_BIND_DEPTH_STENCIL) &&
++       pctx->screen->is_format_supported(pctx->screen, src->format, src->target, src->nr_samples,
++                                         src->nr_storage_samples, PIPE_BIND_DEPTH_STENCIL)) {
++      struct pipe_blit_info info;
++      memset(&info, 0, sizeof(info));
++      info.dst.resource = dst;
++      info.dst.level = dst_level;
++      info.dst.format = dst->format;
++      info.dst.box.x = dstx;
++      info.dst.box.y = dsty;
++      info.dst.box.z = dstz;
++      info.dst.box.width = src_box->width;
++      info.dst.box.height = src_box->height;
++      info.dst.box.depth = src_box->depth;
++      info.src.resource = src;
++      info.src.level = src_level;
++      info.src.format = src->format;
++      info.src.box = *src_box;
++      info.mask = util_format_get_mask(dst->format);   /* PIPE_MASK_Z and / or PIPE_MASK_S */
++      info.filter = PIPE_TEX_FILTER_NEAREST;
++      pctx->blit(pctx, &info);
++      return;
++   }
+    if (dst->target != PIPE_BUFFER && src->target != PIPE_BUFFER && dst->format == src->format &&
+        dst->nr_samples == src->nr_samples && !util_format_is_depth_or_stencil(dst->format) &&
+        !util_format_is_compressed(dst->format) &&

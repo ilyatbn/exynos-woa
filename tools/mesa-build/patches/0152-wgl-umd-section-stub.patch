@@ -1,0 +1,20 @@
+diff --git a/src/gallium/targets/wgl/wgl.c b/src/gallium/targets/wgl/wgl.c
+index 0b84410..603e7a8 100644
+--- a/src/gallium/targets/wgl/wgl.c
++++ b/src/gallium/targets/wgl/wgl.c
+@@ -87,6 +87,15 @@ static bool use_panfrost = false;
+ int malikm_open(void);
+ extern char malikm_init_reason[];
+ 
++/* Panfrost's pan_cmdstream.c reports its "pan:*" timing sections here; the D3D10 UMD collects them (d3d10umd
++ * Debug.cpp, notes/games-nfsu2.md), the ICD has no such report. */
++void
++umd_section_ns(const char *name, long long ns)
++{
++   (void)name;
++   (void)ns;
++}
++
+ static struct pipe_screen *
+ wgl_panfrost_create_screen(void)
+ {

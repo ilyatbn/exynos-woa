@@ -1,0 +1,80 @@
+diff --git a/src/compiler/glsl/ast_to_hir.cpp b/src/compiler/glsl/ast_to_hir.cpp
+index bc46e92..45dfc81 100644
+--- a/src/compiler/glsl/ast_to_hir.cpp
++++ b/src/compiler/glsl/ast_to_hir.cpp
+@@ -2174,7 +2174,7 @@ ast_expression::do_hir(ir_exec_list *instructions,
+       break;
+ 
+    case ast_float16_constant:
+-      result = new(linalloc) ir_constant(float16_t(this->primary_expression.float16_constant));
++      result = new(linalloc) ir_constant(mesa::float16_t(this->primary_expression.float16_constant));
+       break;
+ 
+    case ast_float_constant:
+diff --git a/src/compiler/glsl/builtin_functions.cpp b/src/compiler/glsl/builtin_functions.cpp
+index b3c151b..d65814b 100644
+--- a/src/compiler/glsl/builtin_functions.cpp
++++ b/src/compiler/glsl/builtin_functions.cpp
+@@ -1197,7 +1197,7 @@ private:
+    ir_variable *out_lowp_var(const glsl_type *type, const char *name);
+    ir_variable *out_highp_var(const glsl_type *type, const char *name);
+    ir_variable *as_highp(ir_factory &body, ir_variable *var);
+-   ir_constant *imm(float16_t f16, unsigned vector_elements=1);
++   ir_constant *imm(mesa::float16_t f16, unsigned vector_elements=1);
+    ir_constant *imm(float f, unsigned vector_elements=1);
+    ir_constant *imm(bool b, unsigned vector_elements=1);
+    ir_constant *imm(int i, unsigned vector_elements=1);
+@@ -6318,7 +6318,7 @@ builtin_builder::as_highp(ir_factory &body, ir_variable *var)
+ }
+ 
+ ir_constant *
+-builtin_builder::imm(float16_t f16, unsigned vector_elements)
++builtin_builder::imm(mesa::float16_t f16, unsigned vector_elements)
+ {
+    return new(linalloc) ir_constant(f16, vector_elements);
+ }
+@@ -6360,7 +6360,7 @@ builtin_builder::imm(const glsl_type *type, const ir_constant_data &data)
+ }
+ 
+ #define IMM_FP(type, val) (glsl_type_is_double(type)) ? imm(val) : \
+-   (glsl_type_is_float_16(type)  ? imm((float16_t)val) : imm((float)val))
++   (glsl_type_is_float_16(type)  ? imm((mesa::float16_t)val) : imm((float)val))
+ 
+ ir_dereference_variable *
+ builtin_builder::var_ref(ir_variable *var)
+diff --git a/src/compiler/glsl/ir.cpp b/src/compiler/glsl/ir.cpp
+index dceea82..328d90b 100644
+--- a/src/compiler/glsl/ir.cpp
++++ b/src/compiler/glsl/ir.cpp
+@@ -691,7 +691,7 @@ ir_constant::ir_constant(const struct glsl_type *type,
+    memcpy(& this->value, data, sizeof(this->value));
+ }
+ 
+-ir_constant::ir_constant(float16_t f16, unsigned vector_elements)
++ir_constant::ir_constant(mesa::float16_t f16, unsigned vector_elements)
+    : ir_rvalue(ir_type_constant)
+ {
+    this->const_elements = NULL;
+diff --git a/src/compiler/glsl/ir.h b/src/compiler/glsl/ir.h
+index 701386a..9572109 100644
+--- a/src/compiler/glsl/ir.h
++++ b/src/compiler/glsl/ir.h
+@@ -51,7 +51,8 @@ struct gl_builtin_uniform_desc;
+ 
+ #ifdef __cplusplus
+ 
+-using float16_t = mesa::float16_t;
++/* exynos-woa GL1: no global float16_t alias - with clang on ARM64 every C++ header pulls in arm_neon.h (UCRT wchar.h),
++ * which typedefs a global float16_t (__fp16); uses are qualified mesa::float16_t instead. */
+ 
+ /**
+  * \defgroup IR Intermediate representation nodes
+@@ -2224,7 +2225,7 @@ public:
+    ir_constant(uint16_t u16, unsigned vector_elements=1);
+    ir_constant(unsigned int u, unsigned vector_elements=1);
+    ir_constant(int i, unsigned vector_elements=1);
+-   ir_constant(float16_t f16, unsigned vector_elements=1);
++   ir_constant(mesa::float16_t f16, unsigned vector_elements=1);
+    ir_constant(float f, unsigned vector_elements=1);
+    ir_constant(double d, unsigned vector_elements=1);
+    ir_constant(uint64_t u64, unsigned vector_elements=1);

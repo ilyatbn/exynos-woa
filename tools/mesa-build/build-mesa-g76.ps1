@@ -39,7 +39,7 @@ $ErrorActionPreference = 'Continue'
 
 $Stage = @($Stage | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 foreach ($s in $Stage) {
-  if ($s -notin 'all', 'source', 'libpan', 'host', 'cross', 'collect', 'x86', 'ec') { throw "unknown stage '$s'" }
+  if ($s -notin 'all', 'source', 'libpan', 'host', 'cross', 'collect', 'x86', 'ec', 'gl') { throw "unknown stage '$s'" }
 }
 
 $MesaOrig = Join-Path $Mali 'mesa-26.2'          # never modified
@@ -52,9 +52,10 @@ $HostBuild = Join-Path $Work 'build-host-x64'
 $CrossBuild = Join-Path $Work 'build-arm64'
 $X86Build = Join-Path $Work 'build-x86'
 $EcBuild = Join-Path $Work 'build-arm64ec'
+$GlBuild = Join-Path $Work 'build-arm64-gl'
 $Flex = Join-Path $Work 'winflexbison'
 $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
-function Want($s) { ($Stage -contains 'all' -and $s -notin 'x86', 'ec') -or $Stage -contains $s }   # x86 / ec only on request
+function Want($s) { ($Stage -contains 'all' -and $s -notin 'x86', 'ec', 'gl') -or $Stage -contains $s }   # x86 / ec / gl only on request
 function Check($what) { if ($LASTEXITCODE) { throw "$what failed ($LASTEXITCODE)" } }
 function ToWsl($p) { '/mnt/' + $p.Substring(0, 1).ToLower() + ($p.Substring(2) -replace '\\', '/') }
 
@@ -198,6 +199,52 @@ if (Want 'collect') {
   Pop-Location
   Get-Content (Join-Path $Out 'SHA256SUMS')
   Select-String -Path (Join-Path $Out 'dumpbin-headers.txt') -Pattern 'machine \(|subsystem|DLL characteristics' | ForEach-Object Line
+}
+
+if (Want 'gl') {
+  # GL1 (notes/gl-icd.md): the Mali OpenGL ICD = Mesa's WGL target (libgallium_wgl.dll, exports the Drv* ICD entry
+  # points) with Panfrost (Mesa patch 0150). Own build dir, ARM64 cross file of the 'cross' stage, the D3D10 UMD
+  # off: the shipping UMD build is untouched. Static CRT like the UMDs. Collected to $Out-gl as maligl.dll.
+  Use-VcVars 'vcvarsamd64_arm64.bat'
+  Common-Tools
+  Remove-Item env:CC, env:CXX -ErrorAction SilentlyContinue
+  $env:PATH = "$HostBuild\src\panfrost\clc;$env:PATH"   # panfrost_compile.exe (x64, MSVC ABI)
+  $cross = Join-Path $Work 'arm64-windows.cross'   # written by the 'cross' stage
+  if (-not (Test-Path $cross)) { throw "$cross missing - run the cross stage once" }
+  # The working copy checks out with CRLF (Mesa's `* text=auto`, Windows native eol); win_flex fails on CRLF lexers
+  # ("end of file in string", glcpp-lex.l / glsl_lexer.ll - never built for the D3D10 UMD). Lexers and grammars
+  # check out with LF instead (local attributes, not a source change).
+  $attr = Join-Path $Mesa '.git\info\attributes'
+  if (-not (Select-String -Path $attr -Pattern '^\*\.ll eol=lf' -Quiet -ErrorAction SilentlyContinue)) {
+    Add-Content -Encoding ascii $attr "*.l eol=lf`n*.ll eol=lf`n*.y eol=lf`n*.yy eol=lf"
+    $lex = git -C $Mesa ls-files '*.l' '*.ll' '*.y' '*.yy'
+    foreach ($f in $lex) { Remove-Item (Join-Path $Mesa $f) }
+    git -C $Mesa checkout -- $lex; Check 'lexer re-checkout'
+  }
+  $glOpts = $MesonOpts | ForEach-Object {
+    if ($_ -eq '-Dopengl=false') { '-Dopengl=true' } elseif ($_ -eq '-Dgallium-d3d10umd=true') { '-Dgallium-d3d10umd=false' } else { $_ }
+  }
+  if (-not (Test-Path "$GlBuild\build.ninja")) {
+    meson setup $GlBuild $Mesa --backend=ninja --cross-file $cross -Dbuildtype=debugoptimized -Dprecomp-compiler=system @glOpts
+    Check 'gl meson setup'
+  }
+  # zlib (meson subproject) static: the GL build imports it (the UMD does not), and an ICD must not need a z-1.dll.
+  meson configure $GlBuild -Db_vscrt=mt -Dzlib:default_library=static; Check 'gl meson configure b_vscrt/zlib'
+  ninja -C $GlBuild -k 0 2>&1 | Tee-Object (Join-Path $Work 'build-arm64-gl.log')
+  Check 'gl build'
+  $icd = Join-Path $GlBuild 'src\gallium\targets\wgl\libgallium_wgl.dll'
+  if (-not (Test-Path $icd)) { throw 'libgallium_wgl.dll was not built' }
+  $ogl = "$Out-gl"
+  New-Item -ItemType Directory -Force $ogl | Out-Null
+  Copy-Item $icd, ($icd -replace '\.dll$', '.pdb') $ogl -Force
+  Copy-Item $icd (Join-Path $ogl 'maligl.dll') -Force
+  Push-Location $ogl
+  Get-ChildItem -Path * -File -Include *.dll, *.pdb | Get-FileHash -Algorithm SHA256 |
+    ForEach-Object { '{0}  {1}' -f $_.Hash.ToLower(), (Split-Path -Leaf $_.Path) } | Set-Content -Encoding ascii SHA256SUMS
+  & { dumpbin /nologo /headers maligl.dll | Select-String 'machine \(' ; dumpbin /nologo /dependents maligl.dll; dumpbin /nologo /exports maligl.dll } |
+    Set-Content -Encoding ascii dumpbin-gl.txt
+  Pop-Location
+  Get-Content (Join-Path $ogl 'SHA256SUMS')
 }
 
 if (Want 'x86') {

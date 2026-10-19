@@ -655,10 +655,17 @@ UfsAcknowledgeInterruptStatus(
 {
     ULONG Status;
 
+    ULONG Latched;
+
     Status = UfsReadRegister(Adapter, UFS_REG_INTERRUPT_STATUS);
-    Adapter->Diagnostic.InterruptStatus = Status;
-    if (Status == 0) {
+    Latched = (ULONG)InterlockedExchange(&Adapter->IsrLatchedStatus, 0);   // w43: bits the ISR already cleared
+    Adapter->Diagnostic.InterruptStatus = Status | Latched;
+    if ((Status == 0) && ((Latched & UFS_INTERRUPT_STATUS_FATAL_MASK) == 0)) {
         return TRUE;
+    }
+    if (Status == 0) {
+        UfsSetDiagnosticFailure(Adapter, UFS_DIAG_FAILURE_INTERRUPT_STATUS);
+        return FALSE;
     }
 
     //
@@ -677,7 +684,7 @@ UfsAcknowledgeInterruptStatus(
     UfsWriteRegister(Adapter, UFS_REG_INTERRUPT_STATUS, Status);
     KeMemoryBarrier();
 
-    if ((Status & UFS_INTERRUPT_STATUS_FATAL_MASK) != 0) {
+    if (((Status | Latched) & UFS_INTERRUPT_STATUS_FATAL_MASK) != 0) {
         UfsSetDiagnosticFailure(
             Adapter,
             UFS_DIAG_FAILURE_INTERRUPT_STATUS
@@ -4474,6 +4481,7 @@ UfsContainController(
         Adapter->Started = FALSE;
     }
     Adapter->InterruptsGated = TRUE;
+    Adapter->ArmedInterruptEnable = 0;   /* w43: containment gated IE */
     Adapter->OwnsTransferList = FALSE;
     Adapter->ContainedCommands++;
     if (Adapter->FatalError) {
@@ -4671,10 +4679,8 @@ UfsRefreshDiagnostic(
         Adapter->LastDataIn,
         sizeof(Adapter->Diagnostic.LastDataIn)
         );
-    if (Adapter->Utrl != NULL) {
-        Adapter->Diagnostic.UtrdInterruptRequested =
-            (Adapter->Utrl[UFS_TRANSFER_SLOT].Dw0 & UFS_TRD_INTERRUPT) != 0;
-    }
+    Adapter->Diagnostic.UtrdInterruptRequested = (ULONG)Adapter->IsrTransferCompletions;   // w43: ISR invocations that saw UTRCS
+    Adapter->Diagnostic.InterruptEnableAfterIsr = Adapter->ArmedInterruptEnable;           // w43: armed IE
 }
 
 static
@@ -5464,6 +5470,22 @@ UfsProgramTransferList(
     }
 
     Adapter->OwnsTransferList = TRUE;
+
+    //
+    // w43 observe mode: arm completion + fatal interrupts (still polled). The command-path precondition compares
+    // IE against ArmedInterruptEnable instead of 0.
+    //
+    Adapter->ArmedInterruptEnable = 0;
+    if ((UfsIoMode & UFS_IO_IRQ_OBSERVE) != 0) {
+        UfsWriteRegister(Adapter, UFS_REG_INTERRUPT_ENABLE, UFS_IRQ_ARMED_ENABLE);
+        KeMemoryBarrier();
+        if (UfsReadRegister(Adapter, UFS_REG_INTERRUPT_ENABLE) == UFS_IRQ_ARMED_ENABLE) {
+            Adapter->ArmedInterruptEnable = UFS_IRQ_ARMED_ENABLE;
+        } else {
+            UfsWriteRegister(Adapter, UFS_REG_INTERRUPT_ENABLE, 0);   // could not arm: stay gated exactly as before
+            KeMemoryBarrier();
+        }
+    }
     return TRUE;
 }
 
@@ -6382,6 +6404,7 @@ UfsBuildCommand(
 
     *(volatile ULONG *)((PUCHAR)Trd + 0) =
         UFS_TRD_COMMAND_TYPE_STORAGE |
+        ((Adapter->ArmedInterruptEnable != 0) ? UFS_TRD_INTERRUPT : 0) |   // w43: interrupt on completion when armed
         ((Direction == UfsCommandDataOut) ? UFS_TRD_DATA_OUT :
          ((Direction == UfsCommandDataIn) ? UFS_TRD_DATA_IN : 0));
     *(volatile ULONG *)((PUCHAR)Trd + 8) = UFS_TRD_OCS_INITIAL;
@@ -8016,7 +8039,7 @@ UfsExecuteScsi(
           ((Srb->SrbFlags & SRB_FLAGS_DATA_IN) != 0))) ||
         !Adapter->OwnsTransferList ||
         !Adapter->InterruptsGated ||
-        (UfsReadRegister(Adapter, UFS_REG_INTERRUPT_ENABLE) != 0) ||
+        (UfsReadRegister(Adapter, UFS_REG_INTERRUPT_ENABLE) != Adapter->ArmedInterruptEnable) ||
         (UfsReadRegister(Adapter, UFS_REG_UTRL_BASE_LOW) !=
          (Adapter->UtrlPhysical.LowPart &
           ~(UFS_UTRL_ALIGNMENT - 1U))) ||
@@ -9400,8 +9423,27 @@ UfsHwInterrupt(
     PUFS_ADAPTER_EXTENSION Adapter =
         (PUFS_ADAPTER_EXTENSION)DeviceExtension;
 
+    ULONG Status;
+
     InterlockedIncrement(&Adapter->InterruptCallbacks);
-    return FALSE;
+    if (Adapter->Hci == NULL) {
+        return FALSE;
+    }
+
+    //
+    // w43: acknowledge whatever IS holds (W1C of the sampled bits only), armed or not, so a level line connected by
+    // the firmware deasserts; the bits are latched for the polling command path (fatal detection stays there).
+    //
+    Status = UfsReadRegister(Adapter, UFS_REG_INTERRUPT_STATUS);
+    if (Status == 0) {
+        return FALSE;
+    }
+    UfsWriteRegister(Adapter, UFS_REG_INTERRUPT_STATUS, Status);
+    InterlockedOr(&Adapter->IsrLatchedStatus, (LONG)Status);
+    if ((Status & UFS_INTERRUPT_TRANSFER_COMPLETION) != 0) {
+        InterlockedIncrement(&Adapter->IsrTransferCompletions);
+    }
+    return TRUE;
 }
 
 BOOLEAN

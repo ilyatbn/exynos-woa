@@ -1788,6 +1788,9 @@ typedef struct _UFS_ADAPTER_EXTENSION {
     ULONG GptHeadersTranslated;
     ULONG GptHeadersRejected;
     volatile LONG InterruptCallbacks;
+    volatile LONG IsrLatchedStatus;   /* w43: IS bits the ISR acknowledged, merged by UfsAcknowledgeInterruptStatus */
+    volatile LONG IsrTransferCompletions;   /* w43: ISR invocations that saw UTRCS */
+    ULONG ArmedInterruptEnable;       /* w43: IE value the command path expects (0 = gated, as before) */
     UFS_DIAGNOSTIC_DATA Diagnostic;
 
     /*

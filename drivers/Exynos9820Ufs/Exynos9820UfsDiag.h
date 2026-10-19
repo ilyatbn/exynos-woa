@@ -27,7 +27,7 @@
  * word [12] at 0x8FE0F000 ('DE' << 16 | n, cleared by a clean OS restart or a cold power-on).
  */
 #ifndef UFS_IO_MODE_DEFAULT
-#define UFS_IO_MODE_DEFAULT                        0xFUL
+#define UFS_IO_MODE_DEFAULT                        0x1FUL
 #endif
 #define UFS_IO_FAST_ZERO                           0x1UL
 #define UFS_IO_FULL_DUPLEX                         0x2UL
@@ -49,6 +49,18 @@
  * write fence / GPT guard / protected ranges validate the whole LBA range as before.
  */
 #define UFS_IO_LARGE_TRANSFER                      0x8UL
+/*
+ * UFS_IO_IRQ_OBSERVE (w43, notes/ufs-async-plan.md stage 3): arm the controller interrupt (IE = transfer completion
+ * + fatal bits, TRD IOC set) while completion is STILL polled; the ISR only acknowledges IS (W1C), latches the bits
+ * for the poll path and counts. Proves the line (GSIV 281 = SPI 249, VERIFIED from TWRP /proc/interrupts) is
+ * delivered with StorPort's forced level mode before anything depends on it. With the parked DSDT line (GSIV 259)
+ * the ISR never runs and the poll path acknowledges IS exactly as before. The ISR claims and clears any IS it sees
+ * even when not armed, so a firmware that connects the real line can never storm against this driver.
+ * Diagnostics (existing UfsDiag fields): CALLBACKS = ISR invocations, UTRD_INTERRUPT = invocations that saw
+ * transfer completion, IE_AFTER_ISR = the armed IE value.
+ */
+#define UFS_IO_IRQ_OBSERVE                         0x10UL
+#define UFS_IRQ_ARMED_ENABLE                       (UFS_INTERRUPT_TRANSFER_COMPLETION | UFS_INTERRUPT_STATUS_FATAL_MASK)
 #define UFS_LARGE_TRANSFER_LENGTH                  (256UL * 1024UL)
 #define UFS_LARGE_PRDT_ENTRIES                     (UFS_LARGE_TRANSFER_LENGTH / 4096UL)
 #define UFS_LARGE_UCD_REGION_SIZE                  (2048UL + UFS_LARGE_PRDT_ENTRIES * 128UL)

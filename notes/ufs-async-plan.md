@@ -153,3 +153,15 @@ before stage 4. Interrupt completion frees the CPU but does not lower QD1 latenc
   vs Linux 617 MB/s. A user-mode request costs ~190 us beyond its commands (I/O stack on the small cores).
 - Next lever: overlap (queue depth > 1: the device idles ~87 us between commands) -> stage 3 interrupts (DSDT
   GSIV 274, driver first) + stage 4 slots; and trimming the per-command miniport path.
+- **UFS interrupt VERIFIED (2026-10-19, TWRP /proc/interrupts): "GIC-0 281 Edge ufshcd"** -> GSIV 281 = SPI 249
+  (stock DT ufs@0x13D60000 interrupts <0x0 0xf9 0x0>; the decompiler shows 0xf9 as a phandle). The DSDT comment's
+  "real UFS line GSIV 274 / SPI 242" is WRONG. Linux runs it edge-triggered; StorPort hardcodes level (Dsdt.asl
+  comment) -> whether the controller output is a level (IS bits held) or a pulse is UNVERIFIED -> stage 3 starts in
+  observe mode (poll as today, count IRQs per command).
+- **w43 50fb6d1d** (UFS_IO_IRQ_OBSERVE; ISR acks IS armed or not, latches bits for the poll path; IE armed
+  0x000F0201 = UTRCS + fatal; TRD IOC when armed; precondition IE == ArmedInterruptEnable). DSDT now takes
+  BEYOND0LTE_UFS_GSIV (default 259 parked; comment corrected to the verified 281).
+  On boot-iocoh1-wdt (parked): CALLBACKS 0, IE_AFTER_ISR 0x000F0201, hashcheck = w38, wt5 verifies.
+  **On boot-irq1-wdt.img 08ae214d (GSIV 281, Level)**: Windows up in 67 s, no storm; after 44.3 k commands
+  CALLBACKS 38907, UTRCS seen by the ISR 24521 (the rest: the poll path cleared IS first) -> the real UFS interrupt
+  is delivered under StorPort's level mode. Stage 3b (async completion in a DPC) can rely on it.

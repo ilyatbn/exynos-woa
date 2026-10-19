@@ -50,6 +50,10 @@
       leaves them in agreement.
 **/
 
+#ifndef BEYOND0LTE_UFS_GSIV
+#define BEYOND0LTE_UFS_GSIV  259   // parked line (default); 281 = the real UFS line, needs driver >= w43
+#endif
+
 DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
 {
     Scope (\_SB)
@@ -239,9 +243,13 @@ DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)
                 // GSIV 259 = GIC SPI 227, which has no consumer in the device tree,
                 // so the line never asserts. The miniport completes by polling with
                 // UTRD IOC cleared and a no-op ISR, so a level-triggered parked line
-                // is inert. The real UFS line is GSIV 274 / SPI 242 and stays absent.
+                // is inert. The real UFS line is GSIV 281 / SPI 249 (VERIFIED 2026-10-19: TWRP
+                // /proc/interrupts "GIC-0 281 Edge ufshcd"; stock DT interrupts <0 0xf9 0>; the
+                // earlier "274 / SPI 242" here was wrong). BEYOND0LTE_UFS_GSIV 281 connects it - ONLY
+                // with Exynos9820Ufs.sys >= w43, whose ISR acknowledges IS armed or not (an older
+                // driver's ISR returns FALSE -> level-interrupt storm). notes/ufs-async-plan.md stage 3.
                 //
-                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { 259 }
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive) { BEYOND0LTE_UFS_GSIV }
             })
             Method (_STA, 0, NotSerialized) { Return (0x0F) }
         }

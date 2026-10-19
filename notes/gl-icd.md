@@ -171,3 +171,9 @@ DWM), so the ICD presents through one:
   the DXGI present (57-58 fps vsync); Stardew 1520x720 58.0-58.6 fps, gl wait 0.13 ms, hr 0.
 - 22:55 package mwddm-1.0.72.1 rebuilt with the 0159 ICD (signed: maligl 5BCC4EBB / maligl_arm64 147F4C62 / maligl_ec
   762601CE), InfVerif valid; still not installed.
+- 23:00 phone restarted by the user (lastboot.ps1: 1074 RuntimeBroker.exe on behalf of S10e, "Other (Unplanned)" =
+  Start menu restart; no 6008 / 41 / 1001). OPEN: the previous boot logged one TDR - 4101 "Display driver MaliG76Wddm
+  stopped responding and has successfully recovered" at 12:31:07 phone time, inside the GL test window (shots at
+  12:13 / 12:40 / 12:43 phone time: between the 0156 4-thread Stardew run and the DXGI gltest). Which process / which
+  path is not known yet; next GL run: watch Display 4101 + the KMD trace around each test (lastboot.ps1 lists TDRs).
+  After this reboot the live ICD (0159) and the class-key values are unchanged (System32 files, registry).

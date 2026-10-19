@@ -300,3 +300,22 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   segment. SetThreadExecutionState page: "This function does not stop the screen saver from executing". Caveat: a run
   killed by davebench-stop.ps1 leaves screen saving off until the next logon (not persisted).
   tools/phone/games/proctree.ps1 (new): process tree by name/pid.
+- davebot (user 2026-10-20: "figure out how to play the game ... check the screenshots"): tools/phone/games/davebot/
+  davebot.ps1 = ONE hidden long-lived process in the user session (started by davebot-start.ps1 via userrun, which
+  returns at once) - screenshots in-process (no cmd window in front), input through keyplay, screensaver off for the
+  session. bot.sh start|shot|key|tap|launch|log|quit on the PC. Walked through by hand with the user's hints:
+  title -> tap Continue (760,493); boat -> D (scan 20; the arrow key did nothing) until the yellow DIVE prompt
+  (640,490 ffe025), hold Space 3 s; dive loading screen = flat 2e2e2e; water = O2 gauge fill 00aeef at
+  (185,628)/(230,628)/(207,675). Signatures from sample.ps1 over traces/games/bot/*.png. auto.req (Auto) plays the
+  whole route by state; swim pattern D 4 s / S 1.5 s / A 4 s / S 1.5 s (SwimRec, swim.py).
+- First bot measurement (manual route, swim 100 s, EC 0171): traces/games/bench-bot1-0171.*: 2639 frames / 120.5 s,
+  mean 21.9 fps, median 41.9 ms, p95 63.9, p99 102.9, max 2605 ms, 1 % low 3.2 fps, 0.1 % 0.5 fps (route differs from
+  the davekeys2 runs, not comparable). 28 spike lines (> 100 ms). Kinds:
+  (a) shader creation at first use: SetBlendState 100.6 ms, CreatePixelShader 36.8 / 58.0, DrawIndexed:ResolveState
+      92.7 (variant compile at draw) - hitches when new things appear.
+  (b) ResourceMap / Map:vb:discard 45-118 ms - a WRITE_DISCARD map that waits.
+  (c) pan:sub:tex:read_rsrc up to 118.8 ms (= nearly all of pan:sub:textures; update_view is not in the top 10) -
+      the writer-batch submit inside read tracking blocks; in the 160 ms spike it overlaps Map:vb:discard 117.5
+      (render thread waiting on the driver thread that is stuck in that submit).
+  (d) 0.95 / 1.16 / 2.6 s frames where the UMD sections are a small part -> outside the UMD (game / KMD / present).
+  Next: where the submit blocks (ioctl report SUBMIT max in the tlog), then fix (b)/(c); (a) = shader cache.

@@ -147,3 +147,18 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
 - Mesa 0165: max_rt = PIPE_MAX_COLOR_BUFS - 1 in both (a D3D blend state does not know the bound target count).
   EC maliumd_ec fe23bb07 (s10e-artifacts\mali-umd-0165-ec) live: d3dmrt64x 7/7 match. Game check next. Port to the
   ARM64 and x86 UMDs with 0160-0162 (any D3D MRT app was affected).
+- 22:45 user: "its working" (boat scene renders with 0165). Next goal: performance ("utilizing more of that gpu/cpu").
+  Dive profile (active diving, 120 frames ~7 s): frame 60.5 ms (~16 fps), inside the UMD 31.5 ms/frame on the game's
+  render thread; GPU 3D 67 %; threads 1132 75 % (render), 3292 71 % (driver), 6372 37 %; RAM 261 MB free.
+  app umd top: _Present 1795 ms (sync-object wait 0xc3 1690 ms = ~14 ms/frame GPU wait), PsSetShaderResources 36360
+  calls 1129 ms (9.4 ms/frame, 31 us/call), Flush 436, DrawIndexed 347, ResourceMap 283; driver thread:
+  pan:shader_state_fs 1204, pan:sub:textures 1093, prepare_draw 791, get_batch_slow 6000 calls 758; SUBMIT (0x40) 11760
+  calls 1239 ms = 98 submissions/frame at ~105 us (two per Panfrost batch: vertex/tiler + fragment).
+  Mechanics: Panfrost's threaded context has no create_fence -> every flush = tc_sync (render thread waits for the
+  driver thread to drain), then Present waits for the whole frame on the GPU (DxgiFns "the frame is finished first")
+  because the KMD runs a Blt present's CPU copy in MwSubmitCommand (command.c), not after earlier jobs complete.
+  Plan: (1) bind only used SRV slots, (2) merge each batch's two submissions, (3) KMD: present copy after the earlier
+  jobs -> drop the UMD's GPU wait.
+- Mesa 0166: SetShaderResources binds slots 0 .. highest bound (Device::sampler_view_count), unbinding trailing ones
+  that were in use (was all 128 slots every call). EC maliumd_ec 27f49200 (s10e-artifacts\mali-umd-0166-ec) live;
+  d3dmrt64x 7/7, d3dbc64x lossy 0/126 differ PASS (= baseline; the exact mode fails by design since G26).

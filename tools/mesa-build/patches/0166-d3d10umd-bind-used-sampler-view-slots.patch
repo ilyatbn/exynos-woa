@@ -1,0 +1,39 @@
+diff --git a/src/gallium/frontends/d3d10umd/Shader.cpp b/src/gallium/frontends/d3d10umd/Shader.cpp
+index 95b7b51..2aaeb00 100644
+--- a/src/gallium/frontends/d3d10umd/Shader.cpp
++++ b/src/gallium/frontends/d3d10umd/Shader.cpp
+@@ -262,12 +262,16 @@ SetShaderResources(mesa_shader_stage shader_type,                  // IN
+       }
+    }
+ 
+-   /*
+-    * XXX: Now that the semantics are actually the same in gallium, should
+-    * probably think about not updating all always... It should just work.
+-    */
+-   pipe->set_sampler_views(pipe, shader_type, 0, PIPE_MAX_SHADER_SAMPLER_VIEWS,
+-                           0, sampler_views);
++   /* exynos-woa G32 (0166, notes/games-unity.md): bind slots 0 .. highest bound one only, unbind the trailing slots
++    * that were in use before. Passing all PIPE_MAX_SHADER_SAMPLER_VIEWS (128) every call made the threaded context
++    * copy and reference 128 pointers per call: Dave the Diver ~300 PsSetShaderResources per frame = 9.4 ms/frame of
++    * the game's render thread (31 us each). */
++   unsigned old_count = pDevice->sampler_view_count[shader_type];
++   unsigned count = MAX2(old_count, MIN2(Offset + NumViews, (UINT)PIPE_MAX_SHADER_SAMPLER_VIEWS));
++   while (count > 0 && !sampler_views[count - 1])
++      count--;
++   pDevice->sampler_view_count[shader_type] = count;
++   pipe->set_sampler_views(pipe, shader_type, 0, count, old_count > count ? old_count - count : 0, sampler_views);
+ }
+ 
+ 
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index 500c6ec..28440e2 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -121,6 +121,7 @@ struct Device
+    unsigned ib_offset;
+    void *samplers[MESA_SHADER_STAGES][PIPE_MAX_SAMPLERS];
+    struct pipe_sampler_view *sampler_views[MESA_SHADER_STAGES][PIPE_MAX_SHADER_SAMPLER_VIEWS];
++   unsigned sampler_view_count[MESA_SHADER_STAGES];   /* exynos-woa G32 (0166): highest bound slot + 1 */
+ 
+    void *empty_fs;
+    void *empty_vs;

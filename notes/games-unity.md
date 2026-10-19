@@ -208,3 +208,15 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   already drained the threaded context and submitted the frame before the runtime present is queued behind it).
   EC 35ea28a6 (s10e-artifacts\mali-umd-0169-ec) live on the OLD KMD = old behaviour (caps 0); d3dmrt 7/7.
   Battery 16 % on AC (BatteryStatus 2) -> KMD swap via TWRP next.
+- 00:05 KMD d69c01cd (DeferPresent) deployed via totwrp + kmd-deploy.sh (prev aba061b9 in C:\S10eTmp\kmd-prev),
+  booted OK (adapter OK), EC 0169 live. Menu frame window after boot: 17 ms/frame (~59 fps) at the title.
+  Bench automation lessons: (1) the phone clock restarts at each boot -> the old Player.log looked newer than the
+  launch and the markers fired at once (two bench instances ran) -> davebench.ps1 moves the old Player.log aside;
+  title marker needs 10 s of log silence; davebench-stop.ps1. (2) Injected MOUSE clicks only hover the title menu
+  (scan-out traces/wddm2/dave-menu-fb.png: cursor on New Game, highlighted); keyboard Enter does nothing (user);
+  InjectTouchInput (keyplay: left taps as touch by default, KEYPLAY_MOUSE=1 for mouse) pressed Continue (user: "that
+  did the trick"). (3) The boat part depends on the day's story state (an AfterNewMissionFinished popup ate the
+  replayed keys) -> new recording traces/games/davekeys2.rec (980 events): taps 27 s / 72 s while loading (dropped -
+  one is in the taskbar corner), Ctrl 123 s + Continue tap (765,493) 135.7 s, boat keys 198-213 s, dive 256.8-387 s;
+  davebench.sh SPLIT="120:140,190:230,250:" windows.
+- Battery 7 % (on AC, draining under the game) -> bench postponed until charged; nothing running on the phone.

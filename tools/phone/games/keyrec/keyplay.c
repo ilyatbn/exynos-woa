@@ -19,6 +19,7 @@
  * the last input event: an Alt tap) and SetForegroundWindow() the game's main window. */
 #define KEYPLAY_EXTRA 0x4B455950u
 static ULONGLONG g_last_down;   /* when the last replayed mouse button went down */
+static BOOL g_touch;            /* left taps injected as touch contacts */
 static DWORD g_pid;
 static HWND g_wnd;
 static BOOL CALLBACK FindWnd(HWND h, LPARAM lp)
@@ -84,6 +85,13 @@ int main(int argc, char **argv)
     if (!f) { printf("no %s\n", file); return 2; }
     FILE *log = fopen("C:\\S10eTmp\\keyplay.log", "w");
     SetProcessDPIAware();   /* v2: recorded mouse positions are physical pixels */
+    /* left taps as touch (default; KEYPLAY_MOUSE=1 sends mouse clicks as before) */
+    {
+        const char *m = getenv("KEYPLAY_MOUSE");
+        g_touch = !(m && *m == '1') && InitializeTouchInjection(1, TOUCH_FEEDBACK_NONE);
+        if (log)
+            fprintf(log, "taps as %s\n", g_touch ? "touch (InjectTouchInput)" : "mouse clicks");
+    }
     ULONGLONG t0 = GetTickCount64();
     char line[128];
     int sent = 0;
@@ -103,6 +111,44 @@ int main(int argc, char **argv)
         ULONGLONG now = GetTickCount64();
         if (due > now) Sleep((DWORD)(due - now));
         EnsureForeground(proc, &fixes, &fails, log, ms);
+        if (du == 'M' && btn[0] == 'L' && g_touch) {
+            /* Left taps as real touch contacts (InjectTouchInput, MS Learn "Touch Injection"): Dave the Diver's menu
+             * hovered on injected mouse moves but ignored injected mouse clicks; the user's own touch taps work.
+             * Down = POINTER_FLAG_DOWN|INRANGE|INCONTACT, up = POINTER_FLAG_UP; a recorded LU only lifts the contact. */
+            POINTER_TOUCH_INFO t;
+            memset(&t, 0, sizeof(t));
+            t.pointerInfo.pointerType = PT_TOUCH;
+            t.pointerInfo.pointerId = 0;
+            t.pointerInfo.ptPixelLocation.x = mx;
+            t.pointerInfo.ptPixelLocation.y = my;
+            t.touchFlags = TOUCH_FLAG_NONE;
+            t.touchMask = TOUCH_MASK_CONTACTAREA | TOUCH_MASK_ORIENTATION | TOUCH_MASK_PRESSURE;
+            t.orientation = 90;
+            t.pressure = 32000;
+            t.rcContact.left = mx - 2;
+            t.rcContact.right = mx + 2;
+            t.rcContact.top = my - 2;
+            t.rcContact.bottom = my + 2;
+            if (btn[1] == 'D') {
+                t.pointerInfo.pointerFlags = POINTER_FLAG_DOWN | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT;
+                if (!InjectTouchInput(1, &t) && log)
+                    fprintf(log, "%lld ms: InjectTouchInput down failed %lu\n", ms, GetLastError());
+                g_last_down = GetTickCount64();
+                /* keep the contact alive until the recorded up (an UPDATE every frame-ish) */
+            } else {
+                ULONGLONG held = GetTickCount64() - g_last_down;
+                t.pointerInfo.pointerFlags = POINTER_FLAG_UPDATE | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT;
+                for (; held < 150; held += 30) {
+                    InjectTouchInput(1, &t);
+                    Sleep(30);
+                }
+                t.pointerInfo.pointerFlags = POINTER_FLAG_UP;
+                if (!InjectTouchInput(1, &t) && log)
+                    fprintf(log, "%lld ms: InjectTouchInput up failed %lu\n", ms, GetLastError());
+            }
+            sent++;
+            continue;
+        }
         if (du == 'M') {
             int w = GetSystemMetrics(SM_CXSCREEN), h = GetSystemMetrics(SM_CYSCREEN);
             INPUT mi[2] = { 0 };

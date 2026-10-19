@@ -16,6 +16,9 @@ $pl = "C:\Users\$($o.User)\AppData\LocalLow\nexon\DAVE THE DIVER\Player.log"
 $exe = 'C:\Program Files (x86)\Steam\steamapps\common\Dave the Diver\DaveTheDiver.exe'
 Get-Process DaveTheDiver -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep 2
+# The phone clock restarts at every boot, so an old Player.log can look newer than this launch: move it aside, only the
+# new session's markers count.
+if (Test-Path $pl) { Move-Item $pl "$pl.bench-old" -Force }
 $t0 = Get-Date
 Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe)
 L "game started"
@@ -23,7 +26,7 @@ L "game started"
 function WaitMarker($marker, $quiet, $timeout) {
   $start = Get-Date
   while (((Get-Date) - $start).TotalSeconds -lt $timeout) {
-    if ((Test-Path $pl) -and (Get-Item $pl).LastWriteTime -gt $t0 -and (Select-String -Path $pl -SimpleMatch $marker -Quiet)) {
+    if ((Test-Path $pl) -and (Select-String -Path $pl -SimpleMatch $marker -Quiet)) {
       $len = (Get-Item $pl).Length
       $stable = Get-Date
       while (((Get-Date) - $stable).TotalSeconds -lt $quiet -and ((Get-Date) - $start).TotalSeconds -lt $timeout) {
@@ -40,14 +43,15 @@ function WaitMarker($marker, $quiet, $timeout) {
 }
 
 $segs = @(
-  @{ File = 'C:\S10eTmp\dave-seg1.rec'; Marker = 'DR.Title.<Start>'; Timeout = 600 },
+  @{ File = 'C:\S10eTmp\dave-seg1.rec'; Marker = 'DR.Title.<Start>'; Timeout = 600; Quiet = 10 },   # main menu up (Steam relaunch first)
   @{ File = 'C:\S10eTmp\dave-seg2.rec'; Marker = 'BGM/BGM_Lobby'; Timeout = 600 },
   @{ File = 'C:\S10eTmp\dave-seg3.rec'; Marker = 'ondestroy called singleton LobbyMainCanvas'; Timeout = 600 }
 )
 $i = 0
 foreach ($s in $segs) {
   $i++
-  if (-not (WaitMarker $s.Marker 6 $s.Timeout)) { L "seg$i marker '$($s.Marker)' not reached - abort"; break }
+  $q = if ($s.Quiet) { $s.Quiet } else { 6 }
+  if (-not (WaitMarker $s.Marker $q $s.Timeout)) { L "seg$i marker '$($s.Marker)' not reached - abort"; break }
   L "seg$i marker reached"
   if ($i -eq 3) { New-Item -ItemType File C:\S10eTmp\frametimes.on -Force | Out-Null }
   Start-Process -Wait -FilePath C:\S10eTmp\keyplay.exe -ArgumentList $s.File, 100, 'DaveTheDiver.exe'

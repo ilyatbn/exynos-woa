@@ -256,3 +256,11 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   WER LocalDumps (learn.microsoft.com/windows/win32/wer/collecting-user-mode-dumps, "To create a per-application
   setting, create a new key for your application under ...\LocalDumps") set on the phone: LocalDumps\DaveTheDiver.exe
   DumpFolder C:\S10eTmp\dumps (Users modify), DumpType 1 (mini), DumpCount 5. The next abort leaves a .dmp.
+- Mesa 0170 (spike breakdown, diagnosis only, active only while frametimes.on exists): FrameTimesPresent snapshots the
+  UMD section/entry tick table (Debug.cpp umd_entry_snapshot, no reset) every present; a frame > 100 ms appends
+  "# spike <us>: <top 10 entry points/sections, ms during that frame>" to frametimes.txt (umd_entry_diff_report;
+  umd_entry_report's 120-present reset bumps a generation -> marked "(report reset)", then the delta is the post-reset
+  part only). davebench.sh stats skip '#' lines and print the spike lines.
+  EC build s10e-artifacts\mali-umd-0170-ec 4e837eb3 (build-mesa-g76 -Stage ec), live via ecswap.sh (prev 35ea28a6 =
+  maliumd_ec.dll.pre-0170-0). Regression: d3dmrt64x 7/7 match, d3dbc64x lossy 0/126 differ PASS (the no-argument mode
+  says 63/63 differ = the exact-compare mode, not the baseline used before).

@@ -54,7 +54,8 @@ done
 scp -O -q s10e:C:/S10eTmp/frametimes.txt "$OUT/bench-$TAG.frametimes.txt" || { echo "no frametimes.txt"; exit 1; }
 python - "$OUT/bench-$TAG.frametimes.txt" <<'PY' | tee "$OUT/bench-$TAG.txt"
 import sys, statistics
-v = [int(x) for x in open(sys.argv[1]) if x.strip()]
+lines = open(sys.argv[1]).read().splitlines()
+v = [int(x) for x in lines if x.strip() and not x.startswith('#')]   # '# spike' lines: Mesa 0170
 v = [x for x in v if x > 0]
 s = sorted(v)
 n = len(v)
@@ -65,4 +66,7 @@ def low(frac):
     return 1e6 / (sum(worst) / k)
 print('frames %d over %.1f s: mean %.1f fps, median %.1f ms, p95 %.1f ms, p99 %.1f ms, max %.1f ms, 1%% low %.1f fps, 0.1%% low %.1f fps'
       % (n, sum(v) / 1e6, n / (sum(v) / 1e6), pct(0.5), pct(0.95), pct(0.99), s[-1] / 1000, low(0.01), low(0.001)))
+for x in lines:
+    if x.startswith('# spike'):
+        print(x[:400])
 PY

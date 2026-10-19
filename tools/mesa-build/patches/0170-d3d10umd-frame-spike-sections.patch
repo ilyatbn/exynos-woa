@@ -1,0 +1,109 @@
+diff --git a/src/gallium/frontends/d3d10umd/Debug.cpp b/src/gallium/frontends/d3d10umd/Debug.cpp
+index 248d642..6925291 100644
+--- a/src/gallium/frontends/d3d10umd/Debug.cpp
++++ b/src/gallium/frontends/d3d10umd/Debug.cpp
+@@ -106,9 +106,50 @@ umd_section_ns(const char *name, long long ns)
+ 
+ char umd_entry_calls_line[1500];   /* filled by umd_entry_report: the same interval, top by call count */
+ 
++/* exynos-woa G32 (0170, notes/games-unity.md): the frame-times spike report (FrameCap.cpp) diffs two snapshots of
++ * the counters around one slow frame without resetting them; umd_entry_report's reset bumps this generation so a diff
++ * across a reset is recognised (then the snapshot after the reset is the whole delta). */
++static volatile LONG umd_entry_gen;
++
++long
++umd_entry_snapshot(long long *ticks)
++{
++   long g = umd_entry_gen;
++   for (int i = 0; i < 256; i++)
++      ticks[i] = umd_entry_stats[i].ticks;
++   return g;
++}
++
++void
++umd_entry_diff_report(char *buf, size_t size, const long long *prev, const long long *cur, int reset, int n)
++{
++   LARGE_INTEGER f;
++   QueryPerformanceFrequency(&f);
++   long long d[256];
++   for (int i = 0; i < 256; i++)
++      d[i] = reset || cur[i] < prev[i] ? cur[i] : cur[i] - prev[i];
++   size_t len = 0;
++   buf[0] = 0;
++   for (int k = 0; k < n; k++) {
++      int best = -1;
++      for (int i = 0; i < 256; i++)
++         if (umd_entry_stats[i].func && d[i] > 0 && (best < 0 || d[i] > d[best]))
++            best = i;
++      if (best < 0 || len + 1 >= size)
++         break;
++      int w = snprintf(buf + len, size - len, "%s%s %.1f", k ? ", " : "", umd_entry_stats[best].func,
++                       (double)d[best] * 1e3 / f.QuadPart);
++      if (w < 0)
++         break;
++      len += (size_t)w < size - len ? (size_t)w : size - len - 1;
++      d[best] = 0;
++   }
++}
++
+ void
+ umd_entry_report(char *buf, size_t size, int n)
+ {
++   InterlockedIncrement(&umd_entry_gen);   /* 0170 */
+    LARGE_INTEGER f;
+    QueryPerformanceFrequency(&f);
+    long long t[256];
+diff --git a/src/gallium/frontends/d3d10umd/Debug.h b/src/gallium/frontends/d3d10umd/Debug.h
+index f975db0..3ec7bb6 100644
+--- a/src/gallium/frontends/d3d10umd/Debug.h
++++ b/src/gallium/frontends/d3d10umd/Debug.h
+@@ -75,6 +75,9 @@ extern volatile long long umd_entry_ticks;   /* QPC ticks inside DDI entry point
+ /* The top N entry points by time since the last call ("Draw 812 calls 9.1 ms, ..."), then reset. */
+ void umd_entry_report(char *buf, size_t size, int n);
+ extern char umd_entry_calls_line[1500];   /* after umd_entry_report: top entry points by call count */
++/* exynos-woa G32 (0170): copy the 256 tick counters (no reset) -> reset generation; then the top N by delta ("name ms") */
++long umd_entry_snapshot(long long *ticks);
++void umd_entry_diff_report(char *buf, size_t size, const long long *prev, const long long *cur, int reset, int n);
+ #define LOG_ENTRYPOINT() UmdEntryTimer umd_entry_timer(__func__)
+ /* exynos-woa (notes/games-nfsu2.md, in-race performance): a named section inside an entry point, always timed
+  * (nested too) into the same report table - e.g. "DrawIndexed:ResolveState" vs "DrawIndexed:draw_vbo". */
+diff --git a/src/gallium/frontends/d3d10umd/FrameCap.cpp b/src/gallium/frontends/d3d10umd/FrameCap.cpp
+index 6b8ca96..361c3d4 100644
+--- a/src/gallium/frontends/d3d10umd/FrameCap.cpp
++++ b/src/gallium/frontends/d3d10umd/FrameCap.cpp
+@@ -19,6 +19,7 @@
+ 
+ #include "Draw.h"
+ #include "State.h"
++#include "Debug.h"   /* 0170 */
+ 
+ #include "util/format/u_format.h"
+ #include "tgsi/tgsi_parse.h"
+@@ -193,8 +194,25 @@ FrameTimesPresent(void)
+       }
+       on = want && f;
+    }
+-   if (on && f && last.QuadPart)
+-      fprintf(f, "%lld\n", (long long)((now.QuadPart - last.QuadPart) * 1000000 / freq.QuadPart));
++   /* 0170: a frame slower than 100 ms also gets "# spike <us>: <top 10 entry points / sections, ms in that frame>"
++    * (the UMD's section timers, all threads, nested sections counted inside their parents as well) - which part of the
++    * driver the periodic ~190 ms stalls of the Dave dive sit in. The stats scripts skip '#' lines. */
++   static long long snap[2][256];
++   static long gen[2];
++   static int cur;
++   if (on && f) {
++      gen[cur] = umd_entry_snapshot(snap[cur]);
++      long long us = last.QuadPart ? (now.QuadPart - last.QuadPart) * 1000000 / freq.QuadPart : 0;
++      if (us)
++         fprintf(f, "%lld\n", us);
++      if (us > 100000) {
++         char top[900];
++         int reset = gen[cur] != gen[cur ^ 1];
++         umd_entry_diff_report(top, sizeof top, snap[cur ^ 1], snap[cur], reset, 10);
++         fprintf(f, "# spike %lld%s: %s\n", us, reset ? " (report reset)" : "", top);
++      }
++      cur ^= 1;
++   }
+    last = now;
+ }
+ 

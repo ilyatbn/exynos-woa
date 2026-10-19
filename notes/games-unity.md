@@ -376,3 +376,10 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   made the queued work go out -> the work the game waits for stays queued.
 - Mesa 0174: WAIT_BO on a queued BO flushes also when polling; QueryGetData's two WASSTILLDRAWING returns call
   malikm_submit_flush. EC 38cde172.
+- bot5 (EC 0174): hung during the save load right after Continue (state "loading" 12 min, auto FAIL): tlog pid 6552
+  ends with 16x WASSTILLDRAWING, the 120-present report, 2 more, then "tc: driver thread waits > 2 s for the DDI
+  thread to run callback op 4" again - the poll fix was not the (whole) cause. The DDI-thread snapshot that follows
+  that line is x86-only (nothing logged for the EC UMD).
+- Mesa 0175 (diagnosis): mk_snapshot_ddi_thread for x64 / ARM64EC (Rip/Rsp, module+offset stack scan - our process,
+  module names only), and the > 2 s line now says when the DDI thread last entered a DDI (mk_ddi_tick) and the queue
+  length. EC 71966a35 live; d3dmrt64x 7/7, d3dbc64x lossy 0/126. Next: rerun to catch the hang with the stack.

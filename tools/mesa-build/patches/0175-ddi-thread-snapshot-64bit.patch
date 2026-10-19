@@ -1,0 +1,80 @@
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 349a710..524c8de 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -1440,6 +1440,7 @@ mk_log_addr(char *line, int *o, size_t size, uintptr_t v)
+    *o += snprintf(line + *o, size - *o, " %s+%llx", b ? b + 1 : name, (unsigned long long)(v - (uintptr_t)m));
+ }
+ 
++static volatile DWORD mk_ddi_tick;   /* 0175 */
+ static void
+ mk_snapshot_ddi_thread(void)
+ {
+@@ -1481,14 +1482,56 @@ mk_snapshot_ddi_thread(void)
+    }
+    CloseHandle(t);
+    malikm_tlog("tc: DDI thread %lu: %s", tid, line);
++#elif defined(_M_ARM64EC) || defined(_M_X64)
++   /* exynos-woa G32 (0175, notes/games-unity.md): the same scan for the 64-bit x64 / ARM64EC UMD (an ARM64EC thread's
++    * CONTEXT is the x64 layout: Rip / Rsp) - where the DDI thread is when the driver thread waits for it */
++   DWORD tid = mk_ddi_tid;
++   HANDLE t = tid ? OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, tid)
++                  : NULL;
++   if (!t) {
++      malikm_tlog("tc: no DDI thread to inspect (tid %lu)", tid);
++      return;
++   }
++   static char line[3000];
++   int o = 0, found = 0;
++   line[0] = 0;
++   if (SuspendThread(t) != (DWORD)-1) {
++      CONTEXT c;
++      memset(&c, 0, sizeof c);
++      c.ContextFlags = CONTEXT_CONTROL;
++      if (GetThreadContext(t, &c)) {
++         o += snprintf(line + o, sizeof line - o, "rip");
++         mk_log_addr(line, &o, sizeof line, (uintptr_t)c.Rip);
++         o += snprintf(line + o, sizeof line - o, " | stack");
++         const uintptr_t *sp = (const uintptr_t *)(uintptr_t)c.Rsp;
++         MEMORY_BASIC_INFORMATION mb;
++         uintptr_t top = (uintptr_t)sp;
++         if (VirtualQuery(sp, &mb, sizeof mb))
++            top = (uintptr_t)mb.BaseAddress + mb.RegionSize;
++         for (const uintptr_t *q = sp; (uintptr_t)(q + 1) <= top && found < 40 && o < (int)sizeof line - 80; q++) {
++            HMODULE m = NULL;
++            if (*q > 0x10000 &&
++                GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
++                                   (LPCSTR)*q, &m) && m) {
++               mk_log_addr(line, &o, sizeof line, *q);
++               found++;
++            }
++         }
++      }
++      ResumeThread(t);
++   }
++   CloseHandle(t);
++   malikm_tlog("tc: DDI thread %lu: %s", tid, line);
+ #endif
+ }
+ 
+ void
+ malikm_ddi_pump(void)
+ {
+-   if (!mk_worker && mk_on)
++   if (!mk_worker && mk_on) {
+       mk_ddi_tid = GetCurrentThreadId();
++      mk_ddi_tick = GetTickCount();   /* 0175: when the DDI thread last came by */
++   }
+    if (mk_worker || (!mk_box && !mk_defer_n))
+       return;
+    struct mk_req *r = InterlockedExchangePointer((PVOID volatile *)&mk_box, NULL);
+@@ -1556,7 +1599,8 @@ mk_call(struct mk_req *r)
+    while (!r->done) {
+       WaitForSingleObject(mk_done_ev, 500);
+       if (!r->done && !logged && GetTickCount() - t0 > 2000) {
+-         malikm_tlog("tc: driver thread waits > 2 s for the DDI thread to run callback op %d", r->op);
++         malikm_tlog("tc: driver thread waits > 2 s for the DDI thread to run callback op %d (DDI thread last "
++                     "seen %lu ms ago, submit queue %u)", r->op, (unsigned long)(GetTickCount() - mk_ddi_tick), wq_n);
+          mk_snapshot_ddi_thread();   /* exynos-woa TC T5 diagnosis */
+          logged = 1;
+       }

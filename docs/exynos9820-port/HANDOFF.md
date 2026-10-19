@@ -1898,3 +1898,12 @@ MALIUMD_NO_TC=1.
 
 **Next:** user NFSU2 play test; driver-thread batch init cost (get_batch_slow 1.5 ms x7/frame); remove the per-draw
 diagnostic timers from release builds once perf work settles.
+
+## 65. 2026-10-19 night - M4 big cores (G30), unattended
+
+- Full log + summary: notes/m4-cores.md ("Summary 2026-10-19"). Commits 4e3081d, 5d6021a, b50d004 + this one.
+- Bare-metal M4 tests from the park stub (flag 7 + options) all pass: interrupts/WFI, PMU, atomics run, DVM, timers.
+- 8 cores with today's firmware: kernel heap-corruption bugchecks every boot (KD log s10e-artifacts/runs/m4kd8) ->
+  next: verify atomicity/ordering between an M4 and an A55/A75 in the stub (counters checked, not just counted).
+- Phone: boot-host-r2.img (6 cores) restored; **BCD debug is ON - run `bcdedit /debug off`** on the next boot.
+- Never peek CPUCL2 SYSREG 0x1D100104 or PMU 0x15861200-0x1650 from Windows (SoC freeze).

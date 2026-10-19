@@ -136,3 +136,35 @@ notes/m14-smp.md predate the rule and are NOT continued), 6 (constants), 7 (devi
   LSE + LL/SC atomics cross-cluster (on running cores), DVM broadcasts. Found an unrelated bring-up wedge (pending
   SGI to a powered-off M4 before CPU_ON - not on the Windows path, since nothing sends SGIs before CPU_ON there).
 - REVIEW 5d6021a: BUG - mParkAtomicPage was declared inside #if BEYOND0LTE_PARK_SLEEP_UNOFFERED but used by the unconditional ATOMIC log -> every default build (incl. the daily image) failed to compile. Fixed (declaration moved out); default host build and the 8-core build both compile.
+- **m4w8b e8a43c25 (03:00; 8 cores offered, today's firmware + drivers, Watchdog 1, stay.flg)**: Windows died twice ->
+  safeguard "Windows died 2 times in a row - ignoring stay.flg, going to TWRP" (03:10). NEW vs every 10-14/10-15
+  run: the death is a **BUGCHECK 0x7E** (SYSTEM_THREAD_EXCEPTION_NOT_HANDLED) C0000005 at FFFFF8035870C514
+  (P3 FFFFA10747E08078, P4 FFFFA10747E07BE0) recorded by S10eDiag/UFS rings (WINPRAM.BIN; same params in the UFS
+  driver's previous-boot UFSBUGCHECK line = both deaths identical), right after the UFS driver went operational
+  (early boot). No minidump/MEMORY.DMP (userdata mounted read-only from TWRP to check).
+  Next: KD 8-core image + kdrun to name the faulting module (our frames only, AGENTS 11).
+- **m4kd8 2e67d202 (03:16; 8 cores offered + KD over USB, BCD debug on)**: KD connected (1 proc), KeStartAllProcessors
+  -> "MP (8 procs)". Then a bugcheck break about every 40 s (each boot), always the kernel heap fast-fail:
+  CPU 5 (A75): KeBugCheck2 <- RtlpHpHeapHandleError <- RtlpHpLfhSubsegmentFreeBlock <- ExFreeHeapPool <-
+  CmpDereferenceNameControlBlockWithLock (registry KCB cleanup, ExpWorkerThread); next boot: KiDispatchFastFail from
+  RtlpHpLfhSubsegmentFreeBlock. Log s10e-artifacts/runs/m4kd8/kd.log. (Stack frames read from the debugger output
+  only - no Windows binary was opened.) kdrun's "twrp" mode did not fire on these 80000003 breaks; a second short
+  run (kdrun 150 8 twrp) reset the phone to TWRP (03:28).
+  READING: with an M4 in the system, shared kernel memory gets CORRUPTED (heap metadata freed on an A75 is wrong),
+  instead of / in addition to the old silent hangs. That points at lost/torn updates between the M4 cluster and the
+  DSU cluster (atomicity or ordering of shared writes), not at the M4 wedging by itself.
+  NEXT: make the stub atomics test VERIFY results (fixed number of rounds per core, then compare the shared counters
+  with the sum of all cores' increments - so far the test only counted rounds and never checked for lost updates);
+  same for a plain lock-protected (LDAXR/STLXR + DMB) shared-counter pattern and for release/acquire message passing
+  (STLR/LDAR) between an A55/A75 and an M4.
+
+## Summary 2026-10-19 (for the next session)
+
+Phone: daily image boot-host-r2.img restored (6 cores); BCD debug turned on for m4kd8 - turn it OFF on the next
+Windows boot (`bcdedit /debug off`). stay.flg on.
+Done tonight (all on the device): ACTLR_EL1 identical (0) on every core; M4 interrupts (physical + virtual timer,
+SGIs, WFI with IRQs) 15+ min fine; M4 PMU usable; cross-cluster LSE + LL/SC atomics RUN without wedging (correctness
+not yet checked); CNTVOFF 0 everywhere; DVM broadcasts fine. Found: a pending SGI to a powered-off M4 before PSCI
+CPU_ON wedges that core's bring-up (not on the Windows path). 8 cores on today's firmware still fail, but now
+visibly: kernel heap corruption bugchecks (see m4kd8) -> next suspect is memory consistency between the clusters.
+Pitfalls: never `peek` CPUCL2 SYSREG (0x1D100104) or PMU 0x15861200-0x1650 from Windows - both froze the SoC.

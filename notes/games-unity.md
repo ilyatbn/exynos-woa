@@ -397,3 +397,11 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   bottleneck (92 %), with the game's main thread close behind (88 %). Clocks stay as they are (memory: no GPU clock
   increase before Windows thermal reading + throttling exist). Next: less GPU work per frame (AFBC, tile
   load/store per batch, per-chain GPU time from the KMD).
+- GPU-bound -> less GPU work. d3d10umd had pfnDiscard = generated stub (no-op, untimed - invisible in the call counts);
+  Panfrost preloads an RT's old contents whenever a batch draws to it and the level is valid (pan_job.c), and its
+  invalidate_resource only dropped the current batch's store.
+- Mesa 0176: D3D11Tiers.inc Discard (11.1 / WDDM 1.3 / 2.0 tables): whole-resource discards (no rects; RTV/DSV only
+  when covering a single-level single-layer texture; not buffers) -> pipe->invalidate_resource (TC-queued);
+  Panfrost panfrost_invalidate_resource (Windows) also zeroes the valid bits (not for AFBC) -> no preload next time.
+  LOG_ENTRYPOINT, so "Discard" shows in the call counts (does Unity call it at all?). EC 01a005f7 live; d3dmrt64x 7/7,
+  d3dbc64x lossy 0/126 PASS.

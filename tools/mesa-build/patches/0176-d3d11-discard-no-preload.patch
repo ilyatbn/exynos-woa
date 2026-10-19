@@ -1,0 +1,101 @@
+diff --git a/src/gallium/drivers/panfrost/pan_resource.c b/src/gallium/drivers/panfrost/pan_resource.c
+index 2cf83d6..287d6e7 100644
+--- a/src/gallium/drivers/panfrost/pan_resource.c
++++ b/src/gallium/drivers/panfrost/pan_resource.c
+@@ -2563,6 +2563,18 @@ panfrost_invalidate_resource(struct pipe_context *pctx,
+ 
+    rsrc->constant_stencil = true;
+ 
++#ifdef _WIN32
++   /* exynos-woa G32 (0176, notes/games-unity.md): D3D11 DiscardResource / DiscardView (d3d10umd D3D11Tiers.inc
++    * Discard): the contents are undefined, so the next batch that draws to it must not preload them - mark every
++    * level invalid (the preload test in pan_job.c needs the level valid). AFBC resources keep their bits: their
++    * header blocks must stay consistent for sampling. */
++   if (prsrc->target != PIPE_BUFFER && !drm_is_afbc(rsrc->modifier)) {
++      BITSET_ZERO(rsrc->valid.data);
++      if (rsrc->separate_stencil)
++         BITSET_ZERO(rsrc->separate_stencil->valid.data);
++   }
++#endif
++
+    /* Handle the glInvalidateFramebuffer case */
+    if (batch->key.zsbuf.texture == prsrc)
+       batch->resolve &= ~PIPE_CLEAR_DEPTHSTENCIL;
+diff --git a/src/gallium/frontends/d3d10umd/D3D11Tiers.inc b/src/gallium/frontends/d3d10umd/D3D11Tiers.inc
+index a947383..51bb142 100644
+--- a/src/gallium/frontends/d3d10umd/D3D11Tiers.inc
++++ b/src/gallium/frontends/d3d10umd/D3D11Tiers.inc
+@@ -433,9 +433,57 @@ D120_CreateUnorderedAccessView(D3D10DDI_HDEVICE hDevice, const D3DWDDM2_0DDIARG_
+ 
+ /* ---- the tables ---- */
+ 
++/* exynos-woa G32 (0176, notes/games-unity.md): ID3D11DeviceContext1::DiscardResource / DiscardView. MS Learn
++ * PFND3D11_1DDI_DISCARD: the contents become undefined - Unity uses it for "don't care" load actions. Panfrost reloads
++ * (preloads) a render target's old contents into the tile buffer whenever a batch draws to it and the level is
++ * valid; after a discard that load is wasted bandwidth on a GPU-bound frame. Whole-resource discards (no rects; a view
++ * only when it covers the whole single-level, single-layer texture) go to pipe->invalidate_resource (queued by the
++ * threaded context), which Panfrost now also uses to mark the levels invalid (no preload). Partial discards and
++ * buffers are ignored: keeping the contents is always correct. */
++static VOID APIENTRY
++Discard(D3D10DDI_HDEVICE hDevice, D3D11DDI_HANDLETYPE HandleType, VOID *hResourceOrView, const D3D10_DDI_RECT *pRects,
++        UINT NumRects)
++{
++   LOG_ENTRYPOINT();
++   struct pipe_context *pipe = CastPipeContext(hDevice);
++   struct pipe_resource *res = NULL;
++   const struct pipe_surface *surf = NULL;
++   if (!hResourceOrView || (pRects && NumRects) || !pipe->invalidate_resource)
++      return;
++   switch (HandleType) {
++   case D3D10DDI_HT_RESOURCE: {
++      D3D10DDI_HRESOURCE h = { hResourceOrView };
++      res = CastResource(h)->resource;
++      break;
++   }
++   case D3D10DDI_HT_RENDERTARGETVIEW: {
++      D3D10DDI_HRENDERTARGETVIEW h = { hResourceOrView };
++      surf = &CastRenderTargetView(h)->surface;
++      break;
++   }
++   case D3D10DDI_HT_DEPTHSTENCILVIEW: {
++      D3D10DDI_HDEPTHSTENCILVIEW h = { hResourceOrView };
++      surf = &CastDepthStencilView(h)->surface;
++      break;
++   }
++   default:
++      return;
++   }
++   if (surf) {
++      res = surf->texture;
++      if (!res || surf->level != 0 || surf->first_layer != 0 || surf->last_layer != 0 || res->last_level != 0 ||
++          res->array_size > 1)
++         return;
++   }
++   if (!res || res->target == PIPE_BUFFER)
++      return;
++   pipe->invalidate_resource(pipe, res);
++}
++
+ void D3D11_1FillDeviceFuncs(D3D11_1DDI_DEVICEFUNCS *f)
+ {
+ #include "d3d11_1_fill.inc"
++   f->pfnDiscard = Discard;   /* exynos-woa G32 (0176) */
+    /* exynos-woa G24 (Compute.cpp): DirectCompute 4.x replaces the generated stubs (CsSetConstantBuffers and, at WDDM 2.0,
+     * the UAV size/create entries keep their tier-specific wrappers, which are real now) */
+    f->pfnCreateComputeShader = CreateComputeShader;
+@@ -455,6 +503,7 @@ void D3D11_1FillDeviceFuncs(D3D11_1DDI_DEVICEFUNCS *f)
+ void D3DWDDM1_3FillDeviceFuncs(D3DWDDM1_3DDI_DEVICEFUNCS *f)
+ {
+ #include "wddm1_3_fill.inc"
++   f->pfnDiscard = Discard;   /* exynos-woa G32 (0176) */
+    /* exynos-woa G24 (Compute.cpp): DirectCompute 4.x replaces the generated stubs (CsSetConstantBuffers and, at WDDM 2.0,
+     * the UAV size/create entries keep their tier-specific wrappers, which are real now) */
+    f->pfnCreateComputeShader = CreateComputeShader;
+@@ -474,6 +523,7 @@ void D3DWDDM1_3FillDeviceFuncs(D3DWDDM1_3DDI_DEVICEFUNCS *f)
+ void D3DWDDM2_0FillDeviceFuncs(D3DWDDM2_0DDI_DEVICEFUNCS *f)
+ {
+ #include "wddm2_0_fill.inc"
++   f->pfnDiscard = Discard;   /* exynos-woa G32 (0176) */
+    /* exynos-woa G24 (Compute.cpp): DirectCompute 4.x replaces the generated stubs (CsSetConstantBuffers and, at WDDM 2.0,
+     * the UAV size/create entries keep their tier-specific wrappers, which are real now) */
+    f->pfnCreateComputeShader = CreateComputeShader;

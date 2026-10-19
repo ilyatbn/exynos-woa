@@ -83,3 +83,17 @@ there is no D3D12 GPU here -> WARP (CPU).
   forwarded to maligl_arm64.*), maligl_arm64.dll = the gl stage's 07121c48..., maligl_ec.dll. All three in System32
   (OpenGLDriverName stays maligl.dll). gltest64.exe (x64, emulated): ICD pixel format 99, "Mali-G76 MC12 (Panfrost)"
   GL 3.1, **GLTEST 5/5 PASS**, 63.5 fps swaps; gltest.exe (ARM64) through the forwarder: 5/5 PASS, 64.3 fps.
+- Review of e2b8efd (GL4): make-arm64x.ps1 regression - run with the default -Name on mali-umd-0148-x's
+  maliumd_arm64/maliumd_ec: forwarder maliumd.dll ARM64X, exports forwarded to maliumd_arm64.* (as before); the ec
+  stage body references none of the variables moved into Use-EcEnv ($VenvEc, $ecLib, $vsmix: rg shows none);
+  Use-EcEnv is defined before the first stage that calls it. Nothing found.
+- 20:15 **Stardew Valley (x64 .NET 6 / MonoGame DesktopGL) runs on the Mali**: launched directly (gamelaunch.ps1
+  via userrun.ps1, Steam not running), after ~3-4 min of emulated .NET start-up it loads SDL2.dll, OPENGL32.DLL,
+  GLU32.dll, maligl.dll, maligl_ec.DLL (tools/phone/gl/glproc.ps1). KMD heartbeat during the title screen: vsync
+  ~58/s, ~85 GPU submissions/s, runtime presents flat (GL presents through GDI, stage 1). Screenshots
+  traces/gl/stardew4.png (local, traces/ is gitignored; title screen: sky, clouds, buttons) and stardew5.png 1 min later (the STARDEW logo has
+  dropped in = animating). No 1026 / 1000 events (recentcrash.ps1).
+  Pitfalls on the way: the first screenshots were blank / black because the blank screensaver (scrnsave.scr) was
+  running (CopyFromScreen "The handle is invalid", scan-out all zero) - taskkill /f /im scrnsave.scr first (as the
+  cube-fps rule in notes/brightness-research.md says). The cmd.exe window in the shots is the screenshot task's own
+  console. tools/phone/gl/glfront.ps1 minimises console windows + raises the game window.

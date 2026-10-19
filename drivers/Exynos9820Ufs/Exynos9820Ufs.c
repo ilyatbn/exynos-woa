@@ -14,6 +14,27 @@ static UCHAR UfsBugcheckComponent[] = "Exynos9820Ufs";
 static ULONG UfsIoMode;   // UFS_IO_* bits for this boot (set in DriverEntry; 0 after a failed boot)
 static HW_TIMER_EX UfsAsyncTimer;   // w44 backstop (defined before UfsHwStartIo)
 static BOOLEAN UfsHwPassiveInitialize(_In_ PVOID DeviceExtension);   // w44 (defined before UfsHwStartIo)
+static VOID UfsSettleOutstanding(_Inout_ PUFS_ADAPTER_EXTENSION Adapter, _In_ UCHAR FailStatus, _In_ BOOLEAN Contain);   // w46
+
+//
+// w46: point the single-slot build/finish code at slot n's resources.
+//
+static
+VOID
+UfsSelectSlot(
+    _Inout_ PUFS_ADAPTER_EXTENSION Adapter,
+    _In_ ULONG Slot
+    )
+{
+    Adapter->CurrentSlot = Slot;
+    if (Adapter->NumSlots > 1UL) {
+        Adapter->Ucd = Adapter->Slot[Slot].Ucd;
+        Adapter->UcdPhysical = Adapter->Slot[Slot].UcdPhysical;
+        Adapter->Bounce = Adapter->Slot[Slot].Bounce;
+        Adapter->BounceCached = Adapter->Slot[Slot].Bounce;
+        Adapter->BouncePhysical = Adapter->Slot[Slot].BouncePhysical;
+    }
+}
 
 static
 VOID
@@ -5241,6 +5262,62 @@ UfsAllocateWorkspace(
         }
         UfsEarlyMark("=SYSBOUNCE pa", (ULONGLONG)Adapter->BouncePhysical.QuadPart | (System != NULL ? 1ULL : 0ULL) << 63);
     }
+    //
+    // w46: slot 0 = the resources above; with the large coherent mode, slots 1.. get a UCD in the freed pool area
+    // (after slot 0's) and their own 256 KiB coherent RAM bounce. StorPort may then queue up to NumSlots commands.
+    //
+    Adapter->NumSlots = 1;
+    Adapter->CurrentSlot = 0;
+    Adapter->OutstandingMask = 0;
+    Adapter->Slot[0].Ucd = Adapter->Ucd;
+    Adapter->Slot[0].UcdPhysical = Adapter->UcdPhysical;
+    Adapter->Slot[0].Bounce = Adapter->Bounce;
+    Adapter->Slot[0].BouncePhysical = Adapter->BouncePhysical;
+    if (((UfsIoMode & (UFS_IO_MULTI_SLOT | UFS_IO_ASYNC)) == (UFS_IO_MULTI_SLOT | UFS_IO_ASYNC)) &&
+        Adapter->BounceCoherent && (Adapter->MaxTransfer == UFS_LARGE_TRANSFER_LENGTH)) {
+        ULONG Slot;
+
+        for (Slot = 1; Slot < UFS_MAX_SLOTS; Slot++) {
+            PUCHAR SlotUcd = Adapter->Slot[0].Ucd + Slot * UfsAlignUp(UFS_LARGE_UCD_REGION_SIZE, UFS_UCD_ALIGNMENT);
+            STOR_PHYSICAL_ADDRESS SlotUcdPhysical;
+            PHYSICAL_ADDRESS Low;
+            PHYSICAL_ADDRESS High;
+            PHYSICAL_ADDRESS Skip;
+            PVOID SlotBounce;
+            PHYSICAL_ADDRESS SlotBouncePhysical;
+
+            if (!UfsGetWorkspacePhysicalAddress(Adapter, SlotUcd, UFS_LARGE_UCD_REGION_SIZE, UFS_UCD_ALIGNMENT,
+                                                &SlotUcdPhysical) ||
+                (SlotUcdPhysical.HighPart != 0)) {
+                break;
+            }
+            Low.QuadPart = 0;
+            High.QuadPart = 0xFFFFFFFFLL;
+            Skip.QuadPart = 0;
+            SlotBounce = MmAllocateContiguousMemorySpecifyCache(UFS_LARGE_TRANSFER_LENGTH, Low, High, Skip, MmCached);
+            if (SlotBounce == NULL) {
+                break;
+            }
+            SlotBouncePhysical = MmGetPhysicalAddress(SlotBounce);
+            if ((SlotBouncePhysical.HighPart != 0) || ((SlotBouncePhysical.LowPart & (UFS_BOUNCE_ALIGNMENT - 1U)) != 0)) {
+                MmFreeContiguousMemory(SlotBounce);
+                break;
+            }
+            RtlZeroMemory(SlotBounce, UFS_LARGE_TRANSFER_LENGTH);
+            UfsZeroUncached(SlotUcd, UFS_LARGE_UCD_REGION_SIZE);
+            Adapter->Slot[Slot].Ucd = SlotUcd;
+            Adapter->Slot[Slot].UcdPhysical = SlotUcdPhysical;
+            Adapter->Slot[Slot].Bounce = (PUCHAR)SlotBounce;
+            Adapter->Slot[Slot].BouncePhysical.QuadPart = SlotBouncePhysical.QuadPart;
+            Adapter->NumSlots = Slot + 1UL;
+        }
+        if (Adapter->NumSlots > 1UL) {
+            ConfigInfo->MaxNumberOfIO = Adapter->NumSlots;
+            ConfigInfo->MaxIOsPerLun = Adapter->NumSlots;
+            ConfigInfo->InitialLunQueueDepth = Adapter->NumSlots;
+        }
+        UfsEarlyMark("=SLOTS n", Adapter->NumSlots);
+    }
     UfsEarlyMark("=IOCOH value/coherent", ((ULONGLONG)Adapter->IoCoherencyValue << 32) | Adapter->BounceCoherent);
 #endif
     return TRUE;
@@ -5458,7 +5535,7 @@ UfsProgramTransferList(
     Adapter->Diagnostic.ProgramRunStopReadback =
         UfsReadRegister(Adapter, UFS_REG_UTRL_RUN_STOP);
 
-    ExpectedNexus = Adapter->InitialNexusType | UFS_TRANSFER_SLOT_MASK;
+    ExpectedNexus = Adapter->InitialNexusType | UFS_ALL_SLOTS_MASK;
     UfsWriteRegister(Adapter, UFS_VENDOR_NEXUS_TYPE, ExpectedNexus);
     KeMemoryBarrier();
     if (UfsReadRegister(Adapter, UFS_VENDOR_NEXUS_TYPE) != ExpectedNexus) {
@@ -6318,7 +6395,7 @@ UfsBuildCommand(
 
     if ((UfsIoMode & UFS_IO_FAST_ZERO) != 0) {
         /* Only what this command uses; the PRDT entries are cleared one by one in UfsProgramPrdt. */
-        UfsZeroUncached(&Adapter->Utrl[UFS_TRANSFER_SLOT], sizeof(UFS_TRANSFER_REQUEST_DESCRIPTOR));
+        UfsZeroUncached(&Adapter->Utrl[Adapter->CurrentSlot], sizeof(UFS_TRANSFER_REQUEST_DESCRIPTOR));
         UfsZeroUncached(Adapter->Ucd + UFS_UCD_COMMAND_OFFSET, UFS_FAST_ZERO_COMMAND_BYTES);
         UfsZeroUncached(Adapter->Ucd + UFS_UCD_RESPONSE_OFFSET, UFS_FAST_ZERO_RESPONSE_BYTES);
     } else {
@@ -6401,7 +6478,7 @@ UfsBuildCommand(
         }
     }
 
-    Trd = &Adapter->Utrl[UFS_TRANSFER_SLOT];
+    Trd = &Adapter->Utrl[Adapter->CurrentSlot];
     Command = (PUFS_COMMAND_UPIU)(Adapter->Ucd + UFS_UCD_COMMAND_OFFSET);
 
     *(volatile ULONG *)((PUCHAR)Trd + 0) =
@@ -6421,6 +6498,7 @@ UfsBuildCommand(
         (Direction == UfsCommandDataOut) ? UFS_UPIU_COMMAND_WRITE_HEADER
         : ((Direction == UfsCommandDataIn) ? UFS_UPIU_COMMAND_READ_HEADER
                                            : UFS_UPIU_COMMAND_NO_DATA_HEADER);
+    *(volatile ULONG *)(void *)Command |= (Adapter->CurrentSlot << 24);   // w46: task tag = slot (header byte 3)
     UfsWriteBigEndian32(Command->ExpectedDataTransferLength, DataLength);
     {
         UCHAR WireCdb[UFS_WIRE_CDB_LENGTH];
@@ -6444,14 +6522,14 @@ UfsTransferDone(
 {
     ULONG Ocs;
 
-    if ((UfsReadRegister(Adapter, UFS_REG_UTRL_DOORBELL) & UFS_TRANSFER_SLOT_MASK) == 0) {
+    if ((UfsReadRegister(Adapter, UFS_REG_UTRL_DOORBELL) & (1UL << Adapter->CurrentSlot)) == 0) {
         KeMemoryBarrier();
         return TRUE;
     }
-    Ocs = *(volatile ULONG *)((PUCHAR)&Adapter->Utrl[UFS_TRANSFER_SLOT] + 8) & 0xFFUL;
+    Ocs = *(volatile ULONG *)((PUCHAR)&Adapter->Utrl[Adapter->CurrentSlot] + 8) & 0xFFUL;
     if (Ocs != UFS_TRD_OCS_INITIAL) {   // W27: completed but doorbell not cleared -> retire via UTRLCLR
         KeMemoryBarrier();
-        UfsWriteRegister(Adapter, UFS_REG_UTRL_LIST_CLEAR, UFS_TRANSFER_SLOT_MASK);
+        UfsWriteRegister(Adapter, UFS_REG_UTRL_LIST_CLEAR, (1UL << Adapter->CurrentSlot));
         KeMemoryBarrier();
         return TRUE;
     }
@@ -6469,7 +6547,7 @@ UfsPollForCompletion(
     for (Elapsed = 0; Elapsed < UFS_TRANSFER_TIMEOUT_US;
          Elapsed += UFS_TRANSFER_POLL_US) {
         if ((UfsReadRegister(Adapter, UFS_REG_UTRL_DOORBELL) &
-             UFS_TRANSFER_SLOT_MASK) == 0) {
+             (1UL << Adapter->CurrentSlot)) == 0) {
             KeMemoryBarrier();
             return TRUE;
         }
@@ -6483,11 +6561,11 @@ UfsPollForCompletion(
         // command. Do the same here.
         //
         {
-            ULONG Ocs = *(volatile ULONG *)((PUCHAR)&Adapter->Utrl[UFS_TRANSFER_SLOT] + 8) & 0xFFUL;
+            ULONG Ocs = *(volatile ULONG *)((PUCHAR)&Adapter->Utrl[Adapter->CurrentSlot] + 8) & 0xFFUL;
 
             if (Ocs != UFS_TRD_OCS_INITIAL) {
                 KeMemoryBarrier();
-                UfsWriteRegister(Adapter, UFS_REG_UTRL_LIST_CLEAR, UFS_TRANSFER_SLOT_MASK);
+                UfsWriteRegister(Adapter, UFS_REG_UTRL_LIST_CLEAR, (1UL << Adapter->CurrentSlot));
                 KeMemoryBarrier();
                 if (Adapter->Diagnostic.StartIoRequests <= 3UL) {
                     UfsEarlyMark("=RETIRE ocs/db=",
@@ -6581,7 +6659,7 @@ UfsVerifyWrittenBlocks(
         return FALSE;
     }
 
-    Trd = &Adapter->Utrl[UFS_TRANSFER_SLOT];
+    Trd = &Adapter->Utrl[Adapter->CurrentSlot];
     Command = (PUFS_COMMAND_UPIU)(Adapter->Ucd + UFS_UCD_COMMAND_OFFSET);
 
     *(volatile ULONG *)((PUCHAR)Trd + 0) =
@@ -6615,14 +6693,14 @@ UfsVerifyWrittenBlocks(
     UfsCopyToUncached(Command->Cdb, Cdb, sizeof(Cdb));
     KeMemoryBarrier();
 
-    Nexus = Adapter->InitialNexusType | UFS_TRANSFER_SLOT_MASK;
+    Nexus = Adapter->InitialNexusType | UFS_ALL_SLOTS_MASK;
     UfsWriteRegister(Adapter, UFS_VENDOR_NEXUS_TYPE, Nexus);
     KeMemoryBarrier();
     if (UfsReadRegister(Adapter, UFS_VENDOR_NEXUS_TYPE) != Nexus) {
         return FALSE;
     }
 
-    UfsWriteRegister(Adapter, UFS_REG_UTRL_DOORBELL, UFS_TRANSFER_SLOT_MASK);
+    UfsWriteRegister(Adapter, UFS_REG_UTRL_DOORBELL, (1UL << Adapter->CurrentSlot));
     KeMemoryBarrier();
 
     if (!UfsPollForCompletion(Adapter)) {
@@ -6888,7 +6966,8 @@ static
 BOOLEAN
 UfsResponseIsWellFormed(
     _In_ PSCSI_REQUEST_BLOCK Srb,
-    _In_ PUFS_RESPONSE_UPIU Response
+    _In_ PUFS_RESPONSE_UPIU Response,
+    _In_ UCHAR ExpectedTag   /* w46: the slot the command ran in */
     )
 {
     if ((Response->TransactionCode & UFS_UPIU_TRANSACTION_MASK) !=
@@ -6900,7 +6979,7 @@ UfsResponseIsWellFormed(
         return FALSE;
     }
 
-    if (Response->TaskTag != (UCHAR)UFS_TRANSFER_SLOT) {
+    if (Response->TaskTag != ExpectedTag) {
         return FALSE;
     }
 
@@ -6991,7 +7070,7 @@ UfsFinishScsiCommand(
     UCHAR Ocs;
 
     *ProtocolFailure = FALSE;
-    Trd = &Adapter->Utrl[UFS_TRANSFER_SLOT];
+    Trd = &Adapter->Utrl[Adapter->CurrentSlot];
     Response = (PUFS_RESPONSE_UPIU)(Adapter->Ucd + UFS_UCD_RESPONSE_OFFSET);
     Ocs = (UCHAR)(Trd->Dw2 & 0xFFU);
     Adapter->LastOcs = Ocs;
@@ -7028,7 +7107,7 @@ UfsFinishScsiCommand(
     // the next boot can tell "the fix ran and did not help" from "the fix never
     // ran".
     //
-    if (UfsResponseIsWellFormed(Srb, Response) &&
+    if (UfsResponseIsWellFormed(Srb, Response, (UCHAR)Adapter->CurrentSlot) &&
         (Response->Status != SCSISTAT_GOOD)) {
         if ((Ocs != UFS_TRD_OCS_SUCCESS) &&
             (Ocs != UFS_TRD_OCS_RESPONSE_SIZE_MISMATCH)) {
@@ -7076,7 +7155,7 @@ UfsFinishScsiCommand(
         return SRB_STATUS_ERROR;
     }
 
-    if (Response->TaskTag != (UCHAR)UFS_TRANSFER_SLOT) {
+    if (Response->TaskTag != (UCHAR)Adapter->CurrentSlot) {
         *ProtocolFailure = TRUE;
         UfsSetDiagnosticFailure(Adapter, UFS_DIAG_FAILURE_RESPONSE_FRAMING);
         UfsRecordCommandFailure(
@@ -7474,7 +7553,7 @@ UfsFinishIssuedCommand(
         // finish, and the only unknown left is whether the descriptor agreed.
         //
         Adapter->AckFailureOcs =
-            (ULONG)(Adapter->Utrl[UFS_TRANSFER_SLOT].Dw2 & 0xFFU);
+            (ULONG)(Adapter->Utrl[Adapter->CurrentSlot].Dw2 & 0xFFU);
         //
         // Capture what the controller actually deposited BEFORE giving up on
         // this command. UfsFinishScsiCommand normally does this and is skipped
@@ -8264,6 +8343,38 @@ UfsExecuteScsi(
         Adapter->InterruptsGated = TRUE;
     }
 
+    //
+    // w45/w46: hybrid policy + slot admission (UFS_ASYNC_MIN_BYTES, UFS_IO_MULTI_SLOT). Large reads take a free slot
+    // while no write is outstanding; everything else drains the outstanding slots first and runs alone in slot 0.
+    //
+    {
+        BOOLEAN Proven = (Adapter->IsrTransferCompletions >= UFS_ASYNC_PROVE_IRQS);
+        ULONG Free = UFS_MAX_SLOTS;
+        ULONG Index;
+
+        Adapter->CommandAsync = ((UfsIoMode & UFS_IO_ASYNC) != 0) && Adapter->AsyncReady && !Adapter->AsyncDisabled &&
+                                (Adapter->ArmedInterruptEnable != 0) && Proven &&
+                                (Direction == UfsCommandDataIn) &&   /* reads only: FLUSH completes locally, a write */
+                                (Srb->DataTransferLength > UFS_ASYNC_MIN_BYTES);   /* must be done before it returns */
+        Adapter->CommandIoc = (Adapter->ArmedInterruptEnable != 0) && (!Proven || Adapter->CommandAsync);
+        if (Adapter->CommandAsync && (Direction == UfsCommandDataIn) && !Adapter->WriteOutstanding &&
+            ((UfsIoMode & UFS_IO_MULTI_SLOT) != 0)) {
+            for (Index = 0; Index < Adapter->NumSlots; Index++) {
+                if ((Adapter->OutstandingMask & (1UL << Index)) == 0) {
+                    Free = Index;
+                    break;
+                }
+            }
+        }
+        if (Free == UFS_MAX_SLOTS) {
+            if (Adapter->OutstandingMask != 0) {
+                UfsSettleOutstanding(Adapter, SRB_STATUS_TIMEOUT, TRUE);   // exclusive command: drain first
+            }
+            Free = 0;
+        }
+        UfsSelectSlot(Adapter, Free);
+    }
+
     if (((Direction != UfsCommandNoData) &&
          (Direction != UfsCommandDataIn) &&
          (Direction != UfsCommandDataOut)) ||
@@ -8290,7 +8401,7 @@ UfsExecuteScsi(
         (UfsReadRegister(Adapter, UFS_REG_UTRL_BASE_HIGH) != 0) ||
         (UfsReadRegister(Adapter, UFS_REG_UTRL_RUN_STOP) !=
          UFS_LIST_RUN_STOP) ||
-        (UfsReadRegister(Adapter, UFS_REG_UTRL_DOORBELL) != 0)) {
+        ((UfsReadRegister(Adapter, UFS_REG_UTRL_DOORBELL) & (1UL << Adapter->CurrentSlot)) != 0)) {
         Adapter->FailedCommands++;
         UfsContainController(
             Adapter,
@@ -8304,16 +8415,6 @@ UfsExecuteScsi(
     DataLength = Srb->DataTransferLength;
     if (Direction == UfsCommandDataOut) {
         UfsPramSetPhase(Adapter, UFS_PHASE_LIVE_PRECHECK);
-    }
-    //
-    // w45: hybrid policy (UFS_ASYNC_MIN_BYTES). Decided before the descriptor is built: it sets the TRD IOC bit.
-    //
-    {
-        BOOLEAN Proven = (Adapter->IsrTransferCompletions >= UFS_ASYNC_PROVE_IRQS);
-
-        Adapter->CommandAsync = ((UfsIoMode & UFS_IO_ASYNC) != 0) && Adapter->AsyncReady && !Adapter->AsyncDisabled &&
-                                (Adapter->ArmedInterruptEnable != 0) && Proven && (DataLength > UFS_ASYNC_MIN_BYTES);
-        Adapter->CommandIoc = (Adapter->ArmedInterruptEnable != 0) && (!Proven || Adapter->CommandAsync);
     }
     if (!UfsBuildCommand(Adapter, Srb, Direction)) {
         Adapter->RejectedCommands++;
@@ -8329,7 +8430,7 @@ UfsExecuteScsi(
         UfsPramSetPhase(Adapter, UFS_PHASE_LIVE_BUILT);
     }
 
-    Nexus = Adapter->InitialNexusType | UFS_TRANSFER_SLOT_MASK;
+    Nexus = Adapter->InitialNexusType | UFS_ALL_SLOTS_MASK;
     UfsWriteRegister(
         Adapter,
         UFS_VENDOR_NEXUS_TYPE,
@@ -8366,14 +8467,18 @@ UfsExecuteScsi(
     //
     // w44: async only once the interrupt is proven for this boot (UFS_ASYNC_PROVE_IRQS completions seen by the ISR).
     //
-    if (Adapter->CommandAsync) {   // w45: decided before UfsBuildCommand (UFS_ASYNC_MIN_BYTES)
-        Adapter->PendingSrb = Srb;
+    if (Adapter->CommandAsync) {   // w45/w46: decided at admission; the slot carries it until reaped
+        Adapter->Slot[Adapter->CurrentSlot].Srb = Srb;
+        Adapter->OutstandingMask |= (1UL << Adapter->CurrentSlot);
+        if (Direction == UfsCommandDataOut) {
+            Adapter->WriteOutstanding = TRUE;
+        }
     }
 
     UfsWriteRegister(
         Adapter,
         UFS_REG_UTRL_DOORBELL,
-        UFS_TRANSFER_SLOT_MASK
+        (1UL << Adapter->CurrentSlot)
         );
     KeMemoryBarrier();
 
@@ -8391,14 +8496,14 @@ UfsExecuteScsi(
 #if UFS_PERF_INSTRUMENTATION
     PerfDoorbell = UfsPerfTick();
 #endif
-    if (Adapter->PendingSrb == Srb) {
+    if (Adapter->Slot[Adapter->CurrentSlot].Srb == Srb) {
         //
-        // w44 async: the completion DPC (or the backstop timer) finishes this command; StartIo returns pending.
+        // w44/w46 async: the completion DPC (or the backstop timer) finishes this command; StartIo returns pending.
         //
-        Adapter->PendingDirection = Direction;
-        Adapter->PendingDataLength = DataLength;
-        Adapter->PendingDoorbellTick = PerfDoorbell;
-        Adapter->PendingStart100ns = KeQueryInterruptTime();
+        Adapter->Slot[Adapter->CurrentSlot].Direction = Direction;
+        Adapter->Slot[Adapter->CurrentSlot].DataLength = DataLength;
+        Adapter->Slot[Adapter->CurrentSlot].DoorbellTick = PerfDoorbell;
+        Adapter->Slot[Adapter->CurrentSlot].Start100ns = KeQueryInterruptTime();
         Adapter->AsyncIssued++;
         (VOID)StorPortRequestTimer(Adapter, Adapter->AsyncTimer, UfsAsyncTimer, NULL, UFS_ASYNC_TIMER_US, 0);
         return SRB_STATUS_PENDING;
@@ -9390,6 +9495,86 @@ UfsHwInitialize(
 // w44 async completion. Called from the completion DPC and the backstop timer; takes the StartIo lock (allowed for
 // HwStorDpcRoutine; MS Learn StorPortAcquireSpinLock lock table) so it is serialised with StartIo and ResetBus.
 //
+//
+// w46: finish slot n's completed command (slot already selected) and release the slot. Returns the SRB status.
+//
+static
+UCHAR
+UfsFinishSlot(
+    _Inout_ PUFS_ADAPTER_EXTENSION Adapter,
+    _In_ ULONG Slot
+    )
+{
+    PUFS_SLOT Entry = &Adapter->Slot[Slot];
+    PSCSI_REQUEST_BLOCK Srb = Entry->Srb;
+    UCHAR SrbStatus;
+
+    UfsSelectSlot(Adapter, Slot);
+    SrbStatus = UfsFinishIssuedCommand(Adapter, Srb, Entry->Direction, Entry->DataLength, Entry->DoorbellTick);
+    if (SrbStatus == SRB_STATUS_SUCCESS) {
+        if ((Srb->Cdb[0] == 0x2A) || (Srb->Cdb[0] == 0x8A)) {
+            UfsBringupLastWrite100ns = KeQueryInterruptTime();
+        }
+        UfsPetBringupWatchdog();
+    }
+    return SrbStatus;
+}
+
+static
+VOID
+UfsReleaseSlot(
+    _Inout_ PUFS_ADAPTER_EXTENSION Adapter,
+    _In_ ULONG Slot
+    )
+{
+    if (Adapter->Slot[Slot].Direction == UfsCommandDataOut) {
+        Adapter->WriteOutstanding = FALSE;
+    }
+    Adapter->Slot[Slot].Srb = NULL;
+    Adapter->OutstandingMask &= ~(1UL << Slot);
+}
+
+//
+// w46: synchronously settle every outstanding slot (StartIo lock held by the caller: StartIo or ResetBus). A slot
+// that does not complete within the poll timeout gets FailStatus (containment first when Contain).
+//
+static
+VOID
+UfsSettleOutstanding(
+    _Inout_ PUFS_ADAPTER_EXTENSION Adapter,
+    _In_ UCHAR FailStatus,
+    _In_ BOOLEAN Contain
+    )
+{
+    ULONG Slot;
+
+    for (Slot = 0; Slot < Adapter->NumSlots; Slot++) {
+        PSCSI_REQUEST_BLOCK Srb;
+        UCHAR SrbStatus;
+
+        if ((Adapter->OutstandingMask & (1UL << Slot)) == 0) {
+            continue;
+        }
+        Srb = Adapter->Slot[Slot].Srb;
+        UfsSelectSlot(Adapter, Slot);
+        if (UfsPollForCompletion(Adapter)) {
+            SrbStatus = UfsFinishSlot(Adapter, Slot);
+        } else {
+            Adapter->FailedCommands++;
+            if (Contain) {
+                UfsContainController(Adapter, UFS_DIAG_FAILURE_TIMEOUT_CONTAINMENT);
+            }
+            SrbStatus = FailStatus;
+        }
+        UfsReleaseSlot(Adapter, Slot);
+        UfsCompleteRequest(Adapter, Srb, SrbStatus);
+    }
+}
+
+//
+// w44/w46 async completion: called from the completion DPC only (the timer just queues the DPC); takes the StartIo
+// lock (HwStorDpcRoutine may: MS Learn lock table), reaps every completed slot, completes the SRBs after unlocking.
+//
 static
 VOID
 UfsAsyncReap(
@@ -9398,52 +9583,52 @@ UfsAsyncReap(
     )
 {
     STOR_LOCK_HANDLE Lock;
-    PSCSI_REQUEST_BLOCK Srb;
-    UCHAR SrbStatus;
+    PSCSI_REQUEST_BLOCK Done[UFS_MAX_SLOTS];
+    UCHAR DoneStatus[UFS_MAX_SLOTS];
+    ULONG Count = 0;
+    ULONG Slot;
+    ULONG Index;
 
     StorPortAcquireSpinLock(Adapter, StartIoLock, NULL, &Lock);
-    Srb = Adapter->PendingSrb;
-    if (Srb == NULL) {
-        StorPortReleaseSpinLock(Adapter, &Lock);
-        return;
-    }
-
-    if (!UfsTransferDone(Adapter)) {
-        if ((KeQueryInterruptTime() - Adapter->PendingStart100ns) > ((ULONGLONG)UFS_TRANSFER_TIMEOUT_US * 10ULL)) {
-            Adapter->PendingSrb = NULL;
+    for (Slot = 0; Slot < Adapter->NumSlots; Slot++) {
+        if ((Adapter->OutstandingMask & (1UL << Slot)) == 0) {
+            continue;
+        }
+        UfsSelectSlot(Adapter, Slot);
+        if (UfsTransferDone(Adapter)) {
+            if (FromTimer) {
+                Adapter->AsyncTimerCompletions++;
+                if ((Adapter->AsyncTimerCompletions > 64UL) &&
+                    (Adapter->AsyncTimerCompletions > (Adapter->AsyncIssued / 8UL))) {
+                    Adapter->AsyncDisabled = TRUE;   // interrupts are not reliable this boot: poll again
+                    UfsEarlyMark("=ASYNC off issued/timer",
+                                 ((ULONGLONG)Adapter->AsyncIssued << 32) | Adapter->AsyncTimerCompletions);
+                }
+            }
+            Done[Count] = Adapter->Slot[Slot].Srb;
+            DoneStatus[Count] = UfsFinishSlot(Adapter, Slot);
+            UfsReleaseSlot(Adapter, Slot);
+            Count++;
+        } else if ((KeQueryInterruptTime() - Adapter->Slot[Slot].Start100ns) >
+                   ((ULONGLONG)UFS_TRANSFER_TIMEOUT_US * 10ULL)) {
+            Done[Count] = Adapter->Slot[Slot].Srb;
+            DoneStatus[Count] = SRB_STATUS_TIMEOUT;
             Adapter->FailedCommands++;
-            if (Adapter->PendingDirection == UfsCommandNoData) {
+            if (Adapter->Slot[Slot].Direction == UfsCommandNoData) {
                 UfsPramFlushComplete(Adapter, FALSE);
             }
             UfsContainController(Adapter, UFS_DIAG_FAILURE_TIMEOUT_CONTAINMENT);
-            StorPortReleaseSpinLock(Adapter, &Lock);
-            UfsCompleteRequest(Adapter, Srb, SRB_STATUS_TIMEOUT);
-            return;
+            UfsReleaseSlot(Adapter, Slot);
+            Count++;
         }
+    }
+    if (Adapter->OutstandingMask != 0) {
         (VOID)StorPortRequestTimer(Adapter, Adapter->AsyncTimer, UfsAsyncTimer, NULL, UFS_ASYNC_TIMER_US, 0);
-        StorPortReleaseSpinLock(Adapter, &Lock);
-        return;
-    }
-
-    Adapter->PendingSrb = NULL;
-    if (FromTimer) {
-        Adapter->AsyncTimerCompletions++;
-        if ((Adapter->AsyncTimerCompletions > 64UL) &&
-            (Adapter->AsyncTimerCompletions > (Adapter->AsyncIssued / 8UL))) {
-            Adapter->AsyncDisabled = TRUE;   // interrupts are not reliable this boot: poll again
-            UfsEarlyMark("=ASYNC off issued/timer", ((ULONGLONG)Adapter->AsyncIssued << 32) | Adapter->AsyncTimerCompletions);
-        }
-    }
-    SrbStatus = UfsFinishIssuedCommand(Adapter, Srb, Adapter->PendingDirection, Adapter->PendingDataLength,
-                                       Adapter->PendingDoorbellTick);
-    if (SrbStatus == SRB_STATUS_SUCCESS) {
-        if ((Srb->Cdb[0] == 0x2A) || (Srb->Cdb[0] == 0x8A)) {
-            UfsBringupLastWrite100ns = KeQueryInterruptTime();
-        }
-        UfsPetBringupWatchdog();
     }
     StorPortReleaseSpinLock(Adapter, &Lock);
-    UfsCompleteRequest(Adapter, Srb, SrbStatus);
+    for (Index = 0; Index < Count; Index++) {
+        UfsCompleteRequest(Adapter, Done[Index], DoneStatus[Index]);
+    }
 }
 
 static
@@ -9596,7 +9781,7 @@ UfsHwStartIo(
     }
 
     if ((SrbStatus == SRB_STATUS_PENDING) && (Srb->Function == SRB_FUNCTION_EXECUTE_SCSI) &&
-        (Adapter->PendingSrb == Srb)) {
+        (Adapter->Slot[Adapter->CurrentSlot].Srb == Srb)) {
         return TRUE;   // w44: completed by UfsAsyncReap (DPC / backstop timer)
     }
     if (SrbStatus == SRB_STATUS_SUCCESS) {
@@ -9637,7 +9822,7 @@ UfsHwInterrupt(
     InterlockedOr(&Adapter->IsrLatchedStatus, (LONG)Status);
     if ((Status & UFS_INTERRUPT_TRANSFER_COMPLETION) != 0) {
         InterlockedIncrement(&Adapter->IsrTransferCompletions);
-        if (Adapter->AsyncReady && (Adapter->PendingSrb != NULL)) {
+        if (Adapter->AsyncReady && (Adapter->OutstandingMask != 0)) {
             (VOID)StorPortIssueDpc(Adapter, &Adapter->CompletionDpc, NULL, NULL);   // w44
         }
     }
@@ -9663,19 +9848,8 @@ UfsHwResetBus(
      * w44: an async command still outstanding is settled first (ResetBus holds the StartIo lock in full-duplex
      * mode, so UfsAsyncReap cannot race it): finished normally if the controller completed it, else bus reset.
      */
-    if (Adapter->PendingSrb != NULL) {
-        PSCSI_REQUEST_BLOCK PendingSrb = Adapter->PendingSrb;
-        UCHAR PendingStatus;
-
-        if (UfsPollForCompletion(Adapter)) {
-            Adapter->PendingSrb = NULL;
-            PendingStatus = UfsFinishIssuedCommand(Adapter, PendingSrb, Adapter->PendingDirection,
-                                                   Adapter->PendingDataLength, Adapter->PendingDoorbellTick);
-        } else {
-            Adapter->PendingSrb = NULL;
-            PendingStatus = SRB_STATUS_BUS_RESET;
-        }
-        UfsCompleteRequest(Adapter, PendingSrb, PendingStatus);
+    if (Adapter->OutstandingMask != 0) {
+        UfsSettleOutstanding(Adapter, SRB_STATUS_BUS_RESET, FALSE);   // w46: every outstanding slot
     }
 
     /*

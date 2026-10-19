@@ -27,7 +27,7 @@
  * word [12] at 0x8FE0F000 ('DE' << 16 | n, cleared by a clean OS restart or a cold power-on).
  */
 #ifndef UFS_IO_MODE_DEFAULT
-#define UFS_IO_MODE_DEFAULT                        0x3FUL
+#define UFS_IO_MODE_DEFAULT                        0x7FUL
 #endif
 #define UFS_IO_FAST_ZERO                           0x1UL
 #define UFS_IO_FULL_DUPLEX                         0x2UL
@@ -79,6 +79,15 @@
  * interrupt until UFS_ASYNC_PROVE_IRQS completions proved the line.
  */
 #define UFS_ASYNC_MIN_BYTES                        (64UL * 1024UL)
+/*
+ * UFS_IO_MULTI_SLOT (w46, stage 4): async READS (the > UFS_ASYNC_MIN_BYTES ones) may run in up to UFS_MAX_SLOTS
+ * transfer-request slots at once - each slot has its own TRD, UCD (in the freed firmware-pool bounce area) and 256 KiB
+ * coherent RAM bounce; the UPIU task tag = the slot. Every other command (writes, small/polled commands, no free
+ * slot) first drains all outstanding slots and runs alone in slot 0, so writes stay exclusive and single-slot.
+ * Completion of slot n retires only slot n: UTRLCLR on Exynos takes the slot BIT (Linux
+ * UFSHCD_QUIRK_BROKEN_REQ_LIST_CLR writes 1 << tag; W27 proved it on slot 0). StorPort queue depth = slots.
+ */
+#define UFS_IO_MULTI_SLOT                          0x40UL
 #define UFS_IRQ_ARMED_ENABLE                       (UFS_INTERRUPT_TRANSFER_COMPLETION | UFS_INTERRUPT_STATUS_FATAL_MASK)
 #define UFS_LARGE_TRANSFER_LENGTH                  (256UL * 1024UL)
 #define UFS_LARGE_PRDT_ENTRIES                     (UFS_LARGE_TRANSFER_LENGTH / 4096UL)

@@ -1594,6 +1594,21 @@ typedef struct _UFS_PRAM_SIGNATURE {
     UCHAR LastDataInBlock1[UFS_LAST_DATA_PREFIX];
 } UFS_PRAM_SIGNATURE, *PUFS_PRAM_SIGNATURE;
 
+#define UFS_MAX_SLOTS                        4UL          /* w46: transfer-request slots used (UTRL holds 32) */
+#define UFS_ALL_SLOTS_MASK                   ((1UL << UFS_MAX_SLOTS) - 1UL)
+
+typedef struct _UFS_SLOT {            /* w46: per-slot resources and the command it carries */
+    PUCHAR Ucd;
+    STOR_PHYSICAL_ADDRESS UcdPhysical;
+    PUCHAR Bounce;                    /* coherent RAM bounce (cached; Bounce == BounceCached for the slot) */
+    STOR_PHYSICAL_ADDRESS BouncePhysical;
+    PSCSI_REQUEST_BLOCK Srb;          /* outstanding async command, or NULL */
+    UFS_COMMAND_DIRECTION Direction;
+    ULONG DataLength;
+    ULONGLONG DoorbellTick;
+    ULONGLONG Start100ns;
+} UFS_SLOT, *PUFS_SLOT;
+
 typedef struct _UFS_ADAPTER_EXTENSION {
     PUCHAR Hci;
     ULONG HciLength;
@@ -1795,11 +1810,11 @@ typedef struct _UFS_ADAPTER_EXTENSION {
     PVOID AsyncTimer;                 /* w44: extended backstop timer (passive init) */
     volatile BOOLEAN AsyncReady;      /* w44: DPC + timer initialised */
     BOOLEAN AsyncDisabled;            /* w44: sticky off for this boot (too many backstop completions) */
-    PSCSI_REQUEST_BLOCK PendingSrb;   /* w44: the issued, not yet completed command (StartIo lock) */
-    UFS_COMMAND_DIRECTION PendingDirection;
-    ULONG PendingDataLength;
-    ULONGLONG PendingDoorbellTick;
-    ULONGLONG PendingStart100ns;
+    ULONG NumSlots;                   /* w46: slots with resources (1 = slot 0 only) */
+    ULONG CurrentSlot;                /* w46: slot whose TRD/UCD/bounce the build/finish code uses */
+    ULONG OutstandingMask;            /* w46: slots carrying an async command (StartIo lock) */
+    BOOLEAN WriteOutstanding;         /* w46: an async write is outstanding (admits nothing else) */
+    UFS_SLOT Slot[UFS_MAX_SLOTS];
     ULONG AsyncIssued;
     ULONG AsyncTimerCompletions;
     BOOLEAN CommandAsync;             /* w45: the command being built goes async */

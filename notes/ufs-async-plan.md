@@ -186,3 +186,15 @@ before stage 4. Interrupt completion frees the CPU but does not lower QD1 latenc
   ~10 % at QD1 for big commands, frees the CPU). Steam warm 34.0 s (139 k reads) / 15.7 s (45 k reads - Steam did
   less work) ~= polled. Best configuration so far.
 - Daily firmware boot-host-r4.img = host + IOCOH (default) + BEYOND0LTE_UFS_GSIV 281 (now the source default).
+- **w46 1194fa25** (UFS_IO_MULTI_SLOT, mode 0x7F, UFS_MAX_SLOTS 4): per-slot TRD / UCD (in the freed pool area after
+  slot 0's) / 256 KiB coherent RAM bounce, UfsSelectSlot points the existing build/finish code at a slot, UPIU task
+  tag = slot (response check takes the expected tag), doorbell / UTRLCLR per slot bit (Linux
+  UFSHCD_QUIRK_BROKEN_REQ_LIST_CLR = write 1 << tag), NEXUS all slot bits, precondition checks only the slot's
+  doorbell bit, MaxNumberOfIO / MaxIOsPerLun / InitialLunQueueDepth = slots. Admission: async = READS > 64 KiB only
+  (FLUSH completes locally, so writes must finish before returning); everything else drains all slots first
+  (UfsSettleOutstanding) and runs alone in slot 0. DPC reaps every completed slot; ResetBus settles all.
+  On boot-irq1-wdt: boot 66 s, death counter 0. hashcheck = w38; parhash.ps1 (4 concurrent hashcheck instances) all
+  match; wt7 verifies, wt8 written + verified. diskbench aligned: 1 MiB 555-565 MiB/s (1.77-1.80 ms; w45 385-391,
+  w42b 430; Linux 617), 256 KiB 285-388 MiB/s, rand 4 KiB p50 152 us / 6299 IOPS. StorPort splits a 1 MiB request into
+  4 x 256 KiB SRBs which now run in parallel slots. (parhash wall 217 s vs w45 199 s: that test is dominated by
+  small polled reads that drain - not a throughput test.)

@@ -32,3 +32,11 @@
 - CONCLUSION so far: cold starts = bulk-read throughput (~60-100 MB/s vs Linux 400-600 MB/s on the same chip);
   Steam = small-read latency x count at queue depth 1. Both are the UFS miniport's synchronous single-slot design.
   App CPU time (brave 7-8 s warm on 6 cores without the M4s) is the second, smaller factor.
+- 2026-10-19 user: "multithread it like you did with the gpu driver" -> UFS miniport: completion by interrupt + more
+  than one command in flight (+ larger transfers, direct DMA). Planning agent writes notes/ufs-async-plan.md.
+- SAFETY DESIGN (decided before any code): the UFS driver is the boot disk. A failed boot can leave NTFS dirty, and
+  TWRP's ntfs-3g then refuses rw (never fsck), so "swap the .sys back from TWRP" is NOT a reliable rollback. Rule for
+  this work: ONE binary carries the proven w38 path and the new path; the new path is used only when (a) enabled
+  and (b) the previous boot did not die (UEFI BootLog already detects unexplained Windows deaths - progress
+  prev=0x72 without a restart marker - and can publish a "UFS safe mode" bit in the PRAM/handoff page the driver
+  already reads). A bad new path then costs one failed boot and comes back on the old path by itself.

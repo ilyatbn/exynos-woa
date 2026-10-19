@@ -429,3 +429,6 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   Summary of the automatic-route runs (median / mean): bot2 0171 41.6 ms / 23.5 fps; bot3 0172 41.2 / 23.0;
   bot6 0175 40.4 / 23.6; bot7 0175 38.7 / 24.8; bot9 0177 39.3 / 23.7 - run-to-run spread ~2 ms, so 0172-0177 gave
   ~1-2 ms (render-thread UMD time -6 ms/frame, but the GPU is at 92 % and the game's main thread at 88 %).
+- Mesa 0178 (diagnosis): pan_job.c panfrost_batch_submit, Windows: per 2000 batches a tlog line "pan batches 2000:
+  draws, batches without draws, fb MP, colour preload / clear / store MP, zs preload / store MP, msaa". EC eaee8f31
+  live; d3dmrt64x 7/7, d3dbc64x lossy 0/126. bot10 next (counters + numbers).

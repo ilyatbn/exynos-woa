@@ -1,0 +1,53 @@
+diff --git a/src/gallium/drivers/panfrost/pan_job.c b/src/gallium/drivers/panfrost/pan_job.c
+index bfe1f9d..75d7ce6 100644
+--- a/src/gallium/drivers/panfrost/pan_job.c
++++ b/src/gallium/drivers/panfrost/pan_job.c
+@@ -720,6 +720,48 @@ panfrost_batch_submit(struct panfrost_context *ctx,
+ 
+    panfrost_batch_to_fb_info(batch, &fb, rts, &zs, &s, false);
+    panfrost_emit_tile_map(batch, &fb);
++#ifdef _WIN32
++   {
++      /* exynos-woa G32 (0178, notes/games-unity.md, diagnosis): what the fragment jobs load and store - Dave the Diver
++       * is GPU-bound (3D engine 92 %) with ~49 batches/frame. Per 2000 batches into the tlog: draws, pixels of the
++       * framebuffers, colour / depth-stencil pixels preloaded (read from memory into the tile buffer), cleared, and
++       * written back, and multisampled batches. Megapixels per batch; a full 1520x720 target is 1.09 MP. */
++      extern void malikm_tlog(const char *fmt, ...);
++      static unsigned n, draws, msaa, empty;
++      static double px, cpre, cclr, cst, zpre, zst;
++      double a = (double)fb.width * fb.height / 1e6;
++      n++;
++      draws += batch->draw_count;
++      if (!batch->draw_count)
++         empty++;
++      if (fb.nr_samples > 1)
++         msaa++;
++      px += a;
++      for (unsigned i = 0; i < fb.rt_count; i++) {
++         if (!fb.rts[i].view)
++            continue;
++         if (fb.rts[i].preload)
++            cpre += a;
++         if (fb.rts[i].clear)
++            cclr += a;
++         if (!fb.rts[i].discard)
++            cst += a;
++      }
++      if (fb.zs.view.zs) {
++         if (fb.zs.preload.z || fb.zs.preload.s)
++            zpre += a;
++         if (!fb.zs.discard.z || !fb.zs.discard.s)
++            zst += a;
++      }
++      if (n == 2000) {
++         malikm_tlog("pan batches 2000: %u draws (%u batches without), fb %.0f MP, colour preload %.0f clear %.0f "
++                     "store %.0f MP, zs preload %.0f store %.0f MP, msaa %u", draws, empty, px, cpre, cclr, cst, zpre,
++                     zst, msaa);
++         n = draws = msaa = empty = 0;
++         px = cpre = cclr = cst = zpre = zst = 0;
++      }
++   }
++#endif
+ 
+    ret = screen->vtbl.submit_batch(batch, &fb);
+    if (ret)

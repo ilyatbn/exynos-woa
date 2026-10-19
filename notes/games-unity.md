@@ -251,3 +251,8 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   (device ...) dropped" = a normal device teardown, no error line after it -> the abort() comes during process exit,
   after the D3D device is gone (a forced Stop-Process = TerminateProcess would not run that path, so these are the
   game's own exits). Next: WER LocalDumps for DaveTheDiver.exe (documented registry key) to get the abort's stack.
+  MS Learn abort (learn.microsoft.com/cpp/c-runtime-library/reference/abort): "By default, in non-debug builds of desktop
+  or console apps, abort then invokes the Windows Error Reporting Service mechanism" - matches the WER fast-fail report.
+  WER LocalDumps (learn.microsoft.com/windows/win32/wer/collecting-user-mode-dumps, "To create a per-application
+  setting, create a new key for your application under ...\LocalDumps") set on the phone: LocalDumps\DaveTheDiver.exe
+  DumpFolder C:\S10eTmp\dumps (Users modify), DumpType 1 (mini), DumpCount 5. The next abort leaves a .dmp.

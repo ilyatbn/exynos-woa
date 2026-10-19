@@ -168,3 +168,4 @@ not yet checked); CNTVOFF 0 everywhere; DVM broadcasts fine. Found: a pending SG
 CPU_ON wedges that core's bring-up (not on the Windows path). 8 cores on today's firmware still fail, but now
 visibly: kernel heap corruption bugchecks (see m4kd8) -> next suspect is memory consistency between the clusters.
 Pitfalls: never `peek` CPUCL2 SYSREG (0x1D100104) or PMU 0x15861200-0x1650 from Windows - both froze the SoC.
+- 03:35 phone back on boot-host-r2 (6 procs), BCD debug turned OFF again (verified: debug No).

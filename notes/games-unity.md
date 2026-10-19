@@ -240,3 +240,5 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   corruption, or a ctype call with an out-of-range char from our code?). It does NOT look like an effect of the forced
   kill. Unverified until the dump is read: which caller (stack), which process (WER report time 12:27:49 is 2.5 min
   after the game was gone at 12:25:09). Next session: fetch the WER report + dump from the phone.
+  None of our patches (tools/mesa-build/patches) add ctype calls, so the caller is upstream Mesa code (env/option
+  parsing, shader cache, etc.) or a corrupted return address - only the dump's stack can tell.

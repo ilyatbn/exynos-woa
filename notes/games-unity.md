@@ -274,4 +274,6 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   down; adb sees nothing (phone on a wall charger, not on the PC's USB), so TWRP is not confirmed from here.
 - Mesa 0171 (diagnosis): "pan:sub:textures" split into pan:sub:tex:update_view (panfrost_update_sampler_view) and
   pan:sub:tex:read_rsrc (panfrost_batch_read_rsrc: submits the batch still writing a sampled texture). Shows in the
-  120-present "app umd top" lines and in 0170's spike lines. EC build s10e-artifacts\mali-umd-0171-ec (in progress).
+  120-present "app umd top" lines and in 0170's spike lines. EC build s10e-artifacts\mali-umd-0171-ec e2eee16d (section string present in
+  the DLL); not deployed yet (phone in TWRP). Review of 72fd677: the patch adds the timers only in the PAN_ARCH >= 6
+  path (G76 = v7, so that is the one used); the later PAN_SEC macro block is #ifndef-guarded, no redefinition.

@@ -72,3 +72,14 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   3D view black while the UI overlay draws. FL 11_0 = the open D4 step of notes/gpu-umd-d3d11.md (SM5 shaders, UAVs at
   all stages, tessellation decision). Driver log during play: SetError 0x887b0001 (DXGI_DDI_ERR_WASSTILLDRAWING, a
   DO_NOT_WAIT map / query poll answer - normal) only.
+- 21:10 0162 validated (game relaunched by us through Steam; user: "it already looks faster", then "got ingame and it
+  actually got into the level"): submissions list 12-17 allocations, Render mean 103-179 us (was 2300-2500); app
+  pacing: present gaps <=50 ms 54, <=100 ms 55, <=250 ms 7 per 120 frames (~12 fps, was ~6); no thread pegged (two
+  at ~39 %), GPU engine 53 % (gpuengine.ps1 -Name DaveTheDiver), no appcrash, no TDR. Per 120 frames: ~25k
+  DrawIndexed (~210/frame), ~6k SetRenderTargets (~52/frame, URP 2D lights), ~6.9k get_batch_slow (new Panfrost
+  batches), ~48k ResourceMap (41k CB discards = renamed), ~2000 submissions/s; "idle 31-63 ms via event" full waits
+  in the log. Next for fps: what forces the full waits / per-RT batch reloads (CPU and GPU both half idle =
+  serialisation).
+- User: background missing at another place in-game = the FL 11_0 shaders (above).
+- OPEN: 0160-0162 are only in the EC UMD (x64 apps). Port to the ARM64 UMD (DWM, native apps) and x86 after the play
+  session - an ARM64 UMD swap needs a reboot (DWM holds it).

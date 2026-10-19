@@ -1,0 +1,86 @@
+diff --git a/src/gallium/frontends/d3d10umd/FrameCap.cpp b/src/gallium/frontends/d3d10umd/FrameCap.cpp
+index e13f2dd..8732e74 100644
+--- a/src/gallium/frontends/d3d10umd/FrameCap.cpp
++++ b/src/gallium/frontends/d3d10umd/FrameCap.cpp
+@@ -8,6 +8,9 @@
+  * as one line per render pass (render targets: format, size, resource; depth; clears with colour; draws; the pixel
+  * shaders used (pointer + TGSI hash) and the blend states; the PS textures sampled (resource, format, size)) plus one
+  * line per copy. Diagnosis only: costs nothing while not armed.
++ * 0164: at the end of each pass with draws or clears, three pixels of each colour target (1/4, 1/2, 3/4 of the
++ * diagonal) are read back in the view's format ("px" line) - the first pass whose output turns black / NaN is the
++ * bug. The capture frame stalls (each readback waits for the GPU); nothing else changes.
+  */
+ 
+ #include <windows.h>
+@@ -36,6 +39,8 @@ struct fc_pass {
+    unsigned blend_n;
+    struct pipe_resource *tex[FC_MAX_IDS];
+    unsigned tex_n;
++   struct pipe_resource *rt[2];          /* 0164: colour targets 0 and 1 with their view formats */
++   enum pipe_format rt_format[2];
+ };
+ 
+ static struct {
+@@ -45,8 +50,40 @@ static struct {
+    struct fc_pass pass;
+    void *cur_ps;
+    void *cur_blend;
++   Device *dev;
+ } fc;
+ 
++/* 0164: three pixels of a colour target, unpacked to float (or int) RGBA in the view's format */
++static void
++fc_readback(unsigned pass, unsigned i, struct pipe_resource *r, enum pipe_format fmt)
++{
++   Device *dev = fc.dev;
++   if (!dev || !r || r->target != PIPE_TEXTURE_2D || r->nr_samples > 1 || util_format_is_depth_or_stencil(fmt) ||
++       util_format_is_compressed(fmt))
++      return;
++   char line[400];
++   int o = snprintf(line, sizeof(line), "fc px %u rt%u %s:", pass, i, util_format_short_name(fmt));
++   for (unsigned k = 1; k <= 3; k++) {
++      unsigned x = r->width0 * k / 4, y = r->height0 * k / 4;
++      struct pipe_transfer *t = NULL;
++      const void *map = pipe_texture_map(dev->pipe, r, 0, 0, PIPE_MAP_READ, x, y, 1, 1, &t);
++      if (!map) {
++         o += snprintf(line + o, sizeof(line) - o, " (%u,%u) map failed", x, y);
++         continue;
++      }
++      union { float f[4]; int32_t i[4]; } v;
++      memset(&v, 0, sizeof(v));
++      util_format_unpack_rgba(fmt, &v, map, 1);
++      pipe_texture_unmap(dev->pipe, t);
++      if (util_format_is_pure_integer(fmt))
++         o += snprintf(line + o, sizeof(line) - o, " (%u,%u) %d %d %d %d", x, y, v.i[0], v.i[1], v.i[2], v.i[3]);
++      else
++         o += snprintf(line + o, sizeof(line) - o, " (%u,%u) %.3g %.3g %.3g %.3g", x, y, v.f[0], v.f[1], v.f[2],
++                       v.f[3]);
++   }
++   malikm_tlog("%s", line);
++}
++
+ static unsigned
+ fc_hash(const struct pipe_shader_state *state)
+ {
+@@ -96,6 +133,9 @@ fc_close_pass(void)
+    malikm_tlog("fc pass %u: %s; clears %u (last %.2f %.2f %.2f %.2f) draws %u (instanced %u) ps {%s} blend {%s} "
+                "tex {%s}", p->index, p->rts, p->clears, p->clear_color[0], p->clear_color[1], p->clear_color[2],
+                p->clear_color[3], p->draws, p->instanced, ps, bl, tex);
++   if (p->draws || p->clears)
++      for (unsigned i = 0; i < 2; i++)
++         fc_readback(p->index, i, p->rt[i], p->rt_format[i]);   /* 0164 */
+    p->open = false;
+ }
+ 
+@@ -106,6 +146,11 @@ fc_open_pass(Device *dev)
+    memset(p, 0, sizeof(*p));
+    p->open = true;
+    p->index = fc.passes++;
++   fc.dev = dev;
++   for (unsigned i = 0; i < 2 && i < dev->fb.nr_cbufs; i++) {   /* 0164 */
++      p->rt[i] = dev->fb.cbufs[i].texture;
++      p->rt_format[i] = dev->fb.cbufs[i].format;
++   }
+    int o = 0;
+    for (unsigned i = 0; i < dev->fb.nr_cbufs; i++) {
+       struct pipe_resource *r = dev->fb.cbufs[i].texture;

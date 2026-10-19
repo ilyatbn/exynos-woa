@@ -123,3 +123,11 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   Pass 6 builds the colour-grading LUT 343B9B600 1024x32 from four r16_float 128x1 textures (curves).
   HYPOTHESIS: the LUT comes out black (r16_float curve textures wrong) -> pass 38 grades the whole scene to black;
   the UI is drawn after -> visible. Next: a capture of a scene that renders (dive / restaurant) for comparison.
+- 22:05 capture boat-ok (after a dive, renders; traces/games/framecap-boat-ok.txt, 38 passes): SAME LUT pass 6 (same
+  resources 43B9B600 / r16_float curves) -> the LUT hypothesis is wrong. The difference: no depth-of-field
+  (black frame passes 17-21: CoC r16_unorm 1280x720 from r32_float depth, MRT r16_unorm + rgba16f 640x360, two
+  rgba16f blurs, composite into 64339A7D0) and no bloom (22-37); the uber pass reads the DoF output in the black frame,
+  the plain scene in the working one. User: the boat scene is black when reached directly (load / time skip), renders
+  after a dive -> the game enables DoF+bloom on the direct path.
+- Mesa 0164: capture reads back 3 pixels of rt0/rt1 after each pass with draws/clears ("fc px" lines). EC build
+  (s10e-artifacts\mali-umd-0164-ec) live; needs a game restart.

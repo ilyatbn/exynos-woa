@@ -1,0 +1,51 @@
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 666bdb0..349a710 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -3384,10 +3384,13 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+       struct wbo *bo = wddm_bo(a->handle);
+       if (!bo)
+          return -MK_ENOENT;
+-      if (bo->queued) {   /* G32 (0173): a queued batch names it - busy; a blocking wait sends the queue first */
++      if (bo->queued) {
++         /* G32 (0173b): a queued batch names it - send the queue, also for a poll: Dave the Diver polled a resource
++          * (Map DO_NOT_WAIT, WASSTILLDRAWING x14) whose batch stayed queued, then hung with the driver thread waiting
++          * > 2 s for the DDI thread to run its Render (bot4, notes/games-unity.md). A poll must make progress. */
++         wq_flush();
+          if (a->timeout_ns == 0)
+             return -MK_EBUSY;
+-         wq_flush();
+       }
+       return wddm_wait_seq(bo->use_seq, a->timeout_ns == 0);   /* exynos-woa G21: that BO's submission only */
+    }
+diff --git a/src/gallium/frontends/d3d10umd/Query.cpp b/src/gallium/frontends/d3d10umd/Query.cpp
+index 721256b..0c0ff53 100644
+--- a/src/gallium/frontends/d3d10umd/Query.cpp
++++ b/src/gallium/frontends/d3d10umd/Query.cpp
+@@ -32,6 +32,8 @@
+ 
+ 
+ #include "Query.h"
++
++extern "C" void malikm_submit_flush(void);   /* exynos-woa G32 (0173): include/win32-compat/malikm_drm.c */
+ #include "State.h"
+ 
+ #include "Debug.h"
+@@ -242,6 +244,7 @@ QueryGetData(D3D10DDI_HDEVICE hDevice,                      // IN
+        (pQuery->SeqNo - pDevice->LastFinishedQuerySeqNo) > 0 &&
+        (pQuery->GetDataCount++) == 0) {
+       SetError(hDevice, DXGI_DDI_ERR_WASSTILLDRAWING);
++      malikm_submit_flush();   /* exynos-woa G32 (0173b): "not ready" must mean the work is on its way */
+       return;
+    }
+ 
+@@ -261,6 +264,9 @@ QueryGetData(D3D10DDI_HDEVICE hDevice,                      // IN
+ 
+    if (!ret) {
+       SetError(hDevice, DXGI_DDI_ERR_WASSTILLDRAWING);
++      /* exynos-woa G32 (0173b): the shim may still hold the batches this query waits for in its submit queue; Dave
++       * the Diver (Unity) polls event queries and hung in bot4 (notes/games-unity.md) */
++      malikm_submit_flush();
+       return;
+    }
+ 

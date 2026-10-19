@@ -368,3 +368,11 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   that went through wddm_ioctl, which flushed the queue first, so a destroy always follows the Render that names the
   BO. Known semantic change: a Render failure of a queued chain is only logged ("submit queue: N chains failed"),
   Panfrost already saw success. wq_n read without the lock in malikm_submit_flush: same thread as the submits.
+- bot4 (EC 0173): HUNG after 21.6 s (566 frames, swim diffs 0, "stuck 7"). Before the hang the queue worked: tlog pid
+  5200 "submit queue ... 9.2 per Render on average", frames 36.7-41 ms with the UMD at 12.4-14 ms/frame (was 18-21).
+  Hang: 14x SetError 0x887b0001 (WASSTILLDRAWING - all from QueryGetData, the only source in the UMD: Unity polls
+  event queries) then "tc: driver thread waits > 2 s for the DDI thread to run callback op 4" (MK_RENDER). Bug: a
+  poll (WAIT_BO timeout 0) on a queued BO returned EBUSY without sending the queue, and a query "not ready" never
+  made the queued work go out -> the work the game waits for stays queued.
+- Mesa 0174: WAIT_BO on a queued BO flushes also when polling; QueryGetData's two WASSTILLDRAWING returns call
+  malikm_submit_flush. EC 38cde172.

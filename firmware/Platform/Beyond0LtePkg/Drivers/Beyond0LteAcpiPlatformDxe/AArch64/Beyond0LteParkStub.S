@@ -452,11 +452,15 @@ ASM_FUNC(Beyond0LteParkStub)
   ldr   w4, [x1, #0x520]
 24:
   tbz   w4, #0, 23f
-  mrs   x4, pmccntr_el0             // PMU option: the cycle counter stays in use
+  isb
+  mrs   x4, pmccntr_el0             // PMU option: core clock = d(PMCCNTR) / d(CNTVCT) x 26 MHz between two reads
   str   x4, [x1, #0x3F0]
+  mrs   x4, cntvct_el0
+  str   x4, [x1, #0x3F8]            // (setup stage word, no longer needed once running)
   add   x4, x1, #0x3C0
   dc    civac, x4
   dsb   sy
+  b     21b                         // no WFI with the PMU option: the cycle counter stops in WFI
 23:
   wfi                               // next timer IRQ (<= +0x518 ticks) or a peer SGI wakes it
   b     21b

@@ -195,3 +195,9 @@ DVM broadcasts, coherency, cross-cluster atomics incl. lost-update accounting. W
 8 cores (heap-corruption bugchecks), one M4, M4s in the A75 efficiency class, A55 + M4 without A75s. Open leads:
 M4 voltage/frequency state under Windows (above); what Windows does per secondary core (mongoose-research-guide.md,
 needs someone allowed to inspect Windows internals).
+- **m4clk1 33737904 (12:15; M4s not offered, flag 7 + PMU option, no WFI; stub stores PMCCNTR +0x3F0 / CNTVCT +0x3F8
+  every pass; tools/phone/m4clk.sh)**: under running Windows both M4s = 520 MHz (2.12 G cycles / 4.09 s), matching
+  TouchPower's FREQ_REQ idx 4 = 520000 kHz (reply 0007EF40) at ReadyToBoot. (Before that request, at CPU_ON, ~1.38 GHz.)
+  Frequency is what was requested; the voltage for that step is ACPM's choice (UNVERIFIED, not readable here). With
+  m4dvfs1 (8 cores at 520 MHz) also dead, the V/F lead is weak. Note: with the PMU option the "setup stage" word
+  +0x3F8 now holds CNTVCT once the core runs.

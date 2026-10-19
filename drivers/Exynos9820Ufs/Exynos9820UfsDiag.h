@@ -27,10 +27,22 @@
  * word [12] at 0x8FE0F000 ('DE' << 16 | n, cleared by a clean OS restart or a cold power-on).
  */
 #ifndef UFS_IO_MODE_DEFAULT
-#define UFS_IO_MODE_DEFAULT                        0x3UL
+#define UFS_IO_MODE_DEFAULT                        0x7UL
 #endif
 #define UFS_IO_FAST_ZERO                           0x1UL
 #define UFS_IO_FULL_DUPLEX                         0x2UL
+/*
+ * UFS_IO_COHERENT_BOUNCE (w40): used only when the firmware turned the 9820 UFS IO-coherency bits on
+ * (SYSREG_FSYS1 + 0x700 = EXYNOS_UFS_IOCOH_BASE 0x13C10700, VERIFIED in Exynos9820.h; bits 22|23 = the live DT
+ * ufs-io-coherency mask, Beyond0LteUfsHcDxe BEYOND0LTE_UFS_IOCOH_9820). Then ALL bounce data goes through the
+ * cacheable view: writes are staged there and reads copied back from it without per-line cache maintenance - never
+ * through the Device alias, so cached and uncached accesses to bounce data never mix (notes/ufs-async-plan.md:
+ * the 12:17-12:25 revert). With the bits off (today's daily firmware) the driver behaves exactly like w39.
+ * Firmware and driver ship as a pair: never run the iocoh firmware with a driver older than w40.
+ */
+#define UFS_IO_COHERENT_BOUNCE                     0x4UL
+#define UFS_IOCOH_PHYSICAL                         0x13C10700ULL   /* EXYNOS_UFS_IOCOH_BASE (Exynos9820.h, VERIFIED) */
+#define UFS_IOCOH_UFS_BITS                         0x00C00000UL    /* BIT22|BIT23, live DT ufs-io-coherency */
 #define UFS_FAST_ZERO_COMMAND_BYTES                64UL    /* command UPIU is 32 B */
 #define UFS_FAST_ZERO_RESPONSE_BYTES               128UL   /* response UPIU is 52 B */
 #define UFS_DEATH_COUNTER_WORD                     12UL

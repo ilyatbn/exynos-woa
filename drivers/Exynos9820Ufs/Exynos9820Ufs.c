@@ -5138,6 +5138,72 @@ UfsAllocateWorkspace(
         UfsEarlyMark("=CACHED BOUNCE line=", ((ULONGLONG)Adapter->DcacheLineSize << 32) |
                                              (Adapter->BounceCached != NULL ? 1ULL : 0ULL));
     }
+
+    //
+    // w40: coherent bounce only when the firmware enabled UFS DMA IO-coherency (see UFS_IO_COHERENT_BOUNCE).
+    //
+    Adapter->BounceCoherent = FALSE;
+    Adapter->IoCoherencyValue = 0xFFFFFFFFUL;
+    if (Adapter->BounceCached != NULL) {
+        PHYSICAL_ADDRESS IoCohPhysical;
+        volatile ULONG *IoCoh;
+
+        IoCohPhysical.QuadPart = (LONGLONG)(UFS_IOCOH_PHYSICAL & ~((ULONGLONG)PAGE_SIZE - 1));
+        IoCoh = (volatile ULONG *)MmMapIoSpaceEx(IoCohPhysical, PAGE_SIZE, PAGE_READWRITE | PAGE_NOCACHE);
+        if (IoCoh != NULL) {
+            Adapter->IoCoherencyValue = IoCoh[(UFS_IOCOH_PHYSICAL & (PAGE_SIZE - 1)) / sizeof(ULONG)];
+            MmUnmapIoSpace((PVOID)IoCoh, PAGE_SIZE);
+        }
+        Adapter->BounceCoherent = ((UfsIoMode & UFS_IO_COHERENT_BOUNCE) != 0) &&
+                                  ((Adapter->IoCoherencyValue & UFS_IOCOH_UFS_BITS) == UFS_IOCOH_UFS_BITS) &&
+                                  (Adapter->IoCoherencyValue != 0xFFFFFFFFUL);
+    }
+
+    //
+    // w41: the firmware-pool "cacheable" view measured at uncached speed (~110 MB/s copy-back with or without
+    // maintenance; Windows does not map that non-RAM range cacheable - inferred), so in coherent mode the bounce
+    // moves into ordinary cached Windows RAM (contiguous, < 4 GiB for the 32-bit PRDT, page aligned). Both views
+    // point at it: every bounce access is cacheable and the DMA is IO-coherent - no alias. UEFI already DMA'd
+    // outside the chosen window at full speed (notes/m15-ufs-throughput.md: 0x9FFF0000 and 0x97CAD2000).
+    // If IO coherency is on but this fails, drop the cacheable view entirely (all-uncached, never mixed).
+    //
+    if ((Adapter->IoCoherencyValue != 0xFFFFFFFFUL) &&
+        ((Adapter->IoCoherencyValue & UFS_IOCOH_UFS_BITS) != 0)) {
+        PVOID System = NULL;
+
+        if (Adapter->BounceCoherent) {
+            PHYSICAL_ADDRESS Low;
+            PHYSICAL_ADDRESS High;
+            PHYSICAL_ADDRESS Skip;
+
+            Low.QuadPart = 0;
+            High.QuadPart = 0xFFFFFFFFLL;
+            Skip.QuadPart = 0;
+            System = MmAllocateContiguousMemorySpecifyCache(UFS_BOUNCE_SIZE, Low, High, Skip, MmCached);
+            if (System != NULL) {
+                PHYSICAL_ADDRESS Pa = MmGetPhysicalAddress(System);
+
+                if ((Pa.HighPart != 0) || ((Pa.LowPart & (UFS_BOUNCE_ALIGNMENT - 1U)) != 0)) {
+                    MmFreeContiguousMemory(System);
+                    System = NULL;
+                } else {
+                    RtlZeroMemory(System, UFS_BOUNCE_SIZE);
+                    Adapter->Bounce = (PUCHAR)System;
+                    Adapter->BounceCached = (PUCHAR)System;
+                    Adapter->BouncePhysical.QuadPart = Pa.QuadPart;
+                    Adapter->Diagnostic.BounceVirtual = (ULONGLONG)(ULONG_PTR)System;
+                    Adapter->Diagnostic.BouncePhysical = (ULONGLONG)Pa.QuadPart;
+                }
+            }
+        }
+
+        if (System == NULL) {
+            Adapter->BounceCoherent = FALSE;
+            Adapter->BounceCached = NULL;   // iocoh on, no RAM bounce: uncached Device view only, never mixed
+        }
+        UfsEarlyMark("=SYSBOUNCE pa", (ULONGLONG)Adapter->BouncePhysical.QuadPart | (System != NULL ? 1ULL : 0ULL) << 63);
+    }
+    UfsEarlyMark("=IOCOH value/coherent", ((ULONGLONG)Adapter->IoCoherencyValue << 32) | Adapter->BounceCoherent);
 #endif
     return TRUE;
 }
@@ -6233,6 +6299,21 @@ UfsBuildCommand(
         if (Srb->DataBuffer == NULL) {
             return FALSE;
         }
+#if UFS_CACHED_BOUNCE_READ
+        if (Adapter->BounceCoherent) {
+            // w40: IO-coherent DMA snoops the CPU caches - stage through the cacheable view only, no maintenance.
+#if UFS_PERF_INSTRUMENTATION
+            ULONGLONG Start = UfsPerfTick();
+#endif
+            RtlCopyMemory(Adapter->BounceCached, Srb->DataBuffer, DataLength);
+            __dsb(_ARM64_BARRIER_SY);
+#if UFS_PERF_INSTRUMENTATION
+            Adapter->PerfBounceOutTicks += UfsPerfTick() - Start;
+            Adapter->PerfWriteBytes += DataLength;
+            Adapter->PerfWriteCount++;
+#endif
+        } else
+#endif
 #if UFS_PERF_INSTRUMENTATION
         {
             ULONGLONG Start = UfsPerfTick();
@@ -7205,10 +7286,12 @@ UfsFinishScsiCommand(
                 ULONG_PTR End = (ULONG_PTR)Adapter->BounceCached + ActualLength;
 
                 __dsb(_ARM64_BARRIER_SY);
-                for (; Line < End; Line += Adapter->DcacheLineSize) {
-                    __sys(UFS_SYSINSTR(3, 7, 14, 1), (__int64)Line);   // DC CIVAC (verified encoding)
+                if (!Adapter->BounceCoherent) {   // w40: coherent DMA already invalidated/updated the CPU copies
+                    for (; Line < End; Line += Adapter->DcacheLineSize) {
+                        __sys(UFS_SYSINSTR(3, 7, 14, 1), (__int64)Line);   // DC CIVAC (verified encoding)
+                    }
+                    __dsb(_ARM64_BARRIER_SY);
                 }
-                __dsb(_ARM64_BARRIER_SY);
                 RtlCopyMemory(Srb->DataBuffer, Adapter->BounceCached, ActualLength);
             } else
 #endif

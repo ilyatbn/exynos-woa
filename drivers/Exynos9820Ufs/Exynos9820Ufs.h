@@ -1638,6 +1638,8 @@ typedef struct _UFS_ADAPTER_EXTENSION {
     STOR_PHYSICAL_ADDRESS BouncePhysical;
     PUCHAR BounceCached;      /* m15 w34: cacheable view of the bounce pages, READ copy-back only (or NULL) */
     ULONG DcacheLineSize;     /* from CTR_EL0.DminLine */
+    BOOLEAN BounceCoherent;   /* w40: UFS DMA IO-coherent + UFS_IO_COHERENT_BOUNCE -> bounce data via BounceCached only */
+    ULONG IoCoherencyValue;   /* w40: SYSREG_FSYS1+0x700 as read at FindAdapter (diagnostics) */
     ULONG Capabilities;
     ULONG InitialHostStatus;
     ULONG InitialInterruptStatus;

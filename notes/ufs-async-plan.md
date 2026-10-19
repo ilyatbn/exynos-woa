@@ -115,3 +115,17 @@ before stage 4. Interrupt completion frees the CPU but does not lower QD1 latenc
   RULE for the coherent mode (stage "C"): enable the 9820 iocoh bits ONLY together with a driver that never touches
   bounce data through the Device alias (stage writes AND read copy-back through the cached view, no per-line CIVAC),
   and verify writes (pattern file write/flush/reboot/hash) before daily use. Firmware and driver ship as a pair.
+- w40 18037e9a (UFS_IO_COHERENT_BOUNCE: when SYSREG_FSYS1+0x700 bits 22|23 are on, writes staged and reads copied
+  through the cacheable view only, no per-line CIVAC; otherwise = w39). On daily firmware (bits off): hashcheck =
+  w38, pattern files (tools/phone/perf/writetest.ps1, written under w39) verify. With boot-iocoh1-wdt (0x00C00311):
+  hashcheck = w38, old patterns verify, new patterns written+verified (wt2). But copy-back unchanged (~137 us for
+  ~15 KB = ~110 MB/s) -> the firmware-pool "cacheable" view behaves uncached (inferred: Windows maps that non-RAM
+  range uncached whatever is asked); per-line maintenance was not the cost.
+- **w41 3f4b4da4**: coherent mode moves the bounce into cached Windows RAM (MmAllocateContiguousMemorySpecifyCache,
+  < 4 GiB, page aligned; both views point at it -> no alias); iocoh on but no RAM bounce -> cacheable view dropped
+  (all-uncached). On boot-iocoh1-wdt: BOUNCE_PA 0xFD8D0000 (RAM), hashcheck = w38, wt + wt2 verify, wt3 written +
+  verified. UfsDiag: BOUNCE_IN 0.08 s per 26 k reads (~3-4 us per read, was 137-221 us).
+  diskbench x3: 4 KiB 144 / 174 / 146 us; rand 4 KiB 6374 / 4436 / 5163 IOPS; 64 KiB 224 / 260 / 248 us
+  (279 / 241 / 252 MiB/s, was 50-113); 1 MiB 3.2 / 5.5 / 3.4 ms (310 / 181 / 298 MiB/s, was 50-138).
+  PAIRING RULE: the iocoh firmware (BEYOND0LTE_UFS_IOCOH_9820 1) requires driver >= w40 (w41 recommended); rolling
+  the driver back below w40 requires the non-iocoh firmware first.

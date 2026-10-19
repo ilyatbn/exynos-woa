@@ -405,3 +405,18 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   Panfrost panfrost_invalidate_resource (Windows) also zeroes the valid bits (not for AFBC) -> no preload next time.
   LOG_ENTRYPOINT, so "Discard" shows in the call counts (does Unity call it at all?). EC 01a005f7 live; d3dmrt64x 7/7,
   d3dbc64x lossy 0/126 PASS.
+- bot8 (EC 0176): hung in the save load again; 0175's snapshot caught it (tlog pid 4456): "driver thread waits > 2 s
+  ... op 4 (DDI thread last seen 2500 ms ago, submit queue 0)"; DDI thread stack (scan, symbolized with the 0176 PDB):
+  ResourceMap (Map:vb:discard) -> tc_buffer_map -> tc_improve_map_buffer_flags -> tc_invalidate_buffer ->
+  panfrost_resource_create_with_modifier -> panfrost_bo_create -> simple_mtx_lock -> futex_wait (KERNELBASE wait).
+  => deadlock: the DDI thread waits for a Panfrost BO lock (cache) that the driver thread holds while the shim makes
+  it send a Render that only the DDI thread can run. With 0173 any non-whitelisted shim entry flushed: Panfrost's
+  cache put -> stale eviction -> GEM_CLOSE under the cache lock -> flush -> Render. ("queue 0": wq_flush zeroes wq_n
+  before submitting.) 0174's flush on a WAIT_BO poll had the same hazard (cache fetch polls cached BOs, which may still
+  be queued, under the cache lock). bot4/bot5 were most likely this too, not the polls.
+- Mesa 0177: GEM_CLOSE + the no-op syncobj calls (CREATE/DESTROY/RESET/SIGNAL/IMPORT_SEQ) never flush; GEM_CLOSE of a
+  queued BO is deferred and done in wq_flush after the submit; WAIT_BO poll on a queued BO -> EBUSY without flushing
+  (blocking waits still flush); QueryGetData's flush (0174, DDI thread) stays. Flush points now: queue full,
+  blocking WAIT_BO, SYNCOBJ_WAIT, EXPORT_SEQ, panfrost_flush end, query not ready, other entries (present etc.).
+  EC 54b378d8 live; d3dmrt64x 7/7, d3dbc64x lossy 0/126 PASS. Also found: C:\S10eTmp\dumps has the LocalDumps of the
+  12:08 / 12:23 / 12:28 crashes (exit aborts) - to read later.

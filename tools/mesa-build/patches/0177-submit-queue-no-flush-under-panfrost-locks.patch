@@ -1,0 +1,82 @@
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 524c8de..40df86a 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -3237,6 +3237,12 @@ static struct {
+ } wq[WQ_MAX];
+ static int wq_bind = -1;
+ static uint32_t wq_bos;   /* BO handles in the queue (an upper bound of its allocation list) */
++/* G32 (0177): GEM_CLOSE of a queued BO - done after the queue went out (wq_flush). A close must not flush: Panfrost
++ * closes BOs while holding its BO-cache lock (cache put -> stale eviction), the flush needs the DDI thread for the
++ * Render, and the DDI thread was waiting for that lock in panfrost_bo_create (bot8 hang, notes/games-unity.md). */
++static uint32_t *wq_close;
++static unsigned wq_close_n, wq_close_cap;
++static int wddm_drm(uint32_t nr, uint8_t *b, uint32_t size);
+ static unsigned wq_flushes, wq_chains;
+ 
+ static int
+@@ -3276,6 +3282,12 @@ wq_flush(void)
+       free(wq[k].bos);
+       wq[k].bos = NULL;
+    }
++   /* 0177: the closes that waited for this submission (their BOs are no longer queued) */
++   for (unsigned k = 0; k < wq_close_n; k++) {
++      struct drm_gem_close c = { .handle = wq_close[k] };
++      wddm_drm(MALIKM_NR_GEM_CLOSE, (uint8_t *)&c, sizeof(c));
++   }
++   wq_close_n = 0;
+    wq_flushes++;
+    wq_chains += n;
+    if (r < 0)
+@@ -3429,12 +3441,13 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+       if (!bo)
+          return -MK_ENOENT;
+       if (bo->queued) {
+-         /* G32 (0173b): a queued batch names it - send the queue, also for a poll: Dave the Diver polled a resource
+-          * (Map DO_NOT_WAIT, WASSTILLDRAWING x14) whose batch stayed queued, then hung with the driver thread waiting
+-          * > 2 s for the DDI thread to run its Render (bot4, notes/games-unity.md). A poll must make progress. */
+-         wq_flush();
++         /* G32 (0173, 0177): a queued batch names it. A poll answers busy WITHOUT sending the queue: Panfrost polls
++          * cached BOs under its BO-cache lock (cache fetch), and a flush there deadlocks against a DDI thread waiting
++          * for that lock (bot8). Progress for polling applications comes from QueryGetData's flush (DDI thread, no
++          * Panfrost lock held). A blocking wait sends the queue first. */
+          if (a->timeout_ns == 0)
+             return -MK_EBUSY;
++         wq_flush();
+       }
+       return wddm_wait_seq(bo->use_seq, a->timeout_ns == 0);   /* exynos-woa G21: that BO's submission only */
+    }
+@@ -3448,6 +3461,21 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+       struct wbo *bo = wddm_bo(((struct drm_gem_close *)b)->handle);
+       if (!bo)
+          return -MK_EINVAL;
++      if (bo->queued && cur_bind == wq_bind) {   /* G32 (0177): after the queue went out (wq_flush) */
++         if (wq_close_n == wq_close_cap) {
++            unsigned cap = wq_close_cap ? wq_close_cap * 2 : 64;
++            uint32_t *nc = realloc(wq_close, cap * sizeof(*nc));
++            if (!nc) {
++               wq_flush();   /* out of memory: the old way */
++               goto close_now;
++            }
++            wq_close = nc;
++            wq_close_cap = cap;
++         }
++         wq_close[wq_close_n++] = ((struct drm_gem_close *)b)->handle;
++         return 0;
++      }
++   close_now:
+       if (bo->fixed) {
+          /* exynos-woa H4b: the scan-out framebuffer - the KMD keeps it mapped */
+          memset(bo, 0, sizeof(*bo));
+@@ -3539,7 +3567,10 @@ wddm_ioctl(int fd, DWORD code, void *buf, DWORD len)
+       wq_skip = h->Nr == MALIKM_NR_PANFROST_SUBMIT || h->Nr == MALIKM_NR_PANFROST_MADVISE ||
+                 h->Nr == MALIKM_NR_PANFROST_GET_PARAM || h->Nr == MALIKM_NR_PANFROST_CREATE_BO ||
+                 h->Nr == MALIKM_NR_PANFROST_MMAP_BO || h->Nr == MALIKM_NR_PANFROST_GET_BO_OFFSET ||
+-                h->Nr == MALIKM_NR_PANFROST_WAIT_BO;
++                h->Nr == MALIKM_NR_PANFROST_WAIT_BO || h->Nr == MALIKM_NR_GEM_CLOSE ||   /* 0177 */
++                h->Nr == MALIKM_NR_SYNCOBJ_CREATE || h->Nr == MALIKM_NR_SYNCOBJ_DESTROY ||
++                h->Nr == MALIKM_NR_SYNCOBJ_RESET || h->Nr == MALIKM_NR_SYNCOBJ_SIGNAL ||
++                h->Nr == MALIKM_NR_SYNCOBJ_IMPORT_SEQ;
+    wddm_lock_acquire();
+    wq_skip = 0;
+    bind_switch(bind_for_fd(fd));   /* exynos-woa H5 (0060): this screen's runtime device */

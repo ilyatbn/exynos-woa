@@ -354,3 +354,12 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   (SUBMIT, MADVISE, GET_PARAM, CREATE_BO, MMAP_BO, GET_BO_OFFSET, MAP; WAIT_BO only when its BO is not queued); queue
   cap; Panfrost's panfrost_flush drains it at its end. One Render per flush instead of per batch. Estimate from the
   0167 numbers (a merged chain saves ~2/3 of a Render): ~3-4 ms/frame of the app thread.
+- Mesa 0173 (shim submit queue, as planned above): malikm_drm.c wq_* - wq_submit validates (jc, BO handles) and queues
+  copies; wq_flush = one wddm_submit_jobs for all queued chains (clears the BOs' queued marks); wddm_lock_acquire =
+  raw acquire + flush unless the thread set wq_skip (wddm_ioctl: MAP/UNMAP, SUBMIT, MADVISE, GET_PARAM, CREATE_BO,
+  MMAP_BO, GET_BO_OFFSET, WAIT_BO; malikm_submit_pair); WAIT_BO on a queued BO: poll -> EBUSY, blocking -> flush then
+  wait; caps WQ_MAX 16 chains, wcmd_size, and the queued BO-handle total <= walloc_size (a merged list over the
+  allocation list would fail E2BIG and lose the work); queue tied to its binding (flush on a binding change);
+  pan_context.c panfrost_flush calls malikm_submit_flush at its end. MALIKM_SUBMIT_QUEUE=0 = old behaviour
+  (diagnosis only). tlog "submit queue: flush N, M chains (X per Render)". EC 503c9931 live (prev 071cf1e3 =
+  .pre-0173-0); d3dmrt64x 7/7, d3dbc64x lossy 0/126 PASS. bot4 started.

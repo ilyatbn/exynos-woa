@@ -1,0 +1,40 @@
+diff --git a/src/gallium/drivers/panfrost/pan_cmdstream.c b/src/gallium/drivers/panfrost/pan_cmdstream.c
+index d6a8e84..a78fcfe 100644
+--- a/src/gallium/drivers/panfrost/pan_cmdstream.c
++++ b/src/gallium/drivers/panfrost/pan_cmdstream.c
+@@ -1938,6 +1938,15 @@ panfrost_emit_null_texture(struct mali_texture_packed *out)
+ }
+ #endif
+ 
++/* exynos-woa G32 (0171, notes/games-unity.md): the split of "pan:sub:textures" (30 us per call in the Dave dive) into
++ * the sampler-view refresh and the read tracking, which submits the batch still writing a sampled texture. */
++#ifndef PAN_SEC_BEGIN
++#include "util/os_time.h"
++void umd_section_ns(const char *name, long long ns);
++#define PAN_SEC_BEGIN(v) int64_t v = os_time_get_nano()
++#define PAN_SEC_END(v, name) umd_section_ns(name, os_time_get_nano() - (v))
++#endif
++
+ static uint64_t
+ panfrost_emit_texture_descriptors(struct panfrost_batch *batch,
+                                   mesa_shader_stage stage)
+@@ -1971,7 +1980,9 @@ panfrost_emit_texture_descriptors(struct panfrost_batch *batch,
+       struct pipe_sampler_view *pview = &view->base;
+       struct panfrost_resource *rsrc = pan_resource(pview->texture);
+ 
++      PAN_SEC_BEGIN(t_upd);
+       panfrost_update_sampler_view(view, &ctx->base);
++      PAN_SEC_END(t_upd, "pan:sub:tex:update_view");
+ 
+ #if PAN_ARCH < 9
+       if (pview->target == PIPE_BUFFER)
+@@ -1983,7 +1994,9 @@ panfrost_emit_texture_descriptors(struct panfrost_batch *batch,
+       out[i] = view->bifrost_tex_descriptor;
+ #endif
+ 
++      PAN_SEC_BEGIN(t_rd);
+       panfrost_batch_read_rsrc(batch, rsrc, stage);
++      PAN_SEC_END(t_rd, "pan:sub:tex:read_rsrc");
+       panfrost_batch_add_bo(batch, view->state.bo, stage);
+    }
+ 

@@ -1,0 +1,158 @@
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index a03ef4f..914a6fe 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -852,7 +852,8 @@ typedef NTSTATUS (APIENTRY *KMT_FN)(void *);
+ static struct {
+    KMT_FN CreateDevice, DestroyDevice, CreateContext, CreateAllocation, DestroyAllocation,
+           Lock, Unlock, Render, Escape, EnumAdapters2, WaitForIdle,
+-          MakeResident, CreatePagingQueue;
++          MakeResident, CreatePagingQueue,
++          QueryResourceInfo, OpenResource;   /* exynos-woa GL7a: shared resources on the D3DKMT path */
+ } kmt;
+ 
+ struct wbo {
+@@ -1033,6 +1034,17 @@ wddm_on(void)
+ /* exynos-woa 0082c: why the WDDM probe failed, kept for d3d10umd's softpipe fallback message (the first probe
+  * runs in OpenAdapter, before malikm_diag_init gives a console-less process a stderr). */
+ char malikm_init_reason[160];
++/* exynos-woa GL7b (notes/gl-icd.md): the LUID of the adapter wddm_init chose, for the ICD's DXGI presenter. */
++static LUID wluid;
++
++int
++malikm_adapter_luid(LUID *luid)
++{
++   if (wddm != 1)
++      return -1;
++   *luid = wluid;
++   return 0;
++}
+ 
+ static int
+ wddm_init(void)
+@@ -1048,6 +1060,7 @@ wddm_init(void)
+    R(CreateDevice); R(DestroyDevice); R(CreateContext); R(CreateAllocation); R(DestroyAllocation);
+    R(Lock); R(Unlock); R(Render); R(Escape); R(EnumAdapters2); R(WaitForIdle);
+    R(MakeResident); R(CreatePagingQueue);
++   R(QueryResourceInfo); R(OpenResource);
+ #undef R
+    if (!kmt.CreateDevice || !kmt.CreateContext || !kmt.CreateAllocation || !kmt.DestroyAllocation ||
+        !kmt.Lock || !kmt.Unlock || !kmt.Render || !kmt.Escape || !kmt.EnumAdapters2 || !kmt.WaitForIdle) {
+@@ -1069,8 +1082,10 @@ wddm_init(void)
+       g.Code = MW_ESCAPE_GPU_INFO;
+       wadapter = info[i].hAdapter;
+       NTSTATUS xs = kmt_escape(0, &g, sizeof(g));
+-      if (xs >= 0 && g.Count != 0 && g.Valid != 0)
++      if (xs >= 0 && g.Count != 0 && g.Valid != 0) {
+          wgpu = g;
++         wluid = info[i].AdapterLuid;   /* exynos-woa GL7b */
++      }
+       else
+          wadapter = 0;
+       snprintf(malikm_init_reason, sizeof(malikm_init_reason), "adapter %lu escape GPU_INFO 0x%08lx count %u valid %u", (unsigned long)i,
+@@ -2742,6 +2757,105 @@ malikm_bo_from_allocation(unsigned hAlloc, int *prime_fd)
+    return ret;
+ }
+ 
++/* exynos-woa GL7a (notes/gl-icd.md): a D3D shared resource - the legacy global handle IDXGIResource::GetSharedHandle
++ * returns - opened on this process's own D3DKMT device (the OpenGL ICD has no runtime device). d3dkmthk.h:
++ * D3DKMTQueryResourceInfo returns the buffer sizes, D3DKMTOpenResource the allocation handles with the private driver
++ * data each allocation was created with (the KMD's MW_ALLOCATION_INFO, as for the runtime's OpenResource, 0034).
++ * The first allocation becomes a Panfrost BO at the GPU address the KMD gave it (*prime_fd), as
++ * malikm_bo_from_allocation does on the runtime path. *hResource / *hAlloc for malikm_kmt_close_shared. 0 on success. */
++int
++malikm_kmt_open_shared(unsigned hGlobalShare, unsigned *w, unsigned *h, unsigned *pitch, unsigned *d3dfmt,
++                       int *prime_fd, unsigned *hResource, unsigned *hAlloc)
++{
++   int ret = -1;
++   void *rt = NULL, *total = NULL, *res = NULL;
++   D3DDDI_OPENALLOCATIONINFO *oai = NULL;
++   NTSTATUS st = 0;
++
++   wddm_lock_acquire();
++   if (ddi.on || wddm != 1 || !kmt.QueryResourceInfo || !kmt.OpenResource)
++      goto out;
++   D3DKMT_QUERYRESOURCEINFO q = {0};
++   q.hDevice = wdevice;
++   q.hGlobalShare = hGlobalShare;
++   st = kmt.QueryResourceInfo(&q);
++   if (st < 0 || q.NumAllocations < 1)
++      goto out;
++   rt = calloc(1, q.PrivateRuntimeDataSize ? q.PrivateRuntimeDataSize : 1);
++   total = calloc(1, q.TotalPrivateDriverDataSize ? q.TotalPrivateDriverDataSize : 1);
++   res = calloc(1, q.ResourcePrivateDriverDataSize ? q.ResourcePrivateDriverDataSize : 1);
++   oai = calloc(q.NumAllocations, sizeof(*oai));
++   if (!rt || !total || !res || !oai)
++      goto out;
++   D3DKMT_OPENRESOURCE o = {0};
++   o.hDevice = wdevice;
++   o.hGlobalShare = hGlobalShare;
++   o.NumAllocations = q.NumAllocations;
++   o.pOpenAllocationInfo = oai;
++   o.pPrivateRuntimeData = rt;
++   o.PrivateRuntimeDataSize = q.PrivateRuntimeDataSize;
++   o.pResourcePrivateDriverData = res;
++   o.ResourcePrivateDriverDataSize = q.ResourcePrivateDriverDataSize;
++   o.pTotalPrivateDriverDataBuffer = total;
++   o.TotalPrivateDriverDataBufferSize = q.TotalPrivateDriverDataSize;
++   st = kmt.OpenResource(&o);
++   if (st < 0)
++      goto out;
++   const MW_ALLOCATION_INFO *pi = (const MW_ALLOCATION_INFO *)oai[0].pPrivateDriverData;
++   if (pi == NULL || oai[0].PrivateDriverDataSize < sizeof(*pi) || pi->Version != MW_ABI_VERSION || pi->Width == 0 ||
++       pi->Height == 0) {
++      D3DKMT_DESTROYALLOCATION d = {0};
++      d.hDevice = wdevice;
++      d.hResource = o.hResource;
++      kmt.DestroyAllocation(&d);
++      st = 0x7fffffff;   /* "not ours", for the log */
++      goto out;
++   }
++   *w = pi->Width;
++   *h = pi->Height;
++   *pitch = pi->Pitch ? pi->Pitch : pi->Width * 4;
++   *d3dfmt = pi->Format;
++   w_resident(oai[0].hAllocation);
++   if (wbo_from_allocation_locked(oai[0].hAllocation, prime_fd, WBO_OPENED) == 0) {
++      *hResource = o.hResource;
++      *hAlloc = oai[0].hAllocation;
++      ret = 0;
++   } else {
++      D3DKMT_DESTROYALLOCATION d = {0};
++      d.hDevice = wdevice;
++      d.hResource = o.hResource;
++      kmt.DestroyAllocation(&d);
++   }
++out:
++   ReleaseSRWLockExclusive(&wddm_lock);
++   malikm_tlog("kmt open shared 0x%x: status 0x%08lx, %ux%u pitch %u fmt %u -> %s", hGlobalShare, (unsigned long)st,
++               ret == 0 ? *w : 0, ret == 0 ? *h : 0, ret == 0 ? *pitch : 0, ret == 0 ? *d3dfmt : 0,
++               ret == 0 ? "BO" : "FAILED");
++   free(rt);
++   free(total);
++   free(res);
++   free(oai);
++   return ret;
++}
++
++/* exynos-woa GL7a: undo malikm_kmt_open_shared once the GPU is done with the BO (the caller waits): the BO is no
++ * longer listed, then the opened resource is closed (D3DKMTDestroyAllocation with hResource). */
++void
++malikm_kmt_close_shared(unsigned hResource, unsigned hAlloc)
++{
++   wddm_lock_acquire();
++   for (uint32_t i = 0; i < wbo_cap; i++)
++      if (wbo[i].h == hAlloc && wbo[i].runtime_owned == WBO_OPENED && !wbo[i].gone)
++         wbo[i].gone = 1;
++   if (!ddi.on && wddm == 1 && hResource) {
++      D3DKMT_DESTROYALLOCATION d = {0};
++      d.hDevice = wdevice;
++      d.hResource = hResource;
++      kmt.DestroyAllocation(&d);
++   }
++   ReleaseSRWLockExclusive(&wddm_lock);
++}
++
+ /* exynos-woa H3: a MISC_SHARED texture's allocation, created with the runtime resource handle (as 0037's
+  * malikm_shared_create, not locked), as a Panfrost BO. 0 on success. */
+ int

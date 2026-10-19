@@ -1,0 +1,457 @@
+diff --git a/src/gallium/targets/wgl/meson.build b/src/gallium/targets/wgl/meson.build
+index 4821053..97488be 100644
+--- a/src/gallium/targets/wgl/meson.build
++++ b/src/gallium/targets/wgl/meson.build
+@@ -6,9 +6,13 @@ gallium_wgl_link_args = []
+ # exynos-woa GL1 (notes/gl-icd.md): Panfrost as the Mali OpenGL ICD, through the malikm shim's D3DKMT path.
+ wgl_panfrost_args = []
+ wgl_panfrost_deps = []
++wgl_panfrost_files = []
+ if with_gallium_panfrost
+   wgl_panfrost_args = ['-DGALLIUM_PANFROST']
+-  wgl_panfrost_deps = [driver_panfrost, idep_xmlconfig]
++  wgl_panfrost_deps = [driver_panfrost, idep_xmlconfig, cc.find_library('d3d11'), cc.find_library('dxgi'),
++                       cc.find_library('dxguid')]
++  # GL7b: GPU-only present through a DXGI swap chain
++  wgl_panfrost_files = files('wgl_panfrost_fb.c')
+ endif
+ 
+ wgl_def = custom_target(
+@@ -21,7 +25,7 @@ wgl_def = custom_target(
+ gallium_wgl_name = get_option('gallium-wgl-dll-name')
+ libgallium_wgl = shared_library(
+   gallium_wgl_name,
+-  ['wgl.c'],
++  ['wgl.c', wgl_panfrost_files],
+   c_args : wgl_panfrost_args,
+   vs_module_defs : wgl_def,
+   include_directories : [
+diff --git a/src/gallium/targets/wgl/wgl.c b/src/gallium/targets/wgl/wgl.c
+index 2b6df44..c281614 100644
+--- a/src/gallium/targets/wgl/wgl.c
++++ b/src/gallium/targets/wgl/wgl.c
+@@ -85,6 +85,7 @@ static driOptionCache wgl_pan_info, wgl_pan_cache;
+ static bool use_panfrost = false;
+ 
+ void glsl_type_singleton_init_or_ref(void);
++#include "wgl_panfrost_fb.h"
+ int malikm_open(void);
+ extern char malikm_init_reason[];
+ 
+@@ -462,6 +463,10 @@ wgl_create_framebuffer(struct pipe_screen *screen,
+ #ifdef GALLIUM_D3D12
+    if (use_d3d12)
+       return d3d12_wgl_create_framebuffer(screen, hWnd, iPixelFormat);
++#endif
++#ifdef GALLIUM_PANFROST
++   if (use_panfrost)
++      return wgl_panfrost_create_framebuffer(screen, hWnd, iPixelFormat);   /* exynos-woa GL7b */
+ #endif
+    return NULL;
+ }
+diff --git a/src/gallium/targets/wgl/wgl_panfrost_fb.c b/src/gallium/targets/wgl/wgl_panfrost_fb.c
+new file mode 100644
+index 0000000..eee79d8
+--- /dev/null
++++ b/src/gallium/targets/wgl/wgl_panfrost_fb.c
+@@ -0,0 +1,367 @@
++/*
++ * Copyright © 2026 exynos-woa
++ * SPDX-License-Identifier: MIT
++ *
++ * exynos-woa GL7b (notes/gl-icd.md): a GPU-only present for the Panfrost OpenGL ICD.
++ *
++ * The Mali is not IO-coherent, so the CPU view of a GPU allocation is write-combined and reading a frame back costs
++ * ~19 ms at 1520x720 even on four threads. The D3D path presents on the GPU, so the ICD presents through it: a D3D11
++ * device on the same adapter (the Mesa D3D10 UMD, maliumd.dll) with a flip-model DXGI swap chain for the window. GL
++ * renders into two D3D11 MISC_SHARED textures, opened on the GL screen's own D3DKMT device (malikm_kmt_open_shared);
++ * a present waits for the GL frame, copies its texture into the swap chain's back buffer with D3D11 (GPU) and
++ * presents. Patterned on Mesa's d3d12_wgl_framebuffer.cpp (the same stw_winsys_framebuffer interface).
++ *
++ * Any failure returns NULL / false and the ICD keeps its CPU-copy present (wgl.c wgl_panfrost_present).
++ */
++
++#define COBJMACROS
++#define CINTERFACE
++#include <windows.h>
++#include <d3d11.h>
++#include <dxgi1_2.h>
++
++#include "pipe/p_context.h"
++#include "pipe/p_screen.h"
++#include "util/u_inlines.h"
++#include "util/u_memory.h"
++#include "util/os_time.h"
++#include "frontend/api.h"
++#include "frontend/winsys_handle.h"
++#include "drm-uapi/drm_fourcc.h"
++#include "stw_winsys.h"
++#include "stw_context.h"
++#include "stw_pixelformat.h"
++
++#include "wgl_panfrost_fb.h"
++
++int malikm_adapter_luid(LUID *luid);
++int malikm_kmt_open_shared(unsigned hGlobalShare, unsigned *w, unsigned *h, unsigned *pitch, unsigned *d3dfmt,
++                           int *prime_fd, unsigned *hResource, unsigned *hAlloc);
++void malikm_kmt_close_shared(unsigned hResource, unsigned hAlloc);
++void malikm_tlog(const char *fmt, ...);
++/* state_tracker/st_context.h, declared here: that header pulls in Mesa core headers that refuse <windows.h> */
++struct st_context;
++void st_context_flush(struct st_context *st, unsigned flags, struct pipe_fence_handle **fence,
++                      void (*before_flush_cb)(void *), void *args);
++
++#define PAN_FB_BUFFERS 2
++
++struct pan_fb_buffer {
++   ID3D11Texture2D *d3d;            /* the D3D11 MISC_SHARED texture (owner) */
++   struct pipe_resource *gl;        /* the same allocation as a Panfrost resource on the GL screen */
++   unsigned hResource, hAlloc;      /* the opened resource on the GL screen's D3DKMT device */
++   ID3D11Query *copied;             /* D3D11 event: the copy out of this texture is done */
++   bool copy_pending;
++};
++
++struct pan_fb {
++   struct stw_winsys_framebuffer base;
++   struct pipe_screen *screen;
++   HWND window;
++   enum pipe_format format;
++   ID3D11Device *dev;
++   ID3D11DeviceContext *ctx;
++   IDXGIFactory2 *factory;
++   IDXGISwapChain1 *swapchain;
++   struct pan_fb_buffer buf[PAN_FB_BUFFERS];
++   unsigned cur;                    /* the buffer GL renders into now (stw's BACK_LEFT) */
++   unsigned width, height;
++   /* timing, as wgl.c's CPU path (malikm tlog, per 120 presents) */
++   unsigned frames;
++   int64_t t_start, wait_ns, copy_ns;
++};
++
++static struct pan_fb *
++pan_fb(struct stw_winsys_framebuffer *fb)
++{
++   return (struct pan_fb *)fb;
++}
++
++/* Wait for everything the current GL context has queued (the frame in the shared texture). */
++static void
++pan_fb_gl_finish(struct pipe_context *pipe)
++{
++   struct pipe_fence_handle *fence = NULL;
++   if (!pipe)
++      return;
++   pipe->flush(pipe, &fence, 0);
++   if (fence) {
++      pipe->screen->fence_finish(pipe->screen, pipe, fence, OS_TIMEOUT_INFINITE);
++      pipe->screen->fence_reference(pipe->screen, &fence, NULL);
++   }
++}
++
++/* Flush the current GL context (the frame rendered into the shared texture) and wait for it. */
++static void
++pan_fb_finish_current(struct pan_fb *fb)
++{
++   struct stw_context *c = stw_current_context();
++   struct pipe_fence_handle *fence = NULL;
++   if (!c || !c->st)
++      return;
++   st_context_flush(c->st, 0, &fence, NULL, NULL);
++   if (fence) {
++      fb->screen->fence_finish(fb->screen, NULL, fence, OS_TIMEOUT_INFINITE);
++      fb->screen->fence_reference(fb->screen, &fence, NULL);
++   }
++}
++
++static void
++pan_fb_wait_copy(struct pan_fb *fb, struct pan_fb_buffer *b)
++{
++   if (!b->copy_pending || !b->copied)
++      return;
++   BOOL done = FALSE;
++   while (ID3D11DeviceContext_GetData(fb->ctx, (ID3D11Asynchronous *)b->copied, &done, sizeof(done), 0) == S_FALSE)
++      SwitchToThread();
++   b->copy_pending = false;
++}
++
++static void
++pan_fb_release_buffers(struct pan_fb *fb)
++{
++   for (unsigned i = 0; i < PAN_FB_BUFFERS; i++) {
++      struct pan_fb_buffer *b = &fb->buf[i];
++      pan_fb_wait_copy(fb, b);
++      pipe_resource_reference(&b->gl, NULL);
++      if (b->hResource)
++         malikm_kmt_close_shared(b->hResource, b->hAlloc);
++      if (b->d3d)
++         ID3D11Texture2D_Release(b->d3d);
++      if (b->copied)
++         ID3D11Query_Release(b->copied);
++      memset(b, 0, sizeof(*b));
++   }
++}
++
++static bool
++pan_fb_create_buffer(struct pan_fb *fb, struct pan_fb_buffer *b, unsigned w, unsigned h)
++{
++   D3D11_TEXTURE2D_DESC td = {0};
++   td.Width = w;
++   td.Height = h;
++   td.MipLevels = 1;
++   td.ArraySize = 1;
++   td.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
++   td.SampleDesc.Count = 1;
++   td.Usage = D3D11_USAGE_DEFAULT;
++   td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
++   td.MiscFlags = D3D11_RESOURCE_MISC_SHARED;   /* legacy shared handle: IDXGIResource::GetSharedHandle */
++   HRESULT hr = ID3D11Device_CreateTexture2D(fb->dev, &td, NULL, &b->d3d);
++   if (FAILED(hr))
++      return false;
++
++   IDXGIResource *dr = NULL;
++   HANDLE share = NULL;
++   if (SUCCEEDED(ID3D11Texture2D_QueryInterface(b->d3d, &IID_IDXGIResource, (void **)&dr))) {
++      IDXGIResource_GetSharedHandle(dr, &share);
++      IDXGIResource_Release(dr);
++   }
++   /* the D3D side must have created the allocation before the GL screen opens it */
++   ID3D11DeviceContext_Flush(fb->ctx);
++   unsigned sw = 0, sh = 0, pitch = 0, fmt = 0;
++   int prime_fd = -1;
++   if (!share || malikm_kmt_open_shared((unsigned)(uintptr_t)share, &sw, &sh, &pitch, &fmt, &prime_fd, &b->hResource,
++                                        &b->hAlloc) != 0)
++      return false;
++
++   struct pipe_resource templ;
++   memset(&templ, 0, sizeof(templ));
++   templ.target = PIPE_TEXTURE_2D;
++   templ.format = fb->format;
++   templ.width0 = w;
++   templ.height0 = h;
++   templ.depth0 = 1;
++   templ.array_size = 1;
++   templ.nr_samples = templ.nr_storage_samples = 1;
++   templ.bind = PIPE_BIND_RENDER_TARGET | PIPE_BIND_SAMPLER_VIEW | PIPE_BIND_DISPLAY_TARGET;
++   templ.usage = PIPE_USAGE_DEFAULT;
++   struct winsys_handle wh;
++   memset(&wh, 0, sizeof(wh));
++   wh.type = WINSYS_HANDLE_TYPE_FD;
++   wh.handle = (HANDLE)(intptr_t)prime_fd;
++   wh.stride = pitch;
++   wh.modifier = DRM_FORMAT_MOD_LINEAR;
++   b->gl = fb->screen->resource_from_handle(fb->screen, &templ, &wh, PIPE_HANDLE_USAGE_FRAMEBUFFER_WRITE);
++   if (!b->gl)
++      return false;
++
++   D3D11_QUERY_DESC qd = {D3D11_QUERY_EVENT, 0};
++   if (FAILED(ID3D11Device_CreateQuery(fb->dev, &qd, &b->copied)))
++      return false;
++   return true;
++}
++
++static void
++pan_fb_resize(struct stw_winsys_framebuffer *pfb, struct pipe_context *ctx, struct pipe_resource *templ)
++{
++   struct pan_fb *fb = pan_fb(pfb);
++
++   pan_fb_gl_finish(ctx);
++   pan_fb_release_buffers(fb);
++   fb->format = templ->format;
++   fb->width = templ->width0;
++   fb->height = templ->height0;
++
++   HRESULT hr;
++   if (!fb->swapchain) {
++      DXGI_SWAP_CHAIN_DESC1 sd = {0};
++      sd.Width = fb->width;
++      sd.Height = fb->height;
++      sd.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
++      sd.SampleDesc.Count = 1;
++      sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
++      sd.BufferCount = 2;
++      sd.Scaling = DXGI_SCALING_STRETCH;
++      sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
++      sd.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
++      hr = IDXGIFactory2_CreateSwapChainForHwnd(fb->factory, (IUnknown *)fb->dev, fb->window, &sd, NULL, NULL,
++                                                &fb->swapchain);
++   } else {
++      ID3D11DeviceContext_ClearState(fb->ctx);
++      ID3D11DeviceContext_Flush(fb->ctx);
++      hr = IDXGISwapChain1_ResizeBuffers(fb->swapchain, 2, fb->width, fb->height, DXGI_FORMAT_B8G8R8A8_UNORM, 0);
++   }
++   bool ok = SUCCEEDED(hr);
++   for (unsigned i = 0; ok && i < PAN_FB_BUFFERS; i++)
++      ok = pan_fb_create_buffer(fb, &fb->buf[i], fb->width, fb->height);
++   fb->cur = 0;
++   malikm_tlog("gl dxgi present: resize %ux%u %s: swap chain 0x%08lx, buffers %s", fb->width, fb->height,
++               util_format_short_name(fb->format), (unsigned long)hr, ok ? "ok" : "FAILED");
++   if (!ok)
++      pan_fb_release_buffers(fb);
++}
++
++static struct pipe_resource *
++pan_fb_get_resource(struct stw_winsys_framebuffer *pfb, enum st_attachment_type statt)
++{
++   struct pan_fb *fb = pan_fb(pfb);
++   unsigned i = statt == ST_ATTACHMENT_FRONT_LEFT ? !fb->cur : fb->cur;
++   struct pipe_resource *r = fb->buf[i].gl;
++   if (r)
++      pipe_reference(NULL, &r->reference);
++   return r;
++}
++
++static bool
++pan_fb_present(struct stw_winsys_framebuffer *pfb, int interval)
++{
++   struct pan_fb *fb = pan_fb(pfb);
++   struct pan_fb_buffer *b = &fb->buf[fb->cur];
++   if (!fb->swapchain || !b->gl || !b->d3d)
++      return false;
++
++   int64_t t0 = os_time_get_nano();
++   if (!fb->frames)
++      fb->t_start = t0;
++   pan_fb_finish_current(fb);   /* the GL frame is in b */
++   int64_t t1 = os_time_get_nano();
++
++   ID3D11Texture2D *back = NULL;
++   HRESULT hr = IDXGISwapChain1_GetBuffer(fb->swapchain, 0, &IID_ID3D11Texture2D, (void **)&back);
++   if (SUCCEEDED(hr)) {
++      ID3D11DeviceContext_CopyResource(fb->ctx, (ID3D11Resource *)back, (ID3D11Resource *)b->d3d);
++      ID3D11Texture2D_Release(back);
++      ID3D11DeviceContext_End(fb->ctx, (ID3D11Asynchronous *)b->copied);
++      b->copy_pending = true;
++      hr = IDXGISwapChain1_Present(fb->swapchain, interval > 0 ? (UINT)interval : 0, 0);
++   }
++   int64_t t2 = os_time_get_nano();
++
++   /* stw swaps its front / back textures after a present: GL renders the next frame into the other buffer, whose
++    * copy (two presents ago) must be done first. */
++   fb->cur = !fb->cur;
++   pan_fb_wait_copy(fb, &fb->buf[fb->cur]);
++
++   fb->wait_ns += t1 - t0;
++   fb->copy_ns += t2 - t1;
++   if (++fb->frames == 120) {
++      double el = (os_time_get_nano() - fb->t_start) / 1e6;
++      malikm_tlog("gl dxgi present %ux%u: %.1f fps, gl wait mean %.2f ms, copy+present mean %.2f ms, hr 0x%08lx",
++                  fb->width, fb->height, el > 0 ? fb->frames * 1000.0 / el : 0.0, fb->wait_ns / 1e6 / fb->frames,
++                  fb->copy_ns / 1e6 / fb->frames, (unsigned long)hr);
++      fb->frames = 0;
++      fb->wait_ns = fb->copy_ns = 0;
++   }
++   return SUCCEEDED(hr);
++}
++
++static void
++pan_fb_destroy(struct stw_winsys_framebuffer *pfb, struct pipe_context *ctx)
++{
++   struct pan_fb *fb = pan_fb(pfb);
++   pan_fb_gl_finish(ctx);
++   pan_fb_release_buffers(fb);
++   if (fb->swapchain)
++      IDXGISwapChain1_Release(fb->swapchain);
++   if (fb->factory)
++      IDXGIFactory2_Release(fb->factory);
++   if (fb->ctx)
++      ID3D11DeviceContext_Release(fb->ctx);
++   if (fb->dev)
++      ID3D11Device_Release(fb->dev);
++   FREE(fb);
++}
++
++/* The DXGI adapter with the GL screen's LUID, or NULL. */
++static IDXGIAdapter1 *
++pan_fb_adapter(IDXGIFactory2 *factory)
++{
++   LUID luid;
++   if (malikm_adapter_luid(&luid) != 0)
++      return NULL;
++   IDXGIAdapter1 *a = NULL;
++   for (UINT i = 0; IDXGIFactory2_EnumAdapters1(factory, i, &a) != DXGI_ERROR_NOT_FOUND; i++) {
++      DXGI_ADAPTER_DESC1 d;
++      if (SUCCEEDED(IDXGIAdapter1_GetDesc1(a, &d)) && d.AdapterLuid.LowPart == luid.LowPart &&
++          d.AdapterLuid.HighPart == luid.HighPart)
++         return a;
++      IDXGIAdapter1_Release(a);
++      a = NULL;
++   }
++   return NULL;
++}
++
++struct stw_winsys_framebuffer *
++wgl_panfrost_create_framebuffer(struct pipe_screen *screen, HWND hWnd, int iPixelFormat)
++{
++   const struct stw_pixelformat_info *pfi = stw_pixelformat_get_info(iPixelFormat);
++   const char *off = getenv("MALIGL_GDI_PRESENT");   /* diagnosis: force the CPU-copy present */
++
++   if ((off && *off == '1') || !pfi || (pfi->pfd.dwFlags & PFD_SUPPORT_GDI) || !(pfi->pfd.dwFlags & PFD_DOUBLEBUFFER))
++      return NULL;
++   if (pfi->stvis.color_format != PIPE_FORMAT_B8G8R8A8_UNORM && pfi->stvis.color_format != PIPE_FORMAT_B8G8R8X8_UNORM)
++      return NULL;
++
++   struct pan_fb *fb = CALLOC_STRUCT(pan_fb);
++   if (!fb)
++      return NULL;
++   fb->screen = screen;
++   fb->window = hWnd;
++
++   IDXGIFactory2 *factory = NULL;
++   IDXGIAdapter1 *adapter = NULL;
++   HRESULT hr = CreateDXGIFactory1(&IID_IDXGIFactory2, (void **)&factory);
++   if (SUCCEEDED(hr))
++      adapter = pan_fb_adapter(factory);
++   if (adapter) {
++      static const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_10_1, D3D_FEATURE_LEVEL_10_0};
++      hr = D3D11CreateDevice((IDXGIAdapter *)adapter, D3D_DRIVER_TYPE_UNKNOWN, NULL, 0, levels, 2, D3D11_SDK_VERSION,
++                             &fb->dev, NULL, &fb->ctx);
++      IDXGIAdapter1_Release(adapter);
++   }
++   malikm_tlog("gl dxgi present: window %p factory %s adapter %s device 0x%08lx", (void *)hWnd, factory ? "ok" : "none",
++               adapter ? "Mali" : "not found", (unsigned long)hr);
++   if (!fb->dev) {
++      if (factory)
++         IDXGIFactory2_Release(factory);
++      FREE(fb);
++      return NULL;
++   }
++   fb->factory = factory;
++   fb->base.destroy = pan_fb_destroy;
++   fb->base.resize = pan_fb_resize;
++   fb->base.present = pan_fb_present;
++   fb->base.get_resource = pan_fb_get_resource;
++   return &fb->base;
++}
+diff --git a/src/gallium/targets/wgl/wgl_panfrost_fb.h b/src/gallium/targets/wgl/wgl_panfrost_fb.h
+new file mode 100644
+index 0000000..0e26cbf
+--- /dev/null
++++ b/src/gallium/targets/wgl/wgl_panfrost_fb.h
+@@ -0,0 +1,27 @@
++/*
++ * Copyright © 2026 exynos-woa
++ * SPDX-License-Identifier: MIT
++ *
++ * exynos-woa GL7b (notes/gl-icd.md): GPU-only present for the Panfrost OpenGL ICD through a DXGI swap chain.
++ */
++#ifndef WGL_PANFROST_FB_H
++#define WGL_PANFROST_FB_H
++
++#include <windows.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++struct pipe_screen;
++struct stw_winsys_framebuffer;
++
++/* NULL when the window's pixel format or the D3D11 side does not allow it - the caller keeps its CPU present. */
++struct stw_winsys_framebuffer *
++wgl_panfrost_create_framebuffer(struct pipe_screen *screen, HWND hWnd, int iPixelFormat);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif

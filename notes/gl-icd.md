@@ -125,3 +125,38 @@ there is no D3D12 GPU here -> WARP (CPU).
   s10e-artifacts\mwddm-1.0.72.1 (Umd mali-umd-0148-x = the live UMD, Umd32 mali-g12-x86 = the live x86 UMD, Gl
   mali-gl-x 0156): Inf2Cat OK, InfVerif /v /u "INF is VALID" rc 0. NOT installed (display driver reinstall waits for an
   attended session, as 1.0.71.1); the live system has the same DLLs (unsigned) + the same values set by glicd.ps1.
+
+## GL7 plan: GPU-only present through DXGI (2026-10-19 21:35)
+Why: the GPU is not IO-coherent (COHERENCY_FEATURES 0 on the device, notes/gpu-m16-g9b.md:205; the vendor DT has no
+system-coherency, notes/gpu-odin-rom.md:168) -> CPU views stay write-combined; any present that reads the frame with
+the CPU costs ~19 ms at 1520x720 even on 4 threads. The D3D path already composes on the GPU (DXGI swap chains ->
+DWM), so the ICD presents through one:
+- GL7a shim: import a D3D shared resource on the D3DKMT (non-runtime) path - D3DKMTQueryResourceInfo +
+  D3DKMTOpenResource (documented in d3dkmthk.h) give the allocation handle + our private data; then the existing
+  allocation -> BO import (malikm_bo_from_allocation, today only with a bound runtime device).
+- GL7b wgl.c: per window a presenter - D3D11CreateDevice on the Mali adapter (LUID from the GL screen), a flip-model
+  swap chain for the HWND (CreateSwapChainForHwnd), one D3D11 texture with MISC_SHARED (legacy KMT handle,
+  IDXGIResource::GetSharedHandle) imported by the GL screen; SwapBuffers = GPU blit back buffer -> shared texture,
+  GL fence wait, D3D11 CopyResource -> swap chain buffer, Present. Before the next GL blit: D3D11 event query done.
+  Fallback to the CPU-copy present whenever any step fails.
+- 22:20 GL7 built and validated.
+  - Mesa 0157 (shim): malikm_kmt_open_shared (D3DKMTQueryResourceInfo + D3DKMTOpenResource on the process's own D3DKMT
+    device, MW_ALLOCATION_INFO from the first allocation's private data, w_resident, the existing
+    wbo_from_allocation_locked -> BO), malikm_kmt_close_shared, malikm_adapter_luid (LUID saved in wddm_init).
+  - Mesa 0158 (wgl): targets/wgl/wgl_panfrost_fb.c = stw_winsys_framebuffer (as Mesa's d3d12_wgl_framebuffer):
+    D3D11 device on the DXGI adapter with the GL screen's LUID (FL 10_1/10_0 = maliumd in-process), flip-discard
+    swap chain for the HWND (2 buffers, BGRA), two D3D11 MISC_SHARED textures opened on the GL screen; stw renders into
+    them (get_resource BACK = cur, FRONT = other); present = st_context_flush + fence wait, CopyResource -> swap chain
+    buffer, Present(interval), then wait the D3D11 event query of the buffer GL renders into next. Pixel formats with
+    PFD_SUPPORT_GDI / single-buffered / non-BGRA keep the CPU present; MALIGL_GDI_PRESENT=1 forces it (diagnosis only).
+    st_context.h cannot be included next to <windows.h> (mesa/main/dd.h #error) -> st_context_flush declared locally.
+  - gltest (ARM64): tlog "gl dxgi present: ... adapter Mali device 0x0", 2x "kmt open shared ... -> BO", "resize
+    256x256 ... swap chain 0x0, buffers ok"; GLTEST 5/5 PASS (glReadPixels from the shared textures); 25 s loop 58.5
+    fps, gl wait 0.2-0.3 ms, copy+present 15-16 ms (= vsync wait). Screenshot traces/gl/gltest-dxgi.png: the gltest
+    window composed by DWM (blue clear + triangle).
+  - **Stardew 1520x720 (ARM64EC through the forwarder): 54.9-59.1 fps (vsync), gl wait 0.12-0.22 ms, copy+present
+    8.5-11.3 ms, hr 0** - from 23 fps (CPU copy) and 41 fps (4-thread copy). Screenshot traces/gl/stardew-dxgi.png.
+    Build: maligl d37142ac / maligl_arm64 b4941b8d / maligl_ec 570ecc3b.
+  - tools: gltlog.ps1 -Exited / -Pattern; glshot.sh (kills scrnsave.scr right before the GDI shot). runuser2.ps1 uses
+    one task name - two userrun calls at once collide (the shot came back blank): start the test detached
+    (gamelaunch.ps1 with a .cmd wrapper) and shoot while it runs.

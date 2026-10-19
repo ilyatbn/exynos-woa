@@ -176,3 +176,13 @@ before stage 4. Interrupt completion frees the CPU but does not lower QD1 latenc
   recursive spin-lock acquire ~2 ms into the first async command.
 - **w44b 3b62a710**: the timer callback only queues the completion DPC (SystemArgument1 = 1 marks a timer reap);
   the DPC (documented: no StorPort lock held) is the only place that takes the StartIo lock.
+- **w44b on boot-irq1-wdt**: boot 66 s, death counter 0, CALLBACKS 46245 / UTRCS 46243 for ~46 k commands, poll
+  iterations 34 (the 16 proving commands) -> async completion live. hashcheck = w38, wt5 verifies, wt6 written +
+  verified. BUT QD1 latency worse: 4 KiB p50 ~230 us (w42b 155), 64 KiB aligned 233-270 us (197), 1 MiB 350-380
+  MiB/s (430): interrupt + DPC dispatch ~70 us per command. Steam warm idle 47.8 s (polled ~31 s).
+- **w45 78b526d2** (hybrid, UFS_ASYNC_MIN_BYTES 64 KiB): commands <= 64 KiB polled without TRD IOC (no interrupt),
+  larger ones async; all request IOC until 16 completions proved the line. hashcheck = w38, wt6 verifies, wt7 written +
+  verified. 4 KiB p50 155-159 us, 64 KiB aligned 186-193 us, 256 KiB 652-798 us, 1 MiB 385-391 MiB/s (async costs
+  ~10 % at QD1 for big commands, frees the CPU). Steam warm 34.0 s (139 k reads) / 15.7 s (45 k reads - Steam did
+  less work) ~= polled. Best configuration so far.
+- Daily firmware boot-host-r4.img = host + IOCOH (default) + BEYOND0LTE_UFS_GSIV 281 (now the source default).

@@ -51,7 +51,7 @@
 **/
 
 #ifndef BEYOND0LTE_UFS_GSIV
-#define BEYOND0LTE_UFS_GSIV  259   // parked line (default); 281 = the real UFS line, needs driver >= w43
+#define BEYOND0LTE_UFS_GSIV  281   // real UFS line (VERIFIED, default since 2026-10-19 with driver w45); 259 = the old parked line. PAIRING RULE: 281 needs Exynos9820Ufs.sys >= w43
 #endif
 
 DefinitionBlock ("Dsdt.aml", "DSDT", 2, "EXYNOS", "BEYOND0L", 0x00000002)

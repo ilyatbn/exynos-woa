@@ -71,6 +71,14 @@
 #define UFS_IO_ASYNC                               0x20UL
 #define UFS_ASYNC_PROVE_IRQS                       16L
 #define UFS_ASYNC_TIMER_US                         2000UL
+/*
+ * w45 hybrid: interrupt + DPC dispatch measured ~70 us per command on this SoC (w44b: 4 KiB p50 155 -> 230 us, Steam
+ * warm start 31 -> 48 s, its reads are strictly serial 4 KiB). Commands up to UFS_ASYNC_MIN_BYTES are polled
+ * synchronously WITHOUT the TRD interrupt bit (no interrupt, no added latency); only larger ones (the 128-256 KiB
+ * commands of w42) go async, where the CPU is freed for 0.3-0.6 ms of device time. All commands request the
+ * interrupt until UFS_ASYNC_PROVE_IRQS completions proved the line.
+ */
+#define UFS_ASYNC_MIN_BYTES                        (64UL * 1024UL)
 #define UFS_IRQ_ARMED_ENABLE                       (UFS_INTERRUPT_TRANSFER_COMPLETION | UFS_INTERRUPT_STATUS_FATAL_MASK)
 #define UFS_LARGE_TRANSFER_LENGTH                  (256UL * 1024UL)
 #define UFS_LARGE_PRDT_ENTRIES                     (UFS_LARGE_TRANSFER_LENGTH / 4096UL)

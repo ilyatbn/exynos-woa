@@ -6406,7 +6406,7 @@ UfsBuildCommand(
 
     *(volatile ULONG *)((PUCHAR)Trd + 0) =
         UFS_TRD_COMMAND_TYPE_STORAGE |
-        ((Adapter->ArmedInterruptEnable != 0) ? UFS_TRD_INTERRUPT : 0) |   // w43: interrupt on completion when armed
+        (Adapter->CommandIoc ? UFS_TRD_INTERRUPT : 0) |   // w43/w45: interrupt on completion (proving phase / async)
         ((Direction == UfsCommandDataOut) ? UFS_TRD_DATA_OUT :
          ((Direction == UfsCommandDataIn) ? UFS_TRD_DATA_IN : 0));
     *(volatile ULONG *)((PUCHAR)Trd + 8) = UFS_TRD_OCS_INITIAL;
@@ -8305,6 +8305,16 @@ UfsExecuteScsi(
     if (Direction == UfsCommandDataOut) {
         UfsPramSetPhase(Adapter, UFS_PHASE_LIVE_PRECHECK);
     }
+    //
+    // w45: hybrid policy (UFS_ASYNC_MIN_BYTES). Decided before the descriptor is built: it sets the TRD IOC bit.
+    //
+    {
+        BOOLEAN Proven = (Adapter->IsrTransferCompletions >= UFS_ASYNC_PROVE_IRQS);
+
+        Adapter->CommandAsync = ((UfsIoMode & UFS_IO_ASYNC) != 0) && Adapter->AsyncReady && !Adapter->AsyncDisabled &&
+                                (Adapter->ArmedInterruptEnable != 0) && Proven && (DataLength > UFS_ASYNC_MIN_BYTES);
+        Adapter->CommandIoc = (Adapter->ArmedInterruptEnable != 0) && (!Proven || Adapter->CommandAsync);
+    }
     if (!UfsBuildCommand(Adapter, Srb, Direction)) {
         Adapter->RejectedCommands++;
         UfsSetDiagnosticFailure(
@@ -8356,8 +8366,7 @@ UfsExecuteScsi(
     //
     // w44: async only once the interrupt is proven for this boot (UFS_ASYNC_PROVE_IRQS completions seen by the ISR).
     //
-    if (((UfsIoMode & UFS_IO_ASYNC) != 0) && Adapter->AsyncReady && !Adapter->AsyncDisabled &&
-        (Adapter->ArmedInterruptEnable != 0) && (Adapter->IsrTransferCompletions >= UFS_ASYNC_PROVE_IRQS)) {
+    if (Adapter->CommandAsync) {   // w45: decided before UfsBuildCommand (UFS_ASYNC_MIN_BYTES)
         Adapter->PendingSrb = Srb;
     }
 

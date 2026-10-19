@@ -1802,6 +1802,8 @@ typedef struct _UFS_ADAPTER_EXTENSION {
     ULONGLONG PendingStart100ns;
     ULONG AsyncIssued;
     ULONG AsyncTimerCompletions;
+    BOOLEAN CommandAsync;             /* w45: the command being built goes async */
+    BOOLEAN CommandIoc;               /* w45: the command being built requests the completion interrupt */
     UFS_DIAGNOSTIC_DATA Diagnostic;
 
     /*

@@ -1,0 +1,93 @@
+diff --git a/src/gallium/targets/wgl/wgl.c b/src/gallium/targets/wgl/wgl.c
+index 47c82f6..2b6df44 100644
+--- a/src/gallium/targets/wgl/wgl.c
++++ b/src/gallium/targets/wgl/wgl.c
+@@ -137,6 +137,44 @@ static uint32_t *wgl_pan_bits;
+ static size_t wgl_pan_bits_size;
+ static SRWLOCK wgl_pan_bits_lock = SRWLOCK_INIT;   /* windows of other threads present concurrently */
+ 
++/* GL5 run 2: memcpy alone read the map at ~121 MB/s (36 ms per 1520x720 frame) - uncached reads are latency-bound
++ * per core, not width-bound. The rows are split over WGL_PAN_COPY_PARTS parts: this thread copies the first, thread
++ * pool callbacks the others. */
++#define WGL_PAN_COPY_PARTS 4
++struct wgl_pan_copy_part {
++   const uint8_t *src;
++   uint32_t *dst;
++   unsigned y0, y1, w, stride;
++   bool swizzle;
++};
++static struct wgl_pan_copy_part wgl_pan_parts[WGL_PAN_COPY_PARTS];
++static volatile LONG wgl_pan_parts_left;
++static HANDLE wgl_pan_parts_done;
++
++static void
++wgl_pan_copy_rows(const struct wgl_pan_copy_part *c)
++{
++   for (unsigned y = c->y0; y < c->y1; y++) {
++      uint32_t *dst = c->dst + (size_t)y * c->w;
++      memcpy(dst, c->src + (size_t)y * c->stride, (size_t)c->w * 4);
++      if (c->swizzle) {
++         for (unsigned x = 0; x < c->w; x++) {
++            uint32_t p = dst[x];
++            dst[x] = (p & 0xff00ff00u) | ((p & 0xffu) << 16) | ((p >> 16) & 0xffu);
++         }
++      }
++   }
++}
++
++static void CALLBACK
++wgl_pan_copy_cb(PTP_CALLBACK_INSTANCE inst, void *ctx)
++{
++   (void)inst;
++   wgl_pan_copy_rows((const struct wgl_pan_copy_part *)ctx);
++   if (InterlockedDecrement(&wgl_pan_parts_left) == 0)
++      SetEvent(wgl_pan_parts_done);
++}
++
+ static void
+ wgl_panfrost_present_copy(struct pipe_context *ctx, struct pipe_resource *res, HDC hDC)
+ {
+@@ -178,19 +216,33 @@ wgl_panfrost_present_copy(struct pipe_context *ctx, struct pipe_resource *res, H
+       return;
+    }
+    QueryPerformanceCounter(&m0);
+-   if (xfer->stride == w * 4) {
+-      memcpy(wgl_pan_bits, map, need);
+-   } else {
+-      for (unsigned y = 0; y < h; y++)
+-         memcpy(wgl_pan_bits + (size_t)y * w, map + (size_t)y * xfer->stride, (size_t)w * 4);
++   if (!wgl_pan_parts_done)
++      wgl_pan_parts_done = CreateEventW(NULL, FALSE, FALSE, NULL);
++   unsigned parts = wgl_pan_parts_done && h >= 64 ? WGL_PAN_COPY_PARTS : 1;
++   for (unsigned i = 0; i < parts; i++) {
++      struct wgl_pan_copy_part *c = &wgl_pan_parts[i];
++      c->src = map;
++      c->dst = wgl_pan_bits;
++      c->y0 = h * i / parts;
++      c->y1 = h * (i + 1) / parts;
++      c->w = w;
++      c->stride = xfer->stride;
++      c->swizzle = !bgra;
+    }
+-   pipe_texture_unmap(ctx, xfer);
+-   if (!bgra) {
+-      for (size_t i = 0; i < (size_t)w * h; i++) {
+-         uint32_t p = wgl_pan_bits[i];
+-         wgl_pan_bits[i] = (p & 0xff00ff00u) | ((p & 0xffu) << 16) | ((p >> 16) & 0xffu);
++   wgl_pan_parts_left = (LONG)parts - 1;
++   /* Whichever part brings wgl_pan_parts_left to 0 signals the (auto-reset) event exactly once, and with more than
++    * one part this thread always waits for it once - so no signal is left over for the next frame. */
++   for (unsigned i = 1; i < parts; i++) {
++      if (!TrySubmitThreadpoolCallback(wgl_pan_copy_cb, &wgl_pan_parts[i], NULL)) {
++         wgl_pan_copy_rows(&wgl_pan_parts[i]);   /* no pool thread: copy it here */
++         if (InterlockedDecrement(&wgl_pan_parts_left) == 0)
++            SetEvent(wgl_pan_parts_done);
+       }
+    }
++   wgl_pan_copy_rows(&wgl_pan_parts[0]);
++   if (parts > 1)
++      WaitForSingleObject(wgl_pan_parts_done, INFINITE);
++   pipe_texture_unmap(ctx, xfer);
+    QueryPerformanceCounter(&m1);
+    wgl_pan_copy_ticks += m1.QuadPart - m0.QuadPart;
+    StretchDIBits(hDC, 0, 0, (int)w, (int)h, 0, 0, (int)w, (int)h, wgl_pan_bits, &bmi, DIB_RGB_COLORS, SRCCOPY);

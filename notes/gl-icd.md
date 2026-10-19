@@ -111,3 +111,11 @@ there is no D3D12 GPU here -> WARP (CPU).
   memcpy reads the map at ~121 MB/s too. StretchDIBits itself from cached memory = ~0.7 ms. => the uncached read is
   latency-bound per core. Kept (0156 builds on the cached buffer). Next: 0156 = the copy split over 4 parts (thread
   pool), to test memory-level parallelism; the real fix is a present that never reads the frame with the CPU.
+- 21:10 Mesa 0156 (copy in 4 parts: this thread + 3 thread-pool callbacks; auto-reset event signalled exactly once by
+  whichever part reaches 0, the presenter always waits once when parts > 1). gltest 5/5 PASS. **Stardew 1520x720:
+  38.8-42.5 fps (was 23), copy mean 18.4-20.4 ms (was 36), present 19-21 ms**. 4 parts give ~2x, not 4x: the read
+  is bounded by the shared fabric/DRAM path for uncached traffic too. Build: maligl 59686a98 / maligl_arm64
+  1c041b24 / maligl_ec 20a0c523. tools/phone/gl/gltlog.ps1 reads the timing lines of the RUNNING process only
+  (polling the newest tlog file picked an older run's file).
+  Remaining cost: ~19 ms CPU per 1520x720 frame. Next step that removes it: a GPU-only present (the GL frame never
+  read by the CPU) - DXGI swap chain path or KMD present from a cached view; design pending.

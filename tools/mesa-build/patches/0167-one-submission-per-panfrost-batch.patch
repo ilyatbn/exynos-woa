@@ -1,0 +1,419 @@
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 629c2ae..2b416a0 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -2992,6 +2992,152 @@ malikm_prime_fd_size(int prime_fd)
+    return size;
+ }
+ 
++/* exynos-woa G32 (0167, notes/games-unity.md): one Render for nsub Panfrost job chains (a batch's vertex/tiler and
++ * fragment chains: malikm_submit_pair), the KMD runs them in order (command.c Kick). The SUBMIT ioctl is nsub 1.
++ * Dave the Diver: 98 submissions/frame at ~105 us each (Render + the CPU-event signal). wddm_lock held. */
++static int
++wddm_submit_jobs(const struct drm_panfrost_submit *const *subs, const uint32_t *const *bolists, unsigned nsub)
++{
++   uint32_t batch_bos = 0;
++   for (unsigned k = 0; k < nsub; k++) {
++      if (!subs[k]->jc)
++         return -MK_EINVAL;
++      batch_bos += subs[k]->bo_handle_count;
++   }
++   if (nsub * sizeof(MW_COMMAND) > wcmd_size)
++      return -MK_E2BIG;
++   /* exynos-woa H2 (notes/gpu-hw-path.md): WDDM 1.x VidMm maps an allocation into the GPU's aperture only
++    * while a submission lists it, and an unlisted one may be unmapped (its pages can move). Panfrost assumes
++    * the Linux model - every BO stays mapped - and lists only the batch's own BOs, so a BO it reaches some
++    * other way (run h2a: an EXECUTE translation fault, fault status 0x240001c3) was never mapped. List the
++    * batch's BOs first (written), then every other live BO (read), each once. */
++   uint32_t gen = ++wsubmit_gen;
++   if (gen == 0)
++      gen = ++wsubmit_gen;
++   UINT n = 0;
++   for (unsigned k = 0; k < nsub; k++) {
++   const struct drm_panfrost_submit *a = subs[k];
++   const uint32_t *bos = bolists[k];
++   for (uint32_t i = 0; i < a->bo_handle_count; i++) {
++      struct wbo *bo = wddm_bo(bos[i]);
++      if (!bo)
++         return -MK_ENOENT;
++      /* exynos-woa G-game (0102): a sub-allocated BO is listed as its slab's allocation, once per submission */
++      uint32_t *mk = bo->sub ? &wslab[bo->sub - 1].mark : &bo->mark;
++      bo->idle = 0;   /* a batch that uses it is the authority (Panfrost sends WILLNEED first anyway) */
++      if (*mk == gen || bo->fixed || bo->gone)
++         continue;
++      if (n == walloc_size)
++         return -MK_E2BIG;
++      *mk = gen;
++      memset(&walloc[n], 0, sizeof(walloc[n]));
++      walloc[n].hAllocation = bo->h;
++      /* Panfrost does not say which BOs a batch writes. An opened buffer (another process's - a redirected
++       * swap chain buffer in DWM) is listed as read: the consumer only samples it (0075 test: listed as a write,
++       * DWM still lost each new device right after opening the app's buffers). */
++      walloc[n].WriteOperation = bo->runtime_owned != WBO_OPENED;
++      n++;
++   }
++   }
++   uint32_t skipped = 0;
++   /* exynos-woa G32 (0162, notes/games-unity.md): with WDDM 2.0 residency (0069: every BO MakeResident at creation)
++    * the other live BOs are not listed. MS Learn "Residency overview": "residency is moved to an explicit list on
++    * the device instead of the per-command buffer list. VidMm ensures that all allocations on a particular device
++    * residency requirement list are resident before any contexts belonging to that device are scheduled". Dave the
++    * Diver: ~1860 BOs listed in each of ~390 submissions/s, the runtime's Render 2.3 ms each = one core and ~6 fps.
++    * WDDM 1.x (resid -1) keeps H2's list. MALIKM_LIST_ALL=1 lists them again (diagnosis only). */
++   static int list_all = -1;
++   if (list_all < 0) {
++      const char *e = getenv("MALIKM_LIST_ALL");
++      list_all = e && *e == '1';
++   }
++   const int resident_model = (ddi.on ? ddi.resid : wresid) == 1 && !list_all && wresid_failed == 0;
++   for (uint32_t i = 0; !resident_model && i < wbo_cap; i++) {
++      if (!wbo[i].h)
++         continue;
++      uint32_t *mk = wbo[i].sub ? &wslab[wbo[i].sub - 1].mark : &wbo[i].mark;   /* G-game (0102) */
++      if (*mk == gen || wbo[i].fixed || wbo[i].gone || wbo[i].idle || wbo[i].runtime_owned == WBO_OPENED)
++         continue;
++      if (n == walloc_size) {
++         skipped++;
++         continue;
++      }
++      *mk = gen;
++      memset(&walloc[n], 0, sizeof(walloc[n]));
++      walloc[n].hAllocation = wbo[i].h;
++      n++;
++   }
++   if (skipped && (wlist_overflows++ == 0 || trace_on()))
++      fprintf(stderr, "malikm-wddm: allocation list full (%u slots): %u live BOs not listed\n", walloc_size,
++              skipped);
++   if (skipped && (wlist_overflows <= 4 || (wlist_overflows % 1000) == 0))   /* exynos-woa 0081: in the tlog too */
++      malikm_tlog("allocation list full (%u slots): %u live BOs not listed, %u batch BOs (overflow %u)", walloc_size,
++                  skipped, batch_bos, wlist_overflows);
++   MW_COMMAND *c = wcmd;
++   for (unsigned k = 0; k < nsub; k++) {   /* G32 (0167): the KMD runs a submission's chains in order */
++      c[k].Type = MW_CMD_JOB;
++      c[k].Slot = (subs[k]->requirements & PANFROST_JD_REQ_FS) ? 0 : 1;
++      c[k].Jc = subs[k]->jc;
++   }
++   wlist_want = n + skipped + 64;
++   LARGE_INTEGER rq0, rq1;
++   QueryPerformanceCounter(&rq0);
++   NTSTATUS st = w_render(nsub * sizeof(MW_COMMAND), n);
++   QueryPerformanceCounter(&rq1);
++   if (st < 0) {
++      static unsigned fails;
++      /* exynos-woa H5 (0058): run h3q - 174 "panfrost_batch_submit failed: 5" in Explorer with no reason */
++      if (fails++ < 8 || (fails % 100) == 0)
++         malikm_tlog("Render failed %u: 0x%08lx, %u allocations listed (list %u, skipped %u), %u BOs in the batch",
++                     fails, (unsigned long)st, n, walloc_size, skipped, batch_bos);
++      if (trace_on())
++         fprintf(stderr, "malikm-wddm: Render failed 0x%08lx\n", (unsigned long)st);
++      return -MK_EIO;
++   }
++   wseq++;
++   for (unsigned k = 0; k < nsub; k++)
++      for (uint32_t i = 0; i < subs[k]->bo_handle_count; i++) {   /* exynos-woa G21: what WAIT_BO waits for */
++         struct wbo *ubo = wddm_bo(bolists[k][i]);
++         if (ubo)
++            ubo->use_seq = wseq;
++      }
++   wdead_try_flush();   /* exynos-woa G17 VRAM (0101): earlier closes whose work has completed */
++   {
++      /* exynos-woa G17 (notes/g17-dxva-mfc.md): CPU time in the runtime's Render per submission (VidMm walks the
++       * allocation list on every call) - mean / max over the 500 submissions before each "submit" line */
++      static LARGE_INTEGER qf;
++      static double rsum, rmax;
++      if (!qf.QuadPart)
++         QueryPerformanceFrequency(&qf);
++      double us = (double)(rq1.QuadPart - rq0.QuadPart) * 1e6 / qf.QuadPart;
++      rsum += us;
++      if (us > rmax)
++         rmax = us;
++      if ((wseq % 500) == 0) {
++         malikm_tlog("submit %llu (%u allocations listed, %u live BOs): Render mean %.0f max %.0f us",
++                     (unsigned long long)wseq, n, n + skipped, rsum / 500, rmax);
++         /* exynos-woa G17 VRAM (0101, notes/g17-dxva-mfc.md): what this process's BOs are - own / idle (parked in
++          * Panfrost's BO cache) / opened (another process's) / runtime-owned shared - count and MB */
++         uint32_t cn[4] = {0}, big[4] = {0};
++         uint64_t cb[4] = {0};
++         for (uint32_t i = 0; i < wbo_cap; i++) {
++            if (!wbo[i].h || wbo[i].fixed || wbo[i].gone)
++               continue;
++            int k = wbo[i].runtime_owned == WBO_OPENED ? 2 : wbo[i].runtime_owned ? 3 : wbo[i].idle ? 1 : 0;
++            cn[k]++;
++            cb[k] += wbo[i].size;
++            if (wbo[i].size >= 4u << 20)
++               big[k]++;
++         }
++         malikm_tlog("BOs: own %u (%.1f MB, %u >= 4 MB) idle %u (%.1f MB, %u big) opened %u (%.1f MB) shared %u (%.1f MB) dead %u (%.1f MB)",
++                     cn[0], cb[0] / 1048576.0, big[0], cn[1], cb[1] / 1048576.0, big[1], cn[2], cb[2] / 1048576.0,
++                     cn[3], cb[3] / 1048576.0, wdead_n, wdead_bytes / 1048576.0);
++         rsum = rmax = 0;
++      }
++   }
++   return 0;
++}
++
+ static int
+ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+ {
+@@ -3088,134 +3234,9 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+    }
+    case MALIKM_NR_PANFROST_SUBMIT: {
+       struct drm_panfrost_submit *a = (void *)b;
+-      const uint32_t *bos = (const uint32_t *)(b + a->bo_handles);
+-      if (!a->jc)
+-         return -MK_EINVAL;
+-      if (sizeof(MW_COMMAND) > wcmd_size)
+-         return -MK_E2BIG;
+-      /* exynos-woa H2 (notes/gpu-hw-path.md): WDDM 1.x VidMm maps an allocation into the GPU's aperture only
+-       * while a submission lists it, and an unlisted one may be unmapped (its pages can move). Panfrost assumes
+-       * the Linux model - every BO stays mapped - and lists only the batch's own BOs, so a BO it reaches some
+-       * other way (run h2a: an EXECUTE translation fault, fault status 0x240001c3) was never mapped. List the
+-       * batch's BOs first (written), then every other live BO (read), each once. */
+-      uint32_t gen = ++wsubmit_gen;
+-      if (gen == 0)
+-         gen = ++wsubmit_gen;
+-      UINT n = 0;
+-      for (uint32_t i = 0; i < a->bo_handle_count; i++) {
+-         struct wbo *bo = wddm_bo(bos[i]);
+-         if (!bo)
+-            return -MK_ENOENT;
+-         /* exynos-woa G-game (0102): a sub-allocated BO is listed as its slab's allocation, once per submission */
+-         uint32_t *mk = bo->sub ? &wslab[bo->sub - 1].mark : &bo->mark;
+-         bo->idle = 0;   /* a batch that uses it is the authority (Panfrost sends WILLNEED first anyway) */
+-         if (*mk == gen || bo->fixed || bo->gone)
+-            continue;
+-         if (n == walloc_size)
+-            return -MK_E2BIG;
+-         *mk = gen;
+-         memset(&walloc[n], 0, sizeof(walloc[n]));
+-         walloc[n].hAllocation = bo->h;
+-         /* Panfrost does not say which BOs a batch writes. An opened buffer (another process's - a redirected
+-          * swap chain buffer in DWM) is listed as read: the consumer only samples it (0075 test: listed as a write,
+-          * DWM still lost each new device right after opening the app's buffers). */
+-         walloc[n].WriteOperation = bo->runtime_owned != WBO_OPENED;
+-         n++;
+-      }
+-      uint32_t skipped = 0;
+-      /* exynos-woa G32 (0162, notes/games-unity.md): with WDDM 2.0 residency (0069: every BO MakeResident at creation)
+-       * the other live BOs are not listed. MS Learn "Residency overview": "residency is moved to an explicit list on
+-       * the device instead of the per-command buffer list. VidMm ensures that all allocations on a particular device
+-       * residency requirement list are resident before any contexts belonging to that device are scheduled". Dave the
+-       * Diver: ~1860 BOs listed in each of ~390 submissions/s, the runtime's Render 2.3 ms each = one core and ~6 fps.
+-       * WDDM 1.x (resid -1) keeps H2's list. MALIKM_LIST_ALL=1 lists them again (diagnosis only). */
+-      static int list_all = -1;
+-      if (list_all < 0) {
+-         const char *e = getenv("MALIKM_LIST_ALL");
+-         list_all = e && *e == '1';
+-      }
+-      const int resident_model = (ddi.on ? ddi.resid : wresid) == 1 && !list_all && wresid_failed == 0;
+-      for (uint32_t i = 0; !resident_model && i < wbo_cap; i++) {
+-         if (!wbo[i].h)
+-            continue;
+-         uint32_t *mk = wbo[i].sub ? &wslab[wbo[i].sub - 1].mark : &wbo[i].mark;   /* G-game (0102) */
+-         if (*mk == gen || wbo[i].fixed || wbo[i].gone || wbo[i].idle || wbo[i].runtime_owned == WBO_OPENED)
+-            continue;
+-         if (n == walloc_size) {
+-            skipped++;
+-            continue;
+-         }
+-         *mk = gen;
+-         memset(&walloc[n], 0, sizeof(walloc[n]));
+-         walloc[n].hAllocation = wbo[i].h;
+-         n++;
+-      }
+-      if (skipped && (wlist_overflows++ == 0 || trace_on()))
+-         fprintf(stderr, "malikm-wddm: allocation list full (%u slots): %u live BOs not listed\n", walloc_size,
+-                 skipped);
+-      if (skipped && (wlist_overflows <= 4 || (wlist_overflows % 1000) == 0))   /* exynos-woa 0081: in the tlog too */
+-         malikm_tlog("allocation list full (%u slots): %u live BOs not listed, %u batch BOs (overflow %u)", walloc_size,
+-                     skipped, a->bo_handle_count, wlist_overflows);
+-      MW_COMMAND *c = wcmd;
+-      c->Type = MW_CMD_JOB;
+-      c->Slot = (a->requirements & PANFROST_JD_REQ_FS) ? 0 : 1;
+-      c->Jc = a->jc;
+-      wlist_want = n + skipped + 64;
+-      LARGE_INTEGER rq0, rq1;
+-      QueryPerformanceCounter(&rq0);
+-      NTSTATUS st = w_render(sizeof(*c), n);
+-      QueryPerformanceCounter(&rq1);
+-      if (st < 0) {
+-         static unsigned fails;
+-         /* exynos-woa H5 (0058): run h3q - 174 "panfrost_batch_submit failed: 5" in Explorer with no reason */
+-         if (fails++ < 8 || (fails % 100) == 0)
+-            malikm_tlog("Render failed %u: 0x%08lx, %u allocations listed (list %u, skipped %u), %u BOs in the batch",
+-                        fails, (unsigned long)st, n, walloc_size, skipped, a->bo_handle_count);
+-         if (trace_on())
+-            fprintf(stderr, "malikm-wddm: Render failed 0x%08lx\n", (unsigned long)st);
+-         return -MK_EIO;
+-      }
+-      wseq++;
+-      for (uint32_t i = 0; i < a->bo_handle_count; i++) {   /* exynos-woa G21: what WAIT_BO waits for */
+-         struct wbo *ubo = wddm_bo(bos[i]);
+-         if (ubo)
+-            ubo->use_seq = wseq;
+-      }
+-      wdead_try_flush();   /* exynos-woa G17 VRAM (0101): earlier closes whose work has completed */
+-      {
+-         /* exynos-woa G17 (notes/g17-dxva-mfc.md): CPU time in the runtime's Render per submission (VidMm walks the
+-          * allocation list on every call) - mean / max over the 500 submissions before each "submit" line */
+-         static LARGE_INTEGER qf;
+-         static double rsum, rmax;
+-         if (!qf.QuadPart)
+-            QueryPerformanceFrequency(&qf);
+-         double us = (double)(rq1.QuadPart - rq0.QuadPart) * 1e6 / qf.QuadPart;
+-         rsum += us;
+-         if (us > rmax)
+-            rmax = us;
+-         if ((wseq % 500) == 0) {
+-            malikm_tlog("submit %llu (%u allocations listed, %u live BOs): Render mean %.0f max %.0f us",
+-                        (unsigned long long)wseq, n, n + skipped, rsum / 500, rmax);
+-            /* exynos-woa G17 VRAM (0101, notes/g17-dxva-mfc.md): what this process's BOs are - own / idle (parked in
+-             * Panfrost's BO cache) / opened (another process's) / runtime-owned shared - count and MB */
+-            uint32_t cn[4] = {0}, big[4] = {0};
+-            uint64_t cb[4] = {0};
+-            for (uint32_t i = 0; i < wbo_cap; i++) {
+-               if (!wbo[i].h || wbo[i].fixed || wbo[i].gone)
+-                  continue;
+-               int k = wbo[i].runtime_owned == WBO_OPENED ? 2 : wbo[i].runtime_owned ? 3 : wbo[i].idle ? 1 : 0;
+-               cn[k]++;
+-               cb[k] += wbo[i].size;
+-               if (wbo[i].size >= 4u << 20)
+-                  big[k]++;
+-            }
+-            malikm_tlog("BOs: own %u (%.1f MB, %u >= 4 MB) idle %u (%.1f MB, %u big) opened %u (%.1f MB) shared %u (%.1f MB) dead %u (%.1f MB)",
+-                        cn[0], cb[0] / 1048576.0, big[0], cn[1], cb[1] / 1048576.0, big[1], cn[2], cb[2] / 1048576.0,
+-                        cn[3], cb[3] / 1048576.0, wdead_n, wdead_bytes / 1048576.0);
+-            rsum = rmax = 0;
+-         }
+-      }
+-      return 0;
++      const struct drm_panfrost_submit *subs[1] = { a };
++      const uint32_t *bolists[1] = { (const uint32_t *)(b + a->bo_handles) };
++      return wddm_submit_jobs(subs, bolists, 1);   /* G32 (0167) */
+    }
+    case MALIKM_NR_GEM_CLOSE: {
+       struct wbo *bo = wddm_bo(((struct drm_gem_close *)b)->handle);
+@@ -3352,6 +3373,35 @@ wddm_ioctl(int fd, DWORD code, void *buf, DWORD len)
+    }
+ }
+ 
++/* exynos-woa G32 (0167): Panfrost's jm_submit_batch (Windows) hands a batch's vertex/tiler and fragment submits here
++ * as one submission. 0, or -1 with errno; ENOSYS = not on the WDDM path (Panfrost then submits them one by one). */
++int
++malikm_submit_pair(int fd, const struct drm_panfrost_submit *a, const struct drm_panfrost_submit *b)
++{
++   LARGE_INTEGER iq0, iq1;
++   QueryPerformanceCounter(&iq0);
++   wddm_lock_acquire();
++   if (wddm != 1) {
++      ReleaseSRWLockExclusive(&wddm_lock);
++      errno = ENOSYS;
++      return -1;
++   }
++   bind_switch(bind_for_fd(fd));
++   const struct drm_panfrost_submit *subs[2] = { a, b };
++   const uint32_t *bolists[2] = { (const uint32_t *)(uintptr_t)a->bo_handles,
++                                  (const uint32_t *)(uintptr_t)b->bo_handles };
++   int r = wddm_submit_jobs(subs, bolists, 2);
++   ReleaseSRWLockExclusive(&wddm_lock);
++   QueryPerformanceCounter(&iq1);
++   InterlockedAdd64(&wioctl_ticks[MALIKM_NR_PANFROST_SUBMIT & 0xFF], iq1.QuadPart - iq0.QuadPart);
++   InterlockedIncrement(&wioctl_calls[MALIKM_NR_PANFROST_SUBMIT & 0xFF]);
++   if (r < 0) {
++      errno = crt_errno(-r);
++      return -1;
++   }
++   return 0;
++}
++
+ /* exynos-woa G21 (notes/g21-submissions.md): the top N shim ioctls by time since the last call (DRM nr, 0x100 =
+  * MAP, 0x101 = other), then reset - for the app pacing log (DxgiFns.cpp). */
+ void
+diff --git a/src/gallium/drivers/panfrost/pan_jm.c b/src/gallium/drivers/panfrost/pan_jm.c
+index 57ba7b3..51db59f 100644
+--- a/src/gallium/drivers/panfrost/pan_jm.c
++++ b/src/gallium/drivers/panfrost/pan_jm.c
+@@ -63,6 +63,20 @@ GENX(jm_init_batch)(struct panfrost_batch *batch)
+    return 0;
+ }
+ 
++#ifdef _WIN32
++/* exynos-woa G32 (0167, notes/games-unity.md): a batch's vertex/tiler and fragment chains go to the kernel as ONE
++ * submission (include/win32-compat/malikm_drm.c malikm_submit_pair; the KMD runs a submission's chains in order).
++ * jm_submit_batch arms jm_pair under dev->submit_lock; the vertex/tiler submit is held (its bo_handles kept) and sent
++ * with the fragment one. Each WDDM submission costs a Render call plus a CPU-event signal (~105 us): Dave the Diver
++ * made 98 per frame. Thread-local: submit_lock is per device, and both submits of a batch run on one thread. */
++int malikm_submit_pair(int fd, const struct drm_panfrost_submit *a, const struct drm_panfrost_submit *b);
++static _Thread_local struct {
++   bool armed, held;
++   struct drm_panfrost_submit submit;
++   uint32_t *bo_handles;
++} jm_pair;
++#endif
++
+ static int
+ jm_submit_jc(struct panfrost_batch *batch, uint64_t first_job_desc,
+              uint32_t reqs, uint32_t out_sync)
+@@ -150,6 +164,31 @@ jm_submit_jc(struct panfrost_batch *batch, uint64_t first_job_desc,
+       panfrost_bo_handle(dev->sample_positions);
+ 
+    submit.bo_handles = (uint64_t)(uintptr_t)bo_handles;
++#ifdef _WIN32
++   if (jm_pair.armed && !ctx->is_noop && !(dev->debug & (PAN_DBG_TRACE | PAN_DBG_SYNC))) {
++      if (!(reqs & PANFROST_JD_REQ_FS) && !jm_pair.held) {
++         jm_pair.submit = submit;   /* held: sent with the fragment submit */
++         jm_pair.bo_handles = bo_handles;
++         jm_pair.held = true;
++         return 0;
++      }
++      if ((reqs & PANFROST_JD_REQ_FS) && jm_pair.held) {
++         jm_pair.held = false;
++         ret = malikm_submit_pair(panfrost_device_fd(dev), &jm_pair.submit, &submit);
++         if (ret && errno == ENOSYS) {   /* not the WDDM path: one by one */
++            ret = pan_kmod_ioctl(panfrost_device_fd(dev), DRM_IOCTL_PANFROST_SUBMIT, &jm_pair.submit);
++            if (!ret)
++               ret = pan_kmod_ioctl(panfrost_device_fd(dev), DRM_IOCTL_PANFROST_SUBMIT, &submit);
++         }
++         free(jm_pair.bo_handles);
++         jm_pair.bo_handles = NULL;
++         free(bo_handles);
++         if (ret)
++            return errno;
++         return 0;
++      }
++   }
++#endif
+    if (ctx->is_noop)
+       ret = 0;
+    else
+@@ -209,6 +248,12 @@ GENX(jm_submit_batch)(struct panfrost_batch *batch)
+    if (has_tiler)
+       pthread_mutex_lock(&dev->submit_lock);
+ 
++#ifdef _WIN32
++   /* exynos-woa G32 (0167): pair the two chains (jm_pair is thread-local) */
++   jm_pair.armed = has_tiler && has_draws && has_frag;
++   jm_pair.held = false;
++#endif
++
+    if (has_draws) {
+       ret = jm_submit_jc(batch, batch->jm.jobs.vtc_jc.first_job, reqs,
+                          has_frag ? 0 : out_sync);
+@@ -225,6 +270,17 @@ GENX(jm_submit_batch)(struct panfrost_batch *batch)
+    }
+ 
+ done:
++#ifdef _WIN32
++   if (jm_pair.held) {   /* the fragment submit never came (error path): send the held one alone */
++      int r2 = pan_kmod_ioctl(panfrost_device_fd(dev), DRM_IOCTL_PANFROST_SUBMIT, &jm_pair.submit);
++      if (r2 && !ret)
++         ret = errno;
++      free(jm_pair.bo_handles);
++      jm_pair.bo_handles = NULL;
++      jm_pair.held = false;
++   }
++   jm_pair.armed = false;
++#endif
+    if (has_tiler)
+       pthread_mutex_unlock(&dev->submit_lock);
+ 

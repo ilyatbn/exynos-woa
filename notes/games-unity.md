@@ -162,3 +162,15 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
 - Mesa 0166: SetShaderResources binds slots 0 .. highest bound (Device::sampler_view_count), unbinding trailing ones
   that were in use (was all 128 slots every call). EC maliumd_ec 27f49200 (s10e-artifacts\mali-umd-0166-ec) live;
   d3dmrt64x 7/7, d3dbc64x lossy 0/126 differ PASS (= baseline; the exact mode fails by design since G26).
+- 23:00 0166 measured in the dive (game relaunched): PsSetShaderResources gone from the top list (was 1129 ms/120 frames);
+  frame 52.5 ms (was 60.5, ~19 fps); the render thread now waits in Flush 1561 ms/120 (tc_sync on the driver thread) +
+  Present GPU wait 1493 ms; GPU 67 %. => the driver thread is the bottleneck: pan:shader_state_fs 1128 ms (mostly
+  pan:sub:textures 1025 ms, 33598 calls ~30 us - panfrost_batch_read_rsrc flushes the batch that rendered a sampled
+  texture, i.e. submissions counted there), prepare_draw 683, get_batch_slow 653, SUBMIT 11754 calls 1264 ms.
+- Mesa 0167: one submission per Panfrost batch - malikm_drm.c SUBMIT body -> wddm_submit_jobs(subs, bolists, n) (the
+  ioctl = n 1), new malikm_submit_pair(fd, vt, fs); pan_jm.c (_WIN32): jm_submit_batch arms a thread-local jm_pair when
+  the batch has tiler + draws + fragment, jm_submit_jc holds the vertex/tiler submit and sends both via the pair call
+  (ENOSYS -> one by one; a held submit without its fragment is sent alone at done:). The KMD runs a submission's
+  chains in order (command.c Kick: next chain after the previous is reaped). EC maliumd_ec ed5e4ed3
+  (s10e-artifacts\mali-umd-0167-ec) live; d3dmrt / d3dbc lossy below.
+  0167 regression: d3dmrt64x 7/7 match, d3dbc64x lossy 0/126 differ PASS.

@@ -134,3 +134,22 @@ before stage 4. Interrupt completion frees the CPU but does not lower QD1 latenc
   (~145 us each) -> needs queue depth > 1 (stage 3/4).
 - Daily firmware boot-host-r3.img d4d33853 = host + BEYOND0LTE_UFS_IOCOH_9820 1 (now the source default, with the
   pairing rule in the comment). Phone: r3 + w41, 0x13C10700 = 0x00C00311, BOUNCE_PA in RAM, wt3 verifies.
+- tools/phone/perf/qdepth.ps1 (raw PerfDisk counters over the launch window): Steam warm 35 s: avg queue 0.42, disk
+  idle 57.9 %, 116.8 k reads, never >= 2 queued -> Steam's I/O is strictly serial (QD1); a deeper queue cannot help
+  it. Per-command latency (~125 us now) and Steam's own CPU (x86 emulation) are what is left.
+- tools/phone/perf/qdepth.ps1, diskbench -Only rand|sweep|aligned (-Bs), adapterprop.ps1 (StorageAdapterProperty).
+- Pure 4 KiB QD1 (5000 reads, UfsDiag deltas): device 115 us per read (incl. 10 us poll granularity), copy 2 us,
+  rest of the stack ~40-45 us (user p50 159 us) -> 4 KiB is near the device's QD1 latency.
+- **w42 2cb8a63d** (UFS_IO_LARGE_TRANSFER, default mode 0xF): coherent RAM bounce 256 KiB, UCD relocated into the
+  freed firmware-pool bounce area (UCD_PA 0xA7402000, 64 PRDT entries), per-adapter MaxTransfer / PrdtMaxEntries /
+  UcdRegionSize / BounceSize, ConfigInfo MaximumTransferLength 256 KiB, write block cap raised with it.
+  adapterprop: MaximumTransferLength 0x40000, MaximumPhysicalPages 64. hashcheck = w38; wt/wt2/wt3 verify, wt4
+  written + verified. Counter deltas: unaligned 256 KiB requests arrive as 2 commands (~122 KiB avg) - 65 pages
+  for an unaligned buffer > 64; device 337 us per ~122 KiB (370 MB/s), 64 KiB 138 us (415 MB/s), ~87 us per
+  command outside device + copy.
+- **w42b 6b4a197b**: NumberOfPhysicalBreaks + 2 (StorPort still reports 64 pages - capped by MaxTransfer/PAGE).
+  hashcheck = w38, wt4 verifies, wt5 written + verified. diskbench -Only aligned (page-aligned buffer = what paging
+  I/O uses): 64 KiB 318 MiB/s (197 us), 256 KiB 325 MiB/s (770 us), 1 MiB 430 MiB/s (2.32 ms = 4 x 256 KiB at ~580 us)
+  vs Linux 617 MB/s. A user-mode request costs ~190 us beyond its commands (I/O stack on the small cores).
+- Next lever: overlap (queue depth > 1: the device idles ~87 us between commands) -> stage 3 interrupts (DSDT
+  GSIV 274, driver first) + stage 4 slots; and trimming the per-command miniport path.

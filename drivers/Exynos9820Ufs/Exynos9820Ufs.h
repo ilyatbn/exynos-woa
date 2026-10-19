@@ -1482,6 +1482,10 @@ C_ASSERT(UFS_MAX_TRANSFER_LENGTH <= UFS_BOUNCE_SIZE);
 /* The multi-entry descriptor must collapse to the proven single-entry constant. */
 C_ASSERT(UFS_UTRD_PRDT_WORD_FOR(1) == UFS_UTRD_PRDT_WORD);
 C_ASSERT(UFS_UTRD_PRDT_WORD_FOR(UFS_PRDT_MAX_ENTRIES) == 0x08000800UL);
+C_ASSERT(UFS_LARGE_PRDT_ENTRIES * UFS_PRDT_ENTRY_SIZE <= 0xFFFFUL);                         /* 16-bit byte-encoded PRDTL */
+C_ASSERT(UFS_LARGE_TRANSFER_LENGTH <= (UFS_FMP_PRDT_DATA_BYTE_COUNT_MASK + 1UL));
+C_ASSERT(UFS_LARGE_UCD_REGION_SIZE == UFS_UCD_PRDT_OFFSET + UFS_LARGE_PRDT_ENTRIES * UFS_PRDT_ENTRY_SIZE);
+C_ASSERT(UFS_LARGE_UCD_REGION_SIZE <= UFS_BOUNCE_SIZE);   /* fits the firmware-pool bounce area it takes over */
 /*
  * Worst-case workspace consumption when StorPortGetUncachedExtension hands back
  * a base that is maximally misaligned for every region in turn. Keeps the
@@ -1639,6 +1643,10 @@ typedef struct _UFS_ADAPTER_EXTENSION {
     PUCHAR BounceCached;      /* m15 w34: cacheable view of the bounce pages, READ copy-back only (or NULL) */
     ULONG DcacheLineSize;     /* from CTR_EL0.DminLine */
     BOOLEAN BounceCoherent;   /* w40: UFS DMA IO-coherent + UFS_IO_COHERENT_BOUNCE -> bounce data via BounceCached only */
+    ULONG MaxTransfer;        /* w42: per-command byte limit (UFS_MAX_TRANSFER_LENGTH, or UFS_LARGE_TRANSFER_LENGTH) */
+    ULONG PrdtMaxEntries;     /* w42: PRDT entries available in the UCD */
+    ULONG UcdRegionSize;      /* w42: bytes of the (possibly relocated) UCD */
+    ULONG BounceSize;         /* w42: bytes of the bounce */
     ULONG IoCoherencyValue;   /* w40: SYSREG_FSYS1+0x700 as read at FindAdapter (diagnostics) */
     ULONG Capabilities;
     ULONG InitialHostStatus;

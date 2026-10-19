@@ -1,7 +1,7 @@
 # diskbench.ps1 [-File path] [-MB 256] - uncached (FILE_FLAG_NO_BUFFERING) read benchmark of the Windows UFS volume:
 # sequential 1 MiB reads (MB/s), then 2000 random 4 KiB reads (IOPS, average and p99 latency in ms) on the same file.
 # Read-only. Prints one line per test. notes/app-launch-slowness.md.
-param([string]$File = "$env:WINDIR\System32\MRT.exe", [int]$MB = 256)
+param([string]$File = "$env:WINDIR\System32\MRT.exe", [int]$MB = 256, [string]$Only = "", [int]$Count = 2000, [int]$Bs = 262144)
 Add-Type -TypeDefinition @'
 using System; using System.IO; using System.Diagnostics; using Microsoft.Win32.SafeHandles; using System.Runtime.InteropServices;
 public static class DB {
@@ -26,6 +26,17 @@ public static class DB {
       double s = sw.Elapsed.TotalSeconds; return String.Format("seq {0,7} B: {1,5:N1} MiB/s, {2,8:N1} us per request ({3} requests)", bs, tot / 1048576.0 / s, s * 1e6 / n, n);
     }
   }
+  [DllImport("kernel32.dll")] static extern IntPtr VirtualAlloc(IntPtr a, UIntPtr n, uint t, uint p);
+  [DllImport("kernel32.dll", SetLastError = true)] static extern bool ReadFile(SafeFileHandle h, IntPtr b, int n, out int r, IntPtr o);
+  public static string SweepAligned(string p, int bs, long maxBytes) {
+    var h = CreateFile(p, 0x80000000, 7, IntPtr.Zero, 3, 0x20000000, IntPtr.Zero);
+    if (h.IsInvalid) return "open " + Marshal.GetLastWin32Error();
+    IntPtr buf = VirtualAlloc(IntPtr.Zero, (UIntPtr)(uint)bs, 0x3000, 4);   // page aligned
+    long len = maxBytes; var sw = Stopwatch.StartNew(); long tot = 0; int n = 0, r;
+    while (tot < len) { if (!ReadFile(h, buf, bs, out r, IntPtr.Zero) || r <= 0) break; tot += r; n++; }
+    double s = sw.Elapsed.TotalSeconds; h.Close();
+    return String.Format("seq aligned {0,7} B: {1,5:N1} MiB/s, {2,8:N1} us per request ({3} requests)", bs, tot / 1048576.0 / s, s * 1e6 / n, n);
+  }
   public static string Rand(string p, int count) {
     using (var f = Open(p)) {
       long blocks = f.Length / 4096; var buf = new byte[4096]; var r = new Random(1); var lat = new double[count]; var all = Stopwatch.StartNew();
@@ -38,6 +49,9 @@ public static class DB {
 }
 '@
 "file $File ($([math]::Round((Get-Item $File).Length / 1MB)) MiB)"
+if ($Only -eq "rand") { [DB]::Rand($File, $Count); return }
+if ($Only -eq "sweep") { [DB]::Sweep($File, $Bs, [long]$MB * 1MB); return }
+if ($Only -eq "aligned") { [DB]::SweepAligned($File, $Bs, [long]$MB * 1MB); return }
 [DB]::Seq($File, [long]$MB * 1MB)
 [DB]::Rand($File, 2000)
 foreach ($bs in 4096, 16384, 65536, 262144, 1048576) { [DB]::Sweep($File, $bs, [long]16 * 1MB) }

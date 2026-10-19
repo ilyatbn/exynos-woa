@@ -27,7 +27,7 @@
  * word [12] at 0x8FE0F000 ('DE' << 16 | n, cleared by a clean OS restart or a cold power-on).
  */
 #ifndef UFS_IO_MODE_DEFAULT
-#define UFS_IO_MODE_DEFAULT                        0x7UL
+#define UFS_IO_MODE_DEFAULT                        0xFUL
 #endif
 #define UFS_IO_FAST_ZERO                           0x1UL
 #define UFS_IO_FULL_DUPLEX                         0x2UL
@@ -41,6 +41,17 @@
  * Firmware and driver ship as a pair: never run the iocoh firmware with a driver older than w40.
  */
 #define UFS_IO_COHERENT_BOUNCE                     0x4UL
+/*
+ * UFS_IO_LARGE_TRANSFER (w42): with the coherent RAM bounce, one command carries up to 256 KiB instead of 64 KiB:
+ * RAM bounce 256 KiB, UCD relocated into the then-unused firmware-pool bounce area (PRDT 64 x 128 B entries of
+ * 4 KiB). 256 KiB keeps the FMP per-entry byte-count field check (UFS_FMP_PRDT_DATA_BYTE_COUNT_MASK + 1) and the
+ * 16-bit byte-encoded PRDT length (64 x 128 = 8192) valid. Reads AND writes (the StorPort limit covers both); the
+ * write fence / GPT guard / protected ranges validate the whole LBA range as before.
+ */
+#define UFS_IO_LARGE_TRANSFER                      0x8UL
+#define UFS_LARGE_TRANSFER_LENGTH                  (256UL * 1024UL)
+#define UFS_LARGE_PRDT_ENTRIES                     (UFS_LARGE_TRANSFER_LENGTH / 4096UL)
+#define UFS_LARGE_UCD_REGION_SIZE                  (2048UL + UFS_LARGE_PRDT_ENTRIES * 128UL)
 #define UFS_IOCOH_PHYSICAL                         0x13C10700ULL   /* EXYNOS_UFS_IOCOH_BASE (Exynos9820.h, VERIFIED) */
 #define UFS_IOCOH_UFS_BITS                         0x00C00000UL    /* BIT22|BIT23, live DT ufs-io-coherency */
 #define UFS_FAST_ZERO_COMMAND_BYTES                64UL    /* command UPIU is 32 B */

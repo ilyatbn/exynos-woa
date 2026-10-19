@@ -5051,6 +5051,11 @@ UfsAllocateWorkspace(
     Adapter->Diagnostic.DmaWindowLast = UFS_DMA_WINDOW_LAST;
 #endif
 
+    Adapter->MaxTransfer = UFS_MAX_TRANSFER_LENGTH;
+    Adapter->PrdtMaxEntries = UFS_PRDT_MAX_ENTRIES;
+    Adapter->UcdRegionSize = UFS_UCD_REGION_SIZE;
+    Adapter->BounceSize = UFS_BOUNCE_SIZE;
+
     Cursor = UfsAlignUp((ULONG_PTR)Adapter->Workspace, UFS_UTRL_ALIGNMENT);
     Adapter->Utrl = (PUFS_TRANSFER_REQUEST_DESCRIPTOR)Cursor;
     Cursor += UFS_UTRL_REGION_SIZE;
@@ -5170,6 +5175,8 @@ UfsAllocateWorkspace(
     if ((Adapter->IoCoherencyValue != 0xFFFFFFFFUL) &&
         ((Adapter->IoCoherencyValue & UFS_IOCOH_UFS_BITS) != 0)) {
         PVOID System = NULL;
+        PUCHAR FirmwareBounce = Adapter->Bounce;
+        ULONG RamBounceSize = ((UfsIoMode & UFS_IO_LARGE_TRANSFER) != 0) ? UFS_LARGE_TRANSFER_LENGTH : UFS_BOUNCE_SIZE;
 
         if (Adapter->BounceCoherent) {
             PHYSICAL_ADDRESS Low;
@@ -5179,7 +5186,7 @@ UfsAllocateWorkspace(
             Low.QuadPart = 0;
             High.QuadPart = 0xFFFFFFFFLL;
             Skip.QuadPart = 0;
-            System = MmAllocateContiguousMemorySpecifyCache(UFS_BOUNCE_SIZE, Low, High, Skip, MmCached);
+            System = MmAllocateContiguousMemorySpecifyCache(RamBounceSize, Low, High, Skip, MmCached);
             if (System != NULL) {
                 PHYSICAL_ADDRESS Pa = MmGetPhysicalAddress(System);
 
@@ -5187,7 +5194,8 @@ UfsAllocateWorkspace(
                     MmFreeContiguousMemory(System);
                     System = NULL;
                 } else {
-                    RtlZeroMemory(System, UFS_BOUNCE_SIZE);
+                    RtlZeroMemory(System, RamBounceSize);
+                    Adapter->BounceSize = RamBounceSize;
                     Adapter->Bounce = (PUCHAR)System;
                     Adapter->BounceCached = (PUCHAR)System;
                     Adapter->BouncePhysical.QuadPart = Pa.QuadPart;
@@ -5200,6 +5208,28 @@ UfsAllocateWorkspace(
         if (System == NULL) {
             Adapter->BounceCoherent = FALSE;
             Adapter->BounceCached = NULL;   // iocoh on, no RAM bounce: uncached Device view only, never mixed
+        } else if (RamBounceSize == UFS_LARGE_TRANSFER_LENGTH) {
+            //
+            // w42: the firmware-pool bounce area is unused now - the enlarged UCD (64 PRDT entries) moves there.
+            //
+            PUCHAR LargeUcd = (PUCHAR)UfsAlignUp((ULONG_PTR)FirmwareBounce, UFS_UCD_ALIGNMENT);
+            STOR_PHYSICAL_ADDRESS LargeUcdPhysical;
+
+            if (UfsGetWorkspacePhysicalAddress(Adapter, LargeUcd, UFS_LARGE_UCD_REGION_SIZE, UFS_UCD_ALIGNMENT,
+                                               &LargeUcdPhysical) &&
+                (LargeUcdPhysical.HighPart == 0)) {
+                UfsZeroUncached(LargeUcd, UFS_LARGE_UCD_REGION_SIZE);
+                Adapter->Ucd = LargeUcd;
+                Adapter->UcdPhysical = LargeUcdPhysical;
+                Adapter->UcdRegionSize = UFS_LARGE_UCD_REGION_SIZE;
+                Adapter->PrdtMaxEntries = UFS_LARGE_PRDT_ENTRIES;
+                Adapter->MaxTransfer = UFS_LARGE_TRANSFER_LENGTH;
+                Adapter->Diagnostic.UcdVirtual = (ULONGLONG)(ULONG_PTR)LargeUcd;
+                Adapter->Diagnostic.UcdPhysical = (ULONGLONG)LargeUcdPhysical.QuadPart;
+                ConfigInfo->MaximumTransferLength = UFS_LARGE_TRANSFER_LENGTH;
+                ConfigInfo->NumberOfPhysicalBreaks = (UFS_LARGE_TRANSFER_LENGTH / PAGE_SIZE) + 2UL;   // + 1 page for an unaligned buffer (w42: 64 pages split every 256 KiB request in two); the bounce copy makes the SG layout irrelevant
+            }
+            UfsEarlyMark("=LARGE ucd/max", ((ULONGLONG)Adapter->UcdPhysical.LowPart << 32) | Adapter->MaxTransfer);
         }
         UfsEarlyMark("=SYSBOUNCE pa", (ULONGLONG)Adapter->BouncePhysical.QuadPart | (System != NULL ? 1ULL : 0ULL) << 63);
     }
@@ -5354,8 +5384,8 @@ UfsProgramTransferList(
     }
 
     UfsZeroUncached(Adapter->Utrl, UFS_UTRL_REGION_SIZE);
-    UfsZeroUncached(Adapter->Ucd, UFS_UCD_REGION_SIZE);
-    UfsZeroUncached(Adapter->Bounce, UFS_BOUNCE_SIZE);
+    UfsZeroUncached(Adapter->Ucd, Adapter->UcdRegionSize);
+    UfsZeroUncached(Adapter->Bounce, Adapter->BounceSize);
     KeMemoryBarrier();
 
     UfsWriteRegister(Adapter, UFS_REG_INTERRUPT_ENABLE, 0);
@@ -5600,7 +5630,7 @@ UfsValidateReadTransfer(
     if (!Adapter->CapacityValid ||
         !UfsIsSupportedBlockSize(BlockSize) ||
         (BlockCount == 0) ||
-        (BlockCount > (UFS_MAX_TRANSFER_LENGTH / BlockSize))) {
+        (BlockCount > (Adapter->MaxTransfer / BlockSize))) {
         return FALSE;
     }
 
@@ -5679,8 +5709,8 @@ UfsValidateWriteTransfer(
     if (!Adapter->CapacityValid ||
         !UfsIsSupportedBlockSize(BlockSize) ||
         (BlockCount == 0) ||
-        (BlockCount > UFS_WRITE_MAX_BLOCKS) ||
-        (BlockCount > (UFS_MAX_TRANSFER_LENGTH / BlockSize))) {
+        (BlockCount > (Adapter->MaxTransfer / UFS_LOGICAL_BLOCK_SIZE)) ||   /* was UFS_WRITE_MAX_BLOCKS (w42) */
+        (BlockCount > (Adapter->MaxTransfer / BlockSize))) {
         return FALSE;
     }
 
@@ -6133,8 +6163,8 @@ UfsProgramPrdt(
     ULONG Segment;
 
     if ((DataLength == 0) ||
-        (DataLength > UFS_MAX_TRANSFER_LENGTH) ||
-        (DataLength > UFS_BOUNCE_SIZE) ||
+        (DataLength > Adapter->MaxTransfer) ||
+        (DataLength > Adapter->BounceSize) ||
         (DataLength > (UFS_FMP_PRDT_DATA_BYTE_COUNT_MASK + 1UL)) ||
         (Adapter->BouncePhysical.HighPart != 0)) {
         return 0;
@@ -6145,7 +6175,7 @@ UfsProgramPrdt(
     Entries = 0;
 
     for (Offset = 0; Offset < DataLength; Offset += UFS_PRDT_SEGMENT_SIZE) {
-        if (Entries >= UFS_PRDT_MAX_ENTRIES) {
+        if (Entries >= Adapter->PrdtMaxEntries) {
             return 0;
         }
 
@@ -6269,7 +6299,7 @@ UfsBuildCommand(
         UfsZeroUncached(Adapter->Ucd + UFS_UCD_RESPONSE_OFFSET, UFS_FAST_ZERO_RESPONSE_BYTES);
     } else {
         UfsZeroUncached(Adapter->Utrl, UFS_UTRL_REGION_SIZE);
-        UfsZeroUncached(Adapter->Ucd, UFS_UCD_REGION_SIZE);
+        UfsZeroUncached(Adapter->Ucd, Adapter->UcdRegionSize);
     }
 
     DataLength = Srb->DataTransferLength;
@@ -6279,8 +6309,8 @@ UfsBuildCommand(
         ((Direction == UfsCommandNoData) && (DataLength != 0)) ||
         ((Direction != UfsCommandNoData) &&
          ((DataLength == 0) ||
-          (DataLength > UFS_MAX_TRANSFER_LENGTH) ||
-          (DataLength > UFS_BOUNCE_SIZE) ||
+          (DataLength > Adapter->MaxTransfer) ||
+          (DataLength > Adapter->BounceSize) ||
           (DataLength > (UFS_FMP_PRDT_DATA_BYTE_COUNT_MASK + 1UL)))) ||
         (((ULONG_PTR)Adapter->Ucd & (sizeof(ULONG) - 1U)) != 0) ||
         (Adapter->UcdPhysical.HighPart != 0) ||
@@ -6496,7 +6526,7 @@ UfsVerifyWrittenBlocks(
     }
 
     UfsZeroUncached(Adapter->Utrl, UFS_UTRL_REGION_SIZE);
-    UfsZeroUncached(Adapter->Ucd, UFS_UCD_REGION_SIZE);
+    UfsZeroUncached(Adapter->Ucd, Adapter->UcdRegionSize);
     UfsZeroUncached(Adapter->Bounce, DataLength);
 
     Entries = UfsProgramPrdt(Adapter, DataLength);
@@ -7976,7 +8006,7 @@ UfsExecuteScsi(
             (SRB_FLAGS_DATA_IN | SRB_FLAGS_DATA_OUT)) != 0))) ||
         ((Direction != UfsCommandNoData) &&
          ((Srb->DataTransferLength == 0) ||
-          (Srb->DataTransferLength > UFS_MAX_TRANSFER_LENGTH) ||
+          (Srb->DataTransferLength > Adapter->MaxTransfer) ||
           (Srb->DataBuffer == NULL))) ||
         ((Direction == UfsCommandDataIn) &&
          (((Srb->SrbFlags & SRB_FLAGS_DATA_IN) == 0) ||
@@ -8278,7 +8308,7 @@ UfsExecuteScsi(
 
     if ((UfsIoMode & UFS_IO_FAST_ZERO) == 0) {   // fast mode clears what the next command uses before it is built
         UfsZeroUncached(Adapter->Utrl, UFS_UTRL_REGION_SIZE);
-        UfsZeroUncached(Adapter->Ucd, UFS_UCD_REGION_SIZE);
+        UfsZeroUncached(Adapter->Ucd, Adapter->UcdRegionSize);
     }
     /*
      * Do not clear the bounce here. The next data-in command zeroes its entire
@@ -9468,8 +9498,8 @@ UfsHwAdapterControl(
                 return ScsiAdapterControlUnsuccessful;
             }
             UfsZeroUncached(Adapter->Utrl, UFS_UTRL_REGION_SIZE);
-            UfsZeroUncached(Adapter->Ucd, UFS_UCD_REGION_SIZE);
-            UfsZeroUncached(Adapter->Bounce, UFS_BOUNCE_SIZE);
+            UfsZeroUncached(Adapter->Ucd, Adapter->UcdRegionSize);
+            UfsZeroUncached(Adapter->Bounce, Adapter->BounceSize);
             KeMemoryBarrier();
         }
 #if UFS_FIRMWARE_WDT_BRIDGE

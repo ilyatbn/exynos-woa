@@ -99,3 +99,8 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   exhaustion, not the driver. Private MB: DaveTheDiver 3296, steamwebhelper x6 878 (WS 1136), MsMpEng 350,
   explorer 312; GPU BOs ~830 MB resident (0069 residency). taskkill steamwebhelper (the game needs only steam.exe):
   Steam respawned 6 helpers at once, 589 MB private; Available 463 MB, Pages Input 181/s, game alive.
+- 21:35 restaurant load (user: "sample it"): Available 105 MB, Pages Input 7 853/s; threads 7472 / 7824 / 6380 each
+  ~12 % all Wait PageIn; Unity log "Total: 19925 ms (FindLiveObjects 1696 ms ... MarkObjects 18081 ms)" = its
+  unused-asset GC walking paged-out memory. RAM shortage again; no appcrash, no TDR. RAM saving deferred by the user
+  ("we'll think about that later"). Candidates noted for then: our resident GPU BOs (~830 MB pinned under 0069
+  residency, Panfrost BO cache), Steam web helpers (~0.6-0.9 GB), Defender (350 MB).

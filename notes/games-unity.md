@@ -220,3 +220,12 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   one is in the taskbar corner), Ctrl 123 s + Continue tap (765,493) 135.7 s, boat keys 198-213 s, dive 256.8-387 s;
   davebench.sh SPLIT="120:140,190:230,250:" windows.
 - Battery 7 % (on AC, draining under the game) -> bench postponed until charged; nothing running on the phone.
+- 12:18 first full automated run (davekeys2.rec, SPLIT windows, battery ignored per user): seg1 Continue touch tap
+  worked, seg2 boat keys 227 events, seg3 dive started 12:22:31. User: a fish pushed Dave to the surface menu, then the
+  low-battery popup -> run stopped manually (davebench-stop.ps1), so the dive part is not a clean route.
+  KMD DeferPresent d69c01cd + EC 0169, traces/games/bench-0169-kmddefer.{txt,frametimes.txt}:
+  whole 119.6 s: 2728 frames, mean 22.8 fps, median 41.0 ms, p95 63.3, p99 89.7, max 195.1, 1 % low 8.3 fps, 0.1 % 5.1.
+  first 60 s (diving, before the interruption): mean 24.2 fps (41.2 ms/frame, was 46.5 with 0167), median 39.1 ms,
+  p99 69.1 ms, 1 % low 10.3 fps. Indicative only (route interrupted, low battery).
+  Crash watch afterwards: APPCRASH maliumd_ec.DLL c0000409 offset 0x7920dc + TDR 1 around the stop (12:25-12:27) -
+  open lead: was it the forced kill or a real fail-fast? (check the dump / WER report next session).

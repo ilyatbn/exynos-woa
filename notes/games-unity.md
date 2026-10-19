@@ -336,3 +336,6 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   with the UMD sections adding to only ~30 ms; one 176 ms = DrawIndexed:ResolveState 88 + CreatePixelShader 35 (shader
   compile at first use).
 - EC 0172 071cf1e3 live (ecswap; prev e2eee16d = .pre-0172-0); d3dmrt64x 7/7, d3dbc64x lossy 0/126 PASS. bot3 started.
+- Shader-compile hitches (spike class a): the build has -Dshader-cache=disabled, and upstream meson.build refuses it on
+  Windows ("Shader Cache does not currently work on Windows"). A disk cache would remove the first-use compiles on every
+  later run; it needs a port of util/disk_cache_os.c's file cache to Windows - recorded as a later item, not started.

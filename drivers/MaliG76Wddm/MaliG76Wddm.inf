@@ -17,6 +17,10 @@
 ; and maliumd_ec.dll (ARM64EC, x64 emulated processes), all three in System32. The display-only mode is a KMDOD and is not expected to load a UMD (UNVERIFIED that
 ; dxgkrnl ignores the value for a KMDOD - the first display-only boot answers it). The system-wide
 ; EnablePreemption 0 the original INF set is written by the ESP script only for the full-adapter modes.
+; Since 1.0.72.1 (GL6, notes/gl-icd.md) the package carries the OpenGL ICD: maligl.dll (ARM64X pure forwarder) +
+; maligl_arm64.dll + maligl_ec.dll (Mesa WGL + Panfrost) in System32, and OpenGLDriverName / OpenGLVersion /
+; OpenGLFlags in the adapter key (MS Learn "Loading an OpenGL Installable Client Driver"; dxgkrnl reads them at
+; adapter start - verified with the same values set by hand, tools/phone/gl/glicd.ps1).
 ; Switches (same key, DWORD, read at driver load; absent = default), notes/gpu-full-adapter-hang.md:
 ;   PramTrace 1   DDI entry/exit trace into reserved RAM 0x8FE04000 (16 KiB), saved by the firmware as \WINPRAM.BIN
 ;   SoftVsync 1   full adapter: software vsync (16 ms timer) while dxgkrnl enables CRTC_VSYNC (0 = never reported)
@@ -38,7 +42,7 @@ Signature   = "$WINDOWS NT$"
 Class       = Display
 ClassGuid   = {4D36E968-E325-11CE-BFC1-08002BE10318}
 Provider    = %ProviderName%
-DriverVer   = 10/18/2026,1.0.71.1
+DriverVer   = 10/19/2026,1.0.72.1
 CatalogFile = MaliG76Wddm.cat
 PnpLockdown = 1
 
@@ -56,6 +60,9 @@ maliumd.dll     = 1
 maliumd32.dll   = 1
 maliumd_arm64.dll = 1
 maliumd_ec.dll  = 1
+maligl.dll      = 1
+maligl_arm64.dll = 1
+maligl_ec.dll   = 1
 
 [Manufacturer]
 %ProviderName% = Standard,NTARM64.10.0...16299
@@ -71,6 +78,9 @@ AddReg = MW_Settings
 [MW_Settings]
 HKR,,UserModeDriverName,%REG_MULTI_SZ%,maliumd.dll,maliumd.dll,maliumd.dll,maliumd.dll
 HKR,,UserModeDriverNameWow,%REG_MULTI_SZ%,maliumd32.dll,maliumd32.dll,maliumd32.dll,maliumd32.dll
+HKR,,OpenGLDriverName,%REG_SZ%,maligl.dll
+HKR,,OpenGLVersion,%REG_DWORD%,1
+HKR,,OpenGLFlags,%REG_DWORD%,1      ; bit 0 "set for compatibility" (MS Learn)
 
 [MW_CopyFiles]
 MaliG76Wddm.sys
@@ -79,6 +89,9 @@ MaliG76Wddm.sys
 maliumd.dll,,,0x00004000     ; COPYFLG_IN_USE_TRY_RENAME (DWM holds it)
 maliumd_arm64.dll,,,0x00004000
 maliumd_ec.dll,,,0x00004000
+maligl.dll,,,0x00004000      ; GL apps hold it
+maligl_arm64.dll,,,0x00004000
+maligl_ec.dll,,,0x00004000
 
 [MW_UmdWow]
 maliumd32.dll,,,0x00004000   ; COPYFLG_IN_USE_TRY_RENAME
@@ -106,6 +119,7 @@ ProviderName  = "exynos-woa"
 DiskName      = "Galaxy S10e Mali-G76 display driver"
 MW.DeviceDesc = "Arm Mali-G76 MP12 (Galaxy S10e, G10/G11)"
 MW.SvcDesc    = "Galaxy S10e Mali-G76 display driver"
+REG_SZ        = 0x00000000
 REG_DWORD     = 0x00010001
 REG_DWORD_NOCLOBBER = 0x00010003
 REG_MULTI_SZ  = 0x00010000

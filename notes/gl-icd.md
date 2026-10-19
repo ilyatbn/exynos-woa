@@ -119,3 +119,9 @@ there is no D3D12 GPU here -> WARP (CPU).
   (polling the newest tlog file picked an older run's file).
   Remaining cost: ~19 ms CPU per 1520x720 frame. Next step that removes it: a GPU-only present (the GL frame never
   read by the CPU) - DXGI swap chain path or KMD present from a cached view; design pending.
+- 21:25 GL6: MaliG76Wddm.inf 1.0.72.1 - SourceDisksFiles + MW_UmdFiles (System32, COPYFLG_IN_USE_TRY_RENAME) carry
+  maligl.dll / maligl_arm64.dll / maligl_ec.dll; MW_Settings HKR OpenGLDriverName REG_SZ maligl.dll, OpenGLVersion 1,
+  OpenGLFlags 1 (REG_SZ string 0x00000000 added); build-package.ps1 -Gl (files signed, in the catalog). Package
+  s10e-artifacts\mwddm-1.0.72.1 (Umd mali-umd-0148-x = the live UMD, Umd32 mali-g12-x86 = the live x86 UMD, Gl
+  mali-gl-x 0156): Inf2Cat OK, InfVerif /v /u "INF is VALID" rc 0. NOT installed (display driver reinstall waits for an
+  attended session, as 1.0.71.1); the live system has the same DLLs (unsigned) + the same values set by glicd.ps1.

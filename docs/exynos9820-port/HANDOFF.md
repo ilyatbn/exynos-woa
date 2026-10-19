@@ -1919,3 +1919,17 @@ diagnostic timers from release builds once perf work settles.
   4 slots for async reads, NEXUS cache / fine poll.
 - Results: 1 MiB reads 50-120 -> ~500-560 MiB/s, 4 KiB 300 -> ~150 us, Brave first start 6.6 -> 2.35 s, Steam warm
   49.8 -> ~30 s. Integrity checks: tools/phone/perf/hashcheck.ps1, parhash.ps1, writetest.ps1 (baseline hash-w38).
+
+## 67. 2026-10-19 - native OpenGL (G31)
+
+- notes/gl-icd.md (design, docs, every build hash, measurements, reviews).
+- Phone (live, by hand - not from a package): System32\maligl.dll (ARM64X forwarder) + maligl_arm64.dll +
+  maligl_ec.dll = Mesa 0150-0156 (s10e-artifacts\mali-gl-x, deploy tools/phone/gl/gldeploy.sh); class key 0000
+  OpenGLDriverName maligl.dll / OpenGLVersion 1 / OpenGLFlags 1 set by tools/phone/gl/glicd.ps1 (dxgkrnl reads
+  them at adapter start: a change needs a reboot). Rollback: glicd.ps1 -Remove + reboot.
+- Build: tools/mesa-build/build-mesa-g76.ps1 -Stage gl,glec then make-arm64x.ps1 -Name maligl (-Arm64 mali-g12-gl
+  -Ec mali-g12-gl-ec -Out mali-gl-x). Test: drivers/MaliG76Wddm/tools/gltest (gltest.exe ARM64, gltest64.exe x64).
+- Stardew Valley: starts in ~3-4 min (emulated .NET), ~41 fps at 1520x720; timing lines via tools/phone/gl/gltlog.ps1.
+  Kill scrnsave.scr before screenshots (blank screensaver = black scan-out, CopyFromScreen "handle is invalid").
+- Package s10e-artifacts\mwddm-1.0.72.1 (Umd 0148-x, Umd32 mali-g12-x86, Gl mali-gl-x, InfVerif valid) NOT installed.
+- Next: GPU-only present (no CPU read of the frame; the copy is ~19 ms/frame from write-combined memory).

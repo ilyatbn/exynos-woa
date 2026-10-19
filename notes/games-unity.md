@@ -131,3 +131,19 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   after a dive -> the game enables DoF+bloom on the direct path.
 - Mesa 0164: capture reads back 3 pixels of rt0/rt1 after each pass with draws/clears ("fc px" lines). EC build
   (s10e-artifacts\mali-umd-0164-ec) live; needs a game restart.
+- 22:30 ROOT CAUSE of the black boat scene. Capture day-black2 with 0164 readback (traces/games/framecap-day-black2.txt):
+  inputs fine (pass 16 scene 0.16-0.31, pass 17 CoC 0 / 0.33), pass 18 (URP Gaussian DoF prefilter, MRT rt0 r16_unorm
+  CoC + rt1 rgba16f colour) rt1 = +inf at every sample -> blur 19-20 inf, composite 21 inf, bloom 22-32 inf, 33-37 NaN,
+  uber 38 = 0 -> black (the UI is drawn after). URP's prefilter writes coc and colour*coc - no division, cannot make
+  inf; min precision is already ignored (ShaderParse.c).
+  Repro drivers/MaliG76Wddm/tools/d3dmrt (one draw, target 0 = 0.33, target 1 = (0.25,0.5,0.75,1), 7 format pairs,
+  vs WARP; build-d3dmrt.cmd x64/arm64): Mali 0/7 - SV_Target1 never written in any format pair, even with no target 0
+  (stays at the clear value; garbage = inf in the game). BIFROST_MESA_DEBUG=shaders (diagnosis): the compiled FS
+  issues BLEND for both outputs (blend_descriptor_0 / _1) -> the shader is right.
+  panfrost pan_cmdstream.c create_blend_state: `so->pan.rt_count = blend->max_rt + 1` and info[c] only for c <= max_rt;
+  the rest stay zero = disabled (panfrost_emit_blend: !so->info[i].enabled -> BLEND_MODE_OFF). p_state.h:
+  "max_rt:3 /* index of max rt, Ie. # of cbufs minus 1 */"; st/mesa sets it (st_atom_blend.c:237); d3d10umd's
+  CreateBlendState / CreateBlendState1 memset the state and never set it -> max_rt 0 -> only target 0 ever written.
+- Mesa 0165: max_rt = PIPE_MAX_COLOR_BUFS - 1 in both (a D3D blend state does not know the bound target count).
+  EC maliumd_ec fe23bb07 (s10e-artifacts\mali-umd-0165-ec) live: d3dmrt64x 7/7 match. Game check next. Port to the
+  ARM64 and x86 UMDs with 0160-0162 (any D3D MRT app was affected).

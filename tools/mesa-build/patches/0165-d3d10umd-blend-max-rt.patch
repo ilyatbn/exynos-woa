@@ -1,0 +1,24 @@
+diff --git a/src/gallium/frontends/d3d10umd/OutputMerger.cpp b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+index f293853..afe9cfc 100644
+--- a/src/gallium/frontends/d3d10umd/OutputMerger.cpp
++++ b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+@@ -560,6 +560,7 @@ CreateBlendState(D3D10DDI_HDEVICE hDevice,                     // IN
+ 
+    struct pipe_blend_state state;
+    memset(&state, 0, sizeof state);
++   state.max_rt = PIPE_MAX_COLOR_BUFS - 1;   /* exynos-woa G32 (0165): see CreateBlendState1 */
+ 
+    for (i = 0; i < MIN2(PIPE_MAX_COLOR_BUFS, D3D10_DDI_SIMULTANEOUS_RENDER_TARGET_COUNT); ++i) {
+       state.rt[i].blend_enable = pBlendDesc->BlendEnable[i];
+@@ -638,6 +639,11 @@ CreateBlendState1(D3D10DDI_HDEVICE hDevice,                     // IN
+ 
+    state.alpha_to_coverage = pBlendDesc->AlphaToCoverageEnable;
+    state.independent_blend_enable = pBlendDesc->IndependentBlendEnable;
++   /* exynos-woa G32 (0165, notes/games-unity.md): pipe_blend_state::max_rt = "index of max rt, Ie. # of cbufs minus
++    * 1" (p_state.h); Panfrost fills blend info only for rt[0..max_rt] and disables the rest. Left 0 by the memset,
++    * SV_Target1+ were never written (d3dmrt 0/7; Dave the Diver's depth-of-field target 1 stayed garbage = +inf -> the
++    * black boat scene). A D3D blend state does not know how many targets get bound: all of them. */
++   state.max_rt = PIPE_MAX_COLOR_BUFS - 1;
+ 
+    for (i = 0; i < MIN2(PIPE_MAX_COLOR_BUFS, D3D10_DDI_SIMULTANEOUS_RENDER_TARGET_COUNT); ++i) {
+       state.rt[i].blend_enable = pBlendDesc->RenderTarget[i].BlendEnable;

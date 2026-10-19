@@ -151,6 +151,7 @@ extern ULONG MwFlipIndependent;
 /* Parameters\FlipBlt (default 1): a Flip present is carried out as a CPU copy of the new primary into the GOP
  * framebuffer (command.c); 0 = the original's behaviour (flips are dropped, the panel never shows them). */
 extern ULONG MwFlipBlt;
+extern ULONG MwDeferPresent;   /* G32: Parameters\DeferPresent */
 /* Parameters\RecommendVidPn (default 1): the full adapter answers RecommendFunctionalVidPn with its one path and
  * mode pinned (display.c); 0 = the original's "no recommendation". Display-only never recommends (malidod). */
 extern ULONG MwRecommendVidPn;
@@ -193,6 +194,7 @@ typedef struct _MW_ALLOCATION {
 } MW_ALLOCATION;
 
 typedef struct _MW_ADAPTER MW_ADAPTER;
+void MwPresentDpc(MW_ADAPTER *A);   /* G32: command.c, from the DPC routine */
 
 typedef struct _MW_DEVICE {
     MW_ADAPTER *Adapter;
@@ -233,6 +235,10 @@ typedef struct _MW_SUBMISSION {
     ULONG FenceId;
     ULONG Count, Next;          /* commands, and the next one to start */
     MW_COMMAND Commands[MW_MAX_COMMANDS];
+    /* G32 (Parameters\DeferPresent): a present done when the submission reaches the head of the queue (every earlier
+     * job chain complete), by the DPC - not at SubmitCommand time, when the GPU may still be drawing its source */
+    BOOLEAN HasPresent;
+    MW_PRESENT_OP Present;
 } MW_SUBMISSION;
 
 struct _MW_ADAPTER {
@@ -260,6 +266,8 @@ struct _MW_ADAPTER {
 
     /* Submissions, shared with the ISR (DxgkCbSynchronizeExecution). */
     MW_SUBMISSION Queue[MW_QUEUE_DEPTH];
+    BOOLEAN PresentAtHead;      /* G32: the head submission's present waits for the DPC (Kick stops there) */
+    ULONG DeferredPresents;     /* G32: presents done by the DPC */
     ULONG QHead;                /* ring; QHead is the one running */
     volatile ULONG QCount;
     BOOLEAN Running;            /* a job chain of Queue[QHead] is on the GPU */

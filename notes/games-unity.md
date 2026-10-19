@@ -189,3 +189,22 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   6 s log silence, keyplay, frame times during seg3, close) + davebench.sh (split the recording at > 30 s gaps,
   push, run detached, stats: mean fps, median / p95 / p99 / max ms, 1 % / 0.1 % low fps -> traces/games/bench-TAG.*).
   EC build 9b75aceb (s10e-artifacts\mali-umd-0168-ec) live. First run "0168-run1" started.
+- 23:30 davebench run 1 (0168): the route replayed by itself (seg1 taps did NOT register - the user tapped; seg2 boat ->
+  dive OK; seg3 replayed 662 events) but no frametimes.txt: the user quit 16 s into seg3 (still loading) before the UMD
+  saw the flag (checked every 30 presents). Fixes: keyplay holds a replayed press >= 150 ms and moves the cursor a frame
+  before it (touch taps record down+up in the same ms; Unity at ~20 fps missed them); davebench-start.ps1 (the inline
+  nested-quote launch never started the bench).
+- Fix #3 (Present waits ~12.5 ms/frame for the GPU because the KMD copies a Blt present in MwSubmitCommand, possibly
+  before earlier jobs are done): KMD (drivers/MaliG76Wddm): Parameters\DeferPresent (default 1) - MwSubmitCommand stores
+  the present in its MW_SUBMISSION (HasPresent); Kick stops at a head submission whose present is pending (own + every
+  earlier chain done), sets PresentAtHead + NeedDpc; MwDpcRoutine -> MwPresentDpc: SyncPresentTake (snapshot the head's
+  op + fence under the interrupt lock), DoPresent at DISPATCH (as the vsync latch does), SyncPresentDone (same fence
+  still at the head -> HasPresent off, DeferredPresents++, Kick completes it and starts the next); SyncReset clears
+  PresentAtHead. New escape MW_ESCAPE_CAPS (7) -> MW_CAPS_DEFERRED_PRESENT. Allocations stay valid: dxgkrnl keeps a DMA
+  buffer's allocations until its fence completes (after the copy). Build s10e-artifacts\mwddm-g32-defer\MaliG76Wddm.sys
+  89088 B test-signed d69c01cd.
+  Mesa 0169: shim malikm_kmd_caps() (MW_ESCAPE_CAPS once, under the Present's selected device binding; older KMD refuses
+  -> 0); DxgiFns _Present skips the flush+fence_finish when MW_CAPS_DEFERRED_PRESENT (the flush at the top of _Present
+  already drained the threaded context and submitted the frame before the runtime present is queued behind it).
+  EC 35ea28a6 (s10e-artifacts\mali-umd-0169-ec) live on the OLD KMD = old behaviour (caps 0); d3dmrt 7/7.
+  Battery 16 % on AC (BatteryStatus 2) -> KMD swap via TWRP next.

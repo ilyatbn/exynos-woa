@@ -1,0 +1,72 @@
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 2b416a0..6c32367 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -1906,6 +1906,33 @@ bind_for_device(HANDLE device)
+    return -1;
+ }
+ 
++/* exynos-woa G32 (0169, notes/games-unity.md): the KMD's MW_ESCAPE_CAPS (drivers/MaliG76Wddm include/maliwddm_abi.h;
++ * this tree's copy of the header predates it). MW_CAPS_DEFERRED_PRESENT: the KMD copies a present only after every
++ * earlier submission completed, so d3d10umd's Present need not wait for its frame. Asked once; an older KMD refuses the
++ * escape -> 0. */
++#ifndef MW_ESCAPE_CAPS
++#define MW_ESCAPE_CAPS 7
++#define MW_CAPS_DEFERRED_PRESENT 0x1u
++typedef struct { mw_u32 Code; mw_u32 Flags; } MW_ESCAPE_CAPS_DATA;
++#endif
++unsigned
++malikm_kmd_caps(void)
++{
++   static volatile LONG caps = -1;
++   if (caps >= 0)
++      return (unsigned)caps;
++   MW_ESCAPE_CAPS_DATA c = {0};
++   c.Code = MW_ESCAPE_CAPS;
++   wddm_lock_acquire();
++   bind_switch(tls_selected);   /* the device d3d10umd's Present selected */
++   NTSTATUS st = wddm == 1 ? w_escape(&c, sizeof(c)) : (NTSTATUS)0xC0000001;
++   ReleaseSRWLockExclusive(&wddm_lock);
++   LONG v = st >= 0 ? (LONG)(c.Flags & 0x7fffffff) : 0;
++   InterlockedExchange(&caps, v);
++   malikm_tlog("kmd caps: escape 0x%08lx flags 0x%lx", (unsigned long)st, (unsigned long)v);
++   return (unsigned)v;
++}
++
+ /* d3d10umd: the runtime device the API calls of this thread are for (called at the top of its DDIs). */
+ void
+ malikm_select_device(void *hRTDevice)
+diff --git a/src/gallium/frontends/d3d10umd/DxgiFns.cpp b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+index c379d42..b56b3b5 100644
+--- a/src/gallium/frontends/d3d10umd/DxgiFns.cpp
++++ b/src/gallium/frontends/d3d10umd/DxgiFns.cpp
+@@ -200,6 +200,8 @@ gdi_present(struct pipe_context *pipe, struct pipe_resource *res)
+  * ----------------------------------------------------------------------
+  */
+ 
++extern "C" unsigned malikm_kmd_caps(void);   /* exynos-woa G32 (0169): malikm_drm.c */
++
+ HRESULT APIENTRY
+ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
+ {
+@@ -230,10 +232,16 @@ _Present(DXGI_DDI_ARG_PRESENT *pPresentData)
+       struct pipe_fence_handle *fence = NULL;
+       LARGE_INTEGER q0, q1, q2;
+       QueryPerformanceCounter(&q0);
+-      device->pipe->flush(device->pipe, &fence, 0);
+-      if (fence) {
+-         device->pipe->screen->fence_finish(device->pipe->screen, NULL, fence, 100 * 1000 * 1000ull);
+-         device->pipe->screen->fence_reference(device->pipe->screen, &fence, NULL);
++      /* exynos-woa G32 (0169, notes/games-unity.md): with a KMD that copies a present only after every earlier
++       * submission completed (MW_CAPS_DEFERRED_PRESENT), the frame only has to be SUBMITTED before the runtime present
++       * is queued behind it - the flush at the top of _Present did that (threaded context drained, batches submitted).
++       * The wait for the GPU here cost Dave the Diver ~12.5 ms per frame of its render thread. */
++      if (!(malikm_kmd_caps() & 0x1u)) {
++         device->pipe->flush(device->pipe, &fence, 0);
++         if (fence) {
++            device->pipe->screen->fence_finish(device->pipe->screen, NULL, fence, 100 * 1000 * 1000ull);
++            device->pipe->screen->fence_reference(device->pipe->screen, &fence, NULL);
++         }
+       }
+       /* exynos-woa H5 (0063): drawn into its window -> no runtime present. Each redirected present queues a token
+        * for DWM, which never consumes them on this stack: run s1 (5-minute cube) the context stalled behind them

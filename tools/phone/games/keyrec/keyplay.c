@@ -18,6 +18,7 @@
  * if the game's window is not the foreground window, earn foreground rights the documented way (this process sends
  * the last input event: an Alt tap) and SetForegroundWindow() the game's main window. */
 #define KEYPLAY_EXTRA 0x4B455950u
+static ULONGLONG g_last_down;   /* when the last replayed mouse button went down */
 static DWORD g_pid;
 static HWND g_wnd;
 static BOOL CALLBACK FindWnd(HWND h, LPARAM lp)
@@ -115,7 +116,19 @@ int main(int argc, char **argv)
                                (btn[0] == 'L' ? (btn[1] == 'D' ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP)
                                               : (btn[1] == 'D' ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP));
             mi[0].mi.dwExtraInfo = mi[1].mi.dwExtraInfo = KEYPLAY_EXTRA;
-            SendInput(2, mi, sizeof(INPUT));
+            /* Touch taps are recorded with down and up in the same millisecond; replayed like that Unity (~20 fps)
+             * saw press and release inside one frame and ignored the click (davebench run 1, user had to tap). Move
+             * first, let a frame pass, and hold a press for at least 150 ms. */
+            SendInput(1, &mi[0], sizeof(INPUT));
+            Sleep(60);
+            if (btn[1] == 'U') {
+                ULONGLONG held = GetTickCount64() - g_last_down;
+                if (held < 150)
+                    Sleep((DWORD)(150 - held));
+            }
+            SendInput(1, &mi[1], sizeof(INPUT));
+            if (btn[1] == 'D')
+                g_last_down = GetTickCount64();
             sent++;
             continue;
         }

@@ -433,6 +433,15 @@ static void Kick(MW_ADAPTER *A)
     while (!A->Running && A->QCount != 0) {
         MW_SUBMISSION *s = &A->Queue[A->QHead];
 
+        /* G32: its job chains (if any) are done and every earlier submission is complete - the present's CPU copy is
+         * the DPC's (DoPresent is not for interrupt level); nothing later starts before it (in order). */
+        if (s->HasPresent && (s->Next >= s->Count || !A->GpuUp)) {
+            if (!A->PresentAtHead) {
+                A->PresentAtHead = TRUE;
+                A->NeedDpc = TRUE;
+            }
+            break;
+        }
         if (!A->GpuUp || s->Next >= s->Count) {
             NotifyCompleted(A, s->FenceId);
             A->QHead = (A->QHead + 1) % MW_QUEUE_DEPTH;
@@ -815,8 +824,14 @@ NTSTATUS APIENTRY MwSubmitCommand(IN_CONST_HANDLE hAdapter, const DXGKARG_SUBMIT
     /* A present: done here, on the CPU; the submission then carries no
      * job and completes at once. */
     if (!Arg->Flags.Paging && priv != NULL && Arg->DmaBufferPrivateDataSize >= sizeof(*priv) &&
-        priv->Reserved == MW_DMA_MAGIC && priv->Present.Kind != MW_PRESENT_NONE)
-        DoPresent(a, &priv->Present);
+        priv->Reserved == MW_DMA_MAGIC && priv->Present.Kind != MW_PRESENT_NONE) {
+        if (MwDeferPresent) {   /* G32: done in order, by the DPC, once the queue reaches it (Kick, MwPresentDpc) */
+            sub.HasPresent = TRUE;
+            sub.Present = priv->Present;
+        } else {
+            DoPresent(a, &priv->Present);
+        }
+    }
     /* Paging buffers (empty: map/unmap happen on the CPU), presents and
      * anything without our private data carry no jobs. */
     if (!Arg->Flags.Paging && priv != NULL && Arg->DmaBufferPrivateDataSize >= sizeof(*priv) &&
@@ -862,6 +877,7 @@ static BOOLEAN SyncReset(PVOID Context)
     a->Running = FALSE;
     a->QHead = a->QCount = 0;
     a->NeedDpc = FALSE;
+    a->PresentAtHead = FALSE;   /* G32 */
     /* G76: only a GPU half that came up (MkGpuInit set Ready); never in the GpuEnable=0 modes, where Regs may be
      * mapped just to mask the interrupt outputs. */
     if (a->Gpu.Regs != NULL && a->Gpu.Ready && a->Mode == MwModeFullGpu) {
@@ -1013,4 +1029,64 @@ NTSTATUS APIENTRY MwQueryDependentEngineGroup(IN_CONST_HANDLE hAdapter,
     UNREFERENCED_PARAMETER(hAdapter);
     Arg->DependentNodeOrdinalMask = 0;
     return STATUS_SUCCESS;
+}
+
+/* ---- G32 (notes/games-unity.md): deferred presents ----
+ * MwSubmitCommand queues a present with its submission (Parameters\DeferPresent); Kick stops at it once it is the head
+ * of the queue (its own and every earlier job chain done) and asks for the DPC. Here, at DISPATCH_LEVEL like the
+ * vsync latch's DoPresent: take the head's present under the interrupt lock, copy, then complete that submission and
+ * kick the next - only if the same fence is still at the head (a reset in between drops it). Its allocations stay
+ * valid: dxgkrnl keeps a DMA buffer's allocations until its fence completes, which is after the copy. */
+typedef struct {
+    MW_ADAPTER *A;
+    BOOLEAN Have;
+    ULONG Fence;
+    MW_PRESENT_OP Op;
+} MW_PRESENT_TAKE;
+
+static BOOLEAN SyncPresentTake(PVOID Context)
+{
+    MW_PRESENT_TAKE *t = (MW_PRESENT_TAKE *)Context;
+    MW_ADAPTER *a = t->A;
+    t->Have = FALSE;
+    if (a->PresentAtHead && a->QCount != 0 && a->Queue[a->QHead].HasPresent) {
+        t->Fence = a->Queue[a->QHead].FenceId;
+        t->Op = a->Queue[a->QHead].Present;
+        t->Have = TRUE;
+    }
+    return TRUE;
+}
+
+static BOOLEAN SyncPresentDone(PVOID Context)
+{
+    MW_PRESENT_TAKE *t = (MW_PRESENT_TAKE *)Context;
+    MW_ADAPTER *a = t->A;
+    if (a->PresentAtHead && a->QCount != 0 && a->Queue[a->QHead].HasPresent &&
+        a->Queue[a->QHead].FenceId == t->Fence) {
+        a->Queue[a->QHead].HasPresent = FALSE;
+        a->PresentAtHead = FALSE;
+        a->DeferredPresents++;
+        Kick(a);   /* completes it (no job chains left) and starts what follows */
+    }
+    if (a->NeedDpc) {
+        a->NeedDpc = FALSE;
+        a->Dxgk.DxgkCbQueueDpc(a->Dxgk.DeviceHandle);
+    }
+    return TRUE;
+}
+
+void MwPresentDpc(MW_ADAPTER *A)
+{
+    MW_PRESENT_TAKE t;
+    if (!A->PresentAtHead)
+        return;
+    RtlZeroMemory(&t, sizeof(t));
+    t.A = A;
+    (void)Synchronize(A, SyncPresentTake, &t);
+    if (!t.Have)
+        return;
+    DoPresent(A, &t.Op);
+    (void)Synchronize(A, SyncPresentDone, &t);
+    if (A->QCount != 0 && !A->Stopping && InterlockedExchange(&A->PollArmed, 1) == 0)
+        MwArmPoll(A);
 }

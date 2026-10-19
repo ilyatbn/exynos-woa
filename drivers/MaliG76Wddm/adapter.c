@@ -13,6 +13,7 @@
 MW_MODE MwMode = MwModeDisplayOnly;
 ULONG MwSoftVsync = 1;
 ULONG MwFlipBlt = 1;
+ULONG MwDeferPresent = 1;   /* G32 (notes/games-unity.md): 0 = the present copy at SubmitCommand, as before */
 ULONG MwRecommendVidPn = 1;
 ULONG MwSynthEdid = 1;
 ULONG MwSegmentCpuVisible = 1;
@@ -396,6 +397,7 @@ static VOID APIENTRY MwDpcRoutine(IN_CONST_PVOID Context)
 {
     MW_ADAPTER *a = (MW_ADAPTER *)Context;
     InterlockedIncrement(&a->DpcCalls);
+    MwPresentDpc(a);   /* G32: a deferred present at the head of the queue */
     a->Dxgk.DxgkCbNotifyDpc(a->Dxgk.DeviceHandle);
 }
 
@@ -658,6 +660,11 @@ static NTSTATUS APIENTRY MwEscape(IN_CONST_HANDLE hAdapter, const DXGKARG_ESCAPE
         if (Esc->PrivateDriverDataSize < sizeof(MW_ESCAPE_ALLOC_INFO_DATA))
             return STATUS_INVALID_PARAMETER;
         return MwEscapeAllocInfo(a, Esc, (MW_ESCAPE_ALLOC_INFO_DATA *)Esc->pPrivateDriverData);
+    case MW_ESCAPE_CAPS:   /* G32 */
+        if (Esc->PrivateDriverDataSize < sizeof(MW_ESCAPE_CAPS_DATA))
+            return STATUS_INVALID_PARAMETER;
+        ((MW_ESCAPE_CAPS_DATA *)Esc->pPrivateDriverData)->Flags = MwDeferPresent ? MW_CAPS_DEFERRED_PRESENT : 0;
+        return STATUS_SUCCESS;
     case MW_ESCAPE_GPU_INFO:
         if (Esc->PrivateDriverDataSize < sizeof(MW_ESCAPE_GPU_INFO_DATA))
             return STATUS_INVALID_PARAMETER;
@@ -919,6 +926,7 @@ static MW_MODE ReadMode(PUNICODE_STRING RegistryPath, ULONG *PramTrace)
     *PramTrace = ReadParameter(params, L"PramTrace", 1);
     MwSoftVsync = ReadParameter(params, L"SoftVsync", 1) != 0;
     MwFlipBlt = ReadParameter(params, L"FlipBlt", 1) != 0;
+    MwDeferPresent = ReadParameter(params, L"DeferPresent", 1) != 0;
     MwRecommendVidPn = ReadParameter(params, L"RecommendVidPn", 1) != 0;
     MwSynthEdid = ReadParameter(params, L"SynthEdid", 1) != 0;
     MwSegmentCpuVisible = ReadParameter(params, L"SegmentCpuVisible", 1) != 0;

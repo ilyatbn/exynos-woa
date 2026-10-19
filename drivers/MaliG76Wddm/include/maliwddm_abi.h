@@ -58,6 +58,16 @@ typedef struct _MW_COMMAND {
 #define MW_ESCAPE_SCANOUT       4       /* exynos-woa H4a: the scan-out framebuffer in the GPU's address space */
 #define MW_ESCAPE_CLOCK         5       /* exynos-woa: GPU cycle counter + QPC, for a live clock reading */
 #define MW_ESCAPE_PANEL_POWER   6       /* exynos-woa: panel display off / on (DCS 0x28 / 0x29) - the power button */
+#define MW_ESCAPE_CAPS          7       /* exynos-woa G32: what this KMD does (MW_CAPS_*); older KMDs refuse it */
+
+/* exynos-woa G32 (notes/games-unity.md): MW_CAPS_DEFERRED_PRESENT = a present's CPU copy runs once every earlier
+ * submission of the queue has completed (not when SubmitCommand hands it over), so the UMD may queue a present
+ * without waiting for its frame on the GPU. */
+#define MW_CAPS_DEFERRED_PRESENT 0x1u
+typedef struct _MW_ESCAPE_CAPS_DATA {
+    mw_u32 Code;                        /* MW_ESCAPE_CAPS */
+    mw_u32 Flags;                       /* out: MW_CAPS_* */
+} MW_ESCAPE_CAPS_DATA;
 
 typedef struct _MW_ESCAPE_ALLOC_INFO_DATA {
     mw_u32 Code;                        /* MW_ESCAPE_ALLOC_INFO */

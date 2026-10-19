@@ -29,10 +29,10 @@ for i, s in enumerate(segs, 1):
     print('seg%d: %d events, %.1f s' % (i, len(s), (int(s[-1][0]) - int(s[0][0])) / 1000))
 PY
 scp -O -q "$OUT"/dave-seg1.rec "$OUT"/dave-seg2.rec "$OUT"/dave-seg3.rec "$REPO"/tools/phone/games/davebench.ps1 \
-  "$REPO"/tools/phone/games/keyrec/keyplay.exe s10e:C:/S10eTmp/ || exit 1
+  "$REPO"/tools/phone/games/davebench-start.ps1 "$REPO"/tools/phone/games/keyrec/keyplay.exe s10e:C:/S10eTmp/ || exit 1
 ssh s10e 'taskkill /f /im scrnsave.scr >nul 2>&1' < /dev/null
-# detached: a user-session task that only starts the bench process
-ssh s10e 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\S10eTmp\userrun.ps1 -Exe powershell.exe -Args "-NoProfile -ExecutionPolicy Bypass -Command Start-Process powershell.exe -ArgumentList ''-NoProfile -ExecutionPolicy Bypass -File C:\S10eTmp\davebench.ps1''" -Wait 30' < /dev/null > /dev/null
+# detached: a user-session task that only starts the bench process (davebench-start.ps1)
+ssh s10e 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\S10eTmp\userrun.ps1 -Exe powershell.exe -Args "-NoProfile -ExecutionPolicy Bypass -File C:\S10eTmp\davebench-start.ps1" -Wait 30' < /dev/null
 for i in $(seq 1 180); do
   l=$(ssh -o ConnectTimeout=8 s10e 'type C:\S10eTmp\davebench.log' < /dev/null 2>/dev/null | tr -d '\r')
   [ "$l" != "$prev" ] && { echo "$l" | tail -1; prev=$l; }

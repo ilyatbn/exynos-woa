@@ -330,3 +330,9 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   fast-fail 7 crash (unverified: needs the LocalDumps dump). EC build s10e-artifacts\mali-umd-0172-ec 071cf1e3.
 - bot2 (first fully automatic run, EC 0171): title tap (keyplay "fixed 1, failed 1" but it worked) -> loading 49 s ->
   boat -> 2 D steps -> DIVE prompt -> Space -> loading; the route works by state.
+- bot2 = baseline for the automatic route, EC 0171 (traces/games/bench-bot2-0171.*): 2399 frames / 101.9 s, mean
+  23.5 fps, median 41.6 ms, p95 52.9, p99 64.5, max 176.0, 1 % low 10.4 fps, 0.1 % 6.6 fps, 11 frames > 100 ms; swim
+  ticks 10, stuck 0 (diff 5 at two ticks - the < 4 threshold is close, unverified), not-in-water 0. Spikes 110-125 ms
+  with the UMD sections adding to only ~30 ms; one 176 ms = DrawIndexed:ResolveState 88 + CreatePixelShader 35 (shader
+  compile at first use).
+- EC 0172 071cf1e3 live (ecswap; prev e2eee16d = .pre-0172-0); d3dmrt64x 7/7, d3dbc64x lossy 0/126 PASS. bot3 started.

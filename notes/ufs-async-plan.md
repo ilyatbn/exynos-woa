@@ -89,3 +89,14 @@ before stage 4. Interrupt completion frees the CPU but does not lower QD1 latenc
   edgehtml 0855A9E8B67145EC, mshtml 4D5CF1DA5D9145A1, Windows.UI.Xaml C268FA69C99CF44B, ntoskrnl 6B97225E78F9EB50,
   shell32 3D45B4D59F8D0DB8, Brave chrome.dll C40B133551FC72EA.
 - diskbench on w38 is noisy run to run (64 KiB 630 vs 1290 us, 1 MiB 20 vs 8.4 ms) -> compare medians of 3+ runs.
+- **w39 VALIDATED on device (2026-10-19 ~14:10)**: deployed from TWRP with sys-deploy.sh (w38 kept as sys-prev),
+  firmware boot-host-r2-wdt.img for the first boot (hang -> watchdog -> death counter -> mode 0 next boot).
+  Windows up in 66 s. hashcheck identical to the w38 baseline (6 files x 3 request sizes, fc: no differences).
+  diskbench x3: 4 KiB seq 236 / 195 / 196 us (w38 303-331), rand 4 KiB QD1 3425 / 4882 / 5035 IOPS (w38 3288-3579,
+  avg 0.19-0.20 ms vs 0.28-0.30), 64 KiB ~1.23 ms and 1 MiB ~19 ms (unchanged, inside the w38 run-to-run range
+  0.63-1.29 ms / 8.4-20 ms - large requests are dominated by copy-back and vary by run; which core runs the copy is
+  an inferred cause).
+  Steam (launchtime.ps1): first start after reboot window 42 s / idle 64 s; warm: window 1.2 s / idle 33.5 s with
+  121 k disk reads (w38 warm: idle 49.8 s, 138 k reads) -> ~-33 %.
+- Next: per-command latency (~195 us vs device ~100 us: 6 precondition MMIO reads, NEXUS write+readback, IS ack,
+  10 us poll stalls), then stage 3 (interrupts; needs the DSDT GSIV 274 change, driver first) for depth > 1.

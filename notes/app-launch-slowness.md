@@ -44,3 +44,5 @@
   [12] of the page at 0x8FE0F000 ('DE' << 16 | n, cleared by a clean OS restart / cold power-on;
   Beyond0LteBootLogDxe.c:743-756), and the UFS driver already maps that page (UfsBringupProgress, Exynos9820Ufs.c:8284).
   New-path gate: (Progress[12] >> 16) == 0x4445 -> previous boot died -> use the proven path this boot.
+- UFS w39 (notes/ufs-async-plan.md): 4 KiB reads 300 -> 195 us, Steam warm start idle 49.8 -> 33.5 s, data
+  integrity verified (hashcheck). Large reads unchanged so far.

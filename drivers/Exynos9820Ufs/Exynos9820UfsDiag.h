@@ -27,7 +27,7 @@
  * word [12] at 0x8FE0F000 ('DE' << 16 | n, cleared by a clean OS restart or a cold power-on).
  */
 #ifndef UFS_IO_MODE_DEFAULT
-#define UFS_IO_MODE_DEFAULT                        0x1FUL
+#define UFS_IO_MODE_DEFAULT                        0x3FUL
 #endif
 #define UFS_IO_FAST_ZERO                           0x1UL
 #define UFS_IO_FULL_DUPLEX                         0x2UL
@@ -60,6 +60,17 @@
  * transfer completion, IE_AFTER_ISR = the armed IE value.
  */
 #define UFS_IO_IRQ_OBSERVE                         0x10UL
+/*
+ * UFS_IO_ASYNC (w44, stage 3b): once the ISR has seen UFS_ASYNC_PROVE_IRQS transfer completions (the line is proven
+ * for this boot), StartIo rings the doorbell and returns without completing; the ISR queues the completion DPC,
+ * which (under the StartIo lock) runs exactly the post-poll path of the synchronous code (UfsFinishIssuedCommand)
+ * and completes the SRB. A StorPort extended timer re-checks every UFS_ASYNC_TIMER_US as a backstop for a lost
+ * interrupt; the 5 s containment of the polled path still applies. If the backstop has to complete more than
+ * 1/8 of the commands, async is switched off for the rest of the boot (back to polling).
+ */
+#define UFS_IO_ASYNC                               0x20UL
+#define UFS_ASYNC_PROVE_IRQS                       16L
+#define UFS_ASYNC_TIMER_US                         2000UL
 #define UFS_IRQ_ARMED_ENABLE                       (UFS_INTERRUPT_TRANSFER_COMPLETION | UFS_INTERRUPT_STATUS_FATAL_MASK)
 #define UFS_LARGE_TRANSFER_LENGTH                  (256UL * 1024UL)
 #define UFS_LARGE_PRDT_ENTRIES                     (UFS_LARGE_TRANSFER_LENGTH / 4096UL)

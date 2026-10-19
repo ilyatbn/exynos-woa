@@ -1791,6 +1791,17 @@ typedef struct _UFS_ADAPTER_EXTENSION {
     volatile LONG IsrLatchedStatus;   /* w43: IS bits the ISR acknowledged, merged by UfsAcknowledgeInterruptStatus */
     volatile LONG IsrTransferCompletions;   /* w43: ISR invocations that saw UTRCS */
     ULONG ArmedInterruptEnable;       /* w43: IE value the command path expects (0 = gated, as before) */
+    STOR_DPC CompletionDpc;           /* w44: async completion DPC (passive init) */
+    PVOID AsyncTimer;                 /* w44: extended backstop timer (passive init) */
+    volatile BOOLEAN AsyncReady;      /* w44: DPC + timer initialised */
+    BOOLEAN AsyncDisabled;            /* w44: sticky off for this boot (too many backstop completions) */
+    PSCSI_REQUEST_BLOCK PendingSrb;   /* w44: the issued, not yet completed command (StartIo lock) */
+    UFS_COMMAND_DIRECTION PendingDirection;
+    ULONG PendingDataLength;
+    ULONGLONG PendingDoorbellTick;
+    ULONGLONG PendingStart100ns;
+    ULONG AsyncIssued;
+    ULONG AsyncTimerCompletions;
     UFS_DIAGNOSTIC_DATA Diagnostic;
 
     /*

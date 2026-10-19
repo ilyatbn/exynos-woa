@@ -12,6 +12,8 @@ static BOOLEAN UfsBugcheckCallbackRegistered = FALSE;
 static UCHAR UfsBugcheckComponent[] = "Exynos9820Ufs";
 
 static ULONG UfsIoMode;   // UFS_IO_* bits for this boot (set in DriverEntry; 0 after a failed boot)
+static HW_TIMER_EX UfsAsyncTimer;   // w44 backstop (defined before UfsHwStartIo)
+static BOOLEAN UfsHwPassiveInitialize(_In_ PVOID DeviceExtension);   // w44 (defined before UfsHwStartIo)
 
 static
 VOID
@@ -6436,6 +6438,28 @@ UfsBuildCommand(
 
 static
 BOOLEAN
+UfsTransferDone(
+    _Inout_ PUFS_ADAPTER_EXTENSION Adapter
+    )
+{
+    ULONG Ocs;
+
+    if ((UfsReadRegister(Adapter, UFS_REG_UTRL_DOORBELL) & UFS_TRANSFER_SLOT_MASK) == 0) {
+        KeMemoryBarrier();
+        return TRUE;
+    }
+    Ocs = *(volatile ULONG *)((PUCHAR)&Adapter->Utrl[UFS_TRANSFER_SLOT] + 8) & 0xFFUL;
+    if (Ocs != UFS_TRD_OCS_INITIAL) {   // W27: completed but doorbell not cleared -> retire via UTRLCLR
+        KeMemoryBarrier();
+        UfsWriteRegister(Adapter, UFS_REG_UTRL_LIST_CLEAR, UFS_TRANSFER_SLOT_MASK);
+        KeMemoryBarrier();
+        return TRUE;
+    }
+    return FALSE;
+}
+
+static
+BOOLEAN
 UfsPollForCompletion(
     _Inout_ PUFS_ADAPTER_EXTENSION Adapter
     )
@@ -7399,6 +7423,228 @@ UfsFinishScsiCommand(
     return SRB_STATUS_SUCCESS;
 }
 
+//
+// w44: everything the synchronous path does after the controller completed the command (doorbell retired), so the
+// polled path and the async completion DPC run the very same code.
+//
+static
+UCHAR
+UfsFinishIssuedCommand(
+    _Inout_ PUFS_ADAPTER_EXTENSION Adapter,
+    _Inout_ PSCSI_REQUEST_BLOCK Srb,
+    _In_ UFS_COMMAND_DIRECTION Direction,
+    _In_ ULONG DataLength,
+    _In_ ULONGLONG PerfDoorbell
+    )
+{
+    BOOLEAN ProtocolFailure = FALSE;
+    UCHAR SrbStatus;
+
+    UNREFERENCED_PARAMETER(DataLength);
+    UNREFERENCED_PARAMETER(PerfDoorbell);
+
+    if (Direction == UfsCommandDataOut) {
+        UfsPramSetPhase(Adapter, UFS_PHASE_LIVE_POLLED);
+    }
+
+#if UFS_PERF_INSTRUMENTATION
+    {
+        ULONGLONG Elapsed = UfsPerfTick() - PerfDoorbell;
+
+        Adapter->PerfDeviceTicks += Elapsed;
+        if (Elapsed > Adapter->PerfMaxDeviceTicks) {
+            Adapter->PerfMaxDeviceTicks = Elapsed;
+        }
+    }
+#endif
+
+    if (!UfsAcknowledgeInterruptStatus(Adapter)) {
+        Adapter->FailedCommands++;
+        if (Direction == UfsCommandNoData) {
+            UfsPramFlushComplete(Adapter, FALSE);
+        }
+        //
+        // Freeze the transfer descriptor's OCS at the moment the acknowledge
+        // rejected the command. UfsFinishScsiCommand is what normally updates
+        // LastOcs, and it is precisely the function that does NOT run on this
+        // path - so without this the record carries the OCS of the PREVIOUS,
+        // successful command and reads as a healthy transfer. That stale value
+        // is what made the 2-block and 4-block reads look like they returned
+        // OCS=0: the doorbell had already cleared, so the controller really did
+        // finish, and the only unknown left is whether the descriptor agreed.
+        //
+        Adapter->AckFailureOcs =
+            (ULONG)(Adapter->Utrl[UFS_TRANSFER_SLOT].Dw2 & 0xFFU);
+        //
+        // Capture what the controller actually deposited BEFORE giving up on
+        // this command. UfsFinishScsiCommand normally does this and is skipped
+        // here, so without it DIN/DINLEN/NZBLK still describe the previous,
+        // successful command and the failed transfer reads as healthy.
+        //
+        // This is the measurement that decides the next move in one flash cycle
+        // instead of two: if NZBLK shows every granule delivered, the DMA
+        // worked and only the interrupt-status handling is wrong; if it shows
+        // nothing landed, the transfer genuinely failed. DataTransferLength is
+        // the requested length rather than a residual-adjusted one, which is
+        // correct here precisely because the response UPIU was never parsed.
+        //
+        UfsCaptureBounceEvidence(Adapter, Srb->DataTransferLength);
+        UfsContainController(
+            Adapter,
+            UFS_DIAG_FAILURE_INTERRUPT_STATUS
+            );
+        return SRB_STATUS_ERROR;
+    }
+
+    Adapter->CompletedCommands++;
+    if (Direction == UfsCommandDataOut) {
+        UfsPramSetPhase(Adapter, UFS_PHASE_LIVE_ACKED);
+    }
+    SrbStatus = UfsFinishScsiCommand(
+        Adapter,
+        Srb,
+        &ProtocolFailure
+        );
+    if (Direction == UfsCommandDataOut) {
+        UfsPramSetPhase(Adapter, UFS_PHASE_LIVE_FINISHED);
+    }
+    if (Direction == UfsCommandNoData) {
+        UfsPramFlushComplete(
+            Adapter,
+            (BOOLEAN)(SrbStatus == SRB_STATUS_SUCCESS)
+            );
+    }
+    if (SrbStatus != SRB_STATUS_SUCCESS) {
+        Adapter->FailedCommands++;
+        Adapter->Diagnostic.ConsecutiveFailures++;
+        if (Adapter->Diagnostic.ConsecutiveFailures >
+            Adapter->Diagnostic.MaxConsecutiveFailures) {
+            Adapter->Diagnostic.MaxConsecutiveFailures =
+                Adapter->Diagnostic.ConsecutiveFailures;
+        }
+    } else {
+        /*
+         * A completed command proves the list, the descriptor, the doorbell and
+         * the device are all working right now, so forgive the re-arm budget.
+         * Without this the budget is a lifetime allowance and any long-running
+         * boot eventually spends it.
+         */
+        Adapter->Diagnostic.ConsecutiveFailures = 0;
+        Adapter->RearmAttempts = 0;
+
+        /*
+         * Layer 6: a live write is not finished until it has been read back.
+         *
+         * The device reporting GOOD only says it accepted the command; it says
+         * nothing about where the DMA actually landed. On this controller that
+         * distinction is the difference between a recoverable mistake and an
+         * unrecoverable one, so pay for a second command and check.
+         *
+         * A verify failure is reported to Windows as an error even though the
+         * write itself "succeeded", because from the caller's point of view the
+         * data is not where it asked for it to be - and silently reporting
+         * success would be the one outcome that could corrupt a filesystem
+         * without leaving a trace.
+         */
+        if (Direction == UfsCommandDataOut) {
+#if UFS_FULL_WINDOWS_MODE
+            /*
+             * Layer 6 is OFF for a real installation, for two reasons.
+             *
+             * Correctness first: this is the largest block of code in the
+             * driver that had never executed on hardware. It issues a SECOND
+             * complete SCSI command from inside the dispatcher - reprogramming
+             * the UTRL, the UCD and the PRDT, re-ringing the doorbell and
+             * re-polling - while the caller's write is still in flight. Every
+             * write Windows issues would run it, so any fault in it is a fault
+             * on the very first write. Boot 2 bugchecked on exactly that write,
+             * and this is the only untested code on the path.
+             *
+             * Cost second: it doubles every write on a miniport that is already
+             * single-slot, half-duplex, MaxNumberOfIO=1 and polling-completion,
+             * and it compares the read-back a byte at a time through an uncached
+             * mapping. A full Windows boot cannot afford that.
+             *
+             * The protection it provided is not lost, only relocated: the write
+             * fence and the two protected-partition ranges still refuse every
+             * LBA outside the Windows volume and the ESP, and a misplaced write
+             * inside those two is recoverable by re-staging the image. Landing
+             * is confirmed out-of-band instead - the finalize script's probe
+             * file and bcdboot's own output are read back from TWRP, which
+             * proves placement without a kernel-mode read-back on every I/O.
+             */
+            Adapter->WritesVerified++;
+            Adapter->LastWriteResult = UFS_EXEC_REJECT_NONE;
+            UfsPramSetPhase(Adapter, UFS_PHASE_LIVE_VERIFIED);
+#else
+            if (UfsVerifyWrittenBlocks(
+                    Adapter,
+                    Adapter->LastWriteLba,
+                    Adapter->LastWriteBlocks,
+                    Srb->DataBuffer,
+                    DataLength)) {
+                Adapter->WritesVerified++;
+                Adapter->LastWriteResult = UFS_EXEC_REJECT_NONE;
+            } else {
+                Adapter->WriteVerifyFailures++;
+                Adapter->LastWriteResult = UFS_EXEC_REJECT_WRITE_VERIFY;
+                UfsSetDiagnosticFailure(Adapter, UFS_DIAG_FAILURE_WRITE_VERIFY);
+                SrbStatus = SRB_STATUS_ERROR;
+            }
+#endif
+            UfsPramWriteTrail(Adapter);
+            UfsPramSetPhase(Adapter, UFS_PHASE_LIVE_COMPLETE);
+#if UFS_FULL_WINDOWS_MODE
+            /*
+             * Windows keeps the miniport armed for the lifetime of the OS, so it
+             * never sends the diagnostic DISARM CDB that closes the probe latch.
+             * A successful write is the full-Windows completion boundary: close
+             * it here, and let the next write re-arm it before touching hardware.
+             * Keep LIVE_COMPLETE adjacent to this close; initialization relies on
+             * that phase to recover old builds that omitted the completion bit.
+             */
+            UfsPramLatchComplete(Adapter);
+#endif
+        }
+    }
+
+    /*
+     * ProtocolFailure deliberately no longer contains the controller.
+     *
+     * Containment stops our list and hands the base register back to the
+     * firmware's; the next command then stops, rebases, restarts and rings
+     * again. V14 showed that churn is not a recovery, it is the failure mode:
+     * across the whole boot the ONLY failure bits set were TRANSFER_LENGTH,
+     * RESPONSE_FRAMING and REARM_EXHAUSTED - no timeout, no precondition
+     * mismatch, no nexus mismatch, no fatal interrupt status - so every
+     * containment was triggered by a malformed response and every one of them
+     * succeeded in re-arming afterwards. Seventeen containments against a
+     * sixteen-attempt budget is what killed the adapter.
+     *
+     * A malformed response UPIU says nothing about the state of the transfer
+     * list, so treat it as what it is: this command failed. List integrity is
+     * still enforced independently, and more strictly, by the precondition
+     * block above, which re-reads UTRLBA/RUNSTOP/DOORBELL/IE before every
+     * single command and does contain on genuine drift. Read-only enforcement
+     * is unaffected either way - that lives in UfsClassifyCdb's allowlist.
+     */
+    UNREFERENCED_PARAMETER(ProtocolFailure);
+
+    if ((UfsIoMode & UFS_IO_FAST_ZERO) == 0) {   // fast mode clears what the next command uses before it is built
+        UfsZeroUncached(Adapter->Utrl, UFS_UTRL_REGION_SIZE);
+        UfsZeroUncached(Adapter->Ucd, Adapter->UcdRegionSize);
+    }
+    /*
+     * Do not clear the bounce here. The next data-in command zeroes its entire
+     * submitted range before DMA, and the next data-out command overwrites its
+     * entire submitted range before the doorbell. Clearing it after completion
+     * therefore adds uncached writes to every I/O without changing what the
+     * controller or caller can observe.
+     */
+    KeMemoryBarrier();
+    return SrbStatus;
+}
+
 static
 UCHAR
 UfsExecuteScsi(
@@ -7408,7 +7654,6 @@ UfsExecuteScsi(
 {
     UFS_COMMAND_DIRECTION Direction;
     BOOLEAN CompleteLocally;
-    BOOLEAN ProtocolFailure;
     ULONG Nexus;
     ULONG DataLength;
     /*
@@ -7418,7 +7663,6 @@ UfsExecuteScsi(
      */
     ULONG ClassifyReject = UFS_EXEC_REJECT_CLASSIFY;
     ULONGLONG ClassifyFailure = 0ULL;
-    UCHAR SrbStatus;
     /*
      * V33: doorbell timestamp. Zero-initialised because the many early returns
      * above the doorbell never reach the paired read, and /W4 /WX would
@@ -8109,6 +8353,14 @@ UfsExecuteScsi(
         UfsPramFlushBegin(Adapter);
     }
 
+    //
+    // w44: async only once the interrupt is proven for this boot (UFS_ASYNC_PROVE_IRQS completions seen by the ISR).
+    //
+    if (((UfsIoMode & UFS_IO_ASYNC) != 0) && Adapter->AsyncReady && !Adapter->AsyncDisabled &&
+        (Adapter->ArmedInterruptEnable != 0) && (Adapter->IsrTransferCompletions >= UFS_ASYNC_PROVE_IRQS)) {
+        Adapter->PendingSrb = Srb;
+    }
+
     UfsWriteRegister(
         Adapter,
         UFS_REG_UTRL_DOORBELL,
@@ -8130,6 +8382,18 @@ UfsExecuteScsi(
 #if UFS_PERF_INSTRUMENTATION
     PerfDoorbell = UfsPerfTick();
 #endif
+    if (Adapter->PendingSrb == Srb) {
+        //
+        // w44 async: the completion DPC (or the backstop timer) finishes this command; StartIo returns pending.
+        //
+        Adapter->PendingDirection = Direction;
+        Adapter->PendingDataLength = DataLength;
+        Adapter->PendingDoorbellTick = PerfDoorbell;
+        Adapter->PendingStart100ns = KeQueryInterruptTime();
+        Adapter->AsyncIssued++;
+        (VOID)StorPortRequestTimer(Adapter, Adapter->AsyncTimer, UfsAsyncTimer, NULL, UFS_ASYNC_TIMER_US, 0);
+        return SRB_STATUS_PENDING;
+    }
     if (!UfsPollForCompletion(Adapter)) {
         Adapter->FailedCommands++;
         if (Direction == UfsCommandNoData) {
@@ -8142,206 +8406,7 @@ UfsExecuteScsi(
         return SRB_STATUS_TIMEOUT;
     }
 
-    if (Direction == UfsCommandDataOut) {
-        UfsPramSetPhase(Adapter, UFS_PHASE_LIVE_POLLED);
-    }
-
-#if UFS_PERF_INSTRUMENTATION
-    {
-        ULONGLONG Elapsed = UfsPerfTick() - PerfDoorbell;
-
-        Adapter->PerfDeviceTicks += Elapsed;
-        if (Elapsed > Adapter->PerfMaxDeviceTicks) {
-            Adapter->PerfMaxDeviceTicks = Elapsed;
-        }
-    }
-#endif
-
-    if (!UfsAcknowledgeInterruptStatus(Adapter)) {
-        Adapter->FailedCommands++;
-        if (Direction == UfsCommandNoData) {
-            UfsPramFlushComplete(Adapter, FALSE);
-        }
-        //
-        // Freeze the transfer descriptor's OCS at the moment the acknowledge
-        // rejected the command. UfsFinishScsiCommand is what normally updates
-        // LastOcs, and it is precisely the function that does NOT run on this
-        // path - so without this the record carries the OCS of the PREVIOUS,
-        // successful command and reads as a healthy transfer. That stale value
-        // is what made the 2-block and 4-block reads look like they returned
-        // OCS=0: the doorbell had already cleared, so the controller really did
-        // finish, and the only unknown left is whether the descriptor agreed.
-        //
-        Adapter->AckFailureOcs =
-            (ULONG)(Adapter->Utrl[UFS_TRANSFER_SLOT].Dw2 & 0xFFU);
-        //
-        // Capture what the controller actually deposited BEFORE giving up on
-        // this command. UfsFinishScsiCommand normally does this and is skipped
-        // here, so without it DIN/DINLEN/NZBLK still describe the previous,
-        // successful command and the failed transfer reads as healthy.
-        //
-        // This is the measurement that decides the next move in one flash cycle
-        // instead of two: if NZBLK shows every granule delivered, the DMA
-        // worked and only the interrupt-status handling is wrong; if it shows
-        // nothing landed, the transfer genuinely failed. DataTransferLength is
-        // the requested length rather than a residual-adjusted one, which is
-        // correct here precisely because the response UPIU was never parsed.
-        //
-        UfsCaptureBounceEvidence(Adapter, Srb->DataTransferLength);
-        UfsContainController(
-            Adapter,
-            UFS_DIAG_FAILURE_INTERRUPT_STATUS
-            );
-        return SRB_STATUS_ERROR;
-    }
-
-    Adapter->CompletedCommands++;
-    if (Direction == UfsCommandDataOut) {
-        UfsPramSetPhase(Adapter, UFS_PHASE_LIVE_ACKED);
-    }
-    SrbStatus = UfsFinishScsiCommand(
-        Adapter,
-        Srb,
-        &ProtocolFailure
-        );
-    if (Direction == UfsCommandDataOut) {
-        UfsPramSetPhase(Adapter, UFS_PHASE_LIVE_FINISHED);
-    }
-    if (Direction == UfsCommandNoData) {
-        UfsPramFlushComplete(
-            Adapter,
-            (BOOLEAN)(SrbStatus == SRB_STATUS_SUCCESS)
-            );
-    }
-    if (SrbStatus != SRB_STATUS_SUCCESS) {
-        Adapter->FailedCommands++;
-        Adapter->Diagnostic.ConsecutiveFailures++;
-        if (Adapter->Diagnostic.ConsecutiveFailures >
-            Adapter->Diagnostic.MaxConsecutiveFailures) {
-            Adapter->Diagnostic.MaxConsecutiveFailures =
-                Adapter->Diagnostic.ConsecutiveFailures;
-        }
-    } else {
-        /*
-         * A completed command proves the list, the descriptor, the doorbell and
-         * the device are all working right now, so forgive the re-arm budget.
-         * Without this the budget is a lifetime allowance and any long-running
-         * boot eventually spends it.
-         */
-        Adapter->Diagnostic.ConsecutiveFailures = 0;
-        Adapter->RearmAttempts = 0;
-
-        /*
-         * Layer 6: a live write is not finished until it has been read back.
-         *
-         * The device reporting GOOD only says it accepted the command; it says
-         * nothing about where the DMA actually landed. On this controller that
-         * distinction is the difference between a recoverable mistake and an
-         * unrecoverable one, so pay for a second command and check.
-         *
-         * A verify failure is reported to Windows as an error even though the
-         * write itself "succeeded", because from the caller's point of view the
-         * data is not where it asked for it to be - and silently reporting
-         * success would be the one outcome that could corrupt a filesystem
-         * without leaving a trace.
-         */
-        if (Direction == UfsCommandDataOut) {
-#if UFS_FULL_WINDOWS_MODE
-            /*
-             * Layer 6 is OFF for a real installation, for two reasons.
-             *
-             * Correctness first: this is the largest block of code in the
-             * driver that had never executed on hardware. It issues a SECOND
-             * complete SCSI command from inside the dispatcher - reprogramming
-             * the UTRL, the UCD and the PRDT, re-ringing the doorbell and
-             * re-polling - while the caller's write is still in flight. Every
-             * write Windows issues would run it, so any fault in it is a fault
-             * on the very first write. Boot 2 bugchecked on exactly that write,
-             * and this is the only untested code on the path.
-             *
-             * Cost second: it doubles every write on a miniport that is already
-             * single-slot, half-duplex, MaxNumberOfIO=1 and polling-completion,
-             * and it compares the read-back a byte at a time through an uncached
-             * mapping. A full Windows boot cannot afford that.
-             *
-             * The protection it provided is not lost, only relocated: the write
-             * fence and the two protected-partition ranges still refuse every
-             * LBA outside the Windows volume and the ESP, and a misplaced write
-             * inside those two is recoverable by re-staging the image. Landing
-             * is confirmed out-of-band instead - the finalize script's probe
-             * file and bcdboot's own output are read back from TWRP, which
-             * proves placement without a kernel-mode read-back on every I/O.
-             */
-            Adapter->WritesVerified++;
-            Adapter->LastWriteResult = UFS_EXEC_REJECT_NONE;
-            UfsPramSetPhase(Adapter, UFS_PHASE_LIVE_VERIFIED);
-#else
-            if (UfsVerifyWrittenBlocks(
-                    Adapter,
-                    Adapter->LastWriteLba,
-                    Adapter->LastWriteBlocks,
-                    Srb->DataBuffer,
-                    DataLength)) {
-                Adapter->WritesVerified++;
-                Adapter->LastWriteResult = UFS_EXEC_REJECT_NONE;
-            } else {
-                Adapter->WriteVerifyFailures++;
-                Adapter->LastWriteResult = UFS_EXEC_REJECT_WRITE_VERIFY;
-                UfsSetDiagnosticFailure(Adapter, UFS_DIAG_FAILURE_WRITE_VERIFY);
-                SrbStatus = SRB_STATUS_ERROR;
-            }
-#endif
-            UfsPramWriteTrail(Adapter);
-            UfsPramSetPhase(Adapter, UFS_PHASE_LIVE_COMPLETE);
-#if UFS_FULL_WINDOWS_MODE
-            /*
-             * Windows keeps the miniport armed for the lifetime of the OS, so it
-             * never sends the diagnostic DISARM CDB that closes the probe latch.
-             * A successful write is the full-Windows completion boundary: close
-             * it here, and let the next write re-arm it before touching hardware.
-             * Keep LIVE_COMPLETE adjacent to this close; initialization relies on
-             * that phase to recover old builds that omitted the completion bit.
-             */
-            UfsPramLatchComplete(Adapter);
-#endif
-        }
-    }
-
-    /*
-     * ProtocolFailure deliberately no longer contains the controller.
-     *
-     * Containment stops our list and hands the base register back to the
-     * firmware's; the next command then stops, rebases, restarts and rings
-     * again. V14 showed that churn is not a recovery, it is the failure mode:
-     * across the whole boot the ONLY failure bits set were TRANSFER_LENGTH,
-     * RESPONSE_FRAMING and REARM_EXHAUSTED - no timeout, no precondition
-     * mismatch, no nexus mismatch, no fatal interrupt status - so every
-     * containment was triggered by a malformed response and every one of them
-     * succeeded in re-arming afterwards. Seventeen containments against a
-     * sixteen-attempt budget is what killed the adapter.
-     *
-     * A malformed response UPIU says nothing about the state of the transfer
-     * list, so treat it as what it is: this command failed. List integrity is
-     * still enforced independently, and more strictly, by the precondition
-     * block above, which re-reads UTRLBA/RUNSTOP/DOORBELL/IE before every
-     * single command and does contain on genuine drift. Read-only enforcement
-     * is unaffected either way - that lives in UfsClassifyCdb's allowlist.
-     */
-    UNREFERENCED_PARAMETER(ProtocolFailure);
-
-    if ((UfsIoMode & UFS_IO_FAST_ZERO) == 0) {   // fast mode clears what the next command uses before it is built
-        UfsZeroUncached(Adapter->Utrl, UFS_UTRL_REGION_SIZE);
-        UfsZeroUncached(Adapter->Ucd, Adapter->UcdRegionSize);
-    }
-    /*
-     * Do not clear the bounce here. The next data-in command zeroes its entire
-     * submitted range before DMA, and the next data-out command overwrites its
-     * entire submitted range before the doorbell. Clearing it after completion
-     * therefore adds uncached writes to every I/O without changing what the
-     * controller or caller can observe.
-     */
-    KeMemoryBarrier();
-    return SrbStatus;
+    return UfsFinishIssuedCommand(Adapter, Srb, Direction, DataLength, PerfDoorbell);
 }
 
 static
@@ -9306,7 +9371,124 @@ UfsHwInitialize(
 #endif
 #endif
 
+    if (Result && ((UfsIoMode & UFS_IO_ASYNC) != 0)) {
+        (VOID)StorPortEnablePassiveInitialization(Adapter, UfsHwPassiveInitialize);   // w44: DPC + backstop timer
+    }
     return Result;
+}
+
+//
+// w44 async completion. Called from the completion DPC and the backstop timer; takes the StartIo lock (allowed for
+// HwStorDpcRoutine; MS Learn StorPortAcquireSpinLock lock table) so it is serialised with StartIo and ResetBus.
+//
+static
+VOID
+UfsAsyncReap(
+    _Inout_ PUFS_ADAPTER_EXTENSION Adapter,
+    _In_ BOOLEAN FromTimer
+    )
+{
+    STOR_LOCK_HANDLE Lock;
+    PSCSI_REQUEST_BLOCK Srb;
+    UCHAR SrbStatus;
+
+    StorPortAcquireSpinLock(Adapter, StartIoLock, NULL, &Lock);
+    Srb = Adapter->PendingSrb;
+    if (Srb == NULL) {
+        StorPortReleaseSpinLock(Adapter, &Lock);
+        return;
+    }
+
+    if (!UfsTransferDone(Adapter)) {
+        if ((KeQueryInterruptTime() - Adapter->PendingStart100ns) > ((ULONGLONG)UFS_TRANSFER_TIMEOUT_US * 10ULL)) {
+            Adapter->PendingSrb = NULL;
+            Adapter->FailedCommands++;
+            if (Adapter->PendingDirection == UfsCommandNoData) {
+                UfsPramFlushComplete(Adapter, FALSE);
+            }
+            UfsContainController(Adapter, UFS_DIAG_FAILURE_TIMEOUT_CONTAINMENT);
+            StorPortReleaseSpinLock(Adapter, &Lock);
+            UfsCompleteRequest(Adapter, Srb, SRB_STATUS_TIMEOUT);
+            return;
+        }
+        (VOID)StorPortRequestTimer(Adapter, Adapter->AsyncTimer, UfsAsyncTimer, NULL, UFS_ASYNC_TIMER_US, 0);
+        StorPortReleaseSpinLock(Adapter, &Lock);
+        return;
+    }
+
+    Adapter->PendingSrb = NULL;
+    if (FromTimer) {
+        Adapter->AsyncTimerCompletions++;
+        if ((Adapter->AsyncTimerCompletions > 64UL) &&
+            (Adapter->AsyncTimerCompletions > (Adapter->AsyncIssued / 8UL))) {
+            Adapter->AsyncDisabled = TRUE;   // interrupts are not reliable this boot: poll again
+            UfsEarlyMark("=ASYNC off issued/timer", ((ULONGLONG)Adapter->AsyncIssued << 32) | Adapter->AsyncTimerCompletions);
+        }
+    }
+    SrbStatus = UfsFinishIssuedCommand(Adapter, Srb, Adapter->PendingDirection, Adapter->PendingDataLength,
+                                       Adapter->PendingDoorbellTick);
+    if (SrbStatus == SRB_STATUS_SUCCESS) {
+        if ((Srb->Cdb[0] == 0x2A) || (Srb->Cdb[0] == 0x8A)) {
+            UfsBringupLastWrite100ns = KeQueryInterruptTime();
+        }
+        UfsPetBringupWatchdog();
+    }
+    StorPortReleaseSpinLock(Adapter, &Lock);
+    UfsCompleteRequest(Adapter, Srb, SrbStatus);
+}
+
+static
+VOID
+UfsCompletionDpc(
+    _In_ PSTOR_DPC Dpc,
+    _In_ PVOID DeviceExtension,
+    _In_opt_ PVOID SystemArgument1,
+    _In_opt_ PVOID SystemArgument2
+    )
+{
+    UNREFERENCED_PARAMETER(Dpc);
+    UNREFERENCED_PARAMETER(SystemArgument2);
+    UfsAsyncReap((PUFS_ADAPTER_EXTENSION)DeviceExtension, (BOOLEAN)(SystemArgument1 != NULL));   // non-NULL = timer
+}
+
+static
+VOID
+UfsAsyncTimer(
+    _In_ PVOID DeviceExtension,
+    _In_opt_ PVOID Context
+    )
+{
+    PUFS_ADAPTER_EXTENSION Adapter = (PUFS_ADAPTER_EXTENSION)DeviceExtension;
+
+    UNREFERENCED_PARAMETER(Context);
+    //
+    // w44b: only queue the DPC. Whether StorPort holds the StartIo lock around an extended-timer callback is not
+    // documented (MS Learn StorPortRequestTimer gives no lock table); the legacy HwStorTimer DOES hold it, and
+    // acquiring it again here would be a recursive spin-lock acquire (w44's first async boot died). The DPC holds
+    // no StorPort lock (lock table: HwStorDpcRoutine "None"), so it alone takes the StartIo lock.
+    //
+    (VOID)StorPortIssueDpc(Adapter, &Adapter->CompletionDpc, (PVOID)(ULONG_PTR)1, NULL);
+}
+
+//
+// w44: StorPortInitializeDpc "must be called during HBA initialization from within the miniport driver's
+// HwStorPassiveInitializeRoutine" (MS Learn); the extended timer is created here too.
+//
+static
+BOOLEAN
+UfsHwPassiveInitialize(
+    _In_ PVOID DeviceExtension
+    )
+{
+    PUFS_ADAPTER_EXTENSION Adapter = (PUFS_ADAPTER_EXTENSION)DeviceExtension;
+
+    StorPortInitializeDpc(Adapter, &Adapter->CompletionDpc, UfsCompletionDpc);
+    if (StorPortInitializeTimer(Adapter, &Adapter->AsyncTimer) == STOR_STATUS_SUCCESS) {
+        KeMemoryBarrier();
+        Adapter->AsyncReady = TRUE;
+    }
+    UfsEarlyMark("=ASYNC ready", Adapter->AsyncReady);
+    return TRUE;
 }
 
 BOOLEAN
@@ -9404,6 +9586,10 @@ UfsHwStartIo(
         break;
     }
 
+    if ((SrbStatus == SRB_STATUS_PENDING) && (Srb->Function == SRB_FUNCTION_EXECUTE_SCSI) &&
+        (Adapter->PendingSrb == Srb)) {
+        return TRUE;   // w44: completed by UfsAsyncReap (DPC / backstop timer)
+    }
     if (SrbStatus == SRB_STATUS_SUCCESS) {
         if ((Srb->Function == SRB_FUNCTION_EXECUTE_SCSI) &&
             ((Srb->Cdb[0] == 0x2A) || (Srb->Cdb[0] == 0x8A))) {
@@ -9442,6 +9628,9 @@ UfsHwInterrupt(
     InterlockedOr(&Adapter->IsrLatchedStatus, (LONG)Status);
     if ((Status & UFS_INTERRUPT_TRANSFER_COMPLETION) != 0) {
         InterlockedIncrement(&Adapter->IsrTransferCompletions);
+        if (Adapter->AsyncReady && (Adapter->PendingSrb != NULL)) {
+            (VOID)StorPortIssueDpc(Adapter, &Adapter->CompletionDpc, NULL, NULL);   // w44
+        }
     }
     return TRUE;
 }
@@ -9459,6 +9648,25 @@ UfsHwResetBus(
     if (Adapter->DiagnosticOnly) {
         Adapter->Started = TRUE;
         return TRUE;
+    }
+
+    /*
+     * w44: an async command still outstanding is settled first (ResetBus holds the StartIo lock in full-duplex
+     * mode, so UfsAsyncReap cannot race it): finished normally if the controller completed it, else bus reset.
+     */
+    if (Adapter->PendingSrb != NULL) {
+        PSCSI_REQUEST_BLOCK PendingSrb = Adapter->PendingSrb;
+        UCHAR PendingStatus;
+
+        if (UfsPollForCompletion(Adapter)) {
+            Adapter->PendingSrb = NULL;
+            PendingStatus = UfsFinishIssuedCommand(Adapter, PendingSrb, Adapter->PendingDirection,
+                                                   Adapter->PendingDataLength, Adapter->PendingDoorbellTick);
+        } else {
+            Adapter->PendingSrb = NULL;
+            PendingStatus = SRB_STATUS_BUS_RESET;
+        }
+        UfsCompleteRequest(Adapter, PendingSrb, PendingStatus);
     }
 
     /*

@@ -165,3 +165,14 @@ before stage 4. Interrupt completion frees the CPU but does not lower QD1 latenc
   **On boot-irq1-wdt.img 08ae214d (GSIV 281, Level)**: Windows up in 67 s, no storm; after 44.3 k commands
   CALLBACKS 38907, UTRCS seen by the ISR 24521 (the rest: the poll path cleared IS first) -> the real UFS interrupt
   is delivered under StorPort's level mode. Stage 3b (async completion in a DPC) can rely on it.
+- **w44 65a4ae23** (UFS_IO_ASYNC: UfsFinishIssuedCommand split out of UfsExecuteScsi; PendingSrb set before the
+  doorbell once the ISR proved >= 16 completions; StartIo returns SRB_STATUS_PENDING; ISR -> StorPortIssueDpc;
+  UfsAsyncReap under the StartIo lock; extended backstop timer 2 ms; passive init for DPC + timer; ResetBus settles a
+  pending command). On boot-irq1-wdt: the FIRST boot DIED (watchdog), the next boot came up after 180 s total in
+  SAFE MODE - progress word [12] = 0x44450001 ('DE', 1 death) -> UfsIoMode 0 (IE not armed, CALLBACKS 1,
+  CONTAINED 0). The per-boot safe-mode gate WORKED as designed.
+  Suspect (inferred): UfsAsyncTimer called UfsAsyncReap, which acquires the StartIo lock; MS Learn documents no lock
+  table for extended-timer callbacks (StorPortRequestTimer page) while the legacy HwStorTimer holds StartIo -> a
+  recursive spin-lock acquire ~2 ms into the first async command.
+- **w44b 3b62a710**: the timer callback only queues the completion DPC (SystemArgument1 = 1 marks a timer reap);
+  the DPC (documented: no StorPort lock held) is the only place that takes the StartIo lock.

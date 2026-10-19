@@ -94,3 +94,8 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
 - 21:27 sampled during the dive-exit load (user: "its loading"): threadtop tid 7660 84.9 % (main/loading thread),
   tid 6380 30.7 % (busiest during gameplay = render/driver side), GPU engine 30 %, responding, no appcrash, no TDR
   => the white/grey screen + load are CPU-bound on the game's loading thread under emulation, not a driver stall.
+- 21:32 farm load (user: "it does" take long): threadtop tid 7660 80 % Wait PageIn, tid 4324 68 % Executive, GPU 3 %;
+  Memory: Available 101 MB of 5911 MB, Pages Input/sec 12 533 (~50 MB/s), committed 8.4 of 10.8 GB => RAM
+  exhaustion, not the driver. Private MB: DaveTheDiver 3296, steamwebhelper x6 878 (WS 1136), MsMpEng 350,
+  explorer 312; GPU BOs ~830 MB resident (0069 residency). taskkill steamwebhelper (the game needs only steam.exe):
+  Steam respawned 6 helpers at once, 589 MB private; Available 463 MB, Pages Input 181/s, game alive.

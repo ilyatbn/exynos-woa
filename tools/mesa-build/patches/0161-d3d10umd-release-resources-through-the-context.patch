@@ -1,0 +1,112 @@
+diff --git a/src/gallium/frontends/d3d10umd/Compute.cpp b/src/gallium/frontends/d3d10umd/Compute.cpp
+index 8d9101d..db3fb44 100644
+--- a/src/gallium/frontends/d3d10umd/Compute.cpp
++++ b/src/gallium/frontends/d3d10umd/Compute.cpp
+@@ -188,7 +188,7 @@ DestroyUnorderedAccessView(D3D10DDI_HDEVICE hDevice, D3D11DDI_HUNORDEREDACCESSVI
+    for (unsigned i = 0; i < ARRAY_SIZE(pDevice->cs_uavs); i++)
+       if (pDevice->cs_uavs[i] == u)
+          pDevice->cs_uavs[i] = NULL;
+-   pipe_resource_reference(&u->resource, NULL);
++   DeviceReleaseResource(pDevice->pipe, &u->resource);   /* G32 */
+ }
+ 
+ 
+diff --git a/src/gallium/frontends/d3d10umd/OutputMerger.cpp b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+index 4835369..10b9095 100644
+--- a/src/gallium/frontends/d3d10umd/OutputMerger.cpp
++++ b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+@@ -156,7 +156,7 @@ DestroyRenderTargetView(D3D10DDI_HDEVICE hDevice,                       // IN
+    RenderTargetView *pRTView = CastRenderTargetView(hRenderTargetView);
+ 
+    ViewListRemove(&CastDevice(hDevice)->rtv_list, pRTView);
+-   pipe_resource_reference(&pRTView->surface.texture, NULL);
++   DeviceReleaseResource(CastPipeContext(hDevice), &pRTView->surface.texture);   /* G32 */
+ }
+ 
+ 
+@@ -344,7 +344,7 @@ DestroyDepthStencilView(D3D10DDI_HDEVICE hDevice,                       // IN
+ 
+    DepthStencilView *pDSView = CastDepthStencilView(hDepthStencilView);
+ 
+-   pipe_resource_reference(&pDSView->surface.texture, NULL);
++   DeviceReleaseResource(CastPipeContext(hDevice), &pDSView->surface.texture);   /* G32 */
+ }
+ 
+ 
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index 9e1def8..fe0fcd4 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -107,7 +107,7 @@ CbMaterialize(Device *dev, Resource *res)
+    struct pipe_box box;
+    u_box_1d(res->cb_offset, res->resource->width0, &box);
+    dev->pipe->resource_copy_region(dev->pipe, res->resource, 0, 0, 0, 0, res->cb_buf, 0, &box);
+-   pipe_resource_reference(&res->cb_buf, NULL);
++   DeviceReleaseResource(dev->pipe, &res->cb_buf);   /* G32 */
+    res->cb_offset = 0;
+    CbRebindAll(dev, res);
+ }
+@@ -952,7 +952,7 @@ DestroyResource(D3D10DDI_HDEVICE hDevice,       // IN
+ 
+    {  /* exynos-woa T6 */
+       Device *dev = CastDevice(hDevice);
+-      pipe_resource_reference(&pResource->cb_buf, NULL);
++      DeviceReleaseResource(pipe, &pResource->cb_buf);   /* G32 */
+       for (unsigned st = 0; st < 4; st++)
+          for (unsigned slot = 0; slot < PIPE_MAX_CONSTANT_BUFFERS; slot++)
+             if (dev->bound_cb[st][slot] == pResource)
+@@ -983,7 +983,7 @@ DestroyResource(D3D10DDI_HDEVICE hDevice,       // IN
+       malikm_primary_destroy(pResource->kmt_primary);
+       pResource->kmt_primary = 0;
+    }
+-   pipe_resource_reference(&pResource->resource, NULL);
++   DeviceReleaseResource(pipe, &pResource->resource);   /* G32: queued calls may still name it */
+    if (pResource->kmt_runtime_alloc) {
+       /* exynos-woa H5 (0059): the runtime frees (or closes) this allocation when we return, but Panfrost may hold
+        * the BO longer (batches in flight); a submission that still lists it fails as a whole - run h3r: Explorer's
+@@ -1070,7 +1070,7 @@ ResourceMap(D3D10DDI_HDEVICE hDevice,                                // IN
+       void *ptr = NULL;
+       u_upload_alloc_ref(pipe->const_uploader, 0, resource->width0, 256, &off, &buf, &ptr);
+       if (buf && ptr) {
+-         pipe_resource_reference(&pResource->cb_buf, NULL);
++         DeviceReleaseResource(pipe, &pResource->cb_buf);   /* G32: the previous slice may be bound in queued calls */
+          pResource->cb_buf = buf;   /* the reference u_upload_alloc_ref took */
+          pResource->cb_offset = off;
+          pResource->cb_mapped = true;
+diff --git a/src/gallium/frontends/d3d10umd/Shader.cpp b/src/gallium/frontends/d3d10umd/Shader.cpp
+index bb57d68..434a021 100644
+--- a/src/gallium/frontends/d3d10umd/Shader.cpp
++++ b/src/gallium/frontends/d3d10umd/Shader.cpp
+@@ -1474,7 +1474,7 @@ DestroyShaderResourceView(D3D10DDI_HDEVICE hDevice,                           //
+    for (unsigned i = 0; i < PIPE_MAX_SHADER_SAMPLER_VIEWS; i++)
+       if (pDevice->cs_srvs[i] == pSRView)
+          pDevice->cs_srvs[i] = NULL;
+-   pipe_resource_reference(&pSRView->buffer, NULL);
++   DeviceReleaseResource(pipe, &pSRView->buffer);   /* G32 */
+ }
+ 
+ 
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index 3be2d4a..14b97df 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -183,6 +183,19 @@ CastDevice(D3D10DDI_HDEVICE hDevice)
+    return static_cast<Device *>(hDevice.pDrvPrivate);
+ }
+ 
++/* exynos-woa G32 (0161, notes/games-unity.md): drop the frontend's reference through the context. Under Gallium's
++ * threaded context a plain pipe_resource_reference(&r, NULL) frees a resource at once while queued calls still name it
++ * (set_constant_buffer keeps the bare pointer, Mesa 26): Dave the Diver aborted in panfrost_set_constant_buffer on the
++ * driver thread (assert count != 1 = a freed buffer). pipe_context::resource_release "Following this call, the driver
++ * has full ownership of the resource" - the threaded context queues it behind the calls already recorded. */
++static inline void
++DeviceReleaseResource(struct pipe_context *pipe, struct pipe_resource **res)
++{
++   if (*res)
++      pipe_resource_release(pipe, *res);
++   *res = NULL;
++}
++
+ /* exynos-woa G25: remember the GS / CS constant buffer bindings (GsEmu.cpp binds the GS's to the compute stage and
+  * puts the CS's back). Holds a reference. */
+ static inline void

@@ -30,3 +30,23 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
 
 ## Progress log
 - 20:25 0160 deployed live (rename trick: the old DLL renamed, new copied); waiting for the user's launch.
+- 20:35 0160 result: past the depth-copy crash, through LogoManager / LoadGameData / InitAfterSaveSystem to the title
+  ("it launched and got to the main menu then exited", user). Crash 2 (12:23:32 and 12:27:49 phone time, reproducible
+  at DR.Title.Start): 1000 maliumd_ec.DLL c0000409 offset 0x7920dc = abort (no Unity report: fail-fast). Shim stderr
+  capture (C:\S10eTmp\tlog\malikm-DaveTheDiver.exe-<pid>-stderr.txt): "Assertion failed: count != 1, file
+  u_inlines.h, line 83" (+ "malikm-wddm: allocation list full (256 slots): 27 live BOs not listed" - OPEN, separate).
+  WER LocalDumps (tools/phone/wddm2/werdump.ps1 -Exe DaveTheDiver.exe) -> DaveTheDiver.exe.6772.dmp, cdb with the 0160
+  PDB: abort <- _wassert <- pipe_reference_described <- pipe_resource_reference <- util_copy_constant_buffer <-
+  panfrost_set_constant_buffer <- tc_batch_execute (driver thread) = a freed constant buffer re-referenced.
+  Cause: Mesa 26's threaded context records set_constant_buffer with the bare buffer pointer (tc_set_constant_buffer,
+  same upstream) and relies on frontends dropping references through pipe_context::resource_release (TC queues it
+  behind the recorded calls; st/mesa and u_upload_mgr do). d3d10umd (TC enabled by us in G29) dropped them with
+  pipe_resource_reference(&r, NULL) -> e.g. DestroyResource of a constant buffer freed it while queued draws named it.
+- Mesa 0161: DeviceReleaseResource (State.h) = pipe_resource_release + NULL, used for DestroyResource's resource and
+  cb_buf, the renamed CB slice at WRITE_DISCARD and in CbMaterialize, UAV / buffer-SRV / RTV / DSV destroy. Sampler
+  views already went through sampler_view_release; index / vertex buffers are referenced by TC itself.
+  EC build maliumd_ec fd4215b2 (s10e-artifacts\mali-umd-0161-ec), live via tools/phone/games/ecswap.sh (keeps
+  maliumd_ec.dll.pre-0161-0 = 0160). Result: title screen held > 7 min with no crash (was ~10 s); user loading a save
+  and playing (12:41 phone time, watcher bebi14zr2: alive, no appcrash, no TDR).
+- Dave needs the Steam client: with steam_appid.txt it still exits after ~2 s (code 0x35) and starts
+  steam://run/1868140 (Steam DRM - not bypassed). Stardew does not.

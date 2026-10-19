@@ -1,0 +1,59 @@
+diff --git a/src/gallium/drivers/panfrost/pan_bo.c b/src/gallium/drivers/panfrost/pan_bo.c
+index d0ce95c..1af978c 100644
+--- a/src/gallium/drivers/panfrost/pan_bo.c
++++ b/src/gallium/drivers/panfrost/pan_bo.c
+@@ -35,6 +35,18 @@
+  * around the linked list.
+  */
+ 
++/* exynos-woa G32 (0172, notes/games-unity.md): on the WDDM shim a CPU mapping is two shim calls (MMAP_BO + MAP) and an
++ * unmap a third; the Dave dive did ~66 map/unmap pairs per frame (~6 ms of the render/driver threads) because every BO
++ * parked in the cache was unmapped and mapped again on reuse. The shim never discards a parked BO's pages (MADVISE:
++ * retained always 1), so a cached BO keeps its mapping; it is unmapped when really freed. 64-bit only: the 32-bit
++ * UMD has too little address space to keep the cache mapped. */
++#if defined(_WIN32) && UINTPTR_MAX > 0xffffffffu
++#define PAN_KEEP_CACHED_MAPS 1
++#else
++#define PAN_KEEP_CACHED_MAPS 0
++#endif
++static void panfrost_bo_munmap(struct panfrost_bo *bo);
++
+ static uint32_t
+ to_kmod_bo_flags(uint32_t flags)
+ {
+@@ -107,6 +119,10 @@ panfrost_bo_free(struct panfrost_bo *bo)
+ {
+    PAN_TRACE_FUNC(PAN_TRACE_GL_BO);
+ 
++#if PAN_KEEP_CACHED_MAPS
++   panfrost_bo_munmap(bo);   /* 0172: cached BOs keep their mapping until here (no-op when not mapped) */
++#endif
++
+    struct pan_kmod_bo *kmod_bo = bo->kmod_bo;
+    struct pan_kmod_vm *vm = bo->dev->kmod.vm;
+    uint64_t gpu_va = bo->ptr.gpu;
+@@ -345,7 +361,13 @@ panfrost_bo_munmap(struct panfrost_bo *bo)
+ 
+    if (os_munmap((void *)(uintptr_t)bo->ptr.cpu, panfrost_bo_size(bo))) {
+       mesa_loge("munmap failed: %s", strerror(errno));
++#ifdef _WIN32
++      /* 0172: the shim's munmap only fails for an address it no longer tracks (EINVAL); Dave the Diver died at exit
++       * with fast-fail 7 = abort() after the device was torn down (WER, notes/games-unity.md) - leak, don't kill the
++       * process */
++#else
+       abort();
++#endif
+    }
+ 
+    bo->ptr.cpu = NULL;
+@@ -457,7 +479,9 @@ panfrost_bo_unreference(struct panfrost_bo *bo)
+     */
+    if (bo->dev && p_atomic_read(&bo->refcnt) == 0) {
+       /* When the reference count goes to zero, we need to cleanup */
+-      panfrost_bo_munmap(bo);
++#if !PAN_KEEP_CACHED_MAPS
++      panfrost_bo_munmap(bo);   /* 0172: otherwise in panfrost_bo_free, only if the cache does not take it */
++#endif
+ 
+       if (dev->debug & (PAN_DBG_TRACE | PAN_DBG_SYNC))
+          pandecode_inject_free(dev->decode_ctx, bo->ptr.gpu,

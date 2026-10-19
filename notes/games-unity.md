@@ -319,3 +319,14 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
       (render thread waiting on the driver thread that is stuck in that submit).
   (d) 0.95 / 1.16 / 2.6 s frames where the UMD sections are a small part -> outside the UMD (game / KMD / present).
   Next: where the submit blocks (ioctl report SUBMIT max in the tlog), then fix (b)/(c); (a) = shader cache.
+- Ioctl report of the bot1 run (tlogq.ps1, new; tlog pid 7672), per 120 presents: SUBMIT (nr 0x40) 5880 calls
+  ~900 ms (49/frame, ~7.5 ms/frame), MAP (0x100) 7964 calls 580-740 ms (66/frame, ~6 ms/frame) + MMAP_BO (0x43) 7965 +
+  munmap (0x101) 7966, CREATE_BO (0x42) 46-149 calls 50-127 ms (~0.85 ms each -> the Map:vb:discard stalls are new BOs
+  for replaced buffer storage, plausibly). Cause of the MAP churn (pan_bo.c): panfrost_bo_unreference munmaps every BO
+  before parking it in the BO cache; reuse maps it again (2 shim calls + KMD MAP).
+- Mesa 0172 (pan_bo.c, 64-bit Windows only, PAN_KEEP_CACHED_MAPS): cached BOs keep their CPU mapping, unmapped in
+  panfrost_bo_free (covers evict_all / stale eviction / purged fetch); safe because the shim's MADVISE never discards
+  pages (retained = 1). Also: a failed munmap logs instead of abort() on Windows - candidate for the exit-time
+  fast-fail 7 crash (unverified: needs the LocalDumps dump). EC build s10e-artifacts\mali-umd-0172-ec 071cf1e3.
+- bot2 (first fully automatic run, EC 0171): title tap (keyplay "fixed 1, failed 1" but it worked) -> loading 49 s ->
+  boat -> 2 D steps -> DIVE prompt -> Space -> loading; the route works by state.

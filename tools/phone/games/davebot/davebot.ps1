@@ -91,8 +91,23 @@ function Auto([int]$swim) {
         New-Item -ItemType File C:\S10eTmp\frametimes.on -Force | Out-Null
         SwimRec $swim "$dir\swim.rec"
         L "auto: measuring ($swim s swim)"
-        Start-Process -Wait -WindowStyle Hidden -FilePath C:\S10eTmp\keyplay.exe -ArgumentList "$dir\swim.rec", 100, 'DaveTheDiver.exe'
-        L "auto: swim done -> $(Get-Content C:\S10eTmp\keyplay.log -Tail 1)"
+        # user: map layouts differ (walls: Dave stops moving) and Dave can die (sharks) - every 10 s log the state and
+        # whether the picture still changes (mean abs diff of a 48x24 thumbnail; tiny = stuck against something)
+        $kp = Start-Process -PassThru -WindowStyle Hidden -FilePath C:\S10eTmp\keyplay.exe -ArgumentList "$dir\swim.rec", 100, 'DaveTheDiver.exe'
+        $prev = $null; $stuck = 0; $away = 0; $ticks = 0
+        while (-not $kp.HasExited) {
+          Start-Sleep 10   # a GDI screen copy may cost a frame: 10 s apart, and the ticks are in the log to check
+          $sb = Shot; $st = State $sb
+          $th = New-Object System.Drawing.Bitmap $sb, 48, 24; $sb.Dispose()
+          $cur = foreach ($yy in 0..23) { foreach ($xx in 0..47) { $c = $th.GetPixel($xx, $yy); $c.R + $c.G + $c.B } }
+          $th.Dispose()
+          $diff = -1
+          if ($prev) { $sum = 0; for ($k = 0; $k -lt $cur.Count; $k++) { $sum += [Math]::Abs($cur[$k] - $prev[$k]) }; $diff = [int]($sum / $cur.Count) }
+          $prev = $cur; $ticks++
+          if ($st -ne 'water') { $away++ } elseif ($diff -ge 0 -and $diff -lt 4) { $stuck++ }
+          L "auto: swim tick $ticks state $st diff $diff"
+        }
+        L "auto: swim done -> $(Get-Content C:\S10eTmp\keyplay.log -Tail 1); ticks $ticks, stuck $stuck, not-in-water $away"
         Remove-Item C:\S10eTmp\frametimes.on -ErrorAction SilentlyContinue
         Start-Sleep 3
         $b.Save("$dir\auto-water-end.png", [System.Drawing.Imaging.ImageFormat]::Png); $b.Dispose()

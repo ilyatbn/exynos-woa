@@ -67,3 +67,8 @@ there is no D3D12 GPU here -> WARP (CPU).
   imports only); the driver order falls back to softpipe if Panfrost fails (GL works but reports softpipe - the
   renderer string tells); lexer eol attributes are local to .git/info, no source change. maligl.dll with 0153 sha256
   07121c48...
+- 19:35 after the reboot UMOPENGLINFO = 'maligl.dll' version 1 flags 0x1 on the Mali adapter (Basic Render '') =>
+  the class-key values are read at adapter start (confirmed). gltest in the user session (idle check first), maligl
+  07121c48 (0150-0153): pixel format 99 (ICD, depth 24 stencil 8), "Mesa / Mali-G76 MC12 (Panfrost) / 3.1 Mesa
+  26.2.4", GLSL 1.40, ARB_ + EXT_framebuffer_object yes, **GLTEST 5/5 PASS** (default, tri, fbo, glsl, core 3.1),
+  swap loop 64.4 fps at 256x256 (GDI present). The shim's D3DKMT (non-runtime) path works as-is.

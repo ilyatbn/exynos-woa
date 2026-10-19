@@ -100,3 +100,18 @@ before stage 4. Interrupt completion frees the CPU but does not lower QD1 latenc
   121 k disk reads (w38 warm: idle 49.8 s, 138 k reads) -> ~-33 %.
 - Next: per-command latency (~195 us vs device ~100 us: 6 precondition MMIO reads, NEXUS write+readback, IS ack,
   10 us poll stalls), then stage 3 (interrupts; needs the DSDT GSIV 274 change, driver first) for depth > 1.
+- UfsDiag (w39, cumulative 60 k reads, avg ~26 KB): PERF_PER_READ_US DEVICE 180, COPYBACK 221 -> the copy-back
+  (DC CIVAC per line over the cacheable bounce view + memcpy) costs more than the device.
+- IO coherency: firmware sets the 9810 bits (BIT8|9 = PCIe ch0 on the 9820); UFS bits BIT22|BIT23 only behind
+  Beyond0LteUfsHcDxe BEYOND0LTE_UFS_IOCOH_9820 (A/B, never validated in Windows). boot-iocoh1-wdt.img e86f4271 (host +
+  IOCOH_9820 1): sysreg 0x13C10700 = 0x00C00311, Windows booted, hashcheck identical, diskbench noisy as before.
+- **REVERTED after ~8 min (12:17-12:25)**: with coherent UFS DMA, a device read of the bounce (WRITE command) snoops
+  the CPU caches, and the current driver leaves CLEAN lines of the bounce in the cache after every read copy-back
+  while it stages writes through the uncached (Device) alias -> the snoop could supply stale data to the disk
+  (mismatched-attribute alias; Arm gives no coherency guarantee there). Read-only hashcheck cannot see that.
+  Checks after the revert: `chkdsk C: /scan` = no problems; `sfc /verifyonly` flagged only Windows Defender
+  definition files under Definition Updates\Default\ (folder empty; live copies in the GUID folder, base files dated
+  10/14, deltas updated after the revert) - no file written in the window flagged. No evidence of damage.
+  RULE for the coherent mode (stage "C"): enable the 9820 iocoh bits ONLY together with a driver that never touches
+  bounce data through the Device alias (stage writes AND read copy-back through the cached view, no per-line CIVAC),
+  and verify writes (pattern file write/flush/reboot/hash) before daily use. Firmware and driver ship as a pair.

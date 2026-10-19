@@ -169,3 +169,8 @@ CPU_ON wedges that core's bring-up (not on the Windows path). 8 cores on today's
 visibly: kernel heap corruption bugchecks (see m4kd8) -> next suspect is memory consistency between the clusters.
 Pitfalls: never `peek` CPUCL2 SYSREG (0x1D100104) or PMU 0x15861200-0x1650 from Windows - both froze the SoC.
 - 03:35 phone back on boot-host-r2 (6 procs), BCD debug turned OFF again (verified: debug No).
+- **m4one3 b37654d1 (10:21; ONE M4 offered, PARK 0x7E, today's firmware, Watchdog 1, stay.flg)**: no SSH ever, safeguard
+  returned to TWRP after 222 s (2 deaths). One M4 is enough to kill today's Windows. tools/phone/m4win.sh = the
+  Windows-level trial helper. Daily image restored afterwards.
+- 2026-10-19 morning: the verified shared-counter test (NEXT above) was not written - two attempts were stopped by a
+  safety classifier mid-response; work moved to the UFS driver (user request) with the M4 goal still open.

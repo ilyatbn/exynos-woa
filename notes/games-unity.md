@@ -104,3 +104,11 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   unused-asset GC walking paged-out memory. RAM shortage again; no appcrash, no TDR. RAM saving deferred by the user
   ("we'll think about that later"). Candidates noted for then: our resident GPU BOs (~830 MB pinned under 0069
   residency, Panfrost BO cache), Steam web helpers (~0.6-0.9 GB), Defender (350 MB).
+- 21:45 day (boat) scene black again (user photo + traces/gl/dave-day-black.png): UI correct, 3D view black, the
+  letterbox strips left/right still show the underwater scene (stale, uncleared) => the world camera outputs black.
+  Re-think: the 3 unsupported shaders are RenderGraph's CoreCopy (log: "RenderGraph is now disabled" = compatibility
+  path), probe-volume VoxelizeShader and HDRDebugView - none needed for normal drawing, so FL 11_0 is probably NOT the
+  cause. Player.log around the scene: only HDRDebugView repeats, "Water2D/Metaballs_RegularFresnel: fallback 'UnLit'
+  not found", SushiBarInteriorRenderTexture load. Shim stderr empty, no driver warnings. => a shader / format our
+  driver renders wrongly (black) rather than refuses. Next: user toggles graphics options (post-processing, quality,
+  HDR/lighting) to localise the pass.

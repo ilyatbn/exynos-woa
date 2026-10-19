@@ -15,6 +15,26 @@
  */
 #ifndef UFS_PERF_INSTRUMENTATION
 #define UFS_PERF_INSTRUMENTATION                   1
+
+/*
+ * 2026-10-19 per-boot I/O mode (notes/ufs-async-plan.md stages 1-2, notes/app-launch-slowness.md):
+ *   UFS_IO_FAST_ZERO   - clear only what a command uses (TRD slot, command UPIU, response UPIU, the PRDT entries
+ *                        actually programmed) instead of the whole UTRL + UCD before AND after every command.
+ *   UFS_IO_FULL_DUPLEX - StorSynchronizeFullDuplex: StartIo (and its completion poll) runs at DISPATCH under the
+ *                        StartIo lock instead of DIRQL; HwStorTimer/HwResetBus still hold the StartIo lock
+ *                        (MS Learn StorPortAcquireSpinLock lock table), the ISR is a no-op on the parked line.
+ * Forced to 0 (the w38 behaviour) when the previous boot died: BootLogDxe's unexplained-death counter in progress
+ * word [12] at 0x8FE0F000 ('DE' << 16 | n, cleared by a clean OS restart or a cold power-on).
+ */
+#ifndef UFS_IO_MODE_DEFAULT
+#define UFS_IO_MODE_DEFAULT                        0x3UL
+#endif
+#define UFS_IO_FAST_ZERO                           0x1UL
+#define UFS_IO_FULL_DUPLEX                         0x2UL
+#define UFS_FAST_ZERO_COMMAND_BYTES                64UL    /* command UPIU is 32 B */
+#define UFS_FAST_ZERO_RESPONSE_BYTES               128UL   /* response UPIU is 52 B */
+#define UFS_DEATH_COUNTER_WORD                     12UL
+#define UFS_DEATH_COUNTER_MAGIC                    0x4445UL
 #endif
 
 /*

@@ -78,3 +78,14 @@ before stage 4. Interrupt completion frees the CPU but does not lower QD1 latenc
 
 ## Progress log
 - 2026-10-19: plan written (agent); implementation order: stage 0 safe-mode gate + counters, stage 1, stage 2.
+- w39 = w38 + per-boot UfsIoMode (UFS_IO_MODE_DEFAULT 0x3: FAST_ZERO + FULL_DUPLEX), forced 0 when progress word
+  [12] holds the BootLog death counter ('DE'); EarlyMark "=IOMODE mode/deaths". FAST_ZERO: TRD slot 32 B + command
+  64 B + response 128 B + each used PRDT entry (128 B) instead of UTRL 1 KiB + UCD 4 KiB before and after every
+  command. FULL_DUPLEX: StorSynchronizeFullDuplex (MS Learn lock table: HwStorTimer/HwStorResetBus hold the StartIo
+  lock in both modes, + Interrupt only in half duplex; AdapterControl holds none either way).
+  Built with build-ufs.ps1 -DmaWindow (= w38 flags), signed with the WDKTestCert 5DD5DEE1..., sha256 898a61b4...,
+  s10e-artifacts/ufs-w39/Exynos9820Ufs.sys.
+- Integrity baseline on w38 (tools/phone/perf/hashcheck.ps1, uncached 4 KiB / 64 KiB / 1 MiB reads agree):
+  edgehtml 0855A9E8B67145EC, mshtml 4D5CF1DA5D9145A1, Windows.UI.Xaml C268FA69C99CF44B, ntoskrnl 6B97225E78F9EB50,
+  shell32 3D45B4D59F8D0DB8, Brave chrome.dll C40B133551FC72EA.
+- diskbench on w38 is noisy run to run (64 KiB 630 vs 1290 us, 1 MiB 20 vs 8.4 ms) -> compare medians of 3+ runs.

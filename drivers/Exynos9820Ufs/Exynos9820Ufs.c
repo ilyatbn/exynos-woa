@@ -11,6 +11,8 @@ static KBUGCHECK_CALLBACK_RECORD UfsBugcheckCallbackRecord;
 static BOOLEAN UfsBugcheckCallbackRegistered = FALSE;
 static UCHAR UfsBugcheckComponent[] = "Exynos9820Ufs";
 
+static ULONG UfsIoMode;   // UFS_IO_* bits for this boot (set in DriverEntry; 0 after a failed boot)
+
 static
 VOID
 UfsRwd1SetFatalNoPet(
@@ -6086,6 +6088,10 @@ UfsProgramPrdt(
             Segment = UFS_PRDT_SEGMENT_SIZE;
         }
 
+        if ((UfsIoMode & UFS_IO_FAST_ZERO) != 0) {
+            UfsZeroUncached(Prdt + (Entries * UFS_PRDT_ENTRY_SIZE), UFS_PRDT_ENTRY_SIZE);   // whole FMP entry
+        }
+
         *(volatile ULONG *)(Prdt + (Entries * UFS_PRDT_ENTRY_SIZE) + 0) =
             Base + Offset;
         *(volatile ULONG *)(Prdt + (Entries * UFS_PRDT_ENTRY_SIZE) + 4) = 0;
@@ -6190,8 +6196,15 @@ UfsBuildCommand(
     ULONG DataLength;
     ULONG Entries;
 
-    UfsZeroUncached(Adapter->Utrl, UFS_UTRL_REGION_SIZE);
-    UfsZeroUncached(Adapter->Ucd, UFS_UCD_REGION_SIZE);
+    if ((UfsIoMode & UFS_IO_FAST_ZERO) != 0) {
+        /* Only what this command uses; the PRDT entries are cleared one by one in UfsProgramPrdt. */
+        UfsZeroUncached(&Adapter->Utrl[UFS_TRANSFER_SLOT], sizeof(UFS_TRANSFER_REQUEST_DESCRIPTOR));
+        UfsZeroUncached(Adapter->Ucd + UFS_UCD_COMMAND_OFFSET, UFS_FAST_ZERO_COMMAND_BYTES);
+        UfsZeroUncached(Adapter->Ucd + UFS_UCD_RESPONSE_OFFSET, UFS_FAST_ZERO_RESPONSE_BYTES);
+    } else {
+        UfsZeroUncached(Adapter->Utrl, UFS_UTRL_REGION_SIZE);
+        UfsZeroUncached(Adapter->Ucd, UFS_UCD_REGION_SIZE);
+    }
 
     DataLength = Srb->DataTransferLength;
     if (((Direction != UfsCommandNoData) &&
@@ -8180,8 +8193,10 @@ UfsExecuteScsi(
      */
     UNREFERENCED_PARAMETER(ProtocolFailure);
 
-    UfsZeroUncached(Adapter->Utrl, UFS_UTRL_REGION_SIZE);
-    UfsZeroUncached(Adapter->Ucd, UFS_UCD_REGION_SIZE);
+    if ((UfsIoMode & UFS_IO_FAST_ZERO) == 0) {   // fast mode clears what the next command uses before it is built
+        UfsZeroUncached(Adapter->Utrl, UFS_UTRL_REGION_SIZE);
+        UfsZeroUncached(Adapter->Ucd, UFS_UCD_REGION_SIZE);
+    }
     /*
      * Do not clear the bounce here. The next data-in command zeroes its entire
      * submitted range before DMA, and the next data-out command overwrites its
@@ -8414,6 +8429,13 @@ DriverEntry(
 
     UfsEarlyMark("=DRVENTRY", 0);
     UfsMapBringupWatchdog();
+    UfsIoMode = UFS_IO_MODE_DEFAULT;
+    if ((UfsBringupProgress != NULL) &&
+        ((UfsBringupProgress[UFS_DEATH_COUNTER_WORD] >> 16) == UFS_DEATH_COUNTER_MAGIC)) {
+        UfsIoMode = 0;   // the previous boot died: run the proven w38 path this boot
+    }
+    UfsEarlyMark("=IOMODE mode/deaths", ((ULONGLONG)UfsIoMode << 32) |
+                 ((UfsBringupProgress != NULL) ? UfsBringupProgress[UFS_DEATH_COUNTER_WORD] : 0xFFFFFFFFUL));
     UfsInitializeKernelContract();
     KeInitializeCallbackRecord(&UfsEarlyBugcheckRecord);
     UfsEarlyMark("=BCREG", (ULONGLONG)KeRegisterBugCheckCallback(&UfsEarlyBugcheckRecord, UfsEarlyBugcheckCallback, NULL, 0, (PUCHAR)"UfsEarly"));
@@ -8508,7 +8530,8 @@ UfsHwFindAdapter(
          ConfigInfo->MaximumNumberOfTargets)) {
         ConfigInfo->InitiatorBusId[0] = 1;
     }
-    ConfigInfo->SynchronizationModel = StorSynchronizeHalfDuplex;
+    ConfigInfo->SynchronizationModel = ((UfsIoMode & UFS_IO_FULL_DUPLEX) != 0) ? StorSynchronizeFullDuplex
+                                                                              : StorSynchronizeHalfDuplex;
     ConfigInfo->InterruptSynchronizationMode = InterruptSupportNone;
     ConfigInfo->MaxNumberOfIO = 1;
     ConfigInfo->MaxIOsPerLun = 1;

@@ -390,3 +390,10 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   vs 41.6): the render thread is no longer the limit. Next: per-thread CPU (threadcpu.ps1, new) + GPU engine load
   (tools/phone/gpuengine.ps1) during the swim to see whether the game's own thread or the GPU bounds the frame.
   The hang of bot4/bot5 did not recur in 1 run (0174 fixed polls; unverified that it is gone).
+- bot7 (EC 0175; traces/games/bench-bot7-0175.*): 2519 frames / 101.5 s, mean 24.8 fps, median 38.7 ms, p95 59.7,
+  p99 83.0, max 185.9, 1 % low 9.1, 0.1 % 5.4, 14 > 100 ms (best so far). Mid-swim samples (20 s into the swim):
+  threadcpu.ps1: process 277 % of one core (6 cores), top thread 88.1 % (game main thread, presumably), next 56.7 %,
+  then 32 / 25 / 22 / 17 / 16 %; gpuengine.ps1: DaveTheDiver 3D engine 92.13 %, copy 0 %. => the GPU is now the
+  bottleneck (92 %), with the game's main thread close behind (88 %). Clocks stay as they are (memory: no GPU clock
+  increase before Windows thermal reading + throttling exist). Next: less GPU work per frame (AFBC, tile
+  load/store per batch, per-chain GPU time from the KMD).

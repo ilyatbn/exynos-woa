@@ -169,3 +169,5 @@ DWM), so the ICD presents through one:
   (D3DKMTWaitForIdle on the GL device) when no context is current.
 - 22:45 0159 validated: maligl f9b764f4 / maligl_arm64 1dbea0c8 / maligl_ec dd66afb7. gltest64 + gltest 5/5 PASS on
   the DXGI present (57-58 fps vsync); Stardew 1520x720 58.0-58.6 fps, gl wait 0.13 ms, hr 0.
+- 22:55 package mwddm-1.0.72.1 rebuilt with the 0159 ICD (signed: maligl 5BCC4EBB / maligl_arm64 147F4C62 / maligl_ec
+  762601CE), InfVerif valid; still not installed.

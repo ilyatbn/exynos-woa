@@ -1924,12 +1924,14 @@ diagnostic timers from release builds once perf work settles.
 
 - notes/gl-icd.md (design, docs, every build hash, measurements, reviews).
 - Phone (live, by hand - not from a package): System32\maligl.dll (ARM64X forwarder) + maligl_arm64.dll +
-  maligl_ec.dll = Mesa 0150-0156 (s10e-artifacts\mali-gl-x, deploy tools/phone/gl/gldeploy.sh); class key 0000
+  maligl_ec.dll = Mesa 0150-0159 (s10e-artifacts\mali-gl-x, deploy tools/phone/gl/gldeploy.sh); class key 0000
   OpenGLDriverName maligl.dll / OpenGLVersion 1 / OpenGLFlags 1 set by tools/phone/gl/glicd.ps1 (dxgkrnl reads
   them at adapter start: a change needs a reboot). Rollback: glicd.ps1 -Remove + reboot.
 - Build: tools/mesa-build/build-mesa-g76.ps1 -Stage gl,glec then make-arm64x.ps1 -Name maligl (-Arm64 mali-g12-gl
   -Ec mali-g12-gl-ec -Out mali-gl-x). Test: drivers/MaliG76Wddm/tools/gltest (gltest.exe ARM64, gltest64.exe x64).
-- Stardew Valley: starts in ~3-4 min (emulated .NET), ~41 fps at 1520x720; timing lines via tools/phone/gl/gltlog.ps1.
+- Present: DXGI flip swap chain + 2 D3D11 shared textures (wgl_panfrost_fb.c, 0158); CPU copy only for GDI /
+  single-buffered pixel formats. Stardew Valley: starts in ~3-4 min (emulated .NET), ~58.6 fps (vsync) at 1520x720;
+  timing lines via tools/phone/gl/gltlog.ps1 ("gl dxgi present").
   Kill scrnsave.scr before screenshots (blank screensaver = black scan-out, CopyFromScreen "handle is invalid").
 - Package s10e-artifacts\mwddm-1.0.72.1 (Umd 0148-x, Umd32 mali-g12-x86, Gl mali-gl-x, InfVerif valid) NOT installed.
-- Next: GPU-only present (no CPU read of the frame; the copy is ~19 ms/frame from write-combined memory).
+- Next: user play test of Stardew; install 1.0.72.1 in an attended session; GL apps beyond Stardew.

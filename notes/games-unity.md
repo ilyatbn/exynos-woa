@@ -91,3 +91,6 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
 - 21:25 user: leaving a dive back to shore shows a white, then grey screen for up to ~10 s before the loading screen.
   Not yet attributed (INFERENCE: synchronous scene load under emulation, no presents); to sample threadtop + GPU
   engine during the next transition.
+- 21:27 sampled during the dive-exit load (user: "its loading"): threadtop tid 7660 84.9 % (main/loading thread),
+  tid 6380 30.7 % (busiest during gameplay = render/driver side), GPU engine 30 %, responding, no appcrash, no TDR
+  => the white/grey screen + load are CPU-bound on the game's loading thread under emulation, not a driver stall.

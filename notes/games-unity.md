@@ -234,3 +234,9 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   like a periodic stall (GC / streaming / a driver flush?), not steady load. After 78 s (surface menu, battery popup)
   they come in clusters of 80-180 ms frames. Next: catch one of those 190 ms spikes with the frame capture or a timed
   driver-thread profile.
+  APPCRASH symbolized offline (s10e-artifacts\mali-umd-0169-ec PDB, llvm-symbolizer --relative-address):
+  RVA 0x7920dc = right after the epilogue of the static UCRT's _chvalidchk_l (ctype.h:234; the isxxx() table check)
+  - "autibsp; ret" at 0x7920d4/d8. So the c0000409 points at a return-address check in a ctype call (stack
+  corruption, or a ctype call with an out-of-range char from our code?). It does NOT look like an effect of the forced
+  kill. Unverified until the dump is read: which caller (stack), which process (WER report time 12:27:49 is 2.5 min
+  after the game was gone at 12:25:09). Next session: fetch the WER report + dump from the phone.

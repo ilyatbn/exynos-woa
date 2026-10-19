@@ -242,3 +242,12 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   after the game was gone at 12:25:09). Next session: fetch the WER report + dump from the phone.
   None of our patches (tools/mesa-build/patches) add ctype calls, so the caller is upstream Mesa code (env/option
   parsing, shader cache, etc.) or a corrupted return address - only the dump's stack can tell.
+  Phone back on Wi-Fi (user: reads OK, no game runs), battery 5 % on the charger. tools/phone/games/werlast.ps1 (new)
+  read the WER reports: AppCrash 12:23:40 and 12:27:59 (phone clock), both maliumd_ec.DLL (timestamp 6ad6501d = the 0169
+  EC) c0000409 offset 0x7920dc, Exception Data 0x7 = FAST_FAIL_FATAL_APP_EXIT, which is what the UCRT's abort() raises
+  (so the RVA is abort's __fastfail inside the static CRT; the _chvalidchk_l symbol was the nearest public symbol).
+  Earlier 12:08:22 = the known c0000005 at 0x80416c (older EC 6ad538ef). No .dmp (LocalDumps not configured).
+  UMD tlogs C:\S10eTmp\tlog\malikm-DaveTheDiver.exe-7228/-5008.txt both END with "allocation ... gone" + "binding 0
+  (device ...) dropped" = a normal device teardown, no error line after it -> the abort() comes during process exit,
+  after the D3D device is gone (a forced Stop-Process = TerminateProcess would not run that path, so these are the
+  game's own exits). Next: WER LocalDumps for DaveTheDiver.exe (documented registry key) to get the abort's stack.

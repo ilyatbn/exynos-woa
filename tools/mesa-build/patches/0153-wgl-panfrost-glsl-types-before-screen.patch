@@ -1,0 +1,27 @@
+diff --git a/src/gallium/targets/wgl/wgl.c b/src/gallium/targets/wgl/wgl.c
+index 603e7a8..fc837a1 100644
+--- a/src/gallium/targets/wgl/wgl.c
++++ b/src/gallium/targets/wgl/wgl.c
+@@ -84,6 +84,7 @@ static const driOptionDescription wgl_pan_driconf[] = {
+ static driOptionCache wgl_pan_info, wgl_pan_cache;
+ static bool use_panfrost = false;
+ 
++void glsl_type_singleton_init_or_ref(void);
+ int malikm_open(void);
+ extern char malikm_init_reason[];
+ 
+@@ -108,8 +109,13 @@ wgl_panfrost_create_screen(void)
+       .options = &wgl_pan_cache,
+       .options_info = &wgl_pan_info,
+    };
+-   if (!wgl_pan_info.info)
++   if (!wgl_pan_info.info) {
++      /* WGL creates the screen (stw_device.c init_screen) before any context runs Mesa's one-time init, which
++       * takes the glsl type reference (main/context.c); Panfrost compiles through NIR and its glsl types. Taken
++       * once here, kept for the life of the DLL, as the D3D10 UMD does (d3d10_gdi.c). */
++      glsl_type_singleton_init_or_ref();
+       driParseOptionInfo(&wgl_pan_info, wgl_pan_driconf, ARRAY_SIZE(wgl_pan_driconf));
++   }
+    struct pipe_screen *screen = panfrost_drm_screen_create(fd, &config);
+    _close(fd); /* the screen keeps its own duplicate */
+    if (!screen)

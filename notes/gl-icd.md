@@ -60,3 +60,10 @@ there is no D3D12 GPU here -> WARP (CPU).
 - glicd.ps1 -Install (class key 0000: OpenGLDriverName maligl.dll, OpenGLVersion 1, OpenGLFlags 1) -> no change:
   gltest's new KMTQAITYPE_UMOPENGLINFO dump shows name '' for both adapters (Mali + Basic Render), status 0 =>
   DxgKrnl does not re-read the key live (INFERENCE: read at adapter start, as for the INF-installed values). Reboot.
+- Review of 1dec61d (GL1): wgl.c's Panfrost path skipped glsl_type_singleton_init_or_ref(), which the D3D10 path takes
+  before its screen. Checked mechanically: stw_device.c init_screen() calls winsys create_screen before any context,
+  and Mesa's one-time init that takes the glsl reference is main/context.c:233 (context creation) -> the screen could
+  compile NIR without glsl types. Fixed in Mesa 0153 (own commit). Other checks: zlib now static (dumpbin: OS
+  imports only); the driver order falls back to softpipe if Panfrost fails (GL works but reports softpipe - the
+  renderer string tells); lexer eol attributes are local to .git/info, no source change. maligl.dll with 0153 sha256
+  07121c48...

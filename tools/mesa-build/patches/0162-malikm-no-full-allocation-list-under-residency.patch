@@ -1,0 +1,41 @@
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 00e1da8..629c2ae 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -1145,6 +1145,7 @@ w_escape_raw(void *data, UINT size)
+ }
+ 
+ static void w_resident(D3DKMT_HANDLE h);   /* exynos-woa 0069, below */
++static unsigned wresid_failed;   /* exynos-woa G32 (0162): MakeResident failures - a BO that may not be resident */
+ 
+ static NTSTATUS
+ w_create_raw(D3DDDI_ALLOCATIONINFO *ai)
+@@ -1248,6 +1249,7 @@ w_resident_raw(D3DKMT_HANDLE h)
+                      (unsigned long long)mr.PagingFenceValue, (unsigned long long)*(*fence));
+    } else if (hr < 0) {
+       static unsigned logged;
++      wresid_failed++;   /* exynos-woa G32 (0162): from now on every live BO is listed again */
+       if (logged++ < 16)
+          malikm_tlog("residency: MakeResident alloc 0x%x failed 0x%08lx (trim %llu)", h, (unsigned long)hr,
+                      (unsigned long long)mr.NumBytesToTrim);
+@@ -3121,7 +3123,19 @@ wddm_drm(uint32_t nr, uint8_t *b, uint32_t size)
+          n++;
+       }
+       uint32_t skipped = 0;
+-      for (uint32_t i = 0; i < wbo_cap; i++) {
++      /* exynos-woa G32 (0162, notes/games-unity.md): with WDDM 2.0 residency (0069: every BO MakeResident at creation)
++       * the other live BOs are not listed. MS Learn "Residency overview": "residency is moved to an explicit list on
++       * the device instead of the per-command buffer list. VidMm ensures that all allocations on a particular device
++       * residency requirement list are resident before any contexts belonging to that device are scheduled". Dave the
++       * Diver: ~1860 BOs listed in each of ~390 submissions/s, the runtime's Render 2.3 ms each = one core and ~6 fps.
++       * WDDM 1.x (resid -1) keeps H2's list. MALIKM_LIST_ALL=1 lists them again (diagnosis only). */
++      static int list_all = -1;
++      if (list_all < 0) {
++         const char *e = getenv("MALIKM_LIST_ALL");
++         list_all = e && *e == '1';
++      }
++      const int resident_model = (ddi.on ? ddi.resid : wresid) == 1 && !list_all && wresid_failed == 0;
++      for (uint32_t i = 0; !resident_model && i < wbo_cap; i++) {
+          if (!wbo[i].h)
+             continue;
+          uint32_t *mk = wbo[i].sub ? &wslab[wbo[i].sub - 1].mark : &wbo[i].mark;   /* G-game (0102) */

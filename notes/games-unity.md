@@ -50,3 +50,25 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   and playing (12:41 phone time, watcher bebi14zr2: alive, no appcrash, no TDR).
 - Dave needs the Steam client: with steam_appid.txt it still exits after ~2 s (code 0x35) and starts
   steam://run/1868140 (Steam DRM - not bypassed). Stardew does not.
+- 20:55 user: "its running ... extremely low fps", then "the actual ingame is all black" (menu visible).
+  Measured without touching the screen: KMD heartbeat 5 s: ~6.4 presents/s, ~390 submissions/s (~60 per frame),
+  vsync 58/s. threadtop: one thread 103 % of a core (the driver thread), the rest idle; cores 4/5 ~75 %. Shim tlog:
+  "submit 527000 (1868 allocations listed, 1868 live BOs): Render mean 2493 max 7411 us", BOs own 1866 (922 MB) ->
+  ~390 x 2.3-2.5 ms = the whole driver thread in the runtime's Render walking an 1866-entry allocation list (H2's
+  "list every live BO" from WDDM 1.x).
+  Docs (AGENTS 13): MS Learn "GPU virtual memory in WDDM 2.0": "In physical mode, the scheduling model remains the
+  same as it is with WDDM v1.x. The UMD continues to generate the allocation and patch location lists"; "Driver
+  residency in WDDM 2.0" / Residency overview: "residency is moved to an explicit list on the device instead of the
+  per-command buffer list. VidMm ensures that all allocations on a particular device residency requirement list are
+  resident before any contexts belonging to that device are scheduled". The shim makes every BO resident at creation
+  (0069; normal, slab, opened and shared paths call w_resident).
+- Mesa 0162 (shim): with residency on (resid 1) and no MakeResident failure so far, a submission lists only the
+  batch's own BOs (Panfrost's bo_handles); WDDM 1.x / any MakeResident failure keeps the full list; MALIKM_LIST_ALL=1
+  forces it (diagnosis). EC build maliumd_ec cf0f5516 (s10e-artifacts\mali-umd-0162-ec) deployed live
+  (ecswap.sh, previous kept as maliumd_ec.dll.pre-0162-0) - takes effect at the next game start. NOT yet validated.
+- Black in-game: Unity logs only the start-up "not supported on this GPU" shaders: Hidden/CoreSRP/CoreCopy,
+  Hidden/VoxelizeShader, Hidden/Universal/HDRDebugView (+ R16 SFloat UAV render texture). INFERENCE: these are
+  "#pragma target 4.5" shaders = feature level 11_0 on D3D11; URP's camera-target copy without CoreCopy leaves the
+  3D view black while the UI overlay draws. FL 11_0 = the open D4 step of notes/gpu-umd-d3d11.md (SM5 shaders, UAVs at
+  all stages, tessellation decision). Driver log during play: SetError 0x887b0001 (DXGI_DDI_ERR_WASSTILLDRAWING, a
+  DO_NOT_WAIT map / query poll answer - normal) only.

@@ -112,3 +112,7 @@ work as possible on hdmi (via type c adapter and usb hub, i have both)."
   not shown to be at fault (fresh-boot A/B equal). 16176 is close to 2^14 = 16384 (Chromium decodes ahead) - no
   14-bit limit found by grep in Video*.c / the MFC driver. Diagnostic repro running: tools/phone/g35/cdplong.sh
   (unsandboxed CDP instance, Media log + GPU-process UMD log over 1000 s).
+- cdplong s1 (22:00-22:17, unsandboxed CDP instance, nothing else on screen): 23712 frames in 1000 s, 23.7 fps, dropped
+  59, no media error -> not a fixed frame-count limit. Difference to the failing videosoak run: the DWM swap test
+  every 3 min (cmd + d3dswap windows over the video; the first dip 31.9/s and the stall came right after checks).
+  Next: cdplongpopups.sh s2 (same + the swap test every 180 s).

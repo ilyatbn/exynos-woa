@@ -21,7 +21,10 @@ is static evidence from the shipped firmware until a test says otherwise.
 | F8 | **uh_panic on 9820** = log at 'D' + PMU software reset **`0x1586080C = arg|0xEE`** (arg 0x8800) + **the faulting core then spins forever at EL2**. A core spinning at EL2 is powered, never answers IPIs, and never returns an EL1 exception — matches the old "silent all-CPU hang, all cores PU=1" death shape IF uH ever panics on an M4. | uh 0x87012e7c, 0x8701a5a0 |
 | F9 | sboot.bin = BL2 + PSCI **clients** (it SMCs CPU_ON 0xC4000003 / CPU_OFF 0x84000002 itself around CL2 power/DVFS, wrapper at 0xa5634) + per-CPU **EL1/EL2/EL3 register save/restore thunk tables** (HCR_EL2, VTTBR, VTCR, VBAR_EL2, SCTLR/TTBR/MAIR_EL2, CNTHCTL, CNTFRQ, ACTLR_EL1/2/3, and the **M4 IMP-DEF syndrome reg S3_1_C15_C2_1**). The runtime PSCI monitor's own handler was NOT located in sboot.bin or cm.bin; cm.bin (partition BOOTLOADER2) is S-EL1 TZ content. The monitor blob is not in the HXJ6 BL tar. | sboot.disasm (m4/artifacts) |
 | F10 | sboot debug-name table (0x35400): `enter_c2+/-`, `exit_c2+/-`, `cl2emul+/-` (CL2 SFR **emulation** toggle — likely relevant to why off-cluster peeks at 0x1D100104/PMU freeze the SoC), `cl_stat`, `cpu_stat`, `hotpl_fl`. | sboot-strings.txt |
-| F11 | The PIT also defines **`uhuh.bin` (UHCFG), `acpm.bin` (ACPM), `ect.bin` (ECT)** partitions — none shipped in the HXJ6 BL tar. uhuh.bin may parameterize uH policy; ACPM owns M4 rail voltage. | BEYOND0LTE pit strings |
+| F11 | The PIT also defines **`uhuh.bin` (UHCFG), `acpm.bin` (ACPM), `ect.bin` (ECT)** partitions — none shipped in the HXJ6 BL tar. ACPM owns M4 rail voltage. | BEYOND0LTE pit strings |
+| F12 | **Device reality check (owner dumps, /data2/sams):** the phone's LUN1 runs sboot **G970FXXSGHWC1** (2023, SRPRI28A016), not the HXJ6 build — but every analyzed sboot region (uh-load, APP_INIT, CL2 PSCI/DVFS clients, sysreg thunks) is byte-identical between the two builds. And the **device's uH binary is byte-for-byte the analyzed code** (only the signing trailer differs; Samsung shipped the same uH 2023→2025). All F1-F8 facts describe exactly what Windows runs under. | /data2/sams cmp + m4/artifacts/sboot-ghwc1.* |
+| F13 | **`uhuh.bin` (UHCFG, sda11) is entirely zero** — no uH config/policy exists on this device; the binary alone is the whole story. | /data2/sams/uhuh.bin |
+| F14 | ACPM firmware is nowhere in LUN0, LUN1(sboot), LUN2, cm.bin or the tars; sboot carries the ACPM load/dump framework (`acpm_dump: base %x size %x`, `acpm_vclk_list`). Candidates: UFS LUN3/LUN4 (sdd 8 MiB incl. cpefs, sde 8 MiB) - not yet dumped. | strings + recon |
 
 ## 2. Hypotheses these facts produce (ranked, testable)
 
@@ -99,19 +102,17 @@ for the 520 MHz CL2 step (closes the m4clk1 UNVERIFIED gap) + a base for FREQ_RE
 
 ## 4. Data the owner can provide that would sharpen all of this
 
-1. **Partition recon first (pastes only, no dumps):** from TWRP `ls -l /dev/block/by-name`, from Android
-   `cat /proc/partitions`. The PIT defines ACPM/UHCFG/ECT partitions but HXJ6 ships no acpm.bin and the
-   on-device names are unconfirmed (no `acpm` seen) - sizes will identify them (ACPM is ~0x30000-class).
-   If an acpm-sized partition shows up, dd it read-only from TWRP. The running ACPM image was flashed by
-   an older package (unknown build); P7's RAM dump covers the same tables live meanwhile. **uhcfg
-   (uhuh.bin)** - if present, still worth a dd (uH config the binary alone doesn't show).
-2. An **older or sibling Odin package** (G970F earlier rev, or S10/G973F/G975F same SoC): if the BL tar
-   there includes acpm.bin/uhuh.bin/tj directly, even better; sibling-model `uh.bin` diffs show what
-   changed for the M4 generation (look for MIDR 0x53 paths our copy lacks).
-3. **`dqmdbg.img` is already inside the AP tar** (local) — worth cracking next session: debug images
+1. **DONE (2026-10-21):** recon + LUN1/LUN2 + uh + uhcfg dumps received (see /data2/sams, F12-F14).
+   Remaining ask: **full dumps of `sdd` and `sde`** (8 MiB each, TWRP:
+   `dd if=/dev/block/sdd of=/sdd.bin && dd if=/dev/block/sde of=/sde.bin && adb pull /sdd.bin /sde.bin`)
+   plus the LUN map (`for l in sdb sdc sdd sde; do echo $l $(cat /sys/block/$l/device/lun); done`).
+   ACPM is the only thing they can still hide; nothing else pending on the device side.
+   (uhuh.bin answered: all-zero. Sibling-package `uh.bin` diffing is moot: device vs HXJ6 uH are the
+   same code; a sibling 9820 package would only help find a packaged `acpm.bin`.)
+2. **`dqmdbg.img` is already inside the AP tar** (local) — worth cracking next session: debug images
    sometimes carry the log-tag dictionaries that map the `RKP_xxxxxxxx` hashed names to readable strings,
    which would make P3 ring lines human-readable.
-4. From the Windows side (our own KD/s10ediagx instrumentation only, no Windows binaries): the **final
+3. From the Windows side (our own KD/s10ediagx instrumentation only, no Windows binaries): the **final
    physical address ranges** Windows actually uses (kernel .text/.data/pool from our KPRCB dumps + the
    E820 map we hand it) — needed to size P5 and to know how much of the kernel heap sits in the NS window.
 

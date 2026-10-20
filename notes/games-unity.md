@@ -722,3 +722,4 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   dir stays); Explorer.EXE selected -> "Explorer.EXE is running. Close it first." (nothing deleted). Display changed
   to the shader bytes ("Shaders" column) with the index files in the status line: 20 caches, 605 KB of shaders
   (+ 40.0 MB of index files); Dave 553 KB (shadercache-app2.png, shadercache-running.png).
+- Review of the app commit: fresh installs would not get it - firmware/tools/s10e-provision-fresh.sh and s10e-setupcomplete.cmd list every S10eDiag exe; s10eshadercache.exe added to both (follow-up commit). Other points checked: a cache without app.txt cannot be checked for a running game -> the delete then fails on the mapped index and the app says so; MAX_ENTRIES 256 truncates silently (accepted).

@@ -1,8 +1,8 @@
 /*
  * d3dsm5 - G34 shader model 5.0 check (notes/g34-fl11.md): cs_5_0 compute shaders on the Mali D3D11 UMD against WARP,
  * both at feature level 11_0. Each test writes its results to a raw UAV (u0) that is compared word for word.
- * While FL 11_0 is not reported by default, the process sets D3D10UMD_FL11_0=1 for itself before the UMD loads
- * (a diagnosis switch, AGENTS.md rule 12); with "-native" it does not.
+ * The UMD reports FL 11_0 by default since Mesa 0218; "-native" (formerly: skip the D3D10UMD_FL11_0=1 override) is accepted
+ * and ignored.
  *   bits       countbits / firstbithigh / firstbitlow / reversebits (signed and unsigned)
  *   bfe        bitfield extract / insert patterns (fxc: ubfe / ibfe / bfi)
  *   f16        f32tof16 / f16tof32
@@ -676,16 +676,9 @@ static bool Open(bool warp, IDXGIAdapter *ad, ID3D11Device **dev, ID3D11DeviceCo
 int main(int argc, char **argv)
 {
     setvbuf(stdout, NULL, _IONBF, 0);   /* a GPU hang must not lose the lines before it */
-    bool native = false;
     int first_sel = 1;
-    if (argc > 1 && !strcmp(argv[1], "-native")) {
-        native = true;
+    if (argc > 1 && !strcmp(argv[1], "-native"))
         first_sel = 2;
-    }
-    if (!native) {
-        SetEnvironmentVariableA("D3D10UMD_FL11_0", "1");
-        _putenv("D3D10UMD_FL11_0=1");
-    }
     for (UINT i = 0; i < 1024; i++)
         g_in[i] = i * 7u + 1u;
     IDXGIFactory1 *fac = NULL;

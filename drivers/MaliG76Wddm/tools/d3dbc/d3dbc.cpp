@@ -12,8 +12,8 @@
  * the PSNR against WARP over the format's channels, for two data kinds - "random" (every bit random: far-apart
  * endpoints, the worst case for any re-encoder; floor 10 dB: only catches broken layouts - random BC2 alpha is noise no 8-level EAC block fits, 12 dB at a 3x3 mip) and "soft" (endpoints close together, as in real
  * textures; floor 30 dB) - and BC1's 1-bit alpha exactly (a texel transparent on WARP must be transparent on Mali).
- * G34 (notes/g34-fl11.md): "d3dbc bptc" checks BC6H_UF16 / BC6H_SF16 / BC7_UNORM / BC7_UNORM_SRGB (feature level 11_0;
- * the process sets the UMD's D3D10UMD_FL11_0=1 diagnosis switch for itself) - decoded at upload into RGBA16F / RGBA8,
+ * G34 (notes/g34-fl11.md): "d3dbc bptc" checks BC6H_UF16 / BC6H_SF16 / BC7_UNORM / BC7_UNORM_SRGB (feature level 11_0,
+ * reported by default since Mesa 0218) - decoded at upload into RGBA16F / RGBA8,
  * compared like the exact mode (BC6H relative 1/1000: half floats either side).
  * SPDX-License-Identifier: GPL-2.0
  */
@@ -219,8 +219,6 @@ int main(int argc, char **argv)
     bool bptc = argc > 1 && !strcmp(argv[1], "bptc");     /* G34 */
     const Fmt *fmts = g_fmts;
     if (bptc) {
-        SetEnvironmentVariableA("D3D10UMD_FL11_0", "1");
-        _putenv("D3D10UMD_FL11_0=1");
         g_fl = D3D_FEATURE_LEVEL_11_0;
         fmts = g_bptc;
         NF = sizeof(g_bptc) / sizeof(g_bptc[0]);

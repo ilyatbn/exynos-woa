@@ -1,7 +1,6 @@
 /*
  * d3dtess - G34 F11.10 hull / domain shader check (notes/g34-fl11.md): tessellated patches drawn on the Mali D3D11
- * UMD and on WARP at feature level 11_0 (the process sets the UMD's D3D10UMD_FL11_0=1 diagnosis switch for itself;
- * "-native" does not), 64x64 RGBA8 target, compared pixel by pixel. The pixel shader colours by a non-linear function
+ * UMD and on WARP at feature level 11_0 (reported by default since Mesa 0218; "-native" is accepted and ignored), 64x64 RGBA8 target, compared pixel by pixel. The pixel shader colours by a non-linear function
  * of the domain location computed per tessellated vertex, so the picture depends on the tessellation pattern.
  *   tri_int      tri domain, integer partitioning, constant factors from a constant buffer, pass-through control points
  *   tri_frac     tri domain, fractional_odd, factors 2.3 / 3.6 / 4.1, inside 3.3
@@ -311,10 +310,6 @@ int main(int argc, char **argv)
     }
     if (argc > 1 && !strcmp(argv[1], "-native"))
         first_sel = 2;
-    else {
-        SetEnvironmentVariableA("D3D10UMD_FL11_0", "1");
-        _putenv("D3D10UMD_FL11_0=1");
-    }
     ID3DBlob *vsb = Compile(g_vs, "vs_5_0"), *psb = Compile(g_ps, "ps_5_0"), *vsplain = Compile(g_vs_plain, "vs_5_0");
     ID3DBlob *vsinst = Compile(g_vs_inst, "vs_5_0");
     if (!vsb || !psb || !vsplain || !vsinst)

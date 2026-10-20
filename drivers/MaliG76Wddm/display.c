@@ -893,6 +893,8 @@ NTSTATUS APIENTRY MwSetVidPnSourceVisibility(IN_CONST_HANDLE hAdapter,
                                              const DXGKARG_SETVIDPNSOURCEVISIBILITY *Arg)
 {
     MW_ADAPTER *dev = (MW_ADAPTER *)hAdapter;
+    if (Arg->VidPnSourceId != 0)
+        return STATUS_SUCCESS;   /* G18 P4b review: the DisplayPort source has no scan-out yet - never the panel's */
     dev->SourceVisible = Arg->Visible;
     /* Invisible means blank: clear the framebuffer once. */
     if (!Arg->Visible && dev->FbVa != NULL)
@@ -912,6 +914,12 @@ NTSTATUS APIENTRY MwCommitVidPn(IN_CONST_HANDLE hAdapter, const DXGKARG_COMMITVI
     st = dev->Dxgk.DxgkCbQueryVidPnInterface(Arg->hFunctionalVidPn, DXGK_VIDPN_INTERFACE_VERSION_V1, &vidpn);
     if (!NT_SUCCESS(st))
         return st;
+    if (Arg->AffectedVidPnSourceId != 0 && Arg->AffectedVidPnSourceId != D3DDDI_ID_ALL) {
+        /* G18 P4b review: a commit that only concerns the DisplayPort source must not re-evaluate (and possibly turn
+         * off) the panel's path */
+        MwPramText(FALSE, "Commit other source ", NULL, (ULONG)Arg->AffectedVidPnSourceId, TRUE);
+        return STATUS_SUCCESS;
+    }
     {
         /* G76: what was committed - source id, connectivity checks, number of paths (PRAM). */
         D3DKMDT_HVIDPNTOPOLOGY topo;
@@ -958,6 +966,8 @@ NTSTATUS APIENTRY MwUpdateActiveVidPnPresentPath(IN_CONST_HANDLE hAdapter,
                                                  const DXGKARG_UPDATEACTIVEVIDPNPRESENTPATH *Arg)
 {
     MW_ADAPTER *dev = (MW_ADAPTER *)hAdapter;
+    if (Arg->VidPnPresentPathInfo.VidPnSourceId != 0 || Arg->VidPnPresentPathInfo.VidPnTargetId != 0)
+        return STATUS_SUCCESS;   /* G18 P4b review: only the panel path's transformation is ours to track */
 
     /* Smooth rotation (SupportSmoothRotation) changes the path's rotation here without a mode set. */
     MwLog(dev, L"ActivePathRotation", (ULONG)Arg->VidPnPresentPathInfo.ContentTransformation.Rotation);
@@ -972,6 +982,8 @@ NTSTATUS APIENTRY MwRecommendMonitorModes(IN_CONST_HANDLE hAdapter,
     D3DKMDT_MONITOR_SOURCE_MODE *mode;
     NTSTATUS st;
 
+    if (Arg->VideoPresentTargetId != 0)
+        return STATUS_SUCCESS;   /* G18 P4b review: the panel's mode belongs to the panel's monitor only */
     st = Arg->pMonitorSourceModeSetInterface->pfnCreateNewModeInfo(Arg->hMonitorSourceModeSet, &mode);
     if (!NT_SUCCESS(st))
         return st;
@@ -1103,6 +1115,8 @@ VOID APIENTRY MwSystemDisplayWrite(IN_CONST_PVOID MiniportDeviceContext, IN_CONS
 NTSTATUS APIENTRY MwSetVidPnSourceAddress(IN_CONST_HANDLE hAdapter, const DXGKARG_SETVIDPNSOURCEADDRESS *Arg)
 {
     MW_ADAPTER *dev = (MW_ADAPTER *)hAdapter;
+    if (Arg->VidPnSourceId != 0)
+        return STATUS_SUCCESS;   /* G18 P4b review: no DisplayPort scan-out yet - a source-1 flip must not move the panel */
     /* Step d of the original: nothing is reprogrammed; presents are CPU copies (command.c). G76: the address is
      * kept, the software vsync reports it as the one being scanned out (command.c SyncVsync). With FlipMmio the
      * allocation is queued instead: the next vsync DPC copies it into the GOP fb ("latches" it) and only then

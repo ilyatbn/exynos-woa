@@ -60,3 +60,12 @@ notes/g18-hdmi-dp-alt.md (rungs H1-H5, H1 done read-only), notes/g18-h2-altmode-
   monitor device for UID 1 (disconnected as intended), KMD DDI trace shows QueryChildRelations calls; no Code 43.
   (An old "Generic Monitor (S2719DGF)" devnode in state Unknown predates this change.) INF version not bumped - a
   sys-only swap; the next package build carries it.
+- Review of P4b: FINDING - with two sources, the per-source / per-path DDIs ignored the ids: SetVidPnSourceVisibility
+  (a source-1 "invisible" would zero the PANEL fb), SetVidPnSourceAddress (a source-1 flip would move the panel),
+  CommitVidPn (a commit scoped to source 1 re-evaluated source 0 and could set PathActive FALSE),
+  RecommendMonitorModes (would give a target-1 monitor the panel's mode), UpdateActiveVidPnPresentPath (target 1's
+  rotation would become the panel's). None had fired (Windows creates no path to a disconnected target) but any
+  reconfiguration touching source 1 would. Fixed (own commit): early returns for source / target != 0
+  (Commit: AffectedVidPnSourceId other than 0 and D3DDDI_ID_ALL). sys 1f72350c (s10e-artifacts\maliwddm-p4b2),
+  kmdswap + reboot 19:42: adapter Started, desktop normal (traces/g18-p4b2-desk.png), Edge hardware video 23.5 fps
+  dropped 0 (traces/g35-edge-hw3.png). QueryVidPnHWCapability needs no guard (PinnedSourceKind of source 1 = 0).

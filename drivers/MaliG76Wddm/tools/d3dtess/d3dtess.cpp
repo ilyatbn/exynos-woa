@@ -9,6 +9,8 @@
  *   quad_feven   quad domain, fractional_even, factors from an instanced (4x) fork phase reading the control points
  *   iso          isoline domain (lines), density 4, detail 6 (analytic check: WARP's isolines are not repeatable)
  *   plainline    a plain line list (no hull / domain shader), to separate line rasterization from tessellation
+ *   inst_prim    2 instances (VS offset by SV_InstanceID), SV_PrimitiveID in HS + DS (resets per instance)
+ *   indexed      DrawIndexed with the two patches in reverse order
  *   pc_custom    tri domain, a custom patch constant (colour) read in the domain shader
  * Usage: d3dtess [-native] [test ...]. Exit 0 = every selected test matches (<= 0.5 % pixels off by more than 3/255).
  * Build: build-d3dtess.cmd.
@@ -32,6 +34,11 @@ static const char g_vs_plain[] =
     "O main(float3 p : POSITION, uint id : SV_VertexID) { O o; o.pos = float4(p.xy, 0.5, 1);\n"
     "  o.c = float3(id * 0.12, 1 - id * 0.1, 0.5); return o; }\n";
 
+static const char g_vs_inst[] =
+    "struct V { float3 p : POSITION; };\n"
+    "struct O { float3 p : CPOS; };\n"
+    "O main(V v, uint iid : SV_InstanceID) { O o; o.p = v.p + float3(iid * 0.9 - 0.45, iid * -0.3, 0); return o; }\n";
+
 static const char g_ps[] =
     "float4 main(float4 pos : SV_Position, float3 c : COLOR0) : SV_Target { return float4(c, 1); }\n";
 
@@ -41,6 +48,8 @@ struct Test {
     int npatch;
     const char *hs, *ds;
     bool lines;
+    int instances;        /* review R12/R16: DrawInstanced (the VS moves each instance), 0 = Draw */
+    bool indexed;         /* review R15: DrawIndexed with the patches in reverse order */
 };
 
 #define TRI_HS_COMMON \
@@ -115,6 +124,36 @@ static const Test g_tests[] = {
       "  O o; float3 p = lerp(cp[0].p, cp[1].p, uv.x); p.y += uv.y * 1.2 - 0.6;\n"
       "  o.pos = float4(p.xy, 0.5, 1); o.c = float3(uv, 1); return o; }\n", true },
     { "plainline", 2, 4, NULL, NULL, true },   /* no tessellation: a line list through a plain VS (rasterization A/B) */
+    { "inst_prim", 3, 2,   /* review R12/R16: 2 instances; SV_PrimitiveID in the HS and the DS restarts per instance */
+      "struct C { float3 p : CPOS; };\n"
+      "struct PC { float e[3] : SV_TessFactor; float i : SV_InsideTessFactor; float3 col : PCOL; };\n"
+      "PC pcf(InputPatch<C, 3> ip, uint id : SV_PrimitiveID) {\n"
+      "  PC o; o.e[0] = 2; o.e[1] = 3; o.e[2] = 2; o.i = 2; o.col = float3(0.3 + 0.4 * id, 0.9 - 0.4 * id, 0.5); return o; }\n"
+      "[domain(\"tri\")] [partitioning(\"integer\")] [outputtopology(\"triangle_cw\")] [outputcontrolpoints(3)]\n"
+      "[patchconstantfunc(\"pcf\")] C main(InputPatch<C, 3> ip, uint i : SV_OutputControlPointID) { return ip[i]; }\n",
+      "struct C { float3 p : CPOS; };\n"
+      "struct PC { float e[3] : SV_TessFactor; float i : SV_InsideTessFactor; float3 col : PCOL; };\n"
+      "struct O { float4 pos : SV_Position; float3 c : COLOR0; };\n"
+      "[domain(\"tri\")] O main(PC pc, float3 uvw : SV_DomainLocation, const OutputPatch<C, 3> cp,\n"
+      "         uint id : SV_PrimitiveID) {\n"
+      "  O o; float3 p = cp[0].p * uvw.x + cp[1].p * uvw.y + cp[2].p * uvw.z;\n"
+      "  o.pos = float4(p.xy * 0.5, 0.5, 1); o.c = pc.col * (0.6 + 0.4 * frac(uvw.x * 3)) + float3(0, 0, 0.2 * id); return o; }\n",
+      false, 2, false },
+    { "indexed", 3, 2,     /* review R15: DrawIndexed, patches in reverse order (PrimitiveID follows the draw order) */
+      "struct C { float3 p : CPOS; };\n"
+      "struct PC { float e[3] : SV_TessFactor; float i : SV_InsideTessFactor; float3 col : PCOL; };\n"
+      "PC pcf(InputPatch<C, 3> ip, uint id : SV_PrimitiveID) {\n"
+      "  PC o; o.e[0] = 2; o.e[1] = 3; o.e[2] = 2; o.i = 2; o.col = float3(0.3 + 0.4 * id, 0.9 - 0.4 * id, 0.5); return o; }\n"
+      "[domain(\"tri\")] [partitioning(\"integer\")] [outputtopology(\"triangle_cw\")] [outputcontrolpoints(3)]\n"
+      "[patchconstantfunc(\"pcf\")] C main(InputPatch<C, 3> ip, uint i : SV_OutputControlPointID) { return ip[i]; }\n",
+      "struct C { float3 p : CPOS; };\n"
+      "struct PC { float e[3] : SV_TessFactor; float i : SV_InsideTessFactor; float3 col : PCOL; };\n"
+      "struct O { float4 pos : SV_Position; float3 c : COLOR0; };\n"
+      "[domain(\"tri\")] O main(PC pc, float3 uvw : SV_DomainLocation, const OutputPatch<C, 3> cp,\n"
+      "         uint id : SV_PrimitiveID) {\n"
+      "  O o; float3 p = cp[0].p * uvw.x + cp[1].p * uvw.y + cp[2].p * uvw.z;\n"
+      "  o.pos = float4(p.xy * 0.5, 0.5, 1); o.c = pc.col * (0.6 + 0.4 * frac(uvw.x * 3)) + float3(0, 0, 0.2 * id); return o; }\n",
+      false, 0, true },
     { "pc_custom", 3, 2,
       "struct C { float3 p : CPOS; };\n"
       "struct PC { float e[3] : SV_TessFactor; float i : SV_InsideTessFactor; float3 col : PCOL; };\n"
@@ -217,7 +256,21 @@ static bool Render(ID3D11Device *dev, ID3D11DeviceContext *ctx, const Test *t, I
     ctx->DSSetShader(ds, NULL, 0);
     ctx->PSSetShader(ps, NULL, 0);
     ctx->OMSetRenderTargets(1, &rtv, NULL);
-    ctx->Draw(nv, 0);
+    ID3D11Buffer *ibuf = NULL;
+    if (t->indexed) {
+        USHORT idx[6] = { 3, 4, 5, 0, 1, 2 };
+        D3D11_BUFFER_DESC id = { sizeof idx, D3D11_USAGE_DEFAULT, D3D11_BIND_INDEX_BUFFER, 0, 0, 0 };
+        D3D11_SUBRESOURCE_DATA isd = { idx, 0, 0 };
+        if (SUCCEEDED(dev->CreateBuffer(&id, &isd, &ibuf)))
+            ctx->IASetIndexBuffer(ibuf, DXGI_FORMAT_R16_UINT, 0);
+        ctx->DrawIndexed(6, 0, 0);
+        ctx->IASetIndexBuffer(NULL, DXGI_FORMAT_R16_UINT, 0);
+        if (ibuf) ibuf->Release();
+    } else if (t->instances) {
+        ctx->DrawInstanced(nv, t->instances, 0, 0);
+    } else {
+        ctx->Draw(nv, 0);
+    }
     ctx->HSSetShader(NULL, NULL, 0);
     ctx->DSSetShader(NULL, NULL, 0);
     ctx->CopyResource(st, rt);
@@ -263,7 +316,8 @@ int main(int argc, char **argv)
         _putenv("D3D10UMD_FL11_0=1");
     }
     ID3DBlob *vsb = Compile(g_vs, "vs_5_0"), *psb = Compile(g_ps, "ps_5_0"), *vsplain = Compile(g_vs_plain, "vs_5_0");
-    if (!vsb || !psb || !vsplain)
+    ID3DBlob *vsinst = Compile(g_vs_inst, "vs_5_0");
+    if (!vsb || !psb || !vsplain || !vsinst)
         return 1;
     IDXGIFactory1 *fac = NULL;
     IDXGIAdapter1 *ad = NULL, *pick = NULL;
@@ -292,7 +346,7 @@ int main(int argc, char **argv)
         run++;
         ID3DBlob *hsb = t->hs ? Compile(t->hs, "hs_5_0") : NULL, *dsb = t->ds ? Compile(t->ds, "ds_5_0") : NULL;
         if (t->hs && (!hsb || !dsb)) { fails++; continue; }
-        ID3DBlob *tvs = t->hs ? vsb : vsplain;
+        ID3DBlob *tvs = !t->hs ? vsplain : t->instances ? vsinst : vsb;
         printf("%-11s running...\n", t->name);
         memset(om, 0xCD, sizeof om);
         memset(ow, 0xAB, sizeof ow);

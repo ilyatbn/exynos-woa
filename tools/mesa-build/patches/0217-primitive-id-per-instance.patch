@@ -1,0 +1,99 @@
+diff --git a/src/gallium/frontends/d3d10umd/ShaderTGSI.c b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+index 0198821..e8fba2d 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderTGSI.c
++++ b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+@@ -304,7 +304,7 @@ struct Shader_xlate {
+    } hs;
+    struct {
+       bool active;
+-      struct ureg_src domain, patch, sview, layout;
++      struct ureg_src domain, patch, prim, sview, layout;
+    } ds;
+ 
+    /* exynos-woa G34 F11.7 (notes/g34-fl11.md): a thread group above the hardware's 384 threads (cs_5_0 allows 1024).
+@@ -334,6 +334,7 @@ struct Shader_xlate {
+    struct ureg_dst gs_state;                    /* .x primitive, .y active (prim < count), .z emitted, .w indices */
+    struct ureg_dst gs_primc;                    /* .x the primitive clamped to count - 1 (input loads) */
+    struct ureg_src gs_param;                    /* CONST[15][0]: .x primitives, .y VS output stride in bytes */
++   struct ureg_src gs_prim_inst;                /* G34 review R12: the primitive within its instance (vPrim) */
+ };
+ 
+ /* exynos-woa G24: a raw / structured access target - the TGSI BUFFER or MEMORY register, structure stride, byte base */
+@@ -1471,7 +1472,9 @@ ds_begin(struct Shader_xlate *sx)
+ {
+    struct ureg_program *u = sx->ureg;
+    sx->ds.domain = ureg_DECL_vs_input(u, 0);
+-   sx->ds.patch = ureg_scalar(ureg_DECL_vs_input(u, 1), TGSI_SWIZZLE_X);
++   struct ureg_src in1 = ureg_DECL_vs_input(u, 1);   /* (patch, patch within its instance) */
++   sx->ds.patch = ureg_scalar(in1, TGSI_SWIZZLE_X);
++   sx->ds.prim = ureg_scalar(in1, TGSI_SWIZZLE_Y);
+    sx->ds.sview = ureg_DECL_sampler_view(u, TESS_REC_SVIEW, TGSI_TEXTURE_BUFFER, TGSI_RETURN_TYPE_UINT,
+                                          TGSI_RETURN_TYPE_UINT, TGSI_RETURN_TYPE_UINT, TGSI_RETURN_TYPE_UINT);
+    ureg_DECL_constant2D(u, 0, 0, 15);
+@@ -1488,7 +1491,7 @@ ds_src(struct Shader_xlate *sx, const struct Shader_operand *op, struct ureg_src
+       *reg = sx->ds.domain;
+       return true;
+    case D3D10_SB_OPERAND_TYPE_INPUT_PRIMITIVEID:
+-      *reg = sx->ds.patch;
++      *reg = sx->ds.prim;   /* G34 review R12: per instance */
+       return true;
+    case D3D11_SB_OPERAND_TYPE_INPUT_CONTROL_POINT:
+    case D3D11_SB_OPERAND_TYPE_INPUT_PATCH_CONSTANT: {
+@@ -1923,6 +1926,13 @@ gs_prologue(struct Shader_xlate *sx)
+    struct ureg_dst f = ureg_DECL_temporary(u);   /* .x is list, .y is fan, .z index size 4, .w not indexed */
+    struct ureg_dst t = ureg_DECL_temporary(u);
+    ureg_UMOD(u, ureg_writemask(g, TGSI_WRITEMASK_X), SC(ureg_src(pc), X), SC(p0, W));
++   /* G34 review R12: D3D11.3 spec 8.17 "When Draw*Instanced() is used, the PrimitiveID resets to its starting value
++    * whenever a new instance begins" - vPrim = g.x, kept in a temporary of its own (g is released below) */
++   {
++      struct ureg_dst pi = ureg_writemask(ureg_DECL_temporary(u), TGSI_WRITEMASK_X);
++      ureg_MOV(u, pi, SC(ureg_src(g), X));
++      sx->gs_prim_inst = SC(ureg_src(pi), X);
++   }
+    ureg_UDIV(u, ureg_writemask(g, TGSI_WRITEMASK_Y), SC(ureg_src(pc), X), SC(p0, W));
+    ureg_AND(u, ureg_writemask(t, TGSI_WRITEMASK_X), SC(ureg_src(g), X), ureg_imm1u(u, 1));
+    ureg_USEQ(u, ureg_writemask(t, TGSI_WRITEMASK_Y), SC(p0, Z), ureg_imm1u(u, 2));
+@@ -2291,8 +2301,8 @@ translate_src_operand(struct Shader_xlate *sx,
+       break;
+ 
+    case D3D10_SB_OPERAND_TYPE_INPUT_PRIMITIVEID:
+-      if (sx->gs_cs) {   /* exynos-woa G25: the invocation's primitive */
+-         reg = ureg_scalar(ureg_src(sx->gs_state), TGSI_SWIZZLE_X);
++      if (sx->gs_cs) {   /* exynos-woa G25: the invocation's primitive - within its instance (G34 review R12) */
++         reg = sx->gs_prim_inst;
+          break;
+       }
+       reg = sx->prim_id;
+diff --git a/src/gallium/frontends/d3d10umd/TessEmu.cpp b/src/gallium/frontends/d3d10umd/TessEmu.cpp
+index de08f9f..2efc409 100644
+--- a/src/gallium/frontends/d3d10umd/TessEmu.cpp
++++ b/src/gallium/frontends/d3d10umd/TessEmu.cpp
+@@ -459,11 +459,14 @@ TessEmuDraw(Device *dev, const struct pipe_draw_info *info, const struct pipe_dr
+       }
+       pipe_buffer_unmap(pipe, t);
+    }
+-   std::vector<uint32_t> P;
++   std::vector<uint32_t> P;   /* per instance of a pattern draw: (patch, patch within its draw instance) */
+    std::vector<unsigned> first_inst;
+    for (auto &tp : pats) {
+-      first_inst.push_back((unsigned)P.size());
+-      P.insert(P.end(), tp.patches.begin(), tp.patches.end());
++      first_inst.push_back((unsigned)(P.size() / 2));
++      for (uint32_t p : tp.patches) {
++         P.push_back(p);
++         P.push_back(p % MAX2(ppi, 1u));   /* review R12: SV_PrimitiveID restarts with every instance (spec 8.17) */
++      }
+    }
+    if (V.empty() || I.empty())
+       return true;   /* every patch culled */
+@@ -483,8 +486,8 @@ TessEmuDraw(Device *dev, const struct pipe_draw_info *info, const struct pipe_dr
+    ve.velems[0].src_format = PIPE_FORMAT_R32G32B32A32_FLOAT;
+    ve.velems[0].src_stride = 16;
+    ve.velems[0].vertex_buffer_index = 0;
+-   ve.velems[1].src_format = PIPE_FORMAT_R32_UINT;
+-   ve.velems[1].src_stride = 4;
++   ve.velems[1].src_format = PIPE_FORMAT_R32G32_UINT;
++   ve.velems[1].src_stride = 8;
+    ve.velems[1].vertex_buffer_index = 1;
+    ve.velems[1].instance_divisor = 1;
+    cso_set_vertex_elements(dev->cso, &ve);

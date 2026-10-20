@@ -21,6 +21,8 @@
  *   uav8       eight UAVs u0..u7 written in one shader
  *   psuav      pixel shader: raw UAV stores per pixel + an atomic pixel count (OMSetRenderTargetsAndUnorderedAccessViews)
  *   psderiv    pixel shader: ddx/ddy coarse and fine written to a UAV
+ *   append     AppendStructuredBuffer.Append + initial count 5 + CopyStructureCount (contents compared sorted)
+ *   consume    ConsumeStructuredBuffer.Consume from a prefilled buffer with initial count 64
  *   group1024  numthreads(1024,1,1) groupshared reduction with barriers
  *   groupz64   numthreads(1,1,64) SV_GroupThreadID.z
  * Usage: d3dsm5 [-native] [test ...]. Exit 0 = every selected test matches. Build: build-d3dsm5.cmd.
@@ -33,7 +35,7 @@
 #include <d3d11.h>
 #include <d3dcompiler.h>
 
-enum Extra { EX_NONE, EX_TYPEDBUF, EX_TYPEDTEX, EX_UAV8, EX_STRUCTINT, EX_RGBA8TEX, EX_PS };
+enum Extra { EX_NONE, EX_TYPEDBUF, EX_TYPEDTEX, EX_UAV8, EX_STRUCTINT, EX_RGBA8TEX, EX_PS, EX_APPEND, EX_CONSUME };
 
 struct Test {
     const char *name;
@@ -195,6 +197,21 @@ static const Test g_tests[] = {
       "  dst.Store4((p.y * 16 + p.x) * 16, asuint(float4(ddx_coarse(f), ddx_fine(f), ddy_coarse(f), ddy_fine(f))));\n"
       "  return float4(f, 0, 0, 1);\n"
       "}\n", 4 * 256, 1, 1, 1, EX_PS },
+    /* append / consume (EX_APPEND / EX_CONSUME): u1 = a 128-element uint structured buffer with the APPEND flag,
+     * bound with an initial count (5 / 64); afterwards out[0] = CopyStructureCount, out[1..64] = the touched elements
+     * sorted (the order of appends is undefined) */
+    { "append",
+      "AppendStructuredBuffer<uint> ab : register(u1);\n"
+      "RWByteAddressBuffer dst : register(u0);\n"
+      "[numthreads(64,1,1)] void main(uint3 tid : SV_DispatchThreadID) {\n"
+      "  ab.Append(tid.x * 3u + 1u);\n"
+      "}\n", 1 + 64, 1, 1, 1, EX_APPEND },
+    { "consume",
+      "ConsumeStructuredBuffer<uint> cb : register(u1);\n"
+      "RWByteAddressBuffer dst : register(u0);\n"
+      "[numthreads(32,1,1)] void main(uint3 tid : SV_DispatchThreadID) {\n"
+      "  dst.Store(4 + tid.x * 4, cb.Consume());\n"
+      "}\n", 1 + 64, 1, 1, 1, EX_CONSUME },
     { "atomics",
       "RWByteAddressBuffer dst : register(u0);\n"
       "[numthreads(64,1,1)] void main(uint3 tid : SV_DispatchThreadID) {\n"
@@ -357,6 +374,23 @@ static bool RunTest(ID3D11Device *dev, ID3D11DeviceContext *ctx, const Test *t, 
         extra[1] = tx;
         if (SUCCEEDED(hr)) hr = dev->CreateUnorderedAccessView(tx, NULL, &uav[1]);
         nuav = 2;
+    } else if (SUCCEEDED(hr) && (t->extra == EX_APPEND || t->extra == EX_CONSUME)) {
+        D3D11_BUFFER_DESC bd = { 128 * 4, D3D11_USAGE_DEFAULT, D3D11_BIND_UNORDERED_ACCESS, 0,
+                                 D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 4 };
+        UINT init[128];
+        for (UINT k = 0; k < 128; k++)
+            init[k] = 1000u + k * 7u;
+        D3D11_SUBRESOURCE_DATA sdi = { init, 0, 0 };
+        ID3D11Buffer *b = NULL;
+        hr = dev->CreateBuffer(&bd, &sdi, &b);
+        extra[1] = b;
+        D3D11_UNORDERED_ACCESS_VIEW_DESC ud = {};
+        ud.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+        ud.Format = DXGI_FORMAT_UNKNOWN;
+        ud.Buffer.NumElements = 128;
+        ud.Buffer.Flags = D3D11_BUFFER_UAV_FLAG_APPEND;
+        if (SUCCEEDED(hr)) hr = dev->CreateUnorderedAccessView(b, &ud, &uav[1]);
+        nuav = 2;
     } else if (SUCCEEDED(hr) && t->extra == EX_STRUCTINT) {
         D3D11_BUFFER_DESC bd = { 4 * 4, D3D11_USAGE_DEFAULT, D3D11_BIND_UNORDERED_ACCESS, 0,
                                  D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 4 };
@@ -397,8 +431,13 @@ static bool RunTest(ID3D11Device *dev, ID3D11DeviceContext *ctx, const Test *t, 
     }
     ctx->CSSetShader(cs, NULL, 0);
     ctx->CSSetShaderResources(0, 1, &srv);
-    ctx->CSSetUnorderedAccessViews(0, nuav, uav, NULL);
+    UINT counts[8] = { ~0u, t->extra == EX_APPEND ? 5u : 64u, ~0u, ~0u, ~0u, ~0u, ~0u, ~0u };
+    bool counted = t->extra == EX_APPEND || t->extra == EX_CONSUME;
+    ctx->CSSetUnorderedAccessViews(0, nuav, uav, counted ? counts : NULL);
     ctx->Dispatch(t->gx, t->gy, t->gz);
+    if (counted) {   /* out[0] = the hidden counter */
+        ctx->CopyStructureCount(outbuf, 0, uav[1]);
+    }
     ID3D11UnorderedAccessView *none[8] = {};
     ctx->CSSetUnorderedAccessViews(0, 8, none, NULL);
     if (t->extra == EX_RGBA8TEX) {   /* compare the texels: copy the texture through a staging texture into out */
@@ -429,6 +468,24 @@ static bool RunTest(ID3D11Device *dev, ID3D11DeviceContext *ctx, const Test *t, 
     if (FAILED(hr)) { printf("    Map 0x%08lx\n", (unsigned long)hr); return false; }
     memcpy(out, map.pData, t->out_words * 4);
     ctx->Unmap(st, 0);
+    if (t->extra == EX_APPEND) {   /* the 64 elements after the initial count 5, sorted */
+        D3D11_BUFFER_DESC sd2 = { 128 * 4, D3D11_USAGE_STAGING, 0, D3D11_CPU_ACCESS_READ, 0, 0 };
+        ID3D11Buffer *s2 = NULL;
+        if (SUCCEEDED(dev->CreateBuffer(&sd2, NULL, &s2))) {
+            ctx->CopyResource(s2, extra[1]);
+            D3D11_MAPPED_SUBRESOURCE m2;
+            if (SUCCEEDED(ctx->Map(s2, 0, D3D11_MAP_READ, 0, &m2))) {
+                memcpy(out + 1, (const UINT *)m2.pData + 5, 64 * 4);
+                ctx->Unmap(s2, 0);
+            }
+            s2->Release();
+        }
+    }
+    if (counted)   /* order of appends / consumes is undefined: sort the payload */
+        qsort(out + 1, t->out_words - 1, 4, [](const void *a, const void *b) {
+            UINT x = *(const UINT *)a, y = *(const UINT *)b;
+            return x < y ? -1 : x > y;
+        });
     for (UINT k = 0; k < 8; k++) {
         if (uav[k]) uav[k]->Release();
         if (extra[k]) extra[k]->Release();

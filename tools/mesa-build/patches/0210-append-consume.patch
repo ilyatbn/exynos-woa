@@ -1,0 +1,254 @@
+diff --git a/src/gallium/frontends/d3d10umd/Compute.cpp b/src/gallium/frontends/d3d10umd/Compute.cpp
+index 1f7116e..afaeebb 100644
+--- a/src/gallium/frontends/d3d10umd/Compute.cpp
++++ b/src/gallium/frontends/d3d10umd/Compute.cpp
+@@ -172,6 +172,12 @@ CreateUnorderedAccessView(D3D10DDI_HDEVICE hDevice, const D3D11DDIARG_CREATEUNOR
+       unsigned es = BufferViewElementSize(r, pCreate->Format, raw);
+       u->offset = pCreate->Buffer.FirstElement * es;
+       u->size = pCreate->Buffer.NumElements * es;
++      if (pCreate->Buffer.Flags & (D3D11_DDI_BUFFER_UAV_FLAG_APPEND | D3D11_DDI_BUFFER_UAV_FLAG_COUNTER)) {
++         /* G34 F11.6: the hidden counter, 0 until a bind sets it (pUAVInitialCounts) */
++         struct pipe_context *pipe = CastDevice(hDevice)->pipe;
++         u->counter = pipe_buffer_create(pipe->screen, PIPE_BIND_SHADER_BUFFER, PIPE_USAGE_DEFAULT, 4);
++         UavSetInitialCount(pipe, u, 0);
++      }
+       if (raw || pCreate->Format == DXGI_FORMAT_UNKNOWN)
+          return;   /* raw / structured: an SSBO range */
+    }
+@@ -236,6 +242,7 @@ DestroyUnorderedAccessView(D3D10DDI_HDEVICE hDevice, D3D11DDI_HUNORDEREDACCESSVI
+    for (unsigned i = 0; i < ARRAY_SIZE(pDevice->om_uavs); i++)   /* review R8 of 0206 */
+       if (pDevice->om_uavs[i] == u)
+          pDevice->om_uavs[i] = NULL;
++   DeviceReleaseResource(pDevice->pipe, &u->counter);   /* G34 F11.6 */
+    DeviceReleaseResource(pDevice->pipe, &u->resource);   /* G32 */
+ }
+ 
+@@ -246,10 +253,38 @@ CsSetUnorderedAccessViews(D3D10DDI_HDEVICE hDevice, UINT StartSlot, UINT NumView
+ {
+    LOG_ENTRYPOINT();
+    Device *pDevice = CastDevice(hDevice);
+-   (void)pUAVInitialCounts;   /* append / counter UAVs are cs_5_0 only */
++   for (UINT i = 0; i < NumViews && StartSlot + i < ARRAY_SIZE(pDevice->cs_uavs); i++) {
++      UnorderedAccessView *u = phViews[i].pDrvPrivate ? CastUnorderedAccessView(phViews[i]) : NULL;
++      pDevice->cs_uavs[StartSlot + i] = u;
++      /* G34 F11.6: MS Learn - "If an element in this array is set to -1, the current offset for that append and
++       * consume buffer should be kept. Any other value causes the driver to set the hidden counter" */
++      if (u && u->counter && pUAVInitialCounts && pUAVInitialCounts[i] != ~0u)
++         UavSetInitialCount(pDevice->pipe, u, pUAVInitialCounts[i]);
++   }
++}
++
++/* exynos-woa G34 F11.6 */
++void
++UavSetInitialCount(struct pipe_context *pipe, UnorderedAccessView *u, UINT count)
++{
++   if (u->counter)
++      pipe->clear_buffer(pipe, u->counter, 0, 4, &count, 4);
++}
+ 
+-   for (UINT i = 0; i < NumViews && StartSlot + i < ARRAY_SIZE(pDevice->cs_uavs); i++)
+-      pDevice->cs_uavs[StartSlot + i] = phViews[i].pDrvPrivate ? CastUnorderedAccessView(phViews[i]) : NULL;
++/* exynos-woa G34 F11.6: the view's hidden counter into a buffer (MS Learn CopyStructureCount) */
++void APIENTRY
++CopyStructureCount(D3D10DDI_HDEVICE hDevice, D3D10DDI_HRESOURCE hDstBuffer, UINT DstAlignedByteOffset,
++                   D3D11DDI_HUNORDEREDACCESSVIEW hSrcView)
++{
++   LOG_ENTRYPOINT();
++   struct pipe_context *pipe = CastDevice(hDevice)->pipe;
++   UnorderedAccessView *u = CastUnorderedAccessView(hSrcView);
++   struct pipe_resource *dst = CastPipeResource(hDstBuffer);
++   if (!u->counter || !dst)
++      return;
++   struct pipe_box box;
++   u_box_1d(0, 4, &box);
++   pipe->resource_copy_region(pipe, dst, 0, DstAlignedByteOffset, 0, 0, u->counter, 0, &box);
+ }
+ 
+ 
+@@ -269,7 +304,11 @@ LaunchCompute(Device *pDevice, UINT x, UINT y, UINT z, struct pipe_resource *ind
+    for (unsigned i = 0; i < ex->num_buffers; i++) {
+       if (ex->buffers[i].uav) {
+          UnorderedAccessView *u = pDevice->cs_uavs[ex->buffers[i].slot];
+-         if (u) {
++         if (u && ex->buffers[i].counter) {   /* G34 F11.6 */
++            bufs[i].buffer = u->counter;
++            bufs[i].buffer_offset = 0;
++            bufs[i].buffer_size = u->counter ? 4 : 0;
++         } else if (u) {
+             bufs[i].buffer = u->resource;
+             bufs[i].buffer_offset = u->offset;
+             bufs[i].buffer_size = u->size;
+diff --git a/src/gallium/frontends/d3d10umd/Compute.h b/src/gallium/frontends/d3d10umd/Compute.h
+index ed081b2..744ad14 100644
+--- a/src/gallium/frontends/d3d10umd/Compute.h
++++ b/src/gallium/frontends/d3d10umd/Compute.h
+@@ -22,6 +22,8 @@ void APIENTRY DestroyUnorderedAccessView(D3D10DDI_HDEVICE, D3D11DDI_HUNORDEREDAC
+ void APIENTRY CsSetUnorderedAccessViews(D3D10DDI_HDEVICE, UINT, UINT, const D3D11DDI_HUNORDEREDACCESSVIEW *,
+                                         const UINT *);
+ void APIENTRY Dispatch(D3D10DDI_HDEVICE, UINT, UINT, UINT);
++void APIENTRY CopyStructureCount(D3D10DDI_HDEVICE, D3D10DDI_HRESOURCE, UINT, D3D11DDI_HUNORDEREDACCESSVIEW);   /* G34 */
++void UavSetInitialCount(struct pipe_context *pipe, struct UnorderedAccessView *u, UINT count);   /* G34 F11.6 */
+ void APIENTRY DispatchIndirect(D3D10DDI_HDEVICE, D3D10DDI_HRESOURCE, UINT);
+ void APIENTRY ClearUnorderedAccessViewUint(D3D10DDI_HDEVICE, D3D11DDI_HUNORDEREDACCESSVIEW, const UINT[4]);
+ void APIENTRY ClearUnorderedAccessViewFloat(D3D10DDI_HDEVICE, D3D11DDI_HUNORDEREDACCESSVIEW, const FLOAT[4]);
+diff --git a/src/gallium/frontends/d3d10umd/D3D11.cpp b/src/gallium/frontends/d3d10umd/D3D11.cpp
+index c4cd055..3d234b1 100644
+--- a/src/gallium/frontends/d3d10umd/D3D11.cpp
++++ b/src/gallium/frontends/d3d10umd/D3D11.cpp
+@@ -53,12 +53,14 @@ D11_SetRenderTargets(D3D10DDI_HDEVICE hDevice, const D3D10DDI_HRENDERTARGETVIEW
+     * pfnd3d11ddi_setrendertargets: "UAVStartSlot must be at least as great as the NumRTVs parameter ... RTVs are bound
+     * first, followed by UAVs"; UAVRangeStart/Size are only a hint "given that the Direct3D DDI always binds
+     * everything" -> every slot outside [UAVStartSlot, UAVStartSlot + NumUAVs) is unbound. pUAVInitialCounts: F11.6. */
+-   (void)pUAVInitialCounts; (void)UAVRangeStart; (void)UAVRangeSize;
++   (void)UAVRangeStart; (void)UAVRangeSize;
+    Device *pDevice = CastDevice(hDevice);
+    for (UINT i = 0; i < ARRAY_SIZE(pDevice->om_uavs); i++) {
+       UINT k = i - UAVStartSlot;
+       pDevice->om_uavs[i] = (i >= UAVStartSlot && k < NumUAVs && phUAV && phUAV[k].pDrvPrivate)
+                                ? static_cast<UnorderedAccessView *>(phUAV[k].pDrvPrivate) : NULL;
++      if (pDevice->om_uavs[i] && pUAVInitialCounts && pUAVInitialCounts[k] != ~0u)   /* F11.6: -1 keeps the count */
++         UavSetInitialCount(pDevice->pipe, pDevice->om_uavs[i], pUAVInitialCounts[k]);
+    }
+    SetRenderTargets(hDevice, phRTV, NumRTVs, ClearSlots, hDSV);
+ }
+@@ -237,6 +239,7 @@ D3D11FillDeviceFuncs(D3D11DDI_DEVICEFUNCS *f)
+    f->pfnCsSetUnorderedAccessViews = CsSetUnorderedAccessViews;
+    f->pfnDispatch = Dispatch;
+    f->pfnDispatchIndirect = DispatchIndirect;
++   f->pfnCopyStructureCount = CopyStructureCount;   /* G34 F11.6 */
+ }
+ 
+ /* GetCaps answers for the D3D11 types (Adapter.cpp GetCaps); FALSE = not a D3D11 type. */
+diff --git a/src/gallium/frontends/d3d10umd/D3D11Tiers.inc b/src/gallium/frontends/d3d10umd/D3D11Tiers.inc
+index 51bb142..1458f38 100644
+--- a/src/gallium/frontends/d3d10umd/D3D11Tiers.inc
++++ b/src/gallium/frontends/d3d10umd/D3D11Tiers.inc
+@@ -496,6 +496,7 @@ void D3D11_1FillDeviceFuncs(D3D11_1DDI_DEVICEFUNCS *f)
+    f->pfnCsSetUnorderedAccessViews = CsSetUnorderedAccessViews;
+    f->pfnDispatch = Dispatch;
+    f->pfnDispatchIndirect = DispatchIndirect;
++   f->pfnCopyStructureCount = CopyStructureCount;   /* G34 F11.6 */
+    f->pfnCalcPrivateUnorderedAccessViewSize = CalcPrivateUnorderedAccessViewSize;
+    f->pfnCreateUnorderedAccessView = CreateUnorderedAccessView;
+ }
+@@ -516,6 +517,7 @@ void D3DWDDM1_3FillDeviceFuncs(D3DWDDM1_3DDI_DEVICEFUNCS *f)
+    f->pfnCsSetUnorderedAccessViews = CsSetUnorderedAccessViews;
+    f->pfnDispatch = Dispatch;
+    f->pfnDispatchIndirect = DispatchIndirect;
++   f->pfnCopyStructureCount = CopyStructureCount;   /* G34 F11.6 */
+    f->pfnCalcPrivateUnorderedAccessViewSize = CalcPrivateUnorderedAccessViewSize;
+    f->pfnCreateUnorderedAccessView = CreateUnorderedAccessView;
+ }
+@@ -536,6 +538,7 @@ void D3DWDDM2_0FillDeviceFuncs(D3DWDDM2_0DDI_DEVICEFUNCS *f)
+    f->pfnCsSetUnorderedAccessViews = CsSetUnorderedAccessViews;
+    f->pfnDispatch = Dispatch;
+    f->pfnDispatchIndirect = DispatchIndirect;
++   f->pfnCopyStructureCount = CopyStructureCount;   /* G34 F11.6 */
+ }
+ 
+ /* ---- DXGI 1.2 - 1.4 ---- */
+diff --git a/src/gallium/frontends/d3d10umd/Draw.cpp b/src/gallium/frontends/d3d10umd/Draw.cpp
+index 1f28d9d..ab4336e 100644
+--- a/src/gallium/frontends/d3d10umd/Draw.cpp
++++ b/src/gallium/frontends/d3d10umd/Draw.cpp
+@@ -96,7 +96,10 @@ BindPsUavs(Device *pDevice)
+       for (unsigned i = 0; i < ex->num_buffers; i++) {
+          if (ex->buffers[i].uav) {
+             UnorderedAccessView *u = ex->buffers[i].slot < 8 ? pDevice->om_uavs[ex->buffers[i].slot] : NULL;
+-            if (u && !u->typed) {
++            if (u && ex->buffers[i].counter) {   /* G34 F11.6 */
++               bufs[i].buffer = u->counter;
++               bufs[i].buffer_size = u->counter ? 4 : 0;
++            } else if (u && !u->typed) {
+                bufs[i].buffer = u->resource;
+                bufs[i].buffer_offset = u->offset;
+                bufs[i].buffer_size = u->size;
+diff --git a/src/gallium/frontends/d3d10umd/ShaderParse.c b/src/gallium/frontends/d3d10umd/ShaderParse.c
+index ce78ea8..3aae48e 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderParse.c
++++ b/src/gallium/frontends/d3d10umd/ShaderParse.c
+@@ -637,7 +637,8 @@ Shader_parse_opcode(struct Shader_parser *parser,
+          assert(num_components == D3D10_SB_OPERAND_0_COMPONENT);
+          assert(DECODE_D3D10_SB_OPERAND_TYPE(*curr) == D3D10_SB_OPERAND_TYPE_SAMPLER ||
+                 DECODE_D3D10_SB_OPERAND_TYPE(*curr) == D3D10_SB_OPERAND_TYPE_LABEL ||
+-                DECODE_D3D10_SB_OPERAND_TYPE(*curr) == D3D11_SB_OPERAND_TYPE_STREAM);   /* exynos-woa G34 */
++                DECODE_D3D10_SB_OPERAND_TYPE(*curr) == D3D11_SB_OPERAND_TYPE_STREAM ||   /* exynos-woa G34 */
++                DECODE_D3D10_SB_OPERAND_TYPE(*curr) == D3D11_SB_OPERAND_TYPE_UNORDERED_ACCESS_VIEW);   /* alloc / consume */
+ 
+          opcode->src[i].swizzle[0] = D3D10_SB_4_COMPONENT_X;
+          opcode->src[i].swizzle[1] = D3D10_SB_4_COMPONENT_Y;
+diff --git a/src/gallium/frontends/d3d10umd/ShaderParse.h b/src/gallium/frontends/d3d10umd/ShaderParse.h
+index cecaaea..96fd793 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderParse.h
++++ b/src/gallium/frontends/d3d10umd/ShaderParse.h
+@@ -192,6 +192,7 @@ Shader_tgsi_translate(const unsigned *code,
+ struct Shader_buffer_binding {
+    unsigned char uav;    /* 0: t# (read-only SRV), 1: u# (UAV) */
+    unsigned char slot;   /* the t# / u# register number */
++   unsigned char counter;   /* exynos-woa G34 F11.6: 1 = the hidden append / count counter of u#slot (4 bytes) */
+ };
+ struct Shader_extra {
+    unsigned num_buffers;
+diff --git a/src/gallium/frontends/d3d10umd/ShaderTGSI.c b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+index 7a6b384..27ce247 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderTGSI.c
++++ b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+@@ -286,6 +286,7 @@ struct Shader_xlate {
+    struct { unsigned buffer, stride; } srvbuf[SHADER_MAX_RESOURCES];
+    struct { unsigned buffer, stride; } uavbuf[8];
+    struct { unsigned image, target; enum pipe_format format; } uavimg[8];   /* exynos-woa G34: image + 1 */
++   unsigned uavctr[8];   /* exynos-woa G34 F11.6: TGSI buffer + 1 holding u#'s hidden counter */
+    struct { bool declared; unsigned base, stride; } tgsm[32];
+    struct ureg_src memory;
+    bool memory_declared;
+@@ -3343,6 +3344,37 @@ Shader_tgsi_translate_ex(const unsigned *code,
+          break;
+       }
+ 
++      /* exynos-woa G34 F11.6: imm_atomic_alloc dst, u# = counter++ (returns the original); imm_atomic_consume dst, u#
++       * = --counter (returns the new value) - D3D11.3 spec 22.17.17 / 22.17.18. The counter is a 4-byte buffer of its
++       * own, declared on first use and bound with the view (Compute.cpp / Draw.cpp). */
++      case D3D11_SB_OPCODE_IMM_ATOMIC_ALLOC:
++      case D3D11_SB_OPCODE_IMM_ATOMIC_CONSUME: {
++         unsigned slot = opcode.src[0].base.index[0].imm;   /* the u# is a (0-component) source operand */
++         if (slot >= 8 || (!sx.uavctr[slot] && sx.extra->num_buffers >= SHADER_MAX_BUFFERS)) {
++            LOG_UNSUPPORTED(true);
++            break;
++         }
++         if (!sx.uavctr[slot]) {
++            unsigned b = sx.extra->num_buffers++;
++            ureg_DECL_buffer(ureg, b, true);
++            sx.extra->buffers[b].uav = 1;
++            sx.extra->buffers[b].slot = (unsigned char)slot;
++            sx.extra->buffers[b].counter = 1;
++            sx.uavctr[slot] = b + 1;
++         }
++         bool alloc = opcode.type == D3D11_SB_OPCODE_IMM_ATOMIC_ALLOC;
++         struct ureg_src asrc[3] = { ureg_src_register(TGSI_FILE_BUFFER, sx.uavctr[slot] - 1), ureg_imm1u(ureg, 0),
++                                     ureg_imm1u(ureg, alloc ? 1u : 0xFFFFFFFFu) };
++         struct ureg_dst t = ureg_DECL_temporary(ureg);
++         ureg_memory_insn(ureg, TGSI_OPCODE_ATOMUADD, &t, 1, asrc, 3, 0, TGSI_TEXTURE_BUFFER, PIPE_FORMAT_NONE);
++         if (!alloc)
++            ureg_UADD(ureg, t, ureg_scalar(ureg_src(t), TGSI_SWIZZLE_X), ureg_imm1u(ureg, 0xFFFFFFFFu));
++         if (opcode.dst[0].base.type != D3D10_SB_OPERAND_TYPE_NULL)
++            ureg_MOV(ureg, translate_dst_operand(&sx, &opcode.dst[0], false), ureg_scalar(ureg_src(t), TGSI_SWIZZLE_X));
++         ureg_release_temporary(ureg, t);
++         break;
++      }
++
+       case D3D11_SB_OPCODE_SYNC: {
+          unsigned f = opcode.specific.sync_flags;
+          if (f & D3D11_SB_SYNC_THREADS_IN_GROUP)
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index 64cc2f0..eaf42e7 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -91,6 +91,8 @@ struct UnorderedAccessView
+    /* exynos-woa G34 F11.4b: a typed view (RWBuffer<T> / RWTexture*<T>) is bound as a shader image */
+    bool typed;
+    struct pipe_image_view image;
++   /* exynos-woa G34 F11.6: the hidden 32-bit counter of an APPEND / COUNTER view (a 4-byte buffer), else NULL */
++   struct pipe_resource *counter;
+ };
+ 
+ struct Query;

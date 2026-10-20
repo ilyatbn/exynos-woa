@@ -1,0 +1,429 @@
+diff --git a/src/gallium/drivers/panfrost/pan_job.c b/src/gallium/drivers/panfrost/pan_job.c
+index 0bbe4e5..b9ff30f 100644
+--- a/src/gallium/drivers/panfrost/pan_job.c
++++ b/src/gallium/drivers/panfrost/pan_job.c
+@@ -247,6 +247,7 @@ panfrost_batch_update_access(struct panfrost_batch *batch,
+    struct panfrost_context *ctx = batch->ctx;
+    uint32_t batch_idx = panfrost_batch_idx(batch);
+ 
++   rsrc = pan_track_rsrc(rsrc);   /* exynos-woa G35: a plane alias is tracked as its base */
+    if (writes) {
+       _mesa_hash_table_insert(ctx->writers, rsrc, batch);
+    }
+@@ -835,7 +836,7 @@ panfrost_flush_writer(struct panfrost_context *ctx,
+    assert(reason);
+    PAN_TRACE_SCOPE(PAN_TRACE_GL_JOB, "%s reason=\"%s\"", __func__, reason);
+ 
+-   struct hash_entry *entry = _mesa_hash_table_search(ctx->writers, rsrc);
++   struct hash_entry *entry = _mesa_hash_table_search(ctx->writers, pan_track_rsrc(rsrc));   /* G35 */
+ 
+    if (entry) {
+       perf_debug(ctx, "Flushing writer due to: %s", reason);
+@@ -886,7 +887,7 @@ bool
+ panfrost_any_batch_writes_rsrc(struct panfrost_context *ctx,
+                                struct panfrost_resource *rsrc)
+ {
+-   return _mesa_hash_table_search(ctx->writers, rsrc) != NULL;
++   return _mesa_hash_table_search(ctx->writers, pan_track_rsrc(rsrc)) != NULL;   /* G35 */
+ }
+ 
+ void
+diff --git a/src/gallium/drivers/panfrost/pan_resource.c b/src/gallium/drivers/panfrost/pan_resource.c
+index 287d6e7..ed5bcc7 100644
+--- a/src/gallium/drivers/panfrost/pan_resource.c
++++ b/src/gallium/drivers/panfrost/pan_resource.c
+@@ -260,6 +260,9 @@ panfrost_resource_destroy(struct pipe_screen *screen, struct pipe_resource *pt)
+       pipe_resource_reference(
+          (struct pipe_resource **)&rsrc->shadow_image, NULL);
+ 
++   if (rsrc->alias_of)   /* exynos-woa G35: the base keeps the BO's other users alive */
++      pipe_resource_reference((struct pipe_resource **)&rsrc->alias_of, NULL);
++
+    if (rsrc->bo) {
+       if (rsrc->owns_label) {
+          /* The resource owns the label, which it dynamically allocated, so
+@@ -459,6 +462,76 @@ panfrost_resource_from_handle(struct pipe_screen *pscreen,
+    return prsc;
+ }
+ 
++/* exynos-woa G35 (notes/g35-browser-video.md): a linear single-level resource over part of a LINEAR base resource's
++ * BO - D3D11 NV12 plane views (DXGI_FORMAT_NV12: R8 views select the luma plane, R8G8 views the chroma plane), the
++ * frontend storing NV12 as one R8 surface. The alias starts at row first_row of the base's array layer `layer`
++ * (level 0) with the base's row pitch; the layout is explicit (like an import), the BO is shared by reference, and
++ * every access is tracked on the base (alias_of, pan_track_rsrc), so writes through the base and reads through the
++ * alias (and the reverse) order correctly. */
++struct pipe_resource *
++panfrost_resource_create_alias(struct pipe_screen *pscreen, struct pipe_resource *base_p,
++                               const struct pipe_resource *templat, unsigned layer, unsigned first_row)
++{
++   struct panfrost_resource *base = pan_resource(base_p);
++
++   if (!base->bo || base->modifier != DRM_FORMAT_MOD_LINEAR || base->alias_of || base->base.last_level != 0 ||
++       layer >= MAX2(base->base.array_size, 1) || first_row >= base->base.height0 ||
++       util_format_get_num_planes(base->base.format) != 1 ||
++       util_format_get_num_planes(templat->format) != 1 || templat->last_level != 0 ||
++       MAX2(templat->nr_samples, 1) != 1)
++      return NULL;
++
++   const struct pan_image_slice_layout *bs = &base->plane.layout.slices[0];
++   const uint32_t row_pitch_B = bs->tiled_or_linear.row_stride_B;
++   const uint64_t offset_B = bs->offset_B + (uint64_t)layer * base->plane.layout.array_stride_B +
++                             (uint64_t)first_row * row_pitch_B;
++
++   struct panfrost_resource *rsc = CALLOC_STRUCT(panfrost_resource);
++   if (!rsc)
++      return NULL;
++   struct pipe_resource *prsc = &rsc->base;
++   *prsc = *templat;
++   pipe_reference_init(&prsc->reference, 1);
++   util_range_init(&rsc->valid_buffer_range);
++   threaded_resource_init(prsc, false);
++   prsc->screen = pscreen;
++   prsc->next = NULL;
++
++   rsc->modifier = DRM_FORMAT_MOD_LINEAR;
++   struct pan_image_layout_constraints explicit_layout = {
++      .offset_B = offset_B,
++      .wsi_row_pitch_B = row_pitch_B,
++      .strict = true,
++   };
++   struct pan_image_props iprops = {
++      .modifier = DRM_FORMAT_MOD_LINEAR,
++      .format = templat->format,
++      .dim = panfrost_translate_texture_dimension(templat->target),
++      .extent_px = {
++         .width = templat->width0,
++         .height = templat->height0,
++         .depth = 1,
++      },
++      .array_size = MAX2(templat->array_size, 1),
++      .nr_samples = 1,
++      .nr_slices = 1,
++   };
++   if (!panfrost_resource_init_image(pscreen, rsc, &iprops, 0, &explicit_layout) ||
++       rsc->plane.layout.slices[0].offset_B + rsc->plane.layout.data_size_B > panfrost_bo_size(base->bo)) {
++      panfrost_resource_destroy(pscreen, prsc);
++      return NULL;
++   }
++
++   panfrost_bo_reference(base->bo);
++   rsc->bo = base->bo;
++   rsc->plane.base = rsc->bo->ptr.gpu;
++   rsc->modifier_constant = true;
++   base->modifier_constant = true;   /* never converted / reallocated under the alias */
++   pipe_resource_reference((struct pipe_resource **)&rsc->alias_of, base_p);
++   BITSET_SET(rsc->valid.data, 0);
++   return prsc;
++}
++
+ static void
+ panfrost_set_resource_label(UNUSED struct pipe_screen *pscreen,
+                             struct pipe_resource *presource,
+diff --git a/src/gallium/drivers/panfrost/pan_resource.h b/src/gallium/drivers/panfrost/pan_resource.h
+index 77cb83e..ea712c8 100644
+--- a/src/gallium/drivers/panfrost/pan_resource.h
++++ b/src/gallium/drivers/panfrost/pan_resource.h
+@@ -68,6 +68,10 @@ struct panfrost_resource {
+       constant modifier we cannot change */
+    struct panfrost_resource *shadow_image;
+ 
++   /* exynos-woa G35 (notes/g35-browser-video.md): set on a plane alias (panfrost_resource_create_alias) - a linear
++    * resource over part of this base resource's BO. Accesses are tracked on the base (pan_track_rsrc). */
++   struct panfrost_resource *alias_of;
++
+    struct util_range valid_buffer_range;
+ 
+    /* Description of the resource layout */
+@@ -239,6 +243,17 @@ void pan_resource_afbcp_update(struct panfrost_context *ctx,
+                                struct panfrost_resource *rsrc,
+                                bool write);
+ 
++/* exynos-woa G35: the resource whose accesses are tracked (writers / batch users) - the base of a plane alias */
++static inline struct panfrost_resource *
++pan_track_rsrc(struct panfrost_resource *rsrc)
++{
++   return rsrc->alias_of ? rsrc->alias_of : rsrc;
++}
++
++struct pipe_resource *
++panfrost_resource_create_alias(struct pipe_screen *pscreen, struct pipe_resource *base,
++                               const struct pipe_resource *templat, unsigned layer, unsigned first_row);
++
+ /* Update the resource on each read or write access. */
+ static inline void
+ pan_resource_update_access(struct panfrost_context *ctx,
+diff --git a/src/gallium/frontends/d3d10umd/Compute.cpp b/src/gallium/frontends/d3d10umd/Compute.cpp
+index afaeebb..c7dae9b 100644
+--- a/src/gallium/frontends/d3d10umd/Compute.cpp
++++ b/src/gallium/frontends/d3d10umd/Compute.cpp
+@@ -17,6 +17,7 @@
+ #include "Shader.h"
+ #include "ShaderParse.h"
+ #include "State.h"
++#include "Resource.h"   /* exynos-woa G35: Nv12ViewResource */
+ #include "Debug.h"
+ #include "Format.h"
+ 
+@@ -183,6 +184,26 @@ CreateUnorderedAccessView(D3D10DDI_HDEVICE hDevice, const D3D11DDIARG_CREATEUNOR
+    }
+    /* exynos-woa G34 F11.4b: typed view (RWBuffer<T>, RWTexture1D/2D/3D[Array]<T>) -> shader image */
+    enum pipe_format f = FormatTranslate(pCreate->Format, false);
++   if (r->nv12_height) {   /* exynos-woa G35: a UAV of an NV12 texture writes one plane (Nv12ViewResource) */
++      struct pipe_resource *pr = pCreate->ResourceDimension == D3D10DDIRESOURCE_TEXTURE2D && pCreate->Tex2D.MipSlice == 0 ?
++         Nv12ViewResource(CastDevice(hDevice)->pipe->screen, r, pCreate->Format, pCreate->Tex2D.FirstArraySlice,
++                          MAX2(pCreate->Tex2D.ArraySize, 1u)) : NULL;
++      if (!pr) {
++         pipe_resource_reference(&u->resource, NULL);
++         SetError(hDevice, E_INVALIDARG);
++         return;
++      }
++      pipe_resource_reference(&u->resource, pr);
++      struct pipe_image_view *iv = &u->image;
++      u->typed = true;
++      iv->resource = pr;
++      iv->format = f;
++      iv->access = PIPE_IMAGE_ACCESS_READ_WRITE;
++      iv->shader_access = PIPE_IMAGE_ACCESS_READ_WRITE;
++      iv->u.tex.level = 0;
++      iv->u.tex.first_layer = iv->u.tex.last_layer = 0;
++      return;
++   }
+    if (f == PIPE_FORMAT_NONE) {
+       LOG_UNSUPPORTED(true);
+       SetError(hDevice, E_INVALIDARG);
+diff --git a/src/gallium/frontends/d3d10umd/OutputMerger.cpp b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+index 08bdf85..cead142 100644
+--- a/src/gallium/frontends/d3d10umd/OutputMerger.cpp
++++ b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+@@ -33,6 +33,7 @@
+ 
+ #include "OutputMerger.h"
+ #include "State.h"
++#include "Resource.h"   /* exynos-woa G35: Nv12ViewResource */
+ 
+ #include "Debug.h"
+ #include "Format.h"
+@@ -89,6 +90,21 @@ CreateRenderTargetView(
+ 
+    struct pipe_surface desc;
+ 
++   /* exynos-woa G35: a render target view of an NV12 texture writes one plane (Nv12ViewResource) */
++   Resource *nvres = CastResource(pCreateRenderTargetView->hDrvResource);
++   if (nvres->nv12_height) {
++      resource = pCreateRenderTargetView->ResourceDimension == D3D10DDIRESOURCE_TEXTURE2D &&
++                 pCreateRenderTargetView->Tex2D.MipSlice == 0 ?
++                 Nv12ViewResource(CastPipeContext(hDevice)->screen, nvres, pCreateRenderTargetView->Format,
++                                  pCreateRenderTargetView->Tex2D.FirstArraySlice,
++                                  pCreateRenderTargetView->Tex2D.ArraySize) : NULL;
++      if (!resource) {
++         SetError(hDevice, E_INVALIDARG);
++         memset(&pRTView->surface, 0, sizeof pRTView->surface);
++         return;
++      }
++   }
++
+    memset(&desc, 0, sizeof desc);
+    pipe_resource_reference(&desc.texture, resource);
+    desc.format = FormatTranslate(pCreateRenderTargetView->Format, false);
+@@ -130,6 +146,8 @@ CreateRenderTargetView(
+       return;
+    }
+ 
++   if (nvres->nv12_height)   /* G35: the alias is the one slice */
++      desc.first_layer = desc.last_layer = 0;
+    pRTView->surface = desc;
+    ViewListAdd(&CastDevice(hDevice)->rtv_list, pRTView, CastDevice(hDevice));
+ }
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index ffe2392..209cb93 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -638,6 +638,11 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+       }
+    }
+ 
++   if (!pResource->resource && pResource->nv12_height && screen->resource_create_with_modifiers) {
++      /* exynos-woa G35: NV12 is LINEAR (and its modifier constant) so its planes can be aliased (Nv12ViewResource) */
++      const uint64_t linear = DRM_FORMAT_MOD_LINEAR;
++      pResource->resource = screen->resource_create_with_modifiers(screen, &templat, &linear, 1);
++   }
+    if (!pResource->resource) {
+       UMD_SECTION("create:resource_create");   /* exynos-woa G33 (0196): BO allocation (BO cache miss -> kernel) */
+       pResource->resource = screen->resource_create(screen, &templat);
+@@ -934,6 +939,56 @@ OpenResource(D3D10DDI_HDEVICE hDevice,                            // IN
+ }
+ 
+ 
++/* exynos-woa G35 (notes/g35-browser-video.md): panfrost (pan_resource.c) - a linear view resource over part of a
++ * linear resource's BO, tracked as the base. The d3d10umd frontend only ever runs on panfrost here. */
++extern "C" struct pipe_resource *panfrost_resource_create_alias(struct pipe_screen *pscreen, struct pipe_resource *base,
++                                                                const struct pipe_resource *templat, unsigned layer,
++                                                                unsigned first_row);
++
++/* MS Learn DXGI_FORMAT_NV12: "Valid luminance data view formats for this video resource format are DXGI_FORMAT_R8_UNORM
++ * and DXGI_FORMAT_R8_UINT. Valid chrominance data view formats (width and height are each 1/2 of luminance view) ...
++ * are DXGI_FORMAT_R8G8_UNORM and DXGI_FORMAT_R8G8_UINT. Supported view types are SRV, RTV, and UAV." Our NV12 is one
++ * R8 surface (Resource::nv12_height): the luma plane = rows 0..H-1, the chroma plane = rows H..H+H/2-1 read as R8G8
++ * (CbCr pairs) at W/2 texels per row. One alias per (slice, plane), kept until the resource goes. */
++struct pipe_resource *
++Nv12ViewResource(struct pipe_screen *screen, Resource *r, DXGI_FORMAT format, UINT firstSlice, UINT arraySize)
++{
++   unsigned plane;
++   if (format == DXGI_FORMAT_R8_UNORM || format == DXGI_FORMAT_R8_UINT)
++      plane = 0;
++   else if (format == DXGI_FORMAT_R8G8_UNORM || format == DXGI_FORMAT_R8G8_UINT)
++      plane = 1;
++   else
++      return NULL;
++   if (!r->resource || !r->nv12_height)
++      return NULL;
++   unsigned layers = MAX2(r->resource->array_size, 1u);
++   if (arraySize != 1 || firstSlice >= layers)
++      return NULL;
++   if (!r->nv12_alias) {
++      r->nv12_alias = (struct pipe_resource **)calloc(2u * layers, sizeof(struct pipe_resource *));
++      if (!r->nv12_alias)
++         return NULL;
++   }
++   struct pipe_resource **slot = &r->nv12_alias[firstSlice * 2u + plane];
++   if (!*slot) {
++      struct pipe_resource t;
++      memset(&t, 0, sizeof t);
++      t.target = r->resource->target;
++      t.format = plane ? PIPE_FORMAT_R8G8_UNORM : PIPE_FORMAT_R8_UNORM;
++      t.width0 = plane ? r->resource->width0 / 2u : r->resource->width0;
++      t.height0 = plane ? r->nv12_height / 2u : r->nv12_height;
++      t.depth0 = 1;
++      t.array_size = 1;
++      t.bind = r->resource->bind & (PIPE_BIND_SAMPLER_VIEW | PIPE_BIND_RENDER_TARGET | PIPE_BIND_SHADER_IMAGE);
++      t.usage = r->resource->usage;
++      *slot = panfrost_resource_create_alias(screen, r->resource, &t, firstSlice, plane ? r->nv12_height : 0u);
++      malikm_tlog("NV12 %ux%u slice %u plane %u alias: %s", r->resource->width0, r->nv12_height, firstSlice, plane,
++                  *slot ? "ok" : "FAILED");
++   }
++   return *slot;
++}
++
+ /*
+  * ----------------------------------------------------------------------
+  *
+@@ -995,6 +1050,12 @@ DestroyResource(D3D10DDI_HDEVICE hDevice,       // IN
+       malikm_primary_destroy(pResource->kmt_primary);
+       pResource->kmt_primary = 0;
+    }
++   if (pResource->nv12_alias) {   /* exynos-woa G35: the plane aliases before the surface they share */
++      for (unsigned i = 0; i < 2u * MAX2(pResource->resource ? pResource->resource->array_size : 1u, 1u); i++)
++         DeviceReleaseResource(pipe, &pResource->nv12_alias[i]);
++      free(pResource->nv12_alias);
++      pResource->nv12_alias = NULL;
++   }
+    DeviceReleaseResource(pipe, &pResource->resource);   /* G32: queued calls may still name it */
+    if (pResource->kmt_runtime_alloc) {
+       /* exynos-woa H5 (0059): the runtime frees (or closes) this allocation when we return, but Panfrost may hold
+diff --git a/src/gallium/frontends/d3d10umd/Resource.h b/src/gallium/frontends/d3d10umd/Resource.h
+index 2cd2ff3..5e9a13e 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.h
++++ b/src/gallium/frontends/d3d10umd/Resource.h
+@@ -90,4 +90,9 @@ void APIENTRY ResourceUpdateSubResourceUP(
+    UINT DstSubResource, __in_opt const D3D10_DDI_BOX *pDstBox,
+    __in const void *pSysMemUP, UINT RowPitch, UINT DepthPitch);
+ 
++/* exynos-woa G35: the pipe resource an NV12 view reads or writes (plane alias), NULL for a format / range that is not
++ * an NV12 plane view (R8_UNORM/UINT = luma, R8G8_UNORM/UINT = chroma, one array slice). */
++struct pipe_resource *Nv12ViewResource(struct pipe_screen *screen, struct Resource *r, DXGI_FORMAT format,
++                                       UINT firstSlice, UINT arraySize);
++
+ #endif   /* RESOURCE_H */
+diff --git a/src/gallium/frontends/d3d10umd/Shader.cpp b/src/gallium/frontends/d3d10umd/Shader.cpp
+index 7086dc9..ecb4b6b 100644
+--- a/src/gallium/frontends/d3d10umd/Shader.cpp
++++ b/src/gallium/frontends/d3d10umd/Shader.cpp
+@@ -34,6 +34,7 @@
+ #include "Shader.h"
+ #include "ShaderParse.h"
+ #include "State.h"
++#include "Resource.h"   /* exynos-woa G35: Nv12ViewResource */
+ #include "Query.h"
+ 
+ #include "Debug.h"
+@@ -1316,6 +1317,21 @@ CreateShaderResourceView(
+    memset(&desc, 0, sizeof desc);
+    resource = CastPipeResource(pCreateSRView->hDrvResource);
+    format = FormatTranslate(pCreateSRView->Format, false);
++   /* exynos-woa G35: a view of an NV12 texture reads one plane (Nv12ViewResource) */
++   bool nv12 = CastResource(pCreateSRView->hDrvResource)->nv12_height != 0;
++   if (nv12) {
++      bool tex2d = pCreateSRView->ResourceDimension == D3D10DDIRESOURCE_TEXTURE2D;
++      resource = tex2d && pCreateSRView->Tex2D.MostDetailedMip == 0 ?
++                 Nv12ViewResource(pipe->screen, CastResource(pCreateSRView->hDrvResource), pCreateSRView->Format,
++                                  pCreateSRView->Tex2D.FirstArraySlice, pCreateSRView->Tex2D.ArraySize) : NULL;
++      if (!resource) {
++         malikm_tlog("NV12 SRV fmt %u dim %u: not a plane view", (unsigned)pCreateSRView->Format,
++                     (unsigned)pCreateSRView->ResourceDimension);
++         pSRView->handle = NULL;
++         SetError(hDevice, E_INVALIDARG);
++         return;
++      }
++   }
+    {
+       /* exynos-woa G23: a view of an emulated BCn texture reads its uncompressed backing (the view's own sRGB-ness) */
+       enum pipe_format bc_backing = FormatBcBacking(pipe->screen, format);
+@@ -1369,6 +1385,10 @@ CreateShaderResourceView(
+       return;
+    }
+ 
++   if (nv12) {   /* G35: the alias is the one slice, one level */
++      desc.u.tex.first_level = desc.u.tex.last_level = 0;
++      desc.u.tex.first_layer = desc.u.tex.last_layer = 0;
++   }
+    pSRView->handle = pipe->create_sampler_view(pipe, resource, &desc);
+    if (pSRView->handle)   /* exynos-woa G17 (0099) */
+       ViewListAdd(&CastDevice(hDevice)->srv_list, pSRView, CastDevice(hDevice));
+@@ -1407,6 +1427,21 @@ CreateShaderResourceView1(
+    memset(&desc, 0, sizeof desc);
+    resource = CastPipeResource(pCreateSRView->hDrvResource);
+    format = FormatTranslate(pCreateSRView->Format, false);
++   /* exynos-woa G35: a view of an NV12 texture reads one plane (Nv12ViewResource) */
++   bool nv12 = CastResource(pCreateSRView->hDrvResource)->nv12_height != 0;
++   if (nv12) {
++      bool tex2d = pCreateSRView->ResourceDimension == D3D10DDIRESOURCE_TEXTURE2D;
++      resource = tex2d && pCreateSRView->Tex2D.MostDetailedMip == 0 ?
++                 Nv12ViewResource(pipe->screen, CastResource(pCreateSRView->hDrvResource), pCreateSRView->Format,
++                                  pCreateSRView->Tex2D.FirstArraySlice, pCreateSRView->Tex2D.ArraySize) : NULL;
++      if (!resource) {
++         malikm_tlog("NV12 SRV fmt %u dim %u: not a plane view", (unsigned)pCreateSRView->Format,
++                     (unsigned)pCreateSRView->ResourceDimension);
++         pSRView->handle = NULL;
++         SetError(hDevice, E_INVALIDARG);
++         return;
++      }
++   }
+    {
+       /* exynos-woa G23: a view of an emulated BCn texture reads its uncompressed backing (the view's own sRGB-ness) */
+       enum pipe_format bc_backing = FormatBcBacking(pipe->screen, format);
+@@ -1462,6 +1497,10 @@ CreateShaderResourceView1(
+       return;
+    }
+ 
++   if (nv12) {   /* G35: the alias is the one slice, one level */
++      desc.u.tex.first_level = desc.u.tex.last_level = 0;
++      desc.u.tex.first_layer = desc.u.tex.last_layer = 0;
++   }
+    pSRView->handle = pipe->create_sampler_view(pipe, resource, &desc);
+    if (pSRView->handle)   /* exynos-woa G17 (0099) */
+       ViewListAdd(&CastDevice(hDevice)->srv_list, pSRView, CastDevice(hDevice));
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index b586e2b..a882a87 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -308,6 +308,10 @@ struct Resource
+     * Width x (Height + Height/2): the luma plane, then the interleaved CbCr plane (Height/2 rows of Width bytes) -
+     * the layout the MFC returns and the video processor (V6c) reads. nv12_height = the luma height, 0 if not NV12. */
+    unsigned nv12_height;
++   /* exynos-woa G35 (notes/g35-browser-video.md): NV12 plane views (DXGI_FORMAT_NV12: R8 views = the luma plane, R8G8
++    * views = the chroma plane at half width and height) - linear alias resources over the R8 surface, indexed
++    * [slice * 2 + plane], created by the first view that needs one (Nv12ViewResource). NULL until then. */
++   struct pipe_resource **nv12_alias;
+    /* G17 (notes/g17-dxva-mfc.md): a flip-model swap chain buffer (created SHARED - DWM opens it): its presents must reach
+     * the runtime (DXGI waits for the buffer releases), so the GDI fallback (DxgiFns.cpp gdi_present) is not used for it */
+    bool flip_model;

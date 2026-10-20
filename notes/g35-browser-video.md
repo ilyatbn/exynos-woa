@@ -53,3 +53,27 @@ work as possible on hdmi (via type c adapter and usb hub, i have both)."
   restart loses it). Checks: mfd3d c1080 -Rows 1080 -> 60/60 MFC decodes, hashes identical to the system-memory
   decode; Edge (cdpplay t1b): decoders 1920x1080 + 1920x1088 both created, the 1088 one claims the session and
   decodes (frame 2 err 0), then the known plane-view assert (T2).
+- T2 Mesa 0221 (NV12 plane views; ARM64 df192602, tag 0221a): MS Learn DXGI_FORMAT
+  (https://learn.microsoft.com/en-us/windows/win32/api/dxgiformat/ne-dxgiformat-dxgi_format), NV12: "Valid luminance
+  data view formats for this video resource format are DXGI_FORMAT_R8_UNORM and DXGI_FORMAT_R8_UINT. Valid chrominance
+  data view formats (width and height are each 1/2 of luminance view) ... are DXGI_FORMAT_R8G8_UNORM and
+  DXGI_FORMAT_R8G8_UINT. Supported view types are SRV, RTV, and UAV."
+  - Design: NV12 stays one R8 surface (decoder copy / video processor / Map unchanged) but is created LINEAR through
+    resource_create_with_modifiers (modifier constant); SRV/RTV/UAV with R8* / R8G8* on it use a per-(slice, plane)
+    alias = panfrost_resource_create_alias (new, pan_resource.c): a linear resource with an explicit layout at
+    (layer stride * slice + first_row * row pitch) of the base BO, BO shared by reference, alias_of = base. Writer
+    tracking keyed by the base (pan_track_rsrc in batch_update_access / flush_writer / any_batch_writes_rsrc; batch
+    users are BO-based already) so base/alias accesses order. Other view formats on NV12 fail E_INVALIDARG (no
+    assert). Rejected alternatives: Gallium multi-plane NV12 (every nv12_height consumer + Map changes); a frontend-
+    only alias without tracking (reads through a plane would not wait for the decoder's copy).
+  - mfd3d c1080 on 0221a: 60/60 identical (linear decoder output). Edge t2a: aliases created ("NV12 1920x1088 slice 2
+    plane 0/1 alias: ok"), SRVs on them, Chromium then uses our video processor (1920x1080 -> 834x470) and the GPU
+    process aborts: assert count != 1 (u_inlines.h:114). Dump (WER, traces/dumps/msedge.exe.7228.dmp, cdb + the
+    build's PDB, raw stack): tc_batch_execute -> panfrost_set_sampler_views -> pipe_sampler_view_reference on a freed
+    view. Cause: VideoProc.cpp released its per-blit sampler view with pipe_sampler_view_reference (pre-TC code) while
+    the threaded context's queued set_sampler_views still named it; everything else uses pipe->sampler_view_release.
+- T2b Mesa 0222 (ARM64 bf2be4ed, tag 0222a): VideoProc releases the view through pipe->sampler_view_release.
+  - cdpplay t2b (--no-sandbox): no crash, MFC probe BUSY (Edge holds the session), frames 100/200 decoded err 0,
+    VP blts every frame (~15-35 us after the first), page 449 frames 22.7 fps dropped 4.
+  - NATIVE Edge (default profile, sandbox, no switches; videorun.sh edge-hw1): MFC probe BUSY, page 568 frames
+    23.6 fps dropped 2 (clip 24 fps; software decode was 14.1), picture correct (traces/g35-edge-hw1.png).

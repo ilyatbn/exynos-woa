@@ -2017,3 +2017,15 @@ diagnostic timers from release builds once perf work settles.
 - d3dsm532 status on 0203: ALU 8/8, atomics 4/4 ok; typedtex and later (typed UAVs, uav8, group1024, groupz64) not
   yet. Next: F11.4b typed UAVs (TGSI images: dcl, ld/store_uav_typed, view creation + set_shader_images, image
   atomics, RESQ), F11.4c 8 UAVs, then F11.5-F11.11 per the notes. FL 11_0 is not reported by default.
+
+## 72. 2026-10-20 - FL 11_0 (G34): compute side done, tessellation next
+
+- Mesa 0199-0214 (notes/g34-fl11.md, each with device run + review): SM5 parser/ALU, atomics, typed UAVs (images),
+  PS UAVs, append/consume + CopyStructureCount, indirect draws, BC6H/BC7, >384-thread groups (thread-loop
+  transform), and two pre-existing fixes for every D3D pixel shader: SV_Position at the pixel centre (0207) and
+  coarse ddx/ddy (0208). d3dsm5 34/34 vs WARP, d3dbc bptc 28/28.
+- Live: SysWOW64\maliumd32.dll = x86-0214 (e4e496d2). ARM64 / EC still 0198 (rebuild + reboot needed to ship 0199+;
+  the pixel-centre fix changes what DWM / ARM64 apps see - check the desktop after that reboot).
+- FL 11_0 still only via D3D10UMD_FL11_0=1 (test processes). Next: F11.10 hull/domain shaders (design in the notes:
+  HS as compute, tessellator, DS as VS), then F11.11 (format-support caps for 11_0 incl. typed UAV store/load - R7,
+  report 11_0 by default, ARM64 + EC builds, regression incl. DWM, Edge, games).

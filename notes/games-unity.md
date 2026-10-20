@@ -510,3 +510,11 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   the safe default. Flag files are now written with PowerShell Set-Content.
 - Mesa 0186 (diagnosis): fastclear.txt bit 2 = stencil-only fast clears too (default off). EC 1a7169cc live; mask 7
   for the next run (several runs needed: the white capture may be intermittent).
+- bot18 (EC 0186, mask 7 really set): renders right (bot18-stencil-end.png, dense coral layout), 1559 frames / 62.0 s,
+  mean 25.1 fps, median 38.6, p99 61.7. Counters (pid 1440): Clear:zs:fast 100 / 500 (was 67), "stencil-only slow"
+  ~200 / 500 (0183's label chain is order-dependent - those were not rejected for being stencil-only), 0 batches
+  without draws (was 49). Stencil-only fast clears of bound views: no visible damage in this run.
+- Mesa 0187: unbound / differently sized views -> ClearViaTempFb (framebuffer with only that view, pipe->clear,
+  device fb restored): a clear-only batch that writes the target once instead of u_blitter's preload+quad+store
+  batch; fastclear.txt bit 3 (colour needs bits 0+3, zs bits 1+3); independent reason labels. EC 2ad2723a live, mask
+  15; d3dmrt64x 7/7, d3dbc64x lossy 0/126 (with mask 15 in place).

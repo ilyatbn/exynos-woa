@@ -1,0 +1,80 @@
+diff --git a/src/gallium/frontends/d3d10umd/OutputMerger.cpp b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+index 84abfe3..2d3bc49 100644
+--- a/src/gallium/frontends/d3d10umd/OutputMerger.cpp
++++ b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+@@ -191,7 +191,7 @@ FastClearMask(void)
+          if (fscanf(f, "%d", &m) != 1)
+             m = 3;
+          fclose(f);
+-         m &= 7;   /* 0186: bit 2 = stencil-only fast clears (diagnosis) */
++         m &= 15;   /* 0186: bit 2 = stencil-only fast clears; 0187: bit 3 = unbound views via a temporary fb */
+       }
+    }
+    return (unsigned)m;
+@@ -199,6 +199,29 @@ FastClearMask(void)
+ 
+ /* 0183 (diagnosis): which path the clears take - every 500 clears a tlog line "clears 500: name n, ..." */
+ extern "C" void malikm_tlog(const char *fmt, ...);
++
++/* 0187: a D3D clear of a view that is NOT bound (or not the framebuffer's size): bind a framebuffer holding only that
++ * view, pipe->clear it (Panfrost: a batch that starts at the clear value and only writes the target - no preload, no
++ * quad), then put the device's framebuffer back. Instead of u_blitter's quad batch that preloads, draws and stores. */
++static void
++ClearViaTempFb(struct pipe_context *pipe, Device *pDevice, struct pipe_surface *surface, bool zs, unsigned buffers,
++               const union pipe_color_union *color, double depth, unsigned stencil)
++{
++   struct pipe_framebuffer_state fb;
++   memset(&fb, 0, sizeof fb);
++   fb.width = pipe_surface_width(surface);
++   fb.height = pipe_surface_height(surface);
++   if (zs) {
++      fb.zsbuf = *surface;
++   } else {
++      fb.nr_cbufs = 1;
++      fb.cbufs[0] = *surface;
++   }
++   pipe->set_framebuffer_state(pipe, &fb);
++   pipe->clear(pipe, buffers, 0xffffffffu, 0xff, NULL, color, depth, stencil);
++   pipe->set_framebuffer_state(pipe, &pDevice->fb);
++}
++
+ static void
+ ClearStat(const char *name, long long)
+ {
+@@ -305,6 +328,11 @@ ClearRenderTargetView(D3D10DDI_HDEVICE hDevice,                      // IN
+       }
+    }
+ 
++   if ((FastClearMask() & 9) == 9 && surface->texture && surface->first_layer == surface->last_layer) {
++      ClearViaTempFb(pipe, pDevice, surface, false, PIPE_CLEAR_COLOR0, &clear_color, 0.0, 0);   /* 0187 */
++      ClearStat("Clear:rt:tempfb", 0);
++      return;
++   }
+    ClearStat(!(FastClearMask() & 1) ? "Clear:rt:slow:off" :
+                   (pDevice->fb.width != pipe_surface_width(surface) ||
+                    pDevice->fb.height != pipe_surface_height(surface)) ? "Clear:rt:slow:size" : "Clear:rt:slow:unbound", 0);
+@@ -468,10 +496,21 @@ ClearDepthStencilView(D3D10DDI_HDEVICE hDevice,                      // IN
+       return;
+    }
+ 
++   const bool zs_partial_ok = flags == all_zs || ((FastClearMask() & 4) && flags == PIPE_CLEAR_STENCIL);
++   if ((FastClearMask() & 10) == 10 && flags && zs_partial_ok && surface->texture &&
++       surface->first_layer == surface->last_layer) {
++      const union pipe_color_union no_color = {};
++      ClearViaTempFb(pipe, pDevice, surface, true, flags, &no_color, Depth, Stencil);   /* 0187 */
++      ClearStat("Clear:zs:tempfb", 0);
++      return;
++   }
++   /* 0187: independent reasons (0183's chain mislabelled: the first failing test in a fixed order) */
+    ClearStat(!(FastClearMask() & 2) ? "Clear:zs:slow:off" :
+-                  !SameSurface(surface, &pDevice->fb.zsbuf) ? "Clear:zs:slow:unbound" :
+-                  flags != all_zs ? (flags == PIPE_CLEAR_DEPTH ? "Clear:zs:slow:depth-only" : "Clear:zs:slow:stencil-only") :
+-                  "Clear:zs:slow:size", 0);
++             !flags ? "Clear:zs:slow:noflags" :
++             !zs_partial_ok ? (flags == PIPE_CLEAR_DEPTH ? "Clear:zs:slow:depth-only" : "Clear:zs:slow:stencil-only") :
++             !SameSurface(surface, &pDevice->fb.zsbuf) ? "Clear:zs:slow:unbound" :
++             (pDevice->fb.width != pipe_surface_width(surface) || pDevice->fb.height != pipe_surface_height(surface)) ?
++                "Clear:zs:slow:size" : "Clear:zs:slow:layers", 0);
+    pipe->clear_depth_stencil(pipe,
+                              surface,
+                              flags,

@@ -540,3 +540,12 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
 - bot22 thread probe: process 330 %, top thread 93 % prio 8, next 62.7 % prio 8, six more 20-35 % prio 9 - thread
   descriptions are empty (nobody names them). Mesa 0190: the tlog gets "tc: driver thread tid N" and "tc: DDI thread
   tid N" (first 8 changes) to map threadcpu.ps1's TIDs. EC da30a842 live; d3dmrt64x 7/7, d3dbc64x lossy 0/126.
+- bot23 (EC 0190): the 88.9 % thread (7508) and the 70.5 % one (7344) are both "tc: DDI thread" = the two threads that
+  call D3D (Unity's render thread and one more); no "driver thread" line appeared (malikm_mark_worker_thread did not
+  log - open). The render thread is the CPU limit; inside the UMD it spends 10.8 ms/frame: Flush 4.0 (waiting for the
+  driver thread), ResourceMap 2.7 (665 maps/frame, cb discards 570), DrawIndexed 1.5. Driver thread: shader_state_fs
+  4.9 ms/frame, of it tex:read_rsrc 3.5 (857 calls), prepare_draw 2.0, varyings 1.75, get_batch_slow 1.7.
+- Mesa 0191: per-batch memo of tracked texture BOs (vertex/fragment, slots < 32; batch->tex_seen, zeroed with the
+  batch): a slot that already added the same resource BO + view BO to this batch skips read_rsrc + add_bo. Safe because
+  the BOs stay referenced by the batch and a later writer batch flushes this one (panfrost_batch_update_access with
+  writes submits every batch that uses the resource). EC 6311a66a live; d3dmrt64x 7/7, d3dbc64x lossy 0/126.

@@ -1,0 +1,49 @@
+diff --git a/src/gallium/drivers/panfrost/pan_cmdstream.c b/src/gallium/drivers/panfrost/pan_cmdstream.c
+index a78fcfe..d207961 100644
+--- a/src/gallium/drivers/panfrost/pan_cmdstream.c
++++ b/src/gallium/drivers/panfrost/pan_cmdstream.c
+@@ -1994,10 +1994,26 @@ panfrost_emit_texture_descriptors(struct panfrost_batch *batch,
+       out[i] = view->bifrost_tex_descriptor;
+ #endif
+ 
++#ifdef _WIN32
++      /* 0191: Dave the Diver re-tracked ~860 textures per frame (3.5 ms of the driver thread) - every draw re-emits
++       * all of a stage's textures. A slot that already put this resource BO and view BO into THIS batch needs
++       * neither again: the BOs are referenced by the batch, and a writer batch appearing later flushes this one
++       * (panfrost_batch_write_rsrc flushes the readers), which starts a fresh, zeroed batch. */
++      unsigned seen_st = stage == MESA_SHADER_FRAGMENT ? 1 : stage == MESA_SHADER_VERTEX ? 0 : 2;
++      if (seen_st < 2 && i < 32 && batch->tex_seen[seen_st][i][0] == rsrc->bo &&
++          batch->tex_seen[seen_st][i][1] == view->state.bo && rsrc->bo)
++         continue;
++#endif
+       PAN_SEC_BEGIN(t_rd);
+       panfrost_batch_read_rsrc(batch, rsrc, stage);
+       PAN_SEC_END(t_rd, "pan:sub:tex:read_rsrc");
+       panfrost_batch_add_bo(batch, view->state.bo, stage);
++#ifdef _WIN32
++      if (seen_st < 2 && i < 32) {
++         batch->tex_seen[seen_st][i][0] = rsrc->bo;
++         batch->tex_seen[seen_st][i][1] = view->state.bo;
++      }
++#endif
+    }
+ 
+    for (int i = actual_count; i < needed_count; ++i)
+diff --git a/src/gallium/drivers/panfrost/pan_job.h b/src/gallium/drivers/panfrost/pan_job.h
+index 60a081d..90d4c8b 100644
+--- a/src/gallium/drivers/panfrost/pan_job.h
++++ b/src/gallium/drivers/panfrost/pan_job.h
+@@ -24,6 +24,13 @@ struct panfrost_batch {
+    struct panfrost_context *ctx;
+    struct pipe_framebuffer_state key;
+ 
++#ifdef _WIN32
++   /* exynos-woa G32 (0191, notes/games-unity.md): the texture BOs this batch already tracked per slot (vertex /
++    * fragment stage, first 32 slots): pan_cmdstream.c skips panfrost_batch_read_rsrc + add_bo when a slot still
++    * names the same resource BO and view BO. Zeroed with the batch (panfrost_batch_cleanup memset). */
++   struct panfrost_bo *tex_seen[2][32][2];
++#endif
++
+    /* Sequence number used to implement LRU eviction when all batch slots are
+     * used */
+    uint64_t seqnum;

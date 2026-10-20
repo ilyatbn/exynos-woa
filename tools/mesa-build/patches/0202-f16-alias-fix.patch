@@ -1,0 +1,23 @@
+diff --git a/src/gallium/frontends/d3d10umd/ShaderTGSI.c b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+index 3295703..b40168c 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderTGSI.c
++++ b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+@@ -3039,6 +3039,10 @@ Shader_tgsi_translate_ex(const unsigned *code,
+          struct ureg_dst d = translate_dst_operand(&sx, &opcode.dst[0], pack ? false : opcode.saturate);
+          unsigned wm = opcode.dst[0].mask >> D3D10_SB_OPERAND_4_COMPONENT_MASK_SHIFT;
+          struct ureg_dst t = ureg_DECL_temporary(ureg);
++         /* review R3 of 0201: the destination may be the source register with another swizzle - convert from a copy */
++         struct ureg_dst sc = ureg_DECL_temporary(ureg);
++         ureg_MOV(ureg, sc, s);
++         s = ureg_src(sc);
+          for (unsigned ch = 0; ch < 4; ch++) {
+             if (!(wm & (1u << ch)))
+                continue;
+@@ -3054,6 +3058,7 @@ Shader_tgsi_translate_ex(const unsigned *code,
+                ureg_MOV(ureg, ureg_writemask(d, 1u << ch), ureg_scalar(ureg_src(t), TGSI_SWIZZLE_Z));
+             }
+          }
++         ureg_release_temporary(ureg, sc);
+          ureg_release_temporary(ureg, t);
+          break;
+       }

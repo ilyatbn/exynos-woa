@@ -68,6 +68,16 @@ static const Test g_tests[] = {
       "  uint h = f32tof16(f);\n"
       "  dst.Store2(tid.x * 8, uint2(h, asuint(f16tof32(h ^ (tid.x << 3)))));\n"
       "}\n", 64 * 2, 1, 1, 1, EX_NONE },
+    { "f16swz",   /* review R3: fxc tends to emit f32tof16 r0.xyzw, r0.wzyx here (dst = swizzled src) */
+      "ByteAddressBuffer src : register(t0);\n"
+      "RWByteAddressBuffer dst : register(u0);\n"
+      "[numthreads(64,1,1)] void main(uint3 tid : SV_DispatchThreadID) {\n"
+      "  float4 f = (float4)src.Load4((tid.x & 63u) * 16) * float4(0.25, -1.5, 3.0, 0.125);\n"
+      "  uint4 h = f32tof16(f.wzyx);\n"
+      "  float4 g = f16tof32(h.yxwz);\n"
+      "  dst.Store4(tid.x * 32, h);\n"
+      "  dst.Store4(tid.x * 32 + 16, asuint(g));\n"
+      "}\n", 64 * 8, 1, 1, 1, EX_NONE },
     { "rcp",
       "ByteAddressBuffer src : register(t0);\n"
       "RWByteAddressBuffer dst : register(u0);\n"

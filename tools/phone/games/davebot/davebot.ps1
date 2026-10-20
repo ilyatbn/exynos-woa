@@ -96,7 +96,9 @@ function Auto([int]$swim) {
       'boat' { if ($spaced -and ((Get-Date) - $spaced).TotalSeconds -lt 15) { break }
                if ($held -ge 3) { if ($steps -lt 20) { Key '20' 400; $steps++ } else { Key '1E' 3000; $steps = 0 } } }
       'boat-dive' { Key '39' 3000; $spaced = Get-Date }
-      'dialog-ok' { if ($held -ge 2) { $b.Save("$dir\dialog-ok.png", [System.Drawing.Imaging.ImageFormat]::Png); Tap 790 $script:okY; $since = Get-Date } }
+      # only before the first Continue (the title-screen update notes): in the game a pink OK may confirm something
+      # that progresses the save (user: never "return to map") - there it is left alone like an unknown screen
+      'dialog-ok' { if ($held -ge 2 -and $titleTaps -eq 0) { $b.Save("$dir\dialog-ok.png", [System.Drawing.Imaging.ImageFormat]::Png); Tap 790 $script:okY; $since = Get-Date } }
       'water' {
         if ($held -lt 3) { break }
         Remove-Item C:\S10eTmp\frametimes.txt -ErrorAction SilentlyContinue

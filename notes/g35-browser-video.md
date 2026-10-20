@@ -89,3 +89,8 @@ work as possible on hdmi (via type c adapter and usb hub, i have both)."
     the runtime did not block them; change only with a test that needs it; (c) EC + x86 UMDs not rebuilt - x64
     browsers (emulated) would still crash on plane views -> rebuild + test with the next reboot / before Brave if Brave
     is x64.
+- Brave (ARM64, pearch.ps1; default profile, sandbox, no switches; videorun.sh brave brave-hw1): MFC probe BUSY,
+  page 537 frames 23.4 fps dropped 6, GPU process 2 s after the browser (no restart), picture correct
+  (traces/g35-brave-hw1.png; the "Brave quit unexpectedly" prompt is from the taskkill before the run - not touched).
+- Scope note: the bridge decodes H.264 only. Sites that pick VP9/AV1 (YouTube by default) still decode in software;
+  the MFC of the 9820 also decodes VP8/VP9/HEVC (DXVA profiles + bridge work) - follow-up, not in G35's first step.

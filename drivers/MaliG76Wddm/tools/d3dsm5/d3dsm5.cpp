@@ -53,7 +53,7 @@ static const Test g_tests[] = {
       "RWByteAddressBuffer dst : register(u0);\n"
       "[numthreads(64,1,1)] void main(uint3 tid : SV_DispatchThreadID) {\n"
       "  uint v = src.Load(tid.x * 4) * 2246822519u;\n"
-      "  uint off = tid.x & 15u, w = (tid.x >> 2) & 15u;\n"
+      "  uint off = tid.x & 31u, w = (tid.x * 13u + 5u) & 31u;   /* offset + width reaches 62 (D3D: bits past 31 dropped) */\n"
       "  uint ue = (v >> off) & ((1u << w) - 1u);\n"
       "  int ie = ((int)(v << (32u - off - w))) >> (32u - w);\n"
       "  uint m = ((1u << w) - 1u) << off;\n"

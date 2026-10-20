@@ -84,3 +84,18 @@ notes/g18-hdmi-dp-alt.md (rungs H1-H5, H1 done read-only), notes/g18-h2-altmode-
   DECON_T/DPP/SYSMMU (rung H4a). 19-step order, steps 1-7 read-only probes; 7 open questions listed there.
   Parent review: structure checked (8 sections + open questions), Exynos9820.h has no DP / PMU 0x704 define (grep) ->
   UNVERIFIED tags correct; the PHY-overlap claim vs notes/m16-ss-phy.md not re-derived here (re-check at the PHY step).
+
+## 2026-10-20 ~20:30 - P4b REVERTED (user: display "lagging like crazy", "screen draws itself left to right")
+- Measured with the P4b KMD (1f72350c) after hours of uptime: software vsync 59/s while idle but 24-33/s while DWM
+  presents (KMD heartbeat), DWM 3-5 presents/s, Mali 3D engine 0.15 % busy (DWM waiting), CPU idle -> governor kept
+  G3D at 260 MHz (its GpuBusyPct follows the 3D engine counter). Edge (left looping the test clip) dropped nearly all
+  frames. Not the cause: touch boost never worked (touch 6.0.5058.7 with the S10eTouchActivity event was never
+  installed - TouchEvent 0 / Touches 0; tools/phone/power/touchstate.ps1 new).
+- Restored the previous live KMD d69c01cd (s10e-artifacts\mwddm-g32-defer, G32 DeferPresent) by kmdswap + reboot
+  20:39: vsync 59/s also while presenting, user: "works fine now".
+- Build check (offline): commit 7ee013d built with the same msbuild command = .text / PAGE / INIT / .data / .reloc
+  byte-identical to d69c01cd (only .rdata / .pdata debug-directory bytes differ) -> the build method is not the cause;
+  the P4b source change (2 sources / 2 children, second child disconnected) is.
+- My P4b validation was too short (one screenshot + one Edge run right after boot); the regression shows under use /
+  over time. Repo KMD sources restored to 7ee013d (= live). Root cause of the 2-source slowdown NOT known yet;
+  P4b redo only with a measured soak (vsync rate while presenting, presents/s, 30+ min of use) and the user's go.

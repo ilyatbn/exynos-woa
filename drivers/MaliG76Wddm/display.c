@@ -349,11 +349,10 @@ NTSTATUS MwDisplayOnlyCaps(const DXGKARG_QUERYADAPTERINFO *Info)
 NTSTATUS APIENTRY MwQueryChildRelations(IN_CONST_PVOID MiniportDeviceContext,
                                PDXGK_CHILD_DESCRIPTOR ChildRelations, ULONG ChildRelationsSize)
 {
-    const MW_ADAPTER *dev = (const MW_ADAPTER *)MiniportDeviceContext;
-    ULONG children = dev->Mode != MwModeDisplayOnly ? 2 : 1;   /* = StartDevice's NumberOfChildren */
-    if (ChildRelationsSize < (children + 1) * sizeof(DXGK_CHILD_DESCRIPTOR))
-        return STATUS_BUFFER_TOO_SMALL;   /* the children plus the zeroed terminator */
-    RtlZeroMemory(ChildRelations, children * sizeof(DXGK_CHILD_DESCRIPTOR));
+    UNREFERENCED_PARAMETER(MiniportDeviceContext);
+    if (ChildRelationsSize < 2 * sizeof(DXGK_CHILD_DESCRIPTOR))
+        return STATUS_BUFFER_TOO_SMALL;   /* one child plus the zeroed terminator */
+    RtlZeroMemory(ChildRelations, sizeof(DXGK_CHILD_DESCRIPTOR));
     ChildRelations[0].ChildDeviceType = TypeVideoOutput;
     /* R14: the S10e's DSI panel (s6e3fa7), not the RK board's HDMI. */
     ChildRelations[0].ChildCapabilities.Type.VideoOutput.InterfaceTechnology = D3DKMDT_VOT_INTERNAL;
@@ -362,18 +361,6 @@ NTSTATUS APIENTRY MwQueryChildRelations(IN_CONST_PVOID MiniportDeviceContext,
     ChildRelations[0].ChildCapabilities.HpdAwareness = HpdAwarenessAlwaysConnected;
     ChildRelations[0].AcpiUid = 0;
     ChildRelations[0].ChildUid = 0;
-    if (children > 1) {
-        /* G18 P4b: the USB-C DisplayPort output (DECON_T -> DP, notes/g18-p4-wddm-target.md). Hot plug will come from
-         * the CCIC's HPD (DxgkCbIndicateChildStatus, MS Learn: HpdAwarenessInterruptible children); until the DP path
-         * exists it is reported disconnected (MwQueryChildStatus). */
-        ChildRelations[1].ChildDeviceType = TypeVideoOutput;
-        ChildRelations[1].ChildCapabilities.Type.VideoOutput.InterfaceTechnology = D3DKMDT_VOT_DISPLAYPORT_EXTERNAL;
-        ChildRelations[1].ChildCapabilities.Type.VideoOutput.MonitorOrientationAwareness = D3DKMDT_MOA_NONE;
-        ChildRelations[1].ChildCapabilities.Type.VideoOutput.SupportsSdtvModes = FALSE;
-        ChildRelations[1].ChildCapabilities.HpdAwareness = HpdAwarenessInterruptible;
-        ChildRelations[1].AcpiUid = 0;
-        ChildRelations[1].ChildUid = MW_DP_CHILD_UID;
-    }
     return STATUS_SUCCESS;
 }
 
@@ -384,8 +371,7 @@ NTSTATUS APIENTRY MwQueryChildStatus(IN_CONST_PVOID MiniportDeviceContext, INOUT
     UNREFERENCED_PARAMETER(NonDestructiveOnly);
     switch (ChildStatus->Type) {
     case StatusConnection:
-        /* G18 P4b: the panel is always there; the DisplayPort output is disconnected until the DP path exists */
-        ChildStatus->HotPlug.Connected = ChildStatus->ChildUid != MW_DP_CHILD_UID;
+        ChildStatus->HotPlug.Connected = TRUE;
         return STATUS_SUCCESS;
     case StatusRotation:
         ChildStatus->Rotation.Angle = 0;
@@ -454,8 +440,7 @@ NTSTATUS APIENTRY MwQueryDeviceDescriptor(IN_CONST_PVOID MiniportDeviceContext, 
     UCHAR edid[128];
     ULONG off = DeviceDescriptor->DescriptorOffset, len = DeviceDescriptor->DescriptorLength;
 
-    if (ChildUid == MW_DP_CHILD_UID)
-        return STATUS_MONITOR_NO_DESCRIPTOR;   /* G18 P4b: nothing connected there yet */
+    UNREFERENCED_PARAMETER(ChildUid);
     if (dev->Mode == MwModeDisplayOnly || !MwSynthEdid || !BuildEdid(dev, edid))
         return STATUS_MONITOR_NO_DESCRIPTOR;
     if (off >= sizeof(edid))
@@ -468,29 +453,6 @@ NTSTATUS APIENTRY MwQueryDeviceDescriptor(IN_CONST_PVOID MiniportDeviceContext, 
 }
 
 /* ---- VidPN: one source, one target, one mode, identity everything ---- */
-
-/* G18 P4b: the only path the adapter drives is panel source 0 -> panel target 0 (the DisplayPort source / target 1 is
- * counted but disconnected, notes/g18-p4-wddm-target.md). FALSE if the topology names anything else. */
-static BOOLEAN TopologyPanelOnly(const DXGK_VIDPN_INTERFACE *VidPn, D3DKMDT_HVIDPN H)
-{
-    D3DKMDT_HVIDPNTOPOLOGY topo;
-    const DXGK_VIDPNTOPOLOGY_INTERFACE *topoIf;
-    const D3DKMDT_VIDPN_PRESENT_PATH *path = NULL, *next;
-    BOOLEAN ok = TRUE;
-
-    if (!NT_SUCCESS(VidPn->pfnGetTopology(H, &topo, &topoIf)) ||
-        topoIf->pfnAcquireFirstPathInfo(topo, &path) != STATUS_SUCCESS)
-        return TRUE;   /* no topology / no path: nothing to refuse */
-    while (path != NULL) {
-        if (path->VidPnSourceId != 0 || path->VidPnTargetId != 0)
-            ok = FALSE;
-        if (topoIf->pfnAcquireNextPathInfo(topo, path, &next) != STATUS_SUCCESS)
-            next = NULL;
-        topoIf->pfnReleasePathInfo(topo, path);
-        path = next;
-    }
-    return ok;
-}
 
 NTSTATUS APIENTRY MwIsSupportedVidPn(IN_CONST_HANDLE hAdapter, DXGKARG_ISSUPPORTEDVIDPN *Arg)
 {
@@ -509,10 +471,6 @@ NTSTATUS APIENTRY MwIsSupportedVidPn(IN_CONST_HANDLE hAdapter, DXGKARG_ISSUPPORT
     st = dev->Dxgk.DxgkCbQueryVidPnInterface(Arg->hDesiredVidPn, DXGK_VIDPN_INTERFACE_VERSION_V1, &vidpn);
     if (!NT_SUCCESS(st))
         return st;
-    if (!TopologyPanelOnly(vidpn, Arg->hDesiredVidPn)) {   /* G18 P4b */
-        MwPramText(FALSE, "IsSupported non-panel path ", NULL, 0, TRUE);
-        return STATUS_SUCCESS;   /* IsVidPnSupported stays FALSE */
-    }
     st = vidpn->pfnAcquireSourceModeSet(Arg->hDesiredVidPn, 0, &set, &setIf);
     if (!NT_SUCCESS(st))
         return st;
@@ -814,13 +772,6 @@ NTSTATUS APIENTRY MwEnumVidPnCofuncModality(IN_CONST_HANDLE hAdapter,
                           Arg->EnumPivot.VidPnTargetId == path->VidPnTargetId;
         NTSTATUS r = STATUS_SUCCESS;
 
-        if (path->VidPnSourceId != 0 || path->VidPnTargetId != 0) {
-            /* G18 P4b: no modes for the disconnected DisplayPort source / target - leave such a path as it is */
-            st = topoIf->pfnAcquireNextPathInfo(topo, path, &next);
-            topoIf->pfnReleasePathInfo(topo, path);
-            path = next;
-            continue;
-        }
         MwPramText(FALSE, "Cofunc path s.t.scl.rot ", NULL,
                    ((ULONG)path->VidPnSourceId << 24) | (((ULONG)path->VidPnTargetId & 0xFF) << 16) |
                    (((ULONG)path->ContentTransformation.Scaling & 0xFF) << 8) |
@@ -893,8 +844,6 @@ NTSTATUS APIENTRY MwSetVidPnSourceVisibility(IN_CONST_HANDLE hAdapter,
                                              const DXGKARG_SETVIDPNSOURCEVISIBILITY *Arg)
 {
     MW_ADAPTER *dev = (MW_ADAPTER *)hAdapter;
-    if (Arg->VidPnSourceId != 0)
-        return STATUS_SUCCESS;   /* G18 P4b review: the DisplayPort source has no scan-out yet - never the panel's */
     dev->SourceVisible = Arg->Visible;
     /* Invisible means blank: clear the framebuffer once. */
     if (!Arg->Visible && dev->FbVa != NULL)
@@ -914,12 +863,6 @@ NTSTATUS APIENTRY MwCommitVidPn(IN_CONST_HANDLE hAdapter, const DXGKARG_COMMITVI
     st = dev->Dxgk.DxgkCbQueryVidPnInterface(Arg->hFunctionalVidPn, DXGK_VIDPN_INTERFACE_VERSION_V1, &vidpn);
     if (!NT_SUCCESS(st))
         return st;
-    if (Arg->AffectedVidPnSourceId != 0 && Arg->AffectedVidPnSourceId != D3DDDI_ID_ALL) {
-        /* G18 P4b review: a commit that only concerns the DisplayPort source must not re-evaluate (and possibly turn
-         * off) the panel's path */
-        MwPramText(FALSE, "Commit other source ", NULL, (ULONG)Arg->AffectedVidPnSourceId, TRUE);
-        return STATUS_SUCCESS;
-    }
     {
         /* G76: what was committed - source id, connectivity checks, number of paths (PRAM). */
         D3DKMDT_HVIDPNTOPOLOGY topo;
@@ -966,8 +909,6 @@ NTSTATUS APIENTRY MwUpdateActiveVidPnPresentPath(IN_CONST_HANDLE hAdapter,
                                                  const DXGKARG_UPDATEACTIVEVIDPNPRESENTPATH *Arg)
 {
     MW_ADAPTER *dev = (MW_ADAPTER *)hAdapter;
-    if (Arg->VidPnPresentPathInfo.VidPnSourceId != 0 || Arg->VidPnPresentPathInfo.VidPnTargetId != 0)
-        return STATUS_SUCCESS;   /* G18 P4b review: only the panel path's transformation is ours to track */
 
     /* Smooth rotation (SupportSmoothRotation) changes the path's rotation here without a mode set. */
     MwLog(dev, L"ActivePathRotation", (ULONG)Arg->VidPnPresentPathInfo.ContentTransformation.Rotation);
@@ -982,8 +923,6 @@ NTSTATUS APIENTRY MwRecommendMonitorModes(IN_CONST_HANDLE hAdapter,
     D3DKMDT_MONITOR_SOURCE_MODE *mode;
     NTSTATUS st;
 
-    if (Arg->VideoPresentTargetId != 0)
-        return STATUS_SUCCESS;   /* G18 P4b review: the panel's mode belongs to the panel's monitor only */
     st = Arg->pMonitorSourceModeSetInterface->pfnCreateNewModeInfo(Arg->hMonitorSourceModeSet, &mode);
     if (!NT_SUCCESS(st))
         return st;
@@ -1115,8 +1054,6 @@ VOID APIENTRY MwSystemDisplayWrite(IN_CONST_PVOID MiniportDeviceContext, IN_CONS
 NTSTATUS APIENTRY MwSetVidPnSourceAddress(IN_CONST_HANDLE hAdapter, const DXGKARG_SETVIDPNSOURCEADDRESS *Arg)
 {
     MW_ADAPTER *dev = (MW_ADAPTER *)hAdapter;
-    if (Arg->VidPnSourceId != 0)
-        return STATUS_SUCCESS;   /* G18 P4b review: no DisplayPort scan-out yet - a source-1 flip must not move the panel */
     /* Step d of the original: nothing is reprogrammed; presents are CPU copies (command.c). G76: the address is
      * kept, the software vsync reports it as the one being scanned out (command.c SyncVsync). With FlipMmio the
      * allocation is queued instead: the next vsync DPC copies it into the GOP fb ("latches" it) and only then

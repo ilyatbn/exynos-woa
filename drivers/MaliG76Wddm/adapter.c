@@ -293,8 +293,8 @@ static NTSTATUS APIENTRY MwStartDevice(IN_CONST_PVOID Context, IN_PDXGK_START_IN
         MwLog(a, L"GpuUp", a->GpuUp ? 1 : (ULONG)st);
     }
 
-    *Sources = a->Mode != MwModeDisplayOnly ? 2 : 1;    /* G18 P4b: + the external DisplayPort source */
-    *Children = a->Mode != MwModeDisplayOnly ? 2 : 1;
+    *Sources = 1;
+    *Children = 1;
     MwLog(a, L"Started", 1);
     {
         LARGE_INTEGER due;

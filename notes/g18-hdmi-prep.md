@@ -37,3 +37,8 @@ notes/g18-hdmi-dp-alt.md (rungs H1-H5, H1 done read-only), notes/g18-h2-altmode-
   PC dry run (x64 build, "-dry"): payloads 55[03], 48[09 01 80 00 FF], 48[09 04 81 01 FF], 48[0A 11 81 01 FF 06 PP
   00 00] = exactly the driver allowlist. ARM64 build OK (/W4 /WX). Not run on the phone (needs 1.0.0.7 installed +
   the user's go for PD writes).
+- Review of P2: payloads mechanically equal to the allowlist (dry run); latch handling: the driver's opcode path reads
+  only 0x02 (UIC) so PD/VDM latches survive an opcode and are seen on the next poll. GAP (follow-up when the first real
+  run shows it): the vendor resends DP Configure when the 0x48 reply is an Attention while the last request was
+  Configure (usbc.c:1970-1987) - usbcaltmode only logs the reply. Not fixed blind: the first plugged run shows whether
+  it happens.

@@ -1,0 +1,57 @@
+diff --git a/src/gallium/auxiliary/nir/tgsi_to_nir.c b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+index 39f6146..09c6f77 100644
+--- a/src/gallium/auxiliary/nir/tgsi_to_nir.c
++++ b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+@@ -102,6 +102,11 @@ struct ttn_compile {
+ 
+    bool cap_face_is_sysval;
+    bool cap_position_is_sysval;
++   /* exynos-woa G34: the shader declares half-integer pixel centres but the screen only has integer ones (panfrost
++    * Bifrost: pan_screen.c fs_coord_pixel_center_integer = arch >= 6) -> the FS position input gets the centre added */
++   bool cap_center_half;
++   bool cap_center_integer;
++   bool fs_center_offset;
+    bool cap_point_is_sysval;
+    bool cap_samplers_as_deref;
+    bool cap_integers;
+@@ -709,7 +714,11 @@ ttn_src_for_file_and_index(struct ttn_compile *c, unsigned file, unsigned index,
+       } else if (c->scan->processor == MESA_SHADER_FRAGMENT &&
+           c->scan->input_semantic_name[index] == TGSI_SEMANTIC_POSITION) {
+          assert(c->input_var_position);
+-         return nir_src_for_ssa(nir_load_var(&c->build, c->input_var_position));
++         nir_def *pos = nir_load_var(&c->build, c->input_var_position);
++         if (c->fs_center_offset)   /* exynos-woa G34: integer hardware position + pixel centre (or sample position) */
++            pos = nir_fadd(&c->build, pos,
++                           nir_pad_vector_imm_int(&c->build, nir_load_sample_pos_or_center(&c->build), 0, 4));
++         return nir_src_for_ssa(pos);
+       } else if (c->scan->processor == MESA_SHADER_FRAGMENT &&
+           c->scan->input_semantic_name[index] == TGSI_SEMANTIC_PCOORD) {
+          assert(c->input_var_point);
+@@ -2752,6 +2761,8 @@ ttn_read_pipe_caps(struct ttn_compile *c,
+    c->cap_samplers_as_deref = screen->caps.nir_samplers_as_deref;
+    c->cap_face_is_sysval = screen->caps.fs_face_is_integer_sysval;
+    c->cap_position_is_sysval = screen->caps.fs_position_is_sysval;
++   c->cap_center_half = screen->caps.fs_coord_pixel_center_half_integer;
++   c->cap_center_integer = screen->caps.fs_coord_pixel_center_integer;
+    c->cap_point_is_sysval = screen->caps.fs_point_is_sysval;
+    c->cap_integers = screen->shader_caps[c->scan->processor].integers;
+    c->cap_tg4_component_in_swizzle =
+@@ -2832,8 +2843,17 @@ ttn_compile_init(const void *tgsi_tokens,
+             s->info.fs.origin_upper_left = value == TGSI_FS_COORD_ORIGIN_UPPER_LEFT;
+          break;
+       case TGSI_PROPERTY_FS_COORD_PIXEL_CENTER:
+-         if (s->info.stage == MESA_SHADER_FRAGMENT)
++         if (s->info.stage == MESA_SHADER_FRAGMENT) {
+             s->info.fs.pixel_center_integer = value == TGSI_FS_COORD_PIXEL_CENTER_INTEGER;
++            /* exynos-woa G34: an explicit HALF_INTEGER request (d3d10umd always declares it: D3D's SV_Position is
++             * the pixel centre) on a screen without half-integer centres - add the centre / sample position
++             * ourselves, as the GL state tracker does for gl_FragCoord. Shaders without the property (u_blitter's)
++             * keep the screen's convention. */
++            c->fs_center_offset = value == TGSI_FS_COORD_PIXEL_CENTER_HALF_INTEGER && !c->cap_center_half &&
++                                  c->cap_center_integer;
++            if (c->fs_center_offset)
++               s->info.fs.pixel_center_integer = true;   /* what the hardware value is; the offset is explicit */
++         }
+          break;
+       case TGSI_PROPERTY_FS_DEPTH_LAYOUT:
+          if (s->info.stage == MESA_SHADER_FRAGMENT)

@@ -27,6 +27,12 @@ Inner-Shareable and S2 = Device; (3) public Samsung M4/Mongoose errata hunt; (4)
 statement about Exynos 9820 DSU/coherency requiring Inner-Shareable for the M4 cluster.
 Started 2026-10-20. Facts are quoted/paraphrased from a cited URL; my own reasoning is marked INFERENCE.
 
+Contents of this section (appended in order, so other sections of this file are interleaved - find
+them with `rg -n '^###? (Q[0-9]|Bottom line|Sources \(R1)' notes/m4-research-r1r7.md`):
+"Q1 - ARM ARM: how S1+S2 attributes combine when HCR_EL2.FWB=0", "Q2 - S1 = Normal Inner Shareable,
+S2 = Device", "Q3 - Samsung M4 / Mongoose errata hunt", "Q4 - ... Inner-Shareable ...",
+"Bottom line for the coding agent", "Sources (R1 web part)".
+
 
 **FACT** postmarketOS wiki (now served at wiki.nura.eco; wiki.postmarketos.org API redirects
 there — Anubis bot-check blocks plain fetches of the HTML UI, the api.php works).
@@ -98,7 +104,7 @@ Local working copy: `/tmp/opencode/DDI0487G_a_armv8_arm.pdf`, text extract `/tmp
 
 Section number in G.a: **D5.5 "Memory region attributes"**, and the combine rules are in
 **D5.5.7 "Combining the stage 1 and stage 2 attributes, EL1&0 translation regime"**, printed pages
-D5-2760 to D5-2764. (In the Armv8.0 manual DDI 0487A.a the same material is titled
+D5-2760 to D5-2763. (In the Armv8.0 manual DDI 0487A.a the same material is titled
 "Combining the stage 1 and stage 2 attributes, Non-secure EL1&0 translation regime", page D4-1717,
 inside D4.4 "Access controls and memory region attributes" - markdown mirror
 `https://github.com/codingbelief/arm-architecture-reference-manual-for-armv8-a/blob/master/en/chapter_d4/d44_access_controls_and_memory_region_attributes.md`.
@@ -127,7 +133,7 @@ Device at either stage makes the whole mapping Device. Concretely for the M4 que
 S1 Normal + S2 Device-nGRE => resultant **Device-nGRE**; S1 Device-GRE + S2 Device-nGRE =>
 **Device-nGRE**; S1 Device-nGRE + S2 Normal => **Device-nGRE**. (FACT: direct reading of Table D5-43.)
 
-FACT (cacheability, Table D5-44, p. D5-2762, applies only if FWB=0): Non-cacheable at either stage
+FACT (cacheability, Table D5-44, p. D5-2763, applies only if FWB=0): Non-cacheable at either stage
 => Non-cacheable; Write-Through at either stage (with the other WT or WB) => Write-Through; WB+WB => WB.
 i.e. "the less cacheable of the two wins".
 
@@ -202,7 +208,7 @@ the Note at the head of D5.5 (FACT, verbatim, p. D5-2753):
 > • Increase the required shareability of a region.
 > The combining of attributes from stage 1 and stage 2 translations supports both of these options."
 
-Also FACT (G.a D5.5.1, p. D5-2754, note under Table D5-36):
+Also FACT (G.a D5.5.1, p. D5-2755, note under Table D5-36):
 > "The shareability field is only relevant if the memory is a Normal Cacheable memory type. All
 > Device and Normal Non-cacheable memory regions are always treated as Outer Shareable, regardless
 > of the translation table shareability attributes."
@@ -330,7 +336,7 @@ FACT. Two-stage chain, all from DDI 0487G.a:
 3. Same rule at the single-stage/application level, B2.7.2 "Device memory", p. B2-170: "Data accesses
    to memory locations are coherent for all observers in the system, and correspondingly are treated
    as being Outer Shareable."
-4. And stage 2's own note, D5.5.4 (p. D5-2758): "The shareability field is only relevant if the memory
+4. And stage 2's own note, D5.5.4 (p. D5-2757): "The shareability field is only relevant if the memory
    is a Normal Cacheable memory type. All Device and Normal Non-cacheable memory regions are always
    treated as Outer Shareable, regardless of the translation table shareability attributes."
 
@@ -670,3 +676,359 @@ in hardware, so the combine tables above are the whole story: stage 2 can only w
 strengthen shareability; it can never reduce shareability below the stage-1 value, and any Device at
 either stage pins the mapping to Device + Outer Shareable.
 
+### Q3 — Samsung M4 / Mongoose errata hunt
+
+FACT (local evidence, no errata registry entry). Samsung's own downstream Exynos 9820 kernel tree
+(mirror of the GPL S10/Note10 kernel), `https://github.com/CruelKernel/samsung-exynos9820`
+(branch cruel-HVJ5-v5.3, HEAD 41aba77656e3377e8c55691b8b807d915e545343, last commit 2023-09-04),
+contains `arch/arm64/kernel/cpu_errata.c` and `Documentation/arm64/silicon-errata.txt` with **no
+Samsung/Exynos/M4 entries at all** (verified: `grep -i -E "samsung|exynos" ...` returns nothing in
+either file, local copies `/tmp/opencode/k9820/...`).
+
+FACT (same tree, S10e defconfig `arch/arm64/configs/exynos9820-beyond0lte_defconfig`, the exact
+board this port targets). The only CPU errata workarounds Samsung enables are stock ARM ones:
+ARM64_ERRATUM_826319, 827319, 824069, 819472, 832075, 845719, 843419, 1024718, 1188873,
+QCOM_FALKOR_ERRATUM_E1041, FSL_ERRATUM_A008585, HISILICON_ERRATUM_161010101, ARM64_ERRATUM_858921
+(plus ARM_ARCH_TIMER_OOL_WORKAROUND). There is **no CONFIG for an Exynos/M4 core erratum**
+(grep of "ERRATUM|WORKAROUND" over that defconfig, 20 hits total).
+INFERENCE: either the M4 has no publicly-worked-around errata in the Linux kernel, or Samsung's
+workarounds live in firmware (sboot/bl1/bl2) rather than the kernel - the kernel tree gives no
+evidence either way, so the second possibility is unproven.
+
+FACT (device-tree names, same tree, `arch/arm64/boot/dts/exynos/exynos9820.dts`). The three CPU
+clusters are named by ARM internal codenames in the compatible strings:
+- `cpu@0000`-`cpu@0003`: `compatible = "arm,ananke", "arm,armv8"` (the 4x Cortex-A55), reg 0x0-0x3
+- `cpu@0004`,`cpu@0005`: `compatible = "arm,prometheus", "arm,armv8"` (the 2x Cortex-A75), reg 0x4,0x5
+- `cpu@0100`,`cpu@0101`: `compatible = "arm,cheetah", "arm,armv8"` (**the 2x Exynos M4**, reg 0x100, 0x101)
+So "M4 = cheetah" (matching the NamuWiki statement that the M4 development code name was Cheetah:
+`https://en.namu.wiki/w/%EC%82%BC%EC%84%B1%EC%A0%84%EC%9E%90/%EB%A7%88%EC%9D%B4%ED%81%AC%EB%A1%9C%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98`).
+All use `enable-method = "psci"`. In `cpu-map` the A55s and A75s are `coregroup0`/`coregroup1` of
+`cluster0`, and the two M4 (cheetah) cores are the only cores of `cluster1`; the Samsung scheduler
+node in the same file lists `vcluster_cnt = <0x3>`, `vcluster0_sibling = "0-3"`,
+`vcluster1_sibling = "4-5"`, `vcluster2_sibling = "6-7"`.
+INFERENCE: the MPIDR of the M4 cores carries a different Aff1 (0x100/0x101 => Aff1=1, Aff0=0/1), i.e.
+the M4 pair is a separate coherency/physical cluster from the A55+A75 group; secondary-core bringup
+must target those MPIDR values, and "Inner Shareable" on the M4 pair means those 2 cores only.
+
+FACT. `grep -i -E "mongoose|_m4|m4_"` over the whole 71 165-file kernel file list returns no
+Samsung CPU errata file; and no file in the tree is named like an M4 errata workaround.
+Dead end: this avenue (kernel-embedded errata names) is exhausted for 9820.
+
+#### Q3 continued — the one documented Samsung-custom-core CPU bug (9810/M3, not M4)
+
+FACT. `https://reviews.llvm.org/D114523` (landed as
+`https://github.com/llvm/llvm-project/commit/cce4a7258b81159e57a411896011ee2742f17def`, Dec 14 2021),
+summary verbatim:
+> "Big.LITTLE Heterogeneous architectures, as described by ARM [1], require that the instruction set
+> architecture of the big and little cores be compatible. However, the Samsung Exynos 9810 is known to
+> have different ISAs in its core. According to [2], some cores are ARMv8.2 and others are ARMv8.0.
+> Since LSE is for ARMv8.1 and later, it should be disabled for this broken CPU."
+and the shipped code comment in `compiler-rt/lib/builtins/cpu_model.c`:
+> "// Some cores of Exynos 9810 are ARMv8.2 and others are ARMv8.0, // so disable the lse atomics
+> // completely." (gated on Android property `ro.arch` == "exynos9810")
+Reviewer note (srhines): the fix matters mainly for NDK-built apps; jyknight: "problems have only been
+reported on the Galaxy S9 and S9+ devices, running older versions of the device firmware (based on
+Android 8) ... presumably the kernel in the more recent builds has been updated to (correctly) not
+report HWCAP_ATOMICS as available."
+
+FACT. The underlying report: `https://github.com/golang/go/issues/28431` ("cmd/compile: go binaries not
+working on exynos 64 bit CPUs", Oct 2018, fixed for Go 1.12). On a Galaxy S9+ (Exynos 9810) a
+userland `LDADDAL` executed on a big core raised **SIGILL**; /proc/cpuinfo on that device showed
+big cores `CPU implementer : 0x53, CPU variant : 0x1, CPU part : 0x002, CPU revision : 0`
+(= Samsung Mongoose M3, ARMv8.0, **no FEAT_LSE**) and little cores
+`CPU implementer : 0x41, CPU part : 0xd05, CPU revision : 1` (= Cortex-A55 r0p1, ARMv8.2, has LSE),
+with the *same* `Features:` string including `atomics` on both - i.e. the kernel was reporting the
+union of features. Later comment in the same issue: "Update: the kernel problem was resolved in an
+update. The kernel no longer reports support for atomics."
+FACT (the rule cited there): "ARM documentation states that the big and little cores must have the same
+instruction support" - `https://developer.arm.com/technologies/big-little`.
+
+INFERENCE for this port: the 9810 class of bug (a custom Samsung core implementing an *older* ISA than
+its companion Cortex cores, plus firmware/Linux reporting the union of features) is the single public
+"Exynos custom core erratum-like" issue found. It does **not** apply to the 9820 in the same form:
+M4 is ARMv8.2 (`https://fuse.wikichip.org/news/2051/samsung-discloses-exynos-m4-changes-upgrades-support-for-armv8-2-rearranges-the-back-end`:
+"The Exynos M4 finally introduces ARMv8.2 support - including full FP16 scalar instructions and the
+integer dot product extension ... which means all the cores on the Exynos 9820 should be largely
+ISA-compatible"), i.e. LSE is present on the M4 too. Still worth an ID-register check per cluster on
+real silicon before trusting `ID_AA64ISAR0_EL1.Atomic` for the whole SoC.
+
+FACT (naming gap). Mainline Linux documents Samsung custom cores in
+`https://raw.githubusercontent.com/torvalds/linux/master/Documentation/devicetree/bindings/arm/cpus.yaml`
+(lines 231-233) as `samsung,mongoose-m2`, `samsung,mongoose-m3`, `samsung,mongoose-m5` - **there is no
+`samsung,mongoose-m4` binding** as of today. The M3 binding was added Oct 2024 in
+`https://lists.infradead.org/pipermail/linux-arm-kernel/2024-October/972767.html`.
+INFERENCE: a mainline 9820 dts would have to add `samsung,mongoose-m4` first; nothing in mainline
+carries an M4 erratum workaround.
+
+DEAD ENDS so far for "M4 errata sheet":
+- No TRM for the M4/Mongoose cores is public. Samsung's public "Exynos 9820" product page has only
+  marketing-level info (`https://semiconductor.samsung.com/processor/mobile-processor`,
+  `https://news.samsung.com/global/the-exynos-9-series-9820-intelligence-from-within`). Searches for
+  "S5E9820 TRM"/"Exynos 9820 technical reference manual" return only ARM Cortex-M4 TRMs (different "M4")
+  - the "M4" string collision makes this search class useless unless combined with "Mongoose"/"Exynos".
+- No "software optimization guide" for M4 exists publicly (searches returned only OneUI battery guides).
+  ARM publishes SOGs only for its own cores; Samsung custom cores have none.
+- No arm-community-erratics entries for Samsung cores found (search returned unrelated groups).
+  ARM errata pages exist only for ARM-designed cores; Samsung's custom cores are not in the
+  erratics/`developer.arm.com/a/` errata database.
+- `Documentation/arch/arm64/silicon-errata.rst` in mainline has no Samsung vendor row (grep for
+  "samsung" over the raw file returns nothing).
+
+### Q4 — does anything public say the 9820/M4 cluster needs Inner-Shareable mappings, or ignores Non-shareable?
+
+FACT. No such public statement was found (searches on "Exynos 9820" + shareability / DSU / coherent
+interconnect / snoop filter, and on "Mongoose M4" + shareability, produced nothing core-specific).
+Treated as a dead end; the honest answer is **no vendor statement exists publicly**.
+
+FACT (closest hardware statement that is public): the ISCA 2020 industry paper by the SARC core team,
+"Evolution of the Samsung Exynos CPU Microarchitecture" (IEEE ISCA 2020 Industry Track; PDF mirror
+`https://people.engr.tamu.edu/djimenez/pdfs/exynos_isca2020.pdf`, publisher page
+`https://dl.acm.org/doi/10.1109/ISCA45697.2020.00015`), says of the memory system (section X,
+"Reducing main memory latency"):
+> "The coherent interconnect contains a snoop filter directory that is normally looked up in the path
+> to memory access for coherency management."
+and in the abstract/intro:
+> "The cores are superscalar out-of-order designs capable of up to 2.9GHz, and employ up to three
+> levels of cache hierarchy in a multi-node cluster. Each Exynos M-series CPU cluster is complemented
+> by an ARM Cortex-A series cluster in a big/little configuration in generations one through three, and
+> in a big/medium/little configuration in subsequent generations."
+Table I lists for **M4**: L1I 64KB 4w, L1D 64KB 4w, "L2 Cache 1024KB 8w", "L2 Shared/Private: private",
+L3 "3072KB", "L3 Ways & Banks: 16w 3 bank", process 8nm LPP, product frequency 2.7GHz; for M5 the L2 is
+"shared by 2 cores". The paper notes the M3->M4 size reductions in section III: "M4's reduction in L3
+size due to changing from a 4-core cluster to a 2-core cluster".
+FACT: the paper contains **no** mention of shareability, Device memory, barriers, TLB/shareability
+programming, or any restriction on Non-shareable mappings (grep for shareab/device memory/barrier/DSB/DMB
+over the extracted text finds none). So it neither imposes nor relaxes anything about shareability.
+INFERENCE: the M4 pair is a private-L2 + shared-3MB-L3 cluster whose coherency is maintained by a
+snoop-filter directory in the interconnect; a hardware snoop filter that tracks lines by address means
+the core/cluster does not depend on the software shareability hint for correctness - which is exactly
+what the architecture allows (next bullet).
+FACT (same paper, section III Microarchitectural Overview): "Two examples are M3's reduction in L2 size
+due to the change from shared to private L2 as well as the addition of an L3, and M4's reduction in L3
+size due to changing from a 4-core cluster to a 2-core cluster."
+
+FACT (architecture already covers the "ignores Non-shareable hints" question, DDI 0487G.a B2.7.1
+"Shareable Normal memory", printed page B2-166):
+> "System designers can use the shareability attribute to specify the locations in Normal memory for
+> which coherency must be maintained. However, software developers must not assume that specifying a
+> memory location as Non-shareable permits software to make assumptions about the incoherency of the
+> location between different PEs in a shared memory system. Such assumptions are not portable between
+> different multiprocessing implementations that might use the shareability attribute. Any
+> multiprocessing implementation might implement caches that are shared, inherently, between different
+> processing elements."
+and, same page:
+> "This architecture assumes that all PEs that use the same operating system or hypervisor are in the
+> same Inner Shareable shareability domain." (repeated as "The Inner Shareable domain is expected to be
+> the set of PEs controlled by a single hypervisor or operating system.")
+
+**Answer for the port (INFERENCE from those facts):** Non-shareable is only a hint and hardware is free
+to be coherent anyway, so an M4 that "ignores" Non-shareable is architecturally legal and no erratum is
+needed to explain it; conversely, since the ARM ARM assumes all PEs under one OS/hypervisor are in the
+same Inner Shareable domain, everything Windows shares between the M4 pair, the A75 pair and the A55
+quad must be mapped at least Inner Shareable - there is no supported configuration in which a
+Non-shareable Normal-WB mapping is safe for inter-PE data, and Device/Normal-NC mappings are forced to
+Outer Shareable anyway (Q1/Q2 above).
+
+FACT (topology, secondary source): Arm's DSU product page describes the "DynamIQ Shared Unit - Enabling
+DynamIQ big.LITTLE for Armv8.2 CPUs, up to 8 cores (4 big max), and up to 4MB L3"
+(`https://www.arm.com/technologies/dynamiq`), and Chips and Cheese: "Arm's first DSU, the one introduced
+with A55 and A75, supports up to 4 MB of L3"
+(`https://chipsandcheese.com/p/arms-cortex-a55`). Combined with the 9820 dts cpu-map (one `cluster0`
+holding the 4 A55 + 2 A75 as two `coregroup`s, and a separate `cluster1` holding the 2 cheetah/M4 cores),
+INFERENCE: the 9820 CPU subsystem is a Cortex DSU-style hexa-core cluster **plus** a separate Samsung
+2-core M4 cluster with its own 3 MB L3; the M4 side is not a DSU, so no DSU TRM errata apply to it, and
+cross-cluster coherency is handled by the SoC coherent interconnect with snoop filter directory (ISCA
+paper). Whether the implementation's Inner Shareable domain spans both clusters is not stated publicly -
+INFERENCE: it must, because Linux/Android run SMP across all 8 cores with ISH barriers (DMB ISH /
+`dsb(ish)`) and rely on the ARM ARM's IS assumption above; no public Exynos 9820 document says otherwise.
+
+#### Q3 extra — how the M4 core is identified in software (MIDR), and the only M-series ISA quirk in LLVM
+
+FACT. `https://raw.githubusercontent.com/llvm/llvm-project/main/llvm/lib/TargetParser/Host.cpp`
+(lines 329-352) maps Samsung's MIDR (implementer **0x53**) to core names:
+> "if (Implementer == "0x53") { // Samsung Electronics Co., Ltd.
+>   // The Exynos chips have a convoluted ID scheme that doesn't seem to follow
+>   // any predictive pattern across variants and parts.
+>   ...
+>   unsigned Exynos = (Variant << 12) | PartAsInt;
+>   switch (Exynos) {
+>     default: // Default by falling through to Exynos M3.  [[fallthrough]];
+>     case 0x1002: return "exynos-m3";
+>     case 0x1003: return "exynos-m4";
+>   }"
+INFERENCE (arithmetic on that mapping + the M3 cpuinfo dump in golang#28431): M3 = variant 0x1, part
+0x002 (MIDR_EL1 = 0x5310_002x); **M4 = variant 0x1, part 0x003 => MIDR_EL1 = 0x5310_003x**. Reading
+MIDR_EL1 on the S10e (EL1 read from a small bare-metal test or from a Linux kernel on the device) is
+the read that would confirm it. Note LLVM's own comment: Samsung's variant/part scheme is not
+predictable, so a `default:` fallthrough to M3 is what upstream does - i.e. an unknown Samsung part
+number must not be assumed to be M4.
+FACT. LLVM's AArch64 subtarget only has tuning data for `ExynosM3`
+(`https://raw.githubusercontent.com/llvm/llvm-project/main/llvm/lib/Target/AArch64/AArch64Subtarget.cpp`
+line 173); there is no `ExynosM4` tuning case, and `-mcpu=exynos-m1` (not m4) is the historically
+documented Samsung tune in clang. WikiChip says Samsung patches added `-mcpu=exynos-m4` to
+Samsung's own compiler, not upstream:
+`https://fuse.wikichip.org/news/2051/samsung-discloses-exynos-m4-changes-upgrades-support-for-armv8-2-rearranges-the-back-end`.
+
+#### Q1 addendum — what the combine rules mean for the HCR_EL2.DC=1 / stage-1-disabled case (our EL2 setup)
+
+FACT (DDI 0487G.a D5.2.9 "The effects of disabling a stage of address translation", printed page D5-2709):
+> "EL1 and EL0 accesses if the HCR_EL2.DC bit is set to 1 — For the EL1&0, when EL2 is enabled,
+> translation regime, when the value of HCR_EL2.DC is 1, the stage 1 translation assigns the **Normal
+> Non-shareable**, Inner Write-Back Read-Allocate Write-Allocate, Outer Write-Back Read-Allocate
+> Write-Allocate memory attributes."
+and (p. D5-2710): "When the value of HCR_EL2.DC is 1: • The SCTLR_EL1.M bit behaves as if it is 0 ...
+EL1&0 stage 1 address translation is disabled. • The HCR_EL2.VM bit behaves as if it is 1 ... EL1&0
+stage 2 address translation is enabled."
+and (p. D5-2710): "Behavior when stage 2 address translation is disabled: • The IPA output from the
+stage 1 translation maps flat to the PA. • The memory attributes and permissions from the stage 1
+translation apply to the PA."
+
+INFERENCE, combining this with Table D5-45: with HCR_EL2.DC=1 the stage-1 side is fixed at Normal WB
+**Non-shareable**, so the stage-2 descriptor SH bits alone decide shareability
+(NS+NS => Non-shareable, NS+ISH => Inner Shareable, NS+OSH => Outer Shareable). Consequence for a
+stage-2-only EL2 mapping of DRAM on the S10e: if the stage-2 blocks are created with SH=0b00, every PE
+runs with a Non-shareable WB mapping of the same memory, and per B2.7.1 the hardware is then *not
+obliged* to keep those caches coherent - the safe setting for anything shared between PEs is SH=0b10
+(Outer) or 0b11 (Inner) in the stage-2 descriptors, which costs nothing architecturally because
+shareability only ever adds snooping, never removes it.
+
+FACT (DDI 0487G.a B2.8 "Mismatched memory attributes", printed page B2-175): a location is accessed
+with mismatched attributes if "all accesses to the location do not use a common definition of all of
+the following attributes of that location: • Memory type ... • Shareability. • Cacheability ...", and
+then "the only software visible effects are one or more of the following: • Uniprocessor semantics for
+reads and writes to that memory Location might be lost ... • There might be a loss of coherency when
+multiple agents attempt to access a memory Location ... • If all Load-Exclusive/Store-Exclusive
+instructions ... do not use consistent memory attributes, the Exclusives monitor state becomes UNKNOWN
+• Bytes written without the Write-Back cacheable attribute within the same Write-Back granule as bytes
+written with the Write-Back cacheable attribute might have their values reverted ...".
+INFERENCE: because S1+S2 attributes are *combined* (not compared), two guests/stages cannot create a
+mismatch by themselves - the mismatch hazard is between different VA aliases of one PA (e.g. our EL2
+direct map vs the guest's own map), which is why the effective shareability/type of every alias must be
+computed with Table D5-43/D5-45 and kept consistent.
+
+FACT (secondary, Arm's own guide; page is JS-rendered so the wording was taken from the search
+snippet, verify before quoting in code comments): "Learn the architecture - AArch64 memory model",
+section "Combining Stage 1 and Stage 2 attributes", `https://developer.arm.com/documentation/102376/0100/Combining-Stage-1-and-Stage-2-attributes`:
+> "In the Arm architecture, the default is to use the most restrictive type. In this example, Device is
+> more restrictive than Normal. Therefore, the resulting type is Device." and "For the type and
+> cacheability, an additional control (HCR_EL2.FWB) allows this behavior to be overridden. When FWB is
+> set, Stage 2 can override the Stage 1 type and cacheability settings, instead of the combining
+> behavior. Note: HCR_EL2.FWB was introduced in Armv8.4-A."
+This agrees with the primary source, and its phrase "instead of the combining behavior" is limited to
+**type and cacheability** - consistent with the rule that shareability combining is unaffected by FWB.
+
+#### Q1 cross-check in the Armv8.2-era manual (the ISA generation the M4 belongs to) — DDI 0487**C.a**
+
+FACT. Third full ARM ARM mirror, **DDI 0487C.a** (Armv8.2 + extensions, ID121917, Dec 2017):
+`http://kib.kiev.ua/x86docs/ARM/ARMARMv8/DDI0487C_a_armv8_arm.pdf` (60 MB, 6667 pages; local
+`/tmp/opencode/DDI0487C_a_armv8_arm.pdf`, text `/tmp/opencode/fullC.txt`).
+In this revision the material is **D4.5 "Memory region attributes"** (starts printed page D4-2174) and
+**D4.5.4 "Combining the stage 1 and stage 2 attributes, Non-secure EL1&0 translation regime"**
+(printed pages D4-2178 to D4-2182):
+- the Device-forces-OSH rule, verbatim (printed page D4-2181): "Regardless of any shareability
+  attribute obtained as described in Combining the stage 1 and stage 2 shareability attributes for
+  Normal memory: • Any location for which the resultant memory type is any type of Device memory is
+  always treated as Outer Shareable. • Any location for which the resultant memory type is Normal
+  Inner Non-cacheable, Outer Non-cacheable is always treated as Outer Shareable."
+- **Table D4-43 "Combining the stage 1 and stage 2 Shareability assignments for Normal memory"**, printed
+  page D4-2182, same 7 rows as G.a Table D5-45 and K.a Table D8-97, including
+  "Inner Shareable | Non-shareable | Inner Shareable" and "Non-shareable | Non-shareable | Non-shareable",
+  with footnote "a. Applies only if the Normal memory is not Inner Non-cacheable, Outer Non-cacheable, see text."
+- cacheability combine = Table D4-42 (printed page D4-2181), same rows as D5-44/D8-92.
+FACT: the string "FWB" does not appear on any of printed pages D4-2179..D4-2182 of C.a - i.e. in the
+Armv8.2 manual these combine rules are **unconditional** (FEAT_S2FWB/HCR_EL2.FWB came in Armv8.4), which
+is exactly the regime an ARMv8.2 M4 implements.
+So the answer to Q1(b) is the same in the v8.2 (D4.5.4 / Table D4-43), v8.7 (D5.5.7 / Table D5-45) and
+v9.3 (D8.6.7.1 / Table D8-97) manuals: **stage 2 can never reduce shareability.**
+
+### Bottom line for the coding agent (INFERENCE from the facts above)
+
+1. FWB=0 combine rules, any ARM ARM revision: type/cacheability = most restrictive wins (Tables
+   D4-41/42 in C.a, D5-43/44 in G.a, D8-91/92 in K.a); **shareability = most shareable wins**
+   (C.a Table D4-43 p. D4-2182, G.a Table D5-45 p. D5-2763, K.a Table D8-97 p. D8-6694). A stage-2
+   Non-shareable attribute cannot downgrade a stage-1 Inner/Outer Shareable mapping.
+2. Device at either stage => Device + **Outer Shareable**, and Normal Inner-NC/Outer-NC => Outer
+   Shareable, regardless of both stages' SH bits. So the "Device-nGRE forced Outer Shareable" answer
+   is yes, always, and the SH bits are then dead.
+3. HCR_EL2.FWB changes only the type/cacheability path (and only when stage 2 sets bit[4]=1); the
+   manual says explicitly that shareability combining and stage-2-Device handling are unaffected.
+   For an Armv8.2 M4, FWB is expected to be absent at all - `ID_AA64MMFR2_EL1.FWB == 0` is the read
+   that settles it (INFERENCE: FEAT_S2FWB is Armv8.4, so unless Samsung backported it, the FWB=1
+   path is unavailable on the S10e and must not be relied on).
+4. No public M4 errata exists: no TRM, no SOG, no erratics entry, no kernel workaround, no mainline
+   DT binding. The only public Samsung-custom-core CPU defect write-up is the 9810/M3 ISA-mismatch +
+   bogus HWCAP_ATOMICS story (LLVM D114523 / golang#28431); M4 is Armv8.2 so it has LSE and that
+   specific trap does not apply - but the general lesson (check ID registers *per cluster*, do not
+   trust a union of features) does.
+5. Practical hazard found while answering (1) above: with HCR_EL2.DC=1 the stage-1 default is
+   "Normal **Non-shareable** WB", so an EL2 direct-map style setup is only as coherent as its
+   stage-2 SH bits allow. Set stage-2 SH to Inner Shareable (0b11) for anything shared between PEs
+   and to Outer Shareable for anything shared with non-CPU agents; never leave 0b00 on shared DRAM.
+   Device/NC regions: use Device-nGRE or Device-nGnRE at stage 2 (MemAttr 0b0010 / 0b0001) and accept
+   that they are Outer Shareable.
+
+Open reads that would close the remaining uncertainty (not web-searchable):
+- MIDR_EL1 per PE on the S10e (expect M4 = implementer 0x53, variant 0x1, part 0x003 from LLVM's map).
+- ID_AA64MMFR2_EL1.FWB (0 => no FWB on 9820) and CLIDR_EL1 of each cluster (levels of coherence,
+  LOUU/LOIUS) - the latter matters for whether instruction fetch coherency needs cleaning between the
+  M4 cluster's 3 MB L3 and the Cortex cluster's L3.
+- Whether the implementation's Inner Shareable domain spans the M4 cluster and the A55/A75 cluster
+  (no public document says; an SMP Linux/Android running across all 8 cores with ISH barriers is
+  strong evidence it does).
+
+### Sources (R1 web part)
+
+Primary, Arm ARM (full PDF mirrors used; local copies in /tmp/opencode):
+- http://kib.kiev.ua/x86docs/ARM/ARMARMv8/DDI0487C_a_armv8_arm.pdf — DDI 0487C.a, Armv8.2, §D4.5.4, Tables D4-41/42/43, pp. D4-2178..D4-2182
+- http://kib.kiev.ua/x86docs/ARM/ARMARMv8/DDI0487G_a_armv8_arm.pdf — DDI 0487G.a, Armv8.7, §D5.5.1/5.5.4/5.5.5/5.5.7, Tables D5-36..D5-45, pp. D5-2753..D5-2764; §D5.2.9 pp. D5-2709/2710; §B2.7.1/B2.7.2 pp. B2-166..B2-170; §B2.8 p. B2-175; §D5.9.1 p. D5-2787
+- http://kib.kiev.ua/x86docs/ARM/ARMARMv8/DDI0487K_a_a-profile_architecture_reference_manual.pdf — DDI 0487K.a, Armv9.3, §D8.6/ D8.6.5 / D8.6.7.1, Tables D8-90/91/92/97, pp. D8-6686..D8-6695
+- http://kib.kiev.ua/x86docs/ARM/ARMARMv8/ (directory listing of all DDI 0487 revisions, newest M_d 2026-10-11)
+
+Arm secondary:
+- https://developer.arm.com/documentation/102376/0100/Combining-Stage-1-and-Stage-2-attributes (JS-rendered; text seen via search snippet)
+- https://support.arm.com/documentation/ddi0487/md/-Part-D-The-AArch64-System-Level-Architecture/-Chapter-D8-The-AArch64-Virtual-Memory-System-Architecture/-D8-6-Memory-region-attributes (index hit only, not fetched)
+- https://www.arm.com/technologies/dynamiq (DSU: "Armv8.2 CPUs, up to 8 cores (4 big max), up to 4MB L3")
+- https://www.kernel.org/doc/html/v6.5/admin-guide/perf/arm_dsu_pmu.html (DSU definition)
+- https://github.com/codingbelief/arm-architecture-reference-manual-for-armv8-a (DDI 0487A.a markdown mirror; D4.4 TOC line "Combining the stage 1 and stage 2 attributes, Non-secure EL1&0 translation regime on page D4-1717")
+
+Samsung M4 / Exynos:
+- https://people.engr.tamu.edu/djimenez/pdfs/exynos_isca2020.pdf — "Evolution of the Samsung Exynos CPU Microarchitecture", ISCA 2020 Industry Track (also https://dl.acm.org/doi/10.1109/ISCA45697.2020.00015 , https://www.semanticscholar.org/paper/Evolution-of-the-Samsung-Exynos-CPU-Grayson-Rupley/d51a16787b46569af999a671227efd0a79574ae4 , video https://www.youtube.com/watch?v=6pmeA05g-wo )
+- https://www.xda-developers.com/samsung-austin-details-unreleased-exynos-m6-cpu-microarchitecture (summary of the ISCA paper; M4 load-load cascade, memory-controller bypass)
+- https://fuse.wikichip.org/news/2051/samsung-discloses-exynos-m4-changes-upgrades-support-for-armv8-2-rearranges-the-back-end (M4 = Armv8.2, FP16 + dotprod, AGU changes, "-mcpu=exynos-m4" in Samsung's compiler)
+- https://en.namu.wiki/w/%EC%82%BC%EC%84%B1%EC%A0%84%EC%9E%90/%EB%A7%88%EC%9D%B4%ED%81%AC%EB%A1%9C%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98 (M4 codename Cheetah; M3 Meerkat, M5 Lion, M6 Grizzly; Armv8.2-A)
+- https://en.wikipedia.org/wiki/Exynos (9820 = S5E9820, 8 nm 8LPP, 2x M4 "Cheetah" 2.73 GHz + 2x A75 + 4x A55)
+- https://news.samsung.com/global/how-the-exynos-9-series-9820-is-ushering-in-a-new-era-of-mobile-experiences (Samsung: tri-cluster, 4th-gen custom CPU; 8nm LPP)
+
+Errata-adjacent public evidence:
+- https://reviews.llvm.org/D114523 and https://github.com/llvm/llvm-project/commit/cce4a7258b81159e57a411896011ee2742f17def (Exynos 9810 LSE workaround)
+- https://github.com/golang/go/issues/28431 (9810 M3 SIGILL on LDADDAL; 9810 /proc/cpuinfo MIDRs; kernel later stopped reporting atomics)
+- https://raw.githubusercontent.com/llvm/llvm-project/main/llvm/lib/TargetParser/Host.cpp (Samsung 0x53 variant/part → exynos-m3/m4 map)
+- https://raw.githubusercontent.com/llvm/llvm-project/main/llvm/lib/Target/AArch64/AArch64Subtarget.cpp (only ExynosM3 tuning case)
+- https://github.com/CruelKernel/samsung-exynos9820 (mirror of Samsung's Exynos 9820 Android kernel; used for cpu_errata.c, silicon-errata.txt, beyond0lte defconfig, exynos9820.dts)
+- https://raw.githubusercontent.com/torvalds/linux/master/Documentation/devicetree/bindings/arm/cpus.yaml (mongoose-m2/m3/m5, no m4)
+- https://lists.infradead.org/pipermail/linux-arm-kernel/2024-October/972767.html and .../972766.html (M3 binding added Oct 2024)
+- https://lkml.org/lkml/2024-10-16/336 and https://lists.infradead.org/pipermail/linux-arm-kernel/2024-October/970224.html (Mongoose M5 binding series)
+- https://lwn.net/Articles/1022460 (KVM: arm64: Map GPU device memory as cacheable - FWB context, not read in detail)
+
+Dead ends / searches that returned nothing useful (do not repeat):
+- "Samsung M4 r0p" errata; "Exynos 9820 errata"; "Mongoose M4 software optimization guide";
+  site:groups.google.com arm-community-erratics + Samsung/Exynos; "S5E9820 TRM";
+  "Exynos 9820 technical reference manual" (only ARM Cortex-M4 TRMs, unrelated core);
+  "mongoose-m4" dt-bindings; TF-A/OP-TEE + Exynos 9820 erratum; developer.arm.com doc pages fetched
+  directly return empty (JS-rendered) - use the PDF mirrors instead.
+- The mirror `https://cs140e.sergio.bz/docs/ARMv8-Reference-Manual.pdf` (DDI 0487B.a) was not needed
+  once G.a/K.a/C.a were obtained.
+
+Progress log (this section):
+- [Q1] C.a + G.a + K.a combine tables extracted, quotes + page/section numbers recorded.
+- [Q2] Device/NC forced-Outer-Shareability confirmed in all three revisions + B2.7.2/B2.7.1.
+- [Q3] no M4 errata doc public; 9810/M3 LSE-ISA bug documented instead; MIDR map recorded; dead ends listed.
+- [Q4] no vendor shareability statement; ISCA 2020 paper read (no shareability content); architecture
+  notes substituted; cluster topology inferred from 9820 dts + ISCA Table I.
+- Not done: reading ID_AA64MMFR2_EL1/CLIDR_EL1/MIDR on the device (needs the phone; not reachable from this host).
+
+
+## Completion note (2026-10-21)
+All R1-R7 asks answered except two time-boxed sub-items recorded above (fault-path instruction-decoder
+class coverage; sboot cl2emul + 0x1F0000-0x250000 table decode - remain in findings §5). R1/R5 web
+sections complete with sources. Distilled into m4/findings.md F19/F20 + section 2 update block.

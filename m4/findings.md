@@ -60,10 +60,26 @@ is static evidence from the shipped firmware until a test says otherwise.
   uH table surgery is lock+BBM+broadcast-TLBI, so the race form of H2 is statically ruled out.
   **Immediate static action for G30: audit the UEFI/PUBLISH_HIGH_BANKS range generator so no RAM is
   offered above 0x8BFFFFFF (bank4 @0x900000000 must be excluded).**
-- H1: s1-vs-s2 shareability combination says s2-SH is only consulted if the s1 side is Device (ARM ARM
-  rule being fetched with exact citation by the research pass); if that holds, H1 needs either M4
-  microarchitectural deviation (none documented - no errata sheet found yet) or Windows mapping normal
-  memory Non-shareable (not the case). P2/P4/P5 remain the discriminators.
+- H1 (R1 answer, cited in notes §R1 Q1/Q2): ARM ARM combine tables (C.a D4.5.4 Tables D4-41..43;
+  G.a D5.5.7 D5-43/44/45; K.a D8.6.5/D8.6.7.1 D8-91/92/97) - **shareability = the MORE shareable of the
+  two wins** (explicit row "Inner Shareable | Non-shareable | Inner Shareable"), and any Device result is
+  forced **Outer Shareable**; FWB does not affect the combine ("unaffected by the value of HCR_EL2.FWB").
+  uH's s2 SH=Non therefore **cannot** downgrade Windows' IS mappings architecturally. H1 survives only if
+  (a) Windows maps Normal WB Non-shareable (it does not), or (b) M4 deviates from the architecture -
+  and **no public M4 erratum/TRM/optimization-guide exists at all** (checked ARM erratics group, Samsung
+  9820 kernel cpu_errata.c/silicon-errata, LLVM/golang only ever document the M3/9810 ISA+HWCAP bug;
+  M4 = MIDR (0x53,1,0x003), dts "arm,cheetah", MPIDR 0x100/0x101 - a separate cluster from A55/A75).
+  ISCA'20 paper: zero coherency-programing content, "coherent interconnect contains a snoop filter
+  directory". **Re-ranking: with R5's evidence (below) H1 drops; the strongest remaining leads are H1's
+  non-architectural form (device probe P2/P4/P5 discriminate) and whatever the absent EL3 monitor does
+  to secondary EL2 state.**
+- **R5 answer**: postmarketOS/mainline-fork on Exynos 9820 runs **all 8 CPUs including both M4s** under
+  the stock sboot chain (U-Boot fork second stage; psci node identical to Samsung's: method "smc",
+  CPU_ON 0xC4000003 served by stock firmware). No maxcpus/isolcpus anywhere, no public 9820 report of
+  memory corruption/hangs that vanish with M4 offline; suspend lockups are cpuidle-C2-related for all
+  clusters. Community-documented quirks: **PSCI AFFINITY_INFO broken, ACPM FREQ_GET broken**. A generic
+  OS on all 8 cores under the same uH => sharpens suspicion on Windows-side (EL2 state on CPU_ON,
+  memory-map composition incl. bank4 carve-out) rather than M4 hardware.
 
 ## 3. Device test protocol (order = value/risk; all EL1-side, boot partition only)
 

@@ -518,3 +518,10 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   device fb restored): a clear-only batch that writes the target once instead of u_blitter's preload+quad+store
   batch; fastclear.txt bit 3 (colour needs bits 0+3, zs bits 1+3); independent reason labels. EC 2ad2723a live, mask
   15; d3dmrt64x 7/7, d3dbc64x lossy 0/126 (with mask 15 in place).
+- bot19 (EC 0187, mask 15): renders right; 2459 frames / 103.1 s, mean 23.8, median 38.5, p99 97.3, 24 > 100 ms - but
+  no "tempfb" clear happened at all (counters pid 3772: rt:fast 200, zs:fast 100, zs:slow:stencil-only 200 per 500),
+  so 0187 changed nothing here and the worse p99 is run-to-run noise (this route's spread is large). With the new
+  independent labels, the 200 slow ones fail the aspect test, not "unbound": hypothesis - D3D clears with DEPTH|
+  STENCIL on stencil-less depth buffers (flags != the format's aspects).
+- Mesa 0188: flags &= the format's aspects before the fast-path tests (D3D clears nothing there anyway). EC de11bcf8
+  live (mask 15); d3dmrt64x 7/7, d3dbc64x lossy 0/126. Next run must show zs:fast up / stencil-only gone.

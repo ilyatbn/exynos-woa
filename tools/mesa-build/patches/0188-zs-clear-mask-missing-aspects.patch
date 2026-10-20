@@ -1,0 +1,14 @@
+diff --git a/src/gallium/frontends/d3d10umd/OutputMerger.cpp b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+index 2d3bc49..1468ad1 100644
+--- a/src/gallium/frontends/d3d10umd/OutputMerger.cpp
++++ b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+@@ -487,6 +487,9 @@ ClearDepthStencilView(D3D10DDI_HDEVICE hDevice,                      // IN
+     * Dave's dive rendered white, with colour fast clears alone it was right (bot12 / bot13, notes/games-unity.md) */
+    const unsigned all_zs = (util_format_has_depth(util_format_description(surface->format)) ? PIPE_CLEAR_DEPTH : 0) |
+                            (util_format_has_stencil(util_format_description(surface->format)) ? PIPE_CLEAR_STENCIL : 0);
++   /* 0188: a clear of an aspect the format does not have (Unity clears depth+stencil on stencil-less depth buffers:
++    * ~200 of 500 clears missed the fast path in bot19) - clearing nothing there, so drop that bit */
++   flags &= all_zs ? all_zs : flags;
+    if ((FastClearMask() & 2) && flags && (flags == all_zs || ((FastClearMask() & 4) && flags == PIPE_CLEAR_STENCIL)) && SameSurface(surface, &pDevice->fb.zsbuf) &&
+        pDevice->fb.width == pipe_surface_width(surface) && pDevice->fb.height == pipe_surface_height(surface)) {
+       /* the threaded context copies *color unconditionally (tc_clear): never NULL (0179 crashed in tc_clear) */

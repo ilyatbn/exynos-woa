@@ -119,3 +119,9 @@ notes/g18-hdmi-dp-alt.md (rungs H1-H5, H1 done read-only), notes/g18-h2-altmode-
   Chromium's watchdog replaces the GPU process, and DWM's composition stalls behind it. Next experiment (with the user's
   go): P4b + a vsync notification for target 1 as well, repeat the F5 test. Also asked by the user: a driver-only
   restart (pnputil /restart-device) at the next reproduction, to see if it clears the state without a reboot.
+- CORRECTION (user): "its not about the refresh. after a while the video went black so i refreshed the video and then
+  it started dropping." -> on B the video went black by itself after 20+ min (my soak only checked DWM pacing, not
+  the video); the refresh came after. The A refresh test (minutes) proves nothing about the long run. The conclusion
+  "needs a decoder teardown" above is withdrawn. Fair test now: the same long Edge run on A (d69c01cd) with the page's
+  frame counter + GPU-process pid + pacing every 3 min (tools/phone/g35/videosoak.sh + browsertitle.ps1, new),
+  traces/g35-vsoak-A-d69c.txt.

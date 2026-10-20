@@ -1939,19 +1939,21 @@ diagnostic timers from release builds once perf work settles.
 ## 68. 2026-10-20 - Dave the Diver performance (G32), unattended
 
 - notes/games-unity.md (every build hash, run, counter line, review). Live on the phone: System32\maliumd_ec.dll =
-  Mesa 0160-0184 EC build s10e-artifacts\mali-umd-0184-ec 0f3426a0 (live swap tools/phone/games/ecswap.sh; previous
+  Mesa 0160-0191 EC build s10e-artifacts\mali-umd-0191-ec 6311a66a (live swap tools/phone/games/ecswap.sh; previous
   builds kept as maliumd_ec.dll.pre-<tag>-n). KMD = DeferPresent d69c01cd (unchanged). ARM64 / x86 UMDs NOT updated
-  (mali-umd-0171-x built only); port 0172-0184 before a package.
+  (mali-umd-0171-x built only); port 0172-0191 before a package.
 - Benchmark: tools/phone/games/davebot/ (davebot.ps1 hidden user-session bot: screenshots + state signatures, plays
   title -> boat -> dive by what is on screen; botbench.sh TAG [SWIM_S] = one run + frame-time stats + spike lines;
   the game is always killed, never "return to map" - that saves progress). Probes: threadcpu.ps1, gpuengine.ps1,
-  tlogq.ps1, werlast.ps1, keyplay probe. Screensaver off per run (SPI, not persisted).
-- Results (auto route, map layouts vary): 0171 median 41.6 ms / 23.5 fps -> 0184 37.4 ms / 26.1 fps, lows 1 % 13.3
-  fps (was ~8-10). Done: 0172 cached BO maps kept; 0173-0177 shim submit queue (9-10 chains/Render; deadlock with
-  Panfrost's BO-cache lock fixed in 0177); 0179-0182 D3D clears of bound views -> batch fast clears (colour; depth+
-  stencil only when all aspects; stencil-only stays slow - it rendered white). GPU 92 % busy, game main thread 88 %.
-- Diagnosis switches in the live build (harmless, file / flag driven): frametimes.on (+ spike lines), framecap.flg,
-  fastclear.txt (absent = 3), counters every 2000 batches / 500 clears in the tlog.
-- Open: exit-time abort (fast-fail 7) - LocalDumps in C:\S10eTmp\dumps (12:08/12:23/12:28, 14:15) not read yet;
-  stencil-only fast clear (needs depth preload); KMD per-job GPU timing to split vertex/tiler vs fragment; shader disk
-  cache (Mesa refuses it on Windows); ARM64/x86 ports.
+  tlogq.ps1, werlast.ps1, keyplay probe. Flag files on the phone: write them with PowerShell Set-Content (cmd
+  "echo N> file" redirects handle N).
+- Results (auto route; three map layouts, ~2 ms run-to-run spread): coral 41.6 ms median (0171) -> 36.9 (0185); kelp
+  38.4 -> 37.0. Done: 0172 cached BO maps kept; 0173-0177 shim submit queue (9-10 chains/Render; 0177 fixed the
+  deadlock with Panfrost's BO-cache lock); 0179-0189 D3D clears -> batch fast clears (all of Dave's clears now fast:
+  colour, full zs, stencil-only, flags masked to the format's aspects); 0185 no abort in pan_nir_lower_bool_to_bitsize
+  (the exit-time fast-fail 7, found from a LocalDumps dump); 0191 texture tracking memo. GPU ~90 % busy, Unity's render
+  thread ~90-94 %.
+- Diagnosis left in the build (file / flag driven, cheap): frametimes.on (+ spike lines), framecap.flg,
+  fastclear.txt (absent = 7), counter lines every 2000 batches / 500 clears, thread-id lines.
+- Open: KMD per-job GPU timing; clear-only batches (~310 / 2000) -> deferred clears; shader disk cache port; NDEBUG
+  build; ARM64/x86 ports; why malikm_mark_worker_thread logs nothing (0190).

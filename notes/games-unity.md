@@ -432,3 +432,13 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
 - Mesa 0178 (diagnosis): pan_job.c panfrost_batch_submit, Windows: per 2000 batches a tlog line "pan batches 2000:
   draws, batches without draws, fb MP, colour preload / clear / store MP, zs preload / store MP, msaa". EC eaee8f31
   live; d3dmrt64x 7/7, d3dbc64x lossy 0/126. bot10 next (counters + numbers).
+- bot10 (EC 0178; traces/games/bench-bot10-0178.*): 2519 frames / 102.1 s, mean 24.7 fps, median 38.9 ms, p95 53.5,
+  p99 75.6, max 299.4, 1 % low 8.6, 0.1 % 3.6, 11 > 100 ms, clean route. Counters (tlog pid 1056), per 2000 batches
+  (~41 frames): ~16700 draws, 0 empty batches, fb 1094 MP, colour preload 775 / clear 0 / store 775 MP, zs preload
+  595 / store 552 MP, no MSAA. Per frame ~19 MP colour + ~14.5 MP depth PRELOADED and as much stored - roughly
+  250 MB/frame of tile traffic (~6 GB/s at 25 fps) - and NOT ONE batch clear.
+  Cause: d3d10umd ClearRenderTargetView / ClearDepthStencilView -> pipe->clear_render_target / clear_depth_stencil;
+  Panfrost implements those with u_blitter quads (pan_resource.c), i.e. a batch that preloads then overwrites.
+- Mesa 0179: a D3D clear of a currently bound view (same texture / level / layers / format as the fb attachment) with
+  the framebuffer exactly the view's size -> pipe->clear (Panfrost panfrost_clear: free batch clear while the batch
+  has no draws, quad otherwise); else the old path. EC bdc71b00 live; d3dmrt64x 7/7, d3dbc64x lossy 0/126 PASS.

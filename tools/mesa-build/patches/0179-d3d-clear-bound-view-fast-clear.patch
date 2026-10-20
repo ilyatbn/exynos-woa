@@ -1,0 +1,56 @@
+diff --git a/src/gallium/frontends/d3d10umd/OutputMerger.cpp b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+index afe9cfc..f5786e2 100644
+--- a/src/gallium/frontends/d3d10umd/OutputMerger.cpp
++++ b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+@@ -171,6 +171,20 @@ DestroyRenderTargetView(D3D10DDI_HDEVICE hDevice,                       // IN
+  * ----------------------------------------------------------------------
+  */
+ 
++/* exynos-woa G32 (0179, notes/games-unity.md): Panfrost's clear_render_target / clear_depth_stencil draw a quad with
++ * u_blitter - that batch first PRELOADS the old contents from memory, then overwrites them. Dave the Diver (Unity, GPU
++ * at 92 %) cleared every target that way: 0 MP of batch clears, ~19 MP colour + ~15 MP depth preloaded per frame. A
++ * D3D clear of a view that is bound right now, covering the whole framebuffer, is the same as pipe->clear, which
++ * Panfrost folds into the batch for free (tile buffer starts at the clear value, nothing loaded) while the batch has
++ * no draws yet. Same texture, level, layers and format as the bound attachment; the framebuffer exactly the view's
++ * size (pipe->clear covers the framebuffer). Anything else keeps the old path. */
++static bool
++SameSurface(const struct pipe_surface *a, const struct pipe_surface *b)
++{
++   return a->texture && a->texture == b->texture && a->format == b->format && a->level == b->level &&
++          a->first_layer == b->first_layer && a->last_layer == b->last_layer;
++}
++
+ void APIENTRY
+ ClearRenderTargetView(D3D10DDI_HDEVICE hDevice,                      // IN
+                       D3D10DDI_HRENDERTARGETVIEW hRenderTargetView,  // IN
+@@ -234,6 +248,16 @@ ClearRenderTargetView(D3D10DDI_HDEVICE hDevice,                      // IN
+       clear_color.f[3] = pColorRGBA[3];
+    }
+ 
++   Device *pDevice = CastDevice(hDevice);
++   if (pDevice->fb.width == pipe_surface_width(surface) && pDevice->fb.height == pipe_surface_height(surface)) {
++      for (unsigned i = 0; i < pDevice->fb.nr_cbufs; i++) {
++         if (SameSurface(surface, &pDevice->fb.cbufs[i])) {
++            pipe->clear(pipe, PIPE_CLEAR_COLOR0 << i, 0xffffffffu, 0xff, NULL, &clear_color, 0.0, 0);   /* 0179 */
++            return;
++         }
++      }
++   }
++
+    pipe->clear_render_target(pipe,
+                              surface,
+                              &clear_color,
+@@ -380,6 +404,13 @@ ClearDepthStencilView(D3D10DDI_HDEVICE hDevice,                      // IN
+       flags |= PIPE_CLEAR_STENCIL;
+    }
+ 
++   Device *pDevice = CastDevice(hDevice);
++   if (flags && SameSurface(surface, &pDevice->fb.zsbuf) && pDevice->fb.width == pipe_surface_width(surface) &&
++       pDevice->fb.height == pipe_surface_height(surface)) {
++      pipe->clear(pipe, flags, 0xffffffffu, 0xff, NULL, NULL, Depth, Stencil);   /* 0179 */
++      return;
++   }
++
+    pipe->clear_depth_stencil(pipe,
+                              surface,
+                              flags,

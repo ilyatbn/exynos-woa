@@ -1,0 +1,29 @@
+diff --git a/src/gallium/auxiliary/nir/tgsi_to_nir.c b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+index 09c6f77..9e55543 100644
+--- a/src/gallium/auxiliary/nir/tgsi_to_nir.c
++++ b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+@@ -2534,8 +2534,12 @@ ttn_emit_instruction(struct ttn_compile *c)
+       ttn_membar(b);
+       break;
+ 
++   /* exynos-woa G34: TGSI has no coarse derivative opcode. Its D3D producer (d3d10umd: deriv_rtx / deriv_rtx_coarse;
++    * fxc compiles ddx() to deriv_rtx_coarse) means coarse: "Only a single x,y derivative pair is computed for each
++    * 2x2 stamp of pixels" (D3D11.3 functional spec 22.5.2). nir_ddx let Bifrost return per-pixel values (d3dsm5
++    * psderiv: ddy_coarse differed inside a quad); DDX_FINE / DDY_FINE stay fine. */
+    case TGSI_OPCODE_DDX:
+-      dst = nir_ddx(b, src[0]);
++      dst = nir_ddx_coarse(b, src[0]);
+       break;
+ 
+    /* exynos-woa G34 (SM5 f32tof16 / f16tof32, ShaderTGSI.c): TGSI PK2H packs src.x / src.y as halfs into one dword
+@@ -2557,8 +2561,8 @@ ttn_emit_instruction(struct ttn_compile *c)
+       dst = nir_ddx_fine(b, src[0]);
+       break;
+ 
+-   case TGSI_OPCODE_DDY:
+-      dst = nir_ddy(b, src[0]);
++   case TGSI_OPCODE_DDY:   /* exynos-woa G34: coarse, see TGSI_OPCODE_DDX */
++      dst = nir_ddy_coarse(b, src[0]);
+       break;
+ 
+    case TGSI_OPCODE_DDY_FINE:

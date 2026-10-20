@@ -1,0 +1,449 @@
+diff --git a/src/gallium/frontends/d3d10umd/ShaderTGSI.c b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+index 27ce247..c5c7d6d 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderTGSI.c
++++ b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+@@ -293,6 +293,24 @@ struct Shader_xlate {
+    struct ureg_src cs_tid, cs_gid;
+    bool cs_sv_declared;
+ 
++   /* exynos-woa G34 F11.7 (notes/g34-fl11.md): a thread group above the hardware's 384 threads (cs_5_0 allows 1024).
++    * The hardware group is H threads; each runs K logical threads in "segments" between barriers: a segment loops over
++    * the logical threads, restoring each one's registers from a per-thread save array and saving them afterwards.
++    * Blocks (if / loop / switch) that contain a barrier, or a break / continue out of such a loop, run once, shared:
++    * their condition comes from the registers of the last logical thread that ran (D3D requires it to be uniform). */
++   struct {
++      bool active;
++      unsigned T, H, K, lb[3];
++      unsigned nblocks;
++      bool shared[256];               /* per if / loop / switch, in opening order */
++      unsigned seq, depth;
++      bool st_shared[64], st_loop[64], st_switch[64];
++      bool started, in_segment, first_segment, body_ret, post_open, need_open;
++      unsigned nsave;
++      struct ureg_dst j, l, t, act, retf, save, addr, tid;
++      struct ureg_src hw_tid;
++   } tl;
++
+    /* exynos-woa G25 (notes/g25-geometry-shaders.md): a geometry shader translated into a compute shader */
+    bool gs_cs, gs_prologue_done;
+    bool gs_in_declared[SHADER_MAX_INPUTS];
+@@ -963,7 +981,7 @@ static struct ureg_src
+ cs_system_value(struct Shader_xlate *sx, unsigned type)
+ {
+    struct ureg_program *ureg = sx->ureg;
+-   const unsigned *b = sx->extra->block;
++   const unsigned *b = sx->tl.active ? sx->tl.lb : sx->extra->block;   /* G34 F11.7: the logical group */
+    if (!sx->cs_sv_declared) {
+       sx->cs_tid = ureg_DECL_system_value(ureg, TGSI_SEMANTIC_THREAD_ID, 0);
+       sx->cs_gid = ureg_DECL_system_value(ureg, TGSI_SEMANTIC_BLOCK_ID, 0);
+@@ -1119,6 +1137,348 @@ sm5_atomic_tgsi_op(unsigned type)
+    }
+ }
+ 
++/* ---- exynos-woa G34 F11.7: thread groups above the hardware limit ---- */
++#define TL_HW_MAX 384u   /* THREAD_MAX_WORKGROUP_SZ (device read 0x180); numthreads(384) runs natively (d3dsm5 group384) */
++
++static void
++tl_prescan(struct Shader_xlate *sx, const unsigned *code)
++{
++   struct Shader_parser p;
++   struct Shader_opcode op;
++   unsigned stack[64], kind[64], depth, n, T = 0, lb[3] = { 1, 1, 1 };
++   bool calls = false, overflow = false;
++
++   Shader_parse_init(&p, code);
++   depth = n = 0;
++   while (Shader_parse_opcode(&p, &op)) {
++      switch (op.type) {
++      case D3D11_SB_OPCODE_DCL_THREAD_GROUP:
++         lb[0] = op.specific.thread_group.x;
++         lb[1] = op.specific.thread_group.y;
++         lb[2] = op.specific.thread_group.z;
++         T = lb[0] * lb[1] * lb[2];
++         break;
++      case D3D10_SB_OPCODE_IF: case D3D10_SB_OPCODE_LOOP: case D3D10_SB_OPCODE_SWITCH:
++         if (depth < 64 && n < ARRAY_SIZE(sx->tl.shared)) {
++            stack[depth] = n;
++            kind[depth++] = op.type;
++            sx->tl.shared[n++] = false;
++         } else {
++            overflow = true;
++         }
++         break;
++      case D3D10_SB_OPCODE_ENDIF: case D3D10_SB_OPCODE_ENDLOOP: case D3D10_SB_OPCODE_ENDSWITCH:
++         if (depth)
++            depth--;
++         break;
++      case D3D11_SB_OPCODE_SYNC:
++         if (op.specific.sync_flags & D3D11_SB_SYNC_THREADS_IN_GROUP)
++            for (unsigned d = 0; d < depth; d++)
++               sx->tl.shared[stack[d]] = true;
++         break;
++      case D3D10_SB_OPCODE_RET: case D3D10_SB_OPCODE_RETC:
++         if (depth || op.type == D3D10_SB_OPCODE_RETC)
++            sx->tl.body_ret = true;
++         break;
++      case D3D10_SB_OPCODE_CALL: case D3D10_SB_OPCODE_CALLC: case D3D10_SB_OPCODE_LABEL:
++         calls = true;
++         break;
++      default:
++         break;
++      }
++      Shader_opcode_free(&op);
++   }
++   /* a break / continue whose loop (switch) runs shared makes every block between them shared; repeat until stable */
++   for (bool changed = true; changed;) {
++      changed = false;
++      Shader_parse_init(&p, code);
++      depth = n = 0;
++      while (Shader_parse_opcode(&p, &op)) {
++         switch (op.type) {
++         case D3D10_SB_OPCODE_IF: case D3D10_SB_OPCODE_LOOP: case D3D10_SB_OPCODE_SWITCH:
++            if (depth < 64 && n < ARRAY_SIZE(sx->tl.shared)) {
++               stack[depth] = n++;
++               kind[depth++] = op.type;
++            }
++            break;
++         case D3D10_SB_OPCODE_ENDIF: case D3D10_SB_OPCODE_ENDLOOP: case D3D10_SB_OPCODE_ENDSWITCH:
++            if (depth)
++               depth--;
++            break;
++         case D3D10_SB_OPCODE_BREAK: case D3D10_SB_OPCODE_BREAKC:
++         case D3D10_SB_OPCODE_CONTINUE: case D3D10_SB_OPCODE_CONTINUEC: {
++            bool brk = op.type == D3D10_SB_OPCODE_BREAK || op.type == D3D10_SB_OPCODE_BREAKC;
++            for (int d = (int)depth - 1; d >= 0; d--) {
++               if (kind[d] == D3D10_SB_OPCODE_LOOP || (brk && kind[d] == D3D10_SB_OPCODE_SWITCH)) {
++                  if (sx->tl.shared[stack[d]])
++                     for (unsigned e = d + 1; e < depth; e++)
++                        if (!sx->tl.shared[stack[e]]) {
++                           sx->tl.shared[stack[e]] = true;
++                           changed = true;
++                        }
++                  break;
++               }
++            }
++            break;
++         }
++         default:
++            break;
++         }
++         Shader_opcode_free(&op);
++      }
++   }
++   sx->tl.nblocks = n;
++   if (T <= TL_HW_MAX)
++      return;
++   if (calls || overflow) {
++      malikm_tlog("ShaderTGSI: %u-thread group with %s - not emulated", T, calls ? "subroutines" : "too many blocks");
++      LOG_UNSUPPORTED(true);
++      return;
++   }
++   unsigned H = TL_HW_MAX;
++   for (unsigned d = TL_HW_MAX; d >= 64; d--)
++      if (T % d == 0) {
++         H = d;
++         break;
++      }
++   sx->tl.active = true;
++   sx->tl.T = T;
++   sx->tl.H = H;
++   sx->tl.K = (T + H - 1) / H;
++   memcpy(sx->tl.lb, lb, sizeof lb);
++   sx->tl.first_segment = true;
++   malikm_tlog("ShaderTGSI: %u-thread group (%ux%ux%u) emulated as %u x %u", T, lb[0], lb[1], lb[2], H, sx->tl.K);
++}
++
++static void
++tl_init(struct Shader_xlate *sx)
++{
++   struct ureg_program *u = sx->ureg;
++   sx->tl.j = ureg_DECL_temporary(u);
++   sx->tl.l = ureg_DECL_temporary(u);
++   sx->tl.t = ureg_DECL_temporary(u);
++   sx->tl.act = ureg_DECL_temporary(u);
++   sx->tl.retf = ureg_DECL_temporary(u);
++   sx->tl.tid = ureg_DECL_temporary(u);
++   sx->tl.addr = ureg_DECL_address(u);
++   sx->tl.hw_tid = ureg_DECL_system_value(u, TGSI_SEMANTIC_THREAD_ID, 0);
++   sx->cs_gid = ureg_DECL_system_value(u, TGSI_SEMANTIC_BLOCK_ID, 0);
++   sx->cs_tid = ureg_src(sx->tl.tid);   /* cs_system_value reads the logical thread id from here */
++   sx->cs_sv_declared = true;
++}
++
++static struct ureg_dst
++tl_save_elem(struct Shader_xlate *sx, unsigned i)
++{
++   return ureg_dst_indirect(ureg_dst_array_offset(sx->tl.save, (int)i), ureg_src(sx->tl.addr));
++}
++
++static void
++tl_set_addr(struct Shader_xlate *sx)
++{
++   struct ureg_program *u = sx->ureg;
++   struct ureg_dst tx = ureg_writemask(sx->tl.t, TGSI_WRITEMASK_X);
++   ureg_UMUL(u, tx, ureg_scalar(ureg_src(sx->tl.j), TGSI_SWIZZLE_X), ureg_imm1u(u, sx->tl.nsave + 1));
++   ureg_UARL(u, ureg_writemask(sx->tl.addr, TGSI_WRITEMASK_X), ureg_scalar(ureg_src(sx->tl.t), TGSI_SWIZZLE_X));
++}
++
++static void
++tl_open(struct Shader_xlate *sx)
++{
++   struct ureg_program *u = sx->ureg;
++   unsigned label = 0;
++   struct ureg_src jx = ureg_scalar(ureg_src(sx->tl.j), TGSI_SWIZZLE_X);
++   struct ureg_src lx = ureg_scalar(ureg_src(sx->tl.l), TGSI_SWIZZLE_X);
++   struct ureg_src tx = ureg_scalar(ureg_src(sx->tl.t), TGSI_SWIZZLE_X);
++   const unsigned *lb = sx->tl.lb;
++
++   if (!sx->tl.save.File) {   /* first segment: every DXBC temporary is declared by now */
++      sx->tl.nsave = sx->declared_temps;
++      sx->tl.save = ureg_DECL_array_temporary(u, (sx->tl.nsave + 1) * sx->tl.K, true);
++   }
++   ureg_MOV(u, ureg_writemask(sx->tl.j, TGSI_WRITEMASK_X), ureg_imm1u(u, 0));
++   ureg_BGNLOOP(u, &label);
++   ureg_USGE(u, ureg_writemask(sx->tl.t, TGSI_WRITEMASK_X), jx, ureg_imm1u(u, sx->tl.K));
++   ureg_UIF(u, tx, &label);
++   ureg_BRK(u);
++   ureg_ENDIF(u);
++   ureg_UMAD(u, ureg_writemask(sx->tl.l, TGSI_WRITEMASK_X), jx, ureg_imm1u(u, sx->tl.H),
++             ureg_scalar(sx->tl.hw_tid, TGSI_SWIZZLE_X));
++   ureg_USLT(u, ureg_writemask(sx->tl.act, TGSI_WRITEMASK_X), lx, ureg_imm1u(u, sx->tl.T));
++   ureg_UIF(u, ureg_scalar(ureg_src(sx->tl.act), TGSI_SWIZZLE_X), &label);
++   if (sx->tl.first_segment) {
++      ureg_MOV(u, sx->tl.retf, ureg_imm1u(u, 0));
++   } else {
++      tl_set_addr(sx);
++      for (unsigned i = 0; i < sx->tl.nsave; i++)
++         ureg_MOV(u, sx->temps[i], ureg_src(tl_save_elem(sx, i)));
++      ureg_MOV(u, sx->tl.retf, ureg_src(tl_save_elem(sx, sx->tl.nsave)));
++   }
++   ureg_USEQ(u, ureg_writemask(sx->tl.t, TGSI_WRITEMASK_X), ureg_scalar(ureg_src(sx->tl.retf), TGSI_SWIZZLE_X),
++             ureg_imm1u(u, 0));
++   ureg_UIF(u, tx, &label);
++   /* the logical thread id: l -> (l % bx, (l / bx) % by, l / (bx * by)) */
++   ureg_UMOD(u, ureg_writemask(sx->tl.tid, TGSI_WRITEMASK_X), lx, ureg_imm1u(u, lb[0]));
++   ureg_UDIV(u, ureg_writemask(sx->tl.t, TGSI_WRITEMASK_Y), lx, ureg_imm1u(u, lb[0]));
++   ureg_UMOD(u, ureg_writemask(sx->tl.tid, TGSI_WRITEMASK_Y), ureg_scalar(ureg_src(sx->tl.t), TGSI_SWIZZLE_Y),
++             ureg_imm1u(u, lb[1]));
++   ureg_UDIV(u, ureg_writemask(sx->tl.tid, TGSI_WRITEMASK_Z), lx, ureg_imm1u(u, lb[0] * lb[1]));
++   ureg_MOV(u, ureg_writemask(sx->tl.tid, TGSI_WRITEMASK_W), ureg_imm1u(u, 0));
++   ureg_BGNLOOP(u, &label);   /* do-once: a per-thread RET is a BRK out of it */
++   sx->tl.in_segment = true;
++}
++
++static void
++tl_close(struct Shader_xlate *sx)
++{
++   struct ureg_program *u = sx->ureg;
++   unsigned label = 0;
++   if (!sx->tl.in_segment)
++      return;
++   ureg_BRK(u);
++   ureg_ENDLOOP(u, &label);   /* do-once */
++   ureg_ENDIF(u);             /* retf == 0 */
++   tl_set_addr(sx);           /* the body may have used address registers */
++   for (unsigned i = 0; i < sx->tl.nsave; i++)
++      ureg_MOV(u, tl_save_elem(sx, i), ureg_src(sx->temps[i]));
++   ureg_MOV(u, tl_save_elem(sx, sx->tl.nsave), ureg_src(sx->tl.retf));
++   ureg_ENDIF(u);             /* active */
++   ureg_UADD(u, ureg_writemask(sx->tl.j, TGSI_WRITEMASK_X), ureg_scalar(ureg_src(sx->tl.j), TGSI_SWIZZLE_X),
++             ureg_imm1u(u, 1));
++   ureg_ENDLOOP(u, &label);
++   sx->tl.in_segment = false;
++   sx->tl.first_segment = false;
++}
++
++/* The segment a shared control-flow op or barrier left pending: opened unless this opcode ends or splits a shared
++ * block (it would only close it again). */
++static void
++tl_open_pending(struct Shader_xlate *sx, const struct Shader_opcode *op)
++{
++   if (!sx->tl.need_open)
++      return;
++   sx->tl.need_open = false;
++   switch (op->type) {
++   case D3D10_SB_OPCODE_ELSE: case D3D10_SB_OPCODE_CASE: case D3D10_SB_OPCODE_DEFAULT:
++   case D3D10_SB_OPCODE_ENDIF: case D3D10_SB_OPCODE_ENDLOOP: case D3D10_SB_OPCODE_ENDSWITCH:
++      if (sx->tl.depth && sx->tl.st_shared[sx->tl.depth - 1])
++         return;
++      break;
++   default:
++      break;
++   }
++   tl_open(sx);
++}
++
++/* Before the opcode's normal translation. TRUE = fully handled here. Sets post_open when a segment must open after
++ * the normal translation (shared control flow, barriers). */
++static bool
++tl_pre(struct Shader_xlate *sx, const struct Shader_opcode *op)
++{
++   struct ureg_program *u = sx->ureg;
++   unsigned label = 0;
++   sx->tl.post_open = false;
++   switch (op->type) {
++   case D3D11_SB_OPCODE_SYNC:
++      if (!(op->specific.sync_flags & D3D11_SB_SYNC_THREADS_IN_GROUP))
++         return false;
++      tl_close(sx);
++      ureg_BARRIER(u);
++      tl_open(sx);
++      return true;
++   case D3D10_SB_OPCODE_IF: case D3D10_SB_OPCODE_LOOP: case D3D10_SB_OPCODE_SWITCH: {
++      unsigned seq = sx->tl.seq++;
++      bool sh = seq < sx->tl.nblocks && sx->tl.shared[seq];
++      if (sx->tl.depth < 64) {
++         sx->tl.st_shared[sx->tl.depth] = sh;
++         sx->tl.st_loop[sx->tl.depth] = op->type == D3D10_SB_OPCODE_LOOP;
++         sx->tl.st_switch[sx->tl.depth] = op->type == D3D10_SB_OPCODE_SWITCH;
++         sx->tl.depth++;
++      }
++      if (sh) {
++         tl_close(sx);
++         sx->tl.post_open = true;
++      }
++      return false;
++   }
++   case D3D10_SB_OPCODE_ELSE: case D3D10_SB_OPCODE_CASE: case D3D10_SB_OPCODE_DEFAULT:
++      if (sx->tl.depth && sx->tl.st_shared[sx->tl.depth - 1]) {
++         tl_close(sx);
++         sx->tl.post_open = true;
++      }
++      return false;
++   case D3D10_SB_OPCODE_ENDIF: case D3D10_SB_OPCODE_ENDLOOP: case D3D10_SB_OPCODE_ENDSWITCH: {
++      bool sh = sx->tl.depth && sx->tl.st_shared[sx->tl.depth - 1];
++      if (sx->tl.depth)
++         sx->tl.depth--;
++      if (sh) {
++         tl_close(sx);
++         sx->tl.post_open = true;
++      }
++      return false;
++   }
++   case D3D10_SB_OPCODE_BREAK: case D3D10_SB_OPCODE_BREAKC:
++   case D3D10_SB_OPCODE_CONTINUE: case D3D10_SB_OPCODE_CONTINUEC: {
++      bool brk = op->type == D3D10_SB_OPCODE_BREAK || op->type == D3D10_SB_OPCODE_BREAKC;
++      for (int d = (int)sx->tl.depth - 1; d >= 0; d--)
++         if (sx->tl.st_loop[d] || (brk && sx->tl.st_switch[d])) {
++            if (sx->tl.st_shared[d]) {
++               tl_close(sx);
++               sx->tl.post_open = true;
++            }
++            break;
++         }
++      return false;
++   }
++   case D3D10_SB_OPCODE_RET: case D3D10_SB_OPCODE_RETC:
++      if (!sx->tl.in_segment)
++         return false;   /* at shared level: uniform, a real return */
++      if (op->type == D3D10_SB_OPCODE_RETC) {
++         struct ureg_src c = translate_src_operand(sx, &op->src[0], OF_INT);
++         if (op->specific.test_boolean == D3D10_SB_INSTRUCTION_TEST_ZERO) {
++            ureg_USEQ(u, ureg_writemask(sx->tl.t, TGSI_WRITEMASK_X), c, ureg_imm1u(u, 0));
++            c = ureg_scalar(ureg_src(sx->tl.t), TGSI_SWIZZLE_X);
++         }
++         ureg_UIF(u, c, &label);
++         ureg_MOV(u, sx->tl.retf, ureg_imm1u(u, ~0u));
++         ureg_BRK(u);
++         ureg_ENDIF(u);
++      } else {
++         /* inside an IF: an unconditional BRK followed by more code in the same block (tl_close's own BRK) is a
++          * jump in the middle of a NIR block (nir.c "cursor.instr->type != nir_instr_type_jump") */
++         ureg_UIF(u, ureg_imm1u(u, ~0u), &label);
++         ureg_MOV(u, sx->tl.retf, ureg_imm1u(u, ~0u));
++         ureg_BRK(u);
++         ureg_ENDIF(u);
++      }
++      return true;
++   default:
++      return false;
++   }
++}
++
++/* After the normal translation. */
++static void
++tl_post(struct Shader_xlate *sx, const struct Shader_opcode *op)
++{
++   struct ureg_program *u = sx->ureg;
++   unsigned label = 0;
++   if (sx->tl.post_open) {
++      /* opened lazily before the next instruction (tl_open_pending): after an unconditional break the next opcode
++       * is usually the end of the shared block, and code after a jump in the same NIR block is invalid */
++      sx->tl.post_open = false;
++      sx->tl.need_open = true;
++      return;
++   }
++   /* a per-thread RET leaves inner loops / switches one level at a time */
++   if (sx->tl.body_ret && sx->tl.in_segment &&
++       (op->type == D3D10_SB_OPCODE_ENDLOOP || op->type == D3D10_SB_OPCODE_ENDSWITCH)) {
++      ureg_UIF(u, ureg_scalar(ureg_src(sx->tl.retf), TGSI_SWIZZLE_X), &label);
++      ureg_BRK(u);
++      ureg_ENDIF(u);
++   }
++}
++
+ /* ---- exynos-woa G25: geometry shader as a compute shader (notes/g25-geometry-shaders.md) ----
+  * One invocation per input primitive (64 per group). Prologue: primitive = group * 64 + thread, active = primitive <
+  * count, then every declared input register of every vertex is loaded from buffer 0 (the VS outputs the draw captured
+@@ -1823,6 +2183,12 @@ Shader_tgsi_translate_ex(const unsigned *code,
+    assert(ureg);
+    sx.ureg = ureg;
+ 
++   if (parser.header.type == D3D11_SB_COMPUTE_SHADER && !sx.gs_cs) {   /* exynos-woa G34 F11.7 */
++      tl_prescan(&sx, code);
++      if (sx.tl.active)
++         tl_init(&sx);
++   }
++
+    while (Shader_parse_opcode(&parser, &opcode)) {
+       const struct dx10_opcode_xlate *ox;
+ 
+@@ -1835,6 +2201,20 @@ Shader_tgsi_translate_ex(const unsigned *code,
+       if (sx.gs_cs && !sx.gs_prologue_done && !Shader_opcode_is_declaration(opcode.type))
+          gs_prologue(&sx);
+ 
++      /* exynos-woa G34 F11.7: the first segment opens before the first instruction */
++      if (sx.tl.active) {
++         if (!sx.tl.started && !Shader_opcode_is_declaration(opcode.type)) {
++            sx.tl.started = true;
++            tl_open(&sx);
++         }
++         if (sx.tl.started)
++            tl_open_pending(&sx, &opcode);
++         if (sx.tl.started && tl_pre(&sx, &opcode)) {
++            Shader_opcode_free(&opcode);
++            continue;
++         }
++      }
++
+       switch (opcode.type) {
+       case D3D10_SB_OPCODE_EXP:
+          expand_unary_to_scalarf(ureg, ureg_EX2, &sx, &opcode);
+@@ -2947,9 +3327,9 @@ Shader_tgsi_translate_ex(const unsigned *code,
+ 
+       /* exynos-woa G24 (notes/g24-compute-cs4x.md): compute 4.x and raw / structured buffers */
+       case D3D11_SB_OPCODE_DCL_THREAD_GROUP:
+-         sx.extra->block[0] = opcode.specific.thread_group.x;
+-         sx.extra->block[1] = opcode.specific.thread_group.y;
+-         sx.extra->block[2] = opcode.specific.thread_group.z;
++         sx.extra->block[0] = sx.tl.active ? sx.tl.H : opcode.specific.thread_group.x;   /* G34 F11.7 */
++         sx.extra->block[1] = sx.tl.active ? 1 : opcode.specific.thread_group.y;
++         sx.extra->block[2] = sx.tl.active ? 1 : opcode.specific.thread_group.z;
+          ureg_property(ureg, TGSI_PROPERTY_CS_FIXED_BLOCK_WIDTH, sx.extra->block[0]);
+          ureg_property(ureg, TGSI_PROPERTY_CS_FIXED_BLOCK_HEIGHT, sx.extra->block[1]);
+          ureg_property(ureg, TGSI_PROPERTY_CS_FIXED_BLOCK_DEPTH, sx.extra->block[2]);
+@@ -3437,9 +3817,14 @@ Shader_tgsi_translate_ex(const unsigned *code,
+          }
+       }
+ 
++      if (sx.tl.active && sx.tl.started)
++         tl_post(&sx, &opcode);   /* exynos-woa G34 F11.7 */
+       Shader_opcode_free(&opcode);
+    }
+ 
++   if (sx.tl.active)
++      tl_close(&sx);   /* exynos-woa G34 F11.7: the last segment */
++
+    if (inside_sub) {
+       ureg_ENDSUB(ureg);
+    }

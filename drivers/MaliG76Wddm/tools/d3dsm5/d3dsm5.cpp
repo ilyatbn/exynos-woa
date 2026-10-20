@@ -299,6 +299,21 @@ static const Test g_tests[] = {
       "         + o5.Load(tid.x * 4) * 10000u + o6.Load(tid.x * 4) * 100000u + o7.Load(tid.x * 4) * 1000000u;\n"
       "  dst.Store(tid.x * 4, s);\n"
       "}\n", 16, 1, 1, 1, EX_UAV8 },
+    { "group384",   /* the hardware's THREAD_MAX_WORKGROUP_SZ: runs natively */
+      "ByteAddressBuffer src : register(t0);\n"
+      "RWByteAddressBuffer dst : register(u0);\n"
+      "groupshared uint sh[384];\n"
+      "[numthreads(384,1,1)] void main(uint gi : SV_GroupIndex, uint3 gid : SV_GroupID) {\n"
+      "  sh[gi] = src.Load(gi * 4) + gid.x;\n"
+      "  GroupMemoryBarrierWithGroupSync();\n"
+      "  if (gi < 128) sh[gi] += sh[gi + 128] + sh[gi + 256];\n"
+      "  GroupMemoryBarrierWithGroupSync();\n"
+      "  for (uint st = 64; st > 0; st >>= 1) {\n"
+      "    if (gi < st) sh[gi] += sh[gi + st];\n"
+      "    GroupMemoryBarrierWithGroupSync();\n"
+      "  }\n"
+      "  if (gi == 0) dst.Store(gid.x * 4, sh[0]);\n"
+      "}\n", 4, 2, 1, 1, EX_NONE },
     { "group1024",
       "ByteAddressBuffer src : register(t0);\n"
       "RWByteAddressBuffer dst : register(u0);\n"
@@ -312,6 +327,32 @@ static const Test g_tests[] = {
       "  }\n"
       "  if (gi == 0) dst.Store(gid.x * 4, sh[0]);\n"
       "}\n", 4, 2, 1, 1, EX_NONE },
+    { "group512nb",   /* 512 threads, no barrier: SV_GroupThreadID / SV_DispatchThreadID / SV_GroupIndex */
+      "RWByteAddressBuffer dst : register(u0);\n"
+      "[numthreads(16,32,1)] void main(uint3 gt : SV_GroupThreadID, uint3 tid : SV_DispatchThreadID,\n"
+      "                               uint gi : SV_GroupIndex, uint3 gid : SV_GroupID) {\n"
+      "  dst.Store((gid.x * 512 + gi) * 4, (gt.x << 24) | (gt.y << 16) | (tid.x << 8) | tid.y);\n"
+      "}\n", 1024, 2, 1, 1, EX_NONE },
+    { "tile1024",   /* 32x32 groupshared tile transpose (1024 threads, one barrier) */
+      "ByteAddressBuffer src : register(t0);\n"
+      "RWByteAddressBuffer dst : register(u0);\n"
+      "groupshared uint tile[32][33];\n"
+      "[numthreads(32,32,1)] void main(uint3 gt : SV_GroupThreadID) {\n"
+      "  tile[gt.y][gt.x] = src.Load(((gt.y * 32 + gt.x) & 1023u) * 4) ^ (gt.x << 20);\n"
+      "  GroupMemoryBarrierWithGroupSync();\n"
+      "  dst.Store((gt.y * 32 + gt.x) * 4, tile[gt.x][gt.y]);\n"
+      "}\n", 1024, 1, 1, 1, EX_NONE },
+    { "group768ret",   /* 768 threads: a barrier, then a per-thread early return */
+      "RWByteAddressBuffer dst : register(u0);\n"
+      "groupshared uint cnt;\n"
+      "[numthreads(768,1,1)] void main(uint gi : SV_GroupIndex) {\n"
+      "  if (gi == 0) cnt = 0;\n"
+      "  GroupMemoryBarrierWithGroupSync();\n"
+      "  InterlockedAdd(cnt, 1u);\n"
+      "  GroupMemoryBarrierWithGroupSync();\n"
+      "  if (gi % 3u == 1u) return;\n"
+      "  dst.Store(gi * 4, cnt + gi);\n"
+      "}\n", 768, 1, 1, 1, EX_NONE },
     { "groupz64",
       "RWByteAddressBuffer dst : register(u0);\n"
       "[numthreads(1,1,64)] void main(uint3 gt : SV_GroupThreadID, uint3 gid : SV_GroupID) {\n"

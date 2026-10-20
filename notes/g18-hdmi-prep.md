@@ -106,3 +106,16 @@ notes/g18-hdmi-dp-alt.md (rungs H1-H5, H1 done read-only), notes/g18-h2-altmode-
   - B + Edge looping the H.264 clip (hardware decode) for 1 min: 59.4 / 59.3, vsync 58.8/s -> still fine.
   - => the regression needs time. Soak running: pacingsoak.sh (new) every 5 min for 45 min with Edge looping, stops
     at the first composition rate < 45/s. The live d69c01cd is kept at C:\S10eTmp\kmd-d69c01cd.sys for the rollback.
+- Soak B (1f72350c, Edge looping): rounds 21:03 / 21:09 / 21:14 / 21:19 all 59/s, vsync 58.8 -> no slow drift.
+- 21:2x USER refreshed the video page (F5) on B -> bad again. Measured: swap-chain presents 12.2/s and 3.2/s (stalls
+  up to 5.1 s), idle vsync ~15/s; Edge's GPU process had restarted at the refresh (start 22 min after the browser),
+  no crash dump (not a crash - Chromium replaces a hung GPU process); MFC held by the new GPU process.
+- Same scenario on A (d69c01cd, rolled back 21:25; tools/phone/g35/browserrefresh.ps1 new = F5 to the Edge window):
+  baseline 58.1 / 58.9; play 1 min + F5 -> 59.3 / 59.2, vsync 58.8; two more F5 (page counter restarted 3223 -> 621,
+  reloads real) -> 59.3 / 59.5; Edge GPU process never restarted.
+- => the failure needs BOTH the second (disconnected) video source AND a video decoder teardown/re-create in Edge.
+  Working hypothesis (UNVERIFIED): something waits for a vblank on source/target 1 - our software vsync only ever
+  reports target 0 (command.c SyncVsync) - e.g. a vblank wait in the GPU process during the page teardown never returns,
+  Chromium's watchdog replaces the GPU process, and DWM's composition stalls behind it. Next experiment (with the user's
+  go): P4b + a vsync notification for target 1 as well, repeat the F5 test. Also asked by the user: a driver-only
+  restart (pnputil /restart-device) at the next reproduction, to see if it clears the state without a reboot.

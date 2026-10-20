@@ -2005,3 +2005,15 @@ diagnostic timers from release builds once perf work settles.
 - MicTest (Parameters\MicTest = ms, one-shot) still runs the raw self-test at device start (mictest.sh); diagnosis
   knobs MicVariant / MicWdma* apply to the self-test only. Parameters\MicWdma = 1 is still set on the phone (harmless).
 - Next: D3D feature level 11_0 on the GPU (user order: mic first, then feature_11).
+
+## 71. 2026-10-20 - FL 11_0 (G34) in progress, unattended
+
+- notes/g34-fl11.md: research (MS Learn quotes, tessellation options, HW limits: workgroup 384), plan F11.1-F11.11,
+  every device run and review. Mesa patches 0199-0203 (parser, FL11 diagnosis switch, SM5 ALU, f16 alias fix,
+  atomics). Test tool drivers/MaliG76Wddm/tools/d3dsm5 (cs_5_0 vs WARP; sets D3D10UMD_FL11_0=1 for itself only).
+- Testing goes through the x86 UMD (umdswap.sh x86, no reboot): SysWOW64\maliumd32.dll = x86-0203 (9c6d1cbd).
+  ARM64 / EC still 0198 (not rebuilt with 0199+ yet). Build: build-mesa-g76.ps1 -Stage x86 (PowerShell tool;
+  from bash the invocation silently does nothing).
+- d3dsm532 status on 0203: ALU 8/8, atomics 4/4 ok; typedtex and later (typed UAVs, uav8, group1024, groupz64) not
+  yet. Next: F11.4b typed UAVs (TGSI images: dcl, ld/store_uav_typed, view creation + set_shader_images, image
+  atomics, RESQ), F11.4c 8 UAVs, then F11.5-F11.11 per the notes. FL 11_0 is not reported by default.

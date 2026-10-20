@@ -54,8 +54,8 @@ As of 2026-10-20 (tag alpha9). Windows 11 Pro 23H2, build 22631.6199. Windows Up
   - OpenGL apps through our own OpenGL driver: Stardew Valley runs at 58-60 fps.
   - Compressed game textures (DXT/BC), which this GPU can't read, are converted on the fly.
   - Shaders are saved per program, so the second start of a game compiles less. A "Shader cache" app on the desktop lists each program's cache and can clear one or all.
-  - Games: Dave the Diver runs at about 26 fps, and reaches its title screen 18 s faster than before (122 s); most of that wait is the game itself under x64 emulation. Need for Speed Underground 2 runs through dgVoodoo, and Game Dev Story runs.
-  - Not perfect yet: tessellation is computed on the CPU (slow for heavy use), the GPU loses some speed to our driver's own overhead, and DirectX 12 / Vulkan are not supported.
+  - Games: Dave the Diver runs at about 26 fps (measured at feature level 10_1, before 11_0), and reaches its title screen 18 s faster than before (122 s); most of that wait is the game itself under x64 emulation. Need for Speed Underground 2 runs through dgVoodoo, and Game Dev Story runs.
+  - Not perfect yet: tessellation is computed on the CPU (its speed is not measured yet), the GPU loses some speed to our driver's own overhead, and DirectX 12 / Vulkan are not supported.
 - **Hardware video decode:** H.264 video is decoded by the phone's video chip for normal Windows apps (Media Foundation: Photos, mpv), with smooth 1080p playback in mpv. Photos itself still plays slowly; browsers don't use it yet.
 - **Speakers:** the earpiece and bottom speaker play together in stereo, with a balance set by ear. "S10e Speakers" in the Start menu adjusts them live.
 - **Headphone jack:** plugging in headphones switches to a separate "Headphones" device and back. The headset microphone isn't done.

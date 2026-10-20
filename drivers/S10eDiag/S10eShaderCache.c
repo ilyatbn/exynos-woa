@@ -68,7 +68,17 @@ DirBytes(const wchar_t *Dir, ULONGLONG *Index)
                 Total += DirBytes(Sub, NULL);
             }
         } else if (Index != NULL && _wcsicmp(Data.cFileName, L"index") == 0) {
-            *Index += ((ULONGLONG)Data.nFileSizeHigh << 32) | Data.nFileSizeLow;
+            // the disk space it really takes: the UMD makes new index files sparse (Mesa 0198);
+            // GetCompressedFileSizeW returns the allocated size of a sparse file
+            DWORD High = 0, Low = INVALID_FILE_SIZE;
+            if (swprintf_s(Sub, MAX_PATH, L"%s\\%s", Dir, Data.cFileName) >= 0) {
+                Low = GetCompressedFileSizeW(Sub, &High);
+            }
+            if (Low == INVALID_FILE_SIZE && GetLastError() != NO_ERROR) {
+                High = Data.nFileSizeHigh;
+                Low = Data.nFileSizeLow;
+            }
+            *Index += ((ULONGLONG)High << 32) | Low;
         } else {
             Total += ((ULONGLONG)Data.nFileSizeHigh << 32) | Data.nFileSizeLow;
         }

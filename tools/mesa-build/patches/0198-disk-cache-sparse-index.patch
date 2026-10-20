@@ -1,0 +1,33 @@
+diff --git a/src/util/disk_cache_os.c b/src/util/disk_cache_os.c
+index 96acddf..0d1055d 100644
+--- a/src/util/disk_cache_os.c
++++ b/src/util/disk_cache_os.c
+@@ -262,6 +262,7 @@ create_cache_item_header_and_blob(struct disk_cache_put_job *dc_job,
+ #include "util/rand_xor.h"
+ #include "util/ralloc.h"
+ #include "util/u_string.h"   /* asprintf */
++#include <winioctl.h>        /* FSCTL_SET_SPARSE (0198) */
+ 
+ #define WIN_CACHE_ROOT "MaliUMD/ShaderCache"
+ 
+@@ -702,11 +703,20 @@ disk_cache_mmap_cache_index(void *mem_ctx, struct disk_cache *cache)
+    /* Shared by every process using this directory (the size counter is updated with atomics, as on POSIX). */
+    HANDLE f = CreateFileW(w, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                           NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
++   DWORD open_err = GetLastError();   /* OPEN_ALWAYS: ERROR_ALREADY_EXISTS when the file was there */
+    free(w);
+    if (f == INVALID_HANDLE_VALUE) {
+       WIN_FAIL("index open");
+       return false;
+    }
++   if (open_err != ERROR_ALREADY_EXISTS) {
++      /* exynos-woa 0198: the index is 2 MB (the size counter + a 65536-key table that only put_key / has_key use;
++       * Panfrost never calls them), mostly zeros - one per application. A new index is made sparse first. MS Learn
++       * FSCTL_SET_SPARSE: "In a sparse file, large ranges of zeros may not require disk allocation. Space for nonzero
++       * data will be allocated as needed as the file is written"; NULL input = set sparse. Best effort. */
++      DWORD ret;
++      DeviceIoControl(f, FSCTL_SET_SPARSE, NULL, 0, NULL, 0, &ret, NULL);
++   }
+ 
+    /* CreateFileMapping with a maximum size larger than the file extends the file to that size. */
+    size_t size = sizeof(*cache->size) + CACHE_INDEX_MAX_KEYS * CACHE_KEY_SIZE;

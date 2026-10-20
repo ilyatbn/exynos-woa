@@ -724,3 +724,9 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   (+ 40.0 MB of index files); Dave 553 KB (shadercache-app2.png, shadercache-running.png).
 - Review of the app commit: fresh installs would not get it - firmware/tools/s10e-provision-fresh.sh and s10e-setupcomplete.cmd list every S10eDiag exe; s10eshadercache.exe added to both (follow-up commit). Other points checked: a cache without app.txt cannot be checked for a running game -> the delete then fails on the mapped index and the app says so; MAX_ENTRIES 256 truncates silently (accepted).
 - Review of the load-time commit: davebot's dialog-ok tapped ANY pink OK in any phase - in the game a pink OK could confirm something that progresses the save (user: never return to map) -> now only before the first Continue (titleTaps 0), otherwise no input. Also noted: that commit bundled 0193-0197 + tooling (one commit for several tasks, against AGENTS rule 3).
+- Mesa 0198: a NEW cache index file is made sparse (DeviceIoControl FSCTL_SET_SPARSE, NULL input = set sparse; MS
+  Learn: "In a sparse file, large ranges of zeros may not require disk allocation. Space for nonzero data will be
+  allocated as needed as the file is written"), best effort; existing 2 MB indexes stay until cleared. EC 0198
+  40813354: d3dcs64x 7/7, d3dcopysrgb64x PASS; recreated d3dcs64x index: attributes Archive, SparseFile, length
+  2097160, fsutil layout "No clusters allocated". App: index bytes = GetCompressedFileSizeW (allocated size of a sparse
+  file) -> 20 caches, 603 KB of shaders (+ 38.0 MB of index files; was 40.0) (shadercache-app3.png).

@@ -99,3 +99,10 @@ notes/g18-hdmi-dp-alt.md (rungs H1-H5, H1 done read-only), notes/g18-h2-altmode-
 - My P4b validation was too short (one screenshot + one Edge run right after boot); the regression shows under use /
   over time. Repo KMD sources restored to 7ee013d (= live). Root cause of the 2-source slowdown NOT known yet;
   P4b redo only with a measured soak (vsync rate while presenting, presents/s, 30+ min of use) and the user's go.
+- 20:50 root-cause A/B (user: "do it"), tools/phone/g18/pacingab.sh (new: swaprate.ps1 = d3dswap composition + window
+  swap chains 300 frames, + KMD heartbeat over the load and a 30 s idle window):
+  - A d69c01cd (1 source): composition 59.0 / 59.5, window 59.5 / 59.1 presents/s; vsync 58.8/s load and idle.
+  - B 1f72350c (P4b2, 2 sources) FRESH BOOT 20:54: 58.5 / 59.2, 59.3 / 59.4; vsync ~59/s -> no difference at boot.
+  - B + Edge looping the H.264 clip (hardware decode) for 1 min: 59.4 / 59.3, vsync 58.8/s -> still fine.
+  - => the regression needs time. Soak running: pacingsoak.sh (new) every 5 min for 45 min with Edge looping, stops
+    at the first composition rate < 45/s. The live d69c01cd is kept at C:\S10eTmp\kmd-d69c01cd.sys for the rollback.

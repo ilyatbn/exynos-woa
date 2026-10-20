@@ -654,3 +654,71 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   cores are not running under Windows (the only faster cores).
 - Continue -> water (loadprof warm): mixed; thread 7096 (render thread, the D3D caller) 86-90 % for ~10 s while the
   main thread idles -> UMD time; loadspikes.sh (frame-time flag only during that phase, spike lines summed) next.
+- Review of the 0192 commit (patch = git diff of the Mesa commit "exynos-woa 0192-..."): checked the shader key
+  covers what the compile reads (key.fs.vs_varying_layout is the whole layout; xfb_info is serialized into the hashed
+  NIR; post-hash lowering is deterministic per gpu_id), module identifier changes per deployed build, keys blob has
+  the pointer size (x86 vs 64-bit entries cannot mix). Found: (1) disk_cache_load_item deletes an invalid file but does
+  not subtract its size from the shared counter -> the counter drifts up, eviction starts early -> follow-up fix
+  (own patch). (2) the per-app index is 2 MB (65536 x 32-byte keys, used only by put_key/has_key, which Panfrost does
+  not call) - accepted, recorded. (3) build-mesa-g76.ps1 has one LF-only inserted line - cosmetic.
+- "Game gone" in c192cold explained: TaskStop of a background Bash task does not kill its children - the stopped
+  for-loop's next botbench.sh (tag c192warm) ran `taskkill DaveTheDiver` at 08:04:35 and restarted the bot (08:04:53).
+  Seen again at 11:25 (two loadrun.sh / botbench.sh running at once); all leftovers killed, memory note updated.
+- loadspikes.sh TAG (davebot/): frame-time flag only from the title to the water HUD, game killed at water, spike
+  lines summed per section. warm1 (EC 0192d): 113 spikes; ResourceCopyRegion 2943 ms, CreateResource 1178, ResourceMap
+  507, Present 328, Flush 317, Map:texture 279, CreatePixelShader 209, shader_state_fs 197.
+- Mesa 0193 (diagnosis): ResourceCopyRegion sections copy:pipe / copy:util + the first 40 copies > 2 ms in the tlog.
+  warm2-0193: copy:util 3271 ms of ResourceCopyRegion 6214; EVERY slow copy is "util: r8g8b8a8_unorm usage 4 (STAGING)
+  -> r8g8b8a8_srgb usage 0 (DEFAULT)" - 512x512 10-13 ms, 1024x1024 33-53 ms, 1920x1080 80-88 ms, 2048x2048 161-178 ms
+  (Unity's texture upload: staging UNORM, CopySubresourceRegion into the SRGB texture). areResourcesCompatible says no
+  (util_is_format_compatible: colour spaces differ) -> util_resource_copy_region on the calling thread = TC sync +
+  CPU map of the tiled destination (Panfrost u-interleaved / AFBC detile-retile).
+- Mesa 0194: disk_cache_load_item subtracts the deleted invalid file's size (0192 review finding 1).
+- Mesa 0195: copyLinearPairViaBlit (Resource.cpp) - an sRGB / linear pair of one non-compressed, non-depth,
+  single-sample format (util_format_linear equal) is copied with pipe->blit, both sides viewed in the linear format
+  (raw bits; queued by TC, done by the GPU); BC-emulated resources excluded; used by ResourceCopyRegion and
+  ResourceCopy. Panfrost: "sRGB does not change the pixel format itself ... compress sRGB formats by using the
+  corresponding linear format" (pan_afbc_format) -> the linear view is valid on AFBC resources.
+  New test drivers/MaliG76Wddm/tools/d3dcopysrgb (x64 build d3dcopysrgb64x.exe): unorm<->srgb boxes at offsets, whole
+  subresource, CopyResource mip 1 (BGRA), array slice 1 + slice 0 untouched, texel-exact. WARP PASS; phone EC 0193
+  (CPU path) PASS; EC 0195 e9d35aad PASS; d3dcs64x 7/7, d3dcbdyn64x PASS, d3dbc64x lossy 0/126, d3dmrt64x 7/7.
+- EC 0195 (e9d35aad), warm cache: c195warm start -> title 121.6 s (0192: 139.2 / 140.7), Continue -> water 41.9 s;
+  loadspikes warm3-0195: Continue -> water 40.4 s, ResourceCopyRegion no longer in the top 25 (was 2943-6214 ms);
+  top now CreateResource 1078 ms, ResourceMap 406, pan:shader_state_fs 399, pan:sub:textures 364, read_rsrc 339,
+  PsSetSamplers 306, Map:texture 276, Present 249, Flush 165, CreatePixelShader 110. Dave's cache: 236 entries.
+  The title-load gain (main-thread phase) needs a repeat before it counts (Unity's main thread may wait on the render
+  thread's uploads).
+- Mesa 0196 (diagnosis, built): CreateResource initial-data texture upload split into create:tex_map (tc_texture_map
+  always syncs with the driver thread), create:tex_copy (CPU copy into the mapping), create:tex_unmap.
+- c196warm (EC 0196 = 0195 + timers): start -> title 122.1 s (repeat of 0195's 121.6 -> the ~18 s title-load gain is
+  real), Continue -> water 52.6 s (spread: 41.9 / 40.4 / 52.6 - this phase varies a lot run to run).
+- 0196 split (warm4/warm5, summed over the spike lines; each spike lists only its top 10): create:tex_map 43-117 ms,
+  create:tex_copy 26-33 ms -> the initial-data upload is NOT the cost; create:resource_create 1182 ms of
+  CreateResource 1425 ms = BO allocation. Shim ioctl lines over the load (per 120-frame window): CREATE_BO (0x42) 255
+  calls 828 ms (3.2 ms each), MAP (0x100, the runtime Lock) 254 calls 677 ms (2.7 ms each); 832 / 743 ms + 733 /
+  371 ms in the window before. Textures are created PAN_BO_DELAY_MMAP (pan_resource.c), yet ~every created BO is
+  mapped -> Mesa 0197 (diagnosis): pan_bo.c logs the first 60 kernel allocations and CPU maps over 1 ms with size and
+  label.
+- Mesa 0197 (diagnosis): pan_bo.c, first 60 kernel BO allocations and CPU maps over 1 ms (os_time_get_nano), with
+  size and label. warm6-0197: per texture upload THREE allocations - 'Texture r8g8b8a8_srgb' (AFBC), 'Other resource
+  r8g8b8a8_unorm' (AFBC, a DEFAULT texture without binds) and 'Other resource r8g8b8a8_unorm modifier 0' (the linear
+  STAGING): Unity's staging -> intermediate -> sRGB chain. Allocation cost grows with size: 4 KB-1 MB 1-2 ms,
+  4 MB 1-22 ms, 8.6 MB 3-5 ms, 16 MB 20-39 ms; tiler heap 32 MB 14-23 ms. CPU maps: 1-10 ms each regardless of
+  size (4 KB 9.4 ms, 64 KB pool BOs 3-8 ms) - per-Lock overhead, not copying (the shim's Lock is IgnoreSync already).
+  Our KMD's part is light (MwCreateAllocation: GPU VA; MwBuildPagingBuffer: page-table writes); the rest is the
+  runtime / VidMm (skipped-windows-internals.md entry). Open lever: x64 slab sub-allocation (wslab is 32-bit only:
+  the one `#if !defined(_WIN64)` at CREATE_BO) - would remove the small creates + maps; est. ~1 s per load; risk:
+  32 MB slab granularity in a 1 GB segment (dwm) -> EC-only if done.
+- loadprof c196warm Continue -> water (the 52.6 s run): disk 90-216 MB per 5 s (file cache cold this time), render
+  thread <= 82 %, main thread ~55 % -> that phase is now disk + game CPU, the UMD is a small share.
+- x86 0197 (b34581df): d3dcopysrgb32, d3dcbdyn32, d3dvbring32, d3dtri32 PASS; caches created
+  (d3dvbring32.exe-594c8ef3, d3dtri32.exe-ea3d1934). ARM64 0197 swapped, reboot.
+- ARM64 0197 (912264b5) after the reboot: dwm loads it, desktop normal (desk-0197-arm64.png); d3dcopysrgb, d3dcs 7/7,
+  d3dcbdyn, d3dvbring, d3dtri PASS; Edge edge://gpu Canvas / Compositing / WebGL / WebGPU hardware accelerated
+  (browser-0197-arm64.png). Caches appear for every D3D app of the user (Explorer, msedge GPU process, TextInputHost,
+  TabTip, PickerHost) and dwm / LogonUI use C:\Windows\System32\config\systemprofile\AppData\Local\MaliUMD.
+- App on the phone (System32\s10eshadercache.exe + Public Desktop "Shader cache.exe"): lists 21 caches; "Clear
+  selected" on d3dcs64x.exe (Program Files (x86)\S10e Test) asks, deletes exactly that dir (the other d3dcs64x.exe
+  dir stays); Explorer.EXE selected -> "Explorer.EXE is running. Close it first." (nothing deleted). Display changed
+  to the shader bytes ("Shaders" column) with the index files in the status line: 20 caches, 605 KB of shaders
+  (+ 40.0 MB of index files); Dave 553 KB (shadercache-app2.png, shadercache-running.png).

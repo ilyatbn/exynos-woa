@@ -14,4 +14,6 @@ rem s10ereboot.exe is copied onto the desktop itself.
 if not exist "%PD%\Reboot to TWRP.exe" copy /y C:\Windows\System32\s10ereboot.exe "%PD%\Reboot to TWRP.exe" > nul
 rem Display scale slider 100-300 %% (s10escale.exe, custom scaling via LogPixels; applies after sign-out).
 if exist C:\Windows\System32\s10escale.exe if not exist "%PD%\Display scale.exe" copy /y C:\Windows\System32\s10escale.exe "%PD%\Display scale.exe" > nul
+rem G33: per-game shader cache list + clear (s10eshadercache.exe, the Mali UMD's %LOCALAPPDATA%\MaliUMD\ShaderCache).
+if exist C:\Windows\System32\s10eshadercache.exe if not exist "%PD%\Shader cache.exe" copy /y C:\Windows\System32\s10eshadercache.exe "%PD%\Shader cache.exe" > nul
 dir "%PD%" > "%L%\desktop.txt" 2>&1

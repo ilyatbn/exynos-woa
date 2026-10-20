@@ -39,7 +39,9 @@ cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /D UNICODE /D _UNICODE /D _CRT_SECU
 if errorlevel 1 exit /b 12
 cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /D _CRT_SECURE_NO_WARNINGS /D WINVER=0x0A00 /D _WIN32_WINNT=0x0A00 /D NTDDI_VERSION=0x0A000006 /Fo"%OUT%\S10eTap.obj" /Fe"%OUT%\s10etap.exe" "%SRC%S10eTap.c" /link /MACHINE:ARM64 /SUBSYSTEM:CONSOLE /Brepro user32.lib
 if errorlevel 1 exit /b 13
+cl.exe /nologo /W4 /WX /O2 /MT /GS /guard:cf /D UNICODE /D _UNICODE /D _CRT_SECURE_NO_WARNINGS /Fo"%OUT%\S10eShaderCache.obj" /Fe"%OUT%\s10eshadercache.exe" "%SRC%S10eShaderCache.c" /link /MACHINE:ARM64 /SUBSYSTEM:WINDOWS /Brepro user32.lib gdi32.lib comctl32.lib psapi.lib
+if errorlevel 1 exit /b 14
 
-"%KIT%\bin\%KV%\x64\signtool.exe" sign /sha1 5DD5DEE1747244C5F5F66F41D94C0A59C4443E48 /fd SHA256 "%OUT%\S10eDiag.sys" "%OUT%\s10ediag.exe" "%OUT%\S10eAgent.exe" "%OUT%\s10erotate.exe" "%OUT%\s10eperf.exe" "%OUT%\s10etouchlog.exe" "%OUT%\s10ereboot.exe" "%OUT%\s10escale.exe" "%OUT%\s10ekeys.exe" "%OUT%\s10etap.exe" >nul
+"%KIT%\bin\%KV%\x64\signtool.exe" sign /sha1 5DD5DEE1747244C5F5F66F41D94C0A59C4443E48 /fd SHA256 "%OUT%\S10eDiag.sys" "%OUT%\s10ediag.exe" "%OUT%\S10eAgent.exe" "%OUT%\s10erotate.exe" "%OUT%\s10eperf.exe" "%OUT%\s10etouchlog.exe" "%OUT%\s10ereboot.exe" "%OUT%\s10escale.exe" "%OUT%\s10ekeys.exe" "%OUT%\s10etap.exe" "%OUT%\s10eshadercache.exe" >nul
 if errorlevel 1 exit /b 6
 echo S10EDIAG_BUILD_OK %OUT%

@@ -1,0 +1,265 @@
+diff --git a/src/gallium/frontends/d3d10umd/ShaderParse.c b/src/gallium/frontends/d3d10umd/ShaderParse.c
+index 50de669..ce78ea8 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderParse.c
++++ b/src/gallium/frontends/d3d10umd/ShaderParse.c
+@@ -35,6 +35,9 @@
+ 
+ #include "util/u_memory.h"
+ 
++#include <stdio.h>    /* snprintf (G34 trace) */
++#include <stdlib.h>   /* getenv */
++
+ 
+ void
+ Shader_parse_init(struct Shader_parser *parser,
+@@ -57,6 +60,7 @@ Shader_parse_init(struct Shader_parser *parser,
+ #define OP_DCL (1 << 3) /* custom opcode specific control */
+ #define OP_RESINFO_RET_TYPE (1 << 4) /* return type for resinfo */
+ #define OP_SYNC (1 << 5) /* exynos-woa G24: sync flags in opcode specific control */
++#define OP_SKIP_BODY (1 << 6) /* exynos-woa G34: variable-length declaration, nothing parsed, skipped by length */
+ 
+ struct dx10_opcode_info {
+    D3D10_SB_OPCODE_TYPE type;
+@@ -201,6 +205,82 @@ opcode_info[D3D10_SB_NUM_OPCODES] = {
+    [D3D11_SB_OPCODE_LD_STRUCTURED] =                     {_(D3D11_SB_OPCODE_LD_STRUCTURED), 1, 3, 0},
+    [D3D11_SB_OPCODE_STORE_STRUCTURED] =                  {_(D3D11_SB_OPCODE_STORE_STRUCTURED), 1, 3, 0},
+    [D3D11_SB_OPCODE_SYNC] =                              {_(D3D11_SB_OPCODE_SYNC), 0, 0, OP_SYNC},
++   /* exynos-woa G34 (notes/g34-fl11.md): the rest of shader model 5.0. Operand counts (dst, src) = the sm5 asm
++    * reference (learn.microsoft.com shader-model-5-assembly--directx-hlsl-), cross-checked with vkd3d-shader's tpf.c
++    * table. Doubles stay zero entries (D3D11DDICAPS_SHADER_DOUBLES is not reported). */
++   [D3D11_SB_OPCODE_HS_DECLS] = {_(D3D11_SB_OPCODE_HS_DECLS), 0, 0, OP_DCL},
++   [D3D11_SB_OPCODE_HS_CONTROL_POINT_PHASE] = {_(D3D11_SB_OPCODE_HS_CONTROL_POINT_PHASE), 0, 0, 0},
++   [D3D11_SB_OPCODE_HS_FORK_PHASE] = {_(D3D11_SB_OPCODE_HS_FORK_PHASE), 0, 0, 0},
++   [D3D11_SB_OPCODE_HS_JOIN_PHASE] = {_(D3D11_SB_OPCODE_HS_JOIN_PHASE), 0, 0, 0},
++   [D3D11_SB_OPCODE_EMIT_STREAM] = {_(D3D11_SB_OPCODE_EMIT_STREAM), 1, 0, 0},
++   [D3D11_SB_OPCODE_CUT_STREAM] = {_(D3D11_SB_OPCODE_CUT_STREAM), 1, 0, 0},
++   [D3D11_SB_OPCODE_EMITTHENCUT_STREAM] = {_(D3D11_SB_OPCODE_EMITTHENCUT_STREAM), 1, 0, 0},
++   [D3D11_SB_OPCODE_INTERFACE_CALL] = {_(D3D11_SB_OPCODE_INTERFACE_CALL), 0, 0, OP_NOT_DONE},
++   [D3D11_SB_OPCODE_BUFINFO] = {_(D3D11_SB_OPCODE_BUFINFO), 1, 1, 0},
++   [D3D11_SB_OPCODE_DERIV_RTX_COARSE] = {_(D3D11_SB_OPCODE_DERIV_RTX_COARSE), 1, 1, OP_SATURATE},
++   [D3D11_SB_OPCODE_DERIV_RTX_FINE] = {_(D3D11_SB_OPCODE_DERIV_RTX_FINE), 1, 1, OP_SATURATE},
++   [D3D11_SB_OPCODE_DERIV_RTY_COARSE] = {_(D3D11_SB_OPCODE_DERIV_RTY_COARSE), 1, 1, OP_SATURATE},
++   [D3D11_SB_OPCODE_DERIV_RTY_FINE] = {_(D3D11_SB_OPCODE_DERIV_RTY_FINE), 1, 1, OP_SATURATE},
++   [D3D11_SB_OPCODE_GATHER4_C] = {_(D3D11_SB_OPCODE_GATHER4_C), 1, 4, 0},
++   [D3D11_SB_OPCODE_GATHER4_PO] = {_(D3D11_SB_OPCODE_GATHER4_PO), 1, 4, 0},
++   [D3D11_SB_OPCODE_GATHER4_PO_C] = {_(D3D11_SB_OPCODE_GATHER4_PO_C), 1, 5, 0},
++   [D3D11_SB_OPCODE_RCP] = {_(D3D11_SB_OPCODE_RCP), 1, 1, OP_SATURATE},
++   [D3D11_SB_OPCODE_F32TOF16] = {_(D3D11_SB_OPCODE_F32TOF16), 1, 1, 0},
++   [D3D11_SB_OPCODE_F16TOF32] = {_(D3D11_SB_OPCODE_F16TOF32), 1, 1, OP_SATURATE},
++   [D3D11_SB_OPCODE_UADDC] = {_(D3D11_SB_OPCODE_UADDC), 2, 2, 0},
++   [D3D11_SB_OPCODE_USUBB] = {_(D3D11_SB_OPCODE_USUBB), 2, 2, 0},
++   [D3D11_SB_OPCODE_COUNTBITS] = {_(D3D11_SB_OPCODE_COUNTBITS), 1, 1, 0},
++   [D3D11_SB_OPCODE_FIRSTBIT_HI] = {_(D3D11_SB_OPCODE_FIRSTBIT_HI), 1, 1, 0},
++   [D3D11_SB_OPCODE_FIRSTBIT_LO] = {_(D3D11_SB_OPCODE_FIRSTBIT_LO), 1, 1, 0},
++   [D3D11_SB_OPCODE_FIRSTBIT_SHI] = {_(D3D11_SB_OPCODE_FIRSTBIT_SHI), 1, 1, 0},
++   [D3D11_SB_OPCODE_UBFE] = {_(D3D11_SB_OPCODE_UBFE), 1, 3, 0},
++   [D3D11_SB_OPCODE_IBFE] = {_(D3D11_SB_OPCODE_IBFE), 1, 3, 0},
++   [D3D11_SB_OPCODE_BFI] = {_(D3D11_SB_OPCODE_BFI), 1, 4, 0},
++   [D3D11_SB_OPCODE_BFREV] = {_(D3D11_SB_OPCODE_BFREV), 1, 1, 0},
++   [D3D11_SB_OPCODE_SWAPC] = {_(D3D11_SB_OPCODE_SWAPC), 2, 3, 0},
++   [D3D11_SB_OPCODE_DCL_STREAM] = {_(D3D11_SB_OPCODE_DCL_STREAM), 1, 0, OP_DCL},
++   [D3D11_SB_OPCODE_DCL_FUNCTION_BODY] = {_(D3D11_SB_OPCODE_DCL_FUNCTION_BODY), 0, 0, OP_DCL | OP_SKIP_BODY},
++   [D3D11_SB_OPCODE_DCL_FUNCTION_TABLE] = {_(D3D11_SB_OPCODE_DCL_FUNCTION_TABLE), 0, 0, OP_DCL | OP_SKIP_BODY},
++   [D3D11_SB_OPCODE_DCL_INTERFACE] = {_(D3D11_SB_OPCODE_DCL_INTERFACE), 0, 0, OP_DCL | OP_SKIP_BODY},
++   [D3D11_SB_OPCODE_DCL_INPUT_CONTROL_POINT_COUNT] = {_(D3D11_SB_OPCODE_DCL_INPUT_CONTROL_POINT_COUNT), 0, 0, OP_DCL},
++   [D3D11_SB_OPCODE_DCL_OUTPUT_CONTROL_POINT_COUNT] = {_(D3D11_SB_OPCODE_DCL_OUTPUT_CONTROL_POINT_COUNT), 0, 0, OP_DCL},
++   [D3D11_SB_OPCODE_DCL_TESS_DOMAIN] = {_(D3D11_SB_OPCODE_DCL_TESS_DOMAIN), 0, 0, OP_DCL},
++   [D3D11_SB_OPCODE_DCL_TESS_PARTITIONING] = {_(D3D11_SB_OPCODE_DCL_TESS_PARTITIONING), 0, 0, OP_DCL},
++   [D3D11_SB_OPCODE_DCL_TESS_OUTPUT_PRIMITIVE] = {_(D3D11_SB_OPCODE_DCL_TESS_OUTPUT_PRIMITIVE), 0, 0, OP_DCL},
++   [D3D11_SB_OPCODE_DCL_HS_MAX_TESSFACTOR] = {_(D3D11_SB_OPCODE_DCL_HS_MAX_TESSFACTOR), 0, 0, OP_DCL},
++   [D3D11_SB_OPCODE_DCL_HS_FORK_PHASE_INSTANCE_COUNT] = {_(D3D11_SB_OPCODE_DCL_HS_FORK_PHASE_INSTANCE_COUNT), 0, 0, OP_DCL},
++   [D3D11_SB_OPCODE_DCL_HS_JOIN_PHASE_INSTANCE_COUNT] = {_(D3D11_SB_OPCODE_DCL_HS_JOIN_PHASE_INSTANCE_COUNT), 0, 0, OP_DCL},
++   [D3D11_SB_OPCODE_DCL_UNORDERED_ACCESS_VIEW_TYPED] = {_(D3D11_SB_OPCODE_DCL_UNORDERED_ACCESS_VIEW_TYPED), 1, 0, OP_DCL},
++   [D3D11_SB_OPCODE_LD_UAV_TYPED] = {_(D3D11_SB_OPCODE_LD_UAV_TYPED), 1, 2, 0},
++   [D3D11_SB_OPCODE_STORE_UAV_TYPED] = {_(D3D11_SB_OPCODE_STORE_UAV_TYPED), 1, 2, 0},
++   [D3D11_SB_OPCODE_ATOMIC_AND] = {_(D3D11_SB_OPCODE_ATOMIC_AND), 1, 2, 0},
++   [D3D11_SB_OPCODE_ATOMIC_OR] = {_(D3D11_SB_OPCODE_ATOMIC_OR), 1, 2, 0},
++   [D3D11_SB_OPCODE_ATOMIC_XOR] = {_(D3D11_SB_OPCODE_ATOMIC_XOR), 1, 2, 0},
++   [D3D11_SB_OPCODE_ATOMIC_CMP_STORE] = {_(D3D11_SB_OPCODE_ATOMIC_CMP_STORE), 1, 3, 0},
++   [D3D11_SB_OPCODE_ATOMIC_IADD] = {_(D3D11_SB_OPCODE_ATOMIC_IADD), 1, 2, 0},
++   [D3D11_SB_OPCODE_ATOMIC_IMAX] = {_(D3D11_SB_OPCODE_ATOMIC_IMAX), 1, 2, 0},
++   [D3D11_SB_OPCODE_ATOMIC_IMIN] = {_(D3D11_SB_OPCODE_ATOMIC_IMIN), 1, 2, 0},
++   [D3D11_SB_OPCODE_ATOMIC_UMAX] = {_(D3D11_SB_OPCODE_ATOMIC_UMAX), 1, 2, 0},
++   [D3D11_SB_OPCODE_ATOMIC_UMIN] = {_(D3D11_SB_OPCODE_ATOMIC_UMIN), 1, 2, 0},
++   [D3D11_SB_OPCODE_IMM_ATOMIC_ALLOC] = {_(D3D11_SB_OPCODE_IMM_ATOMIC_ALLOC), 1, 1, 0},
++   [D3D11_SB_OPCODE_IMM_ATOMIC_CONSUME] = {_(D3D11_SB_OPCODE_IMM_ATOMIC_CONSUME), 1, 1, 0},
++   [D3D11_SB_OPCODE_IMM_ATOMIC_IADD] = {_(D3D11_SB_OPCODE_IMM_ATOMIC_IADD), 2, 2, 0},
++   [D3D11_SB_OPCODE_IMM_ATOMIC_AND] = {_(D3D11_SB_OPCODE_IMM_ATOMIC_AND), 2, 2, 0},
++   [D3D11_SB_OPCODE_IMM_ATOMIC_OR] = {_(D3D11_SB_OPCODE_IMM_ATOMIC_OR), 2, 2, 0},
++   [D3D11_SB_OPCODE_IMM_ATOMIC_XOR] = {_(D3D11_SB_OPCODE_IMM_ATOMIC_XOR), 2, 2, 0},
++   [D3D11_SB_OPCODE_IMM_ATOMIC_EXCH] = {_(D3D11_SB_OPCODE_IMM_ATOMIC_EXCH), 2, 2, 0},
++   [D3D11_SB_OPCODE_IMM_ATOMIC_CMP_EXCH] = {_(D3D11_SB_OPCODE_IMM_ATOMIC_CMP_EXCH), 2, 3, 0},
++   [D3D11_SB_OPCODE_IMM_ATOMIC_IMAX] = {_(D3D11_SB_OPCODE_IMM_ATOMIC_IMAX), 2, 2, 0},
++   [D3D11_SB_OPCODE_IMM_ATOMIC_IMIN] = {_(D3D11_SB_OPCODE_IMM_ATOMIC_IMIN), 2, 2, 0},
++   [D3D11_SB_OPCODE_IMM_ATOMIC_UMAX] = {_(D3D11_SB_OPCODE_IMM_ATOMIC_UMAX), 2, 2, 0},
++   [D3D11_SB_OPCODE_IMM_ATOMIC_UMIN] = {_(D3D11_SB_OPCODE_IMM_ATOMIC_UMIN), 2, 2, 0},
++   [D3D11_SB_OPCODE_EVAL_SNAPPED] = {_(D3D11_SB_OPCODE_EVAL_SNAPPED), 1, 2, OP_SATURATE},
++   [D3D11_SB_OPCODE_EVAL_SAMPLE_INDEX] = {_(D3D11_SB_OPCODE_EVAL_SAMPLE_INDEX), 1, 2, OP_SATURATE},
++   [D3D11_SB_OPCODE_EVAL_CENTROID] = {_(D3D11_SB_OPCODE_EVAL_CENTROID), 1, 1, OP_SATURATE},
++   [D3D11_SB_OPCODE_DCL_GS_INSTANCE_COUNT] = {_(D3D11_SB_OPCODE_DCL_GS_INSTANCE_COUNT), 0, 0, OP_DCL},
++   [D3D11_SB_OPCODE_ABORT] = {_(D3D11_SB_OPCODE_ABORT), 0, 0, 0},
++   [D3D11_SB_OPCODE_DEBUG_BREAK] = {_(D3D11_SB_OPCODE_DEBUG_BREAK), 0, 0, 0},
++   [D3D11_1_SB_OPCODE_MSAD] = {_(D3D11_1_SB_OPCODE_MSAD), 1, 3, 0},
+ };
+ 
+ #undef _
+@@ -374,6 +454,30 @@ Shader_parse_opcode(struct Shader_parser *parser,
+    case D3D10_SB_OPCODE_DCL_GLOBAL_FLAGS:
+       opcode->specific.global_flags.refactoring_allowed = DECODE_D3D10_SB_GLOBAL_FLAGS(*curr) ? 1 : 0;
+       break;
++   /* exynos-woa G34: SM5 declarations whose value sits in the opcode token */
++   case D3D11_SB_OPCODE_DCL_INPUT_CONTROL_POINT_COUNT:
++      opcode->specific.control_point_count = DECODE_D3D11_SB_INPUT_CONTROL_POINT_COUNT(*curr);
++      break;
++   case D3D11_SB_OPCODE_DCL_OUTPUT_CONTROL_POINT_COUNT:
++      opcode->specific.control_point_count = DECODE_D3D11_SB_OUTPUT_CONTROL_POINT_COUNT(*curr);
++      break;
++   case D3D11_SB_OPCODE_DCL_TESS_DOMAIN:
++      opcode->specific.tess_domain = DECODE_D3D11_SB_TESS_DOMAIN(*curr);
++      break;
++   case D3D11_SB_OPCODE_DCL_TESS_PARTITIONING:
++      opcode->specific.tess_partitioning = DECODE_D3D11_SB_TESS_PARTITIONING(*curr);
++      break;
++   case D3D11_SB_OPCODE_DCL_TESS_OUTPUT_PRIMITIVE:
++      opcode->specific.tess_output_primitive = DECODE_D3D11_SB_TESS_OUTPUT_PRIMITIVE(*curr);
++      break;
++   case D3D11_SB_OPCODE_DCL_UNORDERED_ACCESS_VIEW_TYPED:
++      opcode->specific.uav.dimension = DECODE_D3D10_SB_RESOURCE_DIMENSION(*curr);
++      opcode->specific.uav.flags = DECODE_D3D11_SB_UAV_FLAGS(*curr);
++      break;
++   case D3D11_SB_OPCODE_DCL_UNORDERED_ACCESS_VIEW_RAW:
++      opcode->specific.uav.dimension = D3D10_SB_RESOURCE_DIMENSION_BUFFER;
++      opcode->specific.uav.flags = DECODE_D3D11_SB_UAV_FLAGS(*curr);
++      break;
+    default:
+       /* Parse opcode-specific control bits */
+       if (info->flags & OP_DCL) {
+@@ -439,6 +543,10 @@ Shader_parse_opcode(struct Shader_parser *parser,
+       curr++;
+    }
+ 
++   if (info->flags & OP_SKIP_BODY) {
++      goto skip;   /* exynos-woa G34: class-linkage tables - not supported, nothing to translate */
++   }
++
+    if (info->flags & OP_NOT_DONE) {
+       /* XXX: Need to figure out the number of operands for this opcode.
+        *      Should be okay to continue execution -- we have enough info
+@@ -528,7 +636,8 @@ Shader_parse_opcode(struct Shader_parser *parser,
+           */
+          assert(num_components == D3D10_SB_OPERAND_0_COMPONENT);
+          assert(DECODE_D3D10_SB_OPERAND_TYPE(*curr) == D3D10_SB_OPERAND_TYPE_SAMPLER ||
+-                DECODE_D3D10_SB_OPERAND_TYPE(*curr) == D3D10_SB_OPERAND_TYPE_LABEL);
++                DECODE_D3D10_SB_OPERAND_TYPE(*curr) == D3D10_SB_OPERAND_TYPE_LABEL ||
++                DECODE_D3D10_SB_OPERAND_TYPE(*curr) == D3D11_SB_OPERAND_TYPE_STREAM);   /* exynos-woa G34 */
+ 
+          opcode->src[i].swizzle[0] = D3D10_SB_4_COMPONENT_X;
+          opcode->src[i].swizzle[1] = D3D10_SB_4_COMPONENT_Y;
+@@ -637,6 +746,23 @@ Shader_parse_opcode(struct Shader_parser *parser,
+       opcode->specific.structured.stride = *curr++;
+       opcode->specific.structured.count = *curr++;
+       break;
++   /* exynos-woa G34: SM5 declaration trailers */
++   case D3D11_SB_OPCODE_DCL_UNORDERED_ACCESS_VIEW_TYPED:
++      opcode->dcl_resource_ret_type[0] = DECODE_D3D10_SB_RESOURCE_RETURN_TYPE(*curr, 0);
++      opcode->dcl_resource_ret_type[1] = DECODE_D3D10_SB_RESOURCE_RETURN_TYPE(*curr, 1);
++      opcode->dcl_resource_ret_type[2] = DECODE_D3D10_SB_RESOURCE_RETURN_TYPE(*curr, 2);
++      opcode->dcl_resource_ret_type[3] = DECODE_D3D10_SB_RESOURCE_RETURN_TYPE(*curr, 3);
++      curr++;
++      break;
++   case D3D11_SB_OPCODE_DCL_HS_MAX_TESSFACTOR:
++      memcpy(&opcode->specific.hs_max_tessfactor, curr, sizeof(float));
++      curr++;
++      break;
++   case D3D11_SB_OPCODE_DCL_HS_FORK_PHASE_INSTANCE_COUNT:
++   case D3D11_SB_OPCODE_DCL_HS_JOIN_PHASE_INSTANCE_COUNT:
++   case D3D11_SB_OPCODE_DCL_GS_INSTANCE_COUNT:
++      opcode->specific.instance_count = *curr++;
++      break;
+    default:
+       break;
+    }
+@@ -663,6 +789,40 @@ Shader_opcode_free(struct Shader_opcode *opcode)
+    }
+ }
+ 
++extern void malikm_tlog(const char *fmt, ...);
++
++/* exynos-woa G34: one tlog line per opcode - name, operand counts, each operand's type / index dimension / first index
++ * and the opcode-specific value - for checking the SM5 decoding against fxc's disassembly (notes/g34-fl11.md). */
++void
++Shader_opcode_trace(const struct Shader_opcode *opcode)
++{
++   static int on = -1;
++   char ops[192];
++   int n = 0;
++   unsigned i;
++
++   if (on < 0) {
++      const char *v = getenv("D3D10UMD_PARSE_TRACE");
++      on = v && *v == '1';
++   }
++   if (!on)
++      return;
++   if (opcode->type == D3D10_SB_OPCODE_CUSTOMDATA) {
++      malikm_tlog("parse: customdata class %u", (unsigned)opcode->customdata._class);
++      return;
++   }
++   ops[0] = 0;
++   for (i = 0; i < opcode->num_dst && n < (int)sizeof ops - 24; i++)
++      n += snprintf(ops + n, sizeof ops - n, " d%u:%u[%u]%u.m%x", i, (unsigned)opcode->dst[i].base.type,
++                    opcode->dst[i].base.index_dim, opcode->dst[i].base.index[0].imm, opcode->dst[i].mask);
++   for (i = 0; i < opcode->num_src && n < (int)sizeof ops - 24; i++)
++      n += snprintf(ops + n, sizeof ops - n, " s%u:%u[%u]%u", i, (unsigned)opcode->src[i].base.type,
++                    opcode->src[i].base.index_dim, opcode->src[i].base.index[0].imm);
++   malikm_tlog("parse: %s (%u) %u/%u%s spec %u/%u/%u", opcode_info[opcode->type].name ? opcode_info[opcode->type].name : "?",
++               (unsigned)opcode->type, opcode->num_dst, opcode->num_src, ops,
++               opcode->specific.thread_group.x, opcode->specific.thread_group.y, opcode->specific.thread_group.z);
++}
++
+ /* exynos-woa G25: a declaration (or the immediate constant buffer, which sits among them) - the GS-as-compute
+  * translation emits its prologue at the first token that is neither. */
+ bool
+diff --git a/src/gallium/frontends/d3d10umd/ShaderParse.h b/src/gallium/frontends/d3d10umd/ShaderParse.h
+index 1825f08..629a536 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderParse.h
++++ b/src/gallium/frontends/d3d10umd/ShaderParse.h
+@@ -139,6 +139,14 @@ struct Shader_opcode {
+       struct { unsigned x, y, z; } thread_group;
+       struct { unsigned stride, count; } structured;
+       unsigned sync_flags;
++      /* exynos-woa G34 (SM5, notes/g34-fl11.md): hull / domain declarations, GS instances, UAV declarations */
++      unsigned control_point_count;   /* dcl_input/output_control_point_count */
++      unsigned tess_domain;           /* D3D11_SB_TESSELLATOR_DOMAIN */
++      unsigned tess_partitioning;     /* D3D11_SB_TESSELLATOR_PARTITIONING */
++      unsigned tess_output_primitive; /* D3D11_SB_TESSELLATOR_OUTPUT_PRIMITIVE */
++      float hs_max_tessfactor;
++      unsigned instance_count;        /* dcl_hs_fork/join_phase_instance_count, dcl_gs_instances */
++      struct { D3D10_SB_RESOURCE_DIMENSION dimension; unsigned flags; } uav;   /* dcl_uav_typed / dcl_uav_raw */
+    } specific;
+    D3D10_SB_NAME dcl_siv_name;
+    D3D10_SB_RESOURCE_RETURN_TYPE dcl_resource_ret_type[4];
+@@ -204,6 +212,10 @@ struct Shader_extra {
+ bool
+ Shader_opcode_is_declaration(unsigned type);   /* exynos-woa G25 */
+ 
++/* exynos-woa G34: D3D10UMD_PARSE_TRACE=1 (diagnosis only, AGENTS.md rule 12) logs every parsed opcode to the tlog */
++void
++Shader_opcode_trace(const struct Shader_opcode *opcode);
++
+ const struct tgsi_token *
+ Shader_tgsi_translate_ex(const unsigned *code,
+                          unsigned *output_mapping,
+diff --git a/src/gallium/frontends/d3d10umd/ShaderTGSI.c b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+index 414e2b8..23b673a 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderTGSI.c
++++ b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+@@ -1740,6 +1740,8 @@ Shader_tgsi_translate_ex(const unsigned *code,
+    while (Shader_parse_opcode(&parser, &opcode)) {
+       const struct dx10_opcode_xlate *ox;
+ 
++      Shader_opcode_trace(&opcode);   /* exynos-woa G34: D3D10UMD_PARSE_TRACE=1 */
++
+       assert(opcode.type < D3D10_SB_NUM_OPCODES);
+       ox = &opcode_xlate[opcode.type];
+ 

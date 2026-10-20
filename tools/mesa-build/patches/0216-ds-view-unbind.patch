@@ -1,0 +1,21 @@
+diff --git a/src/gallium/frontends/d3d10umd/Shader.cpp b/src/gallium/frontends/d3d10umd/Shader.cpp
+index 1ffdef2..7086dc9 100644
+--- a/src/gallium/frontends/d3d10umd/Shader.cpp
++++ b/src/gallium/frontends/d3d10umd/Shader.cpp
+@@ -1493,6 +1493,7 @@ DestroyShaderResourceView(D3D10DDI_HDEVICE hDevice,                           //
+    struct pipe_context *pipe = pDevice->pipe;
+ 
+    ViewListRemove(&pDevice->srv_list, pSRView);
++   struct pipe_sampler_view *old_handle = pSRView->handle;   /* review R11 of 0215: compared below after the release */
+    if (pSRView->handle)   /* exynos-woa G24: raw / structured buffer views have none */
+       pipe->sampler_view_release(pipe, pSRView->handle);
+    pSRView->handle = NULL;
+@@ -1501,6 +1502,8 @@ DestroyShaderResourceView(D3D10DDI_HDEVICE hDevice,                           //
+          pDevice->cs_srvs[i] = NULL;
+       if (pDevice->ps_srvs[i] == pSRView)   /* review R9 of 0206 */
+          pDevice->ps_srvs[i] = NULL;
++      if (old_handle && pDevice->ds_views[i] == old_handle)   /* review R11 of 0215 */
++         pDevice->ds_views[i] = NULL;
+    }
+    DeviceReleaseResource(pipe, &pSRView->buffer);   /* G32 */
+ }

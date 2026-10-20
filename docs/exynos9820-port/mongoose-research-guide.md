@@ -46,6 +46,56 @@ they come from; anything marked *inference* is unverified.
    `Madt.aslc`, `Pptt.aslc` - 3 clusters by class, no cache nodes). Hangs start after boot, when Windows' hetero/PPM
    policy kicks in (m14-smp.md ~357).
 
+6. **Does Samsung's EL2 hypervisor (uH) catch the M4?** Windows runs at **EL1 under Samsung uH (EL2)**, which
+   sboot loads from the `uh` partition before it jumps to our image (el2_code `0x87000000 + 0x200000`,
+   notes/K10-rkp.md T16). See §2b. Two things are still unknown: which EL1 operations uH traps, and what uH does
+   with an exception it does not handle.
+   - *Useful answer:* uH's HCR_EL2 value(s), and what its EL2 vector table does in the default case (spin, reset
+     or inject into EL1).
+
+## 2b. Samsung's EL2 layer: what the public write-ups say (read 2026-10-20)
+
+Sources: dayzerosec "Reversing Samsung's H-Arx hypervisor part 1", Longterm/Impalabs "A Samsung RKP Compendium",
+Project Zero "Lifting the (Hyper) Visor", Phrack 70:10 "Hypervisor Necromancy", and Quarkslab "Samsung TrustZone
+part 1". Full notes and URLs are in notes/m4-uh-public-research-20261020.md. **None of them mentions Mongoose,
+PSCI/CPU_ON or ACTLR, so none answers the M4 question directly.** They do describe the layer between Windows and EL3:
+
+- **Generation.** The S10 uses **uH**. H-Arx (dayzerosec) is the S20+ framework, so its addresses and API do not
+  apply to us. The 9610 uH in the compendium has the same `0x87000000 + 0x200000` region and the same log address as
+  our 9820. That makes it the closest public model of our uH (*inference*).
+- **How uH handles an exception.** The EL2 sync handler dispatches HVC (EC 0x16), trapped MSR/MRS (EC 0x18, checked
+  against an allow-list) and stage-2 aborts. Anything it rejects goes to `uh_panic`. The 9610 build then logs,
+  copies the state to "bigdata" and calls `exynos_reset(0x8800)`. The older S8 vmm instead **spins at EL2**, and its
+  unhandled vector slots are `b .` loops.
+  - *Inference:* a core spinning at EL2 stays powered and no exception reaches Windows. It also stops answering
+    IPIs, so the next TLB-flush or freeze IPI hangs every other CPU. That is exactly our passive two-M4 death
+    (plain hang, never resets, every core PU=1). A 9610-style panic would reset the SoC, and we see no reset
+    without KD. So if uH is involved, it is a spin or deadlock, not `uh_panic`.
+- **Which bits are set (example).** The only HCR_EL2 value published is from the S8: `0x84000003` = RW | TVM |
+  SWIO | VM. That build traps no ACTLR (TACR), IMPDEF registers (TIDCP), TLBI (TTLB), cache maintenance (TPU/TPCP/
+  TSW), WFI/WFE or SMC. It does not route IRQ/FIQ/SError to EL2 (IMO/FMO/AMO). Our m4trap1 run agrees on TVM: it
+  found no trap on TTBR0/TCR/SCTLR/MAIR/CONTEXTIDR writes. **m4trap1 never timed TLBI, IC/DC maintenance, ACTLR or
+  WFI.** The 9810 port did see uH trap TLBI (notes/m10-windows-deploy-plan.md:70,136), and one of the last M4 PCs
+  before a death was MiCopyPage right after `IC IALLUIS`. So on the 9820 this is open (experiment E1 below).
+- **uH's log ring is at a fixed address: `0x87100000 + 0x40000`.** Samsung's 9820 kernel header hardcodes it as
+  `UH_LOG_START` (notes/K10-rkp.md:271). On 9610 the region is read-only to EL1 after RKP starts. RKP never starts on
+  our path, so whether EL1 can read it here is **UNVERIFIED**: a read could fault into uH. uH zeroes the ring at
+  init, so it must be copied **before** the reset. Reading it after the reboot finds nothing (experiment E2).
+- **Not relevant to the M4.** The ROPP key reload on secondary cores (`ropp_secondary_init`) and the RKP/KDP
+  commands are only needed by Samsung's own kernel. LineageOS runs all 8 cores with `CONFIG_UH` off
+  (notes/m4-linux-research-20261019.md:255).
+- **The most direct answer would come from Samsung's uH binary**, not Windows. It is the `uh` entry in the BL tar,
+  or the `uh` partition (sda10, read-only `dd` from TWRP). Format: GREENTEA magic and a 0x1000-byte header, per the
+  compendium. What to look for:
+  - every `msr hcr_el2` and the value written
+  - the VBAR_EL2 table: which slots are `b .`, and what the sync handler's default case does
+  - any MIDR check for implementer 0x53 ('S', Mongoose)
+  - CPU power / PSCI hooks
+  - the panic path: spin or reset
+
+  This is Samsung firmware, so AGENTS.md rule 11 (Windows internals) does not cover it. Whether to analyse it is the
+  owner's call.
+
 ## 3. How to research it yourself
 
 **Tools (all public):** WinDbg (Store version) with the Microsoft public symbol server
@@ -93,6 +143,8 @@ what each outcome means.
 | Stub flag 7 (interrupts + WFI on the M4, Windows not involved) | WFI/IRQ on the M4 is fine; look at Windows-specific state | the firmware/GIC side is wrong for the M4, not Windows |
 | Read the M4's native ACTLR_EL1 / CPUACTLR in the stub before Windows starts, and compare with what Windows leaves there | — | if they differ, test with the native value restored (by us, in firmware) |
 | Pin a single test thread to an M4 (process affinity) after boot, with everything else idle | shows whether "any work" or specific work kills it | — |
+| **E1 (new, §2b):** trap timing for maintenance ops. Bring back the m4trap1 method (stub flag 4, removed in b66429a8): 1000 × each of `TLBI VMALLE1`, `TLBI VMALLE1IS`, `TLBI VAE1IS`, `TLBI ASIDE1IS`, `IC IALLU`, `IC IALLUIS`, `IC IVAU`, `DC CIVAC`, `DC CISW`, `ACTLR_EL1` write-back of its own value, and `WFI` with a pending timer, against the nop baseline. Run on an A55, an A75 and an M4, all parked and not offered. | no op adds ≥ ~26 ticks on any core → uH does not intercept maintenance ops, and the uH hypothesis narrows to stage-2 faults | an op traps (any core) → uH handles Windows' maintenance. If it traps only on the M4, or the M4 never returns, that is the lead |
+| **E2 (new, §2b):** copy uH's log ring `0x87100000 + 0x40000` from the not-offered A55 sampler (the m4pcs1 pattern, gicc3) into WINPRAM every 0.25 s during a two-M4 run; dump after the watchdog reset. First try a single read from UEFI and watch for a stage-2 abort. | ring readable and unchanged at the death → uH saw nothing (points to EL3 / hardware) | new uH lines at the death → they name the cause. A fault on the first read → the region is stage-2 unmapped and this path is closed |
 
 ## 5. What to hand back (template)
 
@@ -105,6 +157,7 @@ System registers Windows writes on a secondary, in order: REG = value (where: fu
 Local (non-broadcast) TLBI / IC sites found: function names, when they run
 Feature/errata flags that differ per CPU and the code they select: ...
 ACPI as parsed by Windows (MADT/PPTT for the M4s): ...
+Samsung uH (if analysed): HCR_EL2 value(s); EL2 vector default case (spin / reset / inject); Mongoose MIDR checks
 Raw output: attach the WinDbg log
 ```
 

@@ -2046,3 +2046,18 @@ diagnostic timers from release builds once perf work settles.
 - Open G34 follow-ups: HS join phases (R13), GS after DS (R14), HS SRVs, GPU tessellation, Bifrost VS inputs 16 (a
   10_1 gap), WebGPU requestAdapter null (also with 11_0 hidden). Next candidate: Edge/Chromium hardware video, which
   the FL 11_0 gate was for (parking lot fl11-chrome-video.md) - untested.
+
+## 74. 2026-10-20 - browser hardware video (G35) done, HDMI prep next, unattended
+
+- Mesa 0219-0222 (notes/g35-browser-video.md): Chromium's D3D11VideoDecoder now runs on our DXVA bridge -> MFC.
+  0219/0220 MFC device handle at CreateVideoDecoder, the one-per-device session at the first BeginFrame (Chromium
+  creates a second decoder before releasing the first); 0221 NV12 plane views (R8 luma / R8G8 chroma) through
+  panfrost_resource_create_alias (linear NV12, alias tracked as its base); 0222 VideoProc releases its sampler view
+  through the context (TC use-after-free).
+- Live since the 19:20 reboot (all three UMDs 0222): System32\maliumd_arm64.dll bf2be4ed, maliumd_ec.dll cf3998ca,
+  SysWOW64\maliumd32.dll 93180fde (s10e-artifacts\mali-umd-0222). DWM / desktop fine.
+- Validated natively: Edge 1080p24 H.264 23.6 fps dropped 2 (software 14.1), Brave 23.4 fps; MFC busy probe confirms
+  the browser holds the MFC. x86 + EC D3D regressions pass (d3dbc: use the "lossy" mode since G26).
+- Tools: tools/phone/g35 (browservideo.ps1 + videorun.sh = native playback check; cdpplay.sh / cdp_nav.py = DevTools
+  Media log + unsandboxed UMD log, tracing only).
+- Next: HDMI (G18) prep - user has a USB-C to HDMI adapter and a USB-C hub. Do as much as possible without the user.

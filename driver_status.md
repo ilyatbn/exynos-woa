@@ -18,7 +18,7 @@ As of 2026-10-20 (tag alpha9). Windows 11 Pro 23H2, build 22631.6199. Windows Up
 | USB (docks, mouse, keyboard, drives) | 🟡 | works, no hot-plug |
 | Battery / charging | 🟡 | works, slow to update |
 | GPU (graphics acceleration) | 🟡 | desktop, browsers, D3D11 and OpenGL apps and games on the Mali GPU |
-| Hardware video decode | 🟡 | H.264 on the video chip for Windows apps (Photos, mpv) |
+| Hardware video decode | 🟡 | H.264 on the video chip for Windows apps (Photos, mpv) and browsers (Edge, Brave) |
 | Speakers | 🟢 | both speakers, stereo, balance app |
 | Headphone jack | 🟢 | sound out, own "Headphones" device; no headset mic |
 | Microphones | 🟢 | both built-in mics, "Microphone" device, boost slider in the speaker app |
@@ -56,7 +56,7 @@ As of 2026-10-20 (tag alpha9). Windows 11 Pro 23H2, build 22631.6199. Windows Up
   - Shaders are saved per program, so the second start of a game compiles less. A "Shader cache" app on the desktop lists each program's cache and can clear one or all.
   - Games: Dave the Diver runs at about 26 fps (measured at feature level 10_1, before 11_0), and reaches its title screen 18 s faster than before (122 s); most of that wait is the game itself under x64 emulation. Need for Speed Underground 2 runs through dgVoodoo, and Game Dev Story runs.
   - Not perfect yet: tessellation is computed on the CPU (its speed is not measured yet), the GPU loses some speed to our driver's own overhead, and DirectX 12 / Vulkan are not supported.
-- **Hardware video decode:** H.264 video is decoded by the phone's video chip for normal Windows apps (Media Foundation: Photos, mpv), with smooth 1080p playback in mpv. Photos itself still plays slowly; browsers don't use it yet.
+- **Hardware video decode:** H.264 video is decoded by the phone's video chip for normal Windows apps (Media Foundation: Photos, mpv), with smooth 1080p playback in mpv. Edge and Brave decode H.264 video on it too (1080p at full speed, about 24 fps instead of 14 in software). Photos itself still plays slowly, and sites that send VP9 or AV1 (YouTube by default) are still decoded in software.
 - **Speakers:** the earpiece and bottom speaker play together in stereo, with a balance set by ear. "S10e Speakers" in the Start menu adjusts them live.
 - **Headphone jack:** plugging in headphones switches to a separate "Headphones" device and back. The headset microphone isn't done.
 - **WiFi:** works through the normal Windows WiFi menu. 5 GHz reaches 220-280 Mbit/s; 2.4 GHz about 35-40 Mbit/s.

@@ -1,0 +1,194 @@
+diff --git a/src/gallium/auxiliary/nir/tgsi_to_nir.c b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+index 39f2466..8d81fc2 100644
+--- a/src/gallium/auxiliary/nir/tgsi_to_nir.c
++++ b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+@@ -1993,6 +1993,54 @@ ttn_mem(struct ttn_compile *c, nir_def **src)
+    }
+ }
+ 
++/* exynos-woa G34 (SM5 atomics, d3d10umd ShaderTGSI.c): TGSI ATOM* on BUFFER (SSBO) and MEMORY (byte-addressed shared
++ * memory, base 0 like ttn_mem) -> nir ssbo/shared atomics; dst.x = the previous value. ATOMCAS dst, res, offset, cmp,
++ * src (tgsi.rst). Images: not handled here yet (typed UAV atomics). */
++static nir_def *
++ttn_atomic(struct ttn_compile *c, nir_def **src)
++{
++   nir_builder *b = &c->build;
++   struct tgsi_full_instruction *tgsi_inst = &c->token->FullInstruction;
++   unsigned file = tgsi_inst->Src[0].Register.File;
++   unsigned index = tgsi_inst->Src[0].Register.Index;
++   nir_atomic_op op;
++
++   switch (tgsi_inst->Instruction.Opcode) {
++   case TGSI_OPCODE_ATOMUADD: op = nir_atomic_op_iadd; break;
++   case TGSI_OPCODE_ATOMXCHG: op = nir_atomic_op_xchg; break;
++   case TGSI_OPCODE_ATOMCAS:  op = nir_atomic_op_cmpxchg; break;
++   case TGSI_OPCODE_ATOMAND:  op = nir_atomic_op_iand; break;
++   case TGSI_OPCODE_ATOMOR:   op = nir_atomic_op_ior; break;
++   case TGSI_OPCODE_ATOMXOR:  op = nir_atomic_op_ixor; break;
++   case TGSI_OPCODE_ATOMUMIN: op = nir_atomic_op_umin; break;
++   case TGSI_OPCODE_ATOMUMAX: op = nir_atomic_op_umax; break;
++   case TGSI_OPCODE_ATOMIMIN: op = nir_atomic_op_imin; break;
++   case TGSI_OPCODE_ATOMIMAX: op = nir_atomic_op_imax; break;
++   default: UNREACHABLE("not an atomic");
++   }
++
++   nir_def *offset = ttn_channel(b, src[1], X);
++   nir_def *data = ttn_channel(b, src[2], X);
++   nir_def *res;
++   if (file == TGSI_FILE_BUFFER) {
++      add_ssbo_var(c, index);
++      nir_def *idx = nir_imm_int(b, index);
++      if (op == nir_atomic_op_cmpxchg)
++         res = nir_ssbo_atomic_swap(b, 32, idx, offset, data, ttn_channel(b, src[3], X), .atomic_op = op);
++      else
++         res = nir_ssbo_atomic(b, 32, idx, offset, data, .atomic_op = op);
++   } else if (file == TGSI_FILE_MEMORY) {
++      if (op == nir_atomic_op_cmpxchg)
++         res = nir_shared_atomic_swap(b, 32, offset, data, ttn_channel(b, src[3], X), .base = 0, .atomic_op = op);
++      else
++         res = nir_shared_atomic(b, 32, offset, data, .base = 0, .atomic_op = op);
++   } else {
++      fprintf(stderr, "ttn_atomic: file %u not handled\n", file);
++      res = nir_imm_int(b, 0);
++   }
++   return nir_replicate(b, res, 4);
++}
++
+ static const nir_op op_trans[TGSI_OPCODE_LAST] = {
+    [TGSI_OPCODE_ARL] = 0,
+    [TGSI_OPCODE_MOV] = nir_op_mov,
+@@ -2343,6 +2391,19 @@ ttn_emit_instruction(struct ttn_compile *c)
+       dst = ttn_mem(c, src);
+       break;
+ 
++   case TGSI_OPCODE_ATOMUADD:   /* exynos-woa G34 */
++   case TGSI_OPCODE_ATOMXCHG:
++   case TGSI_OPCODE_ATOMCAS:
++   case TGSI_OPCODE_ATOMAND:
++   case TGSI_OPCODE_ATOMOR:
++   case TGSI_OPCODE_ATOMXOR:
++   case TGSI_OPCODE_ATOMUMIN:
++   case TGSI_OPCODE_ATOMUMAX:
++   case TGSI_OPCODE_ATOMIMIN:
++   case TGSI_OPCODE_ATOMIMAX:
++      dst = ttn_atomic(c, src);
++      break;
++
+    case TGSI_OPCODE_RESQ:   /* exynos-woa G34 (SM5 bufinfo): the byte size of a buffer, replicated */
+       if (tgsi_inst->Src[0].Register.File == TGSI_FILE_BUFFER) {
+          add_ssbo_var(c, tgsi_inst->Src[0].Register.Index);
+diff --git a/src/gallium/frontends/d3d10umd/ShaderTGSI.c b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+index b40168c..6b8dd44 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderTGSI.c
++++ b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+@@ -1045,6 +1045,61 @@ buffer_address(struct Shader_xlate *sx, const struct buf_ref *r, const struct Sh
+    return ureg_scalar(ureg_src(a), TGSI_SWIZZLE_X);
+ }
+ 
++/* exynos-woa G34 F11.4a: SM5 atomic on a raw / structured UAV or groupshared memory. The address operand is the byte
++ * offset (raw) or (structure index, byte offset) (structured), sm5 asm atomic_* / imm_atomic_*. result (optional)
++ * receives the previous value, replicated to its mask. cmp = the compare value of atomic_cmp_store / imm_atomic_cmp_exch.
++ * Returns false when the resource is not a buffer this translator declared (typed UAVs: F11.4b). */
++static bool
++emit_buffer_atomic(struct Shader_xlate *sx, unsigned tgsi_op, const struct Shader_operand *res,
++                   const struct Shader_src_operand *addr, const struct Shader_src_operand *cmp,
++                   const struct Shader_src_operand *value, const struct Shader_dst_operand *result)
++{
++   struct ureg_program *ureg = sx->ureg;
++   struct buf_ref r = resolve_buffer(sx, res);
++   if (!r.ok)
++      return false;
++   struct ureg_src a = translate_src_operand(sx, addr, OF_UINT);
++   struct ureg_dst ad = ureg_writemask(ureg_DECL_temporary(ureg), TGSI_WRITEMASK_X);
++   if (r.stride)
++      ureg_UMAD(ureg, ad, ureg_scalar(a, TGSI_SWIZZLE_X), ureg_imm1u(ureg, r.stride), ureg_scalar(a, TGSI_SWIZZLE_Y));
++   else
++      ureg_MOV(ureg, ad, ureg_scalar(a, TGSI_SWIZZLE_X));
++   if (r.base)
++      ureg_UADD(ureg, ad, ureg_scalar(ureg_src(ad), TGSI_SWIZZLE_X), ureg_imm1u(ureg, r.base));
++   struct ureg_src src[4];
++   unsigned n = 0;
++   src[n++] = r.reg;
++   src[n++] = ureg_scalar(ureg_src(ad), TGSI_SWIZZLE_X);
++   if (cmp)
++      src[n++] = ureg_scalar(translate_src_operand(sx, cmp, OF_UINT), TGSI_SWIZZLE_X);
++   src[n++] = ureg_scalar(translate_src_operand(sx, value, OF_UINT), TGSI_SWIZZLE_X);
++   struct ureg_dst t = ureg_DECL_temporary(ureg);
++   ureg_memory_insn(ureg, tgsi_op, &t, 1, src, n, 0, TGSI_TEXTURE_BUFFER, PIPE_FORMAT_NONE);
++   if (result && result->base.type != D3D10_SB_OPERAND_TYPE_NULL)
++      ureg_MOV(ureg, translate_dst_operand(sx, result, false), ureg_scalar(ureg_src(t), TGSI_SWIZZLE_X));
++   ureg_release_temporary(ureg, t);
++   ureg_release_temporary(ureg, ad);
++   return true;
++}
++
++static unsigned
++sm5_atomic_tgsi_op(unsigned type)
++{
++   switch (type) {
++   case D3D11_SB_OPCODE_ATOMIC_AND: case D3D11_SB_OPCODE_IMM_ATOMIC_AND: return TGSI_OPCODE_ATOMAND;
++   case D3D11_SB_OPCODE_ATOMIC_OR: case D3D11_SB_OPCODE_IMM_ATOMIC_OR: return TGSI_OPCODE_ATOMOR;
++   case D3D11_SB_OPCODE_ATOMIC_XOR: case D3D11_SB_OPCODE_IMM_ATOMIC_XOR: return TGSI_OPCODE_ATOMXOR;
++   case D3D11_SB_OPCODE_ATOMIC_CMP_STORE: case D3D11_SB_OPCODE_IMM_ATOMIC_CMP_EXCH: return TGSI_OPCODE_ATOMCAS;
++   case D3D11_SB_OPCODE_ATOMIC_IADD: case D3D11_SB_OPCODE_IMM_ATOMIC_IADD: return TGSI_OPCODE_ATOMUADD;
++   case D3D11_SB_OPCODE_ATOMIC_IMAX: case D3D11_SB_OPCODE_IMM_ATOMIC_IMAX: return TGSI_OPCODE_ATOMIMAX;
++   case D3D11_SB_OPCODE_ATOMIC_IMIN: case D3D11_SB_OPCODE_IMM_ATOMIC_IMIN: return TGSI_OPCODE_ATOMIMIN;
++   case D3D11_SB_OPCODE_ATOMIC_UMAX: case D3D11_SB_OPCODE_IMM_ATOMIC_UMAX: return TGSI_OPCODE_ATOMUMAX;
++   case D3D11_SB_OPCODE_ATOMIC_UMIN: case D3D11_SB_OPCODE_IMM_ATOMIC_UMIN: return TGSI_OPCODE_ATOMUMIN;
++   case D3D11_SB_OPCODE_IMM_ATOMIC_EXCH: return TGSI_OPCODE_ATOMXCHG;
++   default: return TGSI_OPCODE_LAST;
++   }
++}
++
+ /* ---- exynos-woa G25: geometry shader as a compute shader (notes/g25-geometry-shaders.md) ----
+  * One invocation per input primitive (64 per group). Prologue: primitive = group * 64 + thread, active = primitive <
+  * count, then every declared input register of every vertex is loaded from buffer 0 (the VS outputs the draw captured
+@@ -3146,6 +3201,48 @@ Shader_tgsi_translate_ex(const unsigned *code,
+          break;
+       }
+ 
++      /* exynos-woa G34 F11.4a: atomics. atomic_* u#/g#, addr, [cmp,] value; imm_atomic_* dst, u#/g#, addr, [cmp,]
++       * value (sm5 asm). */
++      case D3D11_SB_OPCODE_ATOMIC_AND:
++      case D3D11_SB_OPCODE_ATOMIC_OR:
++      case D3D11_SB_OPCODE_ATOMIC_XOR:
++      case D3D11_SB_OPCODE_ATOMIC_CMP_STORE:
++      case D3D11_SB_OPCODE_ATOMIC_IADD:
++      case D3D11_SB_OPCODE_ATOMIC_IMAX:
++      case D3D11_SB_OPCODE_ATOMIC_IMIN:
++      case D3D11_SB_OPCODE_ATOMIC_UMAX:
++      case D3D11_SB_OPCODE_ATOMIC_UMIN: {
++         bool c = opcode.type == D3D11_SB_OPCODE_ATOMIC_CMP_STORE;
++         if (!emit_buffer_atomic(&sx, sm5_atomic_tgsi_op(opcode.type), &opcode.dst[0].base, &opcode.src[0],
++                                 c ? &opcode.src[1] : NULL, &opcode.src[c ? 2 : 1], NULL)) {
++            malikm_tlog("ShaderTGSI: atomic %u on operand type %u not translated yet", (unsigned)opcode.type,
++                        (unsigned)opcode.dst[0].base.type);
++            LOG_UNSUPPORTED(true);
++         }
++         break;
++      }
++      case D3D11_SB_OPCODE_IMM_ATOMIC_IADD:
++      case D3D11_SB_OPCODE_IMM_ATOMIC_AND:
++      case D3D11_SB_OPCODE_IMM_ATOMIC_OR:
++      case D3D11_SB_OPCODE_IMM_ATOMIC_XOR:
++      case D3D11_SB_OPCODE_IMM_ATOMIC_EXCH:
++      case D3D11_SB_OPCODE_IMM_ATOMIC_CMP_EXCH:
++      case D3D11_SB_OPCODE_IMM_ATOMIC_IMAX:
++      case D3D11_SB_OPCODE_IMM_ATOMIC_IMIN:
++      case D3D11_SB_OPCODE_IMM_ATOMIC_UMAX:
++      case D3D11_SB_OPCODE_IMM_ATOMIC_UMIN: {
++         bool c = opcode.type == D3D11_SB_OPCODE_IMM_ATOMIC_CMP_EXCH;
++         if (!emit_buffer_atomic(&sx, sm5_atomic_tgsi_op(opcode.type), &opcode.dst[1].base, &opcode.src[0],
++                                 c ? &opcode.src[1] : NULL, &opcode.src[c ? 2 : 1], &opcode.dst[0])) {
++            malikm_tlog("ShaderTGSI: imm atomic %u on operand type %u not translated yet", (unsigned)opcode.type,
++                        (unsigned)opcode.dst[1].base.type);
++            LOG_UNSUPPORTED(true);
++            if (opcode.dst[0].base.type != D3D10_SB_OPERAND_TYPE_NULL)
++               ureg_MOV(ureg, translate_dst_operand(&sx, &opcode.dst[0], false), ureg_imm1u(ureg, 0));
++         }
++         break;
++      }
++
+       case D3D11_SB_OPCODE_SYNC: {
+          unsigned f = opcode.specific.sync_flags;
+          if (f & D3D11_SB_SYNC_THREADS_IN_GROUP)

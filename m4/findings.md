@@ -24,7 +24,11 @@ is static evidence from the shipped firmware until a test says otherwise.
 | F11 | The PIT also defines **`uhuh.bin` (UHCFG), `acpm.bin` (ACPM), `ect.bin` (ECT)** partitions — none shipped in the HXJ6 BL tar. ACPM owns M4 rail voltage. | BEYOND0LTE pit strings |
 | F12 | **Device reality check (owner dumps, /data2/sams):** the phone's LUN1 runs sboot **G970FXXSGHWC1** (2023, SRPRI28A016), not the HXJ6 build — but every analyzed sboot region (uh-load, APP_INIT, CL2 PSCI/DVFS clients, sysreg thunks) is byte-identical between the two builds. And the **device's uH binary is byte-for-byte the analyzed code** (only the signing trailer differs; Samsung shipped the same uH 2023→2025). All F1-F8 facts describe exactly what Windows runs under. | /data2/sams cmp + m4/artifacts/sboot-ghwc1.* |
 | F13 | **`uhuh.bin` (UHCFG, sda11) is entirely zero** — no uH config/policy exists on this device; the binary alone is the whole story. | /data2/sams/uhuh.bin |
-| F14 | ACPM firmware is nowhere in LUN0, LUN1(sboot), LUN2, cm.bin or the tars; sboot carries the ACPM load/dump framework (`acpm_dump: base %x size %x`, `acpm_vclk_list`). Candidates: UFS LUN3/LUN4 (sdd 8 MiB incl. cpefs, sde 8 MiB) - not yet dumped. | strings + recon |
+| F14 | ACPM firmware is nowhere in LUN0, LUN1(sboot), LUN2, LUN3(cpefs), LUN4(cm container), cm.bin or any tar; the **PIT's ACPM entry is a zero-size stub** (no ACPM/ECT/UL_KEYS partition exists on this device). sboot reads the ACPM initdata table (`[0x2040000+8]` + `0x2039000` walk @0x17810) already at boot — the image source is SoC-internal (ROM/TCM or SecBl1-loaded). **The live RAM read (P7) is therefore the only retrieval path.** | LUN dumps + PIT + sboot disasm |
+| F15 | **EL3 monitor is resident at PA `0x80000000` (2 GiB — inside the stage-2 Non-shareable DRAM window).** sboot validates its signature word `{0x66265999, 0x66269633, 0x6626ccca}` and can print `"EL3 Monitor information: Signature %c%c%c%c / Versoin %c%c%c%c"`; its WDT/stuck path writes breadcrumb `0x66269633@[0x80000000]`, `0x77279633|0x77279733@[0x80000010]`, `0x02038000@[0xC8FFE018]` next to the `SMC_CALL_STUCK` string. The monitor binary is in NO flashed partition and cm.bin's 6 TZ blobs (loads `0x8200xxxx`) contain no PSCI/SMC dispatch — static CPU_ON/monitor RE from the package is impossible; P2 stays the way to settle H1a/H1b. | sboot disasm 0xad6bc/0x16438/0x28580 |
+| F16 | sboot's DT repack (same flow as uh-load, 0x103620-0x1037f8) reserves **`sboot,rmem @0xC9000000` 16 MB** and **framebuffer @0xCA000000 20 MB** (inside the 2-4 GB window!) and sets **`/cpufreq/domain@2` = "pm_qos-booting" = 2000000 (kHz)** — domain@2 is the M4 cluster (DTB: domain@0=LITTLE). "Update Max freq to %d" comes from an SCM getter via a .bss pointer table (0x479a00). UEFI-side tests must treat `0xC9000000-0xCB400000` as bootloader-occupied. | sboot disasm + base.dts |
+| F17 | sboot.bin carries a **dense 32-bit config-table region at file `0x1F0000-0x250000`** (~640 KiB, no magic, entropy 7.4, version-dependent between GHWC1/HXJ6) — prime candidate for the boot DVFS/voltage/DMC tables feeding the 0x17810 consumer. Next host-side decode target. | entropy map + disasm |
+| F18 | **CPU/bus FREQUENCY ladders are in the DT package** (not only in ACPM): `/cpufreq-ufc/domain@2` (top cluster; @0 tops 1950000=A55, @1 2314000=A75, @2 2912000=M4) lists a 23-OP ladder 2912000→**520000** with per-point MIF/INT bus floors; dtbo carries the 20-OP `dvfs_mif` ladder 2730000→520000 (x7 cap variants) + per-domain mif-perf caps; `devfreq_mif@17000010` boot_info=(idx 40, cap 2093000) — idx 40 ∉ 20-OP dtbo ladder ⇒ **ACPM's internal MIF table is ~41 OPs**. CL2 bus calibration ECT name: **"dvfs_cpucl2"**. Extracted artifact: `m4/artifacts/dt-dvfs-tables.txt`. **Per-OP core voltages remain ACPM-internal only.** | dt.img/dtbo.img/base.dts decode |
 
 ## 2. Hypotheses these facts produce (ranked, testable)
 
@@ -91,24 +95,29 @@ shipping direction (Windows never touches the NS-window pages; uH's fault-path a
 invasive: the RKP HVC surface (0xC300C200 APP_RKP + RKP_WRITE_PGT1..3) rewrites guest s2 with proper
 attrs — but it expects Linux structures (rkp_init); treat as research, not a near-term step.
 
-**P7 — ACPM RAM dump (the voltage data; no extra files needed).** M4 DVFS/OPP+voltage tables are NOT in
-the DTB and NOT in vendor.img - Samsung keeps them inside the ACPM coprocessor image, which runs live in
+**P7 — ACPM RAM dump (the voltage data; no extra files needed).** The frequency ladders are already in
+the DT (F18) - what is NOT anywhere on flash is the per-OP **voltage** table and ACPM's full ~41-OP MIF
+table. They live inside the ACPM coprocessor image, resident in
 chip RAM: DTB `acpm_ipc` = reg `0x15900000/0x1000` (IPC SFRs) + **`0x02039000/0x30000` (ACPM RAM)**,
 initdata-base 0x7000, dump-base 0x203c000 size 0x2d000 (dumps/hhxj6/base.dts:6116-6141).
 From running Windows: `s10ediagx dumpmmio 0x2039000 0x80` as a liveness probe first (m4mb.sh pattern,
 watchdog armed), then `0x2039000 0x30000`. On-chip RAM, not a control SFR - expected safe - but treat it
 like the 0x1D100104 lesson: bisect, never blind-loop. Result = ground truth for which voltage ACPM picks
 for the 520 MHz CL2 step (closes the m4clk1 UNVERIFIED gap) + a base for FREQ_REQ/ACPM mailbox RE.
+Partition hunt is closed (F14): this dump is the only way to ever see the ACPM image.
+
+**P8 — EL3 monitor identification read (new, trivially safe).** 256-byte RAM read at **PA `0x80000000`**
+via the same UEFI/s10ediagx path. Expect: signature word (one of `0x6626xxxx` per F15) + a 4-char ASCII
+version string ("Versoin: %c%c%c%c") + the monitor's info block. Compare against sboot GHWC1's expected
+constants; also read `0x80000010` (`0x77279633/9733` = WDT breadcrumb flags — nonzero here means a past
+stuck-monitor event was recorded). Plain DRAM inside the s2-identity-mapped 0-4 GB region — no SFR risk.
 
 ## 4. Data the owner can provide that would sharpen all of this
 
-1. **DONE (2026-10-21):** recon + LUN1/LUN2 + uh + uhcfg dumps received (see /data2/sams, F12-F14).
-   Remaining ask: **full dumps of `sdd` and `sde`** (8 MiB each, TWRP:
-   `dd if=/dev/block/sdd of=/sdd.bin && dd if=/dev/block/sde of=/sde.bin && adb pull /sdd.bin /sde.bin`)
-   plus the LUN map (`for l in sdb sdc sdd sde; do echo $l $(cat /sys/block/$l/device/lun); done`).
-   ACPM is the only thing they can still hide; nothing else pending on the device side.
-   (uhuh.bin answered: all-zero. Sibling-package `uh.bin` diffing is moot: device vs HXJ6 uH are the
-   same code; a sibling 9820 package would only help find a packaged `acpm.bin`.)
+1. **DONE (2026-10-21, both rounds):** recon + LUN1-LUN4 + uh + uhcfg dumps all received and parsed
+   (/data2/sams, F12-F15). The storage hunt is **closed**: LUN3=cpefs, LUN4=cm TZ blobs, and no
+   ACPM/ECT/UL_KEYS partition exists (PIT stub). Nothing further to dd — the ACPM image can only be
+   retrieved live (P7). Sibling-package `uh.bin` diffing is moot (device vs HXJ6 uH = same code).
 2. **`dqmdbg.img` is already inside the AP tar** (local) — worth cracking next session: debug images
    sometimes carry the log-tag dictionaries that map the `RKP_xxxxxxxx` hashed names to readable strings,
    which would make P3 ring lines human-readable.
@@ -124,4 +133,9 @@ for the 520 MHz CL2 step (closes the m4clk1 UNVERIFIED gap) + a base for FREQ_RE
   sboot's loop are, and whether anything arms per-CPU state.
 - sboot `cl2emul` implementation (command strings @0x355e4): Samsung's own emulation shim for CL2 SFR
   access — may name the exact hazard behind the SoC-freezing peeks (0x1D100104 / 0x15861200-0x1650).
-- The PSCI monitor itself: not in these tars; needs the device dumps (item 4.1) or another package.
+- The PSCI monitor: confirmed NOT in the package (F15) — resident at PA 0x80000000 at runtime. If its
+  bytes are ever needed, P8+ (256 B probe first) could extend to a live code dump via our own UEFI tool.
+- sboot `0x1F0000-0x250000` config-table region (F17) × the 0x17810 initdata consumer: decode the boot
+  DVFS/voltage tables statically — pairs with P7's live ACPM dump.
+- sboot SCM client layer: .bss pointer table at image 0x479a00 (thunks 0xbbb0c/0xbbb38/0xbbb64...); find
+  the registration site to name every SCM command sboot issues (frequency get/set among them).

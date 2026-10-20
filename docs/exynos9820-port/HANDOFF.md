@@ -2021,3 +2021,23 @@ diagnostic timers from release builds once perf work settles.
   5. T5 as designed (WINPRAM ring sampler every 0.25 s during a one-M4 run) - now known how to parse.
 - Uncommitted/device state: none new (host-only session). m4kd8-era notes about BCD debug off + daily
   image stand as before.
+
+### 70b. 2026-10-21 (same arc) - owner dumps parsed: LUNs closed, ACPM/monitor verdicts, DT ladders
+
+- Owner-provided dumps (/data2/sams, outside the repo): LUN1-LUN4 + uh + uhcfg partitions + recon. All
+  parsed; findings F12-F18 now in m4/findings.md. Key outcomes:
+  * Device uH is **byte-identical code** to the analyzed HXJ6 binary (GHWC1-era signing trailer only) and
+    the analyzed sboot regions are identical between GHWC1/HXJ6 - all §70 facts describe the device as-is.
+  * uhcfg partition is all-zero (no uH policy layer). LUN3=cpefs, LUN4=cm 6-blob TZ container (code
+    identical to HXJ6 cm.bin). **No ACPM/ECT/UL_KEYS partition exists** (PIT entry is a zero-size stub);
+    ACPM image is SoC-internal - P7 (live RAM read 0x2039000+0x30000) is the only retrieval path.
+  * **EL3/PSCI monitor confirmed resident at PA 0x80000000** (signature words 0x6626xxxx, WDT breadcrumbs
+    0x66269633/0x77279733, mailbox 0xC8FFE018); its binary is on NO AP-visible flash - H1a/H1b still
+    settle only via the P2 hvc probe. New test **P8**: 256-byte UEFI read at 0x80000000 (monitor id).
+  * **CPU/bus frequency ladders recovered from the package** (m4/artifacts/dt-dvfs-tables.txt): domain@2
+    (M4) 23 OPPs 2912000..520000 with MIF/INT bus floors; dtbo dvfs_mif 20-OP ladder; ACPM internal MIF
+    table ~41 OPs. Per-OP voltages remain ACPM-only (P7).
+  * sboot reserves sboot,rmem @0xC9000000 16MB + framebuffer @0xCA000000 20MB (inside the 2-4GB NS window)
+    and sets /cpufreq/domain@2 pm_qos-booting=2000000 - relevant for the P4/P5 split-map experiment.
+- Updated test order = findings.md P1-P8 (unchanged core: P1 ring banner, P2 hvc probe, P3 ring sampler,
+  P4 ordering, P5 split-map; P7/P8 are the new safe RAM reads).

@@ -147,6 +147,21 @@ The §2b checklist answered:
   - Samsung's own boot console has CL2 power and a **CL2 SFR-emulation switch**; worth remembering when planning
   cross-cluster SFR reads (the ones that froze the SoC may be exactly what cl2emul papers over).
 
+### 2c supplement (2026-10-21) - owner's device dumps + DT decode
+
+LUN1-L4 + uh + uhcfg dumps parsed (/data2/sams; notes §"Device dumps"/"LUN3/LUN4"). Verdicts:
+**device uH = byte-identical code** to the analyzed binary (GHWC1 trailer); **uhcfg all-zero** (no config
+layer); LUN4 = cm 6-blob TZ container (identical code to HXJ6 cm.bin, no PSCI handlers inside);
+**no ACPM/ECT/UL_KEYS partition exists on the device** (PIT ACPM entry is a zero-size stub) - ACPM code
+is SoC-internal and reachable only live via its RAM window (findings.md P7). sboot proves an **EL3 monitor
+resident at PA 0x80000000** ("EL3 Monitor information", signature words 0x6626xxxx; WDT breadcrumb writes
+0x66269633 there) but its image is nowhere on AP flash - the hvc probe (P2) + monitor id read (P8) stay
+the way to pin its behaviour. And the **CPU+bus frequency ladders were recovered from the signed DTs**
+(domain@2 = M4: 23 OPPs 2912000..520000 kHz with MIF/INT bus floors; artifact
+`m4/artifacts/dt-dvfs-tables.txt`) - only per-OP voltages remain ACPM-internal. sboot reserves
+`0xC9000000` (16 MB) + `0xCA000000` (20 MB) inside the 2-4 GB stage-2 window and boots domain@2 with
+pm_qos 2000000 kHz.
+
 ## 3. How to research it yourself
 
 **Tools (all public):** WinDbg (Store version) with the Microsoft public symbol server

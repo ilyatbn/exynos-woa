@@ -1,0 +1,53 @@
+diff --git a/src/gallium/drivers/panfrost/pan_job.c b/src/gallium/drivers/panfrost/pan_job.c
+index 75d7ce6..0bbe4e5 100644
+--- a/src/gallium/drivers/panfrost/pan_job.c
++++ b/src/gallium/drivers/panfrost/pan_job.c
+@@ -727,7 +727,7 @@ panfrost_batch_submit(struct panfrost_context *ctx,
+        * framebuffers, colour / depth-stencil pixels preloaded (read from memory into the tile buffer), cleared, and
+        * written back, and multisampled batches. Megapixels per batch; a full 1520x720 target is 1.09 MP. */
+       extern void malikm_tlog(const char *fmt, ...);
+-      static unsigned n, draws, msaa, empty;
++      static unsigned n, draws, msaa, empty, rts, rt_afbc, rt_linear, zs_afbc, zss;
+       static double px, cpre, cclr, cst, zpre, zst;
+       double a = (double)fb.width * fb.height / 1e6;
+       n++;
+@@ -740,6 +740,14 @@ panfrost_batch_submit(struct panfrost_context *ctx,
+       for (unsigned i = 0; i < fb.rt_count; i++) {
+          if (!fb.rts[i].view)
+             continue;
++         {   /* 0184: is the attachment AFBC-compressed, tiled or linear? */
++            struct panfrost_resource *r = pan_resource(batch->key.cbufs[i].texture);
++            rts++;
++            if (r && drm_is_afbc(r->modifier))
++               rt_afbc++;
++            else if (r && r->modifier == DRM_FORMAT_MOD_LINEAR)
++               rt_linear++;
++         }
+          if (fb.rts[i].preload)
+             cpre += a;
+          if (fb.rts[i].clear)
+@@ -748,6 +756,10 @@ panfrost_batch_submit(struct panfrost_context *ctx,
+             cst += a;
+       }
+       if (fb.zs.view.zs) {
++         struct panfrost_resource *zr = pan_resource(batch->key.zsbuf.texture);   /* 0184 */
++         zss++;
++         if (zr && drm_is_afbc(zr->modifier))
++            zs_afbc++;
+          if (fb.zs.preload.z || fb.zs.preload.s)
+             zpre += a;
+          if (!fb.zs.discard.z || !fb.zs.discard.s)
+@@ -755,9 +767,10 @@ panfrost_batch_submit(struct panfrost_context *ctx,
+       }
+       if (n == 2000) {
+          malikm_tlog("pan batches 2000: %u draws (%u batches without), fb %.0f MP, colour preload %.0f clear %.0f "
+-                     "store %.0f MP, zs preload %.0f store %.0f MP, msaa %u", draws, empty, px, cpre, cclr, cst, zpre,
+-                     zst, msaa);
+-         n = draws = msaa = empty = 0;
++                     "store %.0f MP, zs preload %.0f store %.0f MP, msaa %u; colour attachments %u (afbc %u, linear %u), "
++                     "zs %u (afbc %u)", draws, empty, px, cpre, cclr, cst, zpre, zst, msaa, rts, rt_afbc, rt_linear, zss,
++                     zs_afbc);
++         n = draws = msaa = empty = rts = rt_afbc = rt_linear = zs_afbc = zss = 0;
+          px = cpre = cclr = cst = zpre = zst = 0;
+       }
+    }

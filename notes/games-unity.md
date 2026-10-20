@@ -478,3 +478,6 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   little; it stays on the u_blitter path (0182). The remaining zs preload (~514 MP / 2000 batches) is mostly that.
 - State after the clear work: colour fast clears halve the colour preloads; frame medians 34.6-38.4 ms depending on the
   map layout (bot13/14/15), lows best so far in bot14 (1 % 11.3 fps, max 164 ms).
+- Mesa 0184 (diagnosis): the batch counter line also gives colour attachments (AFBC / linear) and zs (AFBC) - is AFBC
+  (framebuffer compression, ~half the tile traffic) used for Dave's render targets? EC 0f3426a0 live; d3dmrt64x 7/7,
+  d3dbc64x lossy 0/126.

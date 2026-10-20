@@ -1,0 +1,32 @@
+diff --git a/src/gallium/frontends/d3d10umd/Compute.cpp b/src/gallium/frontends/d3d10umd/Compute.cpp
+index 4472505..1f7116e 100644
+--- a/src/gallium/frontends/d3d10umd/Compute.cpp
++++ b/src/gallium/frontends/d3d10umd/Compute.cpp
+@@ -233,6 +233,9 @@ DestroyUnorderedAccessView(D3D10DDI_HDEVICE hDevice, D3D11DDI_HUNORDEREDACCESSVI
+    for (unsigned i = 0; i < ARRAY_SIZE(pDevice->cs_uavs); i++)
+       if (pDevice->cs_uavs[i] == u)
+          pDevice->cs_uavs[i] = NULL;
++   for (unsigned i = 0; i < ARRAY_SIZE(pDevice->om_uavs); i++)   /* review R8 of 0206 */
++      if (pDevice->om_uavs[i] == u)
++         pDevice->om_uavs[i] = NULL;
+    DeviceReleaseResource(pDevice->pipe, &u->resource);   /* G32 */
+ }
+ 
+diff --git a/src/gallium/frontends/d3d10umd/Shader.cpp b/src/gallium/frontends/d3d10umd/Shader.cpp
+index 6c0dad4..2c31690 100644
+--- a/src/gallium/frontends/d3d10umd/Shader.cpp
++++ b/src/gallium/frontends/d3d10umd/Shader.cpp
+@@ -1485,9 +1485,12 @@ DestroyShaderResourceView(D3D10DDI_HDEVICE hDevice,                           //
+    if (pSRView->handle)   /* exynos-woa G24: raw / structured buffer views have none */
+       pipe->sampler_view_release(pipe, pSRView->handle);
+    pSRView->handle = NULL;
+-   for (unsigned i = 0; i < PIPE_MAX_SHADER_SAMPLER_VIEWS; i++)
++   for (unsigned i = 0; i < PIPE_MAX_SHADER_SAMPLER_VIEWS; i++) {
+       if (pDevice->cs_srvs[i] == pSRView)
+          pDevice->cs_srvs[i] = NULL;
++      if (pDevice->ps_srvs[i] == pSRView)   /* review R9 of 0206 */
++         pDevice->ps_srvs[i] = NULL;
++   }
+    DeviceReleaseResource(pipe, &pSRView->buffer);   /* G32 */
+ }
+ 

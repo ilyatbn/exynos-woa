@@ -12,6 +12,8 @@
  *   bufinfo    RWByteAddressBuffer / RWStructuredBuffer GetDimensions
  *   typedbuf   RWBuffer<uint> (R32_UINT typed UAV): store, then typed load
  *   typedtex   RWTexture2D<uint> store + load
+ *   typedatomic InterlockedAdd / Max on RWTexture2D<uint> texels
+ *   rgba8store RWTexture2D<float4> stores into an R8G8B8A8_UNORM texture (read back texel by texel)
  *   atomics    InterlockedAdd / Max / Min / And / Or / Xor / CompareStore on a raw UAV
  *   immatomic  InterlockedAdd / Exchange / CompareExchange with the original value returned
  *   atomics2   signed InterlockedMax/Min on a RWStructuredBuffer<int>, value-returning And/Or/Xor/Max/Min
@@ -29,7 +31,7 @@
 #include <d3d11.h>
 #include <d3dcompiler.h>
 
-enum Extra { EX_NONE, EX_TYPEDBUF, EX_TYPEDTEX, EX_UAV8, EX_STRUCTINT };
+enum Extra { EX_NONE, EX_TYPEDBUF, EX_TYPEDTEX, EX_UAV8, EX_STRUCTINT, EX_RGBA8TEX };
 
 struct Test {
     const char *name;
@@ -113,7 +115,8 @@ static const Test g_tests[] = {
       "RWBuffer<uint> tb : register(u1);\n"
       "[numthreads(64,1,1)] void main(uint3 tid : SV_DispatchThreadID) {\n"
       "  tb[tid.x] = tid.x * 97u + 5u;\n"
-      "  uint v = tb[tid.x];\n"
+      "  DeviceMemoryBarrierWithGroupSync();\n"
+      "  uint v = tb[tid.x ^ 1u];\n"
       "  dst.Store(tid.x * 4, v + 1u);\n"
       "}\n", 64, 1, 1, 1, EX_TYPEDBUF },
     { "typedtex",
@@ -121,9 +124,27 @@ static const Test g_tests[] = {
       "RWTexture2D<uint> tt : register(u1);\n"
       "[numthreads(8,8,1)] void main(uint3 tid : SV_DispatchThreadID) {\n"
       "  tt[tid.xy] = (tid.y << 16) | tid.x;\n"
-      "  uint v = tt[tid.xy];\n"
+      "  DeviceMemoryBarrierWithGroupSync();\n"
+      "  uint v = tt[tid.xy ^ uint2(1, 0)];\n"
       "  dst.Store((tid.y * 8 + tid.x) * 4, v ^ 0x55u);\n"
       "}\n", 64, 1, 1, 1, EX_TYPEDTEX },
+    { "typedatomic",   /* image atomics on R32_UINT RWTexture2D / RWBuffer */
+      "RWByteAddressBuffer dst : register(u0);\n"
+      "RWTexture2D<uint> tt : register(u1);\n"
+      "[numthreads(8,8,1)] void main(uint3 tid : SV_DispatchThreadID) {\n"
+      "  InterlockedAdd(tt[uint2(tid.x & 3u, 0)], tid.y + 1u);\n"
+      "  uint o; InterlockedMax(tt[uint2(7, 7)], tid.x * 8u + tid.y, o);\n"
+      "  DeviceMemoryBarrierWithGroupSync();\n"
+      "  if (tid.y == 0) dst.Store(tid.x * 4, tt[uint2(tid.x, 0)]);\n"
+      "  if (tid.x == 0 && tid.y == 0) dst.Store(32, tt[uint2(7, 7)]);\n"
+      "}\n", 16, 1, 1, 1, EX_TYPEDTEX },
+    { "rgba8store",   /* RWTexture2D<float4> on R8G8B8A8_UNORM; the texture itself is read back */
+      "RWTexture2D<float4> tt : register(u1);\n"
+      "RWByteAddressBuffer dst : register(u0);\n"
+      "[numthreads(8,8,1)] void main(uint3 tid : SV_DispatchThreadID) {\n"
+      "  tt[tid.xy] = float4(tid.x / 7.0, tid.y / 7.0, (tid.x ^ tid.y) / 7.0, 0.5);\n"
+      "  dst.Store(0, 1u);\n"
+      "}\n", 64, 1, 1, 1, EX_RGBA8TEX },
     { "atomics",
       "RWByteAddressBuffer dst : register(u0);\n"
       "[numthreads(64,1,1)] void main(uint3 tid : SV_DispatchThreadID) {\n"
@@ -277,6 +298,15 @@ static bool RunTest(ID3D11Device *dev, ID3D11DeviceContext *ctx, const Test *t, 
         extra[1] = tx;
         if (SUCCEEDED(hr)) hr = dev->CreateUnorderedAccessView(tx, NULL, &uav[1]);
         nuav = 2;
+    } else if (SUCCEEDED(hr) && t->extra == EX_RGBA8TEX) {
+        D3D11_TEXTURE2D_DESC td = {};
+        td.Width = td.Height = 8; td.MipLevels = td.ArraySize = 1; td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        td.SampleDesc.Count = 1; td.Usage = D3D11_USAGE_DEFAULT; td.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+        ID3D11Texture2D *tx = NULL;
+        hr = dev->CreateTexture2D(&td, NULL, &tx);
+        extra[1] = tx;
+        if (SUCCEEDED(hr)) hr = dev->CreateUnorderedAccessView(tx, NULL, &uav[1]);
+        nuav = 2;
     } else if (SUCCEEDED(hr) && t->extra == EX_STRUCTINT) {
         D3D11_BUFFER_DESC bd = { 4 * 4, D3D11_USAGE_DEFAULT, D3D11_BIND_UNORDERED_ACCESS, 0,
                                  D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 4 };
@@ -321,6 +351,28 @@ static bool RunTest(ID3D11Device *dev, ID3D11DeviceContext *ctx, const Test *t, 
     ctx->Dispatch(t->gx, t->gy, t->gz);
     ID3D11UnorderedAccessView *none[8] = {};
     ctx->CSSetUnorderedAccessViews(0, 8, none, NULL);
+    if (t->extra == EX_RGBA8TEX) {   /* compare the texels: copy the texture through a staging texture into out */
+        D3D11_TEXTURE2D_DESC td = {};
+        ((ID3D11Texture2D *)extra[1])->GetDesc(&td);
+        td.Usage = D3D11_USAGE_STAGING; td.BindFlags = 0; td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        ID3D11Texture2D *stt = NULL;
+        if (SUCCEEDED(dev->CreateTexture2D(&td, NULL, &stt))) {
+            ctx->CopyResource(stt, extra[1]);
+            D3D11_MAPPED_SUBRESOURCE m;
+            if (SUCCEEDED(ctx->Map(stt, 0, D3D11_MAP_READ, 0, &m))) {
+                for (UINT y = 0; y < 8; y++)
+                    memcpy(out + y * 8, (const BYTE *)m.pData + y * m.RowPitch, 32);
+                ctx->Unmap(stt, 0);
+            }
+            stt->Release();
+        }
+        for (UINT k = 0; k < 8; k++) {
+            if (uav[k]) uav[k]->Release();
+            if (extra[k]) extra[k]->Release();
+        }
+        srv->Release(); inbuf->Release(); outbuf->Release(); st->Release(); cs->Release();
+        return true;
+    }
     ctx->CopyResource(st, outbuf);
     D3D11_MAPPED_SUBRESOURCE map;
     hr = ctx->Map(st, 0, D3D11_MAP_READ, 0, &map);

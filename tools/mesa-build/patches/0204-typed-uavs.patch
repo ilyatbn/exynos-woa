@@ -1,0 +1,419 @@
+diff --git a/src/gallium/auxiliary/nir/tgsi_to_nir.c b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+index 8d81fc2..6a67dd9 100644
+--- a/src/gallium/auxiliary/nir/tgsi_to_nir.c
++++ b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+@@ -1969,6 +1969,17 @@ ttn_mem(struct ttn_compile *c, nir_def **src)
+          instr->src[3] = nir_src_for_ssa(nir_imm_int(b, 0)); /* LOD */
+       }
+ 
++      /* exynos-woa G34 F11.4b: dimension (nir_rewrite_image_intrinsic does not fill it from the variable; left at 0 it
++       * reads as 1D) and the data type of the access (panfrost's image lowering asserts a 32-bit type) */
++      nir_intrinsic_set_image_dim(instr, dim);
++      nir_intrinsic_set_image_array(instr, is_array);
++      nir_alu_type data_type = base_type == GLSL_TYPE_INT ? nir_type_int32 :
++                               base_type == GLSL_TYPE_UINT ? nir_type_uint32 : nir_type_float32;
++      if (tgsi_inst->Instruction.Opcode == TGSI_OPCODE_LOAD)
++         nir_intrinsic_set_dest_type(instr, data_type);
++      else
++         nir_intrinsic_set_src_type(instr, data_type);
++
+       unsigned num_components = util_last_bit(tgsi_inst->Dst[0].Register.WriteMask);
+ 
+       if (tgsi_inst->Instruction.Opcode == TGSI_OPCODE_STORE) {
+@@ -2034,6 +2045,26 @@ ttn_atomic(struct ttn_compile *c, nir_def **src)
+          res = nir_shared_atomic_swap(b, 32, offset, data, ttn_channel(b, src[3], X), .base = 0, .atomic_op = op);
+       else
+          res = nir_shared_atomic(b, 32, offset, data, .base = 0, .atomic_op = op);
++   } else if (file == TGSI_FILE_IMAGE) {
++      /* exynos-woa G34 F11.4b: typed-UAV atomics (image var as in ttn_mem) */
++      enum glsl_sampler_dim dim;
++      bool is_array;
++      get_texture_info(tgsi_inst->Memory.Texture, &dim, NULL, &is_array);
++      nir_variable *image = get_image_var(c, index, dim, is_array, get_image_base_type(tgsi_inst),
++                                          get_mem_qualifier(tgsi_inst), tgsi_inst->Memory.Format);
++      nir_deref_instr *deref = nir_build_deref_var(b, image);
++      nir_def *sample = nir_undef(b, 1, 32);
++      /* atomics are on single-channel 32-bit views (D3D: R32_UINT / R32_SINT; nir_validate allows only those) */
++      enum glsl_base_type bt = get_image_base_type(tgsi_inst);
++      enum pipe_format afmt = bt == GLSL_TYPE_INT ? PIPE_FORMAT_R32_SINT :
++                              bt == GLSL_TYPE_UINT ? PIPE_FORMAT_R32_UINT : PIPE_FORMAT_R32_FLOAT;
++      if (op == nir_atomic_op_cmpxchg)
++         res = nir_image_deref_atomic_swap(b, 32, &deref->def, src[1], sample, data, ttn_channel(b, src[3], X),
++                                           .image_dim = dim, .image_array = is_array, .atomic_op = op,
++                                           .format = afmt);
++      else
++         res = nir_image_deref_atomic(b, 32, &deref->def, src[1], sample, data, .image_dim = dim,
++                                      .image_array = is_array, .atomic_op = op, .format = afmt);
+    } else {
+       fprintf(stderr, "ttn_atomic: file %u not handled\n", file);
+       res = nir_imm_int(b, 0);
+@@ -2041,6 +2072,30 @@ ttn_atomic(struct ttn_compile *c, nir_def **src)
+    return nir_replicate(b, res, 4);
+ }
+ 
++/* exynos-woa G34 F11.4b: the image intrinsics ttn emits use derefs of per-binding variables (get_image_var); drivers
++ * without deref support (panfrost: bifrost_compile.c "should've been lowered") want the binding index, like
++ * nir_lower_samplers does for textures. Only plain variable derefs exist here (no image arrays in TGSI). */
++static bool
++ttn_lower_image_deref(nir_builder *b, nir_intrinsic_instr *intr, void *data)
++{
++   switch (intr->intrinsic) {
++   case nir_intrinsic_image_deref_load:
++   case nir_intrinsic_image_deref_store:
++   case nir_intrinsic_image_deref_atomic:
++   case nir_intrinsic_image_deref_atomic_swap:
++   case nir_intrinsic_image_deref_size:
++   case nir_intrinsic_image_deref_samples:
++      break;
++   default:
++      return false;
++   }
++   nir_deref_instr *deref = nir_src_as_deref(intr->src[0]);
++   nir_variable *var = nir_deref_instr_get_variable(deref);
++   b->cursor = nir_before_instr(&intr->instr);
++   nir_rewrite_image_intrinsic(intr, nir_imm_int(b, var->data.binding), false);
++   return true;
++}
++
+ static const nir_op op_trans[TGSI_OPCODE_LAST] = {
+    [TGSI_OPCODE_ARL] = 0,
+    [TGSI_OPCODE_MOV] = nir_op_mov,
+@@ -3025,8 +3080,11 @@ ttn_finalize_nir(struct ttn_compile *c, struct pipe_screen *screen)
+    if (nir->options->lower_int64_options)
+       NIR_PASS(_, nir, nir_lower_int64);
+ 
+-   if (!c->cap_samplers_as_deref)
++   if (!c->cap_samplers_as_deref) {
+       NIR_PASS(_, nir, nir_lower_samplers);
++      NIR_PASS(_, nir, nir_shader_intrinsics_pass, ttn_lower_image_deref, nir_metadata_control_flow, NULL);   /* G34 */
++      NIR_PASS(_, nir, nir_opt_dce);   /* the now unused image derefs */
++   }
+ 
+    if (screen->finalize_nir) {
+       screen->finalize_nir(screen, nir, true);
+diff --git a/src/gallium/frontends/d3d10umd/Compute.cpp b/src/gallium/frontends/d3d10umd/Compute.cpp
+index db3fb44..4472505 100644
+--- a/src/gallium/frontends/d3d10umd/Compute.cpp
++++ b/src/gallium/frontends/d3d10umd/Compute.cpp
+@@ -163,18 +163,63 @@ CreateUnorderedAccessView(D3D10DDI_HDEVICE hDevice, const D3D11DDIARG_CREATEUNOR
+    (void)hRTView;
+ 
+    memset(u, 0, sizeof *u);
+-   if (pCreate->ResourceDimension != D3D10DDIRESOURCE_BUFFER &&
+-       pCreate->ResourceDimension != D3D11DDIRESOURCE_BUFFEREX) {
+-      /* typed texture UAVs are cs_5_0 only - not offered at feature level 10_x */
++   Resource *r = CastResource(pCreate->hDrvResource);
++   bool buffer = pCreate->ResourceDimension == D3D10DDIRESOURCE_BUFFER ||
++                 pCreate->ResourceDimension == D3D11DDIRESOURCE_BUFFEREX;
++   bool raw = buffer && (pCreate->Buffer.Flags & D3D11_DDI_BUFFER_UAV_FLAG_RAW);
++   pipe_resource_reference(&u->resource, r->resource);
++   if (buffer) {
++      unsigned es = BufferViewElementSize(r, pCreate->Format, raw);
++      u->offset = pCreate->Buffer.FirstElement * es;
++      u->size = pCreate->Buffer.NumElements * es;
++      if (raw || pCreate->Format == DXGI_FORMAT_UNKNOWN)
++         return;   /* raw / structured: an SSBO range */
++   }
++   /* exynos-woa G34 F11.4b: typed view (RWBuffer<T>, RWTexture1D/2D/3D[Array]<T>) -> shader image */
++   enum pipe_format f = FormatTranslate(pCreate->Format, false);
++   if (f == PIPE_FORMAT_NONE) {
+       LOG_UNSUPPORTED(true);
++      SetError(hDevice, E_INVALIDARG);
++      return;
++   }
++   struct pipe_image_view *iv = &u->image;
++   u->typed = true;
++   iv->resource = r->resource;
++   iv->format = f;
++   iv->access = PIPE_IMAGE_ACCESS_READ_WRITE;
++   iv->shader_access = PIPE_IMAGE_ACCESS_READ_WRITE;
++   if (buffer) {
++      iv->u.buf.offset = u->offset;
++      iv->u.buf.size = u->size;
++      return;
++   }
++   switch (pCreate->ResourceDimension) {
++   case D3D10DDIRESOURCE_TEXTURE1D:
++      iv->u.tex.level = pCreate->Tex1D.MipSlice;
++      iv->u.tex.first_layer = pCreate->Tex1D.FirstArraySlice;
++      iv->u.tex.last_layer = pCreate->Tex1D.FirstArraySlice + MAX2(pCreate->Tex1D.ArraySize, 1u) - 1;
++      break;
++   case D3D10DDIRESOURCE_TEXTURE2D:
++      iv->u.tex.level = pCreate->Tex2D.MipSlice;
++      iv->u.tex.first_layer = pCreate->Tex2D.FirstArraySlice;
++      iv->u.tex.last_layer = pCreate->Tex2D.FirstArraySlice + MAX2(pCreate->Tex2D.ArraySize, 1u) - 1;
++      break;
++   case D3D10DDIRESOURCE_TEXTURE3D: {
++      unsigned depth = u_minify(r->resource->depth0, pCreate->Tex3D.MipSlice);
++      unsigned wsize = pCreate->Tex3D.WSize == ~0u ? depth - pCreate->Tex3D.FirstW : pCreate->Tex3D.WSize;
++      iv->u.tex.level = pCreate->Tex3D.MipSlice;
++      iv->u.tex.first_layer = pCreate->Tex3D.FirstW;
++      iv->u.tex.last_layer = pCreate->Tex3D.FirstW + MAX2(wsize, 1u) - 1;
++      break;
++   }
++   default:
++      LOG_UNSUPPORTED(true);
++      u->typed = false;
+       SetError(hDevice, E_NOTIMPL);
+       return;
+    }
+-   Resource *r = CastResource(pCreate->hDrvResource);
+-   unsigned es = BufferViewElementSize(r, pCreate->Format, !!(pCreate->Buffer.Flags & D3D11_DDI_BUFFER_UAV_FLAG_RAW));
+-   pipe_resource_reference(&u->resource, r->resource);
+-   u->offset = pCreate->Buffer.FirstElement * es;
+-   u->size = pCreate->Buffer.NumElements * es;
++   if (iv->u.tex.last_layer >= util_num_layers(r->resource, iv->u.tex.level))
++      iv->u.tex.last_layer = util_num_layers(r->resource, iv->u.tex.level) - 1;
+ }
+ 
+ 
+@@ -238,6 +283,16 @@ LaunchCompute(Device *pDevice, UINT x, UINT y, UINT z, struct pipe_resource *ind
+    }
+    if (ex->num_buffers)
+       pipe->set_shader_buffers(pipe, MESA_SHADER_COMPUTE, 0, ex->num_buffers, bufs, writable);
++   if (ex->num_images) {   /* exynos-woa G34 F11.4b: typed UAVs */
++      struct pipe_image_view imgs[8];
++      memset(imgs, 0, sizeof imgs);
++      for (unsigned k = 0; k < ex->num_images; k++) {
++         UnorderedAccessView *u = pDevice->cs_uavs[ex->image_slot[k]];
++         if (u && u->typed)
++            imgs[k] = u->image;
++      }
++      pipe->set_shader_images(pipe, MESA_SHADER_COMPUTE, 0, ex->num_images, 0, imgs);
++   }
+ 
+    struct pipe_grid_info info;
+    memset(&info, 0, sizeof info);
+@@ -280,11 +335,62 @@ DispatchIndirect(D3D10DDI_HDEVICE hDevice, D3D10DDI_HRESOURCE hBufferForArgs, UI
+ 
+ /* Raw / structured buffer UAVs: D3D fills every 32-bit element with Values[0] (MS Learn ClearUnorderedAccessViewUint:
+  * "for raw or structured buffers only the first value is used"). */
++/* exynos-woa G34 F11.4b: a typed view - one element packed in the view's format, then every element of the buffer range
++ * or every layer of the mip. MS Learn ClearUnorderedAccessViewUint: "This API copies the lower ni bits from each array
++ * element i to the corresponding channel, where ni is the number of bits in the ith channel of the resource format";
++ * ClearUnorderedAccessViewFloat converts FLOAT to the format (u_format pack). */
++static void
++PackUintBits(enum pipe_format f, const UINT v[4], uint8_t out[16])
++{
++   const struct util_format_description *d = util_format_description(f);
++   for (unsigned c = 0; c < 4; c++) {   /* RGBA component c lives in channel swizzle[c] */
++      unsigned ch = d->swizzle[c];
++      if (ch >= 4 || !d->channel[ch].size)
++         continue;
++      unsigned shift = d->channel[ch].shift, size = MIN2(d->channel[ch].size, 32u);
++      for (unsigned b = 0; b < size; b++)
++         if ((v[c] >> b) & 1u)
++            out[(shift + b) / 8] |= (uint8_t)(1u << ((shift + b) % 8));
++   }
++}
++
++static void
++ClearTypedUav(Device *pDevice, UnorderedAccessView *u, const void *values, bool is_float)
++{
++   struct pipe_context *pipe = pDevice->pipe;
++   const struct pipe_image_view *iv = &u->image;
++   uint8_t packed[16] = {};
++   unsigned bs = util_format_get_blocksize(iv->format);
++   if (is_float)
++      util_format_pack_rgba(iv->format, packed, values, 1);
++   else
++      PackUintBits(iv->format, (const UINT *)values, packed);
++   if (iv->resource->target == PIPE_BUFFER) {
++      pipe->clear_buffer(pipe, iv->resource, iv->u.buf.offset, iv->u.buf.size, packed, bs);
++      return;
++   }
++   struct pipe_box box;
++   unsigned level = iv->u.tex.level;
++   u_box_3d(0, 0, iv->u.tex.first_layer, u_minify(iv->resource->width0, level),
++            u_minify(iv->resource->height0, level), iv->u.tex.last_layer - iv->u.tex.first_layer + 1, &box);
++   if (iv->resource->target == PIPE_TEXTURE_1D_ARRAY) {
++      box.y = iv->u.tex.first_layer;
++      box.height = box.depth;
++      box.z = 0;
++      box.depth = 1;
++   }
++   pipe->clear_texture(pipe, iv->resource, level, &box, packed);
++}
++
+ void APIENTRY
+ ClearUnorderedAccessViewUint(D3D10DDI_HDEVICE hDevice, D3D11DDI_HUNORDEREDACCESSVIEW hView, const UINT Values[4])
+ {
+    LOG_ENTRYPOINT();
+    UnorderedAccessView *u = CastUnorderedAccessView(hView);
++   if (u->typed) {
++      ClearTypedUav(CastDevice(hDevice), u, Values, false);
++      return;
++   }
+    if (u->resource && u->size)
+       CastDevice(hDevice)->pipe->clear_buffer(CastDevice(hDevice)->pipe, u->resource, u->offset, u->size, &Values[0], 4);
+ }
+@@ -295,6 +401,10 @@ ClearUnorderedAccessViewFloat(D3D10DDI_HDEVICE hDevice, D3D11DDI_HUNORDEREDACCES
+ {
+    LOG_ENTRYPOINT();
+    UnorderedAccessView *u = CastUnorderedAccessView(hView);
++   if (u->typed) {
++      ClearTypedUav(CastDevice(hDevice), u, Values, true);
++      return;
++   }
+    if (u->resource && u->size)
+       CastDevice(hDevice)->pipe->clear_buffer(CastDevice(hDevice)->pipe, u->resource, u->offset, u->size, &Values[0], 4);
+ }
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index 81307ef..ffe2392 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -306,7 +306,7 @@ translate_resource_flags(UINT flags)
+       bind |= PIPE_BIND_STREAM_OUTPUT;
+ 
+    if (flags & D3D11_DDI_BIND_UNORDERED_ACCESS)   /* exynos-woa G24: buffer UAVs are SSBOs */
+-      bind |= PIPE_BIND_SHADER_BUFFER;
++      bind |= PIPE_BIND_SHADER_BUFFER | PIPE_BIND_SHADER_IMAGE;   /* G34: typed UAVs are images */
+ 
+    if (flags & D3D10_DDI_BIND_PRESENT)
+       bind |= PIPE_BIND_DISPLAY_TARGET;
+diff --git a/src/gallium/frontends/d3d10umd/ShaderParse.h b/src/gallium/frontends/d3d10umd/ShaderParse.h
+index 629a536..cecaaea 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderParse.h
++++ b/src/gallium/frontends/d3d10umd/ShaderParse.h
+@@ -198,6 +198,9 @@ struct Shader_extra {
+    struct Shader_buffer_binding buffers[SHADER_MAX_BUFFERS];
+    unsigned shared_size;
+    unsigned block[3];
++   /* exynos-woa G34 F11.4b: typed UAVs (dcl_uav_typed) are TGSI images 0..num_images-1; image k is u#image_slot[k] */
++   unsigned num_images;
++   unsigned char image_slot[8];
+    /* exynos-woa G25 (notes/g25-geometry-shaders.md): a geometry shader translated into a compute shader (the caller
+     * sets gs_as_cs). Buffers: 0 = the VS outputs (input), 1 = the emitted vertices, 2 = the strip index buffer;
+     * CONST[15][0] = {input primitives, VS output stride in bytes, -, -}. Filled by the translation: */
+diff --git a/src/gallium/frontends/d3d10umd/ShaderTGSI.c b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+index 6b8dd44..64db500 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderTGSI.c
++++ b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+@@ -285,6 +285,7 @@ struct Shader_xlate {
+    struct Shader_extra local_extra;
+    struct { unsigned buffer, stride; } srvbuf[SHADER_MAX_RESOURCES];
+    struct { unsigned buffer, stride; } uavbuf[8];
++   struct { unsigned image, target; enum pipe_format format; } uavimg[8];   /* exynos-woa G34: image + 1 */
+    struct { bool declared; unsigned base, stride; } tgsm[32];
+    struct ureg_src memory;
+    bool memory_declared;
+@@ -1056,8 +1057,25 @@ emit_buffer_atomic(struct Shader_xlate *sx, unsigned tgsi_op, const struct Shade
+ {
+    struct ureg_program *ureg = sx->ureg;
+    struct buf_ref r = resolve_buffer(sx, res);
+-   if (!r.ok)
+-      return false;
++   if (!r.ok) {
++      /* F11.4b: a typed UAV - image atomic at the texel coordinates in the address operand */
++      unsigned i = res->index[0].imm;
++      if (res->type != D3D11_SB_OPERAND_TYPE_UNORDERED_ACCESS_VIEW || i >= 8 || !sx->uavimg[i].image)
++         return false;
++      struct ureg_src isrc[4];
++      unsigned in = 0;
++      isrc[in++] = ureg_src_register(TGSI_FILE_IMAGE, sx->uavimg[i].image - 1);
++      isrc[in++] = translate_src_operand(sx, addr, OF_UINT);
++      if (cmp)
++         isrc[in++] = ureg_scalar(translate_src_operand(sx, cmp, OF_UINT), TGSI_SWIZZLE_X);
++      isrc[in++] = ureg_scalar(translate_src_operand(sx, value, OF_UINT), TGSI_SWIZZLE_X);
++      struct ureg_dst it = ureg_DECL_temporary(ureg);
++      ureg_memory_insn(ureg, tgsi_op, &it, 1, isrc, in, 0, sx->uavimg[i].target, sx->uavimg[i].format);
++      if (result && result->base.type != D3D10_SB_OPERAND_TYPE_NULL)
++         ureg_MOV(ureg, translate_dst_operand(sx, result, false), ureg_scalar(ureg_src(it), TGSI_SWIZZLE_X));
++      ureg_release_temporary(ureg, it);
++      return true;
++   }
+    struct ureg_src a = translate_src_operand(sx, addr, OF_UINT);
+    struct ureg_dst ad = ureg_writemask(ureg_DECL_temporary(ureg), TGSI_WRITEMASK_X);
+    if (r.stride)
+@@ -2963,6 +2981,77 @@ Shader_tgsi_translate_ex(const unsigned *code,
+          break;
+       }
+ 
++      /* exynos-woa G34 F11.4b: typed UAV -> TGSI image. The format given to TGSI only carries the D3D return type
++       * (RGBA32 of uint / sint / float): panfrost converts through the bound view's descriptor at run time and trims
++       * stores to the declared format's component count, so a 4-component format never cuts data
++       * (pan_nir_lower_image.c). */
++      case D3D11_SB_OPCODE_DCL_UNORDERED_ACCESS_VIEW_TYPED: {
++         unsigned slot = opcode.dst[0].base.index[0].imm;
++         if (slot >= 8 || sx.extra->num_images >= 8) {
++            LOG_UNSUPPORTED(true);
++            break;
++         }
++         unsigned target;
++         switch (opcode.specific.uav.dimension) {
++         case D3D10_SB_RESOURCE_DIMENSION_BUFFER: target = TGSI_TEXTURE_BUFFER; break;
++         case D3D10_SB_RESOURCE_DIMENSION_TEXTURE1D: target = TGSI_TEXTURE_1D; break;
++         case D3D10_SB_RESOURCE_DIMENSION_TEXTURE1DARRAY: target = TGSI_TEXTURE_1D_ARRAY; break;
++         case D3D10_SB_RESOURCE_DIMENSION_TEXTURE2D: target = TGSI_TEXTURE_2D; break;
++         case D3D10_SB_RESOURCE_DIMENSION_TEXTURE2DARRAY: target = TGSI_TEXTURE_2D_ARRAY; break;
++         case D3D10_SB_RESOURCE_DIMENSION_TEXTURE3D: target = TGSI_TEXTURE_3D; break;
++         default:
++            LOG_UNSUPPORTED(true);
++            target = TGSI_TEXTURE_2D;
++            break;
++         }
++         enum pipe_format fmt;
++         switch (opcode.dcl_resource_ret_type[0]) {
++         case D3D10_SB_RETURN_TYPE_UINT: fmt = PIPE_FORMAT_R32G32B32A32_UINT; break;
++         case D3D10_SB_RETURN_TYPE_SINT: fmt = PIPE_FORMAT_R32G32B32A32_SINT; break;
++         default: fmt = PIPE_FORMAT_R32G32B32A32_FLOAT; break;   /* float / unorm / snorm */
++         }
++         unsigned k = sx.extra->num_images++;
++         ureg_DECL_image(ureg, k, (enum tgsi_texture_type)target, fmt, true, false);
++         sx.extra->image_slot[k] = (unsigned char)slot;
++         sx.uavimg[slot].image = k + 1;
++         sx.uavimg[slot].target = target;
++         sx.uavimg[slot].format = fmt;
++         break;
++      }
++
++      case D3D11_SB_OPCODE_LD_UAV_TYPED: {
++         /* ld_uav_typed dst, address, u#[.swizzle] */
++         const struct Shader_src_operand *res = &opcode.src[1];
++         unsigned i = res->base.index[0].imm;
++         if (i >= 8 || !sx.uavimg[i].image) {
++            LOG_UNSUPPORTED(true);
++            break;
++         }
++         struct ureg_src lsrc[2] = { ureg_src_register(TGSI_FILE_IMAGE, sx.uavimg[i].image - 1),
++                                     translate_src_operand(&sx, &opcode.src[0], OF_UINT) };
++         struct ureg_dst tmp = ureg_DECL_temporary(ureg);
++         ureg_memory_insn(ureg, TGSI_OPCODE_LOAD, &tmp, 1, lsrc, 2, 0, sx.uavimg[i].target, sx.uavimg[i].format);
++         ureg_MOV(ureg, translate_dst_operand(&sx, &opcode.dst[0], opcode.saturate),
++                  ureg_swizzle(ureg_src(tmp), res->swizzle[0], res->swizzle[1], res->swizzle[2], res->swizzle[3]));
++         ureg_release_temporary(ureg, tmp);
++         break;
++      }
++
++      case D3D11_SB_OPCODE_STORE_UAV_TYPED: {
++         /* store_uav_typed u#.xyzw, address, value */
++         unsigned i = opcode.dst[0].base.index[0].imm;
++         if (i >= 8 || !sx.uavimg[i].image) {
++            LOG_UNSUPPORTED(true);
++            break;
++         }
++         struct ureg_dst img = ureg_writemask(ureg_dst(ureg_src_register(TGSI_FILE_IMAGE, sx.uavimg[i].image - 1)),
++                                              TGSI_WRITEMASK_XYZW);
++         struct ureg_src ssrc[2] = { translate_src_operand(&sx, &opcode.src[0], OF_UINT),
++                                     translate_src_operand(&sx, &opcode.src[1], OF_UINT) };
++         ureg_memory_insn(ureg, TGSI_OPCODE_STORE, &img, 1, ssrc, 2, 0, sx.uavimg[i].target, sx.uavimg[i].format);
++         break;
++      }
++
+       case D3D11_SB_OPCODE_DCL_THREAD_GROUP_SHARED_MEMORY_RAW:
+       case D3D11_SB_OPCODE_DCL_THREAD_GROUP_SHARED_MEMORY_STRUCTURED: {
+          unsigned g = opcode.dst[0].base.index[0].imm;
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index 28440e2..c81b948 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -88,6 +88,9 @@ struct UnorderedAccessView
+ {
+    struct pipe_resource *resource;
+    unsigned offset, size;
++   /* exynos-woa G34 F11.4b: a typed view (RWBuffer<T> / RWTexture*<T>) is bound as a shader image */
++   bool typed;
++   struct pipe_image_view image;
+ };
+ 
+ struct Query;

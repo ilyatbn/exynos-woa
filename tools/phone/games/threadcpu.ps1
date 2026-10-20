@@ -16,4 +16,21 @@ $rows = foreach ($t in $p.Threads) {
   } catch {}
 }
 "{0}: process {1:N0} % of one core over {2} s, {3} cores" -f $Name, (($p.TotalProcessorTime.TotalMilliseconds - $p0) * 100 / ($Seconds * 1000)), $Seconds, [Environment]::ProcessorCount
-$rows | Sort-Object Pct -Descending | Select-Object -First $Top | ForEach-Object { "  tid {0,6}  {1,5} %  prio {2}" -f $_.Tid, $_.Pct, $_.Prio }
+# thread names (documented GetThreadDescription; Unity and Mesa's util_queue name their threads)
+Add-Type -Namespace TC -Name K -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern System.IntPtr OpenThread(uint a, bool i, uint id);
+[System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern int GetThreadDescription(System.IntPtr h, out System.IntPtr d);
+[System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern bool CloseHandle(System.IntPtr h);
+[System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern System.IntPtr LocalFree(System.IntPtr p);
+'@
+function TName([int]$tid) {
+  $h = [TC.K]::OpenThread(0x1000, $false, [uint32]$tid)   # THREAD_QUERY_LIMITED_INFORMATION
+  if ($h -eq [IntPtr]::Zero) { return '?' }
+  $d = [IntPtr]::Zero; $n = ''
+  if ([TC.K]::GetThreadDescription($h, [ref]$d) -ge 0 -and $d -ne [IntPtr]::Zero) {
+    $n = [Runtime.InteropServices.Marshal]::PtrToStringUni($d); [void][TC.K]::LocalFree($d)
+  }
+  [void][TC.K]::CloseHandle($h)
+  return $n
+}
+$rows | Sort-Object Pct -Descending | Select-Object -First $Top | ForEach-Object { "  tid {0,6}  {1,5} %  prio {2}  '{3}'" -f $_.Tid, $_.Pct, $_.Prio, (TName $_.Tid) }

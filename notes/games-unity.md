@@ -531,3 +531,9 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
 - Mesa 0189: default fast-clear mask 7 without the flag file (colour + full zs + stencil-only: rendered right in bot18
   and bot20); bit 3 (temp-fb clears) stays off - never exercised by Dave. fastclear.txt removed from the phone. EC
   f5b4e506 live; d3dmrt64x 7/7, d3dbc64x lossy 0/126.
+- bot21 (EC 0189, defaults): 2609 frames / 103.3 s, mean 25.3 fps, median 37.9, p99 73.8, 7 > 100 ms. Counters
+  (bot20, pid 6912): zs preload 387 MP / 2000 batches (was ~495), but ~310 / 2000 batches are clear-only now (Unity
+  clears depth, then switches framebuffers before drawing: the clear is stored, the next pass preloads it). Mid-swim:
+  process 338 % of a core; top thread 94.2 % (prio 9), next 64.4 % (prio 8), 41 / 36 / 31 / 26 %; GPU 3D 89.7 %.
+  => two limits at once: one thread at ~94 % and the GPU at ~90 %. threadcpu.ps1 now prints thread names
+  (GetThreadDescription) to tell Unity's threads from Mesa's.

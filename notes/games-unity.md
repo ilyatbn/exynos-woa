@@ -549,3 +549,14 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   batch): a slot that already added the same resource BO + view BO to this batch skips read_rsrc + add_bo. Safe because
   the BOs stay referenced by the batch and a later writer batch flushes this one (panfrost_batch_update_access with
   writes submits every batch that uses the resource). EC 6311a66a live; d3dmrt64x 7/7, d3dbc64x lossy 0/126.
+- bot24 (EC 0191): renders right (plain-cliff layout of bot9 / bot19), 2459 frames / 103.0 s, mean 23.9, median 40.4,
+  p99 73.3 (bot19, same layout: 23.8 / 38.5 - within the run-to-run spread). tlog pid 1268: tex:read_rsrc calls
+  102815 -> 36145 per 120 frames (memo works) but the time stays ~411 ms: the cost is in the remaining calls, i.e. the
+  writer-batch submits inside read tracking (render-to-texture then sample: inherent to the game's passes), not the
+  repeated cheap ones. 0191 kept (harmless).
+- Where it stands (comparable layouts, auto route): coral 41.6 (bot2, 0171) / 40.4 (bot6) -> 36.9 ms (bot17, 0185);
+  kelp 38.4 (bot14) -> 37.0 (bot20, 0188); plain cliffs 38.5-40.4 (noise). GPU ~90 %, Unity's render thread ~90-94 %
+  (10.8-11.7 ms of it in the UMD, 4 ms of that waiting in Flush for the driver thread). Remaining levers: KMD per-job
+  GPU timing (split vertex/tiler vs fragment), merging clear-only batches into the next pass (deferred clears - large
+  correctness surface), shader disk cache (port), release (NDEBUG) build of the UMD (asserts cost CPU; but
+  UNREACHABLE becomes UB).

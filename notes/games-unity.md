@@ -730,3 +730,9 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   40813354: d3dcs64x 7/7, d3dcopysrgb64x PASS; recreated d3dcs64x index: attributes Archive, SparseFile, length
   2097160, fsutil layout "No clusters allocated". App: index bytes = GetCompressedFileSizeW (allocated size of a sparse
   file) -> 20 caches, 603 KB of shaders (+ 38.0 MB of index files; was 40.0) (shadercache-app3.png).
+- Final state (all flavours 0198): x86 dd3ec9ad, ARM64 adf54860 (reboot, dwm loads it, desktop normal with the new
+  "Shader cache.exe" icon, desk-0198-arm64.png), EC 40813354. After the reboot: d3dcopysrgb / d3dcs / d3dcbdyn /
+  d3dvbring / d3dtri on ARM64, d3dcopysrgb32 / d3dcbdyn32 / d3dvbring32 / d3dtri32 on x86, d3dcopysrgb64x / d3dcs64x /
+  d3dcbdyn64x on x64 - all PASS (PASS-line counts checked, not FAIL absence); d3dbc64x lossy + d3dmrt64x below.
+- HANDOFF section 69 written.
+  d3dbc64x lossy 0/126 differ PASS, d3dmrt64x 7/7 match.

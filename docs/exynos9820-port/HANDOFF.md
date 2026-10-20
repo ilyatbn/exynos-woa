@@ -1957,3 +1957,35 @@ diagnostic timers from release builds once perf work settles.
   fastclear.txt (absent = 7), counter lines every 2000 batches / 500 clears, thread-id lines.
 - Open: KMD per-job GPU timing; clear-only batches (~310 / 2000) -> deferred clears; shader disk cache port; NDEBUG
   build; ARM64/x86 ports; why malikm_mark_worker_thread logs nothing (0190).
+
+## 69. 2026-10-20 - all UMD flavours, shader disk cache + app, game load times (G33), unattended
+
+- notes/games-unity.md "G33" (every build hash, run, review). Mesa patches 0192-0198 (tools/mesa-build/patches):
+  0192 Windows backend for Mesa's shader disk cache (src/util/disk_cache_os.c, multi-file, one dir per exe:
+  %LOCALAPPDATA%\MaliUMD\ShaderCache\<exe>-<crc32 of path> + app.txt; Steam's MESA_DISK_CACHE_SINGLE_FILE /
+  MESA_SHADER_CACHE_DIR are ignored on Windows), 0194 size-counter fix, 0198 sparse index files, 0195 sRGB<->linear
+  copies as queued GPU blits (was a CPU fallback with a threaded-context sync), 0193/0196/0197 load diagnosis
+  (copy-path, CreateResource and BO alloc/mmap timing in the tlog). build-mesa-g76.ps1: -Dshader-cache=enabled
+  -Dshader-cache-max-size=256M -Dzlib:default_library=static (run it with -ExecutionPolicy Bypass).
+- Live on the phone: System32\maliumd_arm64.dll = mali-umd-0198 (adf54860, needs a reboot to change: dwm), maliumd_ec.dll
+  = 0198-ec (40813354), SysWOW64\maliumd32.dll = 0198-x86 (dd3ec9ad); swap any flavour with
+  tools/phone/games/umdswap.sh KIND DLL TAG (kind arm64 | ec | x86; previous kept as <name>.pre-<tag>-<n>). The
+  x86-0148 build before 0191 has no .pre copy on the phone (s10e-artifacts keeps it).
+- App: drivers/S10eDiag/S10eShaderCache.c -> s10eshadercache.exe, Public Desktop "Shader cache.exe" (per-game list,
+  Clear selected / Clear all, refuses a running game); in build.bat, esp/desktop.cmd and both provisioning scripts.
+- Results (Dave the Diver 1.0.6.2113, auto route): start -> title 140 s -> 122 s (0195; two runs 121.6 / 122.1);
+  Continue -> water 49.8 s cold cache -> 43.0 warm (0192) -> 40-42 (0195), spread up to 52 s when the file cache is
+  cold. The rest of the title load is ~105 s of the game's main thread at 100 % of one A75 (IL2CPP code under x64
+  emulation, governor at its ceiling) - not GPU-driver work; the M4 big cores (not running under Windows) are the only
+  faster cores. In-game load now: disk + game CPU; UMD left: BO allocations (CREATE_BO 1-40 ms by size, Lock 3-10 ms
+  each - runtime / VidMm, notes/skipped-windows-internals.md).
+- Bot (tools/phone/games/davebot): the update's title pop-ups are tapped away (OK only, title screen only); Continue now
+  resumes straight into a dive and the update starts a STORY DIALOGUE (Cobra) after the water HUD - the bot never
+  advances dialogue (it would progress the save), so the swim / frame-time route is blocked until the user decides.
+  loadrun.sh (phases + loadprof.ps1), loadspikes.sh (UMD sections of the in-game load). TaskStop of a background bash
+  task leaves its children (a leftover botbench.sh killed the game once): killruns.ps1 cleans up - run it as its own
+  command.
+- Open: x64 slab sub-allocation (wslab, 32-bit only today) to cut small BO creates / Locks (~1 s per load, EC-only:
+  32 MB slab granularity vs dwm's segment); the first-boot white-capture after the 0191 ARM64 swap (not reproduced);
+  D3D11 runtime shader cache DDI (WDDM 2.2 pfnCreateShaderCacheSession) as a documented alternative; earlier G32
+  items (KMD per-job timing, deferred clears, NDEBUG build).

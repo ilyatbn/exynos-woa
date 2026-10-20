@@ -14,6 +14,7 @@
  *   typedtex   RWTexture2D<uint> store + load
  *   atomics    InterlockedAdd / Max / Min / And / Or / Xor / CompareStore on a raw UAV
  *   immatomic  InterlockedAdd / Exchange / CompareExchange with the original value returned
+ *   atomics2   signed InterlockedMax/Min on a RWStructuredBuffer<int>, value-returning And/Or/Xor/Max/Min
  *   tgsmatomic groupshared InterlockedAdd / Max
  *   uav8       eight UAVs u0..u7 written in one shader
  *   group1024  numthreads(1024,1,1) groupshared reduction with barriers
@@ -28,7 +29,7 @@
 #include <d3d11.h>
 #include <d3dcompiler.h>
 
-enum Extra { EX_NONE, EX_TYPEDBUF, EX_TYPEDTEX, EX_UAV8 };
+enum Extra { EX_NONE, EX_TYPEDBUF, EX_TYPEDTEX, EX_UAV8, EX_STRUCTINT };
 
 struct Test {
     const char *name;
@@ -144,6 +145,26 @@ static const Test g_tests[] = {
       "  uint c; dst.InterlockedCompareExchange(8, 0u, 5u, c);\n"
       "  dst.InterlockedAdd(12, c == 0u ? 1u : 0u);\n"   /* exactly one thread saw 0 */
       "}\n", 16 + 64, 1, 1, 1, EX_NONE },
+    { "atomics2",   /* review R5: signed min/max and the value-returning and/or/xor/min/max forms */
+      "RWByteAddressBuffer dst : register(u0);\n"
+      "RWStructuredBuffer<int> si : register(u1);\n"
+      "[numthreads(64,1,1)] void main(uint3 tid : SV_DispatchThreadID) {\n"
+      "  int v = (int)tid.x - 40;\n"
+      "  InterlockedMax(si[0], v * 3);\n"
+      "  InterlockedMin(si[1], v * 5);\n"
+      "  int o;\n"
+      "  InterlockedMax(si[2], v, o);\n"
+      "  InterlockedMin(si[3], -v, o);\n"
+      "  uint a, b, c, d, e;\n"
+      "  dst.InterlockedAnd(64, ~(1u << (tid.x & 31u)), a);\n"
+      "  dst.InterlockedOr(68, 1u << (tid.x & 31u), b);\n"
+      "  dst.InterlockedXor(72, tid.x, c);\n"
+      "  dst.InterlockedMax(76, tid.x * 7u, d);\n"
+      "  dst.InterlockedMin(80, 500u - tid.x, e);\n"
+      "  dst.InterlockedAdd(84, (a != 0xDEADu) + (b != 0xDEADu) + (c != 0xDEADu) + (d != 0xDEADu) + (e != 0xDEADu));\n"
+      "  DeviceMemoryBarrierWithGroupSync();\n"
+      "  if (tid.x == 0) dst.Store4(0, asuint(int4(si[0], si[1], si[2], si[3])));\n"
+      "}\n", 32, 1, 1, 1, EX_STRUCTINT },
     { "tgsmatomic",
       "RWByteAddressBuffer dst : register(u0);\n"
       "groupshared uint s[2];\n"
@@ -256,6 +277,18 @@ static bool RunTest(ID3D11Device *dev, ID3D11DeviceContext *ctx, const Test *t, 
         extra[1] = tx;
         if (SUCCEEDED(hr)) hr = dev->CreateUnorderedAccessView(tx, NULL, &uav[1]);
         nuav = 2;
+    } else if (SUCCEEDED(hr) && t->extra == EX_STRUCTINT) {
+        D3D11_BUFFER_DESC bd = { 4 * 4, D3D11_USAGE_DEFAULT, D3D11_BIND_UNORDERED_ACCESS, 0,
+                                 D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 4 };
+        ID3D11Buffer *b = NULL;
+        hr = dev->CreateBuffer(&bd, NULL, &b);
+        extra[1] = b;
+        D3D11_UNORDERED_ACCESS_VIEW_DESC ud = {};
+        ud.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+        ud.Format = DXGI_FORMAT_UNKNOWN;
+        ud.Buffer.NumElements = 4;
+        if (SUCCEEDED(hr)) hr = dev->CreateUnorderedAccessView(b, &ud, &uav[1]);
+        nuav = 2;
     } else if (SUCCEEDED(hr) && t->extra == EX_UAV8) {
         for (UINT k = 1; k < 8 && SUCCEEDED(hr); k++) {
             ID3D11Buffer *b = NULL;
@@ -274,6 +307,12 @@ static bool RunTest(ID3D11Device *dev, ID3D11DeviceContext *ctx, const Test *t, 
         ctx->ClearUnorderedAccessViewUint(uav[k], zero);
     if (!strcmp(t->name, "atomics")) {   /* start values the min / and operations can lower */
         UINT init[8] = { 0, 0, 0xFFFFFFFFu, 0, 0, 0xFFFFFFFFu, 0, 0 };
+        ctx->UpdateSubresource(outbuf, 0, NULL, init, 0, 0);
+    }
+    if (!strcmp(t->name, "atomics2")) {   /* and / min start from all ones */
+        UINT init[32] = {};
+        init[16] = 0xFFFFFFFFu;
+        init[20] = 0xFFFFFFFFu;
         ctx->UpdateSubresource(outbuf, 0, NULL, init, 0, 0);
     }
     ctx->CSSetShader(cs, NULL, 0);

@@ -488,3 +488,13 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   AFBC(Z32)+S8 on v7-"), bloom r11g11b10_float, rgba16f / r16_unorm / r32_float (framecap-day-black.txt). The game's
   format choice - no native driver lever. Remaining bandwidth: stencil-only clears (quad, depth preloaded),
   ~1.2 clear-only batches per frame, depth stored after every batch (D3D gives no "don't need" hint).
+- Exit-time abort solved (dump C:\S10eTmp\dumps\DaveTheDiver.exe.6772.dmp, 12:28, EC 0169; cdb x64 on the PC +
+  llvm-symbolizer over a raw stack scan, our DLL only): the crashing thread's stack holds the CRT's "Assertion
+  failed: %Ts, file %Ts" and the wide string L"!\"invalid boolean bit-size\"" = pan_nir_lower_bool_to_bitsize.c
+  get_bool_convert_opcode UNREACHABLE -> assert -> abort() -> fast-fail 7. The UMD builds are debugoptimized, so asserts
+  are on. Which bit size: unknown (Bifrost v7 lowers all int64 - lower_int64_options ~0 - so a 64-bit bcsel should not
+  get there; my first guess "64-bit bcsel" was wrong and reverted before building).
+- Mesa 0185 (Windows): the bool resize handles the two missing NIR sizes instead of aborting - 64 -> i2i64, 1 ->
+  ine(x, 0) in resize_bool_alu_source - and logs the first occurrence (mesa_logw -> the game's -stderr tlog; the file is
+  also in the host panfrost_compile, which has no malikm shim). (First build failed: no nir_op_i2b1 in this NIR.)
+  EC fdfdba20 live; d3dmrt64x 7/7, d3dbc64x lossy 0/126.

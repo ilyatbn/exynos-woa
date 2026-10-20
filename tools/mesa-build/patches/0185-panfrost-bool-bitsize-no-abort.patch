@@ -1,0 +1,42 @@
+diff --git a/src/panfrost/compiler/pan_nir_lower_bool_to_bitsize.c b/src/panfrost/compiler/pan_nir_lower_bool_to_bitsize.c
+index 4ba7fd4..464d356 100644
+--- a/src/panfrost/compiler/pan_nir_lower_bool_to_bitsize.c
++++ b/src/panfrost/compiler/pan_nir_lower_bool_to_bitsize.c
+@@ -34,6 +34,18 @@ get_bool_convert_opcode(uint32_t dst_bit_size)
+       return nir_op_i2i16;
+    case 8:
+       return nir_op_i2i8;
++#ifdef _WIN32
++   /* exynos-woa G32 (0185, notes/games-unity.md): Dave the Diver died with fast-fail 7 = abort() from this
++    * UNREACHABLE (dump DaveTheDiver.exe.6772.dmp: "invalid boolean bit-size" + the CRT's "Assertion failed" on the
++    * crashing stack; the UMD is built debugoptimized, asserts on). Which bit size it got is not known yet - the two
++    * other NIR sizes keep the requested size (64 here, 1 in resize_bool_alu_source); the first one is logged. */
++   case 64: {
++      static int logged;   /* mesa_logw: this file is also in the host's panfrost_compile (no malikm shim) */
++      if (!logged++)
++         mesa_logw("pan_nir_lower_bool_to_bitsize: boolean resized to %u bits", dst_bit_size);
++      return nir_op_i2i64;
++   }
++#endif
+    default:
+       UNREACHABLE("invalid boolean bit-size");
+    }
+@@ -47,6 +59,18 @@ resize_bool_alu_source(nir_builder *b, nir_alu_instr *alu,
+       return;
+ 
+    b->cursor = nir_before_instr(&alu->instr);
++#ifdef _WIN32
++   if (bit_size == 1) {   /* exynos-woa G32 (0185): back to a 1-bit boolean = ine(x, 0) (no unary i2b1 in this NIR) */
++      static int logged;
++      if (!logged++)
++         mesa_logw("pan_nir_lower_bool_to_bitsize: boolean resized to 1 bit");
++      nir_def *b1 = nir_ine_imm(b, nir_ssa_for_alu_src(b, alu, src_idx), 0);
++      nir_src_rewrite(&alu->src[src_idx].src, b1);
++      for (unsigned j = 0; j < NIR_MAX_VEC_COMPONENTS; j++)
++         alu->src[src_idx].swizzle[j] = j;
++      return;
++   }
++#endif
+    nir_op convert_op = get_bool_convert_opcode(bit_size);
+ 
+    /* Retain the number of components and swizzle of the original

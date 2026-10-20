@@ -12,6 +12,9 @@
  * the PSNR against WARP over the format's channels, for two data kinds - "random" (every bit random: far-apart
  * endpoints, the worst case for any re-encoder; floor 10 dB: only catches broken layouts - random BC2 alpha is noise no 8-level EAC block fits, 12 dB at a 3x3 mip) and "soft" (endpoints close together, as in real
  * textures; floor 30 dB) - and BC1's 1-bit alpha exactly (a texel transparent on WARP must be transparent on Mali).
+ * G34 (notes/g34-fl11.md): "d3dbc bptc" checks BC6H_UF16 / BC6H_SF16 / BC7_UNORM / BC7_UNORM_SRGB (feature level 11_0;
+ * the process sets the UMD's D3D10UMD_FL11_0=1 diagnosis switch for itself) - decoded at upload into RGBA16F / RGBA8,
+ * compared like the exact mode (BC6H relative 1/1000: half floats either side).
  * SPDX-License-Identifier: GPL-2.0
  */
 #include <windows.h>
@@ -40,7 +43,12 @@ static const Fmt g_fmts[] = {
     { DXGI_FORMAT_BC4_UNORM, "BC4_UNORM", 8 },      { DXGI_FORMAT_BC4_SNORM, "BC4_SNORM", 8 },
     { DXGI_FORMAT_BC5_UNORM, "BC5_UNORM", 16 },     { DXGI_FORMAT_BC5_SNORM, "BC5_SNORM", 16 },
 };
-static const int NF = sizeof(g_fmts) / sizeof(g_fmts[0]);
+static const Fmt g_bptc[] = {   /* G34 */
+    { DXGI_FORMAT_BC6H_UF16, "BC6H_UF16", 16 },     { DXGI_FORMAT_BC6H_SF16, "BC6H_SF16", 16 },
+    { DXGI_FORMAT_BC7_UNORM, "BC7_UNORM", 16 },     { DXGI_FORMAT_BC7_UNORM_SRGB, "BC7_UNORM_SRGB", 16 },
+};
+static int NF = sizeof(g_fmts) / sizeof(g_fmts[0]);
+static D3D_FEATURE_LEVEL g_fl = D3D_FEATURE_LEVEL_10_1;
 static UINT umax1(UINT v) { return v ? v : 1; }
 enum { PATH_INIT, PATH_UPDATE, PATH_MAP, NPATH };
 static const char *g_paths[NPATH] = { "init", "update", "map" };
@@ -93,7 +101,7 @@ struct Dev {
 static bool Open(Dev *d, bool warp, IDXGIAdapter *ad, ID3DBlob *vsb, ID3DBlob *psb)
 {
     memset(d, 0, sizeof(*d));
-    D3D_FEATURE_LEVEL fl = D3D_FEATURE_LEVEL_10_1, got;
+    D3D_FEATURE_LEVEL fl = g_fl, got;
     HRESULT hr = D3D11CreateDevice(warp ? NULL : ad, warp ? D3D_DRIVER_TYPE_WARP : D3D_DRIVER_TYPE_UNKNOWN, NULL, 0,
                                    &fl, 1, D3D11_SDK_VERSION, &d->dev, &got, &d->ctx);
     printf("%s: D3D11CreateDevice 0x%08lx FL 0x%x\n", warp ? "WARP" : "Mali", (unsigned long)hr, got);
@@ -208,6 +216,15 @@ static bool Read(Dev *d, ID3D11Texture2D *t, UINT m, float out[16][16][4])
 int main(int argc, char **argv)
 {
     bool lossy = argc > 1 && !strcmp(argv[1], "lossy");   /* G26 */
+    bool bptc = argc > 1 && !strcmp(argv[1], "bptc");     /* G34 */
+    const Fmt *fmts = g_fmts;
+    if (bptc) {
+        SetEnvironmentVariableA("D3D10UMD_FL11_0", "1");
+        _putenv("D3D10UMD_FL11_0=1");
+        g_fl = D3D_FEATURE_LEVEL_11_0;
+        fmts = g_bptc;
+        NF = sizeof(g_bptc) / sizeof(g_bptc[0]);
+    }
     ID3DBlob *vsb = NULL, *psb = NULL, *err = NULL;
     HRESULT hr = D3DCompile(g_vs, strlen(g_vs), "vs", NULL, NULL, "main", "vs_4_0", 0, 0, &vsb, &err);
     if (SUCCEEDED(hr))
@@ -237,39 +254,42 @@ int main(int argc, char **argv)
         printf("--- %s data (PSNR floor %d dB)\n", g_soft ? "soft" : "random", g_soft ? 30 : 10);
     for (int i = 0; i < NF; i++) {
         UINT caps = 0;
-        mali.dev->CheckFormatSupport(g_fmts[i].f, &caps);
-        printf("%-15s Mali CheckFormatSupport 0x%x\n", g_fmts[i].name, caps);
+        mali.dev->CheckFormatSupport(fmts[i].f, &caps);
+        printf("%-15s Mali CheckFormatSupport 0x%x\n", fmts[i].name, caps);
         for (int p = 0; p < NPATH; p++) {
             UINT w, h, mips;
-            ID3D11Texture2D *tm = Make(&mali, &g_fmts[i], p, &w, &h, &mips);
-            ID3D11Texture2D *tw = Make(&warp, &g_fmts[i], p, &w, &h, &mips);
+            ID3D11Texture2D *tm = Make(&mali, &fmts[i], p, &w, &h, &mips);
+            ID3D11Texture2D *tw = Make(&warp, &fmts[i], p, &w, &h, &mips);
             for (UINT m = 0; m < mips; m++) {
                 cases++;
                 float om[16][16][4], ow[16][16][4];
                 if (!tm || !tw || !Read(&mali, tm, m, om) || !Read(&warp, tw, m, ow)) {
-                    printf("  %-15s %-6s mip %u: FAILED to run\n", g_fmts[i].name, g_paths[p], m);
+                    printf("  %-15s %-6s mip %u: FAILED to run\n", fmts[i].name, g_paths[p], m);
                     fails++;
                     continue;
                 }
                 UINT mw = umax1(w >> m), mh = umax1(h >> m), bad = 0;
                 /* one step of the 8-bit storage the emulation decodes into: 1/255 UNORM; 1/127 SNORM; sRGB values are
                  * stored encoded and converted at sampling, so an 8-bit rounding of the decode shows as up to ~2 steps */
-                bool coarse = strstr(g_fmts[i].name, "SNORM") || strstr(g_fmts[i].name, "SRGB");
+                bool coarse = strstr(fmts[i].name, "SNORM") || strstr(fmts[i].name, "SRGB");
                 float tol = coarse ? 1.0f / 117 : 1.0f / 200;
+                bool hdr = strstr(fmts[i].name, "BC6H") != NULL;   /* G34: relative, values are half floats */
                 float worst = 0;
                 int wx = 0, wy = 0;
                 for (UINT y = 0; y < mh; y++)
                     for (UINT x = 0; x < mw; x++)
                         for (int c = 0; c < 4; c++) {
                             float dlt = fabsf(om[y][x][c] - ow[y][x][c]);
+                            if (hdr)
+                                dlt /= fmaxf(1.0f, fabsf(ow[y][x][c])) * 5.0f;   /* 1/1000 relative = 1/200 scaled */
                             if (dlt > worst) { worst = dlt; wx = (int)x; wy = (int)y; }
                             if (dlt > tol)
                                 bad++;
                         }
                 if (lossy) {
                     /* G26: PSNR over the format's channels (BC4 R, BC5 RG, else RGBA); peak 1 (UNORM) or 2 (SNORM) */
-                    int bcn = g_fmts[i].name[2] - '0', nch = bcn == 4 ? 1 : bcn == 5 ? 2 : 4;
-                    double peak = strstr(g_fmts[i].name, "SNORM") ? 2.0 : 1.0, sse = 0, n = 0;
+                    int bcn = fmts[i].name[2] - '0', nch = bcn == 4 ? 1 : bcn == 5 ? 2 : 4;
+                    double peak = strstr(fmts[i].name, "SNORM") ? 2.0 : 1.0, sse = 0, n = 0;
                     int trans_bad = 0;
                     for (UINT y = 0; y < mh; y++)
                         for (UINT x = 0; x < mw; x++) {
@@ -283,14 +303,14 @@ int main(int argc, char **argv)
                         }
                     double db = sse > 0 ? 10.0 * log10(peak * peak * n / sse) : 99.0;
                     bool lbad = db < (g_soft ? 30.0 : 10.0) || trans_bad;
-                    printf("  %-15s %-6s mip %u (%ux%u): %s, PSNR %.2f dB, worst diff %.4f%s\n", g_fmts[i].name,
+                    printf("  %-15s %-6s mip %u (%ux%u): %s, PSNR %.2f dB, worst diff %.4f%s\n", fmts[i].name,
                            g_paths[p], m, mw, mh, lbad ? "LOW" : "ok", db, worst,
                            trans_bad ? ", 1-bit alpha MISMATCH" : "");
                     fails += lbad;
                     continue;
                 }
                 printf("  %-15s %-6s mip %u (%ux%u): %s, worst diff %.4f at (%d,%d) Mali (%.3f %.3f %.3f %.3f) WARP "
-                       "(%.3f %.3f %.3f %.3f)\n", g_fmts[i].name, g_paths[p], m, mw, mh, bad ? "DIFF" : "ok", worst, wx,
+                       "(%.3f %.3f %.3f %.3f)\n", fmts[i].name, g_paths[p], m, mw, mh, bad ? "DIFF" : "ok", worst, wx,
                        wy, om[wy][wx][0], om[wy][wx][1], om[wy][wx][2], om[wy][wx][3], ow[wy][wx][0], ow[wy][wx][1],
                        ow[wy][wx][2], ow[wy][wx][3]);
                 fails += bad != 0;

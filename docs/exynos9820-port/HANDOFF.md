@@ -1989,3 +1989,35 @@ diagnostic timers from release builds once perf work settles.
   32 MB slab granularity vs dwm's segment); the first-boot white-capture after the 0191 ARM64 swap (not reproduced);
   D3D11 runtime shader cache DDI (WDDM 2.2 pfnCreateShaderCacheSession) as a documented alternative; earlier G32
   items (KMD per-job timing, deferred clears, NDEBUG build).
+
+## 70. 2026-10-20 - M4 via firmware RE (uH/sboot), G30 input, host-only
+
+- New running notes: **notes/m4-fw-re-20261020.md** (copy: m4/notes/; distillation + device-test protocol:
+  **m4/findings.md**; dumps under m4/artifacts/ - gitignored, regenerable per the notes' artifact-policy
+  entry: uh.disasm.txt,
+  uh-stage2-map.txt, uh-strings.txt, uh.sysreg/msr-index, sboot.disasm.txt + .adrpidx, cm.disasm.txt;
+  tools: tools/dump-tools/disasm.py, pagedump.py, adrpindex.py). Firmware source: ~/Downloads/firmware
+  (G970FXXUHHXJ6); BL tar extracted to ~/Downloads/firmware/bl (lz4 via dump-tools venv). No device was
+  touched this session.
+- Established (see notes + docs/exynos9820-port/mongoose-research-guide.md §2c):
+  * uh.bin = GREENTEA header + AArch64 ELF at PA 0x87000000; uH init runs on EVERY boot (sboot loads it,
+    uH SMcs back, sboot HVCs APP_INIT 0xC300C000). Stage-2 ON (HCR.VM=1, VTTBR=0x87028000 static table).
+  * uH never sets any HCR trap bit → EL1 (Windows) TLBI/IC/DC/ACTLR/WFI/SMC run natively, uH does not and
+    cannot intercept them (E1 answered statically; T4 stub work unnecessary - keep a cheap confirmation run).
+  * Static stage-2 map (decoded, matches DTB carve-outs): PA 0-4GB identity, WB, RW, **SH=Non-shareable**
+    (desc 0x4fd); PA 4-34GB unmapped → uH on-demand fault-maps (AT replay + LDR/STR emulation; attr
+    composition partially decoded); log ring + uH window = RO 4K pages (0x47f) guest-mapped at 0x87100000.
+  * Log ring format: `[sec.usec][LVL][cpu-slot:seq] tag line - msg` ASCII; 'D' → uh_panic → PMU reset
+    (0x1586080C) + the faulting core spins at EL2 forever (= the silent one-core-wedges-everything shape).
+  * sboot = BL2 + PSCI clients + per-CPU EL1/EL2/EL3 save-restore thunk tables; the runtime PSCI monitor
+    blob (tj/BOOTLOADER2-era) is NOT in the HXJ6 tars; cm.bin is the S-EL1 TZ content. PIT lists unflashed
+    ACPM/UHCFG (acpm.bin, uhuh.bin) - worth fetching.
+- Next order of work (details in notes §"Device instruments" + m4/tasks.md):
+  1. T2/T3 ordering tests (tasks.md) with the new axis: shared pages in PA 2-4GB vs PA >=4GB.
+  2. UEFI one-shot: 8-byte read + log of 0x87100000 (expect the uH banner) - proves guest s2 ring mapping.
+  3. Parked-stub `hvc #0` probe (pre/post mailbox) per core class - settles whether secondaries inherit
+     uH's EL2 state (the boot-CPU-vs-secondary / M4-vs-DSU attribute-mismatch hypothesis).
+  4. If ordered leads are clean: 8-core run with UEFI memory map excluding PA 2-4GB (split-map experiment).
+  5. T5 as designed (WINPRAM ring sampler every 0.25 s during a one-M4 run) - now known how to parse.
+- Uncommitted/device state: none new (host-only session). m4kd8-era notes about BCD debug off + daily
+  image stand as before.

@@ -58,5 +58,8 @@ TestResults/
 dumps/
 .venv/
 
-# Debug traces and dumps (ETW .etl/.xml, crash dumps, scan-out dumps, UMD logs) - local only, user request 2026-10-16
+# Debug traces and dumps (ETW .etl/.xml, crash dumps, scan-out dumps, UMD logs) - local only (policy 2026-10-16)
 traces/
+
+# M4 firmware RE dumps (disassemblies, string/sysreg indexes) - local only, regenerable
+m4/artifacts/

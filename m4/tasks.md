@@ -24,6 +24,9 @@ Goal (owner, 2026-10-19): Windows runs on all 8 cores, including the two M4 big 
 
 ## 1. Where it stands (2026-10-20)
 
+**A newer distillation with firmware-RE findings and a device-test protocol lives in `findings.md`
+(uH stage-2 = non-shareable DRAM 2-4GB lead; ring/hvc/split-map tests) — read it before T2.**
+
 - Windows starts all 8 cores through the parking protocol. With **any** M4 offered it dies. This holds for 8 cores,
   for one M4, for M4s in the A75 efficiency class, and for A55 + M4 without the A75s.
 - **The newest failure is kernel heap corruption, not only silent hangs.** In m4kd8 an A75 bugchecks in
@@ -110,7 +113,9 @@ order of work, before the last commit of the session.
 - Do not run the old `m4eff1` image or anything that writes partitions other than `boot`.
 
 ## 4. Files in this folder
-- `docs/mongoose-research-guide.md`: questions for the owner's researcher; §2b covers Samsung uH.
+- `findings.md`: firmware-RE distillation (uH/sboot, 2026-10-20) + ranked hypotheses + device test protocol P1-P6.
+- `artifacts/`: RE dumps (disassemblies, indexes, decoded s2 maps) - **gitignored, local, regenerable** (see findings.md §0 + notes copy).
+- `docs/mongoose-research-guide.md`: questions for the owner's researcher; §2b covers Samsung uH, §2c the firmware RE answers.
 - `docs/research-requests.md`: other open questions for the researcher.
 - `notes/m4-cores.md`: 2026-10-19 session (latest).
 - `notes/m14-m4-summary.md`, `notes/m14-smp.md`, `notes/m14-m4-brief-other-model.md`, `notes/m14-m4-dvm-research.md`,

@@ -99,6 +99,54 @@ PSCI/CPU_ON or ACTLR, so none answers the M4 question directly.** They do descri
   This is Samsung firmware, so AGENTS.md rule 11 (Windows internals) does not cover it. Whether to analyse it is the
   owner's call.
 
+## 2c. The 9820 firmware itself (uH + sboot RE, 2026-10-20)
+
+The `uh` entry of the HXJ6 BL tar was analysed (Ghidra + capstone). Full findings: **notes/m4-fw-re-20261020.md**,
+dumps: `m4/artifacts/uh.disasm.txt`, `uh-stage2-map.txt`, `uh-strings.txt`, `sboot.disasm.txt` (+index/.tsv).
+The §2b checklist answered:
+
+- **HCR_EL2:** uH writes it at exactly two sites, and only ever `HCR |= 1` (VM) at boot init and `&= ~1` in an
+  unreferenced s2-disable stub. **No trap bit is ever set by the 9820 uH** - no TVM, TTLB, TPU/TPCP/TSW, TACR,
+  TIDCP, TWI/TWE, TSC, FB/AMO/IMO/FMO. So **E1 is answered statically: Windows' TLBI/IC/DC/ACTLR/WFI run natively;
+  uH never intercepts them.** The uH-trap theory for the M4 death is OUT (the 9810 uH build differed - HCD noted
+  there; the 9820 one does not set it either).
+- **VBAR_EL2 = 0x8701b800**; lower-EL sync handler decodes EC 0x12/0x16 HVC (only 0xC300cXXX app IDs), 0x18
+  sys-reg (unreachable - nothing traps it), 0x20/0x24 stage-2 aborts, 0x21; anything it cannot handle logs at 'D'
+  and calls `exynos_reset(0x8800)` (SoC reset, no EL1 exception). No silent spin in the default case.
+- **Stage-2 is ON from boot** (`VTCR=0x23f58`, `VTTBR=0x87028000`, `HCR.VM=1`) on every boot that loads uh.bin -
+  ours included (sboot loads it, uH SMCs back, sboot then HVCs APP_INIT 0xC300C000). The **static** stage-2 table
+  (in .data, decoded to `m4/artifacts/uh-stage2-map.txt`) identity-maps PA 0-4GB and the sec_rdx_bootdev window
+  (PA 0x880000000) as **Normal-WB, RW, SH=Non-shareable** (`desc low = 0x4fd`); PA 4-34GB is UNMAPPED there, and
+  faults on it are mapped **on demand** by the EL2 abort handler (AT S12E1R replay + LDR/STR emulation); the
+  map-in attribute composition is only partially decoded (RO-vs-RW bit confirmed; MemAttr/SH of inserts follow-up).
+  ⇒ the region whose stage-2 shareability is provably Non-shareable is **PA 2-4GB** (static entries, never
+  faulted) - where UEFI/Windows memory sits. Android's RKP rewrites guest s2 entries at runtime (RKP_WRITE_PGT
+  commands); Windows never does (no RKP_START).
+  **This is a new, testable root-cause candidate for exactly "M4 vs DSU-cluster corruption, DSU-only fine"**:
+  effective shareability = min(stage1, stage2) - DSU-internal coherency is unaffected, cross-cluster one is.
+  UNVERIFIED whether secondary (CPU_ON) cores inherit uH's EL2 config or run with HCR=0 - either variant implies a
+  cross-cluster attribute mismatch; the `hvc #0` mailbox probe (below) settles it.
+- **The driver-refactor angle:** we cannot touch EL2 from EL1, but we DO control the UEFI memory map. Option:
+  report most PA 2-4GB as reserved and give Windows only PA >= 4GB (pages there enter stage 2 through uH's
+  on-demand fault mapper instead of the static NS entries), or place one test page in each region and compare
+  M4 behaviour. (sboot arming uH at boot cannot be skipped from EL1.)
+- **E2 answered:** the log ring is `0x87100000 + 0x40000`, zeroed at init, ~20 boot lines are written into it by
+  uH init itself (banner `UH64_23d99e21 ... exynos9820`, region table), and **uH explicitly maps it into stage 2
+  for the guest** (`map(0x87100000,0x40000,0x23)`) - so an EL1 read is by-design expected to work, no special
+  privilege needed. Record format (ASCII text, one line per event):
+  `[sec.usec][L][cpu-slot:seq] <tag> <line> - <msg>` - level char, per-CPU slot = exception-stack page index
+  (8 slots), global seq via LDAXR. Reading it from the parked-A55 sampler during an M4 run is now a low-risk test.
+- **What is still not in these binaries:** the PSCI CPU_ON handler itself. sboot.bin is BL2 + PSCI *clients*
+  (it SMCs CPU_ON/CPU_OFF itself when powering CL2 at boot: `SMC 0xC4000003` wrapper at 0xa5634, CL2 power/DVFS
+  functions ~0xba6cc/0xc3044) plus a per-CPU EL1/EL2/EL3 register save/restore thunk table (includes HCR_EL2,
+  VTTBR_EL2, VTCR_EL2, VBAR_EL2, **ACTLR_EL1/2/3** and the **M4 syndrome reg S3_1_C15_C2_1**). cm.bin (partition
+  BOOTLOADER2, "CryptoManagerV50") is S-EL1 TEE content (no EL3 code). The resident monitor blob is not in the
+  HXJ6 BL tar (PIT also lists UHCFG/`uhuh.bin`, ACPM/acpm.bin, ECT/ect.bin - none flashed in this package).
+  So: **secondary-core EL2 state must be settled on-device** (hvc #0 probe / ring read), not statically.
+- sboot debug-name table (0x35400+): `enter_c2+/-`, `exit_c2+/-`, `cl2emul+/-`, `cl_stat`, `cpu_stat`, `hotpl_fl`
+  - Samsung's own boot console has CL2 power and a **CL2 SFR-emulation switch**; worth remembering when planning
+  cross-cluster SFR reads (the ones that froze the SoC may be exactly what cl2emul papers over).
+
 ## 3. How to research it yourself
 
 **Tools (all public):** WinDbg (Store version) with the Microsoft public symbol server
@@ -146,8 +194,8 @@ what each outcome means.
 | Stub flag 7 (interrupts + WFI on the M4, Windows not involved) | WFI/IRQ on the M4 is fine; look at Windows-specific state | the firmware/GIC side is wrong for the M4, not Windows |
 | Read the M4's native ACTLR_EL1 / CPUACTLR in the stub before Windows starts, and compare with what Windows leaves there | — | if they differ, test with the native value restored (by us, in firmware) |
 | Pin a single test thread to an M4 (process affinity) after boot, with everything else idle | shows whether "any work" or specific work kills it | — |
-| **E1 (new, §2b):** trap timing for maintenance ops. Bring back the m4trap1 method (stub flag 4, later removed - notes/m4-cores.md:68): 1000 × each of `TLBI VMALLE1`, `TLBI VMALLE1IS`, `TLBI VAE1IS`, `TLBI ASIDE1IS`, `IC IALLU`, `IC IALLUIS`, `IC IVAU`, `DC CIVAC`, `DC CISW` and an `ACTLR_EL1` write-back of its own value, against the nop baseline (WFI is left out: its wake time hides any trap cost). Run on an A55, an A75 and an M4, all parked and not offered. | no op adds ≥ ~26 ticks per op (≥ 26000 per 1000) on any core → uH does not intercept maintenance ops, and the uH hypothesis narrows to stage-2 faults | an op traps (any core) → uH handles Windows' maintenance. If it traps only on the M4, or the M4 never returns, that is the lead |
-| **E2 (new, §2b):** copy uH's log ring `0x87100000 + 0x40000` from the not-offered A55 sampler (the m4pcs1 pattern, gicc3) into WINPRAM every 0.25 s during a two-M4 run; dump after the watchdog reset. First try a single read from UEFI and watch for a stage-2 abort. | ring readable and unchanged at the death → uH saw nothing (points to EL3 / hardware) | new uH lines at the death → they name the cause. A fault on the first read → the region is stage-2 unmapped and this path is closed |
+| **E1 (new, §2b):** trap timing for maintenance ops. Bring back the m4trap1 method (stub flag 4, later removed - notes/m4-cores.md:68): 1000 × each of `TLBI VMALLE1`, `TLBI VMALLE1IS`, `TLBI VAE1IS`, `TLBI ASIDE1IS`, `IC IALLU`, `IC IALLUIS`, `IC IVAU`, `DC CIVAC`, `DC CISW` and an `ACTLR_EL1` write-back of its own value, against the nop baseline (WFI is left out: its wake time hides any trap cost). Run on an A55, an A75 and an M4, all parked and not offered. | no op adds ≥ ~26 ticks per op (≥ 26000 per 1000) on any core → uH does not intercept maintenance ops, and the uH hypothesis narrows to stage-2 faults | an op traps (any core) → uH handles Windows' maintenance. If it traps only on the M4, or the M4 never returns, that is the lead. **UPDATE 2026-10-20: answered statically (§2c) - the 9820 uH sets no HCR trap bits at all, so run this only as confirmation** |
+| **E2 (new, §2b):** copy uH's log ring `0x87100000 + 0x40000` from the not-offered A55 sampler (the m4pcs1 pattern, gicc3) into WINPRAM every 0.25 s during a two-M4 run; dump after the watchdog reset. First try a single read from UEFI and watch for a stage-2 abort. | ring readable and unchanged at the death → uH saw nothing (points to EL3 / hardware) | new uH lines at the death → they name the cause. A fault on the first read → the region is stage-2 unmapped and this path is closed. **UPDATE 2026-10-20: uH maps the ring RO into stage-2 at init and writes ~20 banner lines (§2c) - the read is by-design; parse with the `[sec.usec][L][cpu:seq] tag line - msg` format** |
 
 ## 5. What to hand back (template)
 

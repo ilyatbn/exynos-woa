@@ -28,3 +28,12 @@ notes/g18-hdmi-dp-alt.md (rungs H1-H5, H1 done read-only), notes/g18-h2-altmode-
   finding. Files copied to the phone (C:\S10eTmp\batt107). The live install (pnputil /add-driver /install) was
   DENIED by the session's auto-mode safety classifier -> left for the user, like the 2026-10-18 build refusal.
   The phone still runs the read-only 1.0.0.6.
+- P2 (2026-10-20): tools/phone/usbc/usbcaltmode.c + build-usbcaltmode.cmd (arm64 default, x64 for a PC dry run).
+  Implements research section H: status/mask read, stale-latch drop, 0x55 0x03 + Altmode check, Identity only when
+  SINK + DFP (section F), then a 50 ms poll of the clear-on-read latches 0x02-0x05 with the section-D mapping
+  (VDM_INT 0x05 b0-b3 = ID / SVIDs / Modes / Enter, PD_INT 0x04 b2-b4 = DP status / configure / attention): reads each
+  response with 0x4B, sends Enter Mode after Modes (UFP_D capable + pins), DP Configure after a connected DP status
+  (pin by the vendor preference order), logs HPD; detach resets; -stop sends 0x55 0x01. Every reply byte is printed.
+  PC dry run (x64 build, "-dry"): payloads 55[03], 48[09 01 80 00 FF], 48[09 04 81 01 FF], 48[0A 11 81 01 FF 06 PP
+  00 00] = exactly the driver allowlist. ARM64 build OK (/W4 /WX). Not run on the phone (needs 1.0.0.7 installed +
+  the user's go for PD writes).

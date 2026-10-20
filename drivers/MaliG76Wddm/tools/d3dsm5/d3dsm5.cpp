@@ -23,6 +23,8 @@
  *   psderiv    pixel shader: ddx/ddy coarse and fine written to a UAV
  *   append     AppendStructuredBuffer.Append + initial count 5 + CopyStructureCount (contents compared sorted)
  *   consume    ConsumeStructuredBuffer.Consume from a prefilled buffer with initial count 64
+ *   drawind    DrawInstancedIndirect with arguments written by a compute shader
+ *   drawindx   DrawIndexedInstancedIndirect (16-bit indices 0 1 2), arguments from a compute shader
  *   group1024  numthreads(1024,1,1) groupshared reduction with barriers
  *   groupz64   numthreads(1,1,64) SV_GroupThreadID.z
  * Usage: d3dsm5 [-native] [test ...]. Exit 0 = every selected test matches. Build: build-d3dsm5.cmd.
@@ -35,7 +37,7 @@
 #include <d3d11.h>
 #include <d3dcompiler.h>
 
-enum Extra { EX_NONE, EX_TYPEDBUF, EX_TYPEDTEX, EX_UAV8, EX_STRUCTINT, EX_RGBA8TEX, EX_PS, EX_APPEND, EX_CONSUME };
+enum Extra { EX_NONE, EX_TYPEDBUF, EX_TYPEDTEX, EX_UAV8, EX_STRUCTINT, EX_RGBA8TEX, EX_PS, EX_APPEND, EX_CONSUME, EX_PSIND, EX_PSINDX };
 
 struct Test {
     const char *name;
@@ -212,6 +214,25 @@ static const Test g_tests[] = {
       "[numthreads(32,1,1)] void main(uint3 tid : SV_DispatchThreadID) {\n"
       "  dst.Store(4 + tid.x * 4, cb.Consume());\n"
       "}\n", 1 + 64, 1, 1, 1, EX_CONSUME },
+    /* indirect draws (EX_PSIND / EX_PSINDX): a compute shader writes the arguments {3 vertices / indices, 1 instance}
+     * into a DRAWINDIRECT_ARGS buffer, then DrawInstancedIndirect / DrawIndexedInstancedIndirect (indices 0 1 2) draw
+     * the full-screen triangle with this pixel shader */
+    { "drawind",
+      "RWByteAddressBuffer dst : register(u1);\n"
+      "float4 main(float4 pos : SV_Position) : SV_Target {\n"
+      "  uint2 p = (uint2)pos.xy;\n"
+      "  dst.Store((p.y * 16 + p.x) * 4 + 16, p.x + p.y * 100u);\n"
+      "  dst.InterlockedAdd(0, 1u);\n"
+      "  return float4(0, 1, 0, 1);\n"
+      "}\n", 4 + 256, 1, 1, 1, EX_PSIND },
+    { "drawindx",
+      "RWByteAddressBuffer dst : register(u1);\n"
+      "float4 main(float4 pos : SV_Position) : SV_Target {\n"
+      "  uint2 p = (uint2)pos.xy;\n"
+      "  dst.Store((p.y * 16 + p.x) * 4 + 16, p.x * 3u + p.y);\n"
+      "  dst.InterlockedAdd(0, 1u);\n"
+      "  return float4(0, 0, 1, 1);\n"
+      "}\n", 4 + 256, 1, 1, 1, EX_PSINDX },
     { "atomics",
       "RWByteAddressBuffer dst : register(u0);\n"
       "[numthreads(64,1,1)] void main(uint3 tid : SV_DispatchThreadID) {\n"
@@ -540,8 +561,45 @@ static bool RunPsTest(ID3D11Device *dev, ID3D11DeviceContext *ctx, int which, co
     ctx->IASetInputLayout(NULL);
     ctx->VSSetShader(g_vs[which], NULL, 0);
     ctx->PSSetShader(ps, NULL, 0);
+    ID3D11Buffer *args = NULL, *ib = NULL;
+    if (t->extra == EX_PSIND || t->extra == EX_PSINDX) {
+        /* the arguments come from a compute shader, as in GPU-driven rendering */
+        static const char csa[] =
+            "RWByteAddressBuffer a : register(u0);\n"
+            "[numthreads(1,1,1)] void main() { a.Store4(0, uint4(3, 1, 0, 0)); a.Store(16, 0); }\n";
+        ID3DBlob *cb = NULL, *err = NULL;
+        ID3D11ComputeShader *cs = NULL;
+        ID3D11UnorderedAccessView *au = NULL;
+        D3D11_BUFFER_DESC ad = { 32, D3D11_USAGE_DEFAULT, D3D11_BIND_UNORDERED_ACCESS, 0,
+                                 D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS | D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS, 0 };
+        hr = D3DCompile(csa, strlen(csa), "csa", NULL, NULL, "main", "cs_5_0", 0, 0, &cb, &err);
+        if (SUCCEEDED(hr)) hr = dev->CreateComputeShader(cb->GetBufferPointer(), cb->GetBufferSize(), NULL, &cs);
+        if (SUCCEEDED(hr)) hr = dev->CreateBuffer(&ad, NULL, &args);
+        if (SUCCEEDED(hr)) hr = RawUav(dev, args, 8, &au);
+        if (FAILED(hr)) { printf("    indirect args 0x%08lx\n", (unsigned long)hr); return false; }
+        ctx->CSSetShader(cs, NULL, 0);
+        ctx->CSSetUnorderedAccessViews(0, 1, &au, NULL);
+        ctx->Dispatch(1, 1, 1);
+        ID3D11UnorderedAccessView *nu = NULL;
+        ctx->CSSetUnorderedAccessViews(0, 1, &nu, NULL);
+        au->Release(); cs->Release(); cb->Release();
+        if (t->extra == EX_PSINDX) {
+            USHORT idx[4] = { 0, 1, 2, 0 };
+            D3D11_BUFFER_DESC id = { sizeof idx, D3D11_USAGE_DEFAULT, D3D11_BIND_INDEX_BUFFER, 0, 0, 0 };
+            D3D11_SUBRESOURCE_DATA isd = { idx, 0, 0 };
+            if (FAILED(dev->CreateBuffer(&id, &isd, &ib))) return false;
+            ctx->IASetIndexBuffer(ib, DXGI_FORMAT_R16_UINT, 0);
+        }
+    }
     ctx->OMSetRenderTargetsAndUnorderedAccessViews(1, &rtv, NULL, 1, 1, &uav, NULL);
-    ctx->Draw(3, 0);
+    if (t->extra == EX_PSIND)
+        ctx->DrawInstancedIndirect(args, 0);
+    else if (t->extra == EX_PSINDX)
+        ctx->DrawIndexedInstancedIndirect(args, 0);
+    else
+        ctx->Draw(3, 0);
+    if (args) args->Release();
+    if (ib) { ctx->IASetIndexBuffer(NULL, DXGI_FORMAT_R16_UINT, 0); ib->Release(); }
     ctx->OMSetRenderTargetsAndUnorderedAccessViews(0, NULL, NULL, 0, 0, NULL, NULL);
     ctx->CopyResource(st, outbuf);
     D3D11_MAPPED_SUBRESOURCE map;
@@ -603,8 +661,9 @@ int main(int argc, char **argv)
             continue;
         run++;
         ID3DBlob *code = NULL, *err = NULL;
+        bool is_ps = t->extra == EX_PS || t->extra == EX_PSIND || t->extra == EX_PSINDX;
         HRESULT hr = D3DCompile(t->hlsl, strlen(t->hlsl), t->name, NULL, NULL, "main",
-                                t->extra == EX_PS ? (getenv("D3DSM5_PS40") ? "ps_4_0" : "ps_5_0") : "cs_5_0", 0, 0,
+                                is_ps ? (getenv("D3DSM5_PS40") ? "ps_4_0" : "ps_5_0") : "cs_5_0", 0, 0,
                                 &code, &err);   /* D3DSM5_PS40: pixel tests as ps_4_0 (A/B of SM4 vs SM5 opcodes) */
         if (FAILED(hr)) {
             printf("%-11s D3DCompile 0x%08lx %s\n", t->name, (unsigned long)hr, err ? (const char *)err->GetBufferPointer() : "");
@@ -615,7 +674,7 @@ int main(int argc, char **argv)
         memset(ow, 0xAB, sizeof ow);
         printf("%-11s running...\n", t->name);
         bool okw, okm;
-        if (t->extra == EX_PS) {
+        if (is_ps) {
             okw = RunPsTest(wd, wc, 1, t, code, ow);
             okm = RunPsTest(md, mc, 0, t, code, om);
         } else {

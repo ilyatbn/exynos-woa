@@ -1,0 +1,111 @@
+diff --git a/src/gallium/frontends/d3d10umd/D3D11.cpp b/src/gallium/frontends/d3d10umd/D3D11.cpp
+index 3d234b1..600acc4 100644
+--- a/src/gallium/frontends/d3d10umd/D3D11.cpp
++++ b/src/gallium/frontends/d3d10umd/D3D11.cpp
+@@ -240,6 +240,8 @@ D3D11FillDeviceFuncs(D3D11DDI_DEVICEFUNCS *f)
+    f->pfnDispatch = Dispatch;
+    f->pfnDispatchIndirect = DispatchIndirect;
+    f->pfnCopyStructureCount = CopyStructureCount;   /* G34 F11.6 */
++   f->pfnDrawInstancedIndirect = DrawInstancedIndirect;   /* G34 F11.8 */
++   f->pfnDrawIndexedInstancedIndirect = DrawIndexedInstancedIndirect;
+ }
+ 
+ /* GetCaps answers for the D3D11 types (Adapter.cpp GetCaps); FALSE = not a D3D11 type. */
+diff --git a/src/gallium/frontends/d3d10umd/D3D11Tiers.inc b/src/gallium/frontends/d3d10umd/D3D11Tiers.inc
+index 1458f38..a83b8df 100644
+--- a/src/gallium/frontends/d3d10umd/D3D11Tiers.inc
++++ b/src/gallium/frontends/d3d10umd/D3D11Tiers.inc
+@@ -497,6 +497,8 @@ void D3D11_1FillDeviceFuncs(D3D11_1DDI_DEVICEFUNCS *f)
+    f->pfnDispatch = Dispatch;
+    f->pfnDispatchIndirect = DispatchIndirect;
+    f->pfnCopyStructureCount = CopyStructureCount;   /* G34 F11.6 */
++   f->pfnDrawInstancedIndirect = DrawInstancedIndirect;   /* G34 F11.8 */
++   f->pfnDrawIndexedInstancedIndirect = DrawIndexedInstancedIndirect;
+    f->pfnCalcPrivateUnorderedAccessViewSize = CalcPrivateUnorderedAccessViewSize;
+    f->pfnCreateUnorderedAccessView = CreateUnorderedAccessView;
+ }
+@@ -518,6 +520,8 @@ void D3DWDDM1_3FillDeviceFuncs(D3DWDDM1_3DDI_DEVICEFUNCS *f)
+    f->pfnDispatch = Dispatch;
+    f->pfnDispatchIndirect = DispatchIndirect;
+    f->pfnCopyStructureCount = CopyStructureCount;   /* G34 F11.6 */
++   f->pfnDrawInstancedIndirect = DrawInstancedIndirect;   /* G34 F11.8 */
++   f->pfnDrawIndexedInstancedIndirect = DrawIndexedInstancedIndirect;
+    f->pfnCalcPrivateUnorderedAccessViewSize = CalcPrivateUnorderedAccessViewSize;
+    f->pfnCreateUnorderedAccessView = CreateUnorderedAccessView;
+ }
+@@ -539,6 +543,8 @@ void D3DWDDM2_0FillDeviceFuncs(D3DWDDM2_0DDI_DEVICEFUNCS *f)
+    f->pfnDispatch = Dispatch;
+    f->pfnDispatchIndirect = DispatchIndirect;
+    f->pfnCopyStructureCount = CopyStructureCount;   /* G34 F11.6 */
++   f->pfnDrawInstancedIndirect = DrawInstancedIndirect;   /* G34 F11.8 */
++   f->pfnDrawIndexedInstancedIndirect = DrawIndexedInstancedIndirect;
+ }
+ 
+ /* ---- DXGI 1.2 - 1.4 ---- */
+diff --git a/src/gallium/frontends/d3d10umd/Draw.cpp b/src/gallium/frontends/d3d10umd/Draw.cpp
+index ab4336e..9d19c14 100644
+--- a/src/gallium/frontends/d3d10umd/Draw.cpp
++++ b/src/gallium/frontends/d3d10umd/Draw.cpp
+@@ -40,6 +40,7 @@
+ 
+ #include "util/u_draw.h"
+ #include "util/u_memory.h"
++#include "util/u_inlines.h"   /* G34 F11.8: pipe_buffer_read */
+ #include "GsEmu.h"   /* exynos-woa G25 */
+ 
+ static unsigned
+@@ -448,6 +449,39 @@ DrawIndexedInstanced(D3D10DDI_HDEVICE hDevice,   // IN
+ }
+ 
+ 
++/* exynos-woa G34 F11.8: DrawInstancedIndirect / DrawIndexedInstancedIndirect. The argument structs are
++ * D3D11_DRAW_INSTANCED_INDIRECT_ARGS {VertexCountPerInstance, InstanceCount, StartVertexLocation,
++ * StartInstanceLocation} and D3D11_DRAW_INDEXED_INSTANCED_INDIRECT_ARGS {IndexCountPerInstance, InstanceCount,
++ * StartIndexLocation, BaseVertexLocation, StartInstanceLocation} (d3d11.h). panfrost on Bifrost (v7) has no GPU-side
++ * indirect draw and reads the arguments back on the CPU itself (pan_cmdstream.c PAN_GPU_SUPPORTS_DRAW_INDIRECT is
++ * arch >= 10); reading them here instead keeps the draw paths that need the counts on the CPU (GsEmu) working. */
++void APIENTRY
++DrawInstancedIndirect(D3D10DDI_HDEVICE hDevice, D3D10DDI_HRESOURCE hBufferForArgs, UINT AlignedByteOffset)
++{
++   LOG_ENTRYPOINT();
++   Device *pDevice = CastDevice(hDevice);
++   struct pipe_resource *args = CastPipeResource(hBufferForArgs);
++   UINT a[4] = {};
++   if (!args)
++      return;
++   pipe_buffer_read(pDevice->pipe, args, AlignedByteOffset, sizeof a, a);
++   DrawInstanced(hDevice, a[0], a[1], a[2], a[3]);
++}
++
++void APIENTRY
++DrawIndexedInstancedIndirect(D3D10DDI_HDEVICE hDevice, D3D10DDI_HRESOURCE hBufferForArgs, UINT AlignedByteOffset)
++{
++   LOG_ENTRYPOINT();
++   Device *pDevice = CastDevice(hDevice);
++   struct pipe_resource *args = CastPipeResource(hBufferForArgs);
++   UINT a[5] = {};
++   if (!args)
++      return;
++   pipe_buffer_read(pDevice->pipe, args, AlignedByteOffset, sizeof a, a);
++   DrawIndexedInstanced(hDevice, a[0], a[1], a[2], (INT)a[3], a[4]);
++}
++
++
+ /*
+  * ----------------------------------------------------------------------
+  *
+diff --git a/src/gallium/frontends/d3d10umd/Draw.h b/src/gallium/frontends/d3d10umd/Draw.h
+index b0b7b7b..cce0b70 100644
+--- a/src/gallium/frontends/d3d10umd/Draw.h
++++ b/src/gallium/frontends/d3d10umd/Draw.h
+@@ -43,6 +43,10 @@ void APIENTRY DrawInstanced(D3D10DDI_HDEVICE hDevice, UINT VertexCountPerInstanc
+                    UINT InstanceCount, UINT StartVertexLocation,
+                    UINT StartInstanceLocation);
+ 
++/* exynos-woa G34 F11.8 */
++void APIENTRY DrawInstancedIndirect(D3D10DDI_HDEVICE hDevice, D3D10DDI_HRESOURCE hBufferForArgs, UINT AlignedByteOffset);
++void APIENTRY DrawIndexedInstancedIndirect(D3D10DDI_HDEVICE hDevice, D3D10DDI_HRESOURCE hBufferForArgs,
++                                           UINT AlignedByteOffset);
+ void APIENTRY DrawIndexedInstanced(D3D10DDI_HDEVICE hDevice, UINT IndexCountPerInstance,
+                           UINT InstanceCount, UINT StartIndexLocation,
+                           INT BaseVertexLocation, UINT StartInstanceLocation);

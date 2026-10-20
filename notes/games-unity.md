@@ -498,3 +498,7 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   ine(x, 0) in resize_bool_alu_source - and logs the first occurrence (mesa_logw -> the game's -stderr tlog; the file is
   also in the host panfrost_compile, which has no malikm shim). (First build failed: no nir_op_i2b1 in this NIR.)
   EC fdfdba20 live; d3dmrt64x 7/7, d3dbc64x lossy 0/126.
+- bot17 (EC 0185): renders right (bot17-end.png; the same coral layout as bot6), 2639 frames / 102.0 s, mean 25.9 fps,
+  median 36.9 ms, p95 52.6, p99 71.1, max 561.4, 8 > 100 ms. Same layout as bot6 (0175: 23.6 fps / median 40.4) ->
+  the fast clears give ~-3.5 ms per frame (~9 %). Overall on this layout since bot2 (0171): 41.6 -> 36.9 ms median,
+  23.5 -> 25.9 fps.

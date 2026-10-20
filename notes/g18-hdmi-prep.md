@@ -49,3 +49,14 @@ notes/g18-hdmi-dp-alt.md (rungs H1-H5, H1 done read-only), notes/g18-h2-altmode-
   P4b always-disconnected child (validatable now), P4c diagnosis-only phantom monitor (validates multi-source VidPN
   without DP hardware), P4d real HPD/EDID/DECON_T, then clone (Offset270). Enum checked in d3dkmdt.h.
 - P3 delegated to a background research agent (notes/g18-p3-dp-bringup.md, in progress).
+- P4b code (2026-10-20, uncommitted until validated): MaliG76Wddm full adapter 2 sources / 2 children; child UID 1 =
+  D3DKMDT_VOT_DISPLAYPORT_EXTERNAL, HpdAwarenessInterruptible, QueryChildStatus FALSE, no descriptor; IsSupportedVidPn
+  refuses any path other than 0 -> 0 (TopologyPanelOnly); Cofunc leaves non-panel paths alone; display-only 1/1.
+  Power handler acts on UID 0 only (adapter.c MwSetPowerState) - child 1 power calls are no-ops. Built (MwBuild 1),
+  test-signed sys d2eb6b95 (s10e-artifacts\maliwddm-p4b), kmdswap into malig76wddm.inf_arm64_6557c1d415c2ef25 (= the
+  service's BINARY_PATH_NAME). Rollback: TWRP rename MaliG76Wddm.sys.prev back. Reboot next.
+- P4b VALIDATED (reboot 19:36): DriverStore sys = d2eb6b95 (loaded), adapter Started, dwm/explorer up, desktop normal
+  (traces/g18-p4b-desk.png), one active monitor (WmiMonitorConnectionParams: DISPLAY\EXW9820\...UID0 only), no new
+  monitor device for UID 1 (disconnected as intended), KMD DDI trace shows QueryChildRelations calls; no Code 43.
+  (An old "Generic Monitor (S2719DGF)" devnode in state Unknown predates this change.) INF version not bumped - a
+  sys-only swap; the next package build carries it.

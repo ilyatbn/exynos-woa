@@ -26,6 +26,10 @@
 #include "maliwddm_abi.h"
 
 #define MW_TAG                  'dwlM'
+/* G18 P4b (notes/g18-p4-wddm-target.md): the full adapter counts the external DisplayPort output from the start
+ * (MS Learn DxgkDdiStartDevice: NumberOfChildren "must include potential child devices") - child UID 1 / source 1 /
+ * target 1, reported disconnected until the DP path exists. Display-only keeps one source and one child. */
+#define MW_DP_CHILD_UID         1u
 #define MW_SEGMENT_ID           1           /* the aperture segment */
 /* GPU VA that VidMm commits system pages into (not a carve-out). The S10e gives Windows 5.24 GiB; the VA allocator
  * spans MK_VA_START..MK_VA_END, so this must stay below 4 GB - 32 MB (notes/gpu-m16-g10.md). G-game (notes/

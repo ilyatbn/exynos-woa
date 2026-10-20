@@ -42,3 +42,10 @@ notes/g18-hdmi-dp-alt.md (rungs H1-H5, H1 done read-only), notes/g18-h2-altmode-
   run shows it): the vendor resends DP Configure when the 0x48 reply is an Attention while the last request was
   Configure (usbc.c:1970-1987) - usbcaltmode only logs the reply. Not fixed blind: the first plugged run shows whether
   it happens.
+- P4 (2026-10-20): notes/g18-p4-wddm-target.md - second-target design for MaliG76Wddm (today: 1 source / 1 child,
+  source 0 / target 0 hard-coded in display.c). MS Learn quotes for StartDevice NumberOfChildren (potential children
+  counted from the start) and DxgkCbIndicateChildStatus (HpdAwarenessInterruptible, StatusConnection, IRQL <=
+  DISPATCH). Plan: 2 sources / 2 children (UID 1 = DISPLAYPORT_EXTERNAL, interruptible HPD), per-path VidPN,
+  P4b always-disconnected child (validatable now), P4c diagnosis-only phantom monitor (validates multi-source VidPN
+  without DP hardware), P4d real HPD/EDID/DECON_T, then clone (Offset270). Enum checked in d3dkmdt.h.
+- P3 delegated to a background research agent (notes/g18-p3-dp-bringup.md, in progress).

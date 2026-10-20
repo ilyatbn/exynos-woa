@@ -1989,3 +1989,19 @@ diagnostic timers from release builds once perf work settles.
   32 MB slab granularity vs dwm's segment); the first-boot white-capture after the 0191 ARM64 swap (not reproduced);
   D3D11 runtime shader cache DDI (WDDM 2.2 pfnCreateShaderCacheSession) as a documented alternative; earlier G32
   items (KMD per-job timing, deferred clears, NDEBUG build).
+
+## 70. 2026-10-20 - built-in microphones + boost control (D8 mic), unattended
+
+- notes/d8-mic.md (research, every device run, the review F1-F7 and their fixes). Audio driver 1.0.3.7 live on the
+  phone (s10e-artifacts/audio-1.0.3.7; tools/phone/audio/audbuild.sh VERSION bumps, builds and installs).
+- Path: DMIC1/2 -> CS47L93 IN3L/IN4L (MICVDD charge pump + MICBIAS1) -> AIF1 TX1/2 (codec = AIF1 clock master) ->
+  ABOX UAIF0 MIC -> NSRC0 -> SPUM -> SIFM0 -> WDMA1 ring (Mic.c, AboxHw.c AboxCapture*). Windows endpoint
+  "Microphone" (Capture.c ACX capture circuit, stereo, 16/32-bit, 48 kHz). Measured through WASAPI with a quiet PC
+  1 kHz tone (tools/phone/audio/wascap.exe + micgaintest.sh): ~55 dB SNR, gain 0/24/48 -> -61.6/-49.4/-37.4 dB.
+- Boost: AUD_PROPERTY_MICGAIN (0..63 half-dB, default 24 = +12 dB, Parameters\MicGain) - slider in "S10e Speakers"
+  (C:\Program Files\S10eSpeakerTrim) and `S10eSpeakerTrim.exe mic [N]`; live during a capture.
+- Headphones and mic share SYSCLK / AIF1 RX through CodecShareOn/Off (first user on, last off). Headphones + mic at the
+  same time was never run (needs headphones in the jack) - Guided. Headset mic (jack) not done.
+- MicTest (Parameters\MicTest = ms, one-shot) still runs the raw self-test at device start (mictest.sh); diagnosis
+  knobs MicVariant / MicWdma* apply to the self-test only. Parameters\MicWdma = 1 is still set on the phone (harmless).
+- Next: D3D feature level 11_0 on the GPU (user order: mic first, then feature_11).

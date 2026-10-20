@@ -2029,3 +2029,20 @@ diagnostic timers from release builds once perf work settles.
 - FL 11_0 still only via D3D10UMD_FL11_0=1 (test processes). Next: F11.10 hull/domain shaders (design in the notes:
   HS as compute, tessellator, DS as VS), then F11.11 (format-support caps for 11_0 incl. typed UAV store/load - R7,
   report 11_0 by default, ARM64 + EC builds, regression incl. DWM, Edge, games).
+
+## 73. 2026-10-20 - FL 11_0 (G34) done and shipped on all three UMDs, unattended
+
+- Mesa 0215-0218 (notes/g34-fl11.md): hull/domain shaders (TessEmu.cpp: HS as compute, gallium CPU tessellator, DS as
+  VS), review fixes 0216/0217, and 0218 = pipeline level 11_0 reported by default (D3D10UMD_FL11_0=0 hides it -
+  diagnosis only). R7 format caps: every gap vs WARP is optional at 11_0 (MS Learn table) - no change.
+- Live since the 16:46 reboot: System32\maliumd_arm64.dll 0218 (add36214), maliumd_ec.dll 0218 (8a4fc694),
+  SysWOW64\maliumd32.dll x86-0218 (a2b50dba); set in s10e-artifacts\mali-umd-0218. Previous files kept as *.pre-0218-0.
+- Validated: d3dtess 9/9, d3dsm5 34/34, d3dbc bptc 28/28 vs WARP without any override; DWM desktop, Edge WebGL, Dave the
+  Diver (Unity picks "Direct3D 11.0 [level 11.0]", scene renders; save now opens on Cobra's dialogue - never advance
+  it), NFSU2 race (frame 31 ms).
+- Tooling traps found today: phonestate.sh needs WINIP from `ssh -G s10e` (phone is on the home Wi-Fi, not the
+  hotspot); scrnsave.scr (120 s) whitens every user-session shot - kill it first; gamelaunch.args is shared (nfsrace
+  now sets it); Steam's library can cover Dave after launch (tools/phone/g34/front.ps1).
+- Open G34 follow-ups: HS join phases (R13), GS after DS (R14), HS SRVs, GPU tessellation, Bifrost VS inputs 16 (a
+  10_1 gap), WebGPU requestAdapter null (also with 11_0 hidden). Next candidate: Edge/Chromium hardware video, which
+  the FL 11_0 gate was for (parking lot fl11-chrome-video.md) - untested.

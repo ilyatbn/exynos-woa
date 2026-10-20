@@ -48,14 +48,14 @@ As of 2026-10-20 (tag alpha9). Windows 11 Pro 23H2, build 22631.6199. Windows Up
 - **USB:** dock, mouse, keyboard and USB drive all work, but only if plugged in before boot. Plugging in later doesn't work yet. The phone can't charge while a dock is powering USB devices.
 - **Battery:** the battery icon shows the real level, but takes a few seconds to update. If the battery runs out, plugging in the charger boots the phone back up.
 - **GPU:** the Mali GPU runs the whole Windows desktop (Start menu, Search, transparency) and apps through our driver (now a modern WDDM 2.0 driver) and a ported open-source graphics library (Mesa/Panfrost):
-  - Direct3D 11 up to feature level 10_1, plus compute shaders and geometry shaders (emulated).
-  - Browsers: Edge runs with Canvas, compositing, WebGL and WebGPU on the GPU; an x64 Chromium build runs WebGL too.
+  - Direct3D 11 up to feature level 11_0: shader model 5, compute shaders, tessellation (emulated, on the CPU) and geometry shaders (emulated). Dave the Diver now runs at level 11_0.
+  - Browsers: Edge runs with Canvas, compositing and WebGL on the GPU (WebGPU pages find no adapter yet); an x64 Chromium build runs WebGL too.
   - Apps of all three kinds: native ARM64, emulated x64 and old 32-bit x86 programs.
   - OpenGL apps through our own OpenGL driver: Stardew Valley runs at 58-60 fps.
   - Compressed game textures (DXT/BC), which this GPU can't read, are converted on the fly.
   - Shaders are saved per program, so the second start of a game compiles less. A "Shader cache" app on the desktop lists each program's cache and can clear one or all.
   - Games: Dave the Diver runs at about 26 fps, and reaches its title screen 18 s faster than before (122 s); most of that wait is the game itself under x64 emulation. Need for Speed Underground 2 runs through dgVoodoo, and Game Dev Story runs.
-  - Not perfect yet: feature level 11 (newer games, Chrome video), the GPU loses some speed to our driver's own overhead, and DirectX 12 / Vulkan are not supported.
+  - Not perfect yet: tessellation is computed on the CPU (slow for heavy use), the GPU loses some speed to our driver's own overhead, and DirectX 12 / Vulkan are not supported.
 - **Hardware video decode:** H.264 video is decoded by the phone's video chip for normal Windows apps (Media Foundation: Photos, mpv), with smooth 1080p playback in mpv. Photos itself still plays slowly; browsers don't use it yet.
 - **Speakers:** the earpiece and bottom speaker play together in stereo, with a balance set by ear. "S10e Speakers" in the Start menu adjusts them live.
 - **Headphone jack:** plugging in headphones switches to a separate "Headphones" device and back. The headset microphone isn't done.

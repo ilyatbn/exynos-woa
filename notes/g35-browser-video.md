@@ -100,3 +100,15 @@ work as possible on hdmi (via type c adapter and usb hub, i have both)."
   d3dbc default (exact) mode 63/63 differ on x86 and x64 = expected since G26 (BCn transcoded to ETC2, lossy; exact
   passes only with the decode backing, notes/g26-bc-etc2.md:61); d3dbc lossy 0/126 differ on both -> PASS.
   All three UMDs now 0222; DWM keeps its loaded ARM64 0218 until the next reboot.
+
+## 2026-10-20 21:3x - video stall after ~16k frames (found while chasing the G18 P4b "slowdown")
+- Long Edge playback on the NORMAL KMD d69c01cd (tools/phone/g35/videosoak.sh, traces/g35-vsoak-A-d69c.txt): checks
+  at 21:41 / 21:44 / 21:48 playing, 21:51 playing but one DWM swap test 31.9/s, 21:56 frames 16149 -> 16164 (stalled)
+  and the DWM test produced no result. Screenshot: video black, page counter stuck at 16176 (~11.2 min of 24 fps).
+- Live state while stuck: KMD vsync 59/s, submissions completing (~8/s), presents counter frozen (DWM not presenting),
+  CPU idle, GPU memory normal (484 MB committed); MFC probe SUCCEEDS = Edge no longer holds the session (its hardware
+  decoder is gone). Killing Edge -> DWM back to 59.3 / 59.1 at once.
+- => the G18 P4b "slowdown" was this video stall (the user: video went black, then the refresh dropped frames); P4b is
+  not shown to be at fault (fresh-boot A/B equal). 16176 is close to 2^14 = 16384 (Chromium decodes ahead) - no
+  14-bit limit found by grep in Video*.c / the MFC driver. Diagnostic repro running: tools/phone/g35/cdplong.sh
+  (unsandboxed CDP instance, Media log + GPU-process UMD log over 1000 s).

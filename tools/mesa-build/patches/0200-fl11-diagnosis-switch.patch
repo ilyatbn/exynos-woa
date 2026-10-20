@@ -1,0 +1,16 @@
+diff --git a/src/gallium/frontends/d3d10umd/D3D11.cpp b/src/gallium/frontends/d3d10umd/D3D11.cpp
+index 0b243c4..5cb3e20 100644
+--- a/src/gallium/frontends/d3d10umd/D3D11.cpp
++++ b/src/gallium/frontends/d3d10umd/D3D11.cpp
+@@ -262,6 +262,11 @@ D3D11GetCaps(const D3D10_2DDIARG_GETCAPS *pData, HRESULT *phr)
+       const char *fl100 = getenv("D3D10UMD_FL10_0");
+       if (!(fl100 && *fl100 && *fl100 != '0'))
+          c->Caps |= D3D11DDI_ENCODE_3DPIPELINESUPPORT_CAP(D3D11DDI_3DPIPELINELEVEL_10_1);
++      /* exynos-woa G34 (notes/g34-fl11.md): D3D10UMD_FL11_0=1 adds pipeline level 11_0 for test processes while
++       * SM5 / hull / domain support is being built - diagnosis only (AGENTS.md rule 12), not a feature switch. */
++      const char *fl110 = getenv("D3D10UMD_FL11_0");
++      if (fl110 && *fl110 == '1' && !(fl100 && *fl100 && *fl100 != '0'))
++         c->Caps |= D3D11DDI_ENCODE_3DPIPELINESUPPORT_CAP(D3D11DDI_3DPIPELINELEVEL_11_0);
+       return TRUE;
+    }
+    case D3DWDDM2_0DDICAPS_GPUVA_CAPS: {

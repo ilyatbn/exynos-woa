@@ -1,0 +1,18 @@
+diff --git a/src/gallium/frontends/d3d10umd/ShaderTGSI.c b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+index c5c7d6d..059966b 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderTGSI.c
++++ b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+@@ -1260,7 +1260,12 @@ tl_init(struct Shader_xlate *sx)
+    sx->tl.act = ureg_DECL_temporary(u);
+    sx->tl.retf = ureg_DECL_temporary(u);
+    sx->tl.tid = ureg_DECL_temporary(u);
+-   sx->tl.addr = ureg_DECL_address(u);
++   /* review of 0213: ureg has 3 address registers (UREG_MAX_ADDR) and relative operands may use all of them - borrow
++    * the translator's first one: it is loaded right before each relative use (translate_relative_operand), and the
++    * segment code reloads it before every save / restore */
++   if (sx->num_addrs == 0)
++      sx->addrs[sx->num_addrs++] = ureg_DECL_address(u);
++   sx->tl.addr = sx->addrs[0];
+    sx->tl.hw_tid = ureg_DECL_system_value(u, TGSI_SEMANTIC_THREAD_ID, 0);
+    sx->cs_gid = ureg_DECL_system_value(u, TGSI_SEMANTIC_BLOCK_ID, 0);
+    sx->cs_tid = ureg_src(sx->tl.tid);   /* cs_system_value reads the logical thread id from here */

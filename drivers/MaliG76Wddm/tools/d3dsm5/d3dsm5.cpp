@@ -353,6 +353,18 @@ static const Test g_tests[] = {
       "  if (gi % 3u == 1u) return;\n"
       "  dst.Store(gi * 4, cnt + gi);\n"
       "}\n", 768, 1, 1, 1, EX_NONE },
+    { "group512arr",   /* review of 0213: an indexable temp (dynamic index) live across a barrier in a 512 group */
+      "ByteAddressBuffer src : register(t0);\n"
+      "RWByteAddressBuffer dst : register(u0);\n"
+      "groupshared uint sh[512];\n"
+      "[numthreads(512,1,1)] void main(uint gi : SV_GroupIndex) {\n"
+      "  uint a[8];\n"
+      "  [loop] for (uint i = 0; i < 8; i++) a[(i + gi) & 7u] = src.Load(((gi + i) & 1023u) * 4) * (i + 1u);\n"
+      "  sh[gi] = a[gi & 7u];\n"
+      "  GroupMemoryBarrierWithGroupSync();\n"
+      "  uint k = sh[(gi + 1u) & 511u] & 7u;\n"
+      "  dst.Store(gi * 4, a[k] + a[(k + 3u) & 7u] + sh[511u - gi]);\n"
+      "}\n", 512, 1, 1, 1, EX_NONE },
     { "groupz64",
       "RWByteAddressBuffer dst : register(u0);\n"
       "[numthreads(1,1,64)] void main(uint3 gt : SV_GroupThreadID, uint3 gid : SV_GroupID) {\n"

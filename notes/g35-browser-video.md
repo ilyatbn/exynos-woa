@@ -77,3 +77,15 @@ work as possible on hdmi (via type c adapter and usb hub, i have both)."
     VP blts every frame (~15-35 us after the first), page 449 frames 22.7 fps dropped 4.
   - NATIVE Edge (default profile, sandbox, no switches; videorun.sh edge-hw1): MFC probe BUSY, page 568 frames
     23.6 fps dropped 2 (clip 24 fps; software decode was 14.1), picture correct (traces/g35-edge-hw1.png).
+- Review of 0221 / 0222 (diffs re-read; checks from traces/g35-gpu-t2b-2000.txt):
+  - writer tracking: every ctx->writers lookup goes through pan_track_rsrc (rg ctx->writers: update_access, flush_writer,
+    any_batch_writes_rsrc; pan_job.c:127 removal is by batch). Batch users are BO-based -> shared by construction.
+  - CPU map of the base after a write through an alias: transfer_map flushes panfrost_flush_writer(base) = the key used.
+  - destroy order: aliases released before the base; each alias holds a base reference (alias_of) anyway.
+  - Edge t2b: 1 device, 0 OpenResource, 8 aliases ok, 0 failed, 0 rejected NV12 views.
+  - OPEN (not a defect of these commits, follow-up tasks): (a) an NV12 texture opened through its shared handle on
+    another device (OpenResource) has no nv12_height -> plane views fail E_INVALIDARG there (Edge does not do it);
+    (b) CheckFormatSupport(NV12) still reports only DECODER_OUTPUT although SRV/RTV/UAV plane views now work -
+    the runtime did not block them; change only with a test that needs it; (c) EC + x86 UMDs not rebuilt - x64
+    browsers (emulated) would still crash on plane views -> rebuild + test with the next reboot / before Brave if Brave
+    is x64.

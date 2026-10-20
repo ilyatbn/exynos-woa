@@ -69,3 +69,6 @@ notes/g18-hdmi-dp-alt.md (rungs H1-H5, H1 done read-only), notes/g18-h2-altmode-
   (Commit: AffectedVidPnSourceId other than 0 and D3DDDI_ID_ALL). sys 1f72350c (s10e-artifacts\maliwddm-p4b2),
   kmdswap + reboot 19:42: adapter Started, desktop normal (traces/g18-p4b2-desk.png), Edge hardware video 23.5 fps
   dropped 0 (traces/g35-edge-hw3.png). QueryVidPnHWCapability needs no guard (PinnedSourceKind of source 1 = 0).
+- P5 (2026-10-20): user procedure "User test 2" in tools/phone/usbc/README.md (decision, install, plug before boot
+  for VBUS, run usbcaltmode 90, expected lines, hub repeat, reboot unplugged afterwards, rollback). usbcaltmode.exe
+  staged at C:\S10eTmp (copy only, not run). The monitor stays dark in that test by design (no DP driver yet).

@@ -703,6 +703,25 @@ int main(int argc, char **argv)
     ID3D11DeviceContext *mc = NULL, *wc = NULL;
     if (!pick || !Open(false, pick, &md, &mc) || !Open(true, NULL, &wd, &wc))
         return 2;
+    if (argc > first_sel && !strcmp(argv[first_sel], "-caps")) {   /* F11.11: format support, Mali vs WARP */
+        static const DXGI_FORMAT fmts[] = { DXGI_FORMAT_R32_UINT, DXGI_FORMAT_R32_SINT, DXGI_FORMAT_R32_FLOAT,
+            DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R32G32B32A32_FLOAT,
+            DXGI_FORMAT_R32G32B32A32_UINT, DXGI_FORMAT_R10G10B10A2_UNORM, DXGI_FORMAT_R11G11B10_FLOAT,
+            DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R16_FLOAT, DXGI_FORMAT_R16G16_FLOAT, DXGI_FORMAT_B8G8R8A8_UNORM,
+            DXGI_FORMAT_BC7_UNORM, DXGI_FORMAT_BC6H_UF16, DXGI_FORMAT_D24_UNORM_S8_UINT };
+        for (UINT f = 0; f < sizeof(fmts) / sizeof(fmts[0]); f++) {
+            UINT sm = 0, sw = 0;
+            md->CheckFormatSupport(fmts[f], &sm);
+            wd->CheckFormatSupport(fmts[f], &sw);
+            D3D11_FEATURE_DATA_FORMAT_SUPPORT2 m2 = { fmts[f], 0 }, w2 = { fmts[f], 0 };
+            md->CheckFeatureSupport(D3D11_FEATURE_FORMAT_SUPPORT2, &m2, sizeof m2);
+            wd->CheckFeatureSupport(D3D11_FEATURE_FORMAT_SUPPORT2, &w2, sizeof w2);
+            printf("fmt %3u: support Mali %08x WARP %08x (missing %08x)  support2 Mali %08x WARP %08x (missing %08x)\n",
+                   (unsigned)fmts[f], sm, sw, sw & ~sm, m2.OutFormatSupport2, w2.OutFormatSupport2,
+                   w2.OutFormatSupport2 & ~m2.OutFormatSupport2);
+        }
+        return 0;
+    }
     int fails = 0, run = 0;
     static UINT om[4096], ow[4096];
     for (int i = 0; i < NTEST; i++) {

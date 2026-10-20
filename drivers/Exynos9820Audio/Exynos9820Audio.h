@@ -332,6 +332,7 @@ typedef struct _AUD_STREAM_CONTEXT {
     BOOLEAN          Capture;           /* a Microphone0 stream (Capture.c) */
     volatile LONG    LastCapturePacket; /* capture: last completed packet (-1 = none yet) */
     ULONGLONG        LastCaptureQpc;    /* capture: QPC of that packet's first frame */
+    ULONG            CapLost;           /* capture: packets delivered as silence, their ring period already overwritten */
 } AUD_STREAM_CONTEXT, *PAUD_STREAM_CONTEXT;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(AUD_STREAM_CONTEXT, AudGetStreamContext)

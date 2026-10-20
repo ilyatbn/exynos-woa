@@ -363,10 +363,16 @@ static VOID CapEvtTimer(WDFTIMER Timer)
         LONGLONG  Qpc    = KeQueryPerformanceCounter(NULL).QuadPart -
                            (LONGLONG)(Behind * (ULONGLONG)Ctx->QpcFrequency.QuadPart / AUD_RATE);
 
-        if (Ctx->HwStarted) {
+        /* review F4 of a808ccf: the WDMA reuses this packet's ring period once it reaches period Packet + AUD_CAP_SLOTS;
+           with the WDMA already in period Packet + AUD_CAP_SLOTS - 1 or later (one period of margin for the copy) the
+           data is overwritten or about to be - deliver silence rather than torn audio */
+        if (Ctx->HwStarted && Frames < ((ULONGLONG)Packet + AUD_CAP_SLOTS - 1) * Ctx->FramesPerPacket) {
             CapCopyPeriod(Ctx, Packet, CapPacketVa(Ctx, Packet));
         } else {
             RtlZeroMemory(CapPacketVa(Ctx, Packet), Ctx->PacketSize);
+            if (Ctx->HwStarted) {
+                Ctx->CapLost++;
+            }
         }
         Ctx->LastCaptureQpc = (ULONGLONG)Qpc;
         InterlockedExchange(&Ctx->LastCapturePacket, (LONG)Packet);
@@ -608,7 +614,8 @@ static NTSTATUS CapEvtPause(ACXSTREAM Stream)
     WdfTimerStop(Ctx->Timer, TRUE);
     Ctx->State = AcxStreamStatePause;
     CapHwStop(Ctx);
-    AudLog(Ctx->Dev->Log, "mic stream: pause after %lu packets, %lu late timer passes\r\n", Ctx->Periods, Ctx->Glitches);
+    AudLog(Ctx->Dev->Log, "mic stream: pause after %lu packets, %lu late timer passes, %lu overrun packets (silence)\r\n",
+           Ctx->Periods, Ctx->Glitches, Ctx->CapLost);
     AudLogFlush(Ctx->Dev->Log);
     return STATUS_SUCCESS;
 }

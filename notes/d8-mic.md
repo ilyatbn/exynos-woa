@@ -144,3 +144,7 @@ Findings, each a follow-up task with its own commit:
 - F5 fixed (audio 1.0.3.5): MicLock (WDFWAITLOCK) around MicSetGain, MicHwStart, MicHwStop - a gain SET can no longer
   interleave with MicCodecOn/Off. Lock order MicLock -> CodecShareLock -> CodecLock (never reversed). Device: live
   change +12 -> 0 dB during a 6 s capture: per-second 1 kHz -49.4 -49.4 -49.5 -49.5 | -57.0 (straddles) | -61.6.
+- F4 fixed (audio 1.0.3.6): CapEvtTimer copies a period only while the WDMA is before period Packet + AUD_CAP_SLOTS - 1
+  (one period margin); later = silence + CapLost++ (logged at pause). Device: normal capture 301 packets, 0 late
+  passes, 0 overrun packets, 1 kHz -49.5 dB. The overrun branch itself was not triggered (needs a >= 70 ms late
+  timer) - verified by reading only.

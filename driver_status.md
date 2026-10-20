@@ -21,7 +21,7 @@ As of 2026-10-20 (tag alpha9). Windows 11 Pro 23H2, build 22631.6199. Windows Up
 | Hardware video decode | 🟡 | H.264 on the video chip for Windows apps (Photos, mpv) |
 | Speakers | 🟢 | both speakers, stereo, balance app |
 | Headphone jack | 🟢 | sound out, own "Headphones" device; no headset mic |
-| Microphones | 🔴 | nothing yet |
+| Microphones | 🟢 | both built-in mics, "Microphone" device, boost slider in the speaker app |
 | WiFi | 🟡 | fast on 5 GHz; 2.4 GHz slower and disturbs Bluetooth |
 | Bluetooth | 🟡 | pairing, headphones and music work; choppy when WiFi is on 2.4 GHz |
 | External display (USB-C to HDMI) | 🔴 | researched only; Remote Desktop works |
@@ -62,5 +62,6 @@ As of 2026-10-20 (tag alpha9). Windows 11 Pro 23H2, build 22631.6199. Windows Up
 - **WiFi:** works through the normal Windows WiFi menu. 5 GHz reaches 220-280 Mbit/s; 2.4 GHz about 35-40 Mbit/s.
 - **Bluetooth:** pairing works, and Bluetooth headphones play music. When WiFi uses 2.4 GHz the sound cuts out, because WiFi and Bluetooth share one radio and the coordination Android does isn't done yet; on 5 GHz WiFi it's fine. Transfers are slow (the chip's serial link still runs at the start-up speed).
 - **External display:** the USB-C chip's DisplayPort mode is researched but not switched on yet. Remote Desktop works for using the phone from another screen; a virtual-monitor prototype runs but streams black frames.
-- **Cellular, cameras, fingerprint, sensors, vibration, NFC, GPS, microphones, wireless charging:** not started.
+- **Microphones:** the two built-in microphones record in stereo through a "Microphone" device. "S10e Speakers" has a microphone boost slider (0 to +31.5 dB, default +12 dB). The headset microphone isn't done.
+- **Cellular, cameras, fingerprint, sensors, vibration, NFC, GPS, wireless charging:** not started.
 - **Remote access (for development):** an SSH server on the phone allows remote control and driver updates over WiFi.

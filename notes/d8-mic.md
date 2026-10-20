@@ -97,3 +97,11 @@ DMIC2 (MICBIAS1B) -> CS47L93 IN4L ---> AIF1TX1/2 mixers -> AIF1 TX (DSP-A 4 x 32
   mix format float32 2 ch 48 kHz; with the PC tone: 192000 frames / 4 s, 0 silent packets, 2 discontinuities
   (start), ch0 1000 Hz -50.9 dB SNR 54.7 dB, ch1 -49.0 dB SNR 55.2 dB (traces/audio/wascap-1.raw) = same as the raw
   hardware test -> the endpoint works end to end.
+- Gain control (audio 1.0.3.1): AUD_PROPERTY_MICGAIN (id 1 in AUDPROPSETID_SpeakerTrim, ULONG 0.5 dB steps 0..63,
+  Control.c AudMicGainRequest -> MicSetGain + Parameters\MicGain). App tools/S10eSpeakerTrim: "Microphone boost" slider
+  0..+31.5 dB (disabled "n/a" on older drivers), CLI `S10eSpeakerTrim.exe mic [N]`. Installed to C:\Program Files\
+  S10eSpeakerTrim. tools/phone/audio/micgaintest.sh (PC tone 1 kHz amp 0.15, PC level 0.30, wascap 3 s per gain):
+  gain 0 -> ch0 1 kHz -61.6 dB / ch1 -59.9; 24 -> -49.4 / -47.8; 48 -> -37.4 / -35.7 = +12.2 / +12.0 dB per 24 steps
+  (expected 12.0). Registry follows (0x30 after "mic 48", back to 0x18). Live change during a 6 s capture (mic 48 at
+  ~3.5 s): per-second 1 kHz -49.4 -49.3 -49.5 -49.6 | -42.3 (straddles) | -37.4, no extra discontinuity. Default left
+  at 24 (+12 dB).

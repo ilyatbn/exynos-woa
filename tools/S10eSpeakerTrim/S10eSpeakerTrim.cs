@@ -3,6 +3,7 @@
 //   S10eSpeakerTrim.exe                 tray app (sliders)
 //   S10eSpeakerTrim.exe get             print the current trim
 //   S10eSpeakerTrim.exe set RA SA RG SG raw values: RcvAtten SpkAtten (1/8 dB) RcvGain SpkGain (0..17)
+//   S10eSpeakerTrim.exe mic [N]         print / set the microphone boost, 0.5 dB steps 0..63 (driver >= 1.0.3.1)
 // Build (PC): csc /target:winexe /platform:anycpu S10eSpeakerTrim.cs  (.NET Framework 4.x, runs on ARM64 Windows)
 using System;
 using System.Drawing;
@@ -31,6 +32,8 @@ static class Ks
     static extern SafeFileHandle CreateFile(string n, uint access, uint share, IntPtr sa, uint disp, uint flags, IntPtr t);
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool DeviceIoControl(SafeFileHandle h, uint code, ref KSPROPERTY inb, int inl, ref Trim outb, int outl, out int ret, IntPtr ov);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool DeviceIoControl(SafeFileHandle h, uint code, ref KSPROPERTY inb, int inl, ref uint outb, int outl, out int ret, IntPtr ov);
 
     // Every KSCATEGORY_AUDIO interface of the S10e audio device (ACPI\SAMS9827).
     static System.Collections.Generic.List<string> Paths()
@@ -75,8 +78,28 @@ static class Ks
         throw new Exception(err);
     }
 
+    // AUD_PROPERTY_MICGAIN (id 1): ULONG, 0.5 dB steps above 0 dB
+    static uint CallMic(bool set, uint v)
+    {
+        string err = "no ACPI\\SAMS9827 audio interface";
+        foreach (string p in Paths()) {
+            using (var h = CreateFile(p, 0xC0000000, 3, IntPtr.Zero, 3, 0, IntPtr.Zero)) {
+                if (h.IsInvalid) { err = p + ": open error " + Marshal.GetLastWin32Error(); continue; }
+                var k = new KSPROPERTY { Set = TrimSet, Id = 1, Flags = set ? KSPROPERTY_TYPE_SET : KSPROPERTY_TYPE_GET };
+                int ret;
+                uint io = v;
+                if (DeviceIoControl(h, IOCTL_KS_PROPERTY, ref k, Marshal.SizeOf(k), ref io, 4, out ret, IntPtr.Zero))
+                    return set ? v : io;
+                err = p + ": property error " + Marshal.GetLastWin32Error();
+            }
+        }
+        throw new Exception(err);
+    }
+
     public static Trim Get() { return Call(false, new Trim()); }
     public static void Set(Trim t) { Call(true, t); }
+    public static uint GetMic() { return CallMic(false, 0); }
+    public static void SetMic(uint v) { CallMic(true, v); }
 }
 
 class TrimForm : Form
@@ -88,8 +111,10 @@ class TrimForm : Form
     // 0 dB on each slider = the driver's default balance (Driver.c AudReadConfig, set by ear 2026-10-16):
     // top gain 12 / atten 0, bottom gain 10 / atten 40. In absolute half-dB (Join): +4 and -10.
     static readonly int TopBase = Join(12, 0), BottomBase = Join(10, 40);
-    readonly TrackBar top = new TrackBar(), bottom = new TrackBar();
-    readonly Label topL = new Label(), bottomL = new Label(), status = new Label();
+    const int MicMax = 63;   // Exynos9820Audio.h MIC_GAIN_MAX (+31.5 dB)
+    readonly TrackBar top = new TrackBar(), bottom = new TrackBar(), mic = new TrackBar();
+    readonly Label topL = new Label(), bottomL = new Label(), micL = new Label(), status = new Label();
+    readonly Timer applyMic = new Timer { Interval = 150 };
     readonly Timer apply = new Timer { Interval = 150 };
     readonly NotifyIcon tray = new NotifyIcon();
     bool loading;
@@ -111,15 +136,22 @@ class TrimForm : Form
     TrimForm()
     {
         Text = "S10e speakers"; FormBorderStyle = FormBorderStyle.FixedToolWindow; StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(360, 190); Font = new Font("Segoe UI", 10f);
+        ClientSize = new Size(360, 260); Font = new Font("Segoe UI", 10f);
         Setup(top, topL, "Top (earpiece)", 10, TopBase);
         Setup(bottom, bottomL, "Bottom (loudspeaker)", 80, BottomBase);
-        status.SetBounds(12, 155, 340, 24); Controls.Add(status);
+        var mn = new Label { Text = "Microphone boost" }; mn.SetBounds(12, 150, 200, 22); Controls.Add(mn);
+        micL.SetBounds(270, 150, 80, 22); micL.TextAlign = ContentAlignment.MiddleRight; Controls.Add(micL);
+        mic.SetBounds(8, 172, 344, 40); mic.Minimum = 0; mic.Maximum = MicMax; mic.TickFrequency = 4;
+        mic.SmallChange = 1; mic.LargeChange = 4;
+        mic.ValueChanged += delegate { micL.Text = (mic.Value / 2.0).ToString("+0.0;-0.0;0.0") + " dB"; if (!loading) applyMic.Start(); };
+        Controls.Add(mic);
+        status.SetBounds(12, 225, 340, 24); Controls.Add(status);
         apply.Tick += delegate { apply.Stop(); Push(); };
+        applyMic.Tick += delegate { applyMic.Stop(); PushMic(); };
         tray.Icon = SystemIcons.Information; tray.Text = "S10e speakers"; tray.Visible = true;
         tray.MouseClick += delegate { Show(); WindowState = FormWindowState.Normal; Activate(); };
         var menu = new ContextMenuStrip();
-        menu.Items.Add("Default (0 / 0 dB)", null, delegate { top.Value = 0; bottom.Value = 0; });
+        menu.Items.Add("Default (0 / 0 dB, mic +12 dB)", null, delegate { top.Value = 0; bottom.Value = 0; mic.Value = 24; });
         menu.Items.Add("Exit", null, delegate { tray.Visible = false; Application.Exit(); });
         tray.ContextMenuStrip = menu;
         FormClosing += (s, e) => { if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Hide(); } };
@@ -146,6 +178,17 @@ class TrimForm : Form
             loading = false;
             status.Text = string.Format("driver: top gain {0} att {1}, bottom gain {2} att {3}", t.RcvGain, t.RcvAtten, t.SpkGain, t.SpkAtten);
         } catch (Exception e) { loading = false; status.Text = e.Message; }
+        try {
+            uint m = Ks.GetMic();
+            loading = true;
+            mic.Value = (int)Math.Min(m, (uint)MicMax);
+            loading = false;
+        } catch (Exception) { loading = false; mic.Enabled = false; micL.Text = "n/a"; }   // driver < 1.0.3.1 or no mic
+    }
+
+    void PushMic()
+    {
+        try { Ks.SetMic((uint)mic.Value); } catch (Exception e) { status.Text = e.Message; }
     }
 
     void Push()
@@ -161,6 +204,12 @@ class TrimForm : Form
     {
         if (a.Length > 0) {
             try {
+                if (a[0] == "mic") {
+                    if (a.Length == 2) Ks.SetMic(uint.Parse(a[1]));
+                    uint m = Ks.GetMic();
+                    Console.WriteLine("MicGain {0} (+{1:0.0} dB)", m, m / 2.0);
+                    return 0;
+                }
                 if (a[0] == "set" && a.Length == 5)
                     Ks.Set(new Ks.Trim { RcvAtten = uint.Parse(a[1]), SpkAtten = uint.Parse(a[2]), RcvGain = uint.Parse(a[3]), SpkGain = uint.Parse(a[4]) });
                 var t = Ks.Get();

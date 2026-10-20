@@ -30,6 +30,43 @@ static VOID AudTrimPersist(_In_ PAUD_DEVICE_CONTEXT Dev)
     WdfRegistryClose(Key);
 }
 
+/* AUD_PROPERTY_MICGAIN: ULONG, 0.5 dB steps above 0 dB. A SET applies it to the running ADCs and persists MicGain. */
+static NTSTATUS AudMicGainRequest(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ const ACX_REQUEST_PARAMETERS *P, _Out_ ULONG_PTR *Info)
+{
+    PULONG         V = (PULONG)P->Parameters.Property.Value;
+    ULONG          Cb = P->Parameters.Property.ValueCb;
+    WDFKEY         Key;
+    UNICODE_STRING Name;
+    NTSTATUS       Status;
+
+    *Info = sizeof(ULONG);
+    if (V == NULL || Cb < sizeof(ULONG)) {
+        return (Cb == 0) ? STATUS_BUFFER_OVERFLOW : STATUS_BUFFER_TOO_SMALL;
+    }
+    if (P->Parameters.Property.Verb == AcxPropertyVerbBasicSupport) {
+        *V = KSPROPERTY_TYPE_GET | KSPROPERTY_TYPE_SET;
+        return STATUS_SUCCESS;
+    }
+    if (P->Parameters.Property.Verb == AcxPropertyVerbGet) {
+        *V = Dev->MicGain;
+        return STATUS_SUCCESS;
+    }
+    if (P->Parameters.Property.Verb != AcxPropertyVerbSet) {
+        *Info = 0;
+        return STATUS_NOT_SUPPORTED;
+    }
+    *Info = 0;
+    Status = MicSetGain(Dev, *V);   /* clamps to MIC_GAIN_MAX */
+    Dev->Cfg.MicGain = Dev->MicGain;
+    if (NT_SUCCESS(WdfDriverOpenParametersRegistryKey(WdfGetDriver(), KEY_WRITE, WDF_NO_OBJECT_ATTRIBUTES, &Key))) {
+        RtlInitUnicodeString(&Name, L"MicGain");
+        (VOID)WdfRegistryAssignULong(Key, &Name, Dev->MicGain);
+        WdfRegistryClose(Key);
+    }
+    AudLog(Dev->Log, "mic: gain set +%lu.%lu dB\r\n", Dev->MicGain / 2, (Dev->MicGain & 1) * 5);
+    return Status;
+}
+
 /* TRUE = the request was ours and is completed. PASSIVE_LEVEL (circuit preprocess). */
 _IRQL_requires_(PASSIVE_LEVEL)
 BOOLEAN AudControlRequest(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ WDFREQUEST Request, _In_ const ACX_REQUEST_PARAMETERS *P)
@@ -46,7 +83,9 @@ BOOLEAN AudControlRequest(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ WDFREQUEST Reque
         return FALSE;
     }
 
-    if (P->Parameters.Property.Id != AUD_PROPERTY_TRIM) {
+    if (P->Parameters.Property.Id == AUD_PROPERTY_MICGAIN) {
+        Status = AudMicGainRequest(Dev, P, &Info);
+    } else if (P->Parameters.Property.Id != AUD_PROPERTY_TRIM) {
         Status = STATUS_NOT_FOUND;
     } else if (P->Parameters.Property.Verb == AcxPropertyVerbBasicSupport) {
         if (T != NULL && Cb >= sizeof(ULONG)) {

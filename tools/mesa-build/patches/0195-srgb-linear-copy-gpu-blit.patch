@@ -1,0 +1,81 @@
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index 59f89f4..7d88a49 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -1265,6 +1265,55 @@ areResourcesCompatible(const struct pipe_resource *src_resource, // IN
+ }
+ 
+ 
++/*
++ * exynos-woa G33 (0195, notes/games-unity.md): a copy between the sRGB and the linear variant of one format (Unity
++ * uploads textures through an R8G8B8A8_UNORM staging texture into R8G8B8A8_UNORM_SRGB ones; D3D11
++ * CopySubresourceRegion allows formats of one typeless group) is a raw copy of the same bits. areResourcesCompatible
++ * says no (the colour spaces differ), and util_resource_copy_region then maps both textures on the calling thread -
++ * a threaded-context sync plus a CPU (de)tiling copy: 40 ms per 1024x1024, 160-180 ms per 2048x2048 in Dave the
++ * Diver's in-game load. A GPU blit with BOTH sides viewed in the linear format does the same raw copy, queued.
++ * Panfrost compresses sRGB with the linear format's AFBC mode (pan_afbc_format), so the view is valid on AFBC too.
++ * Returns false when it does not apply (the caller keeps its path).
++ */
++static bool
++copyLinearPairViaBlit(struct pipe_context *pipe,
++                      struct pipe_resource *dst, unsigned dst_level, unsigned dstx, unsigned dsty, unsigned dstz,
++                      struct pipe_resource *src, unsigned src_level, const struct pipe_box *src_box)
++{
++   if (dst->target == PIPE_BUFFER || src->target == PIPE_BUFFER || dst->nr_samples > 1 || src->nr_samples > 1)
++      return false;
++   enum pipe_format lin = util_format_linear(dst->format);
++   if (util_format_linear(src->format) != lin || (src->format == lin && dst->format == lin))
++      return false;   /* not an sRGB / linear pair of one format */
++   if (util_format_is_compressed(lin) || util_format_is_depth_or_stencil(lin))
++      return false;
++   struct pipe_screen *screen = pipe->screen;
++   if (!screen->is_format_supported(screen, lin, dst->target, 0, 0, PIPE_BIND_RENDER_TARGET) ||
++       !screen->is_format_supported(screen, lin, src->target, 0, 0, PIPE_BIND_SAMPLER_VIEW))
++      return false;
++
++   struct pipe_blit_info info;
++   memset(&info, 0, sizeof info);
++   info.dst.resource = dst;
++   info.dst.level = dst_level;
++   info.dst.format = lin;
++   info.dst.box.x = dstx;
++   info.dst.box.y = dsty;
++   info.dst.box.z = dstz;
++   info.dst.box.width = src_box->width;
++   info.dst.box.height = src_box->height;
++   info.dst.box.depth = src_box->depth;
++   info.src.resource = src;
++   info.src.level = src_level;
++   info.src.format = lin;
++   info.src.box = *src_box;
++   info.mask = PIPE_MASK_RGBA;
++   info.filter = PIPE_TEX_FILTER_NEAREST;
++   pipe->blit(pipe, &info);
++   return true;
++}
++
++
+ /*
+  * ----------------------------------------------------------------------
+  *
+@@ -1324,7 +1373,8 @@ ResourceCopy(D3D10DDI_HDEVICE hDevice,          // IN
+                                        0, 0, layer,
+                                        src_resource, level,
+                                        &box);
+-         } else {
++         } else if (pSrcResource->bc_format != PIPE_FORMAT_NONE || pDstResource->bc_format != PIPE_FORMAT_NONE ||
++                    !copyLinearPairViaBlit(pipe, dst_resource, level, 0, 0, layer, src_resource, level, &box)) {
+             util_resource_copy_region(pipe,
+                                       dst_resource, level,
+                                       0, 0, layer,
+@@ -1420,6 +1470,10 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
+                                  DstX, DstY, DstZ + dst_layer,
+                                  src_resource, src_level,
+                                  &src_box);
++   } else if (pSrcResource->bc_format == PIPE_FORMAT_NONE && pDstResource->bc_format == PIPE_FORMAT_NONE &&
++              copyLinearPairViaBlit(pipe, dst_resource, dst_level, DstX, DstY, DstZ + dst_layer,
++                                    src_resource, src_level, &src_box)) {
++      /* queued GPU blit (0195) */
+    } else {
+       UMD_SECTION("copy:util");
+       util_resource_copy_region(pipe,

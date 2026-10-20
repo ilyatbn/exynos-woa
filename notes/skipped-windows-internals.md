@@ -39,3 +39,12 @@ proprietary source (licence/IP taint) and x86-only NT 5.1 with no ARM64, PSCI, G
 M4 reset is external to Windows (notes/m14-smp.md: KeBugCheck / HAL reboot / WHEA never hit -> EL3 / uH).
 Instead: our own instrumentation - the PROBE-mask CPU_ON test that records MIDR / ID registers / GIC interface /
 clock of an M4 without offering it to Windows (notes/cpu-ram-plan-20261012.md plan #4), and KD over USB (M17).
+
+## 2026-10-20 - G33 game loading: why a WDDM allocation / Lock costs milliseconds
+The best way to get the answer to this problem would have been to look at dxgkrnl / VidMm's allocation and Lock
+paths (disassembly, internal structures) to solve the problem of D3DDDICB_ALLOCATE costing 1-7 ms for small and
+20-40 ms for 16 MB allocations and D3DDDICB_LOCK (IgnoreSync) 3-10 ms regardless of size while Dave the Diver loads,
+but due to security concerns I chose not to do that. Instead: our own instrumentation (Mesa 0196 create:resource_create
+section, 0197 pan_bo.c alloc / mmap timing with size + label, the shim's per-ioctl totals), our KMD's side checked from
+our own source (MwCreateAllocation / MwBuildPagingBuffer: GPU VA + page-table writes only, no zeroing), and the
+user-mode lever left open: fewer kernel allocations (the existing 32-bit slab sub-allocation, wslab, for x64 apps too).

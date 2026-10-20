@@ -1,0 +1,47 @@
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index 638e840..59f89f4 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -1408,19 +1408,41 @@ ResourceCopyRegion(D3D10DDI_HDEVICE hDevice,                // IN
+          return;
+    }
+ 
+-   if (areResourcesCompatible(src_resource, dst_resource)) {
++   /* exynos-woa G33 (0193, notes/games-unity.md): Dave the Diver's in-game load spends ~3 s in this entry point -
++    * which path, and the first slow copies (formats, size, staging or not) in the trace log. */
++   LARGE_INTEGER ct0, ct1, cfreq;
++   QueryPerformanceCounter(&ct0);
++   bool compat = areResourcesCompatible(src_resource, dst_resource);
++   if (compat) {
++      UMD_SECTION("copy:pipe");
+       pipe->resource_copy_region(pipe,
+                                  dst_resource, dst_level,
+                                  DstX, DstY, DstZ + dst_layer,
+                                  src_resource, src_level,
+                                  &src_box);
+    } else {
++      UMD_SECTION("copy:util");
+       util_resource_copy_region(pipe,
+                                 dst_resource, dst_level,
+                                 DstX, DstY, DstZ + dst_layer,
+                                 src_resource, src_level,
+                                 &src_box);
+    }
++   QueryPerformanceCounter(&ct1);
++   QueryPerformanceFrequency(&cfreq);
++   double cms = (double)(ct1.QuadPart - ct0.QuadPart) * 1000.0 / cfreq.QuadPart;
++   static unsigned copy_logged;
++   if (cms > 2.0 && copy_logged < 40) {
++      copy_logged++;
++      malikm_tlog("copy %.1f ms %s: %s%s%s usage %u lvl %u -> %s%s%s usage %u lvl %u, box %dx%dx%d", cms,
++                  compat ? "pipe" : "util", util_format_short_name(src_resource->format),
++                  pSrcResource->bc_format != PIPE_FORMAT_NONE ? "/" : "",
++                  pSrcResource->bc_format != PIPE_FORMAT_NONE ? util_format_short_name(pSrcResource->bc_format) : "",
++                  src_resource->usage, src_level, util_format_short_name(dst_resource->format),
++                  pDstResource->bc_format != PIPE_FORMAT_NONE ? "/" : "",
++                  pDstResource->bc_format != PIPE_FORMAT_NONE ? util_format_short_name(pDstResource->bc_format) : "",
++                  dst_resource->usage, dst_level, src_box.width, src_box.height, src_box.depth);
++   }
+ }
+ 
+ 

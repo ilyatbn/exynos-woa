@@ -1,0 +1,15 @@
+diff --git a/src/util/disk_cache_os.c b/src/util/disk_cache_os.c
+index 0faf29e..96acddf 100644
+--- a/src/util/disk_cache_os.c
++++ b/src/util/disk_cache_os.c
+@@ -485,8 +485,8 @@ disk_cache_load_item(struct disk_cache *cache, char *filename, size_t *size)
+ 
+    /* A file that does not validate (left half-written by a crash or a power cut: the data can be lost while the
+     * rename survived) would miss forever; delete it so the next compile stores it again. */
+-   if (!uncompressed_data && data)
+-      DeleteFileW(w);
++   if (!uncompressed_data && data && DeleteFileW(w))
++      p_atomic_add(&cache->size->value, - win_disk_size((uint64_t)sz.QuadPart));   /* 0194: keep the shared size counter right */
+ 
+ done:
+    free(data);

@@ -47,6 +47,13 @@ function State($b) {
     if ($d[0] -gt 220 -and $d[1] -gt 190 -and $d[2] -lt 90) { return 'boat-dive' }
     return 'boat'
   }
+  # info pop-ups with a pink OK button (game update 1.0.6.2113: "GODZILLA DLC installed", "DREDGE DLC installed" over
+  # the title screen; the button's height differs) - OK only closes them. $script:okY = the button row for the tap.
+  for ($y = 540; $y -le 680; $y += 4) {
+    if ((Near (Px $b 790 $y) 254 1 111 30) -and (Near (Px $b 810 $y) 254 1 111 30) -and (Near (Px $b 712 $y) 254 1 111 30)) {
+      $script:okY = $y + 10; return 'dialog-ok'
+    }
+  }
   $l = Px $b 560 240                                                      # title logo fef01e
   if ($l[0] -gt 220 -and $l[1] -gt 200 -and $l[2] -lt 90) { return 'title' }
   $flat = $true
@@ -74,9 +81,13 @@ function Auto([int]$swim) {
   if (-not (Get-Process DaveTheDiver -ErrorAction SilentlyContinue)) {
     Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe); L "auto: launched"
   }
-  $t0 = Get-Date; $last = ''; $since = Get-Date; $titleTaps = 0; $steps = 0; $spaced = $null; $unk = 0
+  $t0 = Get-Date; $last = ''; $since = Get-Date; $titleTaps = 0; $steps = 0; $spaced = $null; $unk = 0; $seen = $false
   while (((Get-Date) - $t0).TotalMinutes -lt 15) {
-    if (-not (Get-Process DaveTheDiver -ErrorAction SilentlyContinue) -and ((Get-Date) - $t0).TotalSeconds -gt 60) { L "auto FAIL game gone"; return }
+    # the exe started directly may first start Steam and exit (Steam relaunches it): 'gone' only after the game was
+    # seen, and up to 5 min for it to appear (first launch after a reboot)
+    $gp = Get-Process DaveTheDiver -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($gp -and -not $seen) { $seen = $true; L "auto: game pid $($gp.Id) started $($gp.StartTime.ToString('HH:mm:ss.fff'))" }
+    if (-not $gp -and ($seen -or ((Get-Date) - $t0).TotalSeconds -gt 300)) { L "auto FAIL game gone"; return }
     $b = Shot; $s = State $b
     if ($s -ne $last) { L "auto: state $s"; $last = $s; $since = Get-Date }
     $held = ((Get-Date) - $since).TotalSeconds
@@ -85,6 +96,7 @@ function Auto([int]$swim) {
       'boat' { if ($spaced -and ((Get-Date) - $spaced).TotalSeconds -lt 15) { break }
                if ($held -ge 3) { if ($steps -lt 20) { Key '20' 400; $steps++ } else { Key '1E' 3000; $steps = 0 } } }
       'boat-dive' { Key '39' 3000; $spaced = Get-Date }
+      'dialog-ok' { if ($held -ge 2) { $b.Save("$dir\dialog-ok.png", [System.Drawing.Imaging.ImageFormat]::Png); Tap 790 $script:okY; $since = Get-Date } }
       'water' {
         if ($held -lt 3) { break }
         Remove-Item C:\S10eTmp\frametimes.txt -ErrorAction SilentlyContinue

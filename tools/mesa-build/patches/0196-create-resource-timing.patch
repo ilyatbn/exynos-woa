@@ -1,0 +1,63 @@
+diff --git a/src/gallium/frontends/d3d10umd/Resource.cpp b/src/gallium/frontends/d3d10umd/Resource.cpp
+index 7d88a49..81307ef 100644
+--- a/src/gallium/frontends/d3d10umd/Resource.cpp
++++ b/src/gallium/frontends/d3d10umd/Resource.cpp
+@@ -638,8 +638,10 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+       }
+    }
+ 
+-   if (!pResource->resource)
++   if (!pResource->resource) {
++      UMD_SECTION("create:resource_create");   /* exynos-woa G33 (0196): BO allocation (BO cache miss -> kernel) */
+       pResource->resource = screen->resource_create(screen, &templat);
++   }
+    if (!pResource) {
+       DebugPrintf("%s: failed to create resource\n", __func__);
+       SetError(hDevice, E_OUTOFMEMORY);
+@@ -742,13 +744,18 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+             void *map;
+             if (bc_time)
+                QueryPerformanceCounter(&bt0);
+-            map = pipe->texture_map(pipe,
+-                                    pResource->resource,
+-                                    level,
+-                                    PIPE_MAP_WRITE |
+-                                    PIPE_MAP_UNSYNCHRONIZED,
+-                                    &box,
+-                                    &transfer);
++            {
++               /* exynos-woa G33 (0196, notes/games-unity.md): the initial-data upload split - map (a threaded-
++                * context sync: tc_texture_map always waits for the driver thread), CPU copy, unmap */
++               UMD_SECTION("create:tex_map");
++               map = pipe->texture_map(pipe,
++                                       pResource->resource,
++                                       level,
++                                       PIPE_MAP_WRITE |
++                                       PIPE_MAP_UNSYNCHRONIZED,
++                                       &box,
++                                       &transfer);
++            }
+             assert(map);
+             if (bc_time) {
+                QueryPerformanceCounter(&bt1);
+@@ -756,6 +763,7 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+                bt0 = bt1;
+             }
+             if (map) {
++               UmdSectionTimer *copy_timer = new UmdSectionTimer("create:tex_copy");   /* 0196 */
+                for (int z = 0; z < box.depth; ++z) {
+                   uint8_t *dst = (uint8_t*)map + z*transfer->layer_stride;
+                   const uint8_t *src = (const uint8_t*)pInitialDataUP->pSysMem + z*pInitialDataUP->SysMemSlicePitch;
+@@ -777,7 +785,11 @@ CreateResource(D3D10DDI_HDEVICE hDevice,                                // IN
+                   bc_ms[1] += (double)(bt1.QuadPart - bt0.QuadPart) * 1000.0 / bfreq.QuadPart;
+                   bt0 = bt1;
+                }
+-               pipe_texture_unmap(pipe, transfer);
++               delete copy_timer;
++               {
++                  UMD_SECTION("create:tex_unmap");   /* 0196 */
++                  pipe_texture_unmap(pipe, transfer);
++               }
+                if (bc_time) {
+                   QueryPerformanceCounter(&bt1);
+                   bc_ms[2] += (double)(bt1.QuadPart - bt0.QuadPart) * 1000.0 / bfreq.QuadPart;

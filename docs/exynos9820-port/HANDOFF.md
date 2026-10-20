@@ -2061,3 +2061,18 @@ diagnostic timers from release builds once perf work settles.
 - Tools: tools/phone/g35 (browservideo.ps1 + videorun.sh = native playback check; cdpplay.sh / cdp_nav.py = DevTools
   Media log + unsandboxed UMD log, tracing only).
 - Next: HDMI (G18) prep - user has a USB-C to HDMI adapter and a USB-C hub. Do as much as possible without the user.
+
+## 75. 2026-10-20 - HDMI (G18) prep, unattended
+
+- Done (notes/g18-hdmi-prep.md): S10eBattery 1.0.0.7 (H2 allowlisted alt-mode opcodes) BUILT + reviewed
+  (s10e-artifacts\s10ebattery-1.0.0.7, staged C:\S10eTmp\batt107) - the live install was denied by the session's
+  safety classifier, so the phone still runs 1.0.0.6 and NOTHING was written to the max77705. usbcaltmode
+  (tools/phone/usbc, staged C:\S10eTmp) dry-run verified. User procedure: tools/phone/usbc/README.md "User test 2"
+  (install, plug the adapter BEFORE boot for VBUS, run usbcaltmode 90, hub repeat).
+- KMD: MaliG76Wddm counts the DP output (P4b, child UID 1 disconnected) + per-source DDI guards (review fix); live sys
+  1f72350c via kmdswap (INF not bumped), rollback MaliG76Wddm.sys.prev. Desktop + Edge hardware video verified after
+  the reboot.
+- Research: notes/g18-p3-dp-bringup.md (DP controller / PHY / DECON_T sequence, hazards), notes/g18-p4-wddm-target.md
+  (WDDM design, P4c checklist).
+- Next, in order: the user's alt-mode run (needs their go for the PD writes) -> read-only probes P3 steps 1-7 -> AUX /
+  DPCD / EDID -> link training + BIST first light -> P4c/P4d.

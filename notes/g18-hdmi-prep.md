@@ -74,3 +74,13 @@ notes/g18-hdmi-dp-alt.md (rungs H1-H5, H1 done read-only), notes/g18-h2-altmode-
   staged at C:\S10eTmp (copy only, not run). The monitor stays dark in that test by design (no DP driver yet).
 - P4c deferred with a checklist (notes/g18-p4-wddm-target.md "P4c checklist"): per-target vsync + per-source flip
   latch are needed first, best built with P4d when DECON_T exists; not done unattended.
+- P3 (2026-10-20, background research agent, vendor source lineage-23.2, every claim file:line, constants
+  UNVERIFIED): notes/g18-p3-dp-bringup.md. Key corrections to the brief: the DP link block 0x130B0000 is in BLK_FSYS0
+  (CMU_FSYS0 0x13000000 gates), not the DPU; AUX orientation = the gpg0-4 level (gpg4-0 := gpg0-4), GPIO banks shared
+  with codec reset / WLAN_EN -> read-modify-write only; configuring DECON_T writes DECON_F registers
+  (DP_CONNECTION_CONTROL 0x0270, window regs) -> a mistake hits the live panel. Biggest hazard: DP lanes need the
+  combo PHY powered by the USB side, which our firmware parks (USB PLL never locked) -> touching it under the running
+  xHCI is a BOOT HAZARD. Useful: the DP controller's own BIST (solid colour / bars) gives first light without
+  DECON_T/DPP/SYSMMU (rung H4a). 19-step order, steps 1-7 read-only probes; 7 open questions listed there.
+  Parent review: structure checked (8 sections + open questions), Exynos9820.h has no DP / PMU 0x704 define (grep) ->
+  UNVERIFIED tags correct; the PHY-overlap claim vs notes/m16-ss-phy.md not re-derived here (re-check at the PHY step).

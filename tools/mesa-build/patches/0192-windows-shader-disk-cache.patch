@@ -1,0 +1,1040 @@
+diff --git a/meson.build b/meson.build
+index e72e144..0227819 100644
+--- a/meson.build
++++ b/meson.build
+@@ -1171,9 +1171,8 @@ if with_split_debug.allowed() and get_option('debug')
+   add_project_link_arguments('-Wl,--gdb-index', language : ['c', 'cpp'])
+ endif
+ 
+-with_shader_cache = get_option('shader-cache') \
+-  .require(host_machine.system() != 'windows', error_message : 'Shader Cache does not currently work on Windows') \
+-  .allowed()
++# exynos-woa G33: src/util/disk_cache_os.c has a Windows backend (multi-file cache)
++with_shader_cache = get_option('shader-cache').allowed()
+ 
+ if with_shader_cache
+   pre_args += '-DENABLE_SHADER_CACHE'
+diff --git a/src/gallium/drivers/panfrost/pan_disk_cache.c b/src/gallium/drivers/panfrost/pan_disk_cache.c
+index b192093..5c68d38 100644
+--- a/src/gallium/drivers/panfrost/pan_disk_cache.c
++++ b/src/gallium/drivers/panfrost/pan_disk_cache.c
+@@ -13,6 +13,10 @@
+ #include "util/blob.h"
+ #include "util/build_id.h"
+ #include "util/disk_cache.h"
++#if DETECT_OS_WINDOWS
++#include <windows.h>
++#include "util/disk_cache_os.h"
++#endif
+ #include "util/mesa-blake3.h"
+ 
+ #include "pan_context.h"
+@@ -151,6 +155,22 @@ panfrost_disk_cache_init(struct panfrost_screen *screen)
+ #ifdef ENABLE_SHADER_CACHE
+    const char *renderer = screen->base.get_name(&screen->base);
+ 
++#if DETECT_OS_WINDOWS
++   /* exynos-woa G33: no ELF build-id on Windows; identify the build by this module's file (Mesa's Windows
++    * disk_cache_get_function_identifier: GetModuleHandleEx(FROM_ADDRESS) + the file's last-write time). Every
++    * deployed UMD build is a new file, so a new build never reads an old build's binaries. */
++   blake3_hasher id_ctx;
++   _mesa_blake3_init(&id_ctx);
++   extern void malikm_tlog(const char *fmt, ...);
++   if (!disk_cache_get_function_identifier(panfrost_disk_cache_init, &id_ctx)) {
++      malikm_tlog("disk cache: off - no module identifier (err %lu)", GetLastError());
++      return;
++   }
++   blake3_hash id_hash;
++   _mesa_blake3_final(&id_ctx, id_hash);
++   char timestamp[BLAKE3_HEX_LEN];
++   _mesa_blake3_format(timestamp, id_hash);
++#else
+    const struct build_id_note *note =
+       build_id_find_nhdr_for_addr(panfrost_disk_cache_init);
+    assert(note && build_id_length(note) == BUILD_ID_EXPECTED_HASH_LENGTH); /* sha1 */
+@@ -160,11 +180,20 @@ panfrost_disk_cache_init(struct panfrost_screen *screen)
+ 
+    char timestamp[BLAKE3_HEX_LEN];
+    _mesa_sha1_format(timestamp, id_sha1);
++#endif
+ 
+    /* Consider any flags affecting the compile when caching */
+    uint64_t driver_flags = screen->dev.debug;
+    driver_flags |= ((uint64_t)(midgard_debug | bifrost_debug) << 32);
+ 
+    screen->disk_cache = disk_cache_create(renderer, timestamp, driver_flags);
++#if DETECT_OS_WINDOWS
++   /* exynos-woa G33 diagnosis: where the cache lives, or why it is off */
++   if (screen->disk_cache && !screen->disk_cache->path_init_failed)
++      malikm_tlog("disk cache: %s", screen->disk_cache->path);
++   else
++      malikm_tlog("disk cache: off - %s (err %lu)", disk_cache_win_fail ? disk_cache_win_fail : "?",
++                  disk_cache_win_fail_err);
++#endif
+ #endif
+ }
+diff --git a/src/util/disk_cache.c b/src/util/disk_cache.c
+index 1f43388..a6f397f 100644
+--- a/src/util/disk_cache.c
++++ b/src/util/disk_cache.c
+@@ -23,18 +23,21 @@
+ 
+ #ifdef ENABLE_SHADER_CACHE
+ 
++#include "util/detect_os.h"
+ #include <ctype.h>
+-#include <ftw.h>
+ #include <string.h>
+ #include <stdlib.h>
+ #include <stdio.h>
+-#include <sys/file.h>
+ #include <sys/types.h>
+ #include <sys/stat.h>
+-#include <sys/mman.h>
+ #include <fcntl.h>
+ #include <errno.h>
++#if !DETECT_OS_WINDOWS   /* exynos-woa G33: POSIX-only headers (nothing in this file uses them directly) */
++#include <ftw.h>
++#include <sys/file.h>
++#include <sys/mman.h>
+ #include <dirent.h>
++#endif
+ #include <inttypes.h>
+ 
+ #include "util/compress.h"
+@@ -223,9 +226,17 @@ disk_cache_create(const char *gpu_name, const char *driver_id,
+    uint64_t max_size = 0;
+    const char *max_size_str;
+ 
++#if DETECT_OS_WINDOWS
++   /* exynos-woa G33: Windows has only the multi-file backend (disk_cache_os.c), in the UMD's own per-app directory.
++    * Steam starts its games with MESA_DISK_CACHE_SINGLE_FILE=1 and MESA_SHADER_CACHE_DIR = its
++    * steamapps\shadercache\<appid> folder (seen in Dave the Diver's UMD log) - meant for Linux drivers; honouring
++    * them would turn the cache off for every Steam game, so only the multi-file branch below is taken. */
++   if (false) {
++#else
+    if (debug_get_bool_option("MESA_DISK_CACHE_SINGLE_FILE", false)) {
++#endif
+       cache_type = DISK_CACHE_SINGLE_FILE;
+-   } else if (debug_get_bool_option("MESA_DISK_CACHE_DATABASE", false)) {
++   } else if (!DETECT_OS_WINDOWS && debug_get_bool_option("MESA_DISK_CACHE_DATABASE", false)) {
+       cache_type = DISK_CACHE_DATABASE;
+       /* Since switching the default cache to <mesa_shader_cache_db>, remove the
+        * old cache folder if it hasn't been modified for more than 7 days.
+@@ -233,7 +244,7 @@ disk_cache_create(const char *gpu_name, const char *driver_id,
+       if (!os_get_option("MESA_SHADER_CACHE_DIR") && !os_get_option("MESA_GLSL_CACHE_DIR") &&
+           disk_cache_enabled())
+          disk_cache_delete_old_cache();
+-   } else if (debug_get_bool_option("MESA_DISK_CACHE_MULTI_FILE", true)) {
++   } else if (DETECT_OS_WINDOWS || debug_get_bool_option("MESA_DISK_CACHE_MULTI_FILE", true)) {
+       cache_type = DISK_CACHE_MULTI_FILE;
+    } else {
+       return NULL;
+@@ -296,7 +307,7 @@ disk_cache_create(const char *gpu_name, const char *driver_id,
+     * cache.  At first we will check cache entry presence in the RO caches and
+     * if entry isn't found there, then we'll fall back to the RW cache.
+     */
+-   if (cache_type != DISK_CACHE_SINGLE_FILE && !cache->path_init_failed &&
++   if (!DETECT_OS_WINDOWS && cache_type != DISK_CACHE_SINGLE_FILE && !cache->path_init_failed &&
+        debug_get_bool_option("MESA_DISK_CACHE_COMBINE_RW_WITH_RO_FOZ", false)) {
+ 
+       /* Create read-only cache used for sharing prebuilt shaders.
+diff --git a/src/util/disk_cache_os.c b/src/util/disk_cache_os.c
+index 66a3f5b..0faf29e 100644
+--- a/src/util/disk_cache_os.c
++++ b/src/util/disk_cache_os.c
+@@ -81,8 +81,684 @@ disk_cache_get_function_identifier(void *ptr, blake3_hasher *ctx)
+ 
+ #ifdef ENABLE_SHADER_CACHE
+ 
++/* exynos-woa G33: the item format helpers are shared by the POSIX and the Windows backend. */
++#include "util/blob.h"
++
++static void *
++parse_and_validate_cache_item(struct disk_cache *cache, void *cache_item,
++                              size_t cache_item_size, size_t *size)
++{
++   uint8_t *uncompressed_data = NULL;
++
++   struct blob_reader ci_blob_reader;
++   blob_reader_init(&ci_blob_reader, cache_item, cache_item_size);
++
++   size_t header_size = cache->driver_keys_blob_size;
++   const void *keys_blob = blob_read_bytes(&ci_blob_reader, header_size);
++   if (ci_blob_reader.overrun)
++      goto fail;
++
++   /* Check for extremely unlikely hash collisions */
++   if (memcmp(cache->driver_keys_blob, keys_blob, header_size) != 0) {
++#if !DETECT_OS_WINDOWS
++      assert(!"Mesa cache keys mismatch!");
++#endif
++      /* exynos-woa G33: on Windows a file whose data was lost in a crash (zeros) lands here too - fail, don't
++       * abort the application (our builds keep asserts). */
++      goto fail;
++   }
++
++   uint32_t md_type = blob_read_uint32(&ci_blob_reader);
++   if (ci_blob_reader.overrun)
++      goto fail;
++
++   if (md_type == CACHE_ITEM_TYPE_GLSL) {
++      uint32_t num_keys = blob_read_uint32(&ci_blob_reader);
++      if (ci_blob_reader.overrun)
++         goto fail;
++
++      /* The cache item metadata is currently just used for distributing
++       * precompiled shaders, they are not used by Mesa so just skip them for
++       * now.
++       * TODO: pass the metadata back to the caller and do some basic
++       * validation.
++       */
++      const void UNUSED *metadata =
++         blob_read_bytes(&ci_blob_reader, num_keys * sizeof(cache_key));
++      if (ci_blob_reader.overrun)
++         goto fail;
++   }
++
++   /* Load the CRC that was created when the file was written. */
++   struct cache_entry_file_data *cf_data =
++      (struct cache_entry_file_data *)
++         blob_read_bytes(&ci_blob_reader, sizeof(struct cache_entry_file_data));
++   if (ci_blob_reader.overrun)
++      goto fail;
++
++   size_t cache_data_size = ci_blob_reader.end - ci_blob_reader.current;
++   const uint8_t *data = (uint8_t *) blob_read_bytes(&ci_blob_reader, cache_data_size);
++
++   /* Check the data for corruption */
++   if (cf_data->crc32 != util_hash_crc32(data, cache_data_size))
++      goto fail;
++
++   /* Uncompress the cache data */
++   uncompressed_data = malloc(cf_data->uncompressed_size);
++   if (!uncompressed_data)
++      goto fail;
++
++   if (cache->compression_disabled) {
++      if (cf_data->uncompressed_size != cache_data_size)
++         goto fail;
++
++      memcpy(uncompressed_data, data, cache_data_size);
++   } else {
++      if (!util_compress_inflate(data, cache_data_size, uncompressed_data,
++                                 cf_data->uncompressed_size))
++         goto fail;
++   }
++
++   if (size)
++      *size = cf_data->uncompressed_size;
++
++   return uncompressed_data;
++
++ fail:
++   free(uncompressed_data);
++
++   return NULL;
++}
++
++static bool
++create_cache_item_header_and_blob(struct disk_cache_put_job *dc_job,
++                                  struct blob *cache_blob)
++{
++
++   /* Compress the cache item data */
++   size_t max_buf = util_compress_max_compressed_len(dc_job->size);
++   size_t compressed_size;
++   void *compressed_data;
++
++   if (dc_job->cache->compression_disabled) {
++      compressed_size = dc_job->size;
++      compressed_data = dc_job->data;
++   } else {
++      compressed_data = malloc(max_buf);
++      if (compressed_data == NULL)
++         return false;
++      compressed_size =
++         util_compress_deflate(dc_job->data, dc_job->size,
++                              compressed_data, max_buf);
++      if (compressed_size == 0)
++         goto fail;
++   }
++
++   /* Copy the driver_keys_blob, this can be used find information about the
++    * mesa version that produced the entry or deal with hash collisions,
++    * should that ever become a real problem.
++    */
++   if (!blob_write_bytes(cache_blob, dc_job->cache->driver_keys_blob,
++                         dc_job->cache->driver_keys_blob_size))
++      goto fail;
++
++   /* Write the cache item metadata. This data can be used to deal with
++    * hash collisions, as well as providing useful information to 3rd party
++    * tools reading the cache files.
++    */
++   if (!blob_write_uint32(cache_blob, dc_job->cache_item_metadata.type))
++      goto fail;
++
++   if (dc_job->cache_item_metadata.type == CACHE_ITEM_TYPE_GLSL) {
++      if (!blob_write_uint32(cache_blob, dc_job->cache_item_metadata.num_keys))
++         goto fail;
++
++      size_t metadata_keys_size =
++         dc_job->cache_item_metadata.num_keys * sizeof(cache_key);
++      if (!blob_write_bytes(cache_blob, dc_job->cache_item_metadata.keys[0],
++                            metadata_keys_size))
++         goto fail;
++   }
++
++   /* Create CRC of the compressed data. We will read this when restoring the
++    * cache and use it to check for corruption.
++    */
++   struct cache_entry_file_data cf_data;
++   cf_data.crc32 = util_hash_crc32(compressed_data, compressed_size);
++   cf_data.uncompressed_size = dc_job->size;
++
++   if (!blob_write_bytes(cache_blob, &cf_data, sizeof(cf_data)))
++      goto fail;
++
++   /* Finally copy the compressed cache blob */
++   if (!blob_write_bytes(cache_blob, compressed_data, compressed_size))
++      goto fail;
++
++   if (!dc_job->cache->compression_disabled)
++      free(compressed_data);
++
++   return true;
++
++ fail:
++   if (!dc_job->cache->compression_disabled)
++      free(compressed_data);
++
++   return false;
++}
++
+ #if DETECT_OS_WINDOWS
+-/* TODO: implement disk cache support on windows */
++/* exynos-woa G33: a Windows backend for the multi-file cache (the single-file and database caches stay unsupported,
++ * their entry points fail). Layout as on POSIX - <dir>/<2 hex>/<38 hex> files, an "index" file holding the shared
++ * size counter - but the directory is one per executable:
++ *    %LOCALAPPDATA%\MaliUMD\ShaderCache\<exe name>-<crc32 of the lower-case exe path>\
++ * with app.txt = the full exe path, so a game's cache can be found and cleared on its own (tools/phone/shadercache).
++ * MESA_SHADER_CACHE_DIR is not used: Steam sets it for its games (to its own shadercache folder, for Linux drivers).
++ * Paths are UTF-8 internally and go to the wide Win32 APIs.
++ */
++
++#include <wchar.h>
++#include <wctype.h>
++
++#include "util/rand_xor.h"
++#include "util/ralloc.h"
++#include "util/u_string.h"   /* asprintf */
++
++#define WIN_CACHE_ROOT "MaliUMD/ShaderCache"
++
++/* Diagnosis: the step where opening the cache last failed and its GetLastError (read by pan_disk_cache.c for the
++ * UMD trace log; the cache itself stays silent like on POSIX). */
++const char *disk_cache_win_fail;
++unsigned long disk_cache_win_fail_err;
++#define WIN_FAIL(step) (disk_cache_win_fail = (step), disk_cache_win_fail_err = GetLastError())
++
++static wchar_t *
++win_wpath(const char *path)
++{
++   int n = MultiByteToWideChar(CP_UTF8, 0, path, -1, NULL, 0);
++   if (n <= 0)
++      return NULL;
++   wchar_t *w = malloc(n * sizeof(wchar_t));
++   if (w && MultiByteToWideChar(CP_UTF8, 0, path, -1, w, n) <= 0) {
++      free(w);
++      return NULL;
++   }
++   return w;
++}
++
++static char *
++win_u8(void *mem_ctx, const wchar_t *w)
++{
++   int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, NULL, 0, NULL, NULL);
++   if (n <= 0)
++      return NULL;
++   char *s = ralloc_size(mem_ctx, n);
++   if (s && WideCharToMultiByte(CP_UTF8, 0, w, -1, s, n, NULL, NULL) <= 0)
++      return NULL;
++   return s;
++}
++
++static bool
++win_is_dir(const wchar_t *w)
++{
++   DWORD a = GetFileAttributesW(w);
++   return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY);
++}
++
++/* Create every missing component of path ('/' and '\' both separate); true if it is a directory at the end. */
++static bool
++win_mkdir_p(const char *path)
++{
++   char *p = strdup(path);
++   if (!p)
++      return false;
++   bool ok = true;
++   size_t len = strlen(p);
++   for (size_t i = 1; i <= len && ok; i++) {
++      if (p[i] != '/' && p[i] != '\\' && p[i] != '\0')
++         continue;
++      if (i == 2 && p[1] == ':')
++         continue;   /* "C:" */
++      char c = p[i];
++      p[i] = '\0';
++      wchar_t *w = win_wpath(p);
++      if (!w)
++         ok = false;
++      else if (!CreateDirectoryW(w, NULL) && !win_is_dir(w))
++         ok = false;
++      free(w);
++      p[i] = c;
++   }
++   free(p);
++   return ok;
++}
++
++/* Bytes a file of this size takes on disk (the POSIX code counts st_blocks * 512; NTFS clusters are 4 KiB). */
++static uint64_t
++win_disk_size(uint64_t size)
++{
++   return (size + 4095) & ~(uint64_t)4095;
++}
++
++static void
++make_cache_file_directory(struct disk_cache *cache, const cache_key key)
++{
++   char *dir;
++   char buf[BLAKE3_HEX_LEN];
++
++   _mesa_blake3_format(buf, key);
++   if (asprintf(&dir, "%s/%c%c", cache->path, buf[0], buf[1]) == -1)
++      return;
++
++   win_mkdir_p(dir);
++   free(dir);
++}
++
++struct win_lru_file {
++   wchar_t name[MAX_PATH];
++   uint64_t time;
++   uint64_t size;
++};
++
++static int
++win_lru_cmp(const void *a, const void *b)
++{
++   const struct win_lru_file *x = a, *y = b;
++   return x->time < y->time ? -1 : x->time > y->time;
++}
++
++/* Delete the least recently used tenth (at least one) of the regular non-.tmp files in dir; returns the bytes freed. */
++static uint64_t
++win_unlink_lru_files(const char *dir)
++{
++   char *pattern;
++   if (asprintf(&pattern, "%s/*", dir) == -1)
++      return 0;
++   wchar_t *wpat = win_wpath(pattern);
++   free(pattern);
++   if (!wpat)
++      return 0;
++
++   struct win_lru_file *files = NULL;
++   unsigned count = 0, cap = 0;
++   WIN32_FIND_DATAW fd;
++   HANDLE f = FindFirstFileW(wpat, &fd);
++   free(wpat);
++   if (f == INVALID_HANDLE_VALUE)
++      return 0;
++   do {
++      if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
++         continue;
++      size_t len = wcslen(fd.cFileName);
++      if (len >= 4 && wcscmp(fd.cFileName + len - 4, L".tmp") == 0)
++         continue;
++      if (count == cap) {
++         cap = cap ? cap * 2 : 64;
++         struct win_lru_file *n = realloc(files, cap * sizeof(*files));
++         if (!n)
++            break;
++         files = n;
++      }
++      uint64_t at = ((uint64_t)fd.ftLastAccessTime.dwHighDateTime << 32) | fd.ftLastAccessTime.dwLowDateTime;
++      uint64_t wt = ((uint64_t)fd.ftLastWriteTime.dwHighDateTime << 32) | fd.ftLastWriteTime.dwLowDateTime;
++      wcsncpy(files[count].name, fd.cFileName, MAX_PATH - 1);
++      files[count].name[MAX_PATH - 1] = 0;
++      files[count].time = at > wt ? at : wt;
++      files[count].size = ((uint64_t)fd.nFileSizeHigh << 32) | fd.nFileSizeLow;
++      count++;
++   } while (FindNextFileW(f, &fd));
++   FindClose(f);
++
++   uint64_t freed = 0;
++   if (count) {
++      qsort(files, count, sizeof(*files), win_lru_cmp);
++      unsigned n = count > 10 ? count / 10 : 1;
++      wchar_t *wdir = win_wpath(dir);
++      for (unsigned i = 0; wdir && i < n; i++) {
++         wchar_t full[2 * MAX_PATH];
++         if (_snwprintf(full, ARRAY_SIZE(full), L"%ls/%ls", wdir, files[i].name) < 0)
++            continue;
++         full[ARRAY_SIZE(full) - 1] = 0;
++         if (DeleteFileW(full))
++            freed += win_disk_size(files[i].size);
++      }
++      free(wdir);
++   }
++   free(files);
++   return freed;
++}
++
++void
++disk_cache_evict_lru_item(struct disk_cache *cache)
++{
++   /* A random one of the 256 two-hex-digit directories first (pseudo-LRU, like POSIX); if it is empty, the next
++    * ones in order. */
++   uint64_t rand64 = rand_xorshift128plus(cache->seed_xorshift128plus);
++   for (unsigned i = 0; i < 256; i++) {
++      char *dir;
++      if (asprintf(&dir, "%s/%02x", cache->path, (unsigned)((rand64 + i) & 0xff)) < 0)
++         return;
++      uint64_t size = win_unlink_lru_files(dir);
++      free(dir);
++      if (size) {
++         p_atomic_add(&cache->size->value, - (uint64_t)size);
++         return;
++      }
++   }
++}
++
++void
++disk_cache_evict_item(struct disk_cache *cache, char *filename)
++{
++   wchar_t *w = win_wpath(filename);
++   free(filename);
++   if (!w)
++      return;
++   WIN32_FILE_ATTRIBUTE_DATA a;
++   if (GetFileAttributesExW(w, GetFileExInfoStandard, &a) && DeleteFileW(w))
++      p_atomic_add(&cache->size->value,
++                   - win_disk_size(((uint64_t)a.nFileSizeHigh << 32) | a.nFileSizeLow));
++   free(w);
++}
++
++void *
++disk_cache_load_item(struct disk_cache *cache, char *filename, size_t *size)
++{
++   void *data = NULL, *uncompressed_data = NULL;
++   wchar_t *w = win_wpath(filename);
++   free(filename);
++   if (!w)
++      return NULL;
++
++   /* FILE_SHARE_DELETE: eviction by another process may delete the file while it is read. */
++   HANDLE h = CreateFileW(w, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
++                          FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, NULL);
++   if (h == INVALID_HANDLE_VALUE)
++      goto done;
++
++   LARGE_INTEGER sz;
++   DWORD got = 0;
++   if (GetFileSizeEx(h, &sz) && sz.QuadPart > 0 && sz.QuadPart < (1 << 30) &&
++       (data = malloc((size_t)sz.QuadPart)) &&
++       ReadFile(h, data, (DWORD)sz.QuadPart, &got, NULL) && got == (DWORD)sz.QuadPart)
++      uncompressed_data = parse_and_validate_cache_item(cache, data, got, size);
++   CloseHandle(h);
++
++   /* A file that does not validate (left half-written by a crash or a power cut: the data can be lost while the
++    * rename survived) would miss forever; delete it so the next compile stores it again. */
++   if (!uncompressed_data && data)
++      DeleteFileW(w);
++
++done:
++   free(data);
++   free(w);
++   return uncompressed_data;
++}
++
++char *
++disk_cache_get_cache_filename(struct disk_cache *cache, const cache_key key)
++{
++   char buf[BLAKE3_HEX_LEN];
++   char *filename;
++
++   if (cache->path_init_failed)
++      return NULL;
++
++   _mesa_blake3_format(buf, key);
++   if (asprintf(&filename, "%s/%c%c/%s", cache->path, buf[0],
++                buf[1], buf + 2) == -1)
++      return NULL;
++
++   return filename;
++}
++
++void
++disk_cache_write_item_to_disk(struct disk_cache_put_job *dc_job,
++                              char *filename)
++{
++   struct blob cache_blob;
++   blob_init(&cache_blob);
++   char *filename_tmp = NULL;
++   wchar_t *wtmp = NULL, *wfinal = NULL;
++   HANDLE h = INVALID_HANDLE_VALUE;
++
++   if (asprintf(&filename_tmp, "%s.tmp", filename) == -1)
++      goto done;
++   wtmp = win_wpath(filename_tmp);
++   wfinal = win_wpath(filename);
++   if (!wtmp || !wfinal)
++      goto done;
++
++   /* Share mode 0 makes the open temporary file exclusive - it stands in for the POSIX flock: a second writer of
++    * the same entry (another thread or process) fails here and leaves the entry to the first one. DELETE access
++    * lets the same handle rename or delete the file. */
++   h = CreateFileW(wtmp, GENERIC_WRITE | DELETE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
++   if (h == INVALID_HANDLE_VALUE && GetLastError() == ERROR_PATH_NOT_FOUND) {
++      make_cache_file_directory(dc_job->cache, dc_job->key);
++      h = CreateFileW(wtmp, GENERIC_WRITE | DELETE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
++   }
++   if (h == INVALID_HANDLE_VALUE)
++      goto done;
++
++   /* Another writer stored it between our miss and now: keep the size accounting right by not writing it again. */
++   bool ok = GetFileAttributesW(wfinal) == INVALID_FILE_ATTRIBUTES &&
++             create_cache_item_header_and_blob(dc_job, &cache_blob);
++   DWORD wrote = 0;
++   ok = ok && WriteFile(h, cache_blob.data, (DWORD)cache_blob.size, &wrote, NULL) && wrote == cache_blob.size;
++
++   if (ok) {
++      /* Rename through the open handle (still exclusive), not replacing an existing file:
++       * SetFileInformationByHandle(FileRenameInfo), FILE_RENAME_INFO.ReplaceIfExists = FALSE. */
++      size_t name_bytes = wcslen(wfinal) * sizeof(wchar_t);
++      FILE_RENAME_INFO *ri = calloc(1, sizeof(FILE_RENAME_INFO) + name_bytes);
++      ok = ri != NULL;
++      if (ok) {
++         ri->ReplaceIfExists = FALSE;
++         ri->RootDirectory = NULL;
++         ri->FileNameLength = (DWORD)name_bytes;
++         memcpy(ri->FileName, wfinal, name_bytes);
++         ok = SetFileInformationByHandle(h, FileRenameInfo, ri, (DWORD)(sizeof(FILE_RENAME_INFO) + name_bytes));
++         free(ri);
++      }
++   }
++
++   if (ok) {
++      p_atomic_add(&dc_job->cache->size->value, win_disk_size(cache_blob.size));
++   } else {
++      FILE_DISPOSITION_INFO di = { .DeleteFile = TRUE };
++      SetFileInformationByHandle(h, FileDispositionInfo, &di, sizeof(di));
++   }
++
++done:
++   if (h != INVALID_HANDLE_VALUE)
++      CloseHandle(h);
++   free(wtmp);
++   free(wfinal);
++   free(filename_tmp);
++   blob_finish(&cache_blob);
++}
++
++const char *
++disk_cache_generate_cache_dir(void *mem_ctx, const char *gpu_name,
++                              const char *driver_id,
++                              const char *cache_dir_name_custom,
++                              enum disk_cache_type cache_type,
++                              bool mkdir)
++{
++   if (cache_type != DISK_CACHE_MULTI_FILE || cache_dir_name_custom)
++      return NULL;
++
++   wchar_t lad[MAX_PATH];
++   DWORD lad_len = GetEnvironmentVariableW(L"LOCALAPPDATA", lad, ARRAY_SIZE(lad));
++   if (lad_len == 0 || lad_len >= ARRAY_SIZE(lad)) {
++      WIN_FAIL("LOCALAPPDATA");
++      return NULL;
++   }
++   char *lad8 = win_u8(mem_ctx, lad);
++   char *base = lad8 ? ralloc_asprintf(mem_ctx, "%s/" WIN_CACHE_ROOT, lad8) : NULL;
++   if (!base)
++      return NULL;
++
++   /* One directory per executable: <exe name>-<crc32 of the lower-case full path>. */
++   wchar_t exe[2 * MAX_PATH], lower[2 * MAX_PATH];
++   DWORD n = GetModuleFileNameW(NULL, exe, ARRAY_SIZE(exe));
++   if (n == 0 || n >= ARRAY_SIZE(exe)) {
++      WIN_FAIL("GetModuleFileName");
++      return NULL;
++   }
++   for (DWORD i = 0; i <= n; i++)
++      lower[i] = towlower(exe[i]);
++   const wchar_t *name = wcsrchr(exe, L'\\');
++   name = name ? name + 1 : exe;
++   char *exe8 = win_u8(mem_ctx, exe), *lower8 = win_u8(mem_ctx, lower), *name8 = win_u8(mem_ctx, name);
++   if (!exe8 || !lower8 || !name8)
++      return NULL;
++
++   char *path = ralloc_asprintf(mem_ctx, "%s/%s-%08x", base, name8, util_hash_crc32(lower8, strlen(lower8)));
++   if (!path)
++      return NULL;
++   wchar_t *wpath = win_wpath(path);
++   if (!wpath)
++      return NULL;
++   bool exists = win_is_dir(wpath);
++   free(wpath);
++   if (!exists && (!mkdir || !win_mkdir_p(path))) {
++      WIN_FAIL("mkdir");
++      return NULL;
++   }
++
++   /* app.txt: the full exe path, for the cache manager; written once. */
++   char *app;
++   if (asprintf(&app, "%s/app.txt", path) != -1) {
++      wchar_t *wapp = win_wpath(app);
++      free(app);
++      if (wapp) {
++         HANDLE h = CreateFileW(wapp, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
++         if (h != INVALID_HANDLE_VALUE) {
++            DWORD wrote;
++            WriteFile(h, exe8, (DWORD)strlen(exe8), &wrote, NULL);
++            CloseHandle(h);
++         }
++         free(wapp);
++      }
++   }
++
++   return path;
++}
++
++bool
++disk_cache_enabled()
++{
++   /* Same switches as POSIX, without the real-user check (Windows has no setuid). */
++#if defined(SHADER_CACHE_DISABLE_BY_DEFAULT)
++   bool disable_by_default = true;
++#else
++   bool disable_by_default = false;
++#endif
++   const char *envvar_name = "MESA_SHADER_CACHE_DISABLE";
++   if (!os_get_option(envvar_name) && os_get_option("MESA_GLSL_CACHE_DISABLE"))
++      envvar_name = "MESA_GLSL_CACHE_DISABLE";
++
++   bool enabled = !debug_get_bool_option(envvar_name, disable_by_default);
++   if (!enabled)
++      disk_cache_win_fail = "disabled";
++   return enabled;
++}
++
++void *
++disk_cache_load_item_foz(struct disk_cache *cache, const cache_key key,
++                         size_t *size)
++{
++   return NULL;
++}
++
++bool
++disk_cache_write_item_to_disk_foz(struct disk_cache_put_job *dc_job)
++{
++   return false;
++}
++
++bool
++disk_cache_load_cache_index_foz(void *mem_ctx, struct disk_cache *cache)
++{
++   return false;
++}
++
++void
++disk_cache_touch_cache_user_marker(char *path)
++{
++   /* only used to age out an old multi-file cache next to a database cache, which Windows does not have */
++}
++
++bool
++disk_cache_mmap_cache_index(void *mem_ctx, struct disk_cache *cache)
++{
++   char *path = ralloc_asprintf(mem_ctx, "%s/index", cache->path);
++   if (!path)
++      return false;
++   wchar_t *w = win_wpath(path);
++   if (!w)
++      return false;
++
++   /* Shared by every process using this directory (the size counter is updated with atomics, as on POSIX). */
++   HANDLE f = CreateFileW(w, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
++                          NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
++   free(w);
++   if (f == INVALID_HANDLE_VALUE) {
++      WIN_FAIL("index open");
++      return false;
++   }
++
++   /* CreateFileMapping with a maximum size larger than the file extends the file to that size. */
++   size_t size = sizeof(*cache->size) + CACHE_INDEX_MAX_KEYS * CACHE_KEY_SIZE;
++   HANDLE m = CreateFileMappingW(f, NULL, PAGE_READWRITE, 0, (DWORD)size, NULL);
++   CloseHandle(f);
++   if (!m) {
++      WIN_FAIL("index mapping");
++      return false;
++   }
++   void *view = MapViewOfFile(m, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, size);
++   CloseHandle(m);   /* the view keeps the mapping */
++   if (!view) {
++      WIN_FAIL("index view");
++      return false;
++   }
++
++   cache->index_mmap = view;
++   cache->index_mmap_size = size;
++   cache->size = (p_atomic_uint64_t *) cache->index_mmap;
++   cache->stored_keys = cache->index_mmap + sizeof(uint64_t);
++   return true;
++}
++
++void
++disk_cache_destroy_mmap(struct disk_cache *cache)
++{
++   UnmapViewOfFile(cache->index_mmap);
++}
++
++void *
++disk_cache_db_load_item(struct disk_cache *cache, const cache_key key,
++                        size_t *size)
++{
++   return NULL;
++}
++
++bool
++disk_cache_db_write_item_to_disk(struct disk_cache_put_job *dc_job)
++{
++   return false;
++}
++
++bool
++disk_cache_db_load_cache_index(void *mem_ctx, struct disk_cache *cache)
++{
++   return false;
++}
++
++void
++disk_cache_delete_old_cache(void)
++{
++}
+ 
+ #else
+ 
+@@ -547,88 +1223,6 @@ disk_cache_evict_item(struct disk_cache *cache, char *filename)
+       p_atomic_add(&cache->size->value, - (uint64_t)sb.st_blocks * 512);
+ }
+ 
+-static void *
+-parse_and_validate_cache_item(struct disk_cache *cache, void *cache_item,
+-                              size_t cache_item_size, size_t *size)
+-{
+-   uint8_t *uncompressed_data = NULL;
+-
+-   struct blob_reader ci_blob_reader;
+-   blob_reader_init(&ci_blob_reader, cache_item, cache_item_size);
+-
+-   size_t header_size = cache->driver_keys_blob_size;
+-   const void *keys_blob = blob_read_bytes(&ci_blob_reader, header_size);
+-   if (ci_blob_reader.overrun)
+-      goto fail;
+-
+-   /* Check for extremely unlikely hash collisions */
+-   if (memcmp(cache->driver_keys_blob, keys_blob, header_size) != 0) {
+-      assert(!"Mesa cache keys mismatch!");
+-      goto fail;
+-   }
+-
+-   uint32_t md_type = blob_read_uint32(&ci_blob_reader);
+-   if (ci_blob_reader.overrun)
+-      goto fail;
+-
+-   if (md_type == CACHE_ITEM_TYPE_GLSL) {
+-      uint32_t num_keys = blob_read_uint32(&ci_blob_reader);
+-      if (ci_blob_reader.overrun)
+-         goto fail;
+-
+-      /* The cache item metadata is currently just used for distributing
+-       * precompiled shaders, they are not used by Mesa so just skip them for
+-       * now.
+-       * TODO: pass the metadata back to the caller and do some basic
+-       * validation.
+-       */
+-      const void UNUSED *metadata =
+-         blob_read_bytes(&ci_blob_reader, num_keys * sizeof(cache_key));
+-      if (ci_blob_reader.overrun)
+-         goto fail;
+-   }
+-
+-   /* Load the CRC that was created when the file was written. */
+-   struct cache_entry_file_data *cf_data =
+-      (struct cache_entry_file_data *)
+-         blob_read_bytes(&ci_blob_reader, sizeof(struct cache_entry_file_data));
+-   if (ci_blob_reader.overrun)
+-      goto fail;
+-
+-   size_t cache_data_size = ci_blob_reader.end - ci_blob_reader.current;
+-   const uint8_t *data = (uint8_t *) blob_read_bytes(&ci_blob_reader, cache_data_size);
+-
+-   /* Check the data for corruption */
+-   if (cf_data->crc32 != util_hash_crc32(data, cache_data_size))
+-      goto fail;
+-
+-   /* Uncompress the cache data */
+-   uncompressed_data = malloc(cf_data->uncompressed_size);
+-   if (!uncompressed_data)
+-      goto fail;
+-
+-   if (cache->compression_disabled) {
+-      if (cf_data->uncompressed_size != cache_data_size)
+-         goto fail;
+-
+-      memcpy(uncompressed_data, data, cache_data_size);
+-   } else {
+-      if (!util_compress_inflate(data, cache_data_size, uncompressed_data,
+-                                 cf_data->uncompressed_size))
+-         goto fail;
+-   }
+-
+-   if (size)
+-      *size = cf_data->uncompressed_size;
+-
+-   return uncompressed_data;
+-
+- fail:
+-   free(uncompressed_data);
+-
+-   return NULL;
+-}
+-
+ void *
+ disk_cache_load_item(struct disk_cache *cache, char *filename, size_t *size)
+ {
+@@ -692,82 +1286,6 @@ disk_cache_get_cache_filename(struct disk_cache *cache, const cache_key key)
+    return filename;
+ }
+ 
+-static bool
+-create_cache_item_header_and_blob(struct disk_cache_put_job *dc_job,
+-                                  struct blob *cache_blob)
+-{
+-
+-   /* Compress the cache item data */
+-   size_t max_buf = util_compress_max_compressed_len(dc_job->size);
+-   size_t compressed_size;
+-   void *compressed_data;
+-
+-   if (dc_job->cache->compression_disabled) {
+-      compressed_size = dc_job->size;
+-      compressed_data = dc_job->data;
+-   } else {
+-      compressed_data = malloc(max_buf);
+-      if (compressed_data == NULL)
+-         return false;
+-      compressed_size =
+-         util_compress_deflate(dc_job->data, dc_job->size,
+-                              compressed_data, max_buf);
+-      if (compressed_size == 0)
+-         goto fail;
+-   }
+-
+-   /* Copy the driver_keys_blob, this can be used find information about the
+-    * mesa version that produced the entry or deal with hash collisions,
+-    * should that ever become a real problem.
+-    */
+-   if (!blob_write_bytes(cache_blob, dc_job->cache->driver_keys_blob,
+-                         dc_job->cache->driver_keys_blob_size))
+-      goto fail;
+-
+-   /* Write the cache item metadata. This data can be used to deal with
+-    * hash collisions, as well as providing useful information to 3rd party
+-    * tools reading the cache files.
+-    */
+-   if (!blob_write_uint32(cache_blob, dc_job->cache_item_metadata.type))
+-      goto fail;
+-
+-   if (dc_job->cache_item_metadata.type == CACHE_ITEM_TYPE_GLSL) {
+-      if (!blob_write_uint32(cache_blob, dc_job->cache_item_metadata.num_keys))
+-         goto fail;
+-
+-      size_t metadata_keys_size =
+-         dc_job->cache_item_metadata.num_keys * sizeof(cache_key);
+-      if (!blob_write_bytes(cache_blob, dc_job->cache_item_metadata.keys[0],
+-                            metadata_keys_size))
+-         goto fail;
+-   }
+-
+-   /* Create CRC of the compressed data. We will read this when restoring the
+-    * cache and use it to check for corruption.
+-    */
+-   struct cache_entry_file_data cf_data;
+-   cf_data.crc32 = util_hash_crc32(compressed_data, compressed_size);
+-   cf_data.uncompressed_size = dc_job->size;
+-
+-   if (!blob_write_bytes(cache_blob, &cf_data, sizeof(cf_data)))
+-      goto fail;
+-
+-   /* Finally copy the compressed cache blob */
+-   if (!blob_write_bytes(cache_blob, compressed_data, compressed_size))
+-      goto fail;
+-
+-   if (!dc_job->cache->compression_disabled)
+-      free(compressed_data);
+-
+-   return true;
+-
+- fail:
+-   if (!dc_job->cache->compression_disabled)
+-      free(compressed_data);
+-
+-   return false;
+-}
+-
+ void
+ disk_cache_write_item_to_disk(struct disk_cache_put_job *dc_job,
+                               char *filename)
+diff --git a/src/util/disk_cache_os.h b/src/util/disk_cache_os.h
+index 8950839..464d0c7 100644
+--- a/src/util/disk_cache_os.h
++++ b/src/util/disk_cache_os.h
+@@ -27,11 +27,8 @@
+ #include "util/u_queue.h"
+ #include "util/disk_cache.h"
+ 
+-#if DETECT_OS_WINDOWS
+-
+-/* TODO: implement disk cache support on windows */
+-
+-#else
++/* exynos-woa G33: Windows has a multi-file backend (disk_cache_os.c); the single-file / database ones are
++ * stubs there (fossilize_db.c without FOZ_DB_UTIL, mesa_cache_db_multipart.c). */
+ 
+ #include "util/fossilize_db.h"
+ #include "util/mesa_cache_db.h"
+@@ -50,6 +47,11 @@ extern "C" {
+ /* The number of keys that can be stored in the index. */
+ #define CACHE_INDEX_MAX_KEYS (1 << CACHE_INDEX_KEY_BITS)
+ 
++#if DETECT_OS_WINDOWS
++extern const char *disk_cache_win_fail;   /* exynos-woa G33 diagnosis */
++extern unsigned long disk_cache_win_fail_err;
++#endif
++
+ enum disk_cache_type {
+    DISK_CACHE_NONE,
+    DISK_CACHE_MULTI_FILE,
+@@ -190,6 +192,4 @@ disk_cache_delete_old_cache(void);
+ }
+ #endif
+ 
+-#endif
+-
+ #endif /* DISK_CACHE_OS_H */

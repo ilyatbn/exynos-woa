@@ -97,7 +97,8 @@ $MesonOpts = @(
   '-Dmesa-clc=system', '-Dvulkan-drivers=', '-Dllvm=disabled',
   '-Dopengl=false', '-Dgles1=disabled', '-Dgles2=disabled', '-Degl=disabled', '-Dglx=disabled', '-Dgbm=disabled',
   '-Dvideo-codecs=', '-Dmicrosoft-clc=disabled', '-Dspirv-to-dxil=false',
-  '-Dzstd=disabled', '-Dshader-cache=disabled', '-Dbuild-tests=false',
+  '-Dzstd=disabled', '-Dshader-cache=enabled', '-Dshader-cache-max-size=256M',   # G33: Windows disk cache backend (Mesa 0192)
+  '-Dbuild-tests=false',
   '-Dc_args=-DHAVE_FUNC_ATTRIBUTE_PACKED', '-Dcpp_args=-DHAVE_FUNC_ATTRIBUTE_PACKED'
 )
 
@@ -173,7 +174,7 @@ endian = 'little'
   }
   # G24 packaging: the UMD links the CRT statically (b_vscrt=mt) - its only non-OS import was VCRUNTIME140.dll, which a
   # clean system does not have (a driver must not need the VC redistributable). Applied to existing build dirs too.
-  meson configure $CrossBuild -Db_vscrt=mt; Check 'cross meson configure b_vscrt'
+  meson configure $CrossBuild -Db_vscrt=mt -Dzlib:default_library=static -Dshader-cache=enabled -Dshader-cache-max-size=256M; Check 'cross meson configure'
   ninja -C $CrossBuild -k 0 2>&1 | Tee-Object (Join-Path $Work 'build-arm64.log')
   Check 'cross build'
 }
@@ -341,7 +342,7 @@ endian = 'little'
     meson setup $X86Build $Mesa --backend=ninja --cross-file $x86cross -Dbuildtype=debugoptimized -Dprecomp-compiler=enabled @MesonOpts
     Check 'x86 meson setup'
   }
-  meson configure $X86Build -Db_vscrt=mt; Check 'x86 meson configure b_vscrt'   # static CRT, as the ARM64 UMD
+  meson configure $X86Build -Db_vscrt=mt -Dzlib:default_library=static -Dshader-cache=enabled -Dshader-cache-max-size=256M; Check 'x86 meson configure'   # static CRT, as the ARM64 UMD
   ninja -C $X86Build -k 0 2>&1 | Tee-Object (Join-Path $Work 'build-x86.log')
   Check 'x86 build'
   $umd = Join-Path $X86Build 'src\gallium\targets\d3d10umd\libgallium_d3d10.dll'
@@ -393,7 +394,7 @@ endian = 'little'
     meson setup $EcBuild $Mesa --backend=ninja --cross-file $eccross -Dbuildtype=debugoptimized -Dprecomp-compiler=system @MesonOpts
     Check 'ec meson setup'
   }
-  meson configure $EcBuild -Db_vscrt=mt; Check 'ec meson configure b_vscrt'   # static CRT, as the ARM64 UMD
+  meson configure $EcBuild -Db_vscrt=mt -Dzlib:default_library=static -Dshader-cache=enabled -Dshader-cache-max-size=256M; Check 'ec meson configure'   # static CRT, as the ARM64 UMD
   ninja -C $EcBuild -k 0 2>&1 | Tee-Object (Join-Path $Work 'build-arm64ec.log')
   Check 'ec build'
   $umd = Join-Path $EcBuild 'src\gallium\targets\d3d10umd\libgallium_d3d10.dll'

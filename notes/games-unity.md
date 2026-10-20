@@ -603,3 +603,54 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   "Access is denied" and shot.ps1 CopyFromScreen "The handle is invalid" - the input desktop was not the user's
   (a secure desktop), which also explains white captures; no crash evidence (no dump, dwm not crashed). Cause not
   identified; ARM64 0191 stays (all checks pass), recorded as open: re-check the desktop after the next reboots.
+- Mesa 0192 (shader disk cache, working tree; patch file written at the commit): src/util/disk_cache_os.c Windows
+  backend (multi-file layout, one dir per exe %LOCALAPPDATA%\MaliUMD\ShaderCache\<exe>-<crc32 of lower-case exe path>
+  + app.txt; writes via an exclusive (share 0) temp file renamed through its handle with
+  SetFileInformationByHandle(FileRenameInfo, ReplaceIfExists FALSE); a file that fails validation is deleted; LRU
+  eviction per random 2-hex dir by max(last access, last write); index = CreateFileMapping view, shared across
+  processes); item format helpers moved out of the POSIX block; the keys-mismatch assert is POSIX-only (a crash can
+  leave a zero-filled file on NTFS; our builds keep asserts -> would abort the game); disk_cache.c POSIX headers
+  guarded; meson: shader-cache allowed on Windows; build-mesa-g76: -Dshader-cache=enabled
+  -Dshader-cache-max-size=256M -Dzlib:default_library=static (zlib subproject, static so no z.dll import);
+  pan_disk_cache.c: no ELF build-id on Windows -> disk_cache_get_function_identifier (module last-write time).
+  EC build 591d4b14: d3dcs64x 7/7, d3dcbdyn64x, d3dbc64x lossy 0/126 PASS, one dir per test exe (app.txt right, also
+  for an exe under "Program Files (x86)\S10e Test"); second runs PASS with no new entries (hits).
+- Dave got no cache dir. Diagnosis line "disk cache: <path>" / "off - <step> (err)" (tlog, pan_disk_cache.c; failure
+  step recorded in disk_cache_win_fail): "off - ?" -> env dump: Steam starts its games with
+  MESA_DISK_CACHE_SINGLE_FILE=1 and MESA_SHADER_CACHE_DIR=C:\Program Files (x86)\Steam\steamapps\shadercache\1868140
+  (Steam shader pre-caching, aimed at Linux Mesa) -> single-file type, which the Windows backend does not have.
+  Fix (0192d 99af8421): on Windows the cache type is always multi-file and MESA_SHADER_CACHE_DIR is not used (it
+  would put every Steam game's cache in Steam's folder, outside the manager app's view).
+- Bot: Steam had updated Dave to v1.0.6.2113 on the first launch after the reboot (Steam started by the launch; the
+  bot's 60 s "game gone" rule fired before the game existed -> now "gone" only after the game was seen, 5 min to
+  appear, and the game's pid/start time is logged). The update shows a "GODZILLA DLC installed" pop-up over the title
+  (pink OK button) -> new state dialog-ok (OK at 790,603: fe016f, 810,612: fe0177, 710,595: fc0265), tapped; it only
+  closes the info box. NOTE: load times before/after this point are not comparable (game version changed).
+- Load-time baseline (bot log, EC 0191, previous game version, 2026-10-19 16:07): launch -> title 141 s (loading
+  screen from +12 s), Continue -> boat 56 s, dive -> water 64 s.
+- App: drivers/S10eDiag/S10eShaderCache.c -> s10eshadercache.exe ("Shader cache" on the Public desktop via
+  esp/desktop.cmd): ListView game / size / program (app.txt), Clear selected / Clear all / Refresh; refuses a running
+  game (image path match via EnumProcesses + QueryFullProcessImageNameW) since its index is mapped. build.bat
+  /W4 /WX clean, signed.
+- Bot: a second update pop-up "DREDGE DLC installed" with OK lower (row 612-636 vs 592-616) -> dialog-ok now scans
+  x=790/810/712 down y 540..680 for the pink and taps 10 px below the first match.
+- loadrun.sh TAG [cold] (davebot/: optional cache delete, botbench + loadprof.ps1, phase seconds) + cachesize.ps1.
+- c192cold / c192warm (EC 0192d, game 1.0.6.2113; traces/games/bench-c192*.botlog.txt, loadprof-c192*.txt):
+    start -> title   cold 140.7 s   warm 139.2 s   (0191 + old game version: 141 s)
+    Continue -> water  cold 49.8 s  warm 43.0 s   (-6.8 s = -14 %)
+  Dave's cache after title -> water: 80 entries (+ the 2 MB index). Continue now goes straight into the dive (the
+  killed sessions resume there); 2-3 s after the water HUD the update's story dialogue starts (Cobra "Oh, Dave you
+  got here quickly", Player.log: ScenarioManager.StartScenario <- TutorialManager.ActivateTutorial <-
+  AfterNewMissionFinished). The bot never advances dialogue (that would progress the save) -> the swim/frame-time
+  route is blocked until the user decides; load phases are still measurable. In c192cold the game was killed 5 min
+  later from outside (no WER report, no dump, no Unity Crashes folder, Player.log simply stops): not identified - only
+  one bot, no leftover local loops at the time checked.
+- Where start -> title goes (loadprof, cold): 07:56:29-07:56:50 disk-heavy (40-145 MB / 5 s, ~110 % CPU); then
+  ~105 s at ~100 % = ONE core: thread 2172 (the main thread, start address outside listed modules = the exe entry)
+  at 97-103 %, every other thread ~0-2 % (the render thread too), disk ~0. coretop during that phase: cpu4 (A75)
+  99 %, the rest < 20 %; clockscli: A75 ~2.1 GHz measured (ACPM granted 2400), A55 1.95 GHz. The game is IL2CPP
+  (GameAssembly.dll 132 MB) -> this is the game's own main-thread code under x64 emulation, on the right core at the
+  governor's ceiling; no D3D / UMD work in it. Native levers left there: none in the GPU driver; the two M4 big
+  cores are not running under Windows (the only faster cores).
+- Continue -> water (loadprof warm): mixed; thread 7096 (render thread, the D3D caller) 86-90 % for ~10 s while the
+  main thread idles -> UMD time; loadspikes.sh (frame-time flag only during that phase, spike lines summed) next.

@@ -105,3 +105,30 @@ DMIC2 (MICBIAS1B) -> CS47L93 IN4L ---> AIF1TX1/2 mixers -> AIF1 TX (DSP-A 4 x 32
   (expected 12.0). Registry follows (0x30 after "mic 48", back to 0x18). Live change during a 6 s capture (mic 48 at
   ~3.5 s): per-second 1 kHz -49.4 -49.3 -49.5 -49.6 | -42.3 (straddles) | -37.4, no extra discontinuity. Default left
   at 24 (+12 dB).
+
+## Review of a808ccf (mic endpoint 1.0.3.0) and c1ecc88 (gain 1.0.3.1), 2026-10-20
+
+Checked by reading the code paths (CodecHp.c, AboxHw.c, Mic.c, Capture.c, Control.c) and on the device (app window
+via tools/phone/audio/winshot.ps1 -> traces/audio/micapp.png: "Microphone boost" slider at +12.0 dB, driver line OK).
+Findings, each a follow-up task with its own commit:
+- F1 (bug) headphones + mic share codec AIF1 / SYSCLK: CodecHpStop writes AIF1_RX_ENABLES = 0 unconditionally - under
+  a running mic that stops LRCLK (1.0.2.1: TX alone gives no LRCLK) and the capture freezes; CodecHpPrepare re-runs
+  CodecClockOn (FLL1 HOLD + relock) under a running mic. MicCodecOff already keeps RX when HpOn; the HP side lacks
+  the mirror. Device test needs headphones in the jack (Guided until then).
+- F2 (bug) MicSelfTest leaves its diagnosis knobs on the device context: MicVariant (FIFO/BRIDGE/ASRC/FLUSH/LOOP),
+  MicWdmaCtrl/Limit and a Parameters\MicWdma override stay active for every later Windows capture stream.
+- F3 (stale text) Mic.c header says WDMA0 and "NOT VALIDATED ON HARDWARE"; AboxHw.c capture comments/logs say WDMA0
+  although WDMAR picks WDMA1; the "Before AboxStart ... never both" comment + _IRQL_ annotation now sit above
+  AboxUaif0Link instead of AboxSelectOutput (left behind by the refactor).
+- F4 (bug) CapEvtTimer catches up late periods from the 8-period ring without checking how far behind it is: a timer
+  late by >= 7 periods copies slots the WDMA has already overwritten (stale/torn audio delivered as valid).
+- F5 (race) MicSetGain (property thread) vs MicCodecOn/Off (stream thread) are not serialized: a gain SET racing a
+  stream stop can unmute the ADC volumes after MicCodecOff muted them (inaudible, inputs off, but state differs).
+- F6 (app, pre-existing) Top/Bottom value labels stay empty when the slider value equals the initial 0 (ValueChanged
+  never fires) - visible in micapp.png.
+- F1 fixed (audio 1.0.3.2): CodecShareOn/Off (CodecHp.c) - SYSCLK and AIF1 RX owned per user bit (CODEC_USE_CLK/RX_
+  HP/MIC) under CodecShareLock; first user turns on, last turns off; CodecAif1Prepare writes the AIF1 link format only
+  for the first clock user (no reprogramming under a running link). CodecHpPrepare/Start/Stop and MicHwStart/Stop/
+  MicCodecOn/Off use it; the HpOn / MicCodecOn cross-checks are gone. Device (mic only): two captures back to back,
+  run log shows FLL1 relock + "AIF1 prepared" per start (= released at each stop), 1 kHz -49.4 / -47.7 dB both runs
+  (same as 1.0.3.1). Headphones + mic at the same time: not run (needs headphones in the jack) - Guided.

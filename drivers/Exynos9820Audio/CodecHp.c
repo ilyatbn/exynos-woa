@@ -75,19 +75,76 @@ static USHORT Rd(_In_ PAUD_DEVICE_CONTEXT Dev, ULONG Reg)
     return V;
 }
 
-/* Before the ABOX DMA starts: SYSCLK, AIF1 pins + format + rates. Clocks that need BCLK come in CodecHpStart. */
+/* Ownership of the shared codec resources (Exynos9820Audio.h CODEC_USE_*; review F1 of a808ccf: the headphone stop
+   turned AIF1 RX and SYSCLK off under a running mic, the headphone prepare re-locked FLL1 under it). Idempotent per
+   bit. First (optional) = no other user owned this resource class before. */
 _IRQL_requires_(PASSIVE_LEVEL)
-NTSTATUS CodecHpPrepare(_Inout_ PAUD_DEVICE_CONTEXT Dev)
+NTSTATUS CodecShareOn(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ ULONG Use, _Out_opt_ PBOOLEAN First)
+{
+    ULONG    Mask = (Use & CODEC_USE_CLK_MASK) ? CODEC_USE_CLK_MASK : CODEC_USE_RX_MASK;
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    PAGED_CODE();
+
+    WdfWaitLockAcquire(Dev->CodecShareLock, NULL);
+    if (First != NULL) {
+        *First = (Dev->CodecUsers & Mask & ~Use) == 0;
+    }
+    if ((Dev->CodecUsers & Use) == 0) {
+        if ((Dev->CodecUsers & Mask) == 0) {
+            if (Mask == CODEC_USE_CLK_MASK) {
+                Status = CodecClockOn(Dev);
+            } else {
+                (VOID)CodecUpdate(Dev, R_AIF1_RX_ENABLES, AIF1_RX12, AIF1_RX12);
+            }
+        }
+        if (NT_SUCCESS(Status)) {
+            Dev->CodecUsers |= Use;
+        }
+    }
+    WdfWaitLockRelease(Dev->CodecShareLock);
+    return Status;
+}
+
+_IRQL_requires_(PASSIVE_LEVEL)
+VOID CodecShareOff(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ ULONG Use)
+{
+    ULONG Mask = (Use & CODEC_USE_CLK_MASK) ? CODEC_USE_CLK_MASK : CODEC_USE_RX_MASK;
+
+    PAGED_CODE();
+
+    WdfWaitLockAcquire(Dev->CodecShareLock, NULL);
+    if ((Dev->CodecUsers & Use) != 0) {
+        Dev->CodecUsers &= ~Use;
+        if ((Dev->CodecUsers & Mask) == 0) {
+            if (Mask == CODEC_USE_CLK_MASK) {
+                CodecClockOff(Dev);
+            } else {
+                (VOID)CodecUpdate(Dev, R_AIF1_RX_ENABLES, AIF1_RX12, 0);
+            }
+        }
+    }
+    WdfWaitLockRelease(Dev->CodecShareLock);
+}
+
+/* SYSCLK for ClkUse plus the AIF1 pins / format / rates (DSP-A, 4 x 32 bit, 48 kHz) - written only by the first clock
+   user, so a second user never reprograms a running link. Shared by CodecHpPrepare and the mic (Mic.c). */
+_IRQL_requires_(PASSIVE_LEVEL)
+NTSTATUS CodecAif1Prepare(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ ULONG ClkUse)
 {
     NTSTATUS Status;
+    BOOLEAN  First = FALSE;
     ULONG    I;
 
     PAGED_CODE();
 
-    Status = CodecClockOn(Dev);
+    Status = CodecShareOn(Dev, ClkUse, &First);
     if (!NT_SUCCESS(Status)) {
-        AudLog(Dev->Log, "hp: SYSCLK not up %08lX\r\n", (ULONG)Status);
+        AudLog(Dev->Log, "codec: SYSCLK not up %08lX\r\n", (ULONG)Status);
         return Status;
+    }
+    if (!First) {
+        return STATUS_SUCCESS;   /* the other path set the link up and still runs it */
     }
     for (I = 0; I < 4; I++) {
         (VOID)CodecWrite(Dev, R_GPIO5_CTRL_1 + 2 * I, GPIO_FN_AIF);
@@ -104,11 +161,26 @@ NTSTATUS CodecHpPrepare(_Inout_ PAUD_DEVICE_CONTEXT Dev)
     (VOID)CodecWrite(Dev, R_AIF1_FRAME_CTRL_12, 1);
     (VOID)CodecWrite(Dev, R_ASYNC_SAMPLE_RATE_1, ASYNC_RATE_48K);
     (VOID)CodecWrite(Dev, R_AIF1_RATE_CTRL, Dev->Cfg.HpMaster ? AIF1_RATE_SYSCLK1 : AIF1_RATE_ASYNC1);
-    Dev->HpSavedOutRate = Rd(Dev, R_OUTPUT_RATE_1);
-    AudLog(Dev->Log, "hp: prepared: GPIO5 %04X AIF1 BCLK %04X FMT %04X BCPF %04X FRAME %04X/%04X SLOTS %u/%u RATE %04X ASR1 %04X\r\n",
+    AudLog(Dev->Log, "codec: AIF1 prepared: GPIO5 %04X AIF1 BCLK %04X FMT %04X BCPF %04X FRAME %04X/%04X SLOTS %u/%u RATE %04X ASR1 %04X\r\n",
            Rd(Dev, R_GPIO5_CTRL_1), Rd(Dev, R_AIF1_BCLK_CTRL), Rd(Dev, R_AIF1_FORMAT), Rd(Dev, R_AIF1_RX_BCLK_RATE),
            Rd(Dev, R_AIF1_FRAME_CTRL_1), Rd(Dev, R_AIF1_FRAME_CTRL_2), Rd(Dev, R_AIF1_FRAME_CTRL_11), Rd(Dev, R_AIF1_FRAME_CTRL_12),
            Rd(Dev, R_AIF1_RATE_CTRL), Rd(Dev, R_ASYNC_SAMPLE_RATE_1));
+    return STATUS_SUCCESS;
+}
+
+/* Before the ABOX DMA starts: SYSCLK, AIF1 pins + format + rates. Clocks that need BCLK come in CodecHpStart. */
+_IRQL_requires_(PASSIVE_LEVEL)
+NTSTATUS CodecHpPrepare(_Inout_ PAUD_DEVICE_CONTEXT Dev)
+{
+    NTSTATUS Status;
+
+    PAGED_CODE();
+
+    Status = CodecAif1Prepare(Dev, CODEC_USE_CLK_HP);
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+    Dev->HpSavedOutRate = Rd(Dev, R_OUTPUT_RATE_1);
     return STATUS_SUCCESS;
 }
 
@@ -121,7 +193,7 @@ NTSTATUS CodecHpStart(_Inout_ PAUD_DEVICE_CONTEXT Dev)
     /* AIF1 RX on before the FLL2 lock wait: with RX off the AIF1 pins read constant 0 and FLL2 never locked although
        gpb0-1/2 toggle on the AP side (1.0.1.27). Stock gets away with the opposite order because madera_fllhj_enable's
        wait only warns and DAPM powers AIF1RX right after. */
-    (VOID)CodecWrite(Dev, R_AIF1_RX_ENABLES, AIF1_RX12);
+    (VOID)CodecShareOn(Dev, CODEC_USE_RX_HP, NULL);
     if (Dev->Cfg.HpMaster) {
         AboxSamplePins(Dev, "hp codec-master");   /* does the codec's BCLK/LRCLK reach the AP pins? */
     } else if (!CodecFllEnable(Dev, CODEC_FLL2_BASE, CODEC_FLL2_LOCK, &CodecFll2Bclk)) {
@@ -154,7 +226,7 @@ NTSTATUS CodecHpStart(_Inout_ PAUD_DEVICE_CONTEXT Dev)
                    CodecFllEnable(Dev, CODEC_FLL2_BASE, CODEC_FLL2_LOCK, &Fll2Mclk2) ? "LOCKED (FLL2 works; no BCLK at AIF1)" : "no lock either");
             CodecFllDisable(Dev, CODEC_FLL2_BASE, CODEC_FLL2_LOCK);
         }
-        (VOID)CodecWrite(Dev, R_AIF1_RX_ENABLES, 0);
+        CodecShareOff(Dev, CODEC_USE_RX_HP);
         AudLog(Dev->Log, "hp: FLL2 did not lock to AIF1BCLK (RAW2 %04X) - no BCLK from UAIF0? outputs stay off\r\n",
                Rd(Dev, R_IRQ1_RAW_STATUS_2));
         return STATUS_IO_TIMEOUT;
@@ -201,7 +273,7 @@ VOID CodecHpStop(_Inout_ PAUD_DEVICE_CONTEXT Dev)
     (VOID)CodecWrite(Dev, R_DAC_DIGITAL_VOLUME_2R, DAC_VU | DAC_MUTE | DAC_VOL_0DB);
     (VOID)CodecUpdate(Dev, R_OUTPUT_ENABLES_1, OUT2_ENA_BOTH, 0);
     KeStallExecutionProcessor(OUT_DOWN_DELAY_US);
-    (VOID)CodecWrite(Dev, R_AIF1_RX_ENABLES, 0);
+    CodecShareOff(Dev, CODEC_USE_RX_HP);   /* stays on while the mic records (its LRCLK) */
     (VOID)CodecUpdate(Dev, R_OUT2LMIX_INPUT_1_SRC, 0x00FF, 0);
     (VOID)CodecUpdate(Dev, R_OUT2RMIX_INPUT_1_SRC, 0x00FF, 0);
     (VOID)CodecUpdate(Dev, R_ASYNC_CLOCK_1, ASYNC_ENA, 0);
@@ -212,9 +284,7 @@ VOID CodecHpStop(_Inout_ PAUD_DEVICE_CONTEXT Dev)
     if (Dev->HpSavedOutRate != 0) {
         (VOID)CodecWrite(Dev, R_OUTPUT_RATE_1, Dev->HpSavedOutRate);
     }
-    if (!Dev->MicCodecOn) {
-        CodecClockOff(Dev);   /* the mic path keeps SYSCLK while it records (Mic.c MicCodecOff does the same for us) */
-    }
+    CodecShareOff(Dev, CODEC_USE_CLK_HP);   /* SYSCLK stays on while the mic records */
     Dev->HpOn = FALSE;
     AudLog(Dev->Log, "hp: off\r\n");
 }

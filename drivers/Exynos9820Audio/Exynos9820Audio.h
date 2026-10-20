@@ -228,6 +228,8 @@ typedef struct _AUD_DEVICE_CONTEXT {
     BOOLEAN     HpFll2On;
     USHORT      HpSavedOutRate; /* OUTPUT_RATE_1 before the headphone path (restored on stop) */
     BOOLEAN     MicCodecOn;     /* Mic.c: DMIC inputs + AIF1 TX on */
+    WDFWAITLOCK CodecShareLock; /* CodecShareOn/Off: SYSCLK + AIF1 RX owned by the headphone and mic paths (CodecHp.c) */
+    ULONG       CodecUsers;     /* CODEC_USE_* bits */
     ULONG       MicGain;        /* current mic gain, 0.5 dB steps (MicSetGain) */
     USHORT      MicSavedBias1;  /* MIC_BIAS_CTRL_1 before MicCodecOn */
     USHORT      MicSavedCp;     /* MIC_CHARGE_PUMP_1 (MICVDD) before MicCodecOn */
@@ -419,7 +421,17 @@ _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecTone(_Inout_ PAUD_DEVICE_CONTEXT De
 /* CodecJack.c */
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecJackStart(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ WDFDEVICE Device);
 _IRQL_requires_(PASSIVE_LEVEL) VOID CodecJackStop(_Inout_ PAUD_DEVICE_CONTEXT Dev);
-/* CodecHp.c */
+/* CodecHp.c. SYSCLK (FLL1) and AIF1 RX (the codec drives LRCLK only with RX on) are shared by the headphone render
+   path and the mic capture path: each user owns a bit, the first user turns the hardware on, the last turns it off. */
+#define CODEC_USE_CLK_HP   0x1u
+#define CODEC_USE_CLK_MIC  0x2u
+#define CODEC_USE_RX_HP    0x4u
+#define CODEC_USE_RX_MIC   0x8u
+#define CODEC_USE_CLK_MASK (CODEC_USE_CLK_HP | CODEC_USE_CLK_MIC)
+#define CODEC_USE_RX_MASK  (CODEC_USE_RX_HP | CODEC_USE_RX_MIC)
+_IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecShareOn(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ ULONG Use, _Out_opt_ PBOOLEAN First);
+_IRQL_requires_(PASSIVE_LEVEL) VOID CodecShareOff(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ ULONG Use);
+_IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecAif1Prepare(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ ULONG ClkUse);
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecHpPrepare(_Inout_ PAUD_DEVICE_CONTEXT Dev);
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecHpStart(_Inout_ PAUD_DEVICE_CONTEXT Dev);
 _IRQL_requires_(PASSIVE_LEVEL) VOID CodecHpStop(_Inout_ PAUD_DEVICE_CONTEXT Dev);

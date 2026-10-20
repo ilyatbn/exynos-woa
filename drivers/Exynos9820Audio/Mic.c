@@ -37,8 +37,6 @@
 #define   MIX_SRC_IN4L             0x0016u
 #define R_AIF1_TX_ENABLES        0x0519u
 #define   AIF1_TX12                0x0003u
-#define R_AIF1_RX_ENABLES        0x051Au
-#define   AIF1_RX12                0x0003u
 
 #define MIC_BIAS_SETTLE_US       10000u
 #define MIC_RING_FRAMES          4800u    /* 100 ms per period */
@@ -97,8 +95,8 @@ static VOID MicCodecOn(_Inout_ PAUD_DEVICE_CONTEXT Dev)
     (VOID)CodecUpdate(Dev, R_AIF1_TX_ENABLES, AIF1_TX12, AIF1_TX12);
     /* 1.0.2.1 run: with only TX enabled the codec drove BCLK (gpb0 bit1 toggled) but not LRCLK (bit2 static) and WDMA0
        never moved; the headphone link got both clocks after AIF1 RX enable. RX on too (its slots feed nothing unless
-       the headphone outputs are on); MicCodecOff turns it off again unless the headphones play. */
-    (VOID)CodecUpdate(Dev, R_AIF1_RX_ENABLES, AIF1_RX12, AIF1_RX12);
+       the headphone outputs are on); shared with the headphone path (CodecShareOn: off with the last user). */
+    (VOID)CodecShareOn(Dev, CODEC_USE_RX_MIC, NULL);
     Dev->MicCodecOn = TRUE;
     AudLog(Dev->Log, "mic: codec ON: CP %04X LDO2 %04X BIAS1 %04X BIAS5 %04X IN3L %04X/%04X/%04X IN4L %04X/%04X/%04X MIX %04X/%04X "
            "INEN %04X TXEN %04X AIF1 BCLK %04X\r\n", Rd(Dev, R_MIC_CHARGE_PUMP_1), Rd(Dev, 0x0213u),
@@ -114,9 +112,7 @@ static VOID MicCodecOff(_Inout_ PAUD_DEVICE_CONTEXT Dev)
         return;
     }
     (VOID)CodecUpdate(Dev, R_AIF1_TX_ENABLES, AIF1_TX12, 0);
-    if (!Dev->HpOn) {
-        (VOID)CodecUpdate(Dev, R_AIF1_RX_ENABLES, AIF1_RX12, 0);
-    }
+    CodecShareOff(Dev, CODEC_USE_RX_MIC);
     (VOID)CodecUpdate(Dev, R_INPUT_ENABLES, IN3L4L_ENA, 0);
     (VOID)CodecWrite(Dev, R_ADC_DIG_VOL_3L, IN_MUTE | IN_VOL_0DB);
     (VOID)CodecWrite(Dev, R_ADC_DIG_VOL_4L, IN_VU | IN_MUTE | IN_VOL_0DB);
@@ -126,9 +122,6 @@ static VOID MicCodecOff(_Inout_ PAUD_DEVICE_CONTEXT Dev)
     (VOID)CodecWrite(Dev, R_MIC_BIAS_CTRL_1, Dev->MicSavedBias1);
     (VOID)CodecWrite(Dev, R_MIC_CHARGE_PUMP_1, Dev->MicSavedCp);
     Dev->MicCodecOn = FALSE;
-    if (!Dev->HpOn) {
-        CodecClockOff(Dev);   /* the headphone path keeps SYSCLK while it plays (CodecHpStop does the same for us) */
-    }
     AudLog(Dev->Log, "mic: codec off\r\n");
 }
 
@@ -145,16 +138,15 @@ NTSTATUS MicHwStart(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ PHYSICAL_ADDRESS Phys,
                Dev->Cfg.AboxEnable, Dev->Cfg.HpMaster);
         return STATUS_DEVICE_NOT_READY;
     }
-    if (!Dev->HpOn) {
-        Status = CodecHpPrepare(Dev);   /* SYSCLK + AIF1 pins / format / frame; already done while headphones play */
-        if (!NT_SUCCESS(Status)) {
-            return Status;
-        }
+    Status = CodecAif1Prepare(Dev, CODEC_USE_CLK_MIC);   /* SYSCLK + AIF1 link (set up once, shared with headphones) */
+    if (!NT_SUCCESS(Status)) {
+        return Status;
     }
     MicCodecOn(Dev);
     Status = AboxCaptureStart(Dev, Phys, Bytes, PeriodBytes);
     if (!NT_SUCCESS(Status)) {
         MicCodecOff(Dev);
+        CodecShareOff(Dev, CODEC_USE_CLK_MIC);
     }
     return Status;
 }
@@ -166,6 +158,7 @@ VOID MicHwStop(_Inout_ PAUD_DEVICE_CONTEXT Dev)
 
     AboxCaptureStop(Dev);
     MicCodecOff(Dev);
+    CodecShareOff(Dev, CODEC_USE_CLK_MIC);   /* SYSCLK off unless the headphones play */
 }
 
 /* ---- self test ---- */

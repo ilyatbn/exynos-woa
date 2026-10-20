@@ -1,0 +1,112 @@
+diff --git a/src/gallium/frontends/d3d10umd/Video.cpp b/src/gallium/frontends/d3d10umd/Video.cpp
+index 8fc3818..c6cfb68 100644
+--- a/src/gallium/frontends/d3d10umd/Video.cpp
++++ b/src/gallium/frontends/d3d10umd/Video.cpp
+@@ -95,6 +95,7 @@ struct VideoDecoder {
+    FILE *Dump;              /* tracing: the Annex-B stream, when MALIKM_TGSI_DIR is set */
+    unsigned Decoded, Failed;
+    BOOL ToldUnsupported;
++   BOOL HasSession;         /* G35: IOCTL_MFC_OPEN done on Mfc (at the first BeginFrame) */
+ };
+ 
+ struct VideoOutputView {
+@@ -248,15 +249,13 @@ VidAppend(VidBytes *b, const void *data, UINT size)
+    return TRUE;
+ }
+ 
+-/* open the MFC device interface and a decode-order H.264 session on it */
++/* open the MFC device interface (any number of handles; the session is claimed separately by MfcSession) */
+ static HANDLE
+-MfcOpen(void)
++MfcOpenDevice(void)
+ {
+    ULONG len = 0;
+    WCHAR *list;
+    HANDLE h;
+-   MfcOpenIn in = { 1u, 0u, MFC_OPEN_DECODE_ORDER };
+-   DWORD got;
+ 
+    if (CM_Get_Device_Interface_List_SizeW(&len, (LPGUID)&kMfcInterface, NULL,
+                                           CM_GET_DEVICE_INTERFACE_LIST_PRESENT) != CR_SUCCESS || len < 2) {
+@@ -274,16 +273,22 @@ MfcOpen(void)
+    /* read access is all the IOCTLs need (FILE_ANY_ACCESS): the device grants sandboxed callers no more (INF) */
+    h = CreateFileW(list, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+    free(list);
+-   if (h == INVALID_HANDLE_VALUE) {
++   if (h == INVALID_HANDLE_VALUE)
+       malikm_tlog("video: MFC open failed %lu", GetLastError());
+-      return h;
+-   }
++   return h;
++}
++
++/* a decode-order H.264 session on an open handle - the MFC has one per device (busy while another handle owns it) */
++static BOOL
++MfcSession(HANDLE h)
++{
++   MfcOpenIn in = { 1u, 0u, MFC_OPEN_DECODE_ORDER };
++   DWORD got;
+    if (!DeviceIoControl(h, IOCTL_MFC_OPEN, &in, sizeof(in), NULL, 0, &got, NULL)) {
+       malikm_tlog("video: IOCTL_MFC_OPEN failed %lu", GetLastError());
+-      CloseHandle(h);
+-      return INVALID_HANDLE_VALUE;
++      return FALSE;
+    }
+-   return h;
++   return TRUE;
+ }
+ 
+ /* a new sequence (SPS changed after pictures were decoded): a fresh session, the MFC sets up buffers per header */
+@@ -297,6 +302,7 @@ MfcRestart(VideoDecoder *d)
+    d->PpsLen = 0;
+    if (!DeviceIoControl(d->Mfc, IOCTL_MFC_OPEN, &in, sizeof(in), NULL, 0, &got, NULL)) {
+       malikm_tlog("video: session restart failed %lu", GetLastError());
++      d->HasSession = FALSE;   /* the next BeginFrame tries to claim it again */
+       return FALSE;
+    }
+    return TRUE;
+@@ -315,14 +321,20 @@ Vid_CreateVideoDecoder(D3D10DDI_HDEVICE hDevice, CONST D3D11_1DDIARG_CREATEVIDEO
+    }
+    d->Desc = pArgs->Desc;
+    d->Config = pArgs->Config;
+-   /* exynos-woa G35: the MFC session (one per device) is opened at the first DecoderBeginFrame, not here. Chromium
+-    * creates a decoder at initialisation and a second one at the stream's coded size (1920x1080 -> 1920x1088) before
+-    * releasing the first, which never decodes; holding the session from creation made the second fail with
+-    * ERROR_BUSY (notes/g35-browser-video.md). */
+-   d->Mfc = INVALID_HANDLE_VALUE;
++   /* the device handle here: no MFC driver, or no access from this process -> E_FAIL and the caller keeps its
++    * software decoder. exynos-woa G35: the session (one per device) is claimed at the first DecoderBeginFrame.
++    * Chromium creates a decoder at initialisation and a second one at the stream's coded size (1920x1080 ->
++    * 1920x1088) before releasing the first, which never decodes; claiming the session here made the second fail
++    * with ERROR_BUSY (notes/g35-browser-video.md). */
++   d->Mfc = MfcOpenDevice();
++   if (d->Mfc == INVALID_HANDLE_VALUE)
++      return E_FAIL;
+    /* the largest picture the session returns: the coded size of the biggest stream this decoder accepts */
+-   if (!VidReserve(&d->Out, sizeof(MfcDecodeOut) + VID_MAX_W * VID_MAX_H * 3u / 2u))
++   if (!VidReserve(&d->Out, sizeof(MfcDecodeOut) + VID_MAX_W * VID_MAX_H * 3u / 2u)) {
++      CloseHandle(d->Mfc);
++      d->Mfc = INVALID_HANDLE_VALUE;
+       return E_OUTOFMEMORY;
++   }
+    {
+       const char *dir = getenv("MALIKM_TGSI_DIR");   /* tracing: keep the stream the MFC gets */
+       if (dir && *dir) {
+@@ -369,13 +381,10 @@ Vid_VideoDecoderBeginFrame(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HDECODE hDecode,
+    VideoDecoder *d = (VideoDecoder *)hDecode.pDrvPrivate;
+    if (pArgs->pContentKey || pArgs->ContentKeySize)
+       return E_INVALIDARG;   /* no protected content */
+-   if (d->Mfc == INVALID_HANDLE_VALUE) {
+-      d->Mfc = MfcOpen();
+-      if (d->Mfc == INVALID_HANDLE_VALUE) {
+-         /* no MFC (driver missing, busy with another session, or not reachable from this process): the frame fails
+-          * and the caller falls back to its software decoder */
+-         return E_FAIL;
+-      }
++   if (!d->HasSession) {
++      if (!MfcSession(d->Mfc))
++         return E_FAIL;   /* another handle owns the MFC's one session: the caller falls back to software */
++      d->HasSession = TRUE;
+       malikm_tlog("video: decoder %ux%u: MFC session open", d->Desc.SampleWidth, d->Desc.SampleHeight);
+    }
+    d->Output = pArgs->hOutputView.pDrvPrivate;

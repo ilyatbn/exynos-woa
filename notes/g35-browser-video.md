@@ -45,3 +45,11 @@ work as possible on hdmi (via type c adapter and usb hub, i have both)."
   "SRV fmt 49" (R8 / R8G8) on the NV12 array texture (r8 1920x1632 x19) -> the pan_image.h:262 assert -> GPU process
   dies -> "video decode error" / PIPELINE_ERROR_DISCONNECTED (traces/g35-media-t1a.txt, g35-gpu-t1a-8028.txt).
   => T1 verified; T2 (plane views) is the blocker now.
+- Review of 0219: FINDING - CreateVideoDecoder no longer failed when the MFC is missing or denied to the process
+  (e.g. a sandbox without the device ACE): MF / msmpeg2vdec chose DXVA by that result and would now fail per frame
+  instead of keeping software. The driver allows any number of handles (Driver.c SessionOwner: only IOCTL_MFC_OPEN
+  claims the session). Fix Mesa 0220 (ARM64 e07cbaca, tag 0219b): device handle opened at CreateVideoDecoder (E_FAIL
+  as before when it cannot be opened), the session claimed at the first BeginFrame (HasSession; cleared when a
+  restart loses it). Checks: mfd3d c1080 -Rows 1080 -> 60/60 MFC decodes, hashes identical to the system-memory
+  decode; Edge (cdpplay t1b): decoders 1920x1080 + 1920x1088 both created, the 1088 one claims the session and
+  decodes (frame 2 err 0), then the known plane-view assert (T2).

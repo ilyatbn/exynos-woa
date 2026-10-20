@@ -337,6 +337,11 @@ VOID MicSelfTest(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ ULONG Ms)
     }
 
 done:
+    /* review F2 of a808ccf: the diagnosis knobs apply to this test only, never to the Windows capture streams */
+    Dev->MicVariant   = 0;
+    Dev->MicWdmaIdx   = 1;
+    Dev->MicWdmaCtrl  = 0;
+    Dev->MicWdmaLimit = 0;
     if (Ring != NULL && !Dev->AboxCapDmaStuck) {
         MmFreeContiguousMemory(Ring);
     }

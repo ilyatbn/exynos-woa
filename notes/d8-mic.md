@@ -132,3 +132,9 @@ Findings, each a follow-up task with its own commit:
   MicCodecOn/Off use it; the HpOn / MicCodecOn cross-checks are gone. Device (mic only): two captures back to back,
   run log shows FLL1 relock + "AIF1 prepared" per start (= released at each stop), 1 kHz -49.4 / -47.7 dB both runs
   (same as 1.0.3.1). Headphones + mic at the same time: not run (needs headphones in the jack) - Guided.
+- F2 fixed (audio 1.0.3.3): MicSelfTest resets MicVariant / MicWdmaIdx (1) / MicWdmaCtrl / MicWdmaLimit at its end.
+  Device: Parameters MicVariant = 1 (FIFO) + MicTest 1000: self-test AboxCaptureStart UAIF0 CTRL0 11000012 (FIFO bit
+  set); a wascap capture right after in the same driver instance: UAIF0 CTRL0 01000012 (knob gone). MicVariant value
+  deleted again afterwards.
+- F7 (new, from the review of 4c473ad): CodecRelease hard-resets the codec but leaves CodecUsers bits set; a PnP
+  stop/start of the same device context with a bit left over would skip CodecClockOn on the next start (First FALSE).

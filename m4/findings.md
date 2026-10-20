@@ -88,12 +88,23 @@ shipping direction (Windows never touches the NS-window pages; uH's fault-path a
 invasive: the RKP HVC surface (0xC300C200 APP_RKP + RKP_WRITE_PGT1..3) rewrites guest s2 with proper
 attrs — but it expects Linux structures (rkp_init); treat as research, not a near-term step.
 
+**P7 — ACPM RAM dump (the voltage data; no extra files needed).** M4 DVFS/OPP+voltage tables are NOT in
+the DTB and NOT in vendor.img - Samsung keeps them inside the ACPM coprocessor image, which runs live in
+chip RAM: DTB `acpm_ipc` = reg `0x15900000/0x1000` (IPC SFRs) + **`0x02039000/0x30000` (ACPM RAM)**,
+initdata-base 0x7000, dump-base 0x203c000 size 0x2d000 (dumps/hhxj6/base.dts:6116-6141).
+From running Windows: `s10ediagx dumpmmio 0x2039000 0x80` as a liveness probe first (m4mb.sh pattern,
+watchdog armed), then `0x2039000 0x30000`. On-chip RAM, not a control SFR - expected safe - but treat it
+like the 0x1D100104 lesson: bisect, never blind-loop. Result = ground truth for which voltage ACPM picks
+for the 520 MHz CL2 step (closes the m4clk1 UNVERIFIED gap) + a base for FREQ_REQ/ACPM mailbox RE.
+
 ## 4. Data the owner can provide that would sharpen all of this
 
-1. **Device partition dumps (read-only dd from TWRP; nothing destructive):** `ls -l /dev/block/by-name`
-   first, then dump **`uhcfg` (uhuh.bin)**, **`acpm`**, and current **`sboot`/`cm`/`uh`** for sha256
-   comparison with the HXJ6 copies. uhuh.bin = uH config (could carry per-CPU/policy tables the
-   binary alone doesn't show); acpm.bin = the coprocessor that sets M4 voltage (closes the V/F gap).
+1. **Partition recon first (pastes only, no dumps):** from TWRP `ls -l /dev/block/by-name`, from Android
+   `cat /proc/partitions`. The PIT defines ACPM/UHCFG/ECT partitions but HXJ6 ships no acpm.bin and the
+   on-device names are unconfirmed (no `acpm` seen) - sizes will identify them (ACPM is ~0x30000-class).
+   If an acpm-sized partition shows up, dd it read-only from TWRP. The running ACPM image was flashed by
+   an older package (unknown build); P7's RAM dump covers the same tables live meanwhile. **uhcfg
+   (uhuh.bin)** - if present, still worth a dd (uH config the binary alone doesn't show).
 2. An **older or sibling Odin package** (G970F earlier rev, or S10/G973F/G975F same SoC): if the BL tar
    there includes acpm.bin/uhuh.bin/tj directly, even better; sibling-model `uh.bin` diffs show what
    changed for the M4 generation (look for MIDR 0x53 paths our copy lacks).

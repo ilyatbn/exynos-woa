@@ -1,0 +1,68 @@
+diff --git a/src/gallium/frontends/d3d10umd/OutputMerger.cpp b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+index f73f9bc..436827a 100644
+--- a/src/gallium/frontends/d3d10umd/OutputMerger.cpp
++++ b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+@@ -197,6 +197,32 @@ FastClearMask(void)
+    return (unsigned)m;
+ }
+ 
++/* 0183 (diagnosis): which path the clears take - every 500 clears a tlog line "clears 500: name n, ..." */
++extern "C" void malikm_tlog(const char *fmt, ...);
++static void
++ClearStat(const char *name, long long)
++{
++   static const char *names[12];
++   static unsigned counts[12], total;
++   unsigned i;
++   for (i = 0; i < 12 && names[i] && names[i] != name; i++)
++      ;
++   if (i == 12)
++      return;
++   names[i] = name;
++   counts[i]++;
++   if (++total == 500) {
++      char line[600];
++      int o = 0;
++      for (unsigned k = 0; k < 12 && names[k] && o < (int)sizeof line - 60; k++) {
++         o += snprintf(line + o, sizeof line - o, "%s%s %u", k ? ", " : "", names[k], counts[k]);
++         counts[k] = 0;
++      }
++      malikm_tlog("clears 500: %s", line);
++      total = 0;
++   }
++}
++
+ static bool
+ SameSurface(const struct pipe_surface *a, const struct pipe_surface *b)
+ {
+@@ -273,11 +299,15 @@ ClearRenderTargetView(D3D10DDI_HDEVICE hDevice,                      // IN
+       for (unsigned i = 0; i < pDevice->fb.nr_cbufs; i++) {
+          if (SameSurface(surface, &pDevice->fb.cbufs[i])) {
+             pipe->clear(pipe, PIPE_CLEAR_COLOR0 << i, 0xffffffffu, 0xff, NULL, &clear_color, 0.0, 0);   /* 0179 */
++            ClearStat("Clear:rt:fast", 0);
+             return;
+          }
+       }
+    }
+ 
++   ClearStat(!(FastClearMask() & 1) ? "Clear:rt:slow:off" :
++                  (pDevice->fb.width != pipe_surface_width(surface) ||
++                   pDevice->fb.height != pipe_surface_height(surface)) ? "Clear:rt:slow:size" : "Clear:rt:slow:unbound", 0);
+    pipe->clear_render_target(pipe,
+                              surface,
+                              &clear_color,
+@@ -434,9 +464,14 @@ ClearDepthStencilView(D3D10DDI_HDEVICE hDevice,                      // IN
+       /* the threaded context copies *color unconditionally (tc_clear): never NULL (0179 crashed in tc_clear) */
+       const union pipe_color_union no_color = {};
+       pipe->clear(pipe, flags, 0xffffffffu, 0xff, NULL, &no_color, Depth, Stencil);   /* 0179 */
++      ClearStat("Clear:zs:fast", 0);
+       return;
+    }
+ 
++   ClearStat(!(FastClearMask() & 2) ? "Clear:zs:slow:off" :
++                  !SameSurface(surface, &pDevice->fb.zsbuf) ? "Clear:zs:slow:unbound" :
++                  flags != all_zs ? (flags == PIPE_CLEAR_DEPTH ? "Clear:zs:slow:depth-only" : "Clear:zs:slow:stencil-only") :
++                  "Clear:zs:slow:size", 0);
+    pipe->clear_depth_stencil(pipe,
+                              surface,
+                              flags,

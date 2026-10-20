@@ -460,3 +460,11 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
 - Mesa 0182: depth/stencil fast clear only when the D3D flags clear every aspect of the format (depth+stencil, or
   depth on a depth-only format) - a depth-only clear of a depth+stencil target (stencil preloaded beside a depth
   clear) is the suspect. EC 51f48673 live, no fastclear.txt (mask 3); d3dmrt64x 7/7, d3dbc64x lossy 0/126.
+- bot14 (EC 0182, both fast clears): RENDERS CORRECTLY (bot14-end.png, a kelp-forest layout this time) and 2609
+  frames / 102.2 s, mean 25.5 fps, median 38.4 ms, p95 47.5, p99 59.2, max 164.0, 1 % low 11.3, 0.1 % 7.0 (best lows
+  so far; layouts differ between runs, so medians are noisy). Counters (tlog pid 4880) per 2000 batches: colour preload
+  378 MP (was 775), clear 270, store 648; zs preload 514 (was 595), store 560; ~49 batches without draws (clear-only
+  batches: the clear's framebuffer changed before any draw - written out and preloaded again). UMD 10.9-11.8 ms/frame.
+- Mesa 0183 (diagnosis): OutputMerger.cpp ClearStat - every 500 clears a tlog line "clears 500: Clear:rt:fast n,
+  Clear:rt:slow:unbound|size|off n, Clear:zs:fast n, Clear:zs:slow:unbound|depth-only|stencil-only|size|off n".
+  EC a7a19fb6 live; d3dmrt64x 7/7, d3dbc64x lossy 0/126.

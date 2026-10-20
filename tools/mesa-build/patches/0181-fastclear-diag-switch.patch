@@ -1,0 +1,49 @@
+diff --git a/src/gallium/frontends/d3d10umd/OutputMerger.cpp b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+index 64326f3..0b330d9 100644
+--- a/src/gallium/frontends/d3d10umd/OutputMerger.cpp
++++ b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+@@ -178,6 +178,25 @@ DestroyRenderTargetView(D3D10DDI_HDEVICE hDevice,                       // IN
+  * Panfrost folds into the batch for free (tile buffer starts at the clear value, nothing loaded) while the batch has
+  * no draws yet. Same texture, level, layers and format as the bound attachment; the framebuffer exactly the view's
+  * size (pipe->clear covers the framebuffer). Anything else keeps the old path. */
++/* Diagnosis only (AGENTS rule 12): C:\S10eTmp\fastclear.txt = mask, bit 0 colour, bit 1 depth/stencil (a file, not an
++ * environment variable: Steam relaunches the game with its own environment); no file = 3 */
++static unsigned
++FastClearMask(void)
++{
++   static int m = -1;
++   if (m < 0) {
++      FILE *f = fopen("C:\\S10eTmp\\fastclear.txt", "r");
++      m = 3;
++      if (f) {
++         if (fscanf(f, "%d", &m) != 1)
++            m = 3;
++         fclose(f);
++         m &= 3;
++      }
++   }
++   return (unsigned)m;
++}
++
+ static bool
+ SameSurface(const struct pipe_surface *a, const struct pipe_surface *b)
+ {
+@@ -249,7 +268,8 @@ ClearRenderTargetView(D3D10DDI_HDEVICE hDevice,                      // IN
+    }
+ 
+    Device *pDevice = CastDevice(hDevice);
+-   if (pDevice->fb.width == pipe_surface_width(surface) && pDevice->fb.height == pipe_surface_height(surface)) {
++   if ((FastClearMask() & 1) && pDevice->fb.width == pipe_surface_width(surface) &&
++       pDevice->fb.height == pipe_surface_height(surface)) {
+       for (unsigned i = 0; i < pDevice->fb.nr_cbufs; i++) {
+          if (SameSurface(surface, &pDevice->fb.cbufs[i])) {
+             pipe->clear(pipe, PIPE_CLEAR_COLOR0 << i, 0xffffffffu, 0xff, NULL, &clear_color, 0.0, 0);   /* 0179 */
+@@ -405,7 +425,7 @@ ClearDepthStencilView(D3D10DDI_HDEVICE hDevice,                      // IN
+    }
+ 
+    Device *pDevice = CastDevice(hDevice);
+-   if (flags && SameSurface(surface, &pDevice->fb.zsbuf) && pDevice->fb.width == pipe_surface_width(surface) &&
++   if ((FastClearMask() & 2) && flags && SameSurface(surface, &pDevice->fb.zsbuf) && pDevice->fb.width == pipe_surface_width(surface) &&
+        pDevice->fb.height == pipe_surface_height(surface)) {
+       /* the threaded context copies *color unconditionally (tc_clear): never NULL (0179 crashed in tc_clear) */
+       const union pipe_color_union no_color = {};

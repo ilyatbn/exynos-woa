@@ -447,3 +447,10 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   threaded context copies it unconditionally. Regression gap: d3dmrt64x / d3dbc64x never clear a bound DSV (they
   passed). LocalDumps worked: C:\S10eTmp\dumps\DaveTheDiver.exe.7108.dmp.
 - Mesa 0180: a zeroed pipe_color_union instead of NULL. EC 8b139429 live; d3dmrt64x 7/7, d3dbc64x lossy 0/126.
+- bot12 (EC 0180): 2729 frames / 102.7 s, mean 26.6 fps, median 36.3 ms, p99 63.7 - BUT the dive screenshot at the
+  water-state moment (traces/games/bot/bot12-end.png) shows only the HUD on a WHITE scene; bot6 (0175) at the same
+  moment shows the full dive scene -> 0179/0180 break rendering; the speed-up is not valid. Live EC rolled back to
+  0178 (eaee8f31, ecswap tag 0178r). (Checked: a clear-only batch still marks its attachments valid in
+  emit_fragment_job, so "no preload after a clear-only batch" is not the cause.)
+- Mesa 0181 (diagnosis): C:\S10eTmp\fastclear.txt mask (bit 0 colour, bit 1 depth/stencil fast clear; no file = 3) -
+  a file because Steam relaunches the game with its own environment. EC cbf627a3 live with mask 1 (colour only).

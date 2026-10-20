@@ -1,10 +1,11 @@
 /*
  * Mic.c - the two digital microphones (notes/d8-mic.md): DMIC1/2 -> CS47L93 IN3L/IN4L -> AIF1TX1/2 -> UAIF0 MIC ->
- * NSRC0 -> SPUM -> SIFM0 -> WDMA0 (AboxCaptureStart). The codec is the AIF1 clock master (HpMaster 1), on SYSCLK
+ * NSRC0 -> SPUM -> SIFM0 -> WDMA1 (AboxCaptureStart). The codec is the AIF1 clock master (HpMaster 1), on SYSCLK
  * (CodecClockOn); the AIF1 format / frame are the headphone link's (CodecHpPrepare: DSP-A, 4 x 32 bit, 48 kHz).
  *
  * Codec values: MD = madera registers.h / madera.c / cs47l92.c / cs47l92-tables.c (LineageOS exynos9820 tree);
- * every one is cited in notes/d8-mic.md. NOT VALIDATED ON HARDWARE until the MicTest run is recorded there.
+ * every one is cited in notes/d8-mic.md. Device-validated: MicTest 1.0.2.7 and the Windows endpoint 1.0.3.0 record a
+ * PC 1 kHz tone at ~55 dB SNR (notes/d8-mic.md).
  *
  * MicSelfTest (Parameters\MicTest = milliseconds, at PrepareHardware): records the mics into a ring, copies it out
  * while it runs, then logs per-channel level (integer statistics; the frequency analysis is done on the PC by
@@ -288,7 +289,7 @@ VOID MicSelfTest(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ ULONG Ms)
         }
         Pos %= MIC_RING_FRAMES * MIC_RING_PERIODS;
         if (Polls <= 5 || (Polls % 50) == 0) {
-            AudLog(Dev->Log, "mic test: poll %lu WDMA0 STATUS %08lX pos %lu UAIF0 STATUS %08lX\r\n", Polls, Raw, Pos,
+            AudLog(Dev->Log, "mic test: poll %lu WDMA%lu STATUS %08lX pos %lu UAIF0 STATUS %08lX\r\n", Polls, Dev->MicWdmaIdx, Raw, Pos,
                    *(volatile ULONG *)(Dev->Va[AUD_RES_ABOX_IFR] + 0x050C));
         }
         while (Last != Pos && Got < Want) {   /* frames [Last, Pos) are written */
@@ -312,7 +313,7 @@ VOID MicSelfTest(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ ULONG Ms)
         LoopVa = NULL;
     }
 
-    AudLog(Dev->Log, "mic test: %lu frames of %lu in %lu polls%s\r\n", Got, Want, Polls, Bad ? " - WDMA0 NOT MOVING" : "");
+    AudLog(Dev->Log, "mic test: %lu frames of %lu in %lu polls%s\r\n", Got, Want, Polls, Bad ? " - WDMA NOT MOVING" : "");
     for (Ch = 0; Ch < 4 && Got > 0; Ch++) {
         LONGLONG Sum = 0, Peak = 0, Mean;
         ULONGLONG Sq = 0;

@@ -148,3 +148,7 @@ Findings, each a follow-up task with its own commit:
   (one period margin); later = silence + CapLost++ (logged at pause). Device: normal capture 301 packets, 0 late
   passes, 0 overrun packets, 1 kHz -49.5 dB. The overrun branch itself was not triggered (needs a >= 70 ms late
   timer) - verified by reading only.
+- F3 fixed (audio 1.0.3.7): Mic.c header (WDMA1, device-validated), self-test logs print WDMA%lu, AboxHw.c capture
+  comments/logs say WDMA / WDMA1 (+ why the ABOX_WDMA0_* names stay), capture-stop comment names AboxCapDmaStuck, the
+  AboxSelectOutput comment + annotation moved back above AboxSelectOutput. Device: self-test 500 ms "poll 1 WDMA1
+  STATUS 802C02B0", 24000/24000 frames; WASAPI capture 1 kHz -49.3 dB.

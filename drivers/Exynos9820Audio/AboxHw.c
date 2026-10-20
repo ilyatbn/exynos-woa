@@ -64,7 +64,8 @@
 #define   ABOX_RDMA_RBUF_OFF_SHIFT 12           /* RBUF_OFFSET 27:12 (2.0.1 layout, notes/d8-audio-m3-abox.md:55) */
 #define   ABOX_RDMA_RBUF_OFF_MASK  0xFFFFu       /*   in 16-byte units = frame index of the period start (audD) */
 
-/* Capture path (notes/d8-mic.md; AB = vendor abox sources): UAIF0 MIC -> NSRC0 -> SPUM -> SIFM0 -> WDMA0. */
+/* Capture path (notes/d8-mic.md; AB = vendor abox sources): UAIF0 MIC -> NSRC0 -> SPUM -> SIFM0 -> WDMA1
+   (device-proven 1.0.2.5; the ABOX_WDMA0_* names are the WDMA(x) register offsets for x = 0, WDMAR adds x). */
 #define ABOX_ROUTE_CTRL1         0x0044u
 #define ABOX_ROUTE_CTRL2         0x0048u
 #define   ABOX_ROUTE_NSRC0_MASK    0x0000000Fu   /* [3:0] NSRC0 source (abox_soc.h:84-88) */
@@ -316,11 +317,9 @@ NTSTATUS AboxInit(_Inout_ PAUD_DEVICE_CONTEXT Dev)
     return STATUS_SUCCESS;
 }
 
-/* Before AboxStart, with stage 1 done: RDMA0 -> SIFS1 to the headphone codec (UAIF0) or the amps (UAIF1), never both
-   (SIFS1 feeding two UAIFs is UNVERIFIED). The UAIF0 link is set up on first use; its prior state is logged. */
-_IRQL_requires_(PASSIVE_LEVEL)
 /* The UAIF0 <-> codec AIF1 link (AboxUaif0Seq), once: shared by the headphone render path and the mic capture path
    (notes/d8-mic.md); its registers are saved and restored by AboxRelease. */
+_IRQL_requires_(PASSIVE_LEVEL)
 static NTSTATUS AboxUaif0Link(_Inout_ PAUD_DEVICE_CONTEXT Dev)
 {
     NTSTATUS Status = STATUS_SUCCESS;
@@ -362,6 +361,8 @@ static NTSTATUS AboxUaif0Link(_Inout_ PAUD_DEVICE_CONTEXT Dev)
     return Status;
 }
 
+/* Before AboxStart, with stage 1 done: RDMA0 -> SIFS1 to the headphone codec (UAIF0) or the amps (UAIF1), never both
+   (SIFS1 feeding two UAIFs is UNVERIFIED). The UAIF0 link is set up on first use; its prior state is logged. */
 _IRQL_requires_(PASSIVE_LEVEL)
 NTSTATUS AboxSelectOutput(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ BOOLEAN Headphones)
 {
@@ -583,7 +584,7 @@ NTSTATUS AboxRingPosition(_In_ PAUD_DEVICE_CONTEXT Dev, _Out_ PULONG Frames, _Ou
 
 /*
  * Mic capture (notes/d8-mic.md): UAIF0 MIC (the codec drives BCLK/LRCLK, HpMaster 1) -> ROUTE_CTRL1 NSRC0 = UAIF0
- * -> SPUM NSRC0 chain (no ASRC, out to WDMA) -> SIFM0 -> WDMA0 writes the cyclic ring [PhysAddr, PhysAddr + Bytes)
+ * -> SPUM NSRC0 chain (no ASRC, out to WDMA) -> SIFM0 -> WDMA1 writes the cyclic ring [PhysAddr, PhysAddr + Bytes)
  * (physical address, AUD SysMMU bypassed as for RDMA0). Frame = the UAIF0 link frame: 48 kHz, 4 x 32-bit slots,
  * slots 0/1 = AIF1TX1/2 = DMIC1/2. The codec's AIF1 TX must already run (MicHwStart orders it). The route registers
  * are saved here and restored by AboxCaptureStop.
@@ -653,7 +654,7 @@ NTSTATUS AboxCaptureStart(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ PHYSICAL_ADDRESS
     Dev->AboxCapRunning = TRUE;
 
     AudLog(Dev->Log, "AboxCaptureStart: ring 0x%08lX + 0x%lX, period 0x%lX: ROUTE_CTRL1 %08lX SPUM_CTRL0 %08lX SBANK_NSRC0 %08lX "
-           "WDMA0 CTRL %08lX STATUS %08lX, UAIF0 CTRL0 %08lX STATUS %08lX\r\n", Str, Bytes, PeriodBytes,
+           "WDMA CTRL %08lX STATUS %08lX, UAIF0 CTRL0 %08lX STATUS %08lX\r\n", Str, Bytes, PeriodBytes,
            AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_ROUTE_CTRL1), AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_SPUM_CTRL0),
            AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_SPUM_SBANK_NSRC0), AudRd(Dev, AUD_RES_ABOX_IFR, WDMAR(Dev, ABOX_WDMA0_CTRL)),
            AudRd(Dev, AUD_RES_ABOX_IFR, WDMAR(Dev, ABOX_WDMA0_STATUS)), AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_UAIF0_CTRL0),
@@ -661,7 +662,7 @@ NTSTATUS AboxCaptureStart(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ PHYSICAL_ADDRESS
     return STATUS_SUCCESS;
 }
 
-/* MIC off, WDMA0 off (wait for its progress bit), routes back. AboxDmaStuck = the ring must not be freed. */
+/* MIC off, WDMA off (wait for its progress bit), routes back. AboxCapDmaStuck = the ring must not be freed. */
 _IRQL_requires_(PASSIVE_LEVEL)
 VOID AboxCaptureStop(_Inout_ PAUD_DEVICE_CONTEXT Dev)
 {
@@ -688,12 +689,12 @@ VOID AboxCaptureStop(_Inout_ PAUD_DEVICE_CONTEXT Dev)
     AudWr(Dev, AUD_RES_ABOX_IFR, ABOX_SPUM_SBANK_NSRC0, Dev->AboxCapSaved[2]);
     AudWr(Dev, AUD_RES_ABOX_IFR, ABOX_ROUTE_CTRL2, Dev->AboxCapSaved[3]);
     AudWr(Dev, AUD_RES_ABOX_IFR, ABOX_UAIF0_CTRL0, AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_UAIF0_CTRL0) & ~0xF0000000u);
-    AudLog(Dev->Log, "AboxCaptureStop: after %lu ms WDMA0 STATUS %08lX%s, UAIF0 CTRL0 %08lX STATUS %08lX\r\n", Ms,
+    AudLog(Dev->Log, "AboxCaptureStop: after %lu ms WDMA STATUS %08lX%s, UAIF0 CTRL0 %08lX STATUS %08lX\r\n", Ms,
            AudRd(Dev, AUD_RES_ABOX_IFR, WDMAR(Dev, ABOX_WDMA0_STATUS)), Dev->AboxCapDmaStuck ? " STILL IN PROGRESS" : "",
            AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_UAIF0_CTRL0), AudRd(Dev, AUD_RES_ABOX_IFR, ABOX_UAIF0_STATUS));
 }
 
-/* WDMA0 write position in ring frames (16-byte frames), same STATUS layout as RDMA0 (re-read until OFFSET is stable). */
+/* WDMA write position in ring frames (16-byte frames), same STATUS layout as RDMA0 (re-read until OFFSET is stable). */
 _IRQL_requires_max_(DISPATCH_LEVEL)
 NTSTATUS AboxCapturePosition(_In_ PAUD_DEVICE_CONTEXT Dev, _Out_ PULONG Frames, _Out_ PULONG RawStatus)
 {

@@ -6,7 +6,7 @@
 set -u
 N=${1:?usage: nfsrace.sh NAME [EXTRA_S]}; EXTRA=${2:-40}
 T="$(cygpath -u "$TEMP")"
-ssh s10e 'taskkill /f /im SPEED2.EXE >nul 2>&1 & taskkill /f /im keyplay.exe >nul 2>&1 & taskkill /f /im scrnsave.scr >nul 2>&1' < /dev/null
+ssh s10e 'taskkill /f /im SPEED2.EXE >nul 2>&1 & taskkill /f /im keyplay.exe >nul 2>&1 & taskkill /f /im scrnsave.scr >nul 2>&1 & del C:\S10eTmp\gamedrive.out 2>nul' < /dev/null
 printf '%s\r\n' "0 PLAY C:\S10eTmp\gamekeys.rec" > "$T/gk.txt"; scp -q -O "$T/gk.txt" s10e:C:/S10eTmp/gamekeys.txt < /dev/null
 # gamelaunch.args is shared with the other game tools: on 2026-10-20 it named DaveTheDiver.exe and two "races" replayed
 # the NFS keys into Dave (notes/g34-fl11.md). Always set it here, and stop at once if gamedrive started anything else.
@@ -14,8 +14,12 @@ printf '%s\r\n' 'C:\Games\src\SPEED2.EXE' > "$T/gl.txt"; scp -q -O "$T/gl.txt" s
 scp -q -O tools/phone/games/gamedrivestop.ps1 s10e:C:/S10eTmp/ < /dev/null
 sleep 2
 bash tools/phone/rec/runapp.sh 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe' '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\S10eTmp\gamedrive.ps1' 10 > /dev/null
-sleep 2
-first=$(ssh s10e 'type C:\S10eTmp\gamedrive.out' < /dev/null 2>/dev/null | head -1 | tr -d '\r')
+first=
+for i in $(seq 1 15); do   # gamedrive.out was deleted above: wait for this run's own start line
+  first=$(ssh s10e 'type C:\S10eTmp\gamedrive.out' < /dev/null 2>/dev/null | head -1 | tr -d '\r')
+  [ -n "$first" ] && break
+  sleep 2
+done
 if ! echo "$first" | grep -qi 'SPEED2\.EXE'; then
   echo "gamedrive started something else ('$first') - stopping it"
   ssh s10e 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\S10eTmp\gamedrivestop.ps1' < /dev/null

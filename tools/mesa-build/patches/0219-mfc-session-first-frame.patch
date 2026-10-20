@@ -1,0 +1,53 @@
+diff --git a/src/gallium/frontends/d3d10umd/Video.cpp b/src/gallium/frontends/d3d10umd/Video.cpp
+index 4604c13..8fc3818 100644
+--- a/src/gallium/frontends/d3d10umd/Video.cpp
++++ b/src/gallium/frontends/d3d10umd/Video.cpp
+@@ -315,17 +315,14 @@ Vid_CreateVideoDecoder(D3D10DDI_HDEVICE hDevice, CONST D3D11_1DDIARG_CREATEVIDEO
+    }
+    d->Desc = pArgs->Desc;
+    d->Config = pArgs->Config;
+-   d->Mfc = MfcOpen();
+-   if (d->Mfc == INVALID_HANDLE_VALUE) {
+-      /* no MFC (driver missing, busy with another session, or not reachable from this process): the caller falls
+-       * back to its software decoder */
+-      return E_FAIL;
+-   }
++   /* exynos-woa G35: the MFC session (one per device) is opened at the first DecoderBeginFrame, not here. Chromium
++    * creates a decoder at initialisation and a second one at the stream's coded size (1920x1080 -> 1920x1088) before
++    * releasing the first, which never decodes; holding the session from creation made the second fail with
++    * ERROR_BUSY (notes/g35-browser-video.md). */
++   d->Mfc = INVALID_HANDLE_VALUE;
+    /* the largest picture the session returns: the coded size of the biggest stream this decoder accepts */
+-   if (!VidReserve(&d->Out, sizeof(MfcDecodeOut) + VID_MAX_W * VID_MAX_H * 3u / 2u)) {
+-      CloseHandle(d->Mfc);
++   if (!VidReserve(&d->Out, sizeof(MfcDecodeOut) + VID_MAX_W * VID_MAX_H * 3u / 2u))
+       return E_OUTOFMEMORY;
+-   }
+    {
+       const char *dir = getenv("MALIKM_TGSI_DIR");   /* tracing: keep the stream the MFC gets */
+       if (dir && *dir) {
+@@ -334,7 +331,7 @@ Vid_CreateVideoDecoder(D3D10DDI_HDEVICE hDevice, CONST D3D11_1DDIARG_CREATEVIDEO
+          d->Dump = fopen(path, "wb");
+       }
+    }
+-   malikm_tlog("video: decoder %ux%u created, MFC session open", d->Desc.SampleWidth, d->Desc.SampleHeight);
++   malikm_tlog("video: decoder %ux%u created (MFC session at the first frame)", d->Desc.SampleWidth, d->Desc.SampleHeight);
+    return S_OK;
+ }
+ 
+@@ -372,6 +369,15 @@ Vid_VideoDecoderBeginFrame(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HDECODE hDecode,
+    VideoDecoder *d = (VideoDecoder *)hDecode.pDrvPrivate;
+    if (pArgs->pContentKey || pArgs->ContentKeySize)
+       return E_INVALIDARG;   /* no protected content */
++   if (d->Mfc == INVALID_HANDLE_VALUE) {
++      d->Mfc = MfcOpen();
++      if (d->Mfc == INVALID_HANDLE_VALUE) {
++         /* no MFC (driver missing, busy with another session, or not reachable from this process): the frame fails
++          * and the caller falls back to its software decoder */
++         return E_FAIL;
++      }
++      malikm_tlog("video: decoder %ux%u: MFC session open", d->Desc.SampleWidth, d->Desc.SampleHeight);
++   }
+    d->Output = pArgs->hOutputView.pDrvPrivate;
+    return S_OK;
+ }

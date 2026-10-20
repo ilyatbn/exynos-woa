@@ -38,3 +38,10 @@ work as possible on hdmi (via type c adapter and usb hub, i have both)."
 - Plan: T1 Mesa 0219 - open the MFC session at the first DecoderBeginFrame (Chromium replaces decoders without using
   the first). T2 Mesa 0220 - NV12 plane views (SRV/RTV R8 -> luma rows, R8G8 -> chroma rows at W/2 x H/2) + never
   assert on an unsupported view format (fail the view instead).
+- T1 Mesa 0219 (ARM64 d424e351, umdswap arm64 tag 0219a; no reboot: a new Edge GPU process loads the new file, DWM
+  keeps its copy - only Video.cpp changed): MFC session opened at the first DecoderBeginFrame. cdpplay.sh t1a (new;
+  --no-sandbox instance): media log keeps "D3D11VideoDecoder" (no CreateVideoDecoder error); UMD: "decoder
+  1920x1088 created", "MFC session open", frames 0-4 decoded on the MFC (~8 ms each, err 0). Then "SRV fmt 61" +
+  "SRV fmt 49" (R8 / R8G8) on the NV12 array texture (r8 1920x1632 x19) -> the pan_image.h:262 assert -> GPU process
+  dies -> "video decode error" / PIPELINE_ERROR_DISCONNECTED (traces/g35-media-t1a.txt, g35-gpu-t1a-8028.txt).
+  => T1 verified; T2 (plane views) is the blocker now.

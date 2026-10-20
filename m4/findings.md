@@ -29,6 +29,8 @@ is static evidence from the shipped firmware until a test says otherwise.
 | F16 | sboot's DT repack (same flow as uh-load, 0x103620-0x1037f8) reserves **`sboot,rmem @0xC9000000` 16 MB** and **framebuffer @0xCA000000 20 MB** (inside the 2-4 GB window!) and sets **`/cpufreq/domain@2` = "pm_qos-booting" = 2000000 (kHz)** — domain@2 is the M4 cluster (DTB: domain@0=LITTLE). "Update Max freq to %d" comes from an SCM getter via a .bss pointer table (0x479a00). UEFI-side tests must treat `0xC9000000-0xCB400000` as bootloader-occupied. | sboot disasm + base.dts |
 | F17 | sboot.bin carries a **dense 32-bit config-table region at file `0x1F0000-0x250000`** (~640 KiB, no magic, entropy 7.4, version-dependent between GHWC1/HXJ6) — prime candidate for the boot DVFS/voltage/DMC tables feeding the 0x17810 consumer. Next host-side decode target. | entropy map + disasm |
 | F18 | **CPU/bus FREQUENCY ladders are in the DT package** (not only in ACPM): `/cpufreq-ufc/domain@2` (top cluster; @0 tops 1950000=A55, @1 2314000=A75, @2 2912000=M4) lists a 23-OP ladder 2912000→**520000** with per-point MIF/INT bus floors; dtbo carries the 20-OP `dvfs_mif` ladder 2730000→520000 (x7 cap variants) + per-domain mif-perf caps; `devfreq_mif@17000010` boot_info=(idx 40, cap 2093000) — idx 40 ∉ 20-OP dtbo ladder ⇒ **ACPM's internal MIF table is ~41 OPs**. CL2 bus calibration ECT name: **"dvfs_cpucl2"**. Extracted artifact: `m4/artifacts/dt-dvfs-tables.txt`. **Per-OP core voltages remain ACPM-internal only.** | dt.img/dtbo.img/base.dts decode |
+| F19 | **uH's guest stage-2 is effectively static; the fault path cannot extend it.** Runtime inserter helpers (0x87015280/5bc/7fc) build 4-level trees rooted at **TTBR0_EL2 (uH's own EL2 stage-1)**, never the VTTBR root; VTTBR-root walks in code are read-only overlap checks; `MSR VTTBR_EL2` occurs only as "install static 0x87028000" or "zero (s2 off)". Faults replay the instruction (AT s12e1r PAR check) and are gated by an **in-flight-upcounter retry** ([0x870430c0]); all table edits are under a qspinlock, break-before-make, **broadcast TLBI only** (VAE2IS/IPAS2E1IS/VMALLE1IS/VAAE1IS/ALLE2IS/VMALLS12E1IS, `dsb sy`) — stale-s2-by-local-TLBI ruled out. Static s2 covers 0x8000000-0xFFFFFFFF (holes at uH window + 0-0x8000000) and **bank3 0x880000000-0x8C0000000 only**; DRAM bank4 @0x900000000 (DTB: 3x2GB) is unmapped and faults forever. **G30 rule: the UEFI map handed to Windows must stay within the statically-mapped ranges — nothing above 0x8BFFFFFF.** | notes/m4-research-r1r7.md §R2 |
+| F20 | **No Mongoose-specific firmware handling found**: uH contains zero IMP-DEF sysreg accesses (no S3_x/actlr/MIDR); sboot's IMP-DEF writes (incl. the M4 syndrome reg S3_1_C15_C2_1, actlr thunks) are **unconditional** — its only MIDR branches test generic parts (0xc0f/0xd03/0xd07). cm/TZ writes one CPUACTLR-class reg. Any true M4 erratum workaround must live in the absent EL3-monitor blob or ACPM itself. | notes/m4-research-r1r7.md §R4 |
 
 ## 2. Hypotheses these facts produce (ranked, testable)
 
@@ -49,6 +51,19 @@ is static evidence from the shipped firmware until a test says otherwise.
   hardware fault. The ring sampler (P3) catches uH's own lines if this ever takes a stage-2 fault itself.
 - **H3 — the old uH-trap theory is DEAD** for the 9820 (F4): no EL1 op is trapped; T4/m4trap1 revival is
   not needed (a single cheap confirmation run on an M4 is enough if at all).
+
+### 2026-10-21 research-pass update (details: notes/m4-research-r1r7.md)
+
+- **H2 is DOWNGRADED to "avoid by construction"**: uH never extends the guest stage-2 at runtime (F19);
+  its static map covers exactly PA 0-4GB (holes at 0-0x8000000 and the uH window) + bank3
+  0x880000000-0x8BFFFFFF. Windows RAM outside those ranges faults forever rather than racing - and all
+  uH table surgery is lock+BBM+broadcast-TLBI, so the race form of H2 is statically ruled out.
+  **Immediate static action for G30: audit the UEFI/PUBLISH_HIGH_BANKS range generator so no RAM is
+  offered above 0x8BFFFFFF (bank4 @0x900000000 must be excluded).**
+- H1: s1-vs-s2 shareability combination says s2-SH is only consulted if the s1 side is Device (ARM ARM
+  rule being fetched with exact citation by the research pass); if that holds, H1 needs either M4
+  microarchitectural deviation (none documented - no errata sheet found yet) or Windows mapping normal
+  memory Non-shareable (not the case). P2/P4/P5 remain the discriminators.
 
 ## 3. Device test protocol (order = value/risk; all EL1-side, boot partition only)
 
@@ -127,15 +142,16 @@ stuck-monitor event was recorded). Plain DRAM inside the s2-identity-mapped 0-4 
 
 ## 5. Still-open host-side RE (no device needed)
 
-- uH insert helpers 0x87015280 / 0x870155bc / 0x870157fc: exact MemAttr/SH/XN of fault-inserted s2 entries
-  (decides whether H1's "fault-path pages are fine" premise holds).
-- uH app-dispatch FUN_8700b220 + per-app tables (DAT_87043298..0432d0): what apps 3..7 initialized in
-  sboot's loop are, and whether anything arms per-CPU state.
-- sboot `cl2emul` implementation (command strings @0x355e4): Samsung's own emulation shim for CL2 SFR
-  access — may name the exact hazard behind the SoC-freezing peeks (0x1D100104 / 0x15861200-0x1650).
-- The PSCI monitor: confirmed NOT in the package (F15) — resident at PA 0x80000000 at runtime. If its
-  bytes are ever needed, P8+ (256 B probe first) could extend to a live code dump via our own UEFI tool.
-- sboot `0x1F0000-0x250000` config-table region (F17) × the 0x17810 initdata consumer: decode the boot
-  DVFS/voltage tables statically — pairs with P7's live ACPM dump.
+Answered 2026-10-21 (see notes/m4-research-r1r7.md): uH fault-path helpers (F19), DT frequency ladders
+(F18), IMP-DEF/MIDR sweep (F20). Still open:
+- sboot `cl2emul` implementation (command strings @0x355e4/0x355f0): not traced this pass - may name the
+  exact hazard behind the SoC-freezing peeks (0x1D100104 / 0x15861200-0x1650).
+- sboot `0x1F0000-0x250000` config-table region (F17) x the 0x17810 initdata consumer: decode the boot
+  DVFS/voltage tables statically - pairs with P7's live ACPM dump.
+- The PSCI monitor: confirmed NOT in the package (F15) - resident at PA 0x80000000 at runtime. P8+
+  (256 B probe first) could extend to a live code dump via our own UEFI tool.
+- The fault-path instruction decoder 0x870190fc + 0x87016590/0x870166d4/0x87016818 trio: the exact
+  covered classes for the ISV=0 emulated path (LDP/STP, LSE atomics, exclusives, DC ZVA, FP) - unmapped
+  this pass (time-boxed); matters only if F19's map rule is violated and a fault actually fires.
 - sboot SCM client layer: .bss pointer table at image 0x479a00 (thunks 0xbbb0c/0xbbb38/0xbbb64...); find
   the registration site to name every SCM command sboot issues (frequency get/set among them).

@@ -152,3 +152,6 @@ Findings, each a follow-up task with its own commit:
   comments/logs say WDMA / WDMA1 (+ why the ABOX_WDMA0_* names stay), capture-stop comment names AboxCapDmaStuck, the
   AboxSelectOutput comment + annotation moved back above AboxSelectOutput. Device: self-test 500 ms "poll 1 WDMA1
   STATUS 802C02B0", 24000/24000 frames; WASAPI capture 1 kHz -49.3 dB.
+- F6 fixed (app): value labels initialised from the slider value (Db helper), so 0.0 dB shows without a ValueChanged.
+  Device (installed to C:\Program Files\S10eSpeakerTrim, launched in the console session, winshot.ps1 ->
+  traces/audio/micapp2.png): Top 0.0 dB, Bottom 0.0 dB, Microphone boost +12.0 dB.

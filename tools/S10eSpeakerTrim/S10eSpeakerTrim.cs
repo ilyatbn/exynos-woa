@@ -131,6 +131,7 @@ class TrimForm : Form
             atten = (uint)(-halfDb * 4);
         }
     }
+    static string Db(int halfDb) { return (halfDb / 2.0).ToString("+0.0;-0.0;0.0") + " dB"; }
     static int Join(uint gain, uint atten) { return ((int)gain - GainBase) * 2 - (int)(atten / 4); }
 
     TrimForm()
@@ -143,7 +144,8 @@ class TrimForm : Form
         micL.SetBounds(270, 150, 80, 22); micL.TextAlign = ContentAlignment.MiddleRight; Controls.Add(micL);
         mic.SetBounds(8, 172, 344, 40); mic.Minimum = 0; mic.Maximum = MicMax; mic.TickFrequency = 4;
         mic.SmallChange = 1; mic.LargeChange = 4;
-        mic.ValueChanged += delegate { micL.Text = (mic.Value / 2.0).ToString("+0.0;-0.0;0.0") + " dB"; if (!loading) applyMic.Start(); };
+        mic.ValueChanged += delegate { micL.Text = Db(mic.Value); if (!loading) applyMic.Start(); };
+        micL.Text = Db(mic.Value);
         Controls.Add(mic);
         status.SetBounds(12, 225, 340, 24); Controls.Add(status);
         apply.Tick += delegate { apply.Stop(); Push(); };
@@ -164,7 +166,8 @@ class TrimForm : Form
         l.SetBounds(270, y, 80, 22); l.TextAlign = ContentAlignment.MiddleRight; Controls.Add(l);
         t.SetBounds(8, y + 22, 344, 40); t.Minimum = -40; t.Maximum = (GainMax - GainBase) * 2 - bas; t.TickFrequency = 4;
         t.SmallChange = 1; t.LargeChange = 4;
-        t.ValueChanged += delegate { l.Text = (t.Value / 2.0).ToString("+0.0;-0.0;0.0") + " dB"; if (!loading) apply.Start(); };
+        t.ValueChanged += delegate { l.Text = Db(t.Value); if (!loading) apply.Start(); };
+        l.Text = Db(t.Value);   // ValueChanged does not fire when the driver value equals the initial 0
         Controls.Add(t);
     }
 

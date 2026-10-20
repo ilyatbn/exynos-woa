@@ -1,0 +1,15 @@
+diff --git a/src/gallium/frontends/d3d10umd/OutputMerger.cpp b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+index f5786e2..64326f3 100644
+--- a/src/gallium/frontends/d3d10umd/OutputMerger.cpp
++++ b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+@@ -407,7 +407,9 @@ ClearDepthStencilView(D3D10DDI_HDEVICE hDevice,                      // IN
+    Device *pDevice = CastDevice(hDevice);
+    if (flags && SameSurface(surface, &pDevice->fb.zsbuf) && pDevice->fb.width == pipe_surface_width(surface) &&
+        pDevice->fb.height == pipe_surface_height(surface)) {
+-      pipe->clear(pipe, flags, 0xffffffffu, 0xff, NULL, NULL, Depth, Stencil);   /* 0179 */
++      /* the threaded context copies *color unconditionally (tc_clear): never NULL (0179 crashed in tc_clear) */
++      const union pipe_color_union no_color = {};
++      pipe->clear(pipe, flags, 0xffffffffu, 0xff, NULL, &no_color, Depth, Stencil);   /* 0179 */
+       return;
+    }
+ 

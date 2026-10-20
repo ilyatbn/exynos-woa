@@ -442,3 +442,8 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
 - Mesa 0179: a D3D clear of a currently bound view (same texture / level / layers / format as the fb attachment) with
   the framebuffer exactly the view's size -> pipe->clear (Panfrost panfrost_clear: free batch clear while the batch
   has no draws, quad otherwise); else the old path. EC bdc71b00 live; d3dmrt64x 7/7, d3dbc64x lossy 0/126 PASS.
+- bot11 (EC 0179): the game died ~1 min in (auto FAIL game gone). WER: maliumd_ec.DLL c0000005 at 0xeb030 =
+  tc_clear (u_threaded_context.c:4952 "p->color = *color") - 0179's depth/stencil fast clear passed color NULL; the
+  threaded context copies it unconditionally. Regression gap: d3dmrt64x / d3dbc64x never clear a bound DSV (they
+  passed). LocalDumps worked: C:\S10eTmp\dumps\DaveTheDiver.exe.7108.dmp.
+- Mesa 0180: a zeroed pipe_color_union instead of NULL. EC 8b139429 live; d3dmrt64x 7/7, d3dbc64x lossy 0/126.

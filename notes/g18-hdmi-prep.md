@@ -72,3 +72,5 @@ notes/g18-hdmi-dp-alt.md (rungs H1-H5, H1 done read-only), notes/g18-h2-altmode-
 - P5 (2026-10-20): user procedure "User test 2" in tools/phone/usbc/README.md (decision, install, plug before boot
   for VBUS, run usbcaltmode 90, expected lines, hub repeat, reboot unplugged afterwards, rollback). usbcaltmode.exe
   staged at C:\S10eTmp (copy only, not run). The monitor stays dark in that test by design (no DP driver yet).
+- P4c deferred with a checklist (notes/g18-p4-wddm-target.md "P4c checklist"): per-target vsync + per-source flip
+  latch are needed first, best built with P4d when DECON_T exists; not done unattended.

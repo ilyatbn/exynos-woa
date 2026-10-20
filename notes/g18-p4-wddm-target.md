@@ -77,3 +77,17 @@ Part of notes/g18-hdmi-prep.md. Hardware side: notes/g18-p3-dp-bringup.md (DP co
   KMD package (kmdswap / TWRP driver swap, notes on driver-swap-from-twrp).
 - DECON_T / DP block registers must never be touched while the DPU domain / clocks are off (P3 section 1).
 - Any DP-PHY lane write is a USB-host boot hazard (combo PHY shared with USB3, d6 P2).
+
+## P4c checklist (deferred 2026-10-20 - implement together with P4d)
+Reading command.c showed P4c (phantom monitor) needs more than VidPN work, so it is not done blind/unattended:
+- software vsync reports only target 0 (command.c SyncVsync: CrtcVsync.VidPnTargetId = 0, PhysicalAddress =
+  ScanoutAddress); a second active source needs its own vsync notification (VidPnTargetId 1, its own scanned-out
+  address) or DWM's pacing for that output stalls (the full-adapter black-screen history, notes/gpu-full-adapter-hang.md).
+- FlipMmio latch (command.c Latch / PendingPrimary / ScanoutAddress) is single-source and copies into the GOP fb ->
+  per-source PendingPrimary / PendingAddress / ScanoutAddress, source 1 never copied into the panel fb.
+- SetVidPnSourceAddress (display.c) now returns early for source 1 (P4b review) -> P4c/P4d route it to the source-1
+  latch state.
+- VidPN: source mode set per source (source 1: the EDID modes, 1920x1080 BGRA first), target mode set per target,
+  IsSupportedVidPn per path (TopologyPanelOnly -> allowed-path check), CommitVidPn per AffectedVidPnSourceId.
+- primary allocations: no primary-size assumption found in memory.c (grep Primary), recheck CreateAllocation's
+  standard-allocation path for a 1920x1080 shared primary.

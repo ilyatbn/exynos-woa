@@ -537,3 +537,6 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   process 338 % of a core; top thread 94.2 % (prio 9), next 64.4 % (prio 8), 41 / 36 / 31 / 26 %; GPU 3D 89.7 %.
   => two limits at once: one thread at ~94 % and the GPU at ~90 %. threadcpu.ps1 now prints thread names
   (GetThreadDescription) to tell Unity's threads from Mesa's.
+- bot22 thread probe: process 330 %, top thread 93 % prio 8, next 62.7 % prio 8, six more 20-35 % prio 9 - thread
+  descriptions are empty (nobody names them). Mesa 0190: the tlog gets "tc: driver thread tid N" and "tc: DDI thread
+  tid N" (first 8 changes) to map threadcpu.ps1's TIDs. EC da30a842 live; d3dmrt64x 7/7, d3dbc64x lossy 0/126.

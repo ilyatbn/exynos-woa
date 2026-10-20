@@ -1,0 +1,27 @@
+diff --git a/include/win32-compat/malikm_drm.c b/include/win32-compat/malikm_drm.c
+index 40df86a..5b2353f 100644
+--- a/include/win32-compat/malikm_drm.c
++++ b/include/win32-compat/malikm_drm.c
+@@ -1531,6 +1531,13 @@ malikm_ddi_pump(void)
+    if (!mk_worker && mk_on) {
+       mk_ddi_tid = GetCurrentThreadId();
+       mk_ddi_tick = GetTickCount();   /* 0175: when the DDI thread last came by */
++      static DWORD logged_tid;   /* 0190: the application's DDI (render) thread, once per thread change */
++      static int tid_logs;
++      if (logged_tid != mk_ddi_tid && tid_logs < 8) {
++         tid_logs++;
++         logged_tid = mk_ddi_tid;
++         malikm_tlog("tc: DDI thread tid %lu", logged_tid);
++      }
+    }
+    if (mk_worker || (!mk_box && !mk_defer_n))
+       return;
+@@ -1705,6 +1712,8 @@ malikm_marshal_enable(void)
+ void
+ malikm_mark_worker_thread(void)
+ {
++   if (!mk_worker)   /* exynos-woa G32 (0190): which OS thread is ours, for per-thread CPU (threadcpu.ps1) */
++      malikm_tlog("tc: driver thread tid %lu", GetCurrentThreadId());
+    mk_worker = 1;
+ }
+ 

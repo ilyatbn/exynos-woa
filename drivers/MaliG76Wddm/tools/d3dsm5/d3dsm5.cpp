@@ -6,8 +6,9 @@
  *   bits       countbits / firstbithigh / firstbitlow / reversebits (signed and unsigned)
  *   bfe        bitfield extract / insert patterns (fxc: ubfe / ibfe / bfi)
  *   f16        f32tof16 / f16tof32
- *   rcp        rcp()
+ *   rcp        rcp() (1 ULP tolerance, D3D11.3 spec 3.1.3)
  *   msad       msad4()
+ *   swapc      a 4-element sorting network (fxc may emit swapc)
  *   bufinfo    RWByteAddressBuffer / RWStructuredBuffer GetDimensions
  *   typedbuf   RWBuffer<uint> (R32_UINT typed UAV): store, then typed load
  *   typedtex   RWTexture2D<uint> store + load
@@ -23,6 +24,7 @@
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <d3d11.h>
 #include <d3dcompiler.h>
 
@@ -79,6 +81,15 @@ static const Test g_tests[] = {
       "[numthreads(64,1,1)] void main(uint3 tid : SV_DispatchThreadID) {\n"
       "  uint a = src.Load(tid.x * 4) * 2654435761u, b = src.Load((tid.x ^ 5u) * 4) * 40503u;\n"
       "  dst.Store4(tid.x * 16, msad4(a, uint2(b, b ^ 0x80808080u), uint4(tid.x, 1, 2, 3)));\n"
+      "}\n", 64 * 4, 1, 1, 1, EX_NONE },
+    { "swapc",
+      "ByteAddressBuffer src : register(t0);\n"
+      "RWByteAddressBuffer dst : register(u0);\n"
+      "[numthreads(64,1,1)] void main(uint3 tid : SV_DispatchThreadID) {\n"
+      "  uint4 v = src.Load4((tid.x & 63u) * 16) * uint4(2654435761u, 40503u, 2246822519u, 3266489917u);\n"
+      "  [unroll] for (uint i = 0; i < 3; i++) { [unroll] for (uint j = 0; j < 3 - i; j++) {\n"
+      "    if (v[j] > v[j + 1]) { uint t = v[j]; v[j] = v[j + 1]; v[j + 1] = t; } } }\n"
+      "  dst.Store4(tid.x * 16, v);\n"
       "}\n", 64 * 4, 1, 1, 1, EX_NONE },
     { "bufinfo",
       "RWByteAddressBuffer dst : register(u0);\n"
@@ -336,9 +347,12 @@ int main(int argc, char **argv)
         printf("%-11s running...\n", t->name);
         bool okw = RunTest(wd, wc, t, code, ow), okm = RunTest(md, mc, t, code, om);
         UINT bad = 0, firstbad = 0;
+        /* D3D11.3 functional spec 3.1.3: "sqrt and rcp have 1 ULP tolerance" - rcp results may differ from WARP's by
+         * one float step; every other test is exact */
+        int tol = !strcmp(t->name, "rcp") ? 1 : 0;
         if (okm && okw)
             for (UINT k = 0; k < t->out_words; k++)
-                if (om[k] != ow[k] && !bad++)
+                if (abs((int)om[k] - (int)ow[k]) > tol && !bad++)
                     firstbad = k;
         bool ok = okm && okw && !bad;
         printf("%-11s %s", t->name, ok ? "ok" : "DIFF");

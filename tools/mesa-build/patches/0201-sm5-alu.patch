@@ -1,0 +1,262 @@
+diff --git a/src/gallium/auxiliary/nir/tgsi_to_nir.c b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+index 90bda1e..39f2466 100644
+--- a/src/gallium/auxiliary/nir/tgsi_to_nir.c
++++ b/src/gallium/auxiliary/nir/tgsi_to_nir.c
+@@ -2343,6 +2343,16 @@ ttn_emit_instruction(struct ttn_compile *c)
+       dst = ttn_mem(c, src);
+       break;
+ 
++   case TGSI_OPCODE_RESQ:   /* exynos-woa G34 (SM5 bufinfo): the byte size of a buffer, replicated */
++      if (tgsi_inst->Src[0].Register.File == TGSI_FILE_BUFFER) {
++         add_ssbo_var(c, tgsi_inst->Src[0].Register.Index);
++         dst = nir_replicate(b, nir_get_ssbo_size(b, 32, nir_imm_int(b, tgsi_inst->Src[0].Register.Index)), 4);
++      } else {
++         fprintf(stderr, "RESQ: only buffers are handled\n");
++         dst = nir_imm_ivec4(b, 0, 0, 0, 0);
++      }
++      break;
++
+    case TGSI_OPCODE_NOP:
+       break;
+ 
+@@ -2390,6 +2400,21 @@ ttn_emit_instruction(struct ttn_compile *c)
+       dst = nir_ddx(b, src[0]);
+       break;
+ 
++   /* exynos-woa G34 (SM5 f32tof16 / f16tof32, ShaderTGSI.c): TGSI PK2H packs src.x / src.y as halfs into one dword
++    * (x low), UP2H unpacks src.x into (lo, hi, lo, hi) - tgsi.rst. PK2H was unimplemented here and d3d10umd is its
++    * only producer, so it follows D3D: "Round-to-zero must be used during conversion to another float format" (D3D11.3
++    * functional spec 3.2.2; d3dsm5 f16 vs WARP). */
++   case TGSI_OPCODE_PK2H:
++      dst = nir_replicate(b, nir_pack_32_2x16_split(b, nir_f2f16_rtz(b, nir_channel(b, src[0], 0)),
++                                                    nir_f2f16_rtz(b, nir_channel(b, src[0], 1))), 4);
++      break;
++
++   case TGSI_OPCODE_UP2H: {
++      nir_def *h = nir_unpack_half_2x16(b, nir_channel(b, src[0], 0));
++      dst = nir_vec4(b, nir_channel(b, h, 0), nir_channel(b, h, 1), nir_channel(b, h, 0), nir_channel(b, h, 1));
++      break;
++   }
++
+    case TGSI_OPCODE_DDX_FINE:
+       dst = nir_ddx_fine(b, src[0]);
+       break;
+diff --git a/src/gallium/frontends/d3d10umd/ShaderTGSI.c b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+index 23b673a..3295703 100644
+--- a/src/gallium/frontends/d3d10umd/ShaderTGSI.c
++++ b/src/gallium/frontends/d3d10umd/ShaderTGSI.c
+@@ -40,6 +40,8 @@
+ #include "util/u_memory.h"
+ 
+ #include "ShaderDump.h"
++
++extern void malikm_tlog(const char *fmt, ...);   /* exynos-woa G34 */
+ #include "pipe/p_context.h"
+ 
+ /* exynos-woa F2: samplepos answers from the driver's own pattern (pipe->get_sample_position) */
+@@ -185,7 +187,17 @@ static struct dx10_opcode_xlate opcode_xlate[D3D10_SB_NUM_OPCODES] = {
+    {D3D10_1_SB_OPCODE_LOD,                            OF_FLOAT, TGSI_EXPAND},
+    {D3D10_1_SB_OPCODE_GATHER4,                        OF_FLOAT, TGSI_EXPAND},
+    {D3D10_1_SB_OPCODE_SAMPLE_POS,                     OF_FLOAT, TGSI_EXPAND},
+-   {D3D10_1_SB_OPCODE_SAMPLE_INFO,                    OF_FLOAT, TGSI_EXPAND}
++   {D3D10_1_SB_OPCODE_SAMPLE_INFO,                    OF_FLOAT, TGSI_EXPAND},
++   /* exynos-woa G34 (notes/g34-fl11.md F11.3): SM5 ALU that maps 1:1 (sm5 asm reference): countbits = popc,
++    * firstbit_lo = find_lsb (-1 when no bit is set, as D3D), bfrev = bitfield_reverse; coarse derivatives = DDX/DDY,
++    * fine = DDX_FINE/DDY_FINE. Opcodes not listed keep a zero entry: the default path refuses those (type mismatch). */
++   [D3D11_SB_OPCODE_COUNTBITS] =                      {D3D11_SB_OPCODE_COUNTBITS, OF_UINT, TGSI_OPCODE_POPC},
++   [D3D11_SB_OPCODE_FIRSTBIT_LO] =                    {D3D11_SB_OPCODE_FIRSTBIT_LO, OF_UINT, TGSI_OPCODE_LSB},
++   [D3D11_SB_OPCODE_BFREV] =                          {D3D11_SB_OPCODE_BFREV, OF_UINT, TGSI_OPCODE_BREV},
++   [D3D11_SB_OPCODE_DERIV_RTX_COARSE] =               {D3D11_SB_OPCODE_DERIV_RTX_COARSE, OF_FLOAT, TGSI_OPCODE_DDX},
++   [D3D11_SB_OPCODE_DERIV_RTY_COARSE] =               {D3D11_SB_OPCODE_DERIV_RTY_COARSE, OF_FLOAT, TGSI_OPCODE_DDY},
++   [D3D11_SB_OPCODE_DERIV_RTX_FINE] =                 {D3D11_SB_OPCODE_DERIV_RTX_FINE, OF_FLOAT, TGSI_OPCODE_DDX_FINE},
++   [D3D11_SB_OPCODE_DERIV_RTY_FINE] =                 {D3D11_SB_OPCODE_DERIV_RTY_FINE, OF_FLOAT, TGSI_OPCODE_DDY_FINE},
+ };
+ 
+ #define SHADER_MAX_TEMPS 4096
+@@ -2964,6 +2976,171 @@ Shader_tgsi_translate_ex(const unsigned *code,
+          break;
+       }
+ 
++      /* ---- exynos-woa G34 F11.3: SM5 ALU (sm5 asm reference; results checked against WARP by d3dsm5) ---- */
++      case D3D11_SB_OPCODE_RCP:
++         expand_unary_to_scalarf(ureg, ureg_RCP, &sx, &opcode);
++         break;
++
++      case D3D11_SB_OPCODE_FIRSTBIT_HI:
++      case D3D11_SB_OPCODE_FIRSTBIT_SHI: {
++         /* D3D counts from the most significant bit (0 = bit 31), -1 when none; TGSI UMSB/IMSB count from bit 0 */
++         struct ureg_src s = translate_src_operand(&sx, &opcode.src[0], OF_UINT);
++         struct ureg_dst m = ureg_DECL_temporary(ureg), c = ureg_DECL_temporary(ureg);
++         if (opcode.type == D3D11_SB_OPCODE_FIRSTBIT_HI)
++            ureg_UMSB(ureg, m, s);
++         else
++            ureg_IMSB(ureg, m, s);
++         ureg_ISLT(ureg, c, ureg_src(m), ureg_imm1i(ureg, 0));
++         ureg_UADD(ureg, m, ureg_imm1i(ureg, 31), ureg_negate(ureg_src(m)));
++         ureg_UCMP(ureg, translate_dst_operand(&sx, &opcode.dst[0], false), ureg_src(c), ureg_imm1i(ureg, -1),
++                   ureg_src(m));
++         ureg_release_temporary(ureg, c);
++         ureg_release_temporary(ureg, m);
++         break;
++      }
++
++      case D3D11_SB_OPCODE_UBFE:
++      case D3D11_SB_OPCODE_IBFE:
++      case D3D11_SB_OPCODE_BFI: {
++         /* D3D: width / offset = low 5 bits; ubfe/ibfe with offset + width >= 32 take the bits up to 31; bfi's mask
++          * ((1 << w) - 1) << o drops what passes bit 31. TGSI UBFE/IBFE/BFI lower to GLSL bitfield ops (undefined
++          * past bit 31), so the width is clamped to 32 - offset first - equal results for every input. Operands:
++          * ubfe/ibfe dst, width, offset, value; bfi dst, width, offset, insert, base. */
++         struct ureg_src w = translate_src_operand(&sx, &opcode.src[0], OF_UINT);
++         struct ureg_src o = translate_src_operand(&sx, &opcode.src[1], OF_UINT);
++         struct ureg_dst tw = ureg_DECL_temporary(ureg), to = ureg_DECL_temporary(ureg), t = ureg_DECL_temporary(ureg);
++         ureg_AND(ureg, tw, w, ureg_imm1u(ureg, 31));
++         ureg_AND(ureg, to, o, ureg_imm1u(ureg, 31));
++         ureg_UADD(ureg, t, ureg_imm1u(ureg, 32), ureg_negate(ureg_src(to)));
++         ureg_UMIN(ureg, tw, ureg_src(tw), ureg_src(t));
++         struct ureg_dst d = translate_dst_operand(&sx, &opcode.dst[0], false);
++         if (opcode.type == D3D11_SB_OPCODE_BFI) {
++            struct ureg_src ins = translate_src_operand(&sx, &opcode.src[2], OF_UINT);
++            struct ureg_src base = translate_src_operand(&sx, &opcode.src[3], OF_UINT);
++            ureg_BFI(ureg, d, base, ins, ureg_src(to), ureg_src(tw));
++         } else {
++            struct ureg_src v = translate_src_operand(&sx, &opcode.src[2], OF_UINT);
++            if (opcode.type == D3D11_SB_OPCODE_UBFE)
++               ureg_UBFE(ureg, d, v, ureg_src(to), ureg_src(tw));
++            else
++               ureg_IBFE(ureg, d, v, ureg_src(to), ureg_src(tw));
++         }
++         ureg_release_temporary(ureg, t);
++         ureg_release_temporary(ureg, to);
++         ureg_release_temporary(ureg, tw);
++         break;
++      }
++
++      case D3D11_SB_OPCODE_F32TOF16:
++      case D3D11_SB_OPCODE_F16TOF32: {
++         /* per component: f32tof16 puts the half in the low 16 bits (high 0); f16tof32 reads the low 16 bits */
++         bool pack = opcode.type == D3D11_SB_OPCODE_F32TOF16;
++         struct ureg_src s = translate_src_operand(&sx, &opcode.src[0], pack ? OF_FLOAT : OF_UINT);
++         struct ureg_dst d = translate_dst_operand(&sx, &opcode.dst[0], pack ? false : opcode.saturate);
++         unsigned wm = opcode.dst[0].mask >> D3D10_SB_OPERAND_4_COMPONENT_MASK_SHIFT;
++         struct ureg_dst t = ureg_DECL_temporary(ureg);
++         for (unsigned ch = 0; ch < 4; ch++) {
++            if (!(wm & (1u << ch)))
++               continue;
++            if (pack) {
++               ureg_MOV(ureg, ureg_writemask(t, TGSI_WRITEMASK_X), ureg_scalar(s, ch));
++               ureg_MOV(ureg, ureg_writemask(t, TGSI_WRITEMASK_Y), ureg_imm1f(ureg, 0.0f));
++               ureg_PK2H(ureg, ureg_writemask(t, TGSI_WRITEMASK_Z), ureg_src(t));
++               ureg_MOV(ureg, ureg_writemask(d, 1u << ch), ureg_scalar(ureg_src(t), TGSI_SWIZZLE_Z));
++            } else {
++               ureg_AND(ureg, ureg_writemask(t, TGSI_WRITEMASK_X), ureg_scalar(s, ch), ureg_imm1u(ureg, 0xFFFF));
++               /* UP2H gives (lo, hi, lo, hi): written to .z, the low half lands there */
++               ureg_UP2H(ureg, ureg_writemask(t, TGSI_WRITEMASK_Z), ureg_scalar(ureg_src(t), TGSI_SWIZZLE_X));
++               ureg_MOV(ureg, ureg_writemask(d, 1u << ch), ureg_scalar(ureg_src(t), TGSI_SWIZZLE_Z));
++            }
++         }
++         ureg_release_temporary(ureg, t);
++         break;
++      }
++
++      case D3D11_SB_OPCODE_UADDC:
++      case D3D11_SB_OPCODE_USUBB: {
++         /* dst0 = a +/- b, dst1 = carry (sum < a) / borrow (a < b); temporaries: a destination may alias a source */
++         struct ureg_src a = translate_src_operand(&sx, &opcode.src[0], OF_UINT);
++         struct ureg_src bb = translate_src_operand(&sx, &opcode.src[1], OF_UINT);
++         struct ureg_dst r = ureg_DECL_temporary(ureg), cy = ureg_DECL_temporary(ureg);
++         if (opcode.type == D3D11_SB_OPCODE_UADDC) {
++            ureg_UADD(ureg, r, a, bb);
++            ureg_USLT(ureg, cy, ureg_src(r), a);
++         } else {
++            ureg_UADD(ureg, r, a, ureg_negate(bb));
++            ureg_USLT(ureg, cy, a, bb);
++         }
++         ureg_AND(ureg, cy, ureg_src(cy), ureg_imm1u(ureg, 1));
++         if (opcode.dst[0].base.type != D3D10_SB_OPERAND_TYPE_NULL)
++            ureg_MOV(ureg, translate_dst_operand(&sx, &opcode.dst[0], false), ureg_src(r));
++         if (opcode.dst[1].base.type != D3D10_SB_OPERAND_TYPE_NULL)
++            ureg_MOV(ureg, translate_dst_operand(&sx, &opcode.dst[1], false), ureg_src(cy));
++         ureg_release_temporary(ureg, cy);
++         ureg_release_temporary(ureg, r);
++         break;
++      }
++
++      case D3D11_SB_OPCODE_SWAPC: {
++         /* dst0 = cond ? b : a, dst1 = cond ? a : b (computed before either is written) */
++         struct ureg_src cnd = translate_src_operand(&sx, &opcode.src[0], OF_UINT);
++         struct ureg_src a = translate_src_operand(&sx, &opcode.src[1], OF_UINT);
++         struct ureg_src bb = translate_src_operand(&sx, &opcode.src[2], OF_UINT);
++         struct ureg_dst t0 = ureg_DECL_temporary(ureg), t1 = ureg_DECL_temporary(ureg);
++         ureg_UCMP(ureg, t0, cnd, bb, a);
++         ureg_UCMP(ureg, t1, cnd, a, bb);
++         if (opcode.dst[0].base.type != D3D10_SB_OPERAND_TYPE_NULL)
++            ureg_MOV(ureg, translate_dst_operand(&sx, &opcode.dst[0], false), ureg_src(t0));
++         if (opcode.dst[1].base.type != D3D10_SB_OPERAND_TYPE_NULL)
++            ureg_MOV(ureg, translate_dst_operand(&sx, &opcode.dst[1], false), ureg_src(t1));
++         ureg_release_temporary(ureg, t1);
++         ureg_release_temporary(ureg, t0);
++         break;
++      }
++
++      case D3D11_1_SB_OPCODE_MSAD: {
++         /* msad dst, ref, src, accum: per component, accum + sum over the 4 bytes of |ref_i - src_i| where ref_i != 0 */
++         struct ureg_src ref = translate_src_operand(&sx, &opcode.src[0], OF_UINT);
++         struct ureg_src s = translate_src_operand(&sx, &opcode.src[1], OF_UINT);
++         struct ureg_src acc = translate_src_operand(&sx, &opcode.src[2], OF_UINT);
++         struct ureg_dst sum = ureg_DECL_temporary(ureg), rb = ureg_DECL_temporary(ureg), sb = ureg_DECL_temporary(ureg);
++         struct ureg_dst nz = ureg_DECL_temporary(ureg);
++         ureg_MOV(ureg, sum, acc);
++         for (unsigned k = 0; k < 4; k++) {
++            ureg_UBFE(ureg, rb, ref, ureg_imm1u(ureg, 8 * k), ureg_imm1u(ureg, 8));
++            ureg_UBFE(ureg, sb, s, ureg_imm1u(ureg, 8 * k), ureg_imm1u(ureg, 8));
++            ureg_USNE(ureg, nz, ureg_src(rb), ureg_imm1u(ureg, 0));
++            ureg_UADD(ureg, sb, ureg_src(rb), ureg_negate(ureg_src(sb)));
++            ureg_IABS(ureg, sb, ureg_src(sb));
++            ureg_AND(ureg, sb, ureg_src(sb), ureg_src(nz));
++            ureg_UADD(ureg, sum, ureg_src(sum), ureg_src(sb));
++         }
++         ureg_MOV(ureg, translate_dst_operand(&sx, &opcode.dst[0], false), ureg_src(sum));
++         ureg_release_temporary(ureg, nz);
++         ureg_release_temporary(ureg, sb);
++         ureg_release_temporary(ureg, rb);
++         ureg_release_temporary(ureg, sum);
++         break;
++      }
++
++      case D3D11_SB_OPCODE_BUFINFO: {
++         /* bufinfo dst, t#/u#: raw = size in bytes, structured = element count (sm5 asm bufinfo); typed buffers are
++          * F11.4. RESQ on a TGSI buffer = its byte size. */
++         struct buf_ref r = resolve_buffer(&sx, &opcode.src[0].base);
++         if (!r.ok) {
++            LOG_UNSUPPORTED(true);
++            ureg_MOV(ureg, translate_dst_operand(&sx, &opcode.dst[0], false), ureg_imm1u(ureg, 0));
++            break;
++         }
++         struct ureg_dst t = ureg_DECL_temporary(ureg);
++         ureg_memory_insn(ureg, TGSI_OPCODE_RESQ, &t, 1, &r.reg, 1, 0, TGSI_TEXTURE_BUFFER, PIPE_FORMAT_NONE);
++         if (r.stride > 0)
++            ureg_UDIV(ureg, t, ureg_scalar(ureg_src(t), TGSI_SWIZZLE_X), ureg_imm1u(ureg, r.stride));
++         ureg_MOV(ureg, translate_dst_operand(&sx, &opcode.dst[0], false), ureg_scalar(ureg_src(t), TGSI_SWIZZLE_X));
++         ureg_release_temporary(ureg, t);
++         break;
++      }
++
+       case D3D11_SB_OPCODE_SYNC: {
+          unsigned f = opcode.specific.sync_flags;
+          if (f & D3D11_SB_SYNC_THREADS_IN_GROUP)
+@@ -2981,6 +3158,14 @@ Shader_tgsi_translate_ex(const unsigned *code,
+ 
+             assert(ox->tgsi_opcode != TGSI_EXPAND);
+ 
++            /* exynos-woa G34 (review R2 of 0199): an opcode without a table entry (zero entry: type ADD) must not be
++             * translated as entry 0 - log it and emit nothing (D3D10UMD_PARSE_TRACE shows which one). */
++            if (ox->type != opcode.type) {
++               malikm_tlog("ShaderTGSI: SM5 opcode %u not translated yet", (unsigned)opcode.type);
++               LOG_UNSUPPORTED(true);
++               break;
++            }
++
+             if (ox->tgsi_opcode == TGSI_LOG_UNSUPPORTED) {
+                if (!shader_dumped) {
+                   dx10_shader_dump_tokens(code);

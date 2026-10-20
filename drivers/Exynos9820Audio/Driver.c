@@ -23,7 +23,7 @@ EVT_WDF_DEVICE_D0_ENTRY           AudEvtD0Entry;
 EVT_WDF_DEVICE_D0_EXIT            AudEvtD0Exit;
 EVT_WDF_OBJECT_CONTEXT_CLEANUP    AudEvtDeviceCleanup;
 
-#define AUD_DRIVER_VERSION "1.0.3.4"
+#define AUD_DRIVER_VERSION "1.0.3.5"
 
 static AUD_CONFIG g_Cfg;
 
@@ -215,6 +215,10 @@ NTSTATUS AudEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
         return Status;
     }
     Status = WdfWaitLockCreate(WDF_NO_OBJECT_ATTRIBUTES, &Dev->CodecShareLock);
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+    Status = WdfWaitLockCreate(WDF_NO_OBJECT_ATTRIBUTES, &Dev->MicLock);
     if (!NT_SUCCESS(Status)) {
         return Status;
     }

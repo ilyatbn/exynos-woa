@@ -141,3 +141,6 @@ Findings, each a follow-up task with its own commit:
 - F7 fixed (audio 1.0.3.4): CodecRelease clears CodecUsers, MicCodecOn, HpOn with the codec held in reset. Device:
   capture after install (1 kHz -49.5 / -47.7 dB) and again after pnputil /restart-device (-51.6 dB, louder room noise
   that run: rms -50.7). tools/phone/audio/audbuild.sh VERSION = bump + build + install helper.
+- F5 fixed (audio 1.0.3.5): MicLock (WDFWAITLOCK) around MicSetGain, MicHwStart, MicHwStop - a gain SET can no longer
+  interleave with MicCodecOn/Off. Lock order MicLock -> CodecShareLock -> CodecLock (never reversed). Device: live
+  change +12 -> 0 dB during a 6 s capture: per-second 1 kHz -49.4 -49.4 -49.5 -49.5 | -57.0 (straddles) | -61.6.

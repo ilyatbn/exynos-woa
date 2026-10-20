@@ -228,6 +228,7 @@ typedef struct _AUD_DEVICE_CONTEXT {
     BOOLEAN     HpFll2On;
     USHORT      HpSavedOutRate; /* OUTPUT_RATE_1 before the headphone path (restored on stop) */
     BOOLEAN     MicCodecOn;     /* Mic.c: DMIC inputs + AIF1 TX on */
+    WDFWAITLOCK MicLock;        /* MicHwStart / MicHwStop / MicSetGain (gain property vs stream thread, review F5) */
     WDFWAITLOCK CodecShareLock; /* CodecShareOn/Off: SYSCLK + AIF1 RX owned by the headphone and mic paths (CodecHp.c) */
     ULONG       CodecUsers;     /* CODEC_USE_* bits */
     ULONG       MicGain;        /* current mic gain, 0.5 dB steps (MicSetGain) */

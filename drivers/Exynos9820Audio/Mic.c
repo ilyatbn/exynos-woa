@@ -61,13 +61,14 @@ NTSTATUS MicSetGain(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ ULONG HalfDb)
     if (HalfDb > MIC_GAIN_MAX) {
         HalfDb = MIC_GAIN_MAX;
     }
+    WdfWaitLockAcquire(Dev->MicLock, NULL);
     Dev->MicGain = HalfDb;
-    if (!Dev->MicCodecOn) {
-        return STATUS_SUCCESS;   /* applied at the next MicCodecOn */
+    if (Dev->MicCodecOn) {   /* else applied at the next MicCodecOn */
+        V = (USHORT)(IN_VOL_0DB + HalfDb);
+        (VOID)CodecWrite(Dev, R_ADC_DIG_VOL_3L, V);
+        (VOID)CodecWrite(Dev, R_ADC_DIG_VOL_4L, (USHORT)(IN_VU | V));   /* VU latches both */
     }
-    V = (USHORT)(IN_VOL_0DB + HalfDb);
-    (VOID)CodecWrite(Dev, R_ADC_DIG_VOL_3L, V);
-    (VOID)CodecWrite(Dev, R_ADC_DIG_VOL_4L, (USHORT)(IN_VU | V));   /* VU latches both */
+    WdfWaitLockRelease(Dev->MicLock);
     return STATUS_SUCCESS;
 }
 
@@ -138,16 +139,17 @@ NTSTATUS MicHwStart(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ PHYSICAL_ADDRESS Phys,
                Dev->Cfg.AboxEnable, Dev->Cfg.HpMaster);
         return STATUS_DEVICE_NOT_READY;
     }
+    WdfWaitLockAcquire(Dev->MicLock, NULL);
     Status = CodecAif1Prepare(Dev, CODEC_USE_CLK_MIC);   /* SYSCLK + AIF1 link (set up once, shared with headphones) */
-    if (!NT_SUCCESS(Status)) {
-        return Status;
+    if (NT_SUCCESS(Status)) {
+        MicCodecOn(Dev);
+        Status = AboxCaptureStart(Dev, Phys, Bytes, PeriodBytes);
+        if (!NT_SUCCESS(Status)) {
+            MicCodecOff(Dev);
+            CodecShareOff(Dev, CODEC_USE_CLK_MIC);
+        }
     }
-    MicCodecOn(Dev);
-    Status = AboxCaptureStart(Dev, Phys, Bytes, PeriodBytes);
-    if (!NT_SUCCESS(Status)) {
-        MicCodecOff(Dev);
-        CodecShareOff(Dev, CODEC_USE_CLK_MIC);
-    }
+    WdfWaitLockRelease(Dev->MicLock);
     return Status;
 }
 
@@ -156,9 +158,11 @@ VOID MicHwStop(_Inout_ PAUD_DEVICE_CONTEXT Dev)
 {
     PAGED_CODE();
 
+    WdfWaitLockAcquire(Dev->MicLock, NULL);
     AboxCaptureStop(Dev);
     MicCodecOff(Dev);
     CodecShareOff(Dev, CODEC_USE_CLK_MIC);   /* SYSCLK off unless the headphones play */
+    WdfWaitLockRelease(Dev->MicLock);
 }
 
 /* ---- self test ---- */

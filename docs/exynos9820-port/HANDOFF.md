@@ -2076,3 +2076,6 @@ diagnostic timers from release builds once perf work settles.
   (WDDM design, P4c checklist).
 - Next, in order: the user's alt-mode run (needs their go for the PD writes) -> read-only probes P3 steps 1-7 -> AUX /
   DPCD / EDID -> link training + BIST first light -> P4c/P4d.
+- CORRECTION 20:40: P4b caused a severe display slowdown under use (vsync ~25/s while presenting, G3D stuck 260 MHz).
+  Live KMD restored to d69c01cd (mwddm-g32-defer = commit 7ee013d), repo KMD sources reverted (7e1d02e). Do not redo
+  P4b without a measured 30+ min soak (notes/g18-hdmi-prep.md, last section).

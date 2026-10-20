@@ -19,6 +19,8 @@
  *   atomics2   signed InterlockedMax/Min on a RWStructuredBuffer<int>, value-returning And/Or/Xor/Max/Min
  *   tgsmatomic groupshared InterlockedAdd / Max
  *   uav8       eight UAVs u0..u7 written in one shader
+ *   psuav      pixel shader: raw UAV stores per pixel + an atomic pixel count (OMSetRenderTargetsAndUnorderedAccessViews)
+ *   psderiv    pixel shader: ddx/ddy coarse and fine written to a UAV
  *   group1024  numthreads(1024,1,1) groupshared reduction with barriers
  *   groupz64   numthreads(1,1,64) SV_GroupThreadID.z
  * Usage: d3dsm5 [-native] [test ...]. Exit 0 = every selected test matches. Build: build-d3dsm5.cmd.
@@ -31,7 +33,7 @@
 #include <d3d11.h>
 #include <d3dcompiler.h>
 
-enum Extra { EX_NONE, EX_TYPEDBUF, EX_TYPEDTEX, EX_UAV8, EX_STRUCTINT, EX_RGBA8TEX };
+enum Extra { EX_NONE, EX_TYPEDBUF, EX_TYPEDTEX, EX_UAV8, EX_STRUCTINT, EX_RGBA8TEX, EX_PS };
 
 struct Test {
     const char *name;
@@ -152,6 +154,47 @@ static const Test g_tests[] = {
       "  tt[tid.xy] = float4(tid.x / 7.0, tid.y / 7.0, (tid.x ^ tid.y) / 7.0, 0.5);\n"
       "  dst.Store(0, 1u);\n"
       "}\n", 64, 1, 1, 1, EX_RGBA8TEX },
+    /* pixel shaders (EX_PS): a full-screen triangle on a 16x16 RGBA8 target, the PS's UAV u1 = the compared buffer */
+    { "psuav",
+      "RWByteAddressBuffer dst : register(u1);\n"
+      "float4 main(float4 pos : SV_Position) : SV_Target {\n"
+      "  uint2 p = (uint2)pos.xy;\n"
+      "  dst.Store((p.y * 16 + p.x) * 4 + 16, (p.x << 16) | p.y);\n"
+      "  dst.InterlockedAdd(0, 1u);\n"
+      "  return float4(1, 0, 0, 1);\n"
+      "}\n", 4 + 256, 1, 1, 1, EX_PS },
+    { "psderiv2",   /* isolates derivative inputs: ddx(x), ddx(x*x), ddx_fine(x*x), ddy(y*y) */
+      "RWByteAddressBuffer dst : register(u1);\n"
+      "float4 main(float4 pos : SV_Position) : SV_Target {\n"
+      "  uint2 p = (uint2)pos.xy;\n"
+      "  float a = pos.x * pos.x, c = pos.y * pos.y;\n"
+      "  dst.Store4((p.y * 16 + p.x) * 16, asuint(float4(ddx(pos.x), ddx(a), ddx_fine(a), ddy(c))));\n"
+      "  return float4(a, c, 0, 1);\n"
+      "}\n", 4 * 256, 1, 1, 1, EX_PS },
+    { "psposval",   /* SV_Position values themselves: x, y, x*x and ddx(x*x) */
+      "RWByteAddressBuffer dst : register(u1);\n"
+      "float4 main(float4 pos : SV_Position) : SV_Target {\n"
+      "  uint2 p = (uint2)pos.xy;\n"
+      "  float a = pos.x * pos.x;\n"
+      "  dst.Store4((p.y * 16 + p.x) * 16, asuint(float4(pos.x, pos.y, a, ddx(a))));\n"
+      "  return float4(a, 0, 0, 1);\n"
+      "}\n", 4 * 256, 1, 1, 1, EX_PS },
+    { "psderiv3",   /* the same on an interpolated TEXCOORD (= pixel coordinates) instead of SV_Position */
+      "RWByteAddressBuffer dst : register(u1);\n"
+      "float4 main(float4 pos : SV_Position, float2 t : TEXCOORD0) : SV_Target {\n"
+      "  uint2 p = (uint2)pos.xy;\n"
+      "  float a = t.x * t.x, c = t.y * t.y;\n"
+      "  dst.Store4((p.y * 16 + p.x) * 16, asuint(float4(ddx(t.x), ddx(a), ddx_fine(a), ddy(c))));\n"
+      "  return float4(a, c, 0, 1);\n"
+      "}\n", 4 * 256, 1, 1, 1, EX_PS },
+    { "psderiv",
+      "RWByteAddressBuffer dst : register(u1);\n"
+      "float4 main(float4 pos : SV_Position) : SV_Target {\n"
+      "  float f = pos.x * pos.x * 0.5 + pos.y * pos.x * 0.25 + pos.y * 3.0;\n"
+      "  uint2 p = (uint2)pos.xy;\n"
+      "  dst.Store4((p.y * 16 + p.x) * 16, asuint(float4(ddx_coarse(f), ddx_fine(f), ddy_coarse(f), ddy_fine(f))));\n"
+      "  return float4(f, 0, 0, 1);\n"
+      "}\n", 4 * 256, 1, 1, 1, EX_PS },
     { "atomics",
       "RWByteAddressBuffer dst : register(u0);\n"
       "[numthreads(64,1,1)] void main(uint3 tid : SV_DispatchThreadID) {\n"
@@ -394,6 +437,65 @@ static bool RunTest(ID3D11Device *dev, ID3D11DeviceContext *ctx, const Test *t, 
     return true;
 }
 
+static ID3D11VertexShader *g_vs[2];
+
+/* EX_PS: draw a full-screen triangle with the test's pixel shader; its UAV u1 (slot 1, after the one RTV) is read back */
+static bool RunPsTest(ID3D11Device *dev, ID3D11DeviceContext *ctx, int which, const Test *t, ID3DBlob *code, UINT *out)
+{
+    HRESULT hr;
+    if (!g_vs[which]) {
+        static const char vs[] =
+            "struct O { float4 pos : SV_Position; float2 t : TEXCOORD0; };\n"
+            "O main(uint id : SV_VertexID) {\n"
+            "  float2 uv = float2((id << 1) & 2, id & 2);\n"
+            "  O o; o.pos = float4(uv * float2(2, -2) + float2(-1, 1), 0, 1); o.t = uv * 8.0; return o;\n"
+            "}\n";
+        ID3DBlob *vb = NULL, *err = NULL;
+        hr = D3DCompile(vs, strlen(vs), "vs", NULL, NULL, "main", "vs_5_0", 0, 0, &vb, &err);
+        if (FAILED(hr) || FAILED(dev->CreateVertexShader(vb->GetBufferPointer(), vb->GetBufferSize(), NULL, &g_vs[which]))) {
+            printf("    VS 0x%08lx\n", (unsigned long)hr);
+            return false;
+        }
+        vb->Release();
+    }
+    ID3D11PixelShader *ps = NULL;
+    hr = dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), NULL, &ps);
+    if (FAILED(hr)) { printf("    CreatePixelShader 0x%08lx\n", (unsigned long)hr); return false; }
+    D3D11_TEXTURE2D_DESC td = {};
+    td.Width = td.Height = 16; td.MipLevels = td.ArraySize = 1; td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    td.SampleDesc.Count = 1; td.Usage = D3D11_USAGE_DEFAULT; td.BindFlags = D3D11_BIND_RENDER_TARGET;
+    ID3D11Texture2D *rt = NULL;
+    ID3D11RenderTargetView *rtv = NULL;
+    ID3D11Buffer *outbuf = NULL, *st = NULL;
+    ID3D11UnorderedAccessView *uav = NULL;
+    hr = dev->CreateTexture2D(&td, NULL, &rt);
+    if (SUCCEEDED(hr)) hr = dev->CreateRenderTargetView(rt, NULL, &rtv);
+    if (SUCCEEDED(hr)) hr = RawBuffer(dev, t->out_words, D3D11_BIND_UNORDERED_ACCESS, NULL, &outbuf);
+    if (SUCCEEDED(hr)) hr = RawUav(dev, outbuf, t->out_words, &uav);
+    D3D11_BUFFER_DESC sd = { t->out_words * 4, D3D11_USAGE_STAGING, 0, D3D11_CPU_ACCESS_READ, 0, 0 };
+    if (SUCCEEDED(hr)) hr = dev->CreateBuffer(&sd, NULL, &st);
+    if (FAILED(hr)) { printf("    resources 0x%08lx\n", (unsigned long)hr); return false; }
+    UINT zero[4] = {};
+    ctx->ClearUnorderedAccessViewUint(uav, zero);
+    D3D11_VIEWPORT vp = { 0, 0, 16, 16, 0, 1 };
+    ctx->RSSetViewports(1, &vp);
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ctx->IASetInputLayout(NULL);
+    ctx->VSSetShader(g_vs[which], NULL, 0);
+    ctx->PSSetShader(ps, NULL, 0);
+    ctx->OMSetRenderTargetsAndUnorderedAccessViews(1, &rtv, NULL, 1, 1, &uav, NULL);
+    ctx->Draw(3, 0);
+    ctx->OMSetRenderTargetsAndUnorderedAccessViews(0, NULL, NULL, 0, 0, NULL, NULL);
+    ctx->CopyResource(st, outbuf);
+    D3D11_MAPPED_SUBRESOURCE map;
+    hr = ctx->Map(st, 0, D3D11_MAP_READ, 0, &map);
+    if (FAILED(hr)) { printf("    Map 0x%08lx\n", (unsigned long)hr); return false; }
+    memcpy(out, map.pData, t->out_words * 4);
+    ctx->Unmap(st, 0);
+    uav->Release(); outbuf->Release(); st->Release(); rtv->Release(); rt->Release(); ps->Release();
+    return true;
+}
+
 static bool Open(bool warp, IDXGIAdapter *ad, ID3D11Device **dev, ID3D11DeviceContext **ctx)
 {
     D3D_FEATURE_LEVEL fl = D3D_FEATURE_LEVEL_11_0, got = (D3D_FEATURE_LEVEL)0;
@@ -444,7 +546,9 @@ int main(int argc, char **argv)
             continue;
         run++;
         ID3DBlob *code = NULL, *err = NULL;
-        HRESULT hr = D3DCompile(t->hlsl, strlen(t->hlsl), t->name, NULL, NULL, "main", "cs_5_0", 0, 0, &code, &err);
+        HRESULT hr = D3DCompile(t->hlsl, strlen(t->hlsl), t->name, NULL, NULL, "main",
+                                t->extra == EX_PS ? (getenv("D3DSM5_PS40") ? "ps_4_0" : "ps_5_0") : "cs_5_0", 0, 0,
+                                &code, &err);   /* D3DSM5_PS40: pixel tests as ps_4_0 (A/B of SM4 vs SM5 opcodes) */
         if (FAILED(hr)) {
             printf("%-11s D3DCompile 0x%08lx %s\n", t->name, (unsigned long)hr, err ? (const char *)err->GetBufferPointer() : "");
             fails++;
@@ -453,7 +557,14 @@ int main(int argc, char **argv)
         memset(om, 0xCD, sizeof om);
         memset(ow, 0xAB, sizeof ow);
         printf("%-11s running...\n", t->name);
-        bool okw = RunTest(wd, wc, t, code, ow), okm = RunTest(md, mc, t, code, om);
+        bool okw, okm;
+        if (t->extra == EX_PS) {
+            okw = RunPsTest(wd, wc, 1, t, code, ow);
+            okm = RunPsTest(md, mc, 0, t, code, om);
+        } else {
+            okw = RunTest(wd, wc, t, code, ow);
+            okm = RunTest(md, mc, t, code, om);
+        }
         UINT bad = 0, firstbad = 0;
         /* D3D11.3 functional spec 3.1.3: "sqrt and rcp have 1 ULP tolerance" - rcp results may differ from WARP's by
          * one float step; every other test is exact */

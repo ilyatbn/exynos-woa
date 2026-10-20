@@ -1,0 +1,165 @@
+diff --git a/src/gallium/frontends/d3d10umd/D3D11.cpp b/src/gallium/frontends/d3d10umd/D3D11.cpp
+index 5cb3e20..c4cd055 100644
+--- a/src/gallium/frontends/d3d10umd/D3D11.cpp
++++ b/src/gallium/frontends/d3d10umd/D3D11.cpp
+@@ -49,8 +49,17 @@ D11_SetRenderTargets(D3D10DDI_HDEVICE hDevice, const D3D10DDI_HRENDERTARGETVIEW
+                      const D3D11DDI_HUNORDEREDACCESSVIEW *phUAV, const UINT *pUAVInitialCounts, UINT UAVStartSlot,
+                      UINT NumUAVs, UINT UAVRangeStart, UINT UAVRangeSize)
+ {
+-   /* UAVs bound with the render targets exist only at pipeline level 11_0; at 10_0 the runtime passes none. */
+-   (void)phUAV; (void)pUAVInitialCounts; (void)UAVStartSlot; (void)NumUAVs; (void)UAVRangeStart; (void)UAVRangeSize;
++   /* exynos-woa G34 F11.5: UAVs bound with the render targets (pipeline level 11_0). MS Learn
++    * pfnd3d11ddi_setrendertargets: "UAVStartSlot must be at least as great as the NumRTVs parameter ... RTVs are bound
++    * first, followed by UAVs"; UAVRangeStart/Size are only a hint "given that the Direct3D DDI always binds
++    * everything" -> every slot outside [UAVStartSlot, UAVStartSlot + NumUAVs) is unbound. pUAVInitialCounts: F11.6. */
++   (void)pUAVInitialCounts; (void)UAVRangeStart; (void)UAVRangeSize;
++   Device *pDevice = CastDevice(hDevice);
++   for (UINT i = 0; i < ARRAY_SIZE(pDevice->om_uavs); i++) {
++      UINT k = i - UAVStartSlot;
++      pDevice->om_uavs[i] = (i >= UAVStartSlot && k < NumUAVs && phUAV && phUAV[k].pDrvPrivate)
++                               ? static_cast<UnorderedAccessView *>(phUAV[k].pDrvPrivate) : NULL;
++   }
+    SetRenderTargets(hDevice, phRTV, NumRTVs, ClearSlots, hDSV);
+ }
+ 
+diff --git a/src/gallium/frontends/d3d10umd/Draw.cpp b/src/gallium/frontends/d3d10umd/Draw.cpp
+index 88b19ad..1f28d9d 100644
+--- a/src/gallium/frontends/d3d10umd/Draw.cpp
++++ b/src/gallium/frontends/d3d10umd/Draw.cpp
+@@ -34,6 +34,7 @@
+ #include "Draw.h"
+ #include "State.h"
+ #include "Shader.h"
++#include "ShaderParse.h"   /* G34 F11.5: Shader_extra */
+ 
+ #include "Debug.h"
+ 
+@@ -77,6 +78,53 @@ update_velems(Device *pDevice)
+    pDevice->velems_changed = false;
+ }
+ 
++/* exynos-woa G34 F11.5: the bound pixel shader's UAVs (typed -> images, raw / structured -> SSBOs) and raw /
++ * structured SRVs, from SetRenderTargets(D3D11)'s UAV slots and PsSetShaderResources - as Compute.cpp LaunchCompute
++ * does for the compute stage. Nothing to do for a PS without such declarations. */
++static void
++BindPsUavs(Device *pDevice)
++{
++   Shader *ps = pDevice->bound_ps;
++   if (!ps || !ps->extra || (!ps->extra->num_buffers && !ps->extra->num_images))
++      return;
++   struct pipe_context *pipe = pDevice->pipe;
++   const struct Shader_extra *ex = ps->extra;
++   if (ex->num_buffers) {
++      struct pipe_shader_buffer bufs[SHADER_MAX_BUFFERS];
++      unsigned writable = 0;
++      memset(bufs, 0, sizeof bufs);
++      for (unsigned i = 0; i < ex->num_buffers; i++) {
++         if (ex->buffers[i].uav) {
++            UnorderedAccessView *u = ex->buffers[i].slot < 8 ? pDevice->om_uavs[ex->buffers[i].slot] : NULL;
++            if (u && !u->typed) {
++               bufs[i].buffer = u->resource;
++               bufs[i].buffer_offset = u->offset;
++               bufs[i].buffer_size = u->size;
++            }
++            writable |= 1u << i;
++         } else {
++            ShaderResourceView *v = pDevice->ps_srvs[ex->buffers[i].slot];
++            if (v) {
++               bufs[i].buffer = v->buffer;
++               bufs[i].buffer_offset = v->buffer_offset;
++               bufs[i].buffer_size = v->buffer_size;
++            }
++         }
++      }
++      pipe->set_shader_buffers(pipe, MESA_SHADER_FRAGMENT, 0, ex->num_buffers, bufs, writable);
++   }
++   if (ex->num_images) {
++      struct pipe_image_view imgs[8];
++      memset(imgs, 0, sizeof imgs);
++      for (unsigned k = 0; k < ex->num_images; k++) {
++         UnorderedAccessView *u = pDevice->om_uavs[ex->image_slot[k]];
++         if (u && u->typed)
++            imgs[k] = u->image;
++      }
++      pipe->set_shader_images(pipe, MESA_SHADER_FRAGMENT, 0, ex->num_images, 0, imgs);
++   }
++}
++
+ /*
+  * We have to resolve the stream output state for empty geometry shaders.
+  * In particular we've remapped the output indices when translating the
+@@ -87,6 +135,7 @@ update_velems(Device *pDevice)
+ static void
+ ResolveState(Device *pDevice)
+ {
++   BindPsUavs(pDevice);   /* exynos-woa G34 F11.5 */
+    if (pDevice->bound_empty_gs && pDevice->bound_vs && pDevice->pipe->bind_gs_state &&   /* exynos-woa G25 */
+        pDevice->bound_vs->state.tokens) {
+       Shader *gs = pDevice->bound_empty_gs;
+diff --git a/src/gallium/frontends/d3d10umd/Shader.cpp b/src/gallium/frontends/d3d10umd/Shader.cpp
+index 2aaeb00..6c0dad4 100644
+--- a/src/gallium/frontends/d3d10umd/Shader.cpp
++++ b/src/gallium/frontends/d3d10umd/Shader.cpp
+@@ -252,6 +252,9 @@ SetShaderResources(mesa_shader_stage shader_type,                  // IN
+    for (UINT i = 0; i < NumViews; i++) {
+       struct pipe_sampler_view *sampler_view =
+             CastPipeShaderResourceView(phShaderResourceViews[i]);
++      if (shader_type == MESA_SHADER_FRAGMENT && Offset + i < PIPE_MAX_SHADER_SAMPLER_VIEWS)   /* G34 F11.5 */
++         pDevice->ps_srvs[Offset + i] = phShaderResourceViews[i].pDrvPrivate
++                                           ? CastShaderResourceView(phShaderResourceViews[i]) : NULL;
+       if (Offset + i < PIPE_MAX_SHADER_SAMPLER_VIEWS) {
+          sampler_views[Offset + i] = sampler_view;
+       } else {
+@@ -343,9 +346,12 @@ DestroyShader(D3D10DDI_HDEVICE hDevice,   // IN
+       ureg_free_tokens(pShader->state.tokens);
+    }
+    GsEmuDestroyShader(CastDevice(hDevice), pShader);   /* exynos-woa G25 */
+-   if (pShader->type == MESA_SHADER_COMPUTE || pShader->type == MESA_SHADER_GEOMETRY) {
+-      /* exynos-woa G24 / G25: only these creates set extra (CreateComputeShader zeroes the object, the GS creates set
+-       * extra and gs_cs) */
++   if (CastDevice(hDevice)->bound_ps == pShader)   /* G34 F11.5 */
++      CastDevice(hDevice)->bound_ps = NULL;
++   if (pShader->type == MESA_SHADER_COMPUTE || pShader->type == MESA_SHADER_GEOMETRY ||
++       pShader->type == MESA_SHADER_FRAGMENT) {
++      /* exynos-woa G24 / G25 / G34: only these creates set extra (CreateComputeShader zeroes the object, the GS creates
++       * set extra and gs_cs, CreatePixelShader sets extra since F11.5) */
+       if (pShader->type == MESA_SHADER_GEOMETRY && pShader->gs_cs) {
+          if (CastDevice(hDevice)->bound_gs_emu == pShader)
+             CastDevice(hDevice)->bound_gs_emu = NULL;
+@@ -1088,8 +1094,10 @@ CreatePixelShader(D3D10DDI_HDEVICE hDevice,                                // IN
+    pShader->output_resolved = true;
+ 
+    memset(&pShader->state, 0, sizeof pShader->state);
+-   pShader->state.tokens = Shader_tgsi_translate(pShaderCode,
+-                                                 pShader->output_mapping);
++   /* exynos-woa G34 F11.5: the extra block records the PS's UAV / raw-buffer slots (bound at draw time) */
++   pShader->extra = (struct Shader_extra *)CALLOC_STRUCT(Shader_extra);
++   pShader->state.tokens = pShader->extra ? Shader_tgsi_translate_ex(pShaderCode, pShader->output_mapping, pShader->extra)
++                                          : Shader_tgsi_translate(pShaderCode, pShader->output_mapping);
+ 
+    pShader->handle = pipe->create_fs_state(pipe, &pShader->state);
+ 
+@@ -1118,6 +1126,7 @@ PsSetShader(D3D10DDI_HDEVICE hDevice,  // IN
+    void *state = CastPipeShader(hShader);
+ 
+    FrameCapShaderPs(CastShader(hShader));   /* exynos-woa G32 (0163) */
++   pDevice->bound_ps = hShader.pDrvPrivate ? CastShader(hShader) : NULL;   /* G34 F11.5 */
+    if (!state) {
+       state = pDevice->empty_fs;
+    }
+diff --git a/src/gallium/frontends/d3d10umd/State.h b/src/gallium/frontends/d3d10umd/State.h
+index c81b948..64cc2f0 100644
+--- a/src/gallium/frontends/d3d10umd/State.h
++++ b/src/gallium/frontends/d3d10umd/State.h
+@@ -150,6 +150,11 @@ struct Device
+     * bound at Dispatch) and the CS UAVs */
+    Shader *bound_cs;
+    struct ShaderResourceView *cs_srvs[PIPE_MAX_SHADER_SAMPLER_VIEWS];
++   /* exynos-woa G34 F11.5: pixel-shader UAVs (SetRenderTargets(D3D11): slots UAVStartSlot.. after the RTVs) and the
++    * PS's raw / structured SRVs; bound to the fragment stage at each draw (Draw.cpp BindPsUavs) */
++   struct UnorderedAccessView *om_uavs[8];
++   struct ShaderResourceView *ps_srvs[PIPE_MAX_SHADER_SAMPLER_VIEWS];
++   Shader *bound_ps;
+    struct UnorderedAccessView *cs_uavs[8];
+    Shader *bound_vs;
+ 

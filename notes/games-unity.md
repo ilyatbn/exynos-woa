@@ -525,3 +525,9 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   STENCIL on stencil-less depth buffers (flags != the format's aspects).
 - Mesa 0188: flags &= the format's aspects before the fast-path tests (D3D clears nothing there anyway). EC de11bcf8
   live (mask 15); d3dmrt64x 7/7, d3dbc64x lossy 0/126. Next run must show zs:fast up / stencil-only gone.
+- bot20 (EC 0188, mask 15): hypothesis confirmed - clears 500: Clear:rt:fast 200, Clear:zs:fast 300, nothing slow.
+  Renders right (bot20-end.png, the kelp layout of bot14). 2669 frames / 102.1 s, mean 26.1 fps, median 37.0 ms, p95
+  47.2, p99 60.5, max 178.3, 1 % low 11.5, 0.1 % 6.6, 7 > 100 ms (bot14, same layout, 0182: 25.5 / 38.4 / 59.2).
+- Mesa 0189: default fast-clear mask 7 without the flag file (colour + full zs + stencil-only: rendered right in bot18
+  and bot20); bit 3 (temp-fb clears) stays off - never exercised by Dave. fastclear.txt removed from the phone. EC
+  f5b4e506 live; d3dmrt64x 7/7, d3dbc64x lossy 0/126.

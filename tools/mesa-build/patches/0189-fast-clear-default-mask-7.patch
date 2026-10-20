@@ -1,0 +1,25 @@
+diff --git a/src/gallium/frontends/d3d10umd/OutputMerger.cpp b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+index 1468ad1..08bdf85 100644
+--- a/src/gallium/frontends/d3d10umd/OutputMerger.cpp
++++ b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+@@ -179,17 +179,17 @@ DestroyRenderTargetView(D3D10DDI_HDEVICE hDevice,                       // IN
+  * no draws yet. Same texture, level, layers and format as the bound attachment; the framebuffer exactly the view's
+  * size (pipe->clear covers the framebuffer). Anything else keeps the old path. */
+ /* Diagnosis only (AGENTS rule 12): C:\S10eTmp\fastclear.txt = mask, bit 0 colour, bit 1 depth/stencil (a file, not an
+- * environment variable: Steam relaunches the game with its own environment); no file = 3 */
++ * environment variable: Steam relaunches the game with its own environment); no file = 7 */
+ static unsigned
+ FastClearMask(void)
+ {
+    static int m = -1;
+    if (m < 0) {
+       FILE *f = fopen("C:\\S10eTmp\\fastclear.txt", "r");
+-      m = 3;
++      m = 7;   /* 0189: colour + full zs + stencil-only (validated bot18, bot20); bit 3 (temp fb) unexercised, off */
+       if (f) {
+          if (fscanf(f, "%d", &m) != 1)
+-            m = 3;
++            m = 7;
+          fclose(f);
+          m &= 15;   /* 0186: bit 2 = stencil-only fast clears; 0187: bit 3 = unbound views via a temporary fb */
+       }

@@ -75,8 +75,11 @@ PSCI/CPU_ON or ACTLR, so none answers the M4 question directly.** They do descri
   SWIO | VM. That build traps no ACTLR (TACR), IMPDEF registers (TIDCP), TLBI (TTLB), cache maintenance (TPU/TPCP/
   TSW), WFI/WFE or SMC. It does not route IRQ/FIQ/SError to EL2 (IMO/FMO/AMO). Our m4trap1 run agrees on TVM: it
   found no trap on TTBR0/TCR/SCTLR/MAIR/CONTEXTIDR writes. **m4trap1 never timed TLBI, IC/DC maintenance, ACTLR or
-  WFI.** The 9810 port did see uH trap TLBI (notes/m10-windows-deploy-plan.md:70,136), and one of the last M4 PCs
-  before a death was MiCopyPage right after `IC IALLUIS`. So on the 9820 this is open (experiment E1 below).
+  WFI.** The 9810 port's own comments (Star2LtePkg PlatformBootManagerLib.c:2337-2343) say uH there *emulates*
+  MMU-on EL1 TLBI and **hangs** on an MMU-off one. That is a second example of uH stopping silently instead of
+  reporting. On the 9820, though, our park stub (m4dvm1) ran an MMU-off `TLBI VMALLE1IS` on every core with no
+  hang. So either the 9820 uH does not trap TLBI, or it handles that case. One of the last M4 PCs before a death
+  was MiCopyPage right after `IC IALLUIS`. Open on the 9820 (experiment E1 below).
 - **uH's log ring is at a fixed address: `0x87100000 + 0x40000`.** Samsung's 9820 kernel header hardcodes it as
   `UH_LOG_START` (notes/K10-rkp.md:271). On 9610 the region is read-only to EL1 after RKP starts. RKP never starts on
   our path, so whether EL1 can read it here is **UNVERIFIED**: a read could fault into uH. uH zeroes the ring at
@@ -143,7 +146,7 @@ what each outcome means.
 | Stub flag 7 (interrupts + WFI on the M4, Windows not involved) | WFI/IRQ on the M4 is fine; look at Windows-specific state | the firmware/GIC side is wrong for the M4, not Windows |
 | Read the M4's native ACTLR_EL1 / CPUACTLR in the stub before Windows starts, and compare with what Windows leaves there | — | if they differ, test with the native value restored (by us, in firmware) |
 | Pin a single test thread to an M4 (process affinity) after boot, with everything else idle | shows whether "any work" or specific work kills it | — |
-| **E1 (new, §2b):** trap timing for maintenance ops. Bring back the m4trap1 method (stub flag 4, removed in b66429a8): 1000 × each of `TLBI VMALLE1`, `TLBI VMALLE1IS`, `TLBI VAE1IS`, `TLBI ASIDE1IS`, `IC IALLU`, `IC IALLUIS`, `IC IVAU`, `DC CIVAC`, `DC CISW`, `ACTLR_EL1` write-back of its own value, and `WFI` with a pending timer, against the nop baseline. Run on an A55, an A75 and an M4, all parked and not offered. | no op adds ≥ ~26 ticks on any core → uH does not intercept maintenance ops, and the uH hypothesis narrows to stage-2 faults | an op traps (any core) → uH handles Windows' maintenance. If it traps only on the M4, or the M4 never returns, that is the lead |
+| **E1 (new, §2b):** trap timing for maintenance ops. Bring back the m4trap1 method (stub flag 4, later removed - notes/m4-cores.md:68): 1000 × each of `TLBI VMALLE1`, `TLBI VMALLE1IS`, `TLBI VAE1IS`, `TLBI ASIDE1IS`, `IC IALLU`, `IC IALLUIS`, `IC IVAU`, `DC CIVAC`, `DC CISW` and an `ACTLR_EL1` write-back of its own value, against the nop baseline (WFI is left out: its wake time hides any trap cost). Run on an A55, an A75 and an M4, all parked and not offered. | no op adds ≥ ~26 ticks per op (≥ 26000 per 1000) on any core → uH does not intercept maintenance ops, and the uH hypothesis narrows to stage-2 faults | an op traps (any core) → uH handles Windows' maintenance. If it traps only on the M4, or the M4 never returns, that is the lead |
 | **E2 (new, §2b):** copy uH's log ring `0x87100000 + 0x40000` from the not-offered A55 sampler (the m4pcs1 pattern, gicc3) into WINPRAM every 0.25 s during a two-M4 run; dump after the watchdog reset. First try a single read from UEFI and watch for a stage-2 abort. | ring readable and unchanged at the death → uH saw nothing (points to EL3 / hardware) | new uH lines at the death → they name the cause. A fault on the first read → the region is stage-2 unmapped and this path is closed |
 
 ## 5. What to hand back (template)

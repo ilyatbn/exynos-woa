@@ -91,3 +91,14 @@ answer. What they DO give is the shape of the layer sitting between Windows (EL1
    GREENTEA header, 0x1000 header, maybe LZ4) would answer 2 and 1 directly: HCR_EL2 value(s), VBAR_EL2 vectors
    (which ECs it handles, what the default case does), any MIDR implementer 0x53 ('S') check, PM/CPU_ON hooks.
    This is NOT Windows internals (rule 11 does not apply) - but it is the owner's call; offered, not done.
+
+## Review of 6d539cbf (harsh pass)
+- Checked: m4trap1 ops + 26-tick threshold (m14-smp.md:528-533) OK; sda10 = uh (dock-desktop.md:530) OK;
+  UH_LOG_START (K10-rkp.md:271) OK; MiCopyPage after IC IALLUIS (m14-m4-summary.md §1) OK.
+- FOUND 1: guide cited commit b66429a8 (copied from m4-cores.md:68) - `git cat-file` says not a valid object in
+  this repo. Fixed: cite notes/m4-cores.md:68 instead.
+- FOUND 2: E1 listed "WFI with a pending timer" - its wake latency swamps a trap cost; not measurable. Removed.
+- FOUND 3: "9810 port did see uH trap TLBI" overstated. Source (Star2LtePkg PBML.c:2337-2343) says uH emulates
+  MMU-on TLBI and HANGS on an MMU-off one; but on the 9820 the m4dvm1 stub ran MMU-off TLBI VMALLE1IS on all cores
+  without a hang (m14-m4-summary.md §1). Reworded; the hang-on-unhandled-case is noted as a second example of a
+  silent uH stop.

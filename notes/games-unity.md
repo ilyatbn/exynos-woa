@@ -481,3 +481,10 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
 - Mesa 0184 (diagnosis): the batch counter line also gives colour attachments (AFBC / linear) and zs (AFBC) - is AFBC
   (framebuffer compression, ~half the tile traffic) used for Dave's render targets? EC 0f3426a0 live; d3dmrt64x 7/7,
   d3dbc64x lossy 0/126.
+- bot16 (EC 0184, 60 s): 1589 frames / 60.9 s, mean 26.1 fps, median 37.4 ms, p99 62.6, max 116.5, 1 % low 13.3,
+  0.1 % 8.6 (best lows), renders right. Counters (tlog pid 7464) per 2000 batches: colour attachments 1513 - AFBC 244,
+  linear 49, the rest tiled; zs 829 - AFBC 0. AFBC works (has_afbc) but Dave's targets are mostly formats Panfrost
+  does not compress on v7: scene r11g11b10_float + z32_float_s8x24 (pan_resource.c panfrost_should_afbc: "We can't do
+  AFBC(Z32)+S8 on v7-"), bloom r11g11b10_float, rgba16f / r16_unorm / r32_float (framecap-day-black.txt). The game's
+  format choice - no native driver lever. Remaining bandwidth: stencil-only clears (quad, depth preloaded),
+  ~1.2 clear-only batches per frame, depth stored after every batch (D3D gives no "don't need" hint).

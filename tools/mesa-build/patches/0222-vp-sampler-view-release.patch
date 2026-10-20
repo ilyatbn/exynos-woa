@@ -1,0 +1,16 @@
+diff --git a/src/gallium/frontends/d3d10umd/VideoProc.cpp b/src/gallium/frontends/d3d10umd/VideoProc.cpp
+index e85b0f9..529208d 100644
+--- a/src/gallium/frontends/d3d10umd/VideoProc.cpp
++++ b/src/gallium/frontends/d3d10umd/VideoProc.cpp
+@@ -638,7 +638,10 @@ Vid_VideoProcessorBlt(D3D10DDI_HDEVICE hDevice, D3D11_1DDI_HVIDEOPROCESSOR hVP,
+    pipe->set_shader_images(pipe, MESA_SHADER_COMPUTE, 0, 0, 1, NULL);
+    pipe->set_constant_buffer(pipe, MESA_SHADER_COMPUTE, 0, NULL);
+    pipe->memory_barrier(pipe, PIPE_BARRIER_TEXTURE | PIPE_BARRIER_IMAGE | PIPE_BARRIER_FRAMEBUFFER);
+-   pipe_sampler_view_reference(&view, NULL);
++   /* exynos-woa G35: released through the context - with the threaded context the queued set_sampler_views still
++    * names the view; pipe_sampler_view_reference freed it at once and the driver thread later referenced the freed
++    * view (Edge GPU process: assert count != 1 in panfrost_set_sampler_views from tc_batch_execute) */
++   pipe->sampler_view_release(pipe, view);
+ 
+    /* scale / place it: the driver's blit (its own state save and restore) */
+    struct pipe_blit_info b = {};

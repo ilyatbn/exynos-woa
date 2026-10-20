@@ -560,3 +560,46 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   GPU timing (split vertex/tiler vs fragment), merging clear-only batches into the next pass (deferred clears - large
   correctness surface), shader disk cache (port), release (NDEBUG) build of the UMD (asserts cost CPU; but
   UNREACHABLE becomes UB).
+
+## G33 - all UMD flavours at 0191, shader disk cache, load times (2026-10-20, user: "fix it across all driver versions
+## we have. then implement a shader cache. have an option to clear the cache per game using an app. Then work on the
+## initial game loading ... reach the menu faster and ingame faster")
+- Port: build-mesa-g76 -Stage cross,collect and -Stage x86 (needs -ExecutionPolicy Bypass) from the 0191 tree ->
+  s10e-artifacts\mali-umd-0191 (ARM64 maliumd.dll 4662b14b) and mali-umd-0191-x86 (maliumd32.dll 7eba6c74). The ARM64X
+  forwarder is unchanged (same export list), so only maliumd_arm64.dll is swapped. New tools/phone/games/umdswap.sh
+  KIND DLL TAG (arm64 / ec / x86; rename-then-copy like ecswap.sh). First version had a PowerShell bug ("$f.pre-..." is
+  a property access on $f -> null NewName): the x86 rename failed and Copy-Item overwrote SysWOW64\maliumd32.dll (the
+  previous x86-0148 2f738e24 has no .pre copy on the phone; s10e-artifacts keeps it), the ARM64 copy failed (in use).
+  Fixed (name expanded by bash, Rename -ErrorAction Stop); ARM64 swapped -> maliumd_arm64.dll.pre-0191-0 = e7fce848.
+- x86 0191 regression: d3dcbdyn32 PASS, d3dvbring32 PASS, d3dtri32 PASS. ARM64: reboot for dwm to load it.
+- Shader cache research: Mesa's disk cache has no Windows backend (src/util/disk_cache_os.c "TODO: implement disk
+  cache support on windows"; meson.build: shader-cache .require(host != windows)); it also needs compression (zlib or
+  zstd; our build has -Dzstd=disabled) and panfrost_disk_cache_init uses an ELF build-id (build_id_find_nhdr_for_addr),
+  which does not exist on Windows (disk_cache_os.c has a Windows disk_cache_get_function_identifier: module FILETIME).
+  Panfrost already stores/retrieves compiled variants (pan_disk_cache.c: key = nir blake3 + shader key).
+- The D3D11 DDI has a runtime-managed cache (WDK d3d10umddi.h, WDDM 2.2: D3DWDDM2_2DDICAPS_SHADERCACHE /
+  RequestRuntimeShaderCache, pfnCreateShaderCacheSession, callbacks pfnShaderCacheGetValueCb / StoreValueCb). MS Learn
+  PFND3DWDDM2_2DDI_CREATE_SHADERCACHE_SESSION: "The runtime uses the object that is created to inform the driver of
+  different caching contexts. It can be used to direct the caching callbacks towards a process-local cache or a
+  per-component cache which is shared by multiple processes."
+  (https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3d10umddi/nc-d3d10umddi-pfnd3dwddm2_2ddi_create_shadercache_session).
+  Our d3d10umd tops out at D3DWDDM2_0_DDI (Adapter.cpp GetSupportedVersions); 2.2 needs the 2.1/2.2 device-func
+  tables, and where the runtime stores it is not ours to manage per game (the user wants a per-game clear app). Chosen:
+  our own Windows backend for Mesa's disk cache, one directory per executable, cleared by our app. The runtime cache
+  stays a documented alternative.
+- ARM64 0191 after the reboot (dwm + maliumd_arm64 4662b14b loaded): d3dcs 7/7, d3dcbdyn, d3dvbring, d3dtri PASS. But
+  every user-session screenshot (davebot shot, CopyFromScreen) is an all-white 1520x720 frame - after the Edge WebGL
+  check (browsercheck.ps1: Edge GPU process started, no restart), after closing Edge too. Test: fastclear.txt = 0 +
+  Stop-Process dwm -> dwm was NOT restarted by winlogon (no dwm process 30 s later), capture still white -> the test
+  says nothing. WER: two "Fault bucket" entries ~1-2 min after boot (no report folders of this boot). Rolled back:
+  maliumd_arm64.dll = .pre-0191-0 (e7fce848), 0191 kept as maliumd_arm64.dll.0191-white-0; reboot for a baseline
+  screenshot. Suspect: 0176 (D3D11 Discard -> invalidate_resource) - Dave never calls Discard (inert there), dwm does;
+  Panfrost's invalidate (glInvalidateFramebuffer semantics) also drops the current batch's resolve of that colour
+  buffer. Other dwm-only paths: 0179-0189 D3D clears -> pipe->clear on BGRA swapchain views.
+- Rollback boot (e7fce848): normal desktop screenshot. 0191 again (LocalDumps armed for dwm.exe: DumpFolder
+  C:\S10eTmp\dumps, DumpType 1, DumpCount 5) + reboot: normal desktop (desk-0191-arm64-r2.png), dwm alive since boot,
+  no dwm dump; browsercheck again -> edge://gpu Canvas / Compositing / WebGL / WebGPU hardware accelerated
+  (browser-0191-arm64-r2.png). The first boot's white frames do not reproduce. In that boot typeurl.ps1 SendKeys got
+  "Access is denied" and shot.ps1 CopyFromScreen "The handle is invalid" - the input desktop was not the user's
+  (a secure desktop), which also explains white captures; no crash evidence (no dump, dwm not crashed). Cause not
+  identified; ARM64 0191 stays (all checks pass), recorded as open: re-check the desktop after the next reboots.

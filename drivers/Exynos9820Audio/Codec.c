@@ -305,6 +305,9 @@ VOID CodecRelease(_Inout_ PAUD_DEVICE_CONTEXT Dev)
     if (Dev->CodecGpio != NULL) {
         RMW32(Dev->CodecGpio, CODEC_GPG1 + CODEC_GPIO_DAT, 1u << CODEC_RESET_PIN, 0);
     }
-    Dev->CodecUp = FALSE;
+    Dev->CodecUp    = FALSE;
+    Dev->CodecUsers = 0;       /* in reset SYSCLK / AIF1 RX are off: no owner survives (review F7) */
+    Dev->MicCodecOn = FALSE;
+    Dev->HpOn       = FALSE;
     CodecUnmap(Dev);
 }

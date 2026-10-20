@@ -138,3 +138,6 @@ Findings, each a follow-up task with its own commit:
   deleted again afterwards.
 - F7 (new, from the review of 4c473ad): CodecRelease hard-resets the codec but leaves CodecUsers bits set; a PnP
   stop/start of the same device context with a bit left over would skip CodecClockOn on the next start (First FALSE).
+- F7 fixed (audio 1.0.3.4): CodecRelease clears CodecUsers, MicCodecOn, HpOn with the codec held in reset. Device:
+  capture after install (1 kHz -49.5 / -47.7 dB) and again after pnputil /restart-device (-51.6 dB, louder room noise
+  that run: rms -50.7). tools/phone/audio/audbuild.sh VERSION = bump + build + install helper.

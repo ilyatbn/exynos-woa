@@ -94,3 +94,9 @@ work as possible on hdmi (via type c adapter and usb hub, i have both)."
   (traces/g35-brave-hw1.png; the "Brave quit unexpectedly" prompt is from the taskkill before the run - not touched).
 - Scope note: the bridge decodes H.264 only. Sites that pick VP9/AV1 (YouTube by default) still decode in software;
   the MFC of the 9820 also decodes VP8/VP9/HEVC (DXVA profiles + bridge work) - follow-up, not in G35's first step.
+- Follow-up (c) done: EC 0222 (cf3998ca) + x86-0222 (93180fde) deployed (umdswap, new processes). x86: d3dtess 9/9,
+  d3dsm5 34/34, d3dbc bptc 28/28, d3dtri, d3dcs 7/7, d3dgs 6/6 PASS (traces/g35-x86-regress.txt). EC (x64 tools; new
+  d3dsm564x / d3dtess64x builds): 34/34, 9/9, d3dcs 7/7, d3dgs 6/6, d3dcbdyn PASS (traces/g35-ec-regress.txt).
+  d3dbc default (exact) mode 63/63 differ on x86 and x64 = expected since G26 (BCn transcoded to ETC2, lossy; exact
+  passes only with the decode backing, notes/g26-bc-etc2.md:61); d3dbc lossy 0/126 differ on both -> PASS.
+  All three UMDs now 0222; DWM keeps its loaded ARM64 0218 until the next reboot.

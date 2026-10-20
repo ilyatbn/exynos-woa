@@ -502,3 +502,11 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   median 36.9 ms, p95 52.6, p99 71.1, max 561.4, 8 > 100 ms. Same layout as bot6 (0175: 23.6 fps / median 40.4) ->
   the fast clears give ~-3.5 ms per frame (~9 %). Overall on this layout since bot2 (0171): 41.6 -> 36.9 ms median,
   23.5 -> 25.9 fps.
+- CORRECTION (review of the fastclear.txt runs): `echo 1> C:\S10eTmp\fastclear.txt` over ssh/cmd is "echo" with
+  handle 1 redirected - the file got "ECHO is on.", fscanf failed, mask = 3. So bot13 ("colour only") really ran
+  0180's behaviour (colour + all depth/stencil fast clears, stencil-only included) and rendered RIGHT; bot12 (0180)
+  rendered white once. The conclusions "the depth/stencil fast clear broke it" / "stencil-only caused the white dive"
+  are NOT established - one white capture vs one good one with the same behaviour. 0182 (full-aspect zs only) stays
+  the safe default. Flag files are now written with PowerShell Set-Content.
+- Mesa 0186 (diagnosis): fastclear.txt bit 2 = stencil-only fast clears too (default off). EC 1a7169cc live; mask 7
+  for the next run (several runs needed: the white capture may be intermittent).

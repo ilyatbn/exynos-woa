@@ -1,0 +1,22 @@
+diff --git a/src/gallium/frontends/d3d10umd/OutputMerger.cpp b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+index 436827a..84abfe3 100644
+--- a/src/gallium/frontends/d3d10umd/OutputMerger.cpp
++++ b/src/gallium/frontends/d3d10umd/OutputMerger.cpp
+@@ -191,7 +191,7 @@ FastClearMask(void)
+          if (fscanf(f, "%d", &m) != 1)
+             m = 3;
+          fclose(f);
+-         m &= 3;
++         m &= 7;   /* 0186: bit 2 = stencil-only fast clears (diagnosis) */
+       }
+    }
+    return (unsigned)m;
+@@ -459,7 +459,7 @@ ClearDepthStencilView(D3D10DDI_HDEVICE hDevice,                      // IN
+     * Dave's dive rendered white, with colour fast clears alone it was right (bot12 / bot13, notes/games-unity.md) */
+    const unsigned all_zs = (util_format_has_depth(util_format_description(surface->format)) ? PIPE_CLEAR_DEPTH : 0) |
+                            (util_format_has_stencil(util_format_description(surface->format)) ? PIPE_CLEAR_STENCIL : 0);
+-   if ((FastClearMask() & 2) && flags && flags == all_zs && SameSurface(surface, &pDevice->fb.zsbuf) &&
++   if ((FastClearMask() & 2) && flags && (flags == all_zs || ((FastClearMask() & 4) && flags == PIPE_CLEAR_STENCIL)) && SameSurface(surface, &pDevice->fb.zsbuf) &&
+        pDevice->fb.width == pipe_surface_width(surface) && pDevice->fb.height == pipe_surface_height(surface)) {
+       /* the threaded context copies *color unconditionally (tc_clear): never NULL (0179 crashed in tc_clear) */
+       const union pipe_color_union no_color = {};

@@ -128,6 +128,13 @@ static const Test g_tests[] = {
       "  uint v = tt[tid.xy ^ uint2(1, 0)];\n"
       "  dst.Store((tid.y * 8 + tid.x) * 4, v ^ 0x55u);\n"
       "}\n", 64, 1, 1, 1, EX_TYPEDTEX },
+    { "bufinfotyped",   /* review R6: GetDimensions on a typed RWBuffer = element count (64) */
+      "RWByteAddressBuffer dst : register(u0);\n"
+      "RWBuffer<uint> tb : register(u1);\n"
+      "[numthreads(1,1,1)] void main() {\n"
+      "  uint n; tb.GetDimensions(n);\n"
+      "  dst.Store(0, n);\n"
+      "}\n", 4, 1, 1, 1, EX_TYPEDBUF },
     { "typedatomic",   /* image atomics on R32_UINT RWTexture2D / RWBuffer */
       "RWByteAddressBuffer dst : register(u0);\n"
       "RWTexture2D<uint> tt : register(u1);\n"

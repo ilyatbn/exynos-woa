@@ -27,7 +27,7 @@
  *   drawindx   DrawIndexedInstancedIndirect (16-bit indices 0 1 2), arguments from a compute shader
  *   group1024  numthreads(1024,1,1) groupshared reduction with barriers
  *   groupz64   numthreads(1,1,64) SV_GroupThreadID.z
- * Usage: d3dsm5 [-native] [test ...]. Exit 0 = every selected test matches. Build: build-d3dsm5.cmd.
+ * Usage: d3dsm5 [-native] [test ... | -caps]. -caps prints format support (+ SUPPORT2) on Mali vs WARP. Exit 0 = every selected test matches. Build: build-d3dsm5.cmd.
  * SPDX-License-Identifier: GPL-2.0
  */
 #include <windows.h>

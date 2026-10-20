@@ -454,3 +454,9 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
   emit_fragment_job, so "no preload after a clear-only batch" is not the cause.)
 - Mesa 0181 (diagnosis): C:\S10eTmp\fastclear.txt mask (bit 0 colour, bit 1 depth/stencil fast clear; no file = 3) -
   a file because Steam relaunches the game with its own environment. EC cbf627a3 live with mask 1 (colour only).
+- bot13 (EC 0181, fastclear.txt = 1: colour fast clears only, 60 s swim): renders correctly (bot13-colour-end.png =
+  the full dive scene) and 1709 frames / 61.2 s, mean 27.9 fps, median 34.6 ms, p95 45.2, p99 59.2, 6 > 100 ms
+  (compare bot6 first 60 s: 25.0 fps, median 38.6). => the depth/stencil fast clear broke the image.
+- Mesa 0182: depth/stencil fast clear only when the D3D flags clear every aspect of the format (depth+stencil, or
+  depth on a depth-only format) - a depth-only clear of a depth+stencil target (stencil preloaded beside a depth
+  clear) is the suspect. EC 51f48673 live, no fastclear.txt (mask 3); d3dmrt64x 7/7, d3dbc64x lossy 0/126.

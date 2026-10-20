@@ -468,3 +468,13 @@ Both are Unity (D3D11 on Windows), x64 -> maliumd_ec.dll (ARM64EC UMD behind the
 - Mesa 0183 (diagnosis): OutputMerger.cpp ClearStat - every 500 clears a tlog line "clears 500: Clear:rt:fast n,
   Clear:rt:slow:unbound|size|off n, Clear:zs:fast n, Clear:zs:slow:unbound|depth-only|stencil-only|size|off n".
   EC a7a19fb6 live; d3dmrt64x 7/7, d3dbc64x lossy 0/126.
+- bot15 (EC 0183, 60 s swim): 1559 frames / 61.5 s, mean 25.3 fps, median 38.0 ms, p99 70.6, renders right.
+  Clear paths (tlog pid 1480), per 500 clears: Clear:rt:fast 200, Clear:zs:fast 67 (depth+stencil), Clear:zs:slow:
+  stencil-only 234; no depth-only, no unbound / size misses. So 0180's white dive came from STENCIL-ONLY fast clears
+  (the only partial kind present). Likely mechanism (not verified in Panfrost's code path end to end): with a combined
+  depth+stencil format a stencil-only batch clear leaves depth unread (the preload test needs draws/read of that
+  aspect), and writing the stencil back writes the whole ZS buffer, depth included, from an uninitialised tile ->
+  depth testing fails afterwards. A correct stencil-only fast clear would still have to preload depth, so it would save
+  little; it stays on the u_blitter path (0182). The remaining zs preload (~514 MP / 2000 batches) is mostly that.
+- State after the clear work: colour fast clears halve the colour preloads; frame medians 34.6-38.4 ms depending on the
+  map layout (bot13/14/15), lows best so far in bot14 (1 % 11.3 fps, max 164 ms).

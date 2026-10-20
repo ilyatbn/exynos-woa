@@ -106,7 +106,17 @@ typedef struct _AUD_CONFIG {
     ULONG JackTone;     /* 0 (default): > 0 = J2 diagnostic, codec tone on the jack for this many ms (max 5000) at start */
     ULONG HpRoute;      /* 1 (default): a stream started with the jack plugged plays on the headphones (needs CodecEnable) */
     ULONG HpMaster;     /* 1 (default): codec AIF1 is BCLK/LRCLK master, UAIF0 slave (works); 0 = ABOX master as stock (no lock) */
+    /* Parameters\MicTest (ms, diagnosis) is not part of this struct: Driver.c AudTakeMicTest reads + clears it per start */
+    ULONG MicGain;      /* mic gain in 0.5 dB steps above 0 dB, 0..MIC_GAIN_MAX (default 24 = +12 dB); Control.c sets it live */
 } AUD_CONFIG, *PAUD_CONFIG;
+
+#define MIC_GAIN_MAX     63u   /* ADC digital volume 0x80 + 63 = 0xBF = +31.5 dB (cs47l92.c:312-317) */
+#define MIC_GAIN_DEFAULT 24u
+#define MIC_VAR_FIFO     0x1u  /* UAIF0 CTRL0 START_FIFO_DIFF_MIC = 1 */
+#define MIC_VAR_BRIDGE   0x2u  /* ROUTE_CTRL2 NSRC0 Bridge */
+#define MIC_VAR_ASRC     0x4u  /* SPUM NSRC0 chain ASRC on */
+#define MIC_VAR_FLUSH    0x8u  /* SPUM_CTRL3 SIFM0 flush pulse before WDMA0 start */
+#define MIC_VAR_LOOP     0x10u /* NSRC0 <- SIFS1 with a silent RDMA0 -> UAIF1 ring running: tests SPUM/SIFM/WDMA alone */
 
 /* ======================================================================
  * Run log (RunLog.c). Appending is legal up to DISPATCH_LEVEL; the file is (re)written only at PASSIVE_LEVEL.
@@ -152,10 +162,12 @@ typedef struct _AUD_REQKEY {
 } AUD_REQKEY, *PAUD_REQKEY;
 
 /* One render endpoint = one ACX circuit with its own software volume / mute and jack (J4b). */
-#define AUD_EP_COUNT 2u
+#define AUD_EP_COUNT 3u
+#define AUD_EP_MIC   2u   /* Ep[2] = the microphones (Microphone0, capture circuit, Capture.c; notes/d8-mic.md) */
 typedef struct _AUD_ENDPOINT {
     struct _AUD_DEVICE_CONTEXT *Dev;
     BOOLEAN       Headphones;     /* FALSE = Speakers (Speaker0), TRUE = Headphones (Headphone0) */
+    BOOLEAN       Capture;        /* TRUE = the microphone endpoint (Microphone0) */
     ACXCIRCUIT    Circuit;
     BOOLEAN       Added;
     ACXJACK       Jack;
@@ -185,6 +197,13 @@ typedef struct _AUD_DEVICE_CONTEXT {
     ULONG       AboxUaif0Count;
     ULONG       AboxUaifCtrl0;      /* CTRL0 offset of the UAIF the stream drives (0 = UAIF1 default) */
     BOOLEAN     AboxDmaStuck;   /* RDMA0 progress bit never cleared after a stop: ring memory must be leaked */
+    BOOLEAN     AboxCapRunning; /* AboxCaptureStart succeeded (WDMA0 + UAIF0 MIC, notes/d8-mic.md) */
+    BOOLEAN     AboxCapDmaStuck;/* WDMA0 progress bit never cleared after a stop: capture ring must be leaked */
+    ULONG       AboxCapSaved[4];/* ROUTE_CTRL1, SPUM_CTRL0, SPUM_SBANK_NSRC0, ROUTE_CTRL2 before AboxCaptureStart */
+    ULONG       MicWdmaIdx;     /* diagnosis: Parameters\MicWdma (0..7, default 0) */
+    ULONG       MicWdmaCtrl;    /* diagnosis: Parameters\MicWdmaCtrl (0 = BURST 8 | FORMAT 4x32 | ENABLE) */
+    ULONG       MicWdmaLimit;   /* diagnosis: Parameters\MicWdmaLimit (0 = not written) */
+    ULONG       MicVariant;     /* diagnosis: Parameters\MicVariant bits MIC_VAR_* read by MicSelfTest (notes/d8-mic.md) */
 
     /* Amp state (AmpI2c.c). BusLock serialises every hsi2c_38 transfer (PASSIVE_LEVEL only). */
     WDFWAITLOCK BusLock;
@@ -208,6 +227,10 @@ typedef struct _AUD_DEVICE_CONTEXT {
     BOOLEAN     HpOn;           /* CodecHpStart finished: OUT2 on, unmuted */
     BOOLEAN     HpFll2On;
     USHORT      HpSavedOutRate; /* OUTPUT_RATE_1 before the headphone path (restored on stop) */
+    BOOLEAN     MicCodecOn;     /* Mic.c: DMIC inputs + AIF1 TX on */
+    ULONG       MicGain;        /* current mic gain, 0.5 dB steps (MicSetGain) */
+    USHORT      MicSavedBias1;  /* MIC_BIAS_CTRL_1 before MicCodecOn */
+    USHORT      MicSavedCp;     /* MIC_CHARGE_PUMP_1 (MICVDD) before MicCodecOn */
 
     /* Endpoint volume when Cfg.HwVolume = 1 (KS units: 1/65536 dB), applied on the amps. */
     LONG        VolumeLevel;
@@ -217,7 +240,7 @@ typedef struct _AUD_DEVICE_CONTEXT {
        absence is the suspected cause of the missing mix format, notes/d8-audio-win-a5.md) and are applied in
        software by AudDmaFillSlot while it expands client packets into the DMA ring. Gain Q30 per client channel; written at PASSIVE, read in the timer DPC
        (aligned 32-bit, single-copy atomic). The amps stay at their fixed level and are never muted by this path. */
-    AUD_ENDPOINT Ep[AUD_EP_COUNT];   /* [0] = Speakers (Speaker0), [1] = Headphones (Headphone0, J4b) */
+    AUD_ENDPOINT Ep[AUD_EP_COUNT];   /* [0] = Speakers (Speaker0), [1] = Headphones (Headphone0, J4b), [2] = Microphone0 */
     ULONG       HostPinId;      /* ACX id of the streaming (host) pin, set when the circuit is built */
     LONG        SpeakerConfig;  /* ReqLog.c KSPROPERTY_AUDIO_CHANNEL_CONFIG (A9): KSAUDIO_SPEAKER_STEREO */
     ULONG       VolumeElementId;/* ACX id of the volume element (Render.c AudCreateElements) */
@@ -302,7 +325,10 @@ typedef struct _AUD_STREAM_CONTEXT {
     ULONG            LateWrites;
     ULONG            Traces;         /* run audB4: callback trace lines written (capped) */
 
-    BOOLEAN          HwStarted;         /* AboxStart succeeded for this run (amps may still have failed) */
+    BOOLEAN          HwStarted;         /* AboxStart (render) / MicHwStart (capture) succeeded for this run */
+    BOOLEAN          Capture;           /* a Microphone0 stream (Capture.c) */
+    volatile LONG    LastCapturePacket; /* capture: last completed packet (-1 = none yet) */
+    ULONGLONG        LastCaptureQpc;    /* capture: QPC of that packet's first frame */
 } AUD_STREAM_CONTEXT, *PAUD_STREAM_CONTEXT;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(AUD_STREAM_CONTEXT, AudGetStreamContext)
@@ -330,6 +356,11 @@ _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS AudRenderCircuitCreate(_In_ WDFDEVICE De
 _IRQL_requires_(PASSIVE_LEVEL) VOID AudJackNotify(_In_ PAUD_DEVICE_CONTEXT Dev);
 BOOLEAN AudHeadphoneEndpoint(_In_ PAUD_DEVICE_CONTEXT Dev);
 VOID AudSwVolumeInit(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ LONG LevelKs);
+VOID AudSwSetLevel(_Inout_ PAUD_ENDPOINT Ep, _In_ ULONG Channel, _In_ LONG LevelKs);
+
+/* Capture.c */
+BOOLEAN AudMicEndpoint(_In_ PAUD_DEVICE_CONTEXT Dev);
+_IRQL_requires_(PASSIVE_LEVEL) NTSTATUS AudCaptureCircuitCreate(_In_ WDFDEVICE Device, _In_ PAUD_DEVICE_CONTEXT Dev);
 
 /* ReqLog.c */
 EVT_ACX_OBJECT_PREPROCESS_REQUEST AudEvtCircuitRequestPreprocess;
@@ -345,6 +376,11 @@ _IRQL_requires_(PASSIVE_LEVEL) VOID AboxStop(_Inout_ PAUD_DEVICE_CONTEXT Dev);
 _IRQL_requires_(PASSIVE_LEVEL) VOID AboxRelease(_Inout_ PAUD_DEVICE_CONTEXT Dev);
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS AboxSelectOutput(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ BOOLEAN Headphones);
 _IRQL_requires_(PASSIVE_LEVEL) VOID AboxSamplePins(_In_ PAUD_DEVICE_CONTEXT Dev, _In_z_ PCSTR When);
+_IRQL_requires_(PASSIVE_LEVEL) NTSTATUS AboxCaptureStart(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ PHYSICAL_ADDRESS PhysAddr,
+                                                         _In_ ULONG Bytes, _In_ ULONG PeriodBytes);
+_IRQL_requires_(PASSIVE_LEVEL) VOID AboxCaptureStop(_Inout_ PAUD_DEVICE_CONTEXT Dev);
+_IRQL_requires_max_(DISPATCH_LEVEL) NTSTATUS AboxCapturePosition(_In_ PAUD_DEVICE_CONTEXT Dev, _Out_ PULONG Frames,
+                                                                 _Out_ PULONG RawStatus);
 _IRQL_requires_max_(DISPATCH_LEVEL) NTSTATUS AboxRingPosition(_In_ PAUD_DEVICE_CONTEXT Dev, _Out_ PULONG Frames,
                                                               _Out_ PULONG RawStatus);
 
@@ -387,6 +423,13 @@ _IRQL_requires_(PASSIVE_LEVEL) VOID CodecJackStop(_Inout_ PAUD_DEVICE_CONTEXT De
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecHpPrepare(_Inout_ PAUD_DEVICE_CONTEXT Dev);
 _IRQL_requires_(PASSIVE_LEVEL) NTSTATUS CodecHpStart(_Inout_ PAUD_DEVICE_CONTEXT Dev);
 _IRQL_requires_(PASSIVE_LEVEL) VOID CodecHpStop(_Inout_ PAUD_DEVICE_CONTEXT Dev);
+
+/* Mic.c */
+_IRQL_requires_(PASSIVE_LEVEL) NTSTATUS MicHwStart(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ PHYSICAL_ADDRESS Phys,
+                                                   _In_ ULONG Bytes, _In_ ULONG PeriodBytes);
+_IRQL_requires_(PASSIVE_LEVEL) VOID MicHwStop(_Inout_ PAUD_DEVICE_CONTEXT Dev);
+_IRQL_requires_(PASSIVE_LEVEL) NTSTATUS MicSetGain(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ ULONG HalfDb);
+_IRQL_requires_(PASSIVE_LEVEL) VOID MicSelfTest(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ ULONG Ms);
 
 /* Control.c - speaker trim KS property (AudControl.h); TRUE = request completed. */
 _IRQL_requires_(PASSIVE_LEVEL) BOOLEAN AudControlRequest(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ WDFREQUEST Request,

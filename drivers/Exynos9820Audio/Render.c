@@ -147,7 +147,7 @@ static LONG AudSwGainForLevel(_In_ LONG LevelKs)
     return AudGainQ30[(Steps < (LONG)AUD_SW_GAIN_STEPS) ? Steps : (LONG)AUD_SW_GAIN_STEPS - 1];
 }
 
-static VOID AudSwSetLevel(_Inout_ PAUD_ENDPOINT Ep, _In_ ULONG Channel, _In_ LONG LevelKs)
+VOID AudSwSetLevel(_Inout_ PAUD_ENDPOINT Ep, _In_ ULONG Channel, _In_ LONG LevelKs)
 {
     if (LevelKs > AUD_VOLUME_MAX) {
         LevelKs = AUD_VOLUME_MAX;
@@ -168,8 +168,9 @@ VOID AudSwVolumeInit(_Inout_ PAUD_DEVICE_CONTEXT Dev, _In_ LONG LevelKs)
     for (E = 0; E < AUD_EP_COUNT; E++) {
         Dev->Ep[E].Dev        = Dev;
         Dev->Ep[E].Headphones = (E == 1);
+        Dev->Ep[E].Capture    = (E == AUD_EP_MIC);
         for (Ch = 0; Ch < AUD_CHANNELS; Ch++) {
-            AudSwSetLevel(&Dev->Ep[E], Ch, LevelKs);
+            AudSwSetLevel(&Dev->Ep[E], Ch, (E == AUD_EP_MIC) ? 0 : LevelKs);   /* the mic level starts at 0 dB */
         }
         InterlockedExchange(&Dev->Ep[E].SwMuted, 0);
     }
@@ -193,7 +194,7 @@ NTSTATUS NTAPI AudEvtVolumeAssignLevel(ACXVOLUME Volume, ULONG Channel, LONG Vol
 
     AudLog(Dev->Log, "volume %s ch %ld <- %ld/65536 dB (%s)\r\n", Ep->Headphones ? "hp" : "spk", (LONG)Channel, VolumeLevel,
            Dev->Cfg.HwVolume ? "amp" : "software");
-    if (Dev->Cfg.HwVolume && !Ep->Headphones) {
+    if (Dev->Cfg.HwVolume && !Ep->Headphones && !Ep->Capture) {
         /* One level for both amps (each amp plays one slot of the stereo frame); the last assignment wins. The
            headphone endpoint always uses the software volume (review of a821870: it must not move the amps). */
         return AmpSetVolume(Dev, VolumeLevel);
@@ -219,7 +220,7 @@ NTSTATUS NTAPI AudEvtVolumeRetrieveLevel(ACXVOLUME Volume, ULONG Channel, LONG *
         return STATUS_INVALID_PARAMETER;
     }
 
-    if (Dev->Cfg.HwVolume && !Ep->Headphones) {
+    if (Dev->Cfg.HwVolume && !Ep->Headphones && !Ep->Capture) {
         *VolumeLevel = Dev->VolumeLevel;
     } else {
         *VolumeLevel = Ep->SwLevel[(Channel == AUD_ALL_CHANNELS) ? 0 : Channel];   /* sample: channel 0 for "all" */
@@ -241,7 +242,7 @@ NTSTATUS NTAPI AudEvtMuteAssignState(ACXMUTE Mute, ULONG Channel, ULONG State)
 
     /* One mute state for the endpoint (the endpoint mute is not per channel); the last assignment wins. */
     AudLog(Dev->Log, "mute ch %ld <- %lu (%s)\r\n", (LONG)Channel, State, Dev->Cfg.HwVolume ? "amp" : "software");
-    if (Dev->Cfg.HwVolume && !Ep->Headphones) {
+    if (Dev->Cfg.HwVolume && !Ep->Headphones && !Ep->Capture) {
         Dev->Muted = (State != 0) ? 1 : 0;
         return AmpMute(Dev, State != 0);
     }
@@ -262,7 +263,7 @@ NTSTATUS NTAPI AudEvtMuteRetrieveState(ACXMUTE Mute, ULONG Channel, ULONG *State
         return STATUS_INVALID_PARAMETER;
     }
 
-    *State = (Dev->Cfg.HwVolume && !Ep->Headphones) ? Dev->Muted : (ULONG)Ep->SwMuted;
+    *State = (Dev->Cfg.HwVolume && !Ep->Headphones && !Ep->Capture) ? Dev->Muted : (ULONG)Ep->SwMuted;
     return STATUS_SUCCESS;
 }
 

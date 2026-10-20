@@ -212,7 +212,9 @@ VOID CodecHpStop(_Inout_ PAUD_DEVICE_CONTEXT Dev)
     if (Dev->HpSavedOutRate != 0) {
         (VOID)CodecWrite(Dev, R_OUTPUT_RATE_1, Dev->HpSavedOutRate);
     }
-    CodecClockOff(Dev);
+    if (!Dev->MicCodecOn) {
+        CodecClockOff(Dev);   /* the mic path keeps SYSCLK while it records (Mic.c MicCodecOff does the same for us) */
+    }
     Dev->HpOn = FALSE;
     AudLog(Dev->Log, "hp: off\r\n");
 }

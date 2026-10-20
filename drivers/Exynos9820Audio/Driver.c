@@ -23,7 +23,7 @@ EVT_WDF_DEVICE_D0_ENTRY           AudEvtD0Entry;
 EVT_WDF_DEVICE_D0_EXIT            AudEvtD0Exit;
 EVT_WDF_OBJECT_CONTEXT_CLEANUP    AudEvtDeviceCleanup;
 
-#define AUD_DRIVER_VERSION "1.0.1.36"
+#define AUD_DRIVER_VERSION "1.0.3.0"
 
 static AUD_CONFIG g_Cfg;
 
@@ -64,6 +64,7 @@ static VOID AudReadConfig(_In_ WDFDRIVER Driver)
         { L"JackTone",   FIELD_OFFSET(AUD_CONFIG, JackTone) },
         { L"HpRoute",    FIELD_OFFSET(AUD_CONFIG, HpRoute) },
         { L"HpMaster",   FIELD_OFFSET(AUD_CONFIG, HpMaster) },
+        { L"MicGain",    FIELD_OFFSET(AUD_CONFIG, MicGain) },
     };
     WDFKEY         Key;
     UNICODE_STRING Name;
@@ -87,6 +88,7 @@ static VOID AudReadConfig(_In_ WDFDRIVER Driver)
     g_Cfg.CodecEnable = 0;
     g_Cfg.JackTone    = 0;
     g_Cfg.HpRoute     = 1;
+    g_Cfg.MicGain     = MIC_GAIN_DEFAULT;
     g_Cfg.HpMaster    = 1;   /* ABOX-master BCLK never reached the codec (FLL2 no lock, 1.0.1.25-31) */
 
     if (!NT_SUCCESS(WdfDriverOpenParametersRegistryKey(Driver, KEY_READ, WDF_NO_OBJECT_ATTRIBUTES, &Key))) {
@@ -101,6 +103,27 @@ static VOID AudReadConfig(_In_ WDFDRIVER Driver)
     }
 
     WdfRegistryClose(Key);
+}
+
+/* Parameters\MicTest, read at every hardware start (a device restart re-runs PrepareHardware but not DriverEntry) and
+   set back to 0 BEFORE the test runs: one-shot, so a test that hangs or crashes cannot repeat at every boot. */
+static ULONG AudTakeMicTest(VOID)
+{
+    WDFKEY         Key;
+    UNICODE_STRING Name;
+    ULONG          V = 0;
+
+    if (!NT_SUCCESS(WdfDriverOpenParametersRegistryKey(WdfGetDriver(), KEY_READ | KEY_SET_VALUE, WDF_NO_OBJECT_ATTRIBUTES,
+                                                       &Key))) {
+        return 0;
+    }
+    RtlInitUnicodeString(&Name, L"MicTest");
+    if (NT_SUCCESS(WdfRegistryQueryULong(Key, &Name, &V)) && V != 0 &&
+        !NT_SUCCESS(WdfRegistryAssignULong(Key, &Name, 0))) {
+        V = 0;   /* could not clear it: do not run */
+    }
+    WdfRegistryClose(Key);
+    return V;
 }
 
 _Use_decl_annotations_
@@ -205,6 +228,11 @@ NTSTATUS AudEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     if (NT_SUCCESS(Status) && AudHeadphoneEndpoint(Dev)) {
         Status = AudRenderCircuitCreate(Device, Dev, 1);
         AudLog(Dev->Log, "render circuit \"Headphone0\": %08lX\r\n", Status);
+    }
+    if (NT_SUCCESS(Status) && AudMicEndpoint(Dev)) {
+        NTSTATUS MicStatus = AudCaptureCircuitCreate(Device, Dev);   /* optional: a failure only costs the mic */
+
+        AudLog(Dev->Log, "capture circuit \"Microphone0\": %08lX\r\n", MicStatus);
     }
     return Status;
 }
@@ -311,21 +339,37 @@ NTSTATUS AudEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Resources, WDFCMRE
             Status = CodecTone(Dev, min(Dev->Cfg.JackTone, 5000u));
             AudLog(Dev->Log, "CodecTone %08lX\r\n", Status);
         }
+        Dev->MicGain = min(Dev->Cfg.MicGain, MIC_GAIN_MAX);
+        Dev->MicWdmaIdx = 1;   /* SIFM0 feeds WDMA1 (notes/d8-mic.md, device-proven 1.0.2.5) */
+        if (NT_SUCCESS(Status) && Dev->AboxAlive) {
+            ULONG MicTestMs = AudTakeMicTest();
+
+            if (MicTestMs != 0) {
+                MicSelfTest(Dev, MicTestMs);   /* diagnosis (notes/d8-mic.md) */
+            }
+        }
     }
 
     Status = STATUS_SUCCESS;
-    for (I = 0; I < (AudHeadphoneEndpoint(Dev) ? AUD_EP_COUNT : 1u) && NT_SUCCESS(Status); I++) {
+    for (I = 0; I < AUD_EP_COUNT && NT_SUCCESS(Status); I++) {
         PAUD_ENDPOINT Ep = &Dev->Ep[I];
 
+        if ((I == 1 && !AudHeadphoneEndpoint(Dev)) || (I == AUD_EP_MIC && !AudMicEndpoint(Dev))) {
+            continue;
+        }
         if (Ep->Circuit == NULL) {
             /* run audB2 (bugcheck D1 on pnputil /restart-device): ReleaseHardware's AcxDeviceRemoveCircuit deletes the
                circuit, so a restart must create a new one (ACX AudioCodec sample: create + add in PrepareHardware) */
-            Status = AudRenderCircuitCreate(Device, Dev, I);
+            Status = (I == AUD_EP_MIC) ? AudCaptureCircuitCreate(Device, Dev) : AudRenderCircuitCreate(Device, Dev, I);
             AudLog(Dev->Log, "render circuit %lu re-created: %08lX\r\n", I, Status);
         }
         if (NT_SUCCESS(Status) && !Ep->Added && Ep->Circuit != NULL) {
             Status = AcxDeviceAddCircuit(Device, Ep->Circuit);
             Ep->Added = NT_SUCCESS(Status);
+        }
+        if (I == AUD_EP_MIC && !NT_SUCCESS(Status)) {
+            AudLog(Dev->Log, "Microphone0 not added (%08lX) - the render endpoints stay\r\n", Status);
+            Status = STATUS_SUCCESS;   /* optional endpoint */
         }
     }
 

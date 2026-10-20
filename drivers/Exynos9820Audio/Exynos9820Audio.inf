@@ -11,7 +11,7 @@ Signature   = "$WINDOWS NT$"
 Class       = MEDIA
 ClassGuid   = {4d36e96c-e325-11ce-bfc1-08002be10318}
 Provider    = %ProviderString%
-DriverVer   = 10/16/2026,1.0.1.36
+DriverVer   = 10/20/2026,1.0.3.0
 CatalogFile = Exynos9820Audio.cat
 PnpLockdown = 1
 
@@ -59,6 +59,7 @@ HKR,Parameters,Stereo,0x00010003,0
 HKR,Parameters,KsOverride,0x00010003,1
 HKR,Parameters,DefaultMode,0x00010003,1
 HKR,Parameters,CodecEnable,0x00010003,0   ; 1 = 3.5 mm jack codec + Headphones endpoint (notes/d8-jack-windows.md)
+HKR,Parameters,MicGain,0x00010003,24      ; mic boost, 0.5 dB steps 0..63 (+12 dB); the speaker trim app changes it (notes/d8-mic.md)
 
 [Audio_Device.NT.Wdf]
 KmdfService = Exynos9820Audio,Audio_Wdf
@@ -101,6 +102,21 @@ HKR,EP\0,%PKEY_AudioEndpoint_PhysicalSpeakers%,0x00010001,0x3
 HKR,EP\0,%PKEY_AudioEndpoint_FullRangeSpeakers%,0x00010001,0x3
 HKR,EP\0,%PKEY_AudioEngine_OEMFormat%,%REG_BINARY%,41,00,00,00,28,00,00,00,FE,FF,02,00,80,BB,00,00,00,EE,02,00,04,00,10,00,16,00,10,00,03,00,00,00,01,00,00,00,00,00,10,00,80,00,00,AA,00,38,9B,71
 
+;
+; Capture endpoint: the two built-in digital microphones (Capture.c "Microphone0"; built when Parameters CodecEnable,
+; AboxEnable and HpMaster are 1). notes/d8-mic.md. Default format 48 kHz 16-bit stereo, the same PROPVARIANT bytes as
+; the render endpoints (Capture.c AudCapPcm16).
+;
+[Audio_Device.I.Microphone]
+AddReg = Audio_Device.I.Microphone.AddReg
+
+[Audio_Device.I.Microphone.AddReg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%Microphone.FriendlyName%
+HKR,EP\0,%PKEY_AudioEndpoint_Association%,,%KSNODETYPE_ANY%
+HKR,EP\0,%PKEY_AudioEndpoint_Supports_EventDriven_Mode%,0x00010001,0x1
+HKR,EP\0,%PKEY_AudioEngine_OEMFormat%,%REG_BINARY%,41,00,00,00,28,00,00,00,FE,FF,02,00,80,BB,00,00,00,EE,02,00,04,00,10,00,16,00,10,00,03,00,00,00,01,00,00,00,00,00,10,00,80,00,00,AA,00,38,9B,71
+
 [Audio_Device.NT.Interfaces]
 AddInterface = %KSCATEGORY_AUDIO%,%KSNAME_Speaker%,Audio_Device.I.Speaker
 AddInterface = %KSCATEGORY_RENDER%,%KSNAME_Speaker%,Audio_Device.I.Speaker
@@ -108,15 +124,20 @@ AddInterface = %KSCATEGORY_REALTIME%,%KSNAME_Speaker%,Audio_Device.I.Speaker
 AddInterface = %KSCATEGORY_AUDIO%,%KSNAME_Headphone%,Audio_Device.I.Headphone
 AddInterface = %KSCATEGORY_RENDER%,%KSNAME_Headphone%,Audio_Device.I.Headphone
 AddInterface = %KSCATEGORY_REALTIME%,%KSNAME_Headphone%,Audio_Device.I.Headphone
+AddInterface = %KSCATEGORY_AUDIO%,%KSNAME_Microphone%,Audio_Device.I.Microphone
+AddInterface = %KSCATEGORY_CAPTURE%,%KSNAME_Microphone%,Audio_Device.I.Microphone
+AddInterface = %KSCATEGORY_REALTIME%,%KSNAME_Microphone%,Audio_Device.I.Microphone
 
 [Strings]
 ; non-localizable
 KSNAME_Speaker         = "Speaker0"
 KSNAME_Headphone       = "Headphone0"
+KSNAME_Microphone      = "Microphone0"
 SPSVCINST_ASSOCSERVICE = 0x00000002
 Proxy.CLSID            = "{17CCA71B-ECD7-11D0-B908-00A0C9223196}"
 KSCATEGORY_AUDIO       = "{6994AD04-93EF-11D0-A3CC-00A0C9223196}"
 KSCATEGORY_RENDER      = "{65E8773E-8F56-11D0-A3B9-00A0C9223196}"
+KSCATEGORY_CAPTURE     = "{65E8773D-8F56-11D0-A3B9-00A0C9223196}"
 KSCATEGORY_REALTIME    = "{EB115FFC-10C8-4964-831D-6DCB02E6F23F}"
 KSNODETYPE_ANY         = "{00000000-0000-0000-0000-000000000000}"
 PKEY_AudioEndpoint_Association               = "{1DA5D803-D492-4EDD-8C23-E0C0FFEE7F0E},2"
@@ -134,3 +155,4 @@ DeviceDesc             = "Galaxy S10e Audio (ABOX + CS35L40)"
 ServiceDesc            = "Galaxy S10e Audio"
 Speaker.FriendlyName   = "Speaker"
 Headphone.FriendlyName = "Headphones"
+Microphone.FriendlyName = "Microphone"

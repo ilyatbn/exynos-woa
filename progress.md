@@ -43,4 +43,4 @@ wrong and fixed. Detail: `notes/K10-rkp.md`, `notes/k4b-drop-address.md`,
 
 - [x] **B1.1** — Audit regular S10 hardware sources and classify S10e carry-over assumptions → `tasks/B1.1-beyond1lte-hardware-audit.md`
 
-- [ ] **B1.2** — Create regular-S10 platform configuration boundary → `tasks/B1.2-beyond1lte-platform-boundary.md`
+- [x] **B1.2** — Create regular-S10 platform configuration boundary → `tasks/B1.2-beyond1lte-platform-boundary.md`

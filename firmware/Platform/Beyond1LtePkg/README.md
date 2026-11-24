@@ -33,3 +33,31 @@ conditions are satisfied.
 
 No device writes, flash operations, or hardware initialisation are enabled by
 this skeleton.
+
+## Inherited driver code that is not safe to copy verbatim
+
+The S10e package is a valuable source reference, but several modules have
+active side effects that must be reviewed before reuse:
+
+- `Beyond0LteUfsHcDxe.c` calls secure-monitor FMP/SMU commands during UFS
+  initialisation, including disk-key store/set operations using a static
+  embedded key. These calls are not all behind the diagnostics flag. They can
+  change secure storage state and are not to be copied into the S10 target.
+- `Beyond0LteUsbHostDxe.c` enables host bring-up by default in its current
+  source and can configure MAX77705 CCIC state and switch on the VBUS boost.
+  The S10 DTS confirms the MAX77705 family, but that does not validate the
+  existing VBUS sequence for every S10 board revision.
+- `ArmPlatformLib.c` draws an early splash to the S10e framebuffer, writes a
+  fixed progress page at 0x8FE0F000 and arms the watchdog. None of those
+  addresses/side effects is approved for the S10 target.
+- `PlatformMemoryMapLib.c` and `Beyond0LteRamManagerDxe` publish S10e live
+  RAM banks and reserved-memory carveouts.
+- `SimpleFramebufferDxe` and the framebuffer serial library assume the
+  S10e framebuffer base and 1080x2280 geometry.
+- `Beyond0LteTouchPowerDxe` performs ACPM PMIC rail writes; validate the S10
+  board's touch-rail configuration before enabling those writes.
+
+The S10 target will reuse only code whose register interface and side effects
+have been independently classified. The initial S10 UFS path must not set a
+new disk key or alter FMP/SMU state speculatively; USB host/VBUS must remain
+disabled until the Type-C/PMIC path is proven.

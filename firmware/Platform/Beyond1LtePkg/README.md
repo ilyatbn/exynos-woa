@@ -68,7 +68,7 @@ The existing S10e platform is not a safe drop-in for the S10:
 
 - The static S10e memory map and reserved regions differ from the generic
   Exynos 9820 DTS and may differ again from the regular S10's sboot-patched
-  map. No S10 FDT handoff pointer is established yet.
+  map. No usable S10 FDT handoff into SEC/PEI is established yet; the existing shim only stores x0 in an S10e-specific scratch page.
 - The existing UFS HC driver executes active FMP/SMU secure-monitor calls
   during controller initialisation, including disk-key store/set calls with
   an embedded key. Those are not diagnostics-only. The S10 port will not

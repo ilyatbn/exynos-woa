@@ -123,6 +123,8 @@ _start:
         b.ne    1b
 
 .Lcopy_done:
+        dsb     sy
+        isb
         ldr     x5, _uefi_base
         br      x5
 

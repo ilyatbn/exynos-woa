@@ -46,3 +46,6 @@ wrong and fixed. Detail: `notes/K10-rkp.md`, `notes/k4b-drop-address.md`,
 - [x] **B1.2** — Create regular-S10 platform configuration boundary → `tasks/B1.2-beyond1lte-platform-boundary.md`
 
 - [ ] **B1.3** — Audit inherited S10e driver side effects and S10 boot handoff → `tasks/B1.3-beyond1lte-driver-audit.md`
+
+- 2026-11-24: Added a separate minimal S10 bootshim; cross-compiled and
+  verified its ARM64 Image header, FD parameters and payload alignment.

@@ -83,3 +83,13 @@ The existing S10e platform is not a safe drop-in for the S10:
 
 See `tasks/B1.3-beyond1lte-driver-audit.md` for the source-level audit and
 acceptance checklist.
+
+## Boot handoff lead
+
+The 9820 bootshim receives the FDT pointer in x0 and writes it to
+0x8FE0F020 with an `FDT0` tag at 0x8FE0F028. That address is part of the
+S10e-specific progress/WINPRAM page. Existing DXE code does not consume it.
+The S10 target needs a safe early-SEC handoff for this pointer before a
+runtime FDT memory-map parser can be used. The repo's `sbootimg.py` and
+`fdt.py` tools are available for offline stock-image/DTB analysis, but the
+existing dump artifacts are for the S10e.

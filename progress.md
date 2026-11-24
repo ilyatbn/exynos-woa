@@ -44,3 +44,5 @@ wrong and fixed. Detail: `notes/K10-rkp.md`, `notes/k4b-drop-address.md`,
 - [x] **B1.1** — Audit regular S10 hardware sources and classify S10e carry-over assumptions → `tasks/B1.1-beyond1lte-hardware-audit.md`
 
 - [x] **B1.2** — Create regular-S10 platform configuration boundary → `tasks/B1.2-beyond1lte-platform-boundary.md`
+
+- [ ] **B1.3** — Audit inherited S10e driver side effects and S10 boot handoff → `tasks/B1.3-beyond1lte-driver-audit.md`

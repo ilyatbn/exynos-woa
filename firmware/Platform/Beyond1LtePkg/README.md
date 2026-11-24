@@ -61,3 +61,25 @@ The S10 target will reuse only code whose register interface and side effects
 have been independently classified. The initial S10 UFS path must not set a
 new disk key or alter FMP/SMU state speculatively; USB host/VBUS must remain
 disabled until the Type-C/PMIC path is proven.
+
+## Current inherited-driver audit
+
+The existing S10e platform is not a safe drop-in for the S10:
+
+- The static S10e memory map and reserved regions differ from the generic
+  Exynos 9820 DTS and may differ again from the regular S10's sboot-patched
+  map. No S10 FDT handoff pointer is established yet.
+- The existing UFS HC driver executes active FMP/SMU secure-monitor calls
+  during controller initialisation, including disk-key store/set calls with
+  an embedded key. Those are not diagnostics-only. The S10 port will not
+  reuse that sequence.
+- The S10e USB host module currently enables host mode and Windows exposure
+  by default; the PMIC module can reconfigure MAX77705 and enable VBUS boost.
+  S10 host/VBUS remains disabled until the selected board revision and
+  Type-C role policy are established.
+- The existing early splash, progress page, watchdog, memory-map, GOP and
+  touch-power paths all contain S10e-specific addresses or writes. Each needs
+  an explicit S10 adaptation or must be left out of the first S10 build.
+
+See `tasks/B1.3-beyond1lte-driver-audit.md` for the source-level audit and
+acceptance checklist.

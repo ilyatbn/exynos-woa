@@ -465,7 +465,7 @@ in `tasks/B1.1-beyond1lte-hardware-audit.md`.
 |---|---|---|---|
 | B1.1 | Audit regular-S10 board sources and classify inherited S10e assumptions | **done** | Public source baseline complete; device-specific handoff remains unverified |
 | B1.2 | Create regular-S10 platform configuration boundary | **done** | Header/README created; bootable DSC intentionally deferred pending memory and handoff data |
-| B1.3 | Adapt UFS initialisation and validate storage read-only | todo | B1.1, B1.2; Windows build + regular S10 |
+| B1.3 | Audit inherited S10e driver side effects and S10 boot handoff | **doing** | Need S10 FDT/memory handoff evidence; no regular S10 available |
 | B1.4 | Adapt USB controller/PHY and role handling | todo | B1.1; regular S10 validation; safe passive test setup |
 | B1.5 | Establish display/GOP and S10 panel support | todo | B1.1, B1.2; regular S10 panel variant/handoff data |
 | B1.6 | Adapt buttons, touch and remaining platform input | todo | B1.1; regular S10 validation |

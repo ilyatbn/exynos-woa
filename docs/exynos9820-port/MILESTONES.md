@@ -463,7 +463,7 @@ in `tasks/B1.1-beyond1lte-hardware-audit.md`.
 
 | # | Milestone | State | Blocked on |
 |---|---|---|---|
-| B1.1 | Audit regular-S10 board sources and classify inherited S10e assumptions | **doing** | Public vendor sources; no regular S10 available for live validation |
+| B1.1 | Audit regular-S10 board sources and classify inherited S10e assumptions | **done** | Public source baseline complete; device-specific handoff remains unverified |
 | B1.2 | Establish S10-specific platform package, memory map and boot handoff | todo | B1.1; live S10 reads needed for device-specific handoff values |
 | B1.3 | Adapt UFS initialisation and validate storage read-only | todo | B1.1, B1.2; Windows build + regular S10 |
 | B1.4 | Adapt USB controller/PHY and role handling | todo | B1.1; regular S10 validation; safe passive test setup |

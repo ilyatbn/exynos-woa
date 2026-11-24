@@ -1,51 +1,109 @@
-# PROGRESS — open tasks by ID
+# Beyond1LtePkg — Samsung Galaxy S10 (Exynos 9820)
 
-Start here. One line per task; the detail lives in `tasks/<ID>-*.md`.
-Indicator: `[ ]` open, `[x]` done (the task file carries the same `Status:` line).
-A task is not `[x]` until its verification actually ran.
+This directory is the regular S10 target being derived from the existing
+`Beyond0LtePkg` work in this same repository. The S10e package remains intact
+as a reference; it is not treated as the target.
 
-## Boot/install path — what gates trying the S10e
+## Current state
 
-- [x] **T01** — Re-pick the UFS DMA window inside the live bank0 → `tasks/T01-ufs-dma-window.md`
-- [ ] **T02** — Split the framebuffer out of the bank0 RAM gap → `tasks/T02-framebuffer-overlap.md`
-- [ ] **T03** — Resolve the UFS DTB extent disagreement (live vs vendor DT) → `tasks/T03-ufs-extent-disagreement.md`
-- [ ] **T04** — Handle the second LUN (`cpefs` is `sdd1`, driver written against one `sda`) → `tasks/T04-second-lun.md`
-- [x] **T05** — Re-derive the timeout clock from the 9820 tick rate → `tasks/T05-timeout-clock.md`  *(closed 2026-10-10: CNTFRQ_EL0 read on-device = 26 MHz)*
-- [ ] **T06** — Re-read the **stock** recovery container geometry before repacking (needs a root shell) → `tasks/T06-stock-container-ref.md`
-- [x] **T07** — The first boot attempt itself (consent, AVB `vbmeta` ordering, then observe) → `tasks/T07-first-boot.md`  *(attempted 2026-10-10: fell back to download mode, Windows not established)*
-- [ ] **T08** — Make the installer app able to drive the S10e (stages are `NotImplemented` on purpose) → `tasks/T08-installer-s10e-path.md`
-- [x] **T09** — Get past sboot's load_kernel DT check → `tasks/T09-boot-payload-dtb.md`  *(done: header-v2 container with a DTB section on the BOOT partition, device-validated boots #4-#17; the appended-DTB idea was wrong)*
+**Research/configuration skeleton only — not a buildable or flashable platform.**
 
-## Parked — off the boot path
+`Include/Platform/Beyond1Lte.h` records board facts that are explicitly
+identified by the `beyond1lte` vendor DTS. Shared Exynos 9820 MMIO definitions
+remain in `Silicon/Exynos9820Pkg`, but the S10e memory map, framebuffer and
+UFS DMA window are not inherited.
 
-- [ ] **P01** — heimdall auto-restore/reflash path for a fully broken device → `tasks/P01-heimdall-restore.md`
-- [ ] **P02** — UFS hw-rev class-6 HCI encoding (the DTB says `hw-rev = 6`) → `tasks/P02-ufs-hw-rev.md`
-- [ ] **P03** — Which CMU bank feeds PERIC0/FSYS0A (the §5 hazard) → `tasks/P03-cmu-bank-hazard.md`
-- [ ] **P04** — Guided vbmeta→TWRP flash for a stock S10e (native Odin flasher, no zadig) → `tasks/P04-vbmeta-twrp-flash.md`
+The readiness markers in the header intentionally remain zero. A future DSC
+must refuse to enable the corresponding driver paths until their readiness
+conditions are satisfied.
 
-## Later milestones — tracked in MILESTONES, no task file yet
+## Hard blockers before a bootable DSC
 
-M10 USB-C host mode · M11 external display · M12 WiFi · M13 LAN · M14 power/thermals ·
-M15 the donation build. Their open rows and notes are in
-[`docs/exynos9820-port/MILESTONES.md`](docs/exynos9820-port/MILESTONES.md); make a
-`tasks/<ID>-*.md` file when one is actually started.
+1. Source or discover the regular S10's actual DRAM bank map and reserved
+   memory after Samsung bootloader patching. Generic SoC DTS memory nodes and
+   the S10e live map are not a substitute.
+2. Establish the S10 UFS DMA/FMP aperture and reconcile controller register
+   extents with the vendor DTS.
+3. Obtain the S10 bootloader framebuffer base, stride, pixel format, buffer
+   count and selected panel revision before publishing GOP or drawing a splash.
+4. Confirm the device's hardware revision and selected MAX77705 DTBO before
+   enabling USB-C role/VBUS control.
+5. Decode the Samsung GPIO binding/pinctrl electrical semantics before
+   implementing volume, power or Bixby input.
 
-## Finished this session (do not redo)
+No device writes, flash operations, or hardware initialisation are enabled by
+this skeleton.
 
-K10 (write-protected zones = a mechanism, not a constant) · K4b (sboot drop =
-`0x80118000`, kernel window to `0x832D0000`) · FD base moved to `0x83300000` in
-lockstep and re-run end to end · DRAM/MMIO extents closed from the live DTB ·
-monitor-owned RAM carved out of the memory map · three carried numbers proved
-wrong and fixed. Detail: `notes/K10-rkp.md`, `notes/k4b-drop-address.md`,
-`notes/s10e-dtb-mmio.md`, HANDOFF §16/§17.
+## Inherited driver code that is not safe to copy verbatim
 
-## Galaxy S10 (beyond1lte) track
+The S10e package is a valuable source reference, but several modules have
+active side effects that must be reviewed before reuse:
 
-- [x] **B1.1** — Audit regular S10 hardware sources and classify S10e carry-over assumptions → `tasks/B1.1-beyond1lte-hardware-audit.md`
+- `Beyond0LteUfsHcDxe.c` calls secure-monitor FMP/SMU commands during UFS
+  initialisation, including disk-key store/set operations using a static
+  embedded key. These calls are not all behind the diagnostics flag. They can
+  change secure storage state and are not to be copied into the S10 target.
+- `Beyond0LteUsbHostDxe.c` enables host bring-up by default in its current
+  source and can configure MAX77705 CCIC state and switch on the VBUS boost.
+  The S10 DTS confirms the MAX77705 family, but that does not validate the
+  existing VBUS sequence for every S10 board revision.
+- `ArmPlatformLib.c` draws an early splash to the S10e framebuffer, writes a
+  fixed progress page at 0x8FE0F000 and arms the watchdog. None of those
+  addresses/side effects is approved for the S10 target.
+- `PlatformMemoryMapLib.c` and `Beyond0LteRamManagerDxe` publish S10e live
+  RAM banks and reserved-memory carveouts.
+- `SimpleFramebufferDxe` and the framebuffer serial library assume the
+  S10e framebuffer base and 1080x2280 geometry.
+- `Beyond0LteTouchPowerDxe` performs ACPM PMIC rail writes; validate the S10
+  board's touch-rail configuration before enabling those writes.
 
-- [x] **B1.2** — Create regular-S10 platform configuration boundary → `tasks/B1.2-beyond1lte-platform-boundary.md`
+The S10 target will reuse only code whose register interface and side effects
+have been independently classified. The initial S10 UFS path must not set a
+new disk key or alter FMP/SMU state speculatively; USB host/VBUS must remain
+disabled until the Type-C/PMIC path is proven.
 
-- [ ] **B1.3** — Audit inherited S10e driver side effects and S10 boot handoff → `tasks/B1.3-beyond1lte-driver-audit.md`
+## Current inherited-driver audit
 
-- 2026-11-24: Added a separate minimal S10 bootshim; cross-compiled and
-  verified its ARM64 Image header, FD parameters and payload alignment.
+The existing S10e platform is not a safe drop-in for the S10:
+
+- The static S10e memory map and reserved regions differ from the generic
+  Exynos 9820 DTS and may differ again from the regular S10's sboot-patched
+  map. No S10 FDT handoff pointer is established yet.
+- The existing UFS HC driver executes active FMP/SMU secure-monitor calls
+  during controller initialisation, including disk-key store/set calls with
+  an embedded key. Those are not diagnostics-only. The S10 port will not
+  reuse that sequence.
+- The S10e USB host module currently enables host mode and Windows exposure
+  by default; the PMIC module can reconfigure MAX77705 and enable VBUS boost.
+  S10 host/VBUS remains disabled until the selected board revision and
+  Type-C role policy are established.
+- The existing early splash, progress page, watchdog, memory-map, GOP and
+  touch-power paths all contain S10e-specific addresses or writes. Each needs
+  an explicit S10 adaptation or must be left out of the first S10 build.
+
+See `tasks/B1.3-beyond1lte-driver-audit.md` for the source-level audit and
+acceptance checklist.
+
+## Boot handoff lead
+
+The 9820 bootshim receives the FDT pointer in x0 and writes it to
+0x8FE0F020 with an `FDT0` tag at 0x8FE0F028. That address is part of the
+S10e-specific progress/WINPRAM page. Existing DXE code does not consume it.
+The S10 target needs a safe early-SEC handoff for this pointer before a
+runtime FDT memory-map parser can be used. The repo's `sbootimg.py` and
+`fdt.py` tools are available for offline stock-image/DTB analysis, but the
+existing dump artifacts are for the S10e.
+
+## Minimal S10 boot shim
+
+A separate source/build path now exists at
+`firmware/tools/beyond1lte-bootshim/`. It preserves the boot DTB pointer in
+x0, clears stale TransferList state, cleans/invalidates caches, relocates the
+FD with overlap-safe copy, and branches to the FD. It deliberately removes
+the S10e shim's fixed progress page, framebuffer/DECON writes, watchdog and
+PMU writes.
+
+The shim was cross-compiled and its image header/embedded parameters verified
+with clang/ld.lld using 0x90000000/0x700000 as smoke-test values only. Those
+values are not yet approved for the regular S10. The FDT pointer still needs
+a safe SEC/PEI handoff; no S10 DSC/FDF or flashable boot image exists.

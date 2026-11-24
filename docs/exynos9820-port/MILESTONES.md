@@ -450,3 +450,23 @@ Opened 2026-10-15 (goal: "get bluetooth, video accel working. Wwan is a stretch 
 | **needs-phone** | M10, M14 | Further live reads (USB function, thermals) — the phone is already connected, so these are cheap |
 | **needs-dock** | M11, M13 | The owner has **both** a DisplayLink dock and a non-DisplayLink one; the non-DisplayLink path is preferred because it is cheaper |
 | **one device only** | M10, M14 | There is **no spare unit yet**: nothing destructive may run on the S10e until Windows booting is established, and the powered-dock/host-mode risk is deliberately deferred to a later stage |
+
+
+---
+
+## Galaxy S10 (beyond1lte) track — separate from the S10e work above
+
+Target: Samsung Galaxy S10 Exynos 9820, `beyond1lte`, SM-G973F family.
+The existing S10e measurements and `Beyond0LtePkg` values are not presumed
+valid for this target. Hardware research and implementation status are tracked
+in `tasks/B1.1-beyond1lte-hardware-audit.md`.
+
+| # | Milestone | State | Blocked on |
+|---|---|---|---|
+| B1.1 | Audit regular-S10 board sources and classify inherited S10e assumptions | **doing** | Public vendor sources; no regular S10 available for live validation |
+| B1.2 | Establish S10-specific platform package, memory map and boot handoff | todo | B1.1; live S10 reads needed for device-specific handoff values |
+| B1.3 | Adapt UFS initialisation and validate storage read-only | todo | B1.1, B1.2; Windows build + regular S10 |
+| B1.4 | Adapt USB controller/PHY and role handling | todo | B1.1; regular S10 validation; safe passive test setup |
+| B1.5 | Establish display/GOP and S10 panel support | todo | B1.1, B1.2; regular S10 panel variant/handoff data |
+| B1.6 | Adapt buttons, touch and remaining platform input | todo | B1.1; regular S10 validation |
+| B1.7 | End-to-end Windows boot and hardware enumeration | todo | B1.2–B1.6; regular S10 and recovery path |

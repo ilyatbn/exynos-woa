@@ -38,3 +38,7 @@ lockstep and re-run end to end · DRAM/MMIO extents closed from the live DTB ·
 monitor-owned RAM carved out of the memory map · three carried numbers proved
 wrong and fixed. Detail: `notes/K10-rkp.md`, `notes/k4b-drop-address.md`,
 `notes/s10e-dtb-mmio.md`, HANDOFF §16/§17.
+
+## Galaxy S10 (beyond1lte) track
+
+- [ ] **B1.1** — Audit regular S10 hardware sources and classify S10e carry-over assumptions → `tasks/B1.1-beyond1lte-hardware-audit.md`
